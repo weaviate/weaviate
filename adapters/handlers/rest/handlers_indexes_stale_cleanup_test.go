@@ -26,10 +26,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 )
 
-// fakeStaleCleaner records the index types it was asked to scrub, the hold session
-// each scrub ran in, and returns a canned error. Sessions are numbered from 1 and a
-// new one starts only after the previous is released, so two scrubs sharing one hold
-// read [1 1] while a hold re-taken per scrub reads [1 2]. Zero means unheld.
+// Sessions number from 1 and a new one starts only after the previous is released, so
+// two scrubs sharing one hold read [1 1] while a hold re-taken per scrub reads [1 2].
 type fakeStaleCleaner struct {
 	calls    []string
 	sessions []int
@@ -107,8 +105,7 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 	})
 }
 
-// The cancel path sweeps the same index types as the submit path and must hold the
-// same way: taking the hold per sweep opens both gates between the two.
+// The cancel path must hold the way the submit path does: per sweep opens both gates.
 func TestSweepCancelledReindexStateHoldsAcrossEveryIndexType(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)

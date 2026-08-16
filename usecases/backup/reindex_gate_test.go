@@ -165,11 +165,10 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 			wantNotContains: []string{"in progress on", "/cancel"},
 		},
 		{
-			name:      "one class refused, another one it could not check",
-			classes:   []string{"Movies", "Shows"},
-			backupErr: errors.Join(refusal("Movies"), unchecked),
-			wantKind:  CanCommitErrInFlightReindex,
-			// An observed migration outranks: it is the half with something to wait for.
+			name:         "one class refused, another one it could not check",
+			classes:      []string{"Movies", "Shows"},
+			backupErr:    errors.Join(refusal("Movies"), unchecked),
+			wantKind:     CanCommitErrInFlightReindex,
 			wantContains: []string{`at least one of "Movies", "Shows"`},
 		},
 		{
@@ -257,7 +256,6 @@ func TestAllReindexRefusals(t *testing.T) {
 		{name: "joined refusals nested one deeper", err: errors.Join(errors.Join(refusal, refusal), refusal), want: true},
 		{name: "a refusal beside a permanent failure", err: errors.Join(refusal, failure)},
 		{
-			// One wrapper is all it takes for a deep errors.Is to answer "any member".
 			name: "the same pair behind a wrapper",
 			err:  fmt.Errorf("canCommit: %w", errors.Join(refusal, failure)),
 		},
@@ -302,7 +300,6 @@ func TestRestoreGateOrdering(t *testing.T) {
 	})
 	t.Run("naming no class at all is asked cluster-wide", func(t *testing.T) {
 		auth := authorization.NewMockAuthorizer(t)
-		// Audited, not silent: this decision gates whether a migration is disclosed.
 		auth.EXPECT().Authorize(mock.Anything, mock.Anything, authorization.CREATE, "backups/collections/*").
 			Return(nil).Once()
 		auth.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -671,8 +668,8 @@ func TestCanCommitKeepsAnUnresolvableHost(t *testing.T) {
 	refused := make(chan struct{})
 	var asked atomic.Int32
 	resolver := newFakeNodeResolver([]string{node1, node2})
-	// A slow second lookup: the refusal then wins the error group's first-error race,
-	// which is where a host that cannot be resolved used to vanish.
+	// A slow second lookup: the refusal wins the first-error race, which is where a host
+	// that cannot be resolved used to vanish.
 	resolver.resolve = func(node string) (string, bool) {
 		if asked.Add(1) == 1 {
 			return node, true

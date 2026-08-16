@@ -40,20 +40,18 @@ type replicaSnapshotState struct {
 	isSnapshot bool
 }
 
-// deferReindexRefusal restates a reindex-gate refusal as the plumbed "not now"
-// contract. The file-replication service maps [enterrors.ErrShardBusyStructuralOp] to
-// codes.FailedPrecondition, which the replication consumer re-dispatches without
-// registering an error; every other error spends the op's error budget, and fifty of
-// them cancel the movement outright. Only replica movement restates it: on a backup
-// the refusal is the product.
+// deferReindexRefusal restates a reindex-gate refusal as the plumbed "not now" contract.
+// The file-replication service maps [enterrors.ErrShardBusyStructuralOp] to
+// codes.FailedPrecondition, which the consumer re-dispatches without registering an
+// error; any other error spends the op's budget, and fifty of them cancel the movement.
+// Only replica movement restates it: on a backup the refusal is the product.
 func deferReindexRefusal(shardName string, err error) error {
 	if !errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex) &&
 		!errors.Is(err, entitiesbackup.ErrBackupReindexActivityUndetermined) {
 		return err
 	}
-	// The refusal travels as text: only the busy sentinel should be reachable by
-	// errors.Is here, so a reindex-gate check upstream cannot mistake a deferred
-	// movement for a refused backup.
+	// Text, not chain: only the busy sentinel should be reachable by errors.Is here, or
+	// an upstream gate check mistakes a deferred movement for a refused backup.
 	//nolint:errorlint // %v is deliberate; see above.
 	return fmt.Errorf("%w: shard %q: replica movement deferred while runtime-reindex work is in flight: %v",
 		enterrors.ErrShardBusyStructuralOp, shardName, err)

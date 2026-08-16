@@ -389,9 +389,8 @@ func TestBackupGateRanksAnUnreadableTaskList(t *testing.T) {
 	}
 }
 
-// Replica movement defers on a gate refusal instead of spending its error budget:
-// fifty budgeted errors cancel the movement outright, and waiting is the reversible
-// direction.
+// Replica movement defers on a gate refusal instead of spending its error budget: fifty
+// budgeted errors cancel the movement outright, and waiting is the reversible direction.
 func TestIncomingCreateReplicaSnapshotDefersUnderTheReindexGate(t *testing.T) {
 	ctx := context.Background()
 	index, shard := newSharedHaltTestShard(t)
@@ -412,8 +411,6 @@ func TestIncomingCreateReplicaSnapshotDefersUnderTheReindexGate(t *testing.T) {
 	})
 	_, err = index.IncomingCreateReplicaSnapshot(ctx, "shard1", "op-2")
 	require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp)
-	// The inner refusal travels as text, not in the chain: the wrap is what old
-	// consumers match on, and only the busy sentinel needs to be reachable by errors.Is.
 	require.ErrorContains(t, err, entitiesbackup.ErrBackupReindexActivityUndetermined.Error())
 }
 
@@ -508,8 +505,8 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
 }
 
-// The WARN is where an operator learns which shards are blocked, and a hold covers
-// the collection, so it must not report the live-task loop's narrower count.
+// The WARN is where an operator learns the scope, and a hold covers the collection, so
+// it must not report the live-task loop's narrower count.
 func TestBackupGateHoldRefusalReportsEveryShard(t *testing.T) {
 	shards := make([]string, 0, 12)
 	for i := range 12 {
@@ -535,8 +532,8 @@ func TestBackupGateHoldRefusalReportsEveryShard(t *testing.T) {
 	assert.Equal(t, shards[:reindexRefusalSampleLimit], warned[0].Data["blocked_shards"])
 }
 
-// Dropping the argument from ReindexHoldFor is one token, and an empty list means
-// every collection: a node sweeping one would refuse every backup and restore.
+// One token: an empty ReindexHoldFor means every collection, so a node sweeping one
+// would refuse every backup and restore in the cluster.
 func TestReindexGatesAreScopedToTheirCollection(t *testing.T) {
 	newDB := func() *DB {
 		db, _, _ := gatedDB(t, gateFixtures{holds: map[string]ReindexHold{"Other": ReindexHoldCleanup}})
@@ -550,8 +547,7 @@ func TestReindexGatesAreScopedToTheirCollection(t *testing.T) {
 	assert.NoError(t, newDB().RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}))
 }
 
-// The backup gate's wiring, distinct from what it answers: deleting the call inside
-// DB.Backupable left the whole package green.
+// The gate's wiring, distinct from what it answers: deleting the call left it green.
 func TestBackupableConsultsTheReindexGate(t *testing.T) {
 	ctx := testCtx()
 	const className = "BackupableGated"

@@ -43,9 +43,8 @@ type Request struct {
 	// Classes is list of class which need to be backed up
 	Classes []string
 
-	// ClassScopeExact says Classes is this node's whole scope, so an empty list means
-	// no collection. Unset from an older coordinator, where empty keeps its legacy
-	// reading: this node's whole descriptor.
+	// ClassScopeExact says Classes is this node's whole scope, so empty means no
+	// collection. Unset from an older coordinator, where empty means the whole descriptor.
 	ClassScopeExact bool `json:"class_scope_exact,omitempty"`
 
 	// Resolved from BackupRequest.IncludeUsers by the scheduler. Empty

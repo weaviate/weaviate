@@ -788,8 +788,7 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 			"internal error: unknown migration type; refusing submit (would skip stale-state cleanup)"))
 	}
 	// One sweep across the loop: every index type asks the same unloaded shards. One
-	// hold across it too, or a migration touching two types opens the backup and
-	// restore gates in between, mid-teardown.
+	// hold across it too, or a migration touching two opens both gates mid-teardown.
 	var responder middleware.Responder
 	cleaner.HoldReindexCleanup(collection, func() {
 		responder = h.sweepEachIndexType(ctx, principal, cleaner, collection, propertyName,

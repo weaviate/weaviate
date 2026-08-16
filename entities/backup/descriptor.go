@@ -84,9 +84,8 @@ func (d *DistributedBackupDescriptor) RemoveEmpty() *DistributedBackupDescriptor
 	return d
 }
 
-// Classes returns all classes contained in d, sorted: it is ranged out of a map, and
-// callers publish it, so an unsorted answer refuses the same restore in different
-// words on every retry.
+// Classes returns all classes contained in d, sorted: it is ranged out of a map and
+// callers publish it, so unsorted refuses the same restore in different words per retry.
 func (d *DistributedBackupDescriptor) Classes() []string {
 	set := make(map[string]struct{}, 32)
 	for _, desc := range d.Nodes {

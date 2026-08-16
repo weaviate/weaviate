@@ -321,9 +321,8 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 					collection = idx.Config.ClassName.String()
 				}
 			}
-			// Raised before this sweep's first disk mutation under the collection and
-			// kept for the rest of this index's walk, so the gaps between later shards
-			// stay covered. The work decides: a sweep that mutates nothing never holds.
+			// Raised before this sweep's first disk mutation under the collection and kept
+			// for the rest of the walk. A sweep that mutates nothing never holds.
 			var releaseHold func()
 			holdCleanup := func() {
 				if releaseHold == nil {
@@ -344,9 +343,7 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				outcome.ScannedCount++
 				orphans := collectOrphanTrackers(lsmPath, collection, shardName, knownTask, auditLogger)
 				if len(orphans) == 0 {
-					// A tracker that flipped back to known-live between sweeps must not
-					// keep its quarantine, or the next legitimately-orphan sweep destroys
-					// it at once. Read first, so a shard with nothing to clear is not held.
+					// Read first, so a shard with nothing to clear is never held for looking.
 					stale := staleQuarantineSentinels(lsmPath, knownTask)
 					if len(stale) == 0 {
 						continue
@@ -654,14 +651,13 @@ func writeQuarantineSentinel(trackerPath string) error {
 	return f.Close()
 }
 
-// staleQuarantineSentinels names the tracker dirs whose quarantine sentinel is no
-// longer load-bearing, because the task their recovery record points at is live in
-// DTM again. A previous sweep can have mis-classified a live migration as an orphan
-// (a follower with stale RAFT), and leaving that quarantine in place would turn the
-// next legitimate orphan classification into an immediate destructive cleanup.
+// staleQuarantineSentinels names the tracker dirs whose quarantine sentinel is no longer
+// load-bearing, because DTM lists their task as live again. A previous sweep on a
+// stale-RAFT follower can have mis-classified a live migration as an orphan, and leaving
+// that quarantine would turn the next legitimate classification into an immediate
+// destructive cleanup. A tracker still classified as an orphan keeps its sentinel.
 //
-// Read-only, so the caller raises the cleanup hold only when there is something to
-// remove. A tracker still classified as an orphan keeps its sentinel.
+// Read-only, so the caller holds the collection only when there is something to remove.
 func staleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLookup) []string {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -684,9 +680,8 @@ func staleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLookup) 
 	return stale
 }
 
-// Errors are logged and never propagated: the worst case is a stale sentinel that
-// turns a future-detected orphan into an immediate cleanup, and by then the orphan
-// was real.
+// Errors are logged, never propagated: the worst case is a stale sentinel turning a
+// future-detected orphan into an immediate cleanup, and by then the orphan was real.
 func removeQuarantineSentinels(lsmPath string, dirNames []string, logger logrus.FieldLogger) {
 	for _, dirName := range dirNames {
 		path := filepath.Join(lsmPath, ".migrations", dirName, reindexAuditQuarantineFile)

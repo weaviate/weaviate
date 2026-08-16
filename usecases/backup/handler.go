@@ -41,9 +41,8 @@ func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if !allReindexRefusals(err) {
 		return CanCommitErrCannotCommit
 	}
-	// Backupable joins one refusal per class and a transient outage can answer some of
-	// them differently. An observed migration outranks: it is the only one of the two
-	// with something for the operator to wait for.
+	// Backupable joins one refusal per class and an outage can answer some differently.
+	// An observed migration outranks: it is the half with something to wait for.
 	if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
 		return CanCommitErrInFlightReindex
 	}

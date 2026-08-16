@@ -1120,8 +1120,8 @@ func TestFileListRemoveIndices(t *testing.T) {
 	})
 }
 
-// Both lists are built by ranging a map and both are published, so an unsorted
-// answer names a different collection, and a different remedy URL, on every retry.
+// Both range a map and both are published: unsorted names a different collection, and a
+// different remedy URL, on every retry.
 func TestDistributedBackupDescriptorListsAreSorted(t *testing.T) {
 	d := &DistributedBackupDescriptor{
 		Nodes: map[string]*NodeDescriptor{

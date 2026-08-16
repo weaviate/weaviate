@@ -80,9 +80,9 @@ const (
 	reindexReasonTaskListUnreadable = "task_list_unreadable"
 )
 
-// shardReindexActivitySnapshot lists DTM once. nil means there is nothing to ask:
-// the flag is off, or the lookup is not wired yet. Admitting while unwired is
-// deliberate; refusing breaks every fixture that skips the install path.
+// Lists DTM once. nil means nothing to ask: the flag is off, or the lookup is not wired
+// yet. Admitting while unwired is deliberate; refusing breaks every fixture that skips
+// the install path.
 func (db *DB) shardReindexActivitySnapshot() ShardReindexActivityLookup {
 	if db.config.RuntimeReindexDisabled {
 		return nil
@@ -171,7 +171,6 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 		}
 	}
 	if refusal == nil && unreadable {
-		// An unreadable list observed nothing, so it ranks below a hold.
 		blocked, sample = len(shards), cappedSample(shards)
 		reason, refusal = reindexReasonTaskListUnreadable, reindexUndeterminedRefusal(collection)
 	}

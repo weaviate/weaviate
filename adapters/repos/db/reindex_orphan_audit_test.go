@@ -881,8 +881,7 @@ func layoutTrackers(t *testing.T, lsmPath, collection string, specs ...trackerSp
 	}
 }
 
-// The population a hold-on-any-tracker predicate raised the hold for and the sweep
-// then never touched: every tracker here is one collectOrphanTrackers filters out.
+// The population a hold-on-any-tracker predicate held for and the sweep never touched.
 func TestAuditOrphanReindexTrackers_TrackersItCannotTouchAreNeverHeld(t *testing.T) {
 	ctx := testCtx()
 	const className = "AuditUntouchable"
@@ -909,8 +908,7 @@ func TestAuditOrphanReindexTrackers_TrackersItCannotTouchAreNeverHeld(t *testing
 	assert.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor(className))
 }
 
-// Clearing a sentinel is a disk mutation, so it happens under the hold, and the read
-// pass that decides whether there is one to clear changes nothing.
+// Clearing a sentinel is a mutation, so it is held; the read pass that finds one is not.
 func TestAuditOrphanReindexTrackers_ClearingASentinelIsHeld(t *testing.T) {
 	ctx := testCtx()
 	const className = "AuditSentinelClear"
@@ -952,8 +950,7 @@ func TestAuditOrphanReindexTrackers_ClearingASentinelIsHeld(t *testing.T) {
 	assert.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor(className), "and it is not left held")
 }
 
-// Restoring one collection walked every collection on disk, so it held, and refused
-// backups of, collections the restore never named.
+// Restoring one collection walked, held, and refused backups of every other one.
 func TestAuditOrphanReindexTrackers_ScopedToTheNamedCollections(t *testing.T) {
 	ctx := testCtx()
 	const restored, other = "AuditScopeRestored", "AuditScopeOther"

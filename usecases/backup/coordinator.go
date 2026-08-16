@@ -556,9 +556,8 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	recordPeerFailure := func(err error) error {
 		mutex.Lock()
 		defer mutex.Unlock()
-		// A refusal cancels the group, so a sibling cut short by that cancellation
-		// reports the refusal, not a failure of its own. A deadline is kept: the
-		// shared canCommit timeout is a genuine signal.
+		// A sibling cut short by the refusal's own group cancellation reports the refusal,
+		// not a failure of its own. A deadline is kept: the shared timeout is a real signal.
 		if refusal != nil && errors.Is(err, context.Canceled) {
 			return err
 		}
