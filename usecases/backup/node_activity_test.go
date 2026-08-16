@@ -123,6 +123,30 @@ func TestNodeActivityResponseActivity(t *testing.T) {
 	}
 }
 
+// The route filters an undecided activity out with a 503, but the constructor is
+// exported, so another caller can still hand it one. It must leave as busy.
+func TestNewNodeActivityResponse(t *testing.T) {
+	tests := []struct {
+		name     string
+		activity NodeActivity
+		wantBusy bool
+	}{
+		{name: "nothing decided it", activity: NodeActivity{}, wantBusy: true},
+		{name: "idle", activity: NodeActivity{Answered: true}},
+		{name: "busy", activity: NodeActivity{Answered: true, Busy: true, Kind: "backup", ID: "b1"}, wantBusy: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := NewNodeActivityResponse("node1", tt.activity)
+			got, _ := res.Activity("node1")
+
+			require.NotNil(t, res.Busy)
+			assert.Equal(t, tt.wantBusy, *res.Busy)
+			assert.Equal(t, tt.activity.Free(), got.Free(), "a round trip must not turn unsure into free")
+		})
+	}
+}
+
 func TestNodeActivityResponseQuotesPeerStrings(t *testing.T) {
 	busy := true
 	res := NodeActivityResponse{Probe: "forged\nprobe: still fine", Node: "node1", Busy: &busy, Kind: "k", ID: "i"}
