@@ -279,8 +279,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 				// Nothing to restore from without the descriptor, so this ends
 				// as a failure. Publishing SUCCESS here would have the
 				// coordinator count the node done and report a backup that
-				// cannot be restored as good. The text is left as it arrived:
-				// the scrub keeps a torn capture's id spent, and a capture
+				// cannot be restored as good. This text is not scrubbed: a capture
 				// that passed the check is safe to re-post.
 				desc.Status = backup.Transferred
 				u.slot.setFailed(err.Error())
@@ -391,9 +390,8 @@ Loop:
 	return nil
 }
 
-// nonEmptyErrMsg is err's text, or a stand-in when it has none. Callers that
-// serve it to an API reduce a reindex refusal first; everything else reaches
-// the status API as written, backend messages and all.
+// nonEmptyErrMsg is err's text, or a stand-in when it has none. Callers serving
+// it to an API reduce a reindex refusal first; the rest reaches it as written.
 func nonEmptyErrMsg(err error) string {
 	if msg := err.Error(); msg != "" {
 		return msg
@@ -401,9 +399,7 @@ func nonEmptyErrMsg(err error) string {
 	return failureWithoutReason
 }
 
-// failureMessageForStatus is what a status poll serves: a per-shard reindex
-// refusal reduced to its own redacted text, anything else verbatim. It serves
-// the chain's first refusal, so callers hand it a single composed reason.
+// failureMessageForStatus reduces a per-shard reindex refusal to its own redacted text.
 func failureMessageForStatus(err error) string {
 	var blocked backup.ReindexBlockedError
 	if errors.As(err, &blocked) && blocked.Msg != "" {
@@ -412,10 +408,8 @@ func failureMessageForStatus(err error) string {
 	return nonEmptyErrMsg(err)
 }
 
-// withMetaFault names a failed metadata write after the reason, not around
-// it. The write fault is spliced into the string the coordinator classifies,
-// so it goes through CancelSafeText. The reason is left as it arrived, by
-// design: what the coordinator makes of it is not this function's call.
+// withMetaFault names a failed metadata write after the reason. That text is
+// spliced into what the coordinator classifies, so it goes through CancelSafeText.
 func withMetaFault(reason string, metaErr error) string {
 	if metaErr == nil {
 		return reason

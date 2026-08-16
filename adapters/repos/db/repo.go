@@ -444,9 +444,8 @@ type Config struct {
 	// caller sets it explicitly.
 	RuntimeReindexDisabled bool
 
-	// CompletedTaskTTL mirrors DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS.
-	// The commit-time overlap check reads finished migrations out of the
-	// retained task list, so a zero TTL leaves it nothing to read.
+	// CompletedTaskTTL mirrors DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS: the
+	// commit-time overlap check has no finished migrations to read when it is 0.
 	CompletedTaskTTL time.Duration
 
 	HNSWMaxLogSize               int64

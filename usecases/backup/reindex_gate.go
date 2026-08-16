@@ -79,17 +79,13 @@ func refusalRank(err error) int {
 	if errors.Is(err, backup.ErrReindexOverlapCheckUnanswerable) {
 		return 2
 	}
-	// The two commit-time sentinels never reach this function: they arise
-	// after canCommit, and isReindexRefusal does not admit them.
+	// The two commit-time sentinels never reach here: they arise after canCommit.
 	return 1
 }
 
 // A commit-time overlap verdict keeps this node's answer FAILED even under an
-// operator abort: a capture exists and may be torn, and CANCELLED would make
-// the id re-postable over it. That holds per node only; the commit-phase
-// aggregation can still relabel the whole operation CANCELLED from a sibling
-// (weaviate/0-weaviate-issues#586, pre-existing). Every other refusal loses to
-// the abort, because the operation context is the abort signal itself.
+// operator abort: a capture may be torn, and CANCELLED would make the id re-postable
+// over it. Per node only, and every other refusal still loses to the abort.
 func publishAsCancelled(err, ctxErr error) bool {
 	if errors.Is(err, backup.ErrReindexOverlappedBackup) ||
 		errors.Is(err, backup.ErrReindexOverlapUndetermined) {
@@ -129,9 +125,8 @@ func restoreUndeterminedByParticipant() error {
 		backup.ErrReindexActivityUndetermined)
 }
 
-// The refusing node's text is forwarded whole: it is a configuration answer,
-// so rebuilding it from the requested classes would name collections that
-// have nothing to do with the cause and drop the settings to change.
+// The refusing node's text is forwarded whole: rebuilding it from the requested
+// classes would name irrelevant collections and drop the settings to change.
 func overlapCheckUnanswerableByParticipant(text string) error {
 	if text == "" {
 		return backup.ErrReindexOverlapCheckUnanswerable

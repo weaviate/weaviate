@@ -26,11 +26,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
-// ReindexOverlapOutcome is what the check concluded about one capture, weakest
-// first: a scan keeps the strongest, so a weaker answer never hides an overlap.
-// An answer nobody could give outranks a finished one: the migration it could
-// not judge may still be running. Only the zero value publishes; a live overlap
-// earns a wait, an ended one an id.
+// ReindexOverlapOutcome is what the check concluded, weakest first: a scan keeps the
+// strongest, and Undetermined outranks Ended because it may still be running.
 type ReindexOverlapOutcome int
 
 const (
@@ -48,41 +45,31 @@ type ReindexOverlapVerdict struct {
 	TaskID     string
 
 	Detail string
-	// A verdict that sets Remedy keeps it; the refusal composes one otherwise.
 	Remedy string
 }
 
 func (v ReindexOverlapVerdict) allowsBackup() bool { return v.Outcome == ReindexOverlapNone }
 
-// ReindexOverlapLookup: an empty classes list captured nothing, so nothing
-// overlaps it.
+// ReindexOverlapLookup judges one capture; an empty classes list overlaps nothing.
 type ReindexOverlapLookup func(classes []string, since time.Time) ReindexOverlapVerdict
 
 // ReindexOverlapLookupBuilder snapshots the task list; nil means allow.
 type ReindexOverlapLookupBuilder func(ctx context.Context) ReindexOverlapLookup
 
-// ReindexWorkerLookup answers for the local node only; a peer's task is false
-// and a zero time. lastExit is when this node's last worker for the task
-// stopped - what the task's own record cannot say.
+// ReindexWorkerLookup answers for the local node only; lastExit is when its last worker stopped.
 type ReindexWorkerLookup func(task distributedtask.TaskDescriptor) (running bool, lastExit time.Time)
 
-// OverlapListRetryDelays beats discarding an upload that already finished.
+// OverlapListRetryDelays is the retry schedule for the commit-time task list call.
 var OverlapListRetryDelays = []time.Duration{
 	time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 15 * time.Second,
 }
 
-// OverlapListAttemptTimeout bounds one attempt. The cluster RPC asks for
-// wait-for-ready and the uploader's context carries no deadline, so an
-// unreachable leader parks the call instead of failing it: unbounded, the
-// schedule above is never reached and the backup sits at TRANSFERRING with no
-// error. 10s matches RAFT_CONSISTENCY_WAIT_TIMEOUT; tighter risks cutting off
-// a healthy leader returning a long task list, which spends the backup id.
+// OverlapListAttemptTimeout bounds one attempt, and must: the RPC waits for ready and
+// the caller has no deadline. 10s matches RAFT_CONSISTENCY_WAIT_TIMEOUT; tighter is unsafe.
 const OverlapListAttemptTimeout = 10 * time.Second
 
 // ListReindexTasksForOverlap retries list on the delays schedule, each attempt
-// bounded by attemptTimeout; an absent namespace yields no tasks, which the
-// caller reads as allow. Even a cancelled context returns the list error, so
-// its cause stays visible.
+// bounded by attemptTimeout; a cancelled context still returns the list error.
 func ListReindexTasksForOverlap(
 	ctx context.Context,
 	list func(context.Context) (map[string][]*distributedtask.Task, error),
@@ -92,8 +79,7 @@ func ListReindexTasksForOverlap(
 	var err error
 	for attempt := 0; ; attempt++ {
 		var byNamespace map[string][]*distributedtask.Task
-		// Bounded per attempt, never on ctx: bounding the caller's context
-		// would cut off the retry schedule along with the call.
+		// Bounded per attempt, never on ctx: that would cut off the retry schedule.
 		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
 		byNamespace, err = list(attemptCtx)
 		cancel()
@@ -111,14 +97,13 @@ func ListReindexTasksForOverlap(
 	}
 }
 
-// An empty collection is a payload that named none: cluster-wide.
+// An empty collection means the payload named none: the task is cluster-wide.
 type overlapCandidate struct {
 	task       *distributedtask.Task
 	collection string
 }
 
-// Decodes the collection field alone: the whole payload would materialize every
-// retained task's unit and tenant lists, at the end of every backup on every node.
+// Only the collection field: a full decode materializes every task's unit lists.
 func reindexOverlapCandidates(tasks []*distributedtask.Task) []overlapCandidate {
 	out := make([]overlapCandidate, 0, len(tasks))
 	for _, task := range tasks {
@@ -129,8 +114,7 @@ func reindexOverlapCandidates(tasks []*distributedtask.Task) []overlapCandidate 
 	return out
 }
 
-// NewReindexOverlapLookup asks whether a migration overlapped a capture, not
-// whether one runs: one contained in the window answers no liveness question.
+// NewReindexOverlapLookup asks whether a migration overlapped a capture, not whether one runs.
 func NewReindexOverlapLookup(
 	tasks []*distributedtask.Task,
 	completedTaskTTL time.Duration,
@@ -161,7 +145,6 @@ func NewReindexOverlapLookup(
 			}
 			verdict.Collection = candidate.collection
 			verdict.TaskID = candidate.task.ID
-			// Ties keep the lowest task id.
 			if verdict.Outcome > strongest.Outcome {
 				strongest = verdict
 			}
@@ -190,8 +173,7 @@ func decideReindexOverlap(
 	since time.Time,
 	hasLocalWorker ReindexWorkerLookup,
 ) ReindexOverlapVerdict {
-	// Before the liveness question, which reads a status it cannot name as live
-	// and would publish a migration that ended long ago as an observed overlap.
+	// Before the liveness question: a status this node cannot name would read as live.
 	if !task.Status.IsRecognized() {
 		return ReindexOverlapVerdict{
 			Outcome: ReindexOverlapUndetermined,
@@ -204,9 +186,7 @@ func decideReindexOverlap(
 	if IsLiveReindexTaskStatus(task.Status) {
 		return ReindexOverlapVerdict{Outcome: ReindexOverlapLive}
 	}
-	// A terminal status is not a stopped worker: the unit failure that fails the
-	// whole task stamps FinishedAt, and the units still running are never waited
-	// for. A cancel leaves its file cleanup running the same way.
+	// A terminal status is not a stopped worker: sibling units and cleanup run on.
 	running, lastExit := hasLocalWorker(task.TaskDescriptor)
 	if running {
 		return ReindexOverlapVerdict{
@@ -215,8 +195,7 @@ func decideReindexOverlap(
 				"before retrying under a new backup id",
 		}
 	}
-	// The window this check owns ends at commit, not where it runs: a worker
-	// that stopped inside it wrote inside it, whatever FinishedAt below says.
+	// A worker that stopped inside the window wrote inside it, whatever FinishedAt says.
 	if !lastExit.Before(since) {
 		return ReindexOverlapVerdict{Outcome: ReindexOverlapEnded}
 	}
@@ -236,9 +215,8 @@ func decideReindexOverlap(
 	return decideCancelledReindexOverlap(task)
 }
 
-// The only route here that clears a capture: every unit still PENDING, which is
-// one-way, and the claim that leaves it precedes the shard lookup — see
-// [ReindexProvider.processOneUnit]. The caller ruled out a still-running worker.
+// Clears a capture only when every unit is still PENDING: that status is one-way
+// and the claim leaving it precedes any shard write, per [ReindexProvider.processOneUnit].
 func decideCancelledReindexOverlap(task *distributedtask.Task) ReindexOverlapVerdict {
 	if len(task.Units) == 0 {
 		return ReindexOverlapVerdict{
@@ -256,24 +234,19 @@ func decideCancelledReindexOverlap(task *distributedtask.Task) ReindexOverlapVer
 	return ReindexOverlapVerdict{}
 }
 
-// refuseIfOverlapCheckCannotAnswer refuses at admission what the commit-time
-// check would refuse after the upload: a zero TTL clears nothing, ever.
 func (db *DB) refuseIfOverlapCheckCannotAnswer() error {
 	if db.config.RuntimeReindexDisabled || db.config.CompletedTaskTTL > 0 {
 		return nil
 	}
-	// An unwired builder is a real state, not just a fixture one:
-	// installReindexGateLookups runs well after the cluster listener starts
-	// serving canCommit (see its godoc). Admitting there is what the siblings do.
+	// A builder can genuinely be unwired: it is installed after canCommit starts serving.
 	db.reindexAuditMu.RLock()
 	wired := db.reindexOverlapLookupBuilder != nil
 	db.reindexAuditMu.RUnlock()
 	if !wired {
 		return nil
 	}
-	// Its own sentinel: nothing is in flight, and the in-flight one would be rebuilt
-	// into a wait for a migration that does not exist. RUNTIME_REINDEX_ENABLED=false
-	// lifts this above; that flag is preview-only and goes away at GA.
+	// Its own sentinel: the in-flight one promises a migration that does not exist.
+	// RUNTIME_REINDEX_ENABLED=false lifts this; that flag is preview-only, gone at GA.
 	return entitiesbackup.ReindexOverlapCheckError{Msg: fmt.Sprintf("%s: %s",
 		entitiesbackup.ErrReindexOverlapCheckUnanswerable,
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS is 0, so a finished runtime-reindex is dropped "+
@@ -282,16 +255,14 @@ func (db *DB) refuseIfOverlapCheckCannotAnswer() error {
 			"above the time a backup takes")}
 }
 
-// SetReindexOverlapLookup installs the builder the commit-time check reads from.
-// An uninstalled lookup admits, per [DB.SetShardReindexActivityLookup].
+// SetReindexOverlapLookup installs the builder the check reads; uninstalled admits.
 func (db *DB) SetReindexOverlapLookup(builder ReindexOverlapLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
 	db.reindexOverlapLookupBuilder = builder
 }
 
-// RefuseIfReindexOverlapped fails a finished capture whose window a migration
-// overlapped; the uploader asks once per node at commit.
+// RefuseIfReindexOverlapped fails a capture a migration overlapped; asked once per commit.
 func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, since time.Time) error {
 	if db.config.RuntimeReindexDisabled {
 		return nil
@@ -313,8 +284,7 @@ func (db *DB) RefuseIfReindexOverlapped(ctx context.Context, classes []string, s
 	if verdict.allowsBackup() {
 		return nil
 	}
-	// An operator's cancel arrives on this ctx and stays a cancel, unless an overlap
-	// was observed: that capture may be torn, and a cancelled id can be re-posted.
+	// A cancel stays a cancel unless an overlap was observed: a cancelled id can be re-posted.
 	if verdict.Outcome == ReindexOverlapUndetermined && errors.Is(ctx.Err(), context.Canceled) {
 		return ctx.Err()
 	}
@@ -340,14 +310,12 @@ func (db *DB) warnOverlapRefusal(classes []string, verdict ReindexOverlapVerdict
 const ReindexOverlapIncompleteRecordRemedy = "no capture can be judged against that record, so backups " +
 	"stay refused until the cluster task list drops it on a garbage-collection pass"
 
-// Two errors, never both, worded alike: either reader needs the same things.
 func reindexOverlapRefusal(verdict ReindexOverlapVerdict, classes []string) error {
 	sentinel, finding, remedy := entitiesbackup.ErrReindexOverlapUndetermined, verdict.Detail, verdict.Remedy
 	if verdict.Outcome != ReindexOverlapUndetermined {
 		matched := matchCapturedClass(classes, verdict.Collection)
 		sentinel = entitiesbackup.ErrReindexOverlappedBackup
 		if matched == "" {
-			// Not attributed to a captured collection, only inseparable from it.
 			finding = "a runtime-reindex that cannot be attributed to a collection ran while this " +
 				"backup was being captured, so this capture cannot be cleared"
 		} else {
@@ -358,7 +326,6 @@ func reindexOverlapRefusal(verdict ReindexOverlapVerdict, classes []string) erro
 			if verdict.Outcome == ReindexOverlapLive {
 				remedy = "wait for that migration to finish"
 				if matched != "" {
-					// Every step it names acts on a task that has not ended.
 					remedy += ". " + reindex.MigrationRemedy(matched)
 				}
 			}
@@ -370,8 +337,7 @@ func reindexOverlapRefusal(verdict ReindexOverlapVerdict, classes []string) erro
 		sentinel, entitiesbackup.CancelSafeText(finding), entitiesbackup.CancelSafeText(remedy))
 }
 
-// matchCapturedClass echoes the caller's spelling of the class the verdict points
-// at, "" for none. The task's would let an uncaptured name reach the API.
+// matchCapturedClass echoes the caller's spelling, "" for none; the task's could leak.
 func matchCapturedClass(classes []string, blocking string) string {
 	for _, class := range classes {
 		if strings.EqualFold(class, blocking) {

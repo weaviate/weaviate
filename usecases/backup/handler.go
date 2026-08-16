@@ -34,8 +34,8 @@ import (
 //
 // Classification reads the error chain, never the words: Backupable() wraps the
 // [backup.ErrBackupBlockedByInFlightReindex] sentinel inside an errors.Join. The
-// reindex kinds stay apart because "a migration is running" and "this node cannot
-// check" send the operator to different places.
+// reindex kinds stay apart: "a migration runs" and "this node cannot check" need
+// different answers.
 func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if err == nil {
 		return ""

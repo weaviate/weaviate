@@ -103,9 +103,8 @@ const (
 	// coordinator rebuilds a refusal whose wording matches the operation it refused.
 	CanCommitErrCreateReindexUndetermined CanCommitErrorKind = "create_reindex_undetermined"
 
-	// The participant's commit-time overlap check is configured so that it
-	// could never clear a capture. Its text is forwarded whole, not rebuilt
-	// (see overlapCheckUnanswerableByParticipant). Same cost as above.
+	// The participant's overlap check could never clear a capture. Its text is
+	// forwarded whole, not rebuilt (see overlapCheckUnanswerableByParticipant).
 	CanCommitErrOverlapCheckUnanswerable CanCommitErrorKind = "overlap_check_unanswerable"
 
 	// CanCommitErrCannotCommit is the generic fallback used when the

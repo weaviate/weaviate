@@ -115,10 +115,8 @@ type ReindexProvider struct {
 	// return path (failure, context.Canceled, panic) releases the slot.
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
 
-	// workerExits stamps when this node's last worker for a task stopped. The
-	// task's own FinishedAt cannot stand in: the unit failure that fails a task
-	// stamps it while sibling units keep writing, and their reports are then
-	// rejected. Guarded by [mu].
+	// workerExits stamps when this node's last worker for a task stopped; the
+	// task's own FinishedAt lands while sibling units still write. Guarded by [mu].
 	workerExits map[distributedtask.TaskDescriptor]time.Time
 }
 
@@ -247,10 +245,9 @@ func (p *ReindexProvider) registerStartingTask(desc distributedtask.TaskDescript
 	p.payloads[desc] = payload
 }
 
-// ranLocalUnits false suppresses the exit stamp. A task starts on every node
-// while any unit is unclaimed, so this node may hold none; stamping there says
-// a worker wrote here when none did, burning a clean capture's id. Assignment,
-// not a claim, is the signal: a non-semantic migration claims no worker.
+// ranLocalUnits false suppresses the exit stamp: a task starts on every node while
+// any unit is unclaimed, so stamping where none ran burns a clean capture's id.
+// Assignment, not a claim, is the signal: a non-semantic migration claims no worker.
 func (p *ReindexProvider) deleteRunningHandle(desc distributedtask.TaskDescriptor, ranLocalUnits bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -260,10 +257,8 @@ func (p *ReindexProvider) deleteRunningHandle(desc distributedtask.TaskDescripto
 	}
 }
 
-// recordWorkerExitWithLock stamps desc and prunes stamps older than the
-// completed-task TTL. A capture that could still need a pruned one has outrun
-// that TTL itself, which the retention branch in [NewReindexOverlapLookup]
-// already refuses. Without the constructor, none are kept. Callers hold [mu].
+// Stamps desc and prunes stamps past the completed-task TTL: a capture that would
+// need a pruned one has outrun that TTL, which [NewReindexOverlapLookup] refuses.
 func (p *ReindexProvider) recordWorkerExitWithLock(desc distributedtask.TaskDescriptor) {
 	if p.workerExits == nil {
 		return
@@ -327,10 +322,8 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
-// LocalWorkerActivity reports whether this node is in the task's unit phase
-// right now, and when its last worker for the task stopped. runningHandles is
-// the load-bearing half: StartTask registers it before any unit goroutine
-// starts and deletes it once they exit, so PREP and SWAP answer false.
+// LocalWorkerActivity reports whether this node is in the task's unit phase now, and
+// when its last worker stopped. StartTask registers before any unit goroutine starts.
 func (p *ReindexProvider) LocalWorkerActivity(desc distributedtask.TaskDescriptor) (bool, time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

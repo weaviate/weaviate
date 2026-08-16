@@ -1148,14 +1148,12 @@ func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldL
 			appState.ClusterService.ListDistributedTasks, db.OverlapListRetryDelays,
 			db.OverlapListAttemptTimeout)
 		if err != nil {
-			// A caller that hung up cancelled ctx, and an undetermined verdict
-			// on a cancelled ctx publishes as a cancel, so the alert would lie.
+			// On a cancelled ctx the verdict publishes as a cancel, so this would lie.
 			if ctx.Err() == nil {
 				appState.Logger.WithField("action", "backup_reindex_overlap").
 					Warnf("commit-time overlap check: cannot list DTM tasks, and retrying did not help; the check cannot answer: %v", err)
 			}
-			// Detail carries no err text: a list error names RAFT internals an
-			// operator cannot act on, and the remedy below is the whole answer.
+			// No err text: a list error names RAFT internals an operator cannot act on.
 			return func([]string, time.Time) db.ReindexOverlapVerdict {
 				return db.ReindexOverlapVerdict{
 					Outcome: db.ReindexOverlapUndetermined,
@@ -1237,8 +1235,7 @@ func initReindexAndDistributedTasks(
 	}, appState.Logger)
 
 	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
-		// The stamp hazard is about other nodes' binary versions, so it does
-		// not depend on this node's migration flag.
+		// The stamp hazard is about other nodes' binary versions, not this node's flag.
 		warn := appState.Logger.WithField("env", "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS")
 		warn.Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
 		if appState.ServerConfig.Config.RuntimeReindexEnabled {

@@ -514,9 +514,8 @@ func isFinalStatus(st backup.Status) bool {
 // that don't set the field) keep the legacy [errCannotCommit] wrapping so
 // existing callers and tests continue to match.
 //
-// A reindex refusal that observed something is rebuilt from classes, never
-// forwarded; the unanswerable-check one is forwarded whole (see
-// overlapCheckUnanswerableByParticipant).
+// An observed reindex refusal is rebuilt from classes; the unanswerable-check
+// one is forwarded whole (see overlapCheckUnanswerableByParticipant).
 func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	if resp == nil {
 		return errCannotCommit
