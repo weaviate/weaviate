@@ -99,14 +99,16 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 	}
 }
 
-// One DTM record, both gates: a payload only one of them can type must not leave the
-// other admitting.
+// One DTM record, both gates: a payload one of them cannot type, cannot scope, or
+// spells in another case must not leave the other admitting.
 func TestReindexLookups_PayloadAgreement(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	for _, payload := range []string{
-		`{"collection":"C","unitToShard":"shard-1"}`, // a field a newer node retyped
-		`{"collection":"C","unitToShard":{"u1":"sha`, // truncated
-		`{"unitToShard":{"u1":"shard-1"}}`,           // names no collection
+		`{"collection":"C","unitToShard":"shard-1"}`,        // a field a newer node retyped
+		`{"collection":"C","unitToShard":{"u1":"sha`,        // truncated
+		`{"unitToShard":{"u1":"shard-1"}}`,                  // names no collection
+		`{"collection":"C"}`,                                // types, but scopes no shard
+		`{"collection":"c","unitToShard":{"u1":"shard-1"}}`, // spelled in another case
 	} {
 		t.Run(payload, func(t *testing.T) {
 			tasks := []*distributedtask.Task{{Payload: []byte(payload), Status: distributedtask.TaskStatusStarted}}

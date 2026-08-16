@@ -13,6 +13,7 @@ package db
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -47,13 +48,14 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 			continue
 		}
 		// Scoped through the decoder the restore gate uses, so one record cannot be
-		// refused there and admitted here. A payload it cannot attribute blocks
-		// everything, exactly as that gate reads it.
+		// refused there and admitted here. A payload it cannot attribute, or one that
+		// lists no shard, blocks the collection; no current writer produces either.
 		collection, named := ExtractReindexTaskCollection(task.Payload)
 		if !named {
 			everyShard = true
 			continue
 		}
+		collection = strings.ToLower(collection)
 		var payload ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			logger.WithField("action", "backup_reindex_gate").
@@ -62,11 +64,16 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 			wholeCollection[collection] = true
 			continue
 		}
+		if len(payload.UnitToShard) == 0 {
+			wholeCollection[collection] = true
+			continue
+		}
 		for _, shardName := range payload.UnitToShard {
 			live[shardKey{collection, shardName}] = true
 		}
 	}
 	return func(collection, shardName string) (bool, bool) {
+		collection = strings.ToLower(collection)
 		return everyShard || wholeCollection[collection] || live[shardKey{collection, shardName}], false
 	}
 }
