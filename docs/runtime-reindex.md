@@ -61,6 +61,12 @@ together into a small REST surface rooted at
 
 ## 2. REST surface
 
+> **The flag is temporary.** `RUNTIME_REINDEX_ENABLED` exists only while the
+> feature is in preview and is removed at GA. Do not design around it, and do
+> not file or fix behavior that differs between flag on and flag off — neither
+> the flag nor the difference survives GA. Bugs that are not caused by the flag
+> are ordinary bugs and should be filed as usual.
+>
 > **Runtime reindex is off by default.** Set
 > `RUNTIME_REINDEX_ENABLED=true` to enable it. While it is off, submitting
 > a migration returns `400 Bad Request` with

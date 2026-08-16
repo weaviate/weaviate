@@ -113,10 +113,9 @@ func strongestOf(byKind map[ReindexHold]int) ReindexHold {
 // and no window in which the gates read it before it exists.
 //
 // Flag off, this reports none even while a sweep started under an earlier flag
-// on still holds the collection. Deliberate: the flag is the kill switch, and
-// with it off no API is left to end the migration whose hold would be refusing
-// backups. Silencing the writers instead is the worse half, since a flag turned
-// on mid-sweep leaves a delete running under no hold. See 0-weaviate-issues#611.
+// on still holds the collection. Deliberate and won't-fix: RUNTIME_REINDEX_ENABLED
+// is a preview-only flag that is removed at GA, so the asymmetry it creates does
+// not outlive it. Do not propose closing it.
 func (db *DB) ReindexHoldFor(collections ...string) ReindexHold {
 	if db.config.RuntimeReindexDisabled {
 		return ReindexHoldNone

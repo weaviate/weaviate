@@ -440,7 +440,8 @@ type Config struct {
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
 	ObjectsTTLConcurrencyFactor         *configRuntime.DynamicValue[float64]
 
-	// RuntimeReindexDisabled mirrors an off RUNTIME_REINDEX_ENABLED.
+	// RuntimeReindexDisabled mirrors an off RUNTIME_REINDEX_ENABLED, a
+	// preview-only flag that is removed at GA.
 	// Stated negatively so the zero value keeps today's behavior for the
 	// many test fixtures that build a Config literal; the one production
 	// caller sets it explicitly.
