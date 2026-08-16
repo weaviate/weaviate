@@ -28,9 +28,8 @@ import (
 
 // ReindexOverlapOutcome is what the check concluded about one capture, weakest
 // first: a scan keeps the strongest, so a weaker answer never hides an overlap.
-// An answer nobody could give outranks a finished one, because the migration it
-// could not judge may still be running, and telling the operator a migration is
-// already over is then wrong. Only the zero value publishes; a live overlap
+// An answer nobody could give outranks a finished one: the migration it could
+// not judge may still be running. Only the zero value publishes; a live overlap
 // earns a wait, an ended one an id.
 type ReindexOverlapOutcome int
 
@@ -62,8 +61,10 @@ type ReindexOverlapLookup func(classes []string, since time.Time) ReindexOverlap
 // ReindexOverlapLookupBuilder snapshots the task list; nil means allow.
 type ReindexOverlapLookupBuilder func(ctx context.Context) ReindexOverlapLookup
 
-// ReindexWorkerLookup answers for the local node only; a peer's task is false.
-type ReindexWorkerLookup func(task distributedtask.TaskDescriptor) bool
+// ReindexWorkerLookup answers for the local node only; a peer's task is false
+// and a zero time. lastExit is when this node's last worker for the task
+// stopped - what the task's own record cannot say.
+type ReindexWorkerLookup func(task distributedtask.TaskDescriptor) (running bool, lastExit time.Time)
 
 // OverlapListRetryDelays beats discarding an upload that already finished.
 var OverlapListRetryDelays = []time.Duration{
@@ -191,12 +192,18 @@ func decideReindexOverlap(
 	// A terminal status is not a stopped worker: the unit failure that fails the
 	// whole task stamps FinishedAt, and the units still running are never waited
 	// for. A cancel leaves its file cleanup running the same way.
-	if hasLocalWorker(task.TaskDescriptor) {
+	running, lastExit := hasLocalWorker(task.TaskDescriptor)
+	if running {
 		return ReindexOverlapVerdict{
 			Outcome: ReindexOverlapLive,
 			Remedy: "a node has not finished this migration's work yet, so wait for that " +
 				"before retrying under a new backup id",
 		}
+	}
+	// The window this check owns ends at commit, not where it runs: a worker
+	// that stopped inside it wrote inside it, whatever FinishedAt below says.
+	if !lastExit.Before(since) {
+		return ReindexOverlapVerdict{Outcome: ReindexOverlapEnded}
 	}
 	if task.FinishedAt.IsZero() {
 		return ReindexOverlapVerdict{

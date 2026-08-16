@@ -1560,9 +1560,10 @@ Seven known holes, each needing state or a layer this change does not touch:
   finishes between the capture's start and its commit leaves nothing for
   the overlap check to read. Closing it means recording each node's
   cleanup runs somewhere the check can see them.
-- **A terminal task whose local worker has not stopped.** `HasActiveWorker`
-  covers the unit phase only: PREP and SWAP answer false, and are covered
-  only because both statuses are live to the per-shard gate.
+- **A terminal task's PREP or SWAP work.** `LocalWorkerActivity` covers the
+  unit phase only, in what it reports running and in the exit it stamps;
+  PREP and SWAP are covered because both statuses are live. A node that
+  restarts mid-capture loses its stamps.
 - **The refusal survives per node, not per cluster.** The commit-phase
   aggregation reads participants in map order, so a sibling can clobber
   the refusal's reason or relabel the operation `CANCELLED` and make the

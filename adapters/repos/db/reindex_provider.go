@@ -114,6 +114,12 @@ type ReindexProvider struct {
 	// Guarded by [mu]. Set after the guard, cleared from a defer so any
 	// return path (failure, context.Canceled, panic) releases the slot.
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
+
+	// workerExits stamps when this node's last worker for a task stopped. The
+	// task's own FinishedAt cannot stand in: the unit failure that fails a task
+	// stamps it while sibling units keep writing, and their reports are then
+	// rejected. Guarded by [mu].
+	workerExits map[distributedtask.TaskDescriptor]time.Time
 }
 
 // phaseUnitResolution holds the per-unit setup work that every per-shard
@@ -185,6 +191,7 @@ func NewReindexProvider(
 		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		activeWorkers:  make(map[distributedtask.TaskDescriptor]map[string]bool),
+		workerExits:    make(map[distributedtask.TaskDescriptor]time.Time),
 	}
 }
 
@@ -244,6 +251,24 @@ func (p *ReindexProvider) deleteRunningHandle(desc distributedtask.TaskDescripto
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.runningHandles, desc)
+	p.recordWorkerExitWithLock(desc)
+}
+
+// recordWorkerExitWithLock stamps desc and drops stamps no capture can ask
+// about again: once the cluster task list has dropped a record, that task is
+// never a candidate. A provider built without the constructor keeps none.
+// Callers hold [mu].
+func (p *ReindexProvider) recordWorkerExitWithLock(desc distributedtask.TaskDescriptor) {
+	if p.workerExits == nil {
+		return
+	}
+	now := time.Now()
+	for other, at := range p.workerExits {
+		if now.Sub(at) > p.db.config.CompletedTaskTTL {
+			delete(p.workerExits, other)
+		}
+	}
+	p.workerExits[desc] = now
 }
 
 func (p *ReindexProvider) runningHandle(desc distributedtask.TaskDescriptor) (*reindexTaskHandle, bool) {
@@ -296,14 +321,15 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
-// HasActiveWorker reports whether this node is still in the task's unit phase.
-// runningHandles is the load-bearing half: StartTask registers it before any
-// unit goroutine starts and deletes it once they exit, so PREP and SWAP answer
-// false. activeWorkers only covers semantic migrations.
-func (p *ReindexProvider) HasActiveWorker(desc distributedtask.TaskDescriptor) bool {
+// LocalWorkerActivity reports whether this node is in the task's unit phase
+// right now, and when its last worker for the task stopped. runningHandles is
+// the load-bearing half: StartTask registers it before any unit goroutine
+// starts and deletes it once they exit, so PREP and SWAP answer false.
+func (p *ReindexProvider) LocalWorkerActivity(desc distributedtask.TaskDescriptor) (bool, time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return len(p.activeWorkers[desc]) > 0 || p.runningHandles[desc] != nil
+	running := len(p.activeWorkers[desc]) > 0 || p.runningHandles[desc] != nil
+	return running, p.workerExits[desc]
 }
 
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
@@ -313,6 +339,7 @@ func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescripto
 	if len(p.activeWorkers[desc]) == 0 {
 		delete(p.activeWorkers, desc)
 	}
+	p.recordWorkerExitWithLock(desc)
 }
 
 func (p *ReindexProvider) CleanupTask(_ distributedtask.TaskDescriptor) error {
