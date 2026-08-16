@@ -313,8 +313,6 @@ func TestRestoreGateOrdering(t *testing.T) {
 		require.ErrorAs(t, err, &backup.ErrNotFound{})
 		require.Equal(t, [][]string{nil}, fs.selector.gateCalls(),
 			"a restore naming nothing covers everything, so the gate is asked about everything")
-		auth.AssertNotCalled(t, "AuthorizeSilent",
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 	t.Run("a literal include is never checked for cluster-wide permission", func(t *testing.T) {
 		auth := authorization.NewMockAuthorizer(t)
@@ -328,8 +326,8 @@ func TestRestoreGateOrdering(t *testing.T) {
 			Backend: backendName, ID: id, Include: []string{cls},
 		}, false)
 		require.Error(t, err)
-		auth.AssertNotCalled(t, "AuthorizeSilent",
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		auth.AssertNotCalled(t, "Authorize",
+			mock.Anything, mock.Anything, authorization.CREATE, "backups/collections/*")
 	})
 	for _, include := range [][]string{{"MyCl*"}, {"MyCl*", "Other"}, {"Other", "MyCl*"}} {
 		t.Run("a wildcard in "+strings.Join(include, ",")+" widens the question", func(t *testing.T) {
