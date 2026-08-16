@@ -27,7 +27,6 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
@@ -1108,8 +1107,20 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 // so a peer's request landing before this line is admitted ungated; only
 // the public API waits for it.
 func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdownCtx context.Context) {
-	repo.SetShardReindexActivityLookup(newShardReindexActivityBuilder(
-		serverShutdownCtx, appState.Logger, appState.ClusterService.ListDistributedTasks))
+	// A list failure refuses every backup: admitting one races a migration.
+	repo.SetShardReindexActivityLookup(func() db.ShardReindexActivityLookup {
+		tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(serverShutdownCtx)
+		if err != nil {
+			// At shutdown the failure is this process exiting, not a DTM outage.
+			if serverShutdownCtx.Err() == nil {
+				appState.Logger.WithField("action", "backup_reindex_gate").
+					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
+			}
+			return func(string, string) bool { return true }
+		}
+		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
+	})
+
 	repo.SetAnyReindexActivityLookup(func(ctx context.Context) db.AnyReindexActivityLookup {
 		tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
 		if err != nil {
@@ -1124,32 +1135,6 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 		}
 		return db.NewAnyReindexActivityLookup(tasksByNamespace[db.ReindexNamespace])
 	})
-}
-
-// A fresh DTM snapshot per backup precheck. A list failure refuses every
-// backup: admitting one races a migration. Until DTM has answered once it is
-// this node still bootstrapping, and the refusal would name a migration
-// nothing has yet been able to look for.
-func newShardReindexActivityBuilder(ctx context.Context, logger logrus.FieldLogger,
-	list func(context.Context) (map[string][]*distributedtask.Task, error),
-) db.ShardReindexActivityLookupBuilder {
-	var answered atomic.Bool
-	return func() db.ShardReindexActivityLookup {
-		tasksByNamespace, err := list(ctx)
-		if err != nil {
-			if !answered.Load() {
-				return nil
-			}
-			// At shutdown the failure is this process exiting, not a DTM outage.
-			if ctx.Err() == nil {
-				logger.WithField("action", "backup_reindex_gate").
-					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
-			}
-			return func(string, string) bool { return true }
-		}
-		answered.Store(true)
-		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], logger)
-	}
 }
 
 // initReindexAndDistributedTasks builds the reindex provider, registers it in
