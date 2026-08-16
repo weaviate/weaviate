@@ -1507,6 +1507,10 @@ submit on that property runs its pre-cleanup, or the node restarts,
 whichever comes first. This is older than the hold: the per-shard
 cleanup registry it replaced was acquired at the same point. It is
 tracked separately.
+A second residual: of the four sweeps above, the cancel one and the submit
+one take the hold once per index type they sweep, so a migration touching
+two of them drops the hold in between. The other two hold across their
+whole loop.
 
 Operators should not rely on schema migration interacting
 cleanly with an in-flight or recently-completed reindex while running
