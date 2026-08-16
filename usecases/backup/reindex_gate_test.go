@@ -180,8 +180,7 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 			wantNotContains: []string{"in progress on"},
 		},
 		{
-			// Forwarded, not rebuilt: the cause is two settings on the refusing
-			// node, and the classes the caller asked for are not part of it.
+			// Forwarded, not rebuilt: the cause is a setting on the refusing node.
 			name:    "a configuration refusal no rebuild could state",
 			classes: []string{"Movies", "Shows"},
 			backupErr: backup.ReindexOverlapCheckError{
@@ -194,8 +193,7 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 			wantNotContains: []string{"in flight", "retry after it finishes", "Movies", "Shows"},
 		},
 		{
-			// A quoted cancel in the peer's text would relabel this FAILED
-			// backup CANCELLED, and a cancelled id can be posted again.
+			// A quoted cancel would relabel this FAILED backup CANCELLED.
 			name:            "a configuration refusal whose text quotes a cancelled context",
 			classes:         []string{"Movies"},
 			backupErr:       backup.ReindexOverlapCheckError{Msg: "the check cannot answer: " + context.Canceled.Error()},
@@ -308,9 +306,8 @@ func TestAllReindexRefusals(t *testing.T) {
 	}
 }
 
-// TestRefusalRank pins which of two nodes' simultaneous refusals is published.
-// The configuration refusal has to win: the others end when the migration
-// does, and it does not end until an operator changes a setting.
+// The configuration refusal wins: the others end when the migration does, and it
+// does not end until an operator changes a setting.
 func TestRefusalRank(t *testing.T) {
 	rank := func(sentinel error) int { return refusalRank(fmt.Errorf("canCommit: %w", sentinel)) }
 
@@ -597,8 +594,7 @@ func TestPublishAsCancelled(t *testing.T) {
 			err:  fmt.Errorf("%w: %w", backup.ErrReindexOverlapUndetermined, context.Canceled),
 		},
 		{
-			// The refusal is what happened; that the operator cancelled the
-			// backup at the same instant does not make it an abort.
+			// A simultaneous operator cancel does not make the refusal an abort.
 			name:   "an observed overlap on a cancelled operation",
 			err:    fmt.Errorf("%w: x", backup.ErrReindexOverlappedBackup),
 			ctxErr: context.Canceled,

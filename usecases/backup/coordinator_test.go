@@ -1137,10 +1137,8 @@ func TestCommitAllManyFailures(t *testing.T) {
 	}
 }
 
-// TestOneNodeRefusingFailsTheWholeBackup pins that the commit-time overlap
-// check is a cluster-wide guarantee. The check sees only its own node's
-// shards, so a create that tolerated one node's refusal would publish a
-// descriptor whose other nodes all say Success while that node's data is torn.
+// The check sees only its own node's shards, so tolerating one node's refusal
+// would publish a descriptor that says Success over torn data.
 func TestOneNodeRefusingFailsTheWholeBackup(t *testing.T) {
 	t.Parallel()
 	const (

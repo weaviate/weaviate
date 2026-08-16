@@ -553,9 +553,8 @@ func TestSchedulerCreateBackup(t *testing.T) {
 	})
 
 	// The configuration refusal is request-independent, so it fires for an
-	// unpermitted caller too. An empty include is authorized after the class
-	// list is validated, so answering it there trades a 403 for a 422 naming
-	// a server setting the caller may not learn.
+	// unpermitted caller too, and answering it would trade a 403 for a 422
+	// naming a server setting the caller may not learn.
 	for name, include := range map[string][]string{
 		"an empty include": {}, "no include at all": nil, "an explicit include": {cls},
 	} {
@@ -581,10 +580,8 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		})
 	}
 
-	// The one kind of the 422 arm no other test carries: this one is forwarded
-	// whole rather than rebuilt from its kind, and TestBackupRefusalReaches422
-	// covers the in-flight kind. Which node answers first, this one's own
-	// admission check or a peer, is decided by a mixed-TTL rolling restart.
+	// The only 422 kind forwarded whole rather than rebuilt from its kind; a
+	// mixed-TTL rolling restart decides whether this node or a peer answers first.
 	t.Run("a peer's unanswerable overlap check is not a server fault", func(t *testing.T) {
 		sentinel := backup.ErrReindexOverlapCheckUnanswerable
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))

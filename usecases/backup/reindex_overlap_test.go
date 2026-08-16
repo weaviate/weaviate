@@ -29,8 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// recordingSlot records the whole sequence a node's operation slot was driven
-// through, so a test can assert what the slot was never told.
+// recordingSlot keeps every status the slot saw, so a test can assert what it never saw.
 type recordingSlot struct {
 	mu       sync.Mutex
 	statuses []backup.Status
@@ -61,16 +60,12 @@ func (s *recordingSlot) saw(st backup.Status) bool {
 	return false
 }
 
-// The refusal the commit-time check composes for an overlap it attributed.
 func observedOverlap(class string) error {
 	return fmt.Errorf("%w: collection %q was migrated while this backup was being captured",
 		backup.ErrReindexOverlappedBackup, class)
 }
 
-// uploadFixture builds an uploader over a capture that produces one class
-// descriptor, carrying descErr when the capture itself failed. It publishes
-// into the caller's slot, which the status-API cases need so OnStatus reads
-// what the uploader published.
+// uploadFixture builds an uploader over a one-class capture that failed with descErr.
 func uploadFixture(t *testing.T, class string, descErr, metaErr error, slot statusPublisher) (*uploader, *fakeSourcer, *backup.BackupDescriptor) {
 	t.Helper()
 	const backupID = "1"
@@ -97,8 +92,6 @@ func uploadFixture(t *testing.T, class string, descErr, metaErr error, slot stat
 		sourcer, desc
 }
 
-// TestCommitTimeOverlapCheckPlacement pins where the check sits: after the
-// capture, before anything says the capture is publishable.
 func TestCommitTimeOverlapCheckPlacement(t *testing.T) {
 	const class = "Article"
 
@@ -126,9 +119,7 @@ func TestCommitTimeOverlapCheckPlacement(t *testing.T) {
 	})
 }
 
-// TestHowACheckErrorIsPublished pins the line between a refusal and an operator
-// abort: a refusal ends FAILED even when its cause wraps a cancellation, and a
-// cancel ends CANCELLED.
+// A refusal ends FAILED even when its cause wraps a cancel; an abort ends CANCELLED.
 func TestHowACheckErrorIsPublished(t *testing.T) {
 	const class = "Article"
 
@@ -145,8 +136,7 @@ func TestHowACheckErrorIsPublished(t *testing.T) {
 			wantFailures: true,
 		},
 		{
-			// A shape the check does not emit: a cancelled context is answered
-			// as a cancel before a verdict exists. Pinned for whatever does.
+			// A shape the check does not emit today, pinned for whatever does.
 			name: "an unanswerable check whose own cause was cancelled",
 			refusal: fmt.Errorf("%w: the cluster task manager could not be listed: %w",
 				backup.ErrReindexOverlapUndetermined, context.Canceled),
@@ -179,10 +169,6 @@ func TestHowACheckErrorIsPublished(t *testing.T) {
 	}
 }
 
-// TestPublishedReasonNeverReadsAsACancel pins where the cancel phrase is
-// scrubbed and where it is not: out of a refusal this branch composes, so a
-// metadata write that failed on a cancelled request cannot put it back, and
-// left alone on a clean capture, which has no torn state to protect.
 func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 	const class = "Article"
 	cancelledWrite := fmt.Errorf("s3: %w", context.Canceled)
@@ -199,9 +185,7 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 			refusal: observedOverlap(class), metaErr: cancelledWrite, wantStatus: backup.Failed,
 		},
 		{
-			// The capture passed the check, so there is nothing torn under
-			// this id and re-posting it is safe. Scrubbing here would only
-			// cost the operator the CANCELLED the write fault earns.
+			// Nothing is torn here, so scrubbing would only cost a real CANCELLED.
 			name:    "a clean capture keeps its write fault verbatim",
 			metaErr: cancelledWrite, wantStatus: backup.Transferred, keepsCancelText: true,
 		},
@@ -224,17 +208,13 @@ func TestPublishedReasonNeverReadsAsACancel(t *testing.T) {
 	}
 }
 
-// TestReindexRefusalOnTheStatusAPI pins what a poll is told about a capture a
-// reindex check refused: the refusal leads, a co-occurring metadata write fault
-// is named after it, and the shard the wrappers named never reaches the caller.
 func TestReindexRefusalOnTheStatusAPI(t *testing.T) {
 	const (
 		backupID = "1"
 		class    = "Article"
 		shard    = "vT4Kq9LmShardId"
 	)
-	// The shape the storage layer produces: a redacted refusal, wrapped
-	// on its way up by layers that do name the shard.
+	// A redacted refusal, wrapped on its way up by layers that do name the shard.
 	blocked := fmt.Errorf("shard %q: %w", shard, backup.ReindexBlockedError{
 		Msg: fmt.Sprintf("%s: collection %q has an active runtime-reindex task in DTM",
 			backup.ErrBackupBlockedByInFlightReindex, class),

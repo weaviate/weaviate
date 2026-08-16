@@ -50,9 +50,8 @@ func TestExtractReindexTaskCollection(t *testing.T) {
 
 	t.Run("unparseable payload is rejected", func(t *testing.T) {
 		// The name is intact in the raw bytes, so a scan-based fallback
-		// would recover it where the decoder must not. The backup overlap
-		// check scopes a task by this answer, and a truncated payload is no
-		// grounds to leave a collection open.
+		// would recover it where the decoder must not. The overlap check scopes
+		// a task by this answer, and a truncated payload leaves nothing open.
 		got, ok := ExtractReindexTaskCollection([]byte(`{"collection":"Movies","unitToShard":{"u1":"sha`))
 		assert.False(t, ok)
 		assert.Equal(t, "", got)

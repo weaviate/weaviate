@@ -74,10 +74,8 @@ func TestReindexSentinelsAreDistinguishable(t *testing.T) {
 	}
 }
 
-// TestCancelSafeTextLeavesNoCancelPhrase pins the postcondition the coordinator
-// relies on: whatever went in, the phrase it relabels a FAILED participant
-// CANCELLED on is not in what comes out. A CANCELLED id can be re-posted, so a
-// phrase that survives lets a clean capture overwrite a torn one.
+// Whatever goes in, the phrase the coordinator relabels a FAILED participant
+// CANCELLED on is not in what comes out.
 func TestCancelSafeTextLeavesNoCancelPhrase(t *testing.T) {
 	phrase := context.Canceled.Error()
 	tests := []struct {
@@ -86,12 +84,10 @@ func TestCancelSafeTextLeavesNoCancelPhrase(t *testing.T) {
 		{name: "empty"},
 		{name: "nothing to scrub", text: "no space left on device"},
 		{name: "only the phrase", text: phrase},
-		// The single-pass defeat: the replacement ends in "context", so the
-		// trailing word re-forms the phrase across the seam it just wrote.
+		// The replacement ends in "context", so a trailing word re-forms the phrase.
 		{name: "a trailing word re-forms it", text: "s3: " + phrase + " canceled while uploading"},
 		{name: "many separate occurrences", text: strings.Repeat(phrase+" and ", 50)},
-		// Long enough that a loop failing to make progress would not finish
-		// inside the test timeout.
+		// Long enough that a loop making no progress would not finish in time.
 		{name: "adversarially re-forming, at length", text: phrase + strings.Repeat(" canceled", 5000)},
 	}
 	for _, tt := range tests {
