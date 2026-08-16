@@ -318,11 +318,9 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	return data, nil
 }
 
-// wildcardAlphabet is every character path.Match reads as a metacharacter,
-// which is what literalIncludes and expandWildcards both need. A character
-// left out here is a literal to them and a pattern to path.Match, so the gate
-// would be asked by name about a collection that cannot exist.
-const wildcardAlphabet = `*?[\`
+// wildcardAlphabet is read by literalIncludes and expandWildcards; if the
+// two disagree, the gate's scope and the include expansion diverge.
+const wildcardAlphabet = "*?"
 
 // literalIncludes reports whether include names collections outright. There
 // is no descriptor at this point to expand a pattern against, so "Mov*"
@@ -1213,8 +1211,7 @@ func findDuplicate(xs []string) string {
 }
 
 // matchesWildcard checks if a class name matches a wildcard pattern.
-// Patterns are path.Match patterns: '*' matches any sequence, '?' any single
-// character, '[...]' any character in the set, and '\' escapes the next one.
+// Patterns support '*' (matches any sequence) and '?' (matches any single character).
 func matchesWildcard(pattern, className string) bool {
 	matched, err := path.Match(pattern, className)
 	if err != nil {
