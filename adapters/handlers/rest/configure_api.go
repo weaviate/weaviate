@@ -1159,7 +1159,7 @@ func installReindexGateLookups(appState *state.State, repo *db.DB, serverShutdow
 			}
 		}
 		return db.NewReindexOverlapLookup(tasks,
-			completedTaskTTL, appState.ReindexProvider.HasActiveWorker, time.Now)
+			completedTaskTTL, appState.ReindexProvider.LocalWorkerActivity, time.Now)
 	})
 }
 

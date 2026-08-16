@@ -31,7 +31,7 @@ var (
 	commitTime   = captureStart.Add(10 * time.Minute)
 )
 
-func noLocalWorker(distributedtask.TaskDescriptor) bool { return false }
+func noLocalWorker(distributedtask.TaskDescriptor) (bool, time.Time) { return false, time.Time{} }
 
 func overlapTask(status distributedtask.TaskStatus, finishedAt time.Time, units map[string]*distributedtask.Unit) *distributedtask.Task {
 	task := reindexTask("t1", status, payloadFor("Movies"))
@@ -61,6 +61,7 @@ func TestReindexOverlapRules(t *testing.T) {
 		task           *distributedtask.Task
 		classes        []string
 		hasLocalWorker bool
+		workerExitedAt time.Time
 		want           ReindexOverlapOutcome
 		wantDetail     string
 	}{
@@ -77,9 +78,10 @@ func TestReindexOverlapRules(t *testing.T) {
 			want:    ReindexOverlapEnded,
 		},
 		{
-			name:    "a task that finished before the capture began is clear",
-			task:    overlapTask(distributedtask.TaskStatusFinished, captureStart.Add(-time.Minute), units(distributedtask.UnitStatusCompleted)),
-			classes: []string{"Movies"},
+			name:           "a task that finished before the capture began is clear",
+			task:           overlapTask(distributedtask.TaskStatusFinished, captureStart.Add(-time.Minute), units(distributedtask.UnitStatusCompleted)),
+			classes:        []string{"Movies"},
+			workerExitedAt: captureStart.Add(-time.Second),
 		},
 		{
 			// One unit's failure fails the whole task and stamps FinishedAt,
@@ -90,6 +92,15 @@ func TestReindexOverlapRules(t *testing.T) {
 			classes:        []string{"Movies"},
 			hasLocalWorker: true,
 			want:           ReindexOverlapLive,
+		},
+		{
+			// The same task a scheduler tick later: the worker is gone by the
+			// time the check runs, but it wrote inside the capture window.
+			name:           "a terminal task whose worker stopped mid-capture still overlapped",
+			task:           overlapTask(distributedtask.TaskStatusFailed, captureStart.Add(-time.Minute), units(distributedtask.UnitStatusFailed)),
+			classes:        []string{"Movies"},
+			workerExitedAt: captureStart.Add(time.Minute),
+			want:           ReindexOverlapEnded,
 		},
 		{
 			// Inclusive: a task recorded as finishing at the same instant
@@ -167,7 +178,9 @@ func TestReindexOverlapRules(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			worker := func(distributedtask.TaskDescriptor) bool { return tt.hasLocalWorker }
+			worker := func(distributedtask.TaskDescriptor) (bool, time.Time) {
+				return tt.hasLocalWorker, tt.workerExitedAt
+			}
 			lookup := NewReindexOverlapLookup([]*distributedtask.Task{tt.task},
 				24*time.Hour, worker, func() time.Time { return commitTime })
 
@@ -758,49 +771,61 @@ func TestReindexWorkerClaimsBeforeItWrites(t *testing.T) {
 		"the claim is the first thing the worker does, and a claim it could not land stops it")
 }
 
-// TestHasActiveWorker walks the disjunct behind the all-PENDING waiver.
-func TestHasActiveWorker(t *testing.T) {
+// TestLocalWorkerActivity walks the disjunct behind the all-PENDING waiver and
+// the exit stamp the task record cannot supply.
+func TestLocalWorkerActivity(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "t1", Version: 1}
 	other := distributedtask.TaskDescriptor{ID: "t2", Version: 1}
 
 	tests := []struct {
-		name           string
-		activeWorkers  map[distributedtask.TaskDescriptor]map[string]bool
-		runningHandles map[distributedtask.TaskDescriptor]*reindexTaskHandle
-		want           bool
+		name        string
+		drive       func(p *ReindexProvider)
+		wantRunning bool
+		wantExit    bool
 	}{
 		{name: "nothing running"},
 		{
-			name:          "a unit goroutine is running",
-			activeWorkers: map[distributedtask.TaskDescriptor]map[string]bool{desc: {"u1": true}},
-			want:          true,
+			name:        "a unit goroutine is running",
+			drive:       func(p *ReindexProvider) { p.claimActiveWorker(desc, "u1") },
+			wantRunning: true,
 		},
 		{
-			name:           "the task is registered but no unit has started",
-			runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{desc: {}},
-			want:           true,
+			name:        "the task is registered but no unit has started",
+			drive:       func(p *ReindexProvider) { p.registerStartingTask(desc, &reindexTaskHandle{}, nil) },
+			wantRunning: true,
 		},
 		{
-			name:           "another task is running",
-			activeWorkers:  map[distributedtask.TaskDescriptor]map[string]bool{other: {"u1": true}},
-			runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{other: {}},
+			name:  "another task is running",
+			drive: func(p *ReindexProvider) { p.registerStartingTask(other, &reindexTaskHandle{}, nil) },
+		},
+		{
+			// The window the overlap check owns runs to commit, so when this
+			// node stopped writing is what its task record cannot say.
+			name: "the worker has stopped",
+			drive: func(p *ReindexProvider) {
+				p.registerStartingTask(desc, &reindexTaskHandle{}, nil)
+				p.deleteRunningHandle(desc)
+			},
+			wantExit: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &ReindexProvider{
-				activeWorkers:  map[distributedtask.TaskDescriptor]map[string]bool{},
-				runningHandles: map[distributedtask.TaskDescriptor]*reindexTaskHandle{},
-			}
-			for k, v := range tt.activeWorkers {
-				p.activeWorkers[k] = v
-			}
-			for k, v := range tt.runningHandles {
-				p.runningHandles[k] = v
+			before := time.Now()
+			p := NewReindexProvider(&DB{}, nil, nil, nil, "node-1", nil, context.Background())
+			if tt.drive != nil {
+				tt.drive(p)
 			}
 
-			require.Equal(t, tt.want, p.HasActiveWorker(desc))
+			running, lastExit := p.LocalWorkerActivity(desc)
+
+			require.Equal(t, tt.wantRunning, running)
+			if !tt.wantExit {
+				require.Zero(t, lastExit, "no worker for this task has stopped here")
+				return
+			}
+			require.False(t, lastExit.Before(before), "the stamp records when it stopped")
 		})
 	}
 }
