@@ -41,6 +41,9 @@ const (
 	holdWindowTrackerShards = holdWindowTenants * 2 / 3
 )
 
+// The only CI coverage of the restore gate's node-local hold arm: dropping the hold read
+// from RefuseIfAnyReindexInFlight leaves every other test green.
+//
 // The probe must start before the cancel; the window it samples can close before the task reaches a terminal status.
 func TestRestoreRefusedByCleanupHold(t *testing.T) {
 	ctx := context.Background()

@@ -1495,7 +1495,8 @@ reads the same DTM list and additionally consults a node-local hold
 registry ([`reindex_hold.go`](../adapters/repos/db/reindex_hold.go)), so a
 node still removing a migration's temporary index files (after a failure,
 a cancel, a new submit, or during the orphan audit) refuses both a backup
-and a restore.
+and a restore at admission. Only a backup re-checks later, at file-copy
+time; a restore admitted before the hold rose is not fenced by it.
 
 The hold has a residual worth knowing. The cleanup that follows a stopped
 task takes it after the node waits for that task's local work to drain,
