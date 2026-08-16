@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -551,33 +552,63 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		assert.Equal(t, "", fs.backend.glMeta.Error)
 	})
 
-	// Every kind the 422 arm admits. The same conditions answer 422 from this
-	// node's own admission check, and which node answers first is decided by a
-	// mixed-TTL rolling restart.
-	for kind, sentinel := range map[CanCommitErrorKind]error{
-		CanCommitErrOverlapCheckUnanswerable: backup.ErrReindexOverlapCheckUnanswerable,
-		CanCommitErrInFlightReindex:          backup.ErrBackupBlockedByInFlightReindex,
+	// The configuration refusal is request-independent, so it fires for an
+	// unpermitted caller too. An empty include is authorized after the class
+	// list is validated, so answering it there trades a 403 for a 422 naming
+	// a server setting the caller may not learn.
+	for name, include := range map[string][]string{
+		"an empty include": {}, "no include at all": nil, "an explicit include": {cls},
 	} {
-		t.Run("a peer's "+string(kind)+" refusal is not a server fault", func(t *testing.T) {
+		t.Run("an unpermitted caller is refused before "+name+" reaches the check", func(t *testing.T) {
+			denier := mocks.NewMockAuthorizer()
+			denier.SetErr(authzerrors.NewForbidden(&models.Principal{}, authorization.CREATE, "backups"))
 			fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+			fs.auth = denier
 			fs.selector.On("ListClasses", ctx).Return([]string{cls})
-			fs.selector.On("Backupable", ctx, req.Include).Return(nil)
-			fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
+			fs.selector.On("Backupable", ctx, []string{cls}).
+				Return(backup.ReindexOverlapCheckError{Msg: "TTL is 0"})
 			fs.backend.On("GetObject", any, any, any).Return(nil, backup.ErrNotFound{})
 			fs.backend.On("HomeDir", any, any, any).Return(path)
-			fs.backend.On("Initialize", ctx, any).Return(nil)
-			fs.client.On("CanCommit", any, node, any).Return(&CanCommitResponse{
-				ID: backupID, Method: OpCreate, ErrKind: kind, Err: sentinel.Error(),
-			}, nil)
 
-			_, err := fs.scheduler().Backup(ctx, nil, &req)
+			_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &BackupRequest{
+				Backend: backendName, ID: backupID, Include: include,
+			})
 
-			require.ErrorAs(t, err, &backup.ErrUnprocessable{},
-				"a refusal the caller can act on is 422, not 500")
-			// ErrUnprocessable has no Unwrap, so the body is what a caller reads.
-			assert.Contains(t, err.Error(), sentinel.Error())
+			require.ErrorAs(t, err, &authzerrors.Forbidden{},
+				"permission is answered before configuration is")
+			assert.NotContains(t, err.Error(), "TTL is 0",
+				"a caller with no permission learns nothing about the server's settings")
 		})
 	}
+
+	// The one kind of the 422 arm no other test carries: this one is forwarded
+	// whole rather than rebuilt from its kind, and TestBackupRefusalReaches422
+	// covers the in-flight kind. Which node answers first, this one's own
+	// admission check or a peer, is decided by a mixed-TTL rolling restart.
+	t.Run("a peer's unanswerable overlap check is not a server fault", func(t *testing.T) {
+		sentinel := backup.ErrReindexOverlapCheckUnanswerable
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
+		fs.selector.On("Backupable", ctx, req.Include).Return(nil)
+		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
+		fs.backend.On("GetObject", any, any, any).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("HomeDir", any, any, any).Return(path)
+		fs.backend.On("Initialize", ctx, any).Return(nil)
+		fs.client.On("CanCommit", any, node, any).Return(&CanCommitResponse{
+			ID: backupID, Method: OpCreate, ErrKind: CanCommitErrOverlapCheckUnanswerable,
+			Err: sentinel.Error() +
+				": raise DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS above the time a backup takes",
+		}, nil)
+
+		_, err := fs.scheduler().Backup(ctx, nil, &req)
+
+		require.ErrorAs(t, err, &backup.ErrUnprocessable{},
+			"a refusal the caller can act on is 422, not 500")
+		// ErrUnprocessable has no Unwrap, so the body is what a caller reads.
+		assert.Contains(t, err.Error(), sentinel.Error())
+		assert.Contains(t, err.Error(), "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+			"the peer's text is forwarded whole, so the settings to change survive the hop")
+	})
 }
 
 func TestSchedulerRestoration(t *testing.T) {

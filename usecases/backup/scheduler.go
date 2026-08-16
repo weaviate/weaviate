@@ -748,7 +748,13 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	}
 
 	if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
-		return selections, err
+		// Not answered here: this runs before the empty-include authorization,
+		// so answering would tell a caller with no backup permission which
+		// server setting is at fault, where they are owed 403. canCommit
+		// re-raises it on every node, still before a byte is written.
+		if !errors.Is(err, backup.ErrReindexOverlapCheckUnanswerable) {
+			return selections, err
+		}
 	}
 
 	users, err := s.resolveUsers(req.IncludeUsers)
