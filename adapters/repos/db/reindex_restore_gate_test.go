@@ -184,6 +184,13 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		assert.Equal(t, "t1", hook.AllEntries()[0].Data["task_id"])
 		assert.Equal(t, "node-7", hook.AllEntries()[0].Data["node"])
 	})
+	t.Run("a case variant is answered in the caller's own spelling", func(t *testing.T) {
+		db, _, _ := gatedDB(t, gateFixtures{tasks: live})
+		err := db.RefuseIfAnyReindexInFlight(context.Background(), []string{"movies"})
+		require.ErrorContains(t, err, `collection "movies"`)
+		assert.NotContains(t, err.Error(), "Movies",
+			"a spelling the caller never used is the cluster's to disclose, remedy routes included")
+	})
 	t.Run("admits a restore of collections nothing is migrating", func(t *testing.T) {
 		db, hook, _ := gatedDB(t, gateFixtures{tasks: live})
 		require.NoError(t, db.RefuseIfAnyReindexInFlight(context.Background(), []string{"Shows"}))

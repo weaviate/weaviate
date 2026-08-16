@@ -140,8 +140,8 @@ func restoreRefusal(detail string) error {
 }
 
 func restoreLiveTaskRefusal(collections []string, activity ReindexActivity) error {
-	subject, named := restoreSubject(collections, activity.Collection)
-	if !named {
+	subject, matched := restoreSubject(collections, activity.Collection)
+	if matched == "" {
 		// The subject is not the collection the task is on: either nothing
 		// attributes the task to one, or attributing it would name a
 		// collection the caller did not ask about.
@@ -152,7 +152,7 @@ func restoreLiveTaskRefusal(collections []string, activity ReindexActivity) erro
 	}
 	return restoreRefusal(fmt.Sprintf(
 		"%s has an active runtime-reindex task; retry after the migration finishes. %s",
-		subject, reindex.MigrationRemedy(activity.Collection)))
+		subject, reindex.MigrationRemedy(matched)))
 }
 
 func restoreUnreadableRefusal() error {
@@ -165,17 +165,19 @@ func restoreHoldRefusal(collections []string, hold ReindexHold) error {
 	return restoreRefusal(reindexHoldDetail(subject, hold))
 }
 
-// Naming a collection the caller did not ask about discloses the cluster.
-func restoreSubject(collections []string, blocking string) (string, bool) {
+// Naming a collection the caller did not ask about discloses the cluster, and
+// so does spelling one back differently, so matched is the caller's own word
+// for it and everything downstream of the subject is built from that.
+func restoreSubject(collections []string, blocking string) (subject, matched string) {
 	if blocking != "" {
 		for _, collection := range collections {
 			if strings.EqualFold(collection, blocking) {
-				return fmt.Sprintf("collection %q", collection), true
+				return fmt.Sprintf("collection %q", collection), collection
 			}
 		}
 	}
 	if len(collections) == 1 {
-		return fmt.Sprintf("collection %q", collections[0]), false
+		return fmt.Sprintf("collection %q", collections[0]), ""
 	}
-	return "a collection this restore covers", false
+	return "a collection this restore covers", ""
 }
