@@ -28,13 +28,16 @@ import (
 
 // ReindexOverlapOutcome is what the check concluded about one capture, weakest
 // first: a scan keeps the strongest, so a weaker answer never hides an overlap.
-// Only the zero value publishes; a live overlap earns a wait, an ended one an id.
+// An answer nobody could give outranks a finished one, because the migration it
+// could not judge may still be running, and telling the operator a migration is
+// already over is then wrong. Only the zero value publishes; a live overlap
+// earns a wait, an ended one an id.
 type ReindexOverlapOutcome int
 
 const (
 	ReindexOverlapNone ReindexOverlapOutcome = iota
-	ReindexOverlapUndetermined
 	ReindexOverlapEnded
+	ReindexOverlapUndetermined
 	ReindexOverlapLive
 )
 
