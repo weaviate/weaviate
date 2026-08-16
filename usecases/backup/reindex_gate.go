@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/reindex"
 )
 
 const maxNamedClasses = 5
@@ -54,14 +55,14 @@ func publishAsCancelled(err, ctxErr error) bool {
 // cleanup hold, so the rebuilt words claim neither.
 func backupRefusedByParticipant(classes []string) error {
 	return fmt.Errorf(
-		"%w: runtime-reindex work is in progress on %s; retry after it finishes",
-		backup.ErrBackupBlockedByInFlightReindex, blockedSubject(classes))
+		"%w: runtime-reindex work is in progress on %s; retry after it finishes. %s",
+		backup.ErrBackupBlockedByInFlightReindex, blockedSubject(classes), reindex.ClusterMigrationRemedy())
 }
 
 func restoreRefusedByParticipant(classes []string) error {
 	return fmt.Errorf(
-		"restore blocked: %w: runtime-reindex work is in progress on %s; retry after it finishes",
-		backup.ErrReindexInFlight, blockedSubject(classes))
+		"restore blocked: %w: runtime-reindex work is in progress on %s; retry after it finishes. %s",
+		backup.ErrReindexInFlight, blockedSubject(classes), reindex.ClusterMigrationRemedy())
 }
 
 // The kind is all that survives the hop, so the participant reported that

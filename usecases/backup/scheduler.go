@@ -196,6 +196,10 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		BaseBackupID: req.BaseBackupID,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
+		if isReindexRefusal(err) {
+			// A refusal the caller can retry, the same as on the restore path.
+			return nil, backup.NewErrUnprocessable(err)
+		}
 		return nil, err
 	} else {
 		st := s.backupper.lastOp.get()

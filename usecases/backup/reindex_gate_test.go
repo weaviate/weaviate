@@ -117,6 +117,7 @@ func TestRestoreRefusedByParticipant(t *testing.T) {
 	assert.Contains(t, err.Error(), `"Movies"`)
 	assert.Contains(t, err.Error(), `"Shows"`)
 	assert.Contains(t, err.Error(), "retry after it finishes")
+	assert.Contains(t, err.Error(), "GET /v1/tasks", "a rebuilt refusal still owes a route to check")
 
 	// The sentinel is stated once even though a participant's own message
 	// already opens with it.
@@ -444,6 +445,29 @@ func TestRestoreUndeterminedReaches422(t *testing.T) {
 	assert.NotContains(t, err.Error(), "has an active runtime-reindex task")
 	assert.NotContains(t, err.Error(), "runtime-reindex work is in progress")
 	assert.NotContains(t, err.Error(), node2, "a cluster fact names no node")
+}
+
+// The backup path publishes a participant's refusal as 422, like the restore
+// path. Only a fan-out reaches it: alone, a coordinator refuses itself first.
+func TestBackupRefusalReaches422(t *testing.T) {
+	const id, cls, node = "1234", "Movies", "node1"
+	ctx, any := context.Background(), mock.Anything
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+	fs.selector.On("ListClasses", ctx).Return([]string{cls})
+	fs.selector.On("Backupable", ctx, []string{cls}).Return(nil)
+	fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
+	expectUnknownID(ctx, fs, id)
+	fs.backend.On("Initialize", ctx, any).Return(nil)
+	fs.client.On("CanCommit", any, node, any).Return(&CanCommitResponse{
+		Method: OpCreate, ID: id, ErrKind: CanCommitErrInFlightReindex,
+	}, nil)
+	_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &BackupRequest{
+		Backend: "s3", ID: id, Include: []string{cls},
+	})
+	require.ErrorAs(t, err, &backup.ErrUnprocessable{},
+		"a refusal the caller can retry is 422, not 500")
+	assert.Contains(t, err.Error(), backup.ErrBackupBlockedByInFlightReindex.Error())
+	assert.Contains(t, err.Error(), "GET /v1/tasks", "and the only answer the operator gets owes a route")
 }
 
 // A cancellation from the gate's RAFT client is not somebody stopping the
