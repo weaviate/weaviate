@@ -1107,7 +1107,7 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 // The distributed task list both reindex gates snapshot from, narrowed to what they ask of it.
 type reindexTaskLister func(ctx context.Context) (map[string][]*distributedtask.Task, error)
 
-// Runs after the internal cluster listener is already serving canCommit, so a peer's request landing before this line is admitted ungated.
+// Installs both reindex gate lookups. Each snapshots DTM per call, and fails closed as "could not check" rather than as a named task when the list cannot be read.
 func installReindexGateLookups(listTasks reindexTaskLister, logger logrus.FieldLogger,
 	repo *db.DB, serverShutdownCtx context.Context,
 ) {
