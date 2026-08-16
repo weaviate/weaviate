@@ -54,7 +54,8 @@ func (db *DB) warnUnwiredGate(budget *reindexGateWarnBudget, action, gate, detai
 	}
 	logger.WithField("action", action).
 		WithField("gate", gate).
-		Warnf("%s gate: lookup not yet installed; allowing the operation. %s", gate, detail)
+		Warnf("%s gate: lookup not yet installed, so this check refuses nothing; "+
+			"another check may still refuse the operation. %s", gate, detail)
 }
 
 const reindexRefusalSampleLimit = 10
