@@ -792,6 +792,7 @@ func TestStartTaskStampsOnlyWhereUnitsWereAssigned(t *testing.T) {
 			p := NewReindexProvider(
 				&DB{indices: map[string]*Index{indexID(entschema.ClassName(class)): idx}, logger: logger},
 				nil, nil, logger, localNode, func() int { return 1 }, context.Background())
+			p.SetCompletionRecorder(&recordingRecorder{})
 			handle, err := p.StartTask(task)
 			require.NoError(t, err)
 			// Wait on the goroutine: the no-stamp row could only ever time out.
