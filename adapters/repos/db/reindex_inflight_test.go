@@ -423,6 +423,14 @@ func TestIncomingCreateReplicaSnapshotDefersUnderTheReindexGate(t *testing.T) {
 	require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp)
 	require.ErrorContains(t, err, entitiesbackup.ErrBackupReindexActivityUndetermined.Error())
 	require.NotErrorIs(t, err, entitiesbackup.ErrBackupReindexActivityUndetermined)
+
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	index.db = held
+	_, err = index.IncomingCreateReplicaSnapshot(ctx, "shard1", "op-3")
+	require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp)
+	require.ErrorContains(t, err, "for transfer",
+		"the halt-for-duration arm answered, so that arm is what this pins")
+	require.NotErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
 }
 
 func TestBackupGateListsTheClusterOncePerCall(t *testing.T) {
