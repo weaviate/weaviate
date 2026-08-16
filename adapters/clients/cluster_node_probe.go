@@ -157,11 +157,11 @@ func (p nodeProbe) getJSON(ctx context.Context, nodeName, path string,
 	return nil
 }
 
-// isNodeNotFound accepts net/http's 404 byte for byte and nothing else. A body
-// that has been reformatted, or a second sentinel value beside the node's, is
-// evidence of a middlebox in the path, and then the 404 cannot mean the node
-// lacks the route. Refusing costs a caller the "too old to ask" shortcut; a
-// relaxation here spends the whole gate.
+// isNodeNotFound compares the body byte for byte and demands exactly one
+// sentinel header; the Content-Type is not read. A body that has been
+// reformatted or wrapped, or a second sentinel value beside the node's, means a
+// middlebox answered, and its 404 cannot mean the node lacks the route.
+// Relaxing either comparison spends the whole gate.
 func isNodeNotFound(res *http.Response, body []byte) bool {
 	sentinel := res.Header.Values(clusterprobe.NodeNotFoundHeader)
 	return len(sentinel) == 1 && sentinel[0] == clusterprobe.NodeNotFoundHeaderValue &&

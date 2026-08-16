@@ -130,6 +130,14 @@ func TestClusterBackupActivityWireContract(t *testing.T) {
 			wantErr: "did not come from the node itself",
 		},
 		{
+			// A proxy that wraps the origin's body in an error page of its own.
+			name: "404 with the node's body inside a larger one",
+			respond: func(w http.ResponseWriter, r *http.Request) {
+				nosniff(w, http.StatusNotFound, "<html>"+clusterprobe.NodeNotFoundBody+"</html>")
+			},
+			wantErr: "did not come from the node itself",
+		},
+		{
 			// The body alone must never be enough: hoisting the check above the
 			// status switch would let these two clear a node.
 			name:    "200 carrying the node's own 404 body",
