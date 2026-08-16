@@ -343,7 +343,7 @@ func NewBackupsRestoreUnprocessableEntity() *BackupsRestoreUnprocessableEntity {
 /*
 BackupsRestoreUnprocessableEntity describes a response with status code 422, with default header values.
 
-The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, which is transient: retry once the migration finishes.
+The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, or this node could not determine whether one is. Both reindex answers are transient: retry once the migration finishes, or once the cluster is reachable again.
 */
 type BackupsRestoreUnprocessableEntity struct {
 	Payload *models.ErrorResponse

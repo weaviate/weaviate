@@ -188,7 +188,7 @@ func (o *BackupsRestoreNotFound) WriteResponse(rw http.ResponseWriter, producer 
 const BackupsRestoreUnprocessableEntityCode int = 422
 
 /*
-BackupsRestoreUnprocessableEntity The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, which is transient: retry once the migration finishes.
+BackupsRestoreUnprocessableEntity The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, or this node could not determine whether one is. Both reindex answers are transient: retry once the migration finishes, or once the cluster is reachable again.
 
 swagger:response backupsRestoreUnprocessableEntity
 */

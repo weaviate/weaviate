@@ -1796,7 +1796,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The backup cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being backed up, which is transient: retry once the migration finishes.",
+            "description": "The backup cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being backed up, or this node could not determine whether one is. Both reindex answers are transient: retry once the migration finishes, or once the cluster is reachable again.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2078,7 +2078,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, which is transient: retry once the migration finishes.",
+            "description": "The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, or this node could not determine whether one is. Both reindex answers are transient: retry once the migration finishes, or once the cluster is reachable again.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13992,7 +13992,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The backup cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being backed up, which is transient: retry once the migration finishes.",
+            "description": "The backup cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being backed up, or this node could not determine whether one is. Both reindex answers are transient: retry once the migration finishes, or once the cluster is reachable again.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14274,7 +14274,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, which is transient: retry once the migration finishes.",
+            "description": "The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, or this node could not determine whether one is. Both reindex answers are transient: retry once the migration finishes, or once the cluster is reachable again.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
