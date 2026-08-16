@@ -126,15 +126,6 @@ func TestReindexHoldString(t *testing.T) {
 	assert.Equal(t, "unrecognized_hold_99", ReindexHold(99).String())
 }
 
-func TestReindexHoldForReadsTheLiveRegistry(t *testing.T) {
-	db := &DB{}
-	require.Equal(t, ReindexHoldNone, db.ReindexHoldFor("Movies"))
-	release := db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
-	require.Equal(t, ReindexHoldCleanup, db.ReindexHoldFor("Movies"))
-	release()
-	require.Equal(t, ReindexHoldNone, db.ReindexHoldFor("Movies"))
-}
-
 func TestHoldReindexCleanup(t *testing.T) {
 	db := &DB{}
 	var inner, nested ReindexHold

@@ -507,3 +507,64 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 	require.NoError(t, shd.HaltForTransfer(ctx, true, 100*time.Millisecond))
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
 }
+
+// The WARN is where an operator learns which shards are blocked, and a hold covers
+// the collection, so it must not report the live-task loop's narrower count.
+func TestBackupGateHoldRefusalReportsEveryShard(t *testing.T) {
+	shards := make([]string, 0, 12)
+	for i := range 12 {
+		shards = append(shards, fmt.Sprintf("shard-%02d", i))
+	}
+	db, hook, _ := gatedDB(t, gateFixtures{})
+	// Raised while the last shard is asked, so a hold read before or during the loop misses it.
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(_, shardName string) (bool, bool) {
+			if shardName == shards[len(shards)-1] {
+				db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
+			}
+			return false, false
+		}
+	})
+
+	require.ErrorContains(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(shards),
+		"still removing its temporary index files")
+	warned := warnOrAbove(hook)
+	require.Len(t, warned, 1, "one refused call, one line")
+	assert.Equal(t, ReindexHoldCleanup.String(), warned[0].Data["reason"])
+	assert.Equal(t, len(shards), warned[0].Data["blocked_shard_count"])
+	assert.Equal(t, shards[:reindexRefusalSampleLimit], warned[0].Data["blocked_shards"])
+}
+
+// Dropping the argument from ReindexHoldFor is one token, and an empty list means
+// every collection: a node sweeping one would refuse every backup and restore.
+func TestReindexGatesAreScopedToTheirCollection(t *testing.T) {
+	newDB := func() *DB {
+		db, _, _ := gatedDB(t, gateFixtures{holds: map[string]ReindexHold{"Other": ReindexHoldCleanup}})
+		db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+			return func(string, string) (bool, bool) { return false, false }
+		})
+		return db
+	}
+	assert.NoError(t, gatedIndex(newDB(), "Movies").refuseIfReindexInFlight("s1"))
+	assert.NoError(t, gatedIndex(newDB(), "Movies").refuseIfAnyShardReindexInFlight([]string{"s1", "s2"}))
+	assert.NoError(t, newDB().RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}))
+}
+
+// The backup gate's wiring, distinct from what it answers: deleting the call inside
+// DB.Backupable left the whole package green.
+func TestBackupableConsultsTheReindexGate(t *testing.T) {
+	ctx := testCtx()
+	const className = "BackupableGated"
+	_, idx := testShard(t, ctx, className)
+	db, _, _ := gatedDB(t, gateFixtures{})
+	db.indices = map[string]*Index{indexID(idx.Config.ClassName): idx}
+	idx.db = db
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) (bool, bool) { return false, false }
+	})
+
+	require.NoError(t, db.Backupable(ctx, []string{className}), "nothing held, nothing to refuse")
+	db.reindexHolds.acquire(className, ReindexHoldCleanup)
+	require.ErrorContains(t, db.Backupable(ctx, []string{className}),
+		"still removing its temporary index files")
+}
