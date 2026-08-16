@@ -38,22 +38,15 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
+// A real registry rather than a map of its own: production folds case on the
+// way in and on the way out, and every gate test reads its hold through here.
 func makeHoldBuilder(holds map[string]ReindexHold) ReindexHoldLookupBuilder {
+	r := &ReindexHoldRegistry{}
+	for collection, hold := range holds {
+		r.acquire(collection, hold)
+	}
 	return func() ReindexHoldLookup {
-		return func(collections []string) ReindexHold {
-			if len(collections) == 0 {
-				strongest := ReindexHoldNone
-				for _, hold := range holds {
-					strongest = max(strongest, hold)
-				}
-				return strongest
-			}
-			strongest := ReindexHoldNone
-			for _, collection := range collections {
-				strongest = max(strongest, holds[collection])
-			}
-			return strongest
-		}
+		return func(collections []string) ReindexHold { return r.HoldFor(collections...) }
 	}
 }
 
