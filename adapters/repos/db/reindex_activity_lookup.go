@@ -48,8 +48,8 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 			continue
 		}
 		// Scoped through the decoder the restore gate uses, so one record cannot be
-		// refused there and admitted here. A payload it cannot attribute, or one that
-		// lists no shard, blocks the collection; no current writer produces either.
+		// refused there and admitted here. A payload it cannot attribute blocks every
+		// collection, exactly as that gate reads it.
 		collection, named := ExtractReindexTaskCollection(task.Payload)
 		if !named {
 			everyShard = true
@@ -65,6 +65,7 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 			continue
 		}
 		if len(payload.UnitToShard) == 0 {
+			// Blocks only this collection. Submit 400s on empty ownership, and ShardReplicaOwnership leaves no node entry empty.
 			wholeCollection[collection] = true
 			continue
 		}
