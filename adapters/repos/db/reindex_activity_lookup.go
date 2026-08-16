@@ -42,9 +42,9 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 			continue
 		}
 		var payload ReindexTaskPayload
-		// Skipping admits the shard, where the restore gate's one-field
-		// [NewAnyReindexActivityLookup] refuses the same record as cluster-wide. Only
-		// a build that retypes a payload field can make the two disagree.
+		// Skipping admits the shard. The restore gate decodes the collection
+		// field alone, so it still refuses: that one collection where the
+		// field survives this payload, every collection where it does not.
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			logger.WithField("action", "backup_reindex_gate").
 				WithField("task_id", task.ID).

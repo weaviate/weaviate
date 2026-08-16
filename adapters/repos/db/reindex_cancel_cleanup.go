@@ -51,7 +51,7 @@ type StalePartialReindexSweep func(ctx context.Context, collection, propName, in
 // clean sweep.
 //
 // It raises the cleanup hold here, not at each caller: what it deletes is what a
-// backup copies, and two of the three callers leave the other gate open.
+// backup copies, and all three callers leave the other gate open.
 func (db *DB) NewStalePartialReindexSweep() StalePartialReindexSweep {
 	dirs := &dirNamesCache{}
 	return func(ctx context.Context, collection, propName, indexType string) error {
