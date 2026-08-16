@@ -329,18 +329,25 @@ func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 }
 
 func TestRefuseIfAnyShardReindexInFlight_ArmSelection(t *testing.T) {
-	db, _, _ := gatedDB(t, gateFixtures{
-		live:  map[[2]string]bool{{"Movies", "shard-b"}: true},
-		holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup},
-	})
 	for _, order := range [][]string{
 		{"shard-a", "shard-b"},
 		{"shard-b", "shard-a"},
 	} {
 		t.Run(strings.Join(order, ","), func(t *testing.T) {
+			db, hook, _ := gatedDB(t, gateFixtures{
+				live:  map[[2]string]bool{{"Movies", "shard-b"}: true},
+				holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup},
+			})
 			refusal := gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(order)
 			require.Error(t, refusal)
 			assert.Contains(t, refusal.Error(), "active runtime-reindex task in DTM")
+			// The list must name the shard the reason points at, or it sends the
+			// operator to shards nothing is happening on.
+			warned := warnOrAbove(hook)
+			require.Len(t, warned, 1)
+			assert.Equal(t, reindexReasonLiveTask, warned[0].Data["reason"])
+			assert.Equal(t, []string{"shard-b"}, warned[0].Data["blocked_shards"])
+			assert.Equal(t, 1, warned[0].Data["blocked_shard_count"])
 		})
 	}
 }

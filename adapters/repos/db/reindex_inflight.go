@@ -164,11 +164,9 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 	// loop's round-trips are the window a teardown raises it in, so per-shard reads
 	// would answer differently either side of that window. A hold released before
 	// this line correctly admits, and never outranks a live task.
-	if hold := i.db.ReindexHoldFor(collection); hold != ReindexHoldNone && len(shards) > 0 {
+	if hold := i.db.ReindexHoldFor(collection); refusal == nil && hold != ReindexHoldNone && len(shards) > 0 {
 		blocked, sample = len(shards), cappedSample(shards)
-		if refusal == nil {
-			reason, refusal = hold.String(), reindexHoldRefusal(collection, hold)
-		}
+		reason, refusal = hold.String(), reindexHoldRefusal(collection, hold)
 	}
 	if refusal == nil && unreadable {
 		blocked, sample = len(shards), cappedSample(shards)
