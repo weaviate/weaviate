@@ -412,6 +412,17 @@ func TestParticipantRestoreGate(t *testing.T) {
 		assert.Equal(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind)
 		assert.Contains(t, resp.Err, backup.ErrReindexInFlight.Error())
 	})
+	t.Run("a node whose scope is exactly no collection is not gated", func(t *testing.T) {
+		sourcer := &fakeSourcer{}
+		sourcer.setReindexGate(reindexRefusal("SomeoneElsesClass"))
+		backend := newFakeBackend()
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/1")
+		backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{})
+		m := createManager(sourcer, nil, backend, nil)
+		resp := m.OnCanCommit(ctx, &Request{Method: OpRestore, ID: "1", Backend: "s3", ClassScopeExact: true})
+		assert.Empty(t, sourcer.gateCalls(), "there is no collection here for a migration to block")
+		assert.NotEqual(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind)
+	})
 	t.Run("a gate that could not check sends its own kind", func(t *testing.T) {
 		sourcer := &fakeSourcer{}
 		sourcer.setReindexGate(reindexUndetermined())
@@ -731,6 +742,8 @@ func TestRestoreKeepsNodesNarrowedToNothing(t *testing.T) {
 		}
 		req := call.Arguments.Get(2).(*Request)
 		asked[req.NodeName] = req.Classes
+		require.True(t, req.ClassScopeExact,
+			"without this mark the emptied node reads its empty list as every collection and gates on all of them")
 	}
 	require.Contains(t, asked, node2,
 		"the node the authorization filter narrowed to nothing must still be asked "+

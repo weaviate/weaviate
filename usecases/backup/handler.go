@@ -325,12 +325,15 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		ret.Timeout = res.Timeout
 	case OpRestore:
 		// Ahead of validate(), which fetches the descriptor from the backend. An empty
-		// class list is not "nothing to stage": validate() skips meta.Include for it and
-		// restores this node's whole descriptor, which is what the gate reads it as too.
-		if err := m.restorer.sourcer.RefuseIfAnyReindexInFlight(ctx, req.Classes); err != nil {
-			ret.Err = err.Error()
-			ret.ErrKind = classifyRestoreGateErr(err)
-			return ret
+		// class list means no collection only when the coordinator marked the scope
+		// exact; without that mark it is the legacy "this node's whole descriptor",
+		// which validate() reads the same way, so the gate still covers everything.
+		if narrowedToNothing := req.ClassScopeExact && len(req.Classes) == 0; !narrowedToNothing {
+			if err := m.restorer.sourcer.RefuseIfAnyReindexInFlight(ctx, req.Classes); err != nil {
+				ret.Err = err.Error()
+				ret.ErrKind = classifyRestoreGateErr(err)
+				return ret
+			}
 		}
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {
