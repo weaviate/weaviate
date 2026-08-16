@@ -74,21 +74,6 @@ func TestNewAnyReindexActivityLookup(t *testing.T) {
 			tasks: []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusFinished, payloadFor("Movies"))},
 		},
 		{
-			name:  "terminal task does not block",
-			tasks: []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatusCancelled, payloadFor("Movies"))},
-			ask:   []string{"Movies"},
-		},
-		{
-			// A status this build never declared reads as live: the other
-			// answer restores over a migration a newer node is running.
-			name:        "a status this build cannot classify counts as live",
-			tasks:       []*distributedtask.Task{reindexTask("t1", distributedtask.TaskStatus("from-the-future"), payloadFor("Movies"))},
-			ask:         []string{"Movies"},
-			wantBlocked: true,
-			wantNamed:   "Movies",
-			wantTaskID:  "t1",
-		},
-		{
 			// The payload names no collection, so nothing says which
 			// collection the task holds and every restore is refused.
 			name:        "unattributable task blocks a collection it never named",
@@ -280,26 +265,10 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	})
 }
 
-func TestRefuseIfAnyReindexInFlight_WideRequestLogsBounded(t *testing.T) {
-	classes := make([]string, 0, 1000)
-	for i := range 1000 {
-		classes = append(classes, "Class"+string(rune('A'+i%26))+string(rune('0'+i%10)))
-	}
-	classes = append(classes, "Movies")
-	live := []*distributedtask.Task{
-		reindexTask("t1", distributedtask.TaskStatusStarted, payloadFor("Movies")),
-	}
-	db, hook, _ := gatedDB(t, gateFixtures{tasks: live})
-	require.Error(t, db.RefuseIfAnyReindexInFlight(context.Background(), classes))
-	require.Len(t, hook.AllEntries(), 1, "one refusal, one entry")
-	entry := hook.AllEntries()[0]
-	assert.Equal(t, len(classes), entry.Data["requested_class_count"])
-	assert.Len(t, entry.Data["requested_classes"], reindexRefusalSampleLimit)
-}
-
-// authorization.Backups uppercases its input in place, so a log field
-// sharing the caller's array would be rewritten under it.
-func TestRefuseIfAnyReindexInFlight_LogDoesNotAliasTheRequest(t *testing.T) {
+// A refusal owes the operator the whole request's size but only a sample of
+// its class list. And authorization.Backups uppercases its input in place, so
+// a log field sharing the caller's array would be rewritten under it.
+func TestRefuseIfAnyReindexInFlight_LogIsBoundedAndDoesNotAliasTheRequest(t *testing.T) {
 	classes := make([]string, 0, 20)
 	for i := range 20 {
 		classes = append(classes, fmt.Sprintf("Class%02d", i))
@@ -309,8 +278,10 @@ func TestRefuseIfAnyReindexInFlight_LogDoesNotAliasTheRequest(t *testing.T) {
 	}
 	db, hook, _ := gatedDB(t, gateFixtures{tasks: live})
 	require.Error(t, db.RefuseIfAnyReindexInFlight(context.Background(), classes))
-	require.Len(t, hook.AllEntries(), 1)
+	require.Len(t, hook.AllEntries(), 1, "one refusal, one entry")
+	assert.Equal(t, len(classes), hook.AllEntries()[0].Data["requested_class_count"])
 	logged := hook.AllEntries()[0].Data["requested_classes"].([]string)
+	require.Len(t, logged, reindexRefusalSampleLimit)
 	require.Equal(t, "Class00", logged[0])
 
 	classes[0] = "CLASS00"

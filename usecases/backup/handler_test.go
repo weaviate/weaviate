@@ -205,13 +205,10 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 	}
 }
 
-// TestCanCommitResponse_PreservesInFlightReindexErrorKind verifies that when
-// the local sourcer (DB.Backupable) refuses with the
-// "backup blocked: runtime-reindex in flight" sentinel
-// message, OnCanCommit stamps CanCommitErrInFlightReindex on the response so
-// the coordinator can promote it back to a typed error. Other refusal
-// reasons must keep falling back to CanCommitErrCannotCommit.
-func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
+// A refusal the reindex gate did not raise carries no kind of its own, so
+// OnCanCommit has to fall back to CanCommitErrCannotCommit. The reindex kinds
+// are pinned in reindex_gate_test.go, which asserts the rebuilt body too.
+func TestCanCommitResponse_UnrelatedRefusalKeepsLegacyKind(t *testing.T) {
 	ctx := context.Background()
 	backendName := "s3"
 
@@ -221,29 +218,6 @@ func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
 		wantContain string
 		wantKind    CanCommitErrorKind
 	}{
-		{
-			name: "in-flight reindex sentinel surfaces as CanCommitErrInFlightReindex",
-			// The classifier reads the chain, not the words, so this
-			// fixture only has to wrap the sentinel the gate's arms carry.
-			backupErr: fmt.Errorf("Node-1/MyClass: %w: shard %q has 1 active tracker(s): ...; retry after the migration finishes",
-				backup.ErrBackupBlockedByInFlightReindex, "shard-a"),
-			wantContain: backup.ErrBackupBlockedByInFlightReindex.Error(),
-			wantKind:    CanCommitErrInFlightReindex,
-		},
-		{
-			name: "in-flight sentinel inside errors.Join is still classified (mirrors DB.Backupable shape)",
-			// DB.Backupable accumulates per-class refusals via errors.Join.
-			// errors.Is must walk the joined graph; substring matching would
-			// trip on this realistic case.
-			backupErr: errors.Join(
-				fmt.Errorf("Node-1/ClassA: %w: shard %q (collection %q): ...",
-					backup.ErrBackupBlockedByInFlightReindex, "shard-a", "ClassA"),
-				fmt.Errorf("Node-1/ClassB: %w: shard %q (collection %q): ...",
-					backup.ErrBackupBlockedByInFlightReindex, "shard-b", "ClassB"),
-			),
-			wantContain: backup.ErrBackupBlockedByInFlightReindex.Error(),
-			wantKind:    CanCommitErrInFlightReindex,
-		},
 		{
 			name:        "generic refusal falls back to CanCommitErrCannotCommit",
 			backupErr:   errors.New("unrelated boom"),
