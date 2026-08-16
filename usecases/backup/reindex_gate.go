@@ -24,18 +24,15 @@ import (
 
 const maxNamedClasses = 5
 
-// Any refusal sentinel anywhere in the chain. onlyReindexRefusals in
-// handler.go is the stricter form: every element of a join must refuse.
+// Any refusal in the chain; onlyReindexRefusals in handler.go is the stricter form.
 func isReindexRefusal(err error) bool {
 	return errors.Is(err, backup.ErrReindexInFlight) ||
 		errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) ||
 		errors.Is(err, backup.ErrReindexActivityUndetermined)
 }
 
-// refusalRank orders the refusals two nodes can report at once. A node that
-// observed a migration tells the operator what to wait for; one that could
-// not read the task list tells them nothing they can act on. Without this the
-// answer is whichever goroutine reached the slot first.
+// Ranks concurrent refusals so the reported one is deterministic: an observed
+// migration tells the operator what to wait for, an undetermined one does not.
 func refusalRank(err error) int {
 	if errors.Is(err, backup.ErrReindexActivityUndetermined) {
 		return 0
@@ -43,16 +40,12 @@ func refusalRank(err error) int {
 	return 1
 }
 
-// A refusal is not an operator abort just because its cause wraps a
-// RAFT-client cancel. The operation context is the abort signal itself,
-// so it outranks the refusal.
+// Only the operation context marks an operator abort; a refusal whose cause wraps a RAFT-client cancel must not be reported as one.
 func publishAsCancelled(err, ctxErr error) bool {
 	return errors.Is(ctxErr, context.Canceled) ||
 		(!isReindexRefusal(err) && errors.Is(err, context.Canceled))
 }
 
-// The kind does not say whether the peer saw a live task or a local
-// cleanup hold, so the rebuilt words claim neither.
 func backupRefusedByParticipant(classes []string) error {
 	return fmt.Errorf(
 		"%w: runtime-reindex work is in progress on %s; retry after it finishes. %s",
@@ -65,9 +58,7 @@ func restoreRefusedByParticipant(classes []string) error {
 		backup.ErrReindexInFlight, blockedSubject(classes), reindex.ClusterMigrationRemedy())
 }
 
-// The kind is all that survives the hop, so the participant reported that
-// something in the request is migrating, never which one. Naming a list
-// asserts a migration on each of them.
+// Only the refusal kind survives the hop, so a multi-class request names no individual collection: the participant never said which one is migrating.
 func blockedSubject(classes []string) string {
 	if len(classes) == 1 {
 		return quoteClassList(classes)
@@ -75,8 +66,6 @@ func blockedSubject(classes []string) string {
 	return "at least one of " + quoteClassList(classes)
 }
 
-// Nothing was observed, so the rebuilt message names no collection and
-// promises no migration will end.
 func restoreUndeterminedByParticipant() error {
 	return fmt.Errorf("%w; retry once the cluster is reachable",
 		backup.ErrReindexActivityUndetermined)
@@ -86,8 +75,7 @@ func quoteClassList(classes []string) string {
 	if len(classes) == 0 {
 		return "the collections being restored"
 	}
-	// Sorted so the same restore is refused with the same words on every
-	// retry: the caller's list arrives in map order.
+	// Sorted: the caller's list arrives in map order, and the same restore must be refused with the same words on every retry.
 	named := slices.Sorted(slices.Values(classes))
 	if len(named) > maxNamedClasses {
 		named = named[:maxNamedClasses]

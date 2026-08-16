@@ -512,9 +512,8 @@ func isFinalStatus(st backup.Status) bool {
 // upstream `errors.Is` checks succeed across the RPC boundary. Empty or
 // [CanCommitErrCannotCommit] kinds (including responses from older nodes
 // that don't set the field) keep the legacy [errCannotCommit] wrapping so
-// existing callers and tests continue to match.
-//
-// A reindex refusal is rebuilt from classes, never forwarded.
+// existing callers and tests continue to match. A reindex refusal is rebuilt
+// from classes, never forwarded.
 func canCommitErrFromResponse(resp *CanCommitResponse, classes []string) error {
 	if resp == nil {
 		return errCannotCommit
@@ -586,9 +585,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 		return nil
 	})
 
-	// The whole operation's class list, not the slice of it a given node
-	// holds: the refusal describes what was asked for, and which classes
-	// share a node is placement the caller has no other way to learn.
+	// The whole operation's list, not the slice one node holds: which classes share a node is placement the caller cannot otherwise learn.
 	requested := req.Classes
 
 	mutex := sync.RWMutex{}
@@ -602,9 +599,9 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			}
 			if err != nil {
 				if isReindexRefusal(err) {
-					// A migration is a cluster fact, not a property of the node.
-					// Equal ranks keep the first answer, so two nodes reporting
-					// the same kind still refuse in the same words.
+					// Unprefixed: a migration is a cluster fact, not a property of the
+					// node. Equal ranks keep the first answer, so two nodes reporting
+					// the same kind refuse in the same words.
 					mutex.Lock()
 					if refusal == nil || refusalRank(err) > refusalRank(refusal) {
 						refusal = err
@@ -612,8 +609,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 					mutex.Unlock()
 					return err
 				}
-				// Kept separately because the error group reports only the
-				// first failure, and a refusal often wins that race.
+				// Tracked separately: the error group returns only its first error, and a refusal often wins that race.
 				failed := fmt.Errorf("node %q: %w", req.NodeName, err)
 				mutex.Lock()
 				if peerFailure == nil {
@@ -635,10 +631,9 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 		first, alongside := refusal, peerFailure
 		mutex.RUnlock()
 		if first != nil {
-			// A refusal tells the caller what to do, and a peer that failed
-			// for its own reason travels with it: an unresolvable host must
-			// not be waited out as if it were the migration. Only the ranked
-			// refusal describes the migration, so the other one is dropped.
+			// Exactly two: the ranked refusal, plus one peer failure so an unresolvable
+			// host is not waited out as if it were the migration. Joining every error
+			// instead would sink the ranking.
 			if !isReindexRefusal(err) {
 				alongside = err
 			}

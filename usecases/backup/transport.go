@@ -92,14 +92,11 @@ const (
 	// ErrBackupBlockedByInFlightReindex on receipt.
 	CanCommitErrInFlightReindex CanCommitErrorKind = "in_flight_reindex"
 
-	// An older coordinator cannot read this kind, so the refusal falls through
-	// to 500 there until every node is upgraded. An older participant has no
-	// restore gate and sends no kind at all, which the default arm handles.
+	// An older coordinator cannot read this kind, so the refusal falls through to 500 there
+	// until every node is upgraded; an older participant sends no kind, which the default arm handles.
 	CanCommitErrRestoreBlockedByReindex CanCommitErrorKind = "restore_blocked_by_reindex"
 
-	// The participant could not reach the cluster task list, so it refused
-	// without observing anything. Same rolling-upgrade cost as the kind
-	// above, on a rarer trigger.
+	// The participant could not reach the cluster task list, so it refused without observing anything.
 	CanCommitErrRestoreReindexUndetermined CanCommitErrorKind = "restore_reindex_undetermined"
 
 	// CanCommitErrCannotCommit is the generic fallback used when the

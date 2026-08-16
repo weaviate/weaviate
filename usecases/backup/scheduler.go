@@ -197,7 +197,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		if isReindexRefusal(err) {
-			// A refusal the caller can retry, the same as on the restore path.
+			// Retryable, as on the restore path.
 			return nil, backup.NewErrUnprocessable(err)
 		}
 		return nil, err
@@ -242,10 +242,9 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	meta, err := s.validateRestoreRequest(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
-			// The gate answers before existence does, deliberately. A
-			// caller that named literal classes was already authorized on
-			// those; asking anything wider needs cluster-wide permission,
-			// or the answer discloses a migration the caller cannot see.
+			// The gate answers before existence does. A caller that named literal classes
+			// is already authorized on those; anything wider needs cluster-wide
+			// permission, or the answer discloses a migration the caller cannot see.
 			var gateErr error
 			if literalIncludes(req.Include) {
 				gateErr = s.refuseRestoreDuringReindex(ctx, append([]string(nil), req.Include...))
@@ -306,9 +305,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		status = string(backup.Failed)
 		data.Error = err.Error()
 		if isReindexRefusal(err) {
-			// Already rebuilt node-agnostically by the coordinator, and
-			// rebuilding it again here would restate a refusal that could
-			// not check as one that observed a migration.
+			// Forwarded as-is: the coordinator already rebuilt it node-agnostically.
 			return nil, backup.NewErrUnprocessable(err)
 		}
 		return nil, err
@@ -318,13 +315,11 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	return data, nil
 }
 
-// wildcardAlphabet is read by literalIncludes and expandWildcards; if the
-// two disagree, the gate's scope and the include expansion diverge.
+// Shared by literalIncludes and expandWildcards; if the two disagree, the gate's scope and the include expansion diverge.
 const wildcardAlphabet = "*?"
 
-// literalIncludes reports whether include names collections outright. There
-// is no descriptor at this point to expand a pattern against, so "Mov*"
-// would ask a name-matching gate about nothing.
+// literalIncludes reports whether include names collections outright. There is no
+// descriptor here to expand a pattern against, so "Mov*" would ask a name-matching gate about nothing.
 func literalIncludes(include []string) bool {
 	if len(include) == 0 {
 		return false

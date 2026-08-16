@@ -32,9 +32,8 @@ import (
 // [CanCommitErrorKind]. nil err returns the empty kind so callers can keep
 // using empty-string semantics when nothing went wrong.
 //
-// Classification reads the error chain, never the words: the storage layer's
-// Backupable() wraps the shared [backup.ErrBackupBlockedByInFlightReindex]
-// sentinel inside errors.Join when several classes refuse.
+// Classification reads the error chain, never the words: Backupable() wraps the
+// [backup.ErrBackupBlockedByInFlightReindex] sentinel inside an errors.Join.
 func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if err == nil {
 		return ""
@@ -45,10 +44,8 @@ func classifyCanCommitErr(err error) CanCommitErrorKind {
 	return CanCommitErrCannotCommit
 }
 
-// onlyReindexRefusals reports whether every error in the chain is a refusal.
-// Backupable joins one error per class, so a refusal can arrive next to a
-// class that does not exist; the coordinator rebuilds a refusal from the
-// request and drops the text, so a mixed answer has to keep the generic kind.
+// onlyReindexRefusals requires every error in the chain to be a refusal: Backupable
+// joins one per class, and a refusal beside a missing class keeps the generic kind.
 func onlyReindexRefusals(err error) bool {
 	joined, ok := err.(interface{ Unwrap() []error })
 	if !ok {
@@ -66,9 +63,7 @@ func onlyReindexRefusals(err error) bool {
 	return true
 }
 
-// classifyRestoreGateErr keeps the restore gate's two answers apart across
-// the RPC boundary: a migration it observed, and a check it could not
-// complete.
+// classifyRestoreGateErr keeps the gate's two answers apart across the RPC boundary: a migration it observed, and a check it could not complete.
 func classifyRestoreGateErr(err error) CanCommitErrorKind {
 	if errors.Is(err, backup.ErrReindexActivityUndetermined) {
 		return CanCommitErrRestoreReindexUndetermined
@@ -342,12 +337,9 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		}
 		ret.Timeout = res.Timeout
 	case OpRestore:
-		// An empty class list is not "nothing to stage": validate() skips
-		// meta.Include for it, so this node goes on to restore every
-		// collection in its own descriptor. The gate reads the same empty
-		// list as every collection, which is what is about to be staged.
-		//
-		// Before the descriptor is read: validate() fetches from the backend.
+		// Ahead of validate(), which fetches the descriptor from the backend. An empty
+		// class list is not "nothing to stage": validate() skips meta.Include for it and
+		// restores this node's whole descriptor, which is what the gate reads it as too.
 		if err := m.restorer.sourcer.RefuseIfAnyReindexInFlight(ctx, req.Classes); err != nil {
 			ret.Err = err.Error()
 			ret.ErrKind = classifyRestoreGateErr(err)
