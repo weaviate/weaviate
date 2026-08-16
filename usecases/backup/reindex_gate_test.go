@@ -569,8 +569,9 @@ func TestCanCommitRefusalOutranksPeerFailure(t *testing.T) {
 				require.ErrorAs(t, err, &backup.ErrUnprocessable{},
 					"a refusal is 422 whichever answer the fan-out recorded first")
 				assert.Contains(t, err.Error(), backup.ErrReindexInFlight.Error())
-				assert.NotContains(t, err.Error(), "connection refused")
-				assert.NotContains(t, err.Error(), node1)
+				assert.Contains(t, err.Error(), "connection refused",
+					"a peer that failed for its own reason must travel with the refusal")
+				assert.NotContains(t, err.Error(), node2, "the refusing node is still not named")
 			})
 		}
 	})

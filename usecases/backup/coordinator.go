@@ -593,7 +593,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 
 	mutex := sync.RWMutex{}
 	nodes := make(map[string]string, len(c.descriptor.Nodes))
-	var refusal error
+	var refusal, peerFailure error
 	for req := range reqChan {
 		g.Go(func() error {
 			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
@@ -612,7 +612,15 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 					mutex.Unlock()
 					return err
 				}
-				return fmt.Errorf("node %q: %w", req.NodeName, err)
+				// Kept separately because the error group reports only the
+				// first failure, and a refusal often wins that race.
+				failed := fmt.Errorf("node %q: %w", req.NodeName, err)
+				mutex.Lock()
+				if peerFailure == nil {
+					peerFailure = failed
+				}
+				mutex.Unlock()
+				return failed
 			}
 			mutex.Lock()
 			nodes[req.NodeName] = req.NodeHost
@@ -624,13 +632,17 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	if err := g.Wait(); err != nil {
 		c.abortAll(ctx, abortReq, nodes)
 		mutex.RLock()
-		first := refusal
+		first, alongside := refusal, peerFailure
 		mutex.RUnlock()
 		if first != nil {
-			// A refusal tells the caller what to do; whatever else the
-			// fan-out reported is usually a peer's connection going down
-			// with it.
-			return nil, first
+			// A refusal tells the caller what to do, and a peer that failed
+			// for its own reason travels with it: an unresolvable host must
+			// not be waited out as if it were the migration. Only the ranked
+			// refusal describes the migration, so the other one is dropped.
+			if !isReindexRefusal(err) {
+				alongside = err
+			}
+			return nil, errors.Join(first, alongside)
 		}
 		return nil, err
 	}
