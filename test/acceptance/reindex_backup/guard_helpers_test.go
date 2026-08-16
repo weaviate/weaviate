@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
@@ -80,6 +81,23 @@ func restoreClasses(t *testing.T, backend, backupID string, classes ...string) e
 		})
 	_, err := helper.Client(t).Backups.BackupsRestore(params, nil)
 	return err
+}
+
+// requireNoPlacement asserts a published refusal names neither the shard nor
+// the node the work is on. The resolved shard name is matched too: a leak
+// worded without the quote passes the format assertion above it. An empty
+// shardName is for a refusal that is collection-wide and never resolved one.
+func requireNoPlacement(t *testing.T, msg, shardName string) {
+	t.Helper()
+	require.NotContainsf(t, msg, `shard "`, "a refusal names no shard; got: %s", msg)
+	if shardName != "" {
+		require.NotContainsf(t, msg, shardName, "a refusal names no shard; got: %s", msg)
+	}
+	clusterNodes, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+	require.NoError(t, err)
+	for _, node := range clusterNodes.Payload.Nodes {
+		require.NotContainsf(t, msg, node.Name, "a refusal names no node; got: %s", msg)
+	}
 }
 
 // reindexTaskStatus reads a task's DTM status, so a test can prove the

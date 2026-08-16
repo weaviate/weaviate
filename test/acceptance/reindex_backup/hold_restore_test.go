@@ -28,7 +28,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
-	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
@@ -96,14 +95,8 @@ func TestRestoreRefusedByCleanupHold(t *testing.T) {
 
 	require.Containsf(t, refusal, className,
 		"the refusal must name the collection it is about; got: %s", refusal)
-	require.NotContainsf(t, refusal, `shard "`,
-		"a hold is collection-wide and names no shard; got: %s", refusal)
-	clusterNodes, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
-	require.NoError(t, err)
-	for _, node := range clusterNodes.Payload.Nodes {
-		require.NotContainsf(t, refusal, node.Name,
-			"a refusal names no node; got: %s", refusal)
-	}
+	// A hold is collection-wide, so there is no shard name to resolve.
+	requireNoPlacement(t, refusal, "")
 
 	// The hold has to release. One that did not would wedge every restore on
 	// this node until it restarted.

@@ -17,7 +17,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
-	"github.com/weaviate/weaviate/client/nodes"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -83,16 +82,8 @@ func testRestoreRefusedDuringInFlightReindex(t *testing.T, restURI string) {
 	// here means the two gates' errors got crossed.
 	require.NotContains(t, errMsg, "backup blocked",
 		"a restore refusal must not be worded as a backup refusal; got: %s", errMsg)
-	// Placement the caller has no other way to learn. The resolved names
-	// matter: a leak worded without the quote passes a format assertion.
-	require.NotContains(t, errMsg, `shard "`, "got: %s", errMsg)
-	require.NotContains(t, errMsg,
-		reindexhelpers.GetFirstShardName(t, restURI, reindexClass), "got: %s", errMsg)
-	clusterNodes, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
-	require.NoError(t, err)
-	for _, node := range clusterNodes.Payload.Nodes {
-		require.NotContains(t, errMsg, node.Name, "got: %s", errMsg)
-	}
+	// Placement the caller has no other way to learn.
+	requireNoPlacement(t, errMsg, reindexhelpers.GetFirstShardName(t, restURI, reindexClass))
 
 	_, exists := reindexhelpers.FetchClass(restURI, unrelatedClass, true)
 	require.Falsef(t, exists, "a refused restore must not create %s", unrelatedClass)

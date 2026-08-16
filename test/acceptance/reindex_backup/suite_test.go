@@ -32,7 +32,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
-	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
@@ -202,14 +201,7 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 		"the cancel remedy must state its precondition; got: %s", errMsg)
 
 	// Placement the caller has no other way to learn.
-	shardName := reindexhelpers.GetFirstShardName(t, restURI, className)
-	require.NotContains(t, errMsg, `shard "`, "got: %s", errMsg)
-	require.NotContains(t, errMsg, shardName, "got: %s", errMsg)
-	nodes, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
-	require.NoError(t, err)
-	for _, node := range nodes.Payload.Nodes {
-		require.NotContains(t, errMsg, node.Name, "got: %s", errMsg)
-	}
+	requireNoPlacement(t, errMsg, reindexhelpers.GetFirstShardName(t, restURI, className))
 
 	// A leaked staging dir would block a same-id retry (checkIfBackupExists,
 	// "Status != Cancelled"). The 422 fires before any write so none exists;
