@@ -109,8 +109,15 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	if i.db == nil {
 		return reindexStartupWindowRefusal(collection)
 	}
-	_, refusal := i.db.reindexBackupRefusal(collection, shardName, i.db.ReindexHoldFor(collection))
-	return refusal
+	if i.db.AnyLiveReindexForShard(collection, shardName) {
+		return reindexLiveTaskRefusal(collection)
+	}
+	// After, never as an argument to the call that asks: a hold raised during
+	// the round-trip is invisible to a value read before it.
+	if hold := i.db.ReindexHoldFor(collection); hold != ReindexHoldNone {
+		return reindexHoldRefusal(collection, hold)
+	}
+	return nil
 }
 
 func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
@@ -119,12 +126,6 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 		return reindexStartupWindowRefusal(collection)
 	}
 
-	// One read for the whole loop. A hold is a property of the collection,
-	// so reading it per shard costs one read per tenant and lets the loop
-	// answer one way for the shards it saw before a hold was taken and
-	// another for the rest.
-	hold := i.db.ReindexHoldFor(collection)
-
 	var (
 		refusal error
 		reason  string
@@ -132,16 +133,25 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 		sample  []string
 	)
 	for _, shardName := range shards {
-		shardReason, shardRefusal := i.db.reindexBackupRefusal(collection, shardName, hold)
-		if shardRefusal == nil {
+		if !i.db.AnyLiveReindexForShard(collection, shardName) {
 			continue
 		}
 		blocked++
 		if len(sample) < reindexRefusalSampleLimit {
 			sample = append(sample, shardName)
 		}
-		if refusal == nil || shardReason == reindexReasonLiveTask {
-			refusal, reason = shardRefusal, shardReason
+		reason, refusal = reindexReasonLiveTask, reindexLiveTaskRefusal(collection)
+	}
+	// One read for the whole loop, and after it. A hold is a property of the
+	// collection, so reading it per shard costs one read per tenant and lets
+	// the loop answer one way for the shards it saw before a hold was taken
+	// and another for the rest. After the loop, because the round-trip inside
+	// it is the window a teardown raises the hold in. A hold blocks every
+	// shard, and never outranks a live task, the arm an operator can act on.
+	if hold := i.db.ReindexHoldFor(collection); hold != ReindexHoldNone && len(shards) > 0 {
+		blocked, sample = len(shards), cappedSample(shards)
+		if refusal == nil {
+			reason, refusal = hold.String(), reindexHoldRefusal(collection, hold)
 		}
 	}
 	if refusal == nil {
@@ -149,22 +159,6 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 	}
 	i.db.warnReindexRefusal(collection, reason, sample, blocked)
 	return refusal
-}
-
-func (db *DB) reindexBackupRefusal(collection, shardName string, hold ReindexHold) (string, error) {
-	var (
-		reason  string
-		refusal error
-	)
-	if db.AnyLiveReindexForShard(collection, shardName) {
-		reason, refusal = reindexReasonLiveTask, reindexLiveTaskRefusal(collection)
-	} else if hold != ReindexHoldNone {
-		reason, refusal = hold.String(), reindexHoldRefusal(collection, hold)
-	}
-	if refusal == nil {
-		return "", nil
-	}
-	return reason, refusal
 }
 
 func (db *DB) warnReindexRefusal(collection, reason string, blockedShards []string, blockedCount int) {

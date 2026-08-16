@@ -365,6 +365,25 @@ func TestRefuseIfAnyShardReindexInFlight_ArmSelection(t *testing.T) {
 	}
 }
 
+// A teardown raising the hold while the round-trip is out leaves no live task
+// behind, so a gate sampling it first admits a backup against a live deletion.
+// Both backup gates, mirroring the restore gate's own probe.
+func TestRefuseIfReindexInFlight_HoldRaisedWhileTheClusterIsAsked(t *testing.T) {
+	held := func() *Index {
+		db, _, _ := gatedDB(t, gateFixtures{})
+		db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+			return func(string, string) bool {
+				db.reindexHolds.acquire("Movies", ReindexHoldCleanup)
+				return false
+			}
+		})
+		return gatedIndex(db, "Movies")
+	}
+	const removing = "still removing its temporary index files"
+	require.ErrorContains(t, held().refuseIfAnyShardReindexInFlight([]string{"s1", "s2"}), removing)
+	require.ErrorContains(t, held().refuseIfReindexInFlight("s1"), removing)
+}
+
 func TestRefuseIfReindexInFlight_Allows(t *testing.T) {
 	db, hook, _ := gatedDB(t, gateFixtures{live: map[[2]string]bool{}, holds: map[string]ReindexHold{}})
 	require.NoError(t, gatedIndex(db, "Movies").refuseIfReindexInFlight("shard-1"))
