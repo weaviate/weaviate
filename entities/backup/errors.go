@@ -33,8 +33,8 @@ var ErrBackupReindexActivityUndetermined = errors.New("backup blocked: whether a
 // the half where the check could not answer.
 var ErrReindexOverlappedBackup = errors.New("backup blocked: a runtime-reindex overlapped this backup")
 
-// The other half: nothing observed says a migration overlapped, only that
-// this capture cannot be cleared of one.
+// The other half: this capture cannot be cleared. An observed overlap can be
+// standing behind it - an unjudgeable record outranks one and drops its finding.
 var ErrReindexOverlapUndetermined = errors.New("backup blocked: the runtime-reindex overlap could not be determined")
 
 // The overlap check is installed but configured so that it could never clear
@@ -67,8 +67,17 @@ func (e ReindexOverlapCheckError) Unwrap() error { return ErrReindexOverlapCheck
 // it relabels a FAILED participant CANCELLED on a text match with
 // context.Canceled, and a CANCELLED id can be re-posted, so a quoted cancel
 // would let a torn capture be silently overwritten by a clean one.
+//
+// One occurrence per pass, because the replacement ends in the phrase's own
+// first word: a single sweep turns "context canceled canceled" into "a
+// canceled context canceled", which quotes it again. It cannot spin - each
+// pass moves the leftmost match 11 bytes on while the string grows by 2.
 func CancelSafeText(text string) string {
-	return strings.ReplaceAll(text, context.Canceled.Error(), "a canceled context")
+	phrase := context.Canceled.Error()
+	for strings.Contains(text, phrase) {
+		text = strings.Replace(text, phrase, "a canceled context", 1)
+	}
+	return text
 }
 
 // ReadCloserWithError extends io.ReadCloser with CloseWithError method.

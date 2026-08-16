@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -68,6 +69,38 @@ func TestReindexSentinelsAreDistinguishable(t *testing.T) {
 				}
 				require.NotErrorIs(t, s.err, other.err,
 					"%s must not match %s", s.name, other.name)
+			}
+		})
+	}
+}
+
+// TestCancelSafeTextLeavesNoCancelPhrase pins the postcondition the coordinator
+// relies on: whatever went in, the phrase it relabels a FAILED participant
+// CANCELLED on is not in what comes out. A CANCELLED id can be re-posted, so a
+// phrase that survives lets a clean capture overwrite a torn one.
+func TestCancelSafeTextLeavesNoCancelPhrase(t *testing.T) {
+	phrase := context.Canceled.Error()
+	tests := []struct {
+		name, text string
+	}{
+		{name: "empty"},
+		{name: "nothing to scrub", text: "no space left on device"},
+		{name: "only the phrase", text: phrase},
+		// The single-pass defeat: the replacement ends in "context", so the
+		// trailing word re-forms the phrase across the seam it just wrote.
+		{name: "a trailing word re-forms it", text: "s3: " + phrase + " canceled while uploading"},
+		{name: "many separate occurrences", text: strings.Repeat(phrase+" and ", 50)},
+		// Long enough that a loop failing to make progress would not finish
+		// inside the test timeout.
+		{name: "adversarially re-forming, at length", text: phrase + strings.Repeat(" canceled", 5000)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CancelSafeText(tt.text)
+			assert.NotContains(t, got, phrase, "the phrase must not survive any input")
+			assert.Equal(t, got, CancelSafeText(got), "scrubbing a scrubbed text changes nothing")
+			if !strings.Contains(tt.text, phrase) {
+				assert.Equal(t, tt.text, got, "text with nothing to scrub is left alone")
 			}
 		})
 	}
