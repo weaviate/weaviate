@@ -86,6 +86,11 @@ func gatedIndex(db *DB, className string) *Index {
 	return &Index{db: db, Config: IndexConfig{ClassName: schema.ClassName(className)}}
 }
 
+// The bulk gate takes the caller's snapshot, so every test asks for one the way Backupable does.
+func gatedBulk(db *DB, className string, shards ...string) error {
+	return gatedIndex(db, className).refuseIfAnyShardReindexInFlight(db.shardReindexActivitySnapshot(), shards)
+}
+
 func TestAnyLiveReindexForShard(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -221,7 +226,7 @@ func TestReindexRefusalTexts(t *testing.T) {
 		},
 		{
 			name:        "no back-reference, from the gate a backup goes through",
-			refusal:     gatedIndex(nil, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"}),
+			refusal:     gatedIndex(nil, "Movies").refuseIfAnyShardReindexInFlight(nil, []string{"shard-1"}),
 			mustContain: []string{"startup window", "retry once the node has finished bootstrapping"},
 			mustNotHave: []string{"/cancel", "STARTED", "POST /v1/schema"},
 		},
@@ -259,10 +264,9 @@ func TestReindexRefusalsRedactPlacement(t *testing.T) {
 		holds: map[string]ReindexHold{"Held": ReindexHoldCleanup},
 	})
 	refusals := map[string]error{
-		"live task": gatedIndex(db, "Movies").refuseIfReindexInFlight(shardName),
-		"hold":      gatedIndex(db, "Held").refuseIfReindexInFlight(shardName),
-		"many shards": gatedIndex(db, "Movies").
-			refuseIfAnyShardReindexInFlight([]string{shardName}),
+		"live task":         gatedIndex(db, "Movies").refuseIfReindexInFlight(shardName),
+		"hold":              gatedIndex(db, "Held").refuseIfReindexInFlight(shardName),
+		"many shards":       gatedBulk(db, "Movies", shardName),
 		"no back-reference": gatedIndex(nil, "Movies").refuseIfReindexInFlight(shardName),
 	}
 	for name, refusal := range refusals {
@@ -280,7 +284,7 @@ func TestReindexRefusalsRedactPlacement(t *testing.T) {
 
 func TestReindexRefusalWarnCarriesPlacement(t *testing.T) {
 	db, hook, _ := gatedDB(t, gateFixtures{live: map[[2]string]bool{{"Movies", "shard-1"}: true}})
-	require.Error(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight([]string{"shard-1"}))
+	require.Error(t, gatedBulk(db, "Movies", "shard-1"))
 	warned := warnOrAbove(hook)
 	require.Len(t, warned, 1, "one refusal, one operator-facing entry")
 	assert.Equal(t, "Movies", warned[0].Data["collection"])
@@ -307,7 +311,7 @@ func TestReindexRefusalAggregatesWideRefusals(t *testing.T) {
 	assert.Empty(t, perShardHook.AllEntries(),
 		"the per-shard path must stay silent; the aggregating gate carries the refusal")
 	db, hook, _ := gatedDB(t, gateFixtures{live: live})
-	refusal := gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(shards)
+	refusal := gatedBulk(db, "Movies", shards...)
 	require.Error(t, refusal)
 	require.Equal(t, 1, len(strings.Split(refusal.Error(), "\n")),
 		"a refusal covering %d shards must still be one body line", shardCount)
@@ -332,7 +336,7 @@ func TestRefuseIfAnyShardReindexInFlight_ArmSelection(t *testing.T) {
 				live:  map[[2]string]bool{{"Movies", "shard-b"}: true},
 				holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup},
 			})
-			refusal := gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(order)
+			refusal := gatedBulk(db, "Movies", order...)
 			require.Error(t, refusal)
 			assert.Contains(t, refusal.Error(), "active runtime-reindex task in DTM")
 			// The list must name the shard the reason points at, or it sends the
@@ -354,7 +358,7 @@ func TestBackupGateRanksAnUnreadableTaskList(t *testing.T) {
 	)
 	gates := map[string]func(*Index) error{
 		"one shard":   func(i *Index) error { return i.refuseIfReindexInFlight("s1") },
-		"every shard": func(i *Index) error { return i.refuseIfAnyShardReindexInFlight([]string{"s1", "s2"}) },
+		"every shard": func(i *Index) error { return gatedBulk(i.db, "Movies", "s1", "s2") },
 	}
 	tests := []struct {
 		name       string
@@ -429,9 +433,11 @@ func TestIncomingCreateReplicaSnapshotDefersUnderTheReindexGate(t *testing.T) {
 
 func TestBackupGateListsTheClusterOncePerCall(t *testing.T) {
 	db, _, built := gatedDB(t, gateFixtures{live: map[[2]string]bool{}})
-	require.NoError(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight([]string{"s1", "s2", "s3"}))
+	lookup := db.shardReindexActivitySnapshot()
+	require.NoError(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(lookup, []string{"s1", "s2", "s3"}))
+	require.NoError(t, gatedIndex(db, "Shows").refuseIfAnyShardReindexInFlight(lookup, []string{"s1"}))
 	require.Equal(t, 1, built.shard,
-		"one task-list read per gate call: building per shard reads it N times and lets one call see the cluster two ways")
+		"one task-list read per precheck: building per shard or per collection reads it N times and lets one precheck see the cluster N ways")
 }
 
 func TestRefuseIfReindexInFlight_HoldRaisedWhileTheClusterIsAsked(t *testing.T) {
@@ -452,8 +458,7 @@ func TestRefuseIfReindexInFlight_HoldRaisedWhileTheClusterIsAsked(t *testing.T) 
 func TestRefuseIfReindexInFlight_Allows(t *testing.T) {
 	db, hook, _ := gatedDB(t, gateFixtures{live: map[[2]string]bool{}, holds: map[string]ReindexHold{}})
 	require.NoError(t, gatedIndex(db, "Movies").refuseIfReindexInFlight("shard-1"))
-	require.NoError(t, gatedIndex(db, "Movies").
-		refuseIfAnyShardReindexInFlight([]string{"shard-1", "shard-2"}))
+	require.NoError(t, gatedBulk(db, "Movies", "shard-1", "shard-2"))
 	require.Empty(t, hook.AllEntries(), "an admitted backup must log nothing")
 }
 
@@ -516,7 +521,7 @@ func TestBackupGateHoldRefusalReportsEveryShard(t *testing.T) {
 		}
 	})
 
-	err := gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(shards)
+	err := gatedBulk(db, "Movies", shards...)
 	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
 	require.ErrorContains(t, err, "still removing its temporary index files")
 	warned := warnOrAbove(hook)
@@ -537,23 +542,39 @@ func TestReindexGatesAreScopedToTheirCollection(t *testing.T) {
 		return db
 	}
 	assert.NoError(t, gatedIndex(newDB(), "Movies").refuseIfReindexInFlight("s1"))
-	assert.NoError(t, gatedIndex(newDB(), "Movies").refuseIfAnyShardReindexInFlight([]string{"s1", "s2"}))
+	assert.NoError(t, gatedBulk(newDB(), "Movies", "s1", "s2"))
 	assert.NoError(t, newDB().RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}))
+}
+
+// Both collection-scoped answers survive an empty shard list. The leader hands every
+// class to the precheck, so a node holding none of a class's shards is routine, and
+// admitting there would let a backup start against a collection under migration.
+func TestBackupGateRefusesAClassWithNoLocalShards(t *testing.T) {
+	held, _, _ := gatedDB(t, gateFixtures{
+		live:  map[[2]string]bool{},
+		holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup},
+	})
+	require.ErrorContains(t, gatedBulk(held, "Movies"), "still removing its temporary index files")
+
+	out, _, _ := gatedDB(t, gateFixtures{})
+	out.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) (bool, bool) { return false, true }
+	})
+	require.ErrorIs(t, gatedBulk(out, "Movies"), entitiesbackup.ErrBackupReindexActivityUndetermined)
 }
 
 // The gate's wiring, distinct from what it answers: deleting the call left it green.
 func TestBackupableConsultsTheReindexGate(t *testing.T) {
 	ctx := testCtx()
-	const className = "BackupableGated"
+	const className, otherClass = "BackupableGated", "BackupableGatedTwo"
 	_, idx := testShard(t, ctx, className)
-	db, _, _ := gatedDB(t, gateFixtures{})
-	db.indices = map[string]*Index{indexID(idx.Config.ClassName): idx}
-	idx.db = db
-	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		return func(string, string) (bool, bool) { return false, false }
-	})
+	_, other := testShard(t, ctx, otherClass)
+	db, _, built := gatedDB(t, gateFixtures{live: map[[2]string]bool{}})
+	db.indices = map[string]*Index{indexID(idx.Config.ClassName): idx, indexID(other.Config.ClassName): other}
+	idx.db, other.db = db, db
 
-	require.NoError(t, db.Backupable(ctx, []string{className}), "nothing held, nothing to refuse")
+	require.NoError(t, db.Backupable(ctx, []string{className, otherClass}), "nothing held, nothing to refuse")
+	require.Equal(t, 1, built.shard, "one task-list read per precheck, not one per collection")
 	db.reindexHolds.acquire(className, ReindexHoldCleanup)
 	require.ErrorContains(t, db.Backupable(ctx, []string{className}),
 		"still removing its temporary index files")

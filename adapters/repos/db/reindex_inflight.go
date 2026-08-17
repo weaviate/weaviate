@@ -128,16 +128,14 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	return nil
 }
 
-func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
+// The snapshot is the caller's, so one precheck over many collections lists DTM once
+// rather than once per collection and cannot read the cluster two ways.
+func (i *Index) refuseIfAnyShardReindexInFlight(lookup ShardReindexActivityLookup, shards []string) error {
 	collection := i.Config.ClassName.String()
 	if i.db == nil {
 		return reindexStartupWindowRefusal(collection)
 	}
 
-	// One snapshot for the whole call: the builder lists DTM on every invocation, so
-	// building per shard both lists N times and lets one gate call read the cluster
-	// two ways. Whether the list was readable is therefore a whole-call answer.
-	lookup := i.db.shardReindexActivitySnapshot()
 	var (
 		refusal    error
 		reason     string
@@ -145,26 +143,28 @@ func (i *Index) refuseIfAnyShardReindexInFlight(shards []string) error {
 		sample     []string
 		unreadable bool
 	)
-	for _, shardName := range shards {
-		if lookup == nil {
-			break
+	if lookup != nil {
+		// Readability is a whole-call answer, so it is asked once rather than folded
+		// per shard: a collection this node holds no shards of must reach the same
+		// verdict as one it holds many of.
+		_, unreadable = lookup(collection, "")
+		for _, shardName := range shards {
+			live, _ := lookup(collection, shardName)
+			if !live {
+				continue
+			}
+			blocked++
+			if len(sample) < reindexRefusalSampleLimit {
+				sample = append(sample, shardName)
+			}
+			reason, refusal = reindexReasonLiveTask, reindexLiveTaskRefusal(collection)
 		}
-		live, listUnreadable := lookup(collection, shardName)
-		unreadable = unreadable || listUnreadable
-		if !live {
-			continue
-		}
-		blocked++
-		if len(sample) < reindexRefusalSampleLimit {
-			sample = append(sample, shardName)
-		}
-		reason, refusal = reindexReasonLiveTask, reindexLiveTaskRefusal(collection)
 	}
 	// One read for the whole loop, after it: the hold covers the collection, and the
 	// loop's round-trips are the window a teardown raises it in, so per-shard reads
 	// would answer differently either side of that window. A hold released before
 	// this line correctly admits, and never outranks a live task.
-	if hold := i.db.ReindexHoldFor(collection); refusal == nil && hold != ReindexHoldNone && len(shards) > 0 {
+	if hold := i.db.ReindexHoldFor(collection); refusal == nil && hold != ReindexHoldNone {
 		blocked, sample = len(shards), cappedSample(shards)
 		reason, refusal = hold.String(), reindexHoldRefusal(collection, hold)
 	}

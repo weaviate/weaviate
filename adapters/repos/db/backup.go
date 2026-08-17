@@ -61,6 +61,10 @@ const (
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
+	// One DTM snapshot for the whole precheck: the builder lists the cluster on every
+	// invocation, so building per collection lists it N times and lets one precheck
+	// read the cluster N ways.
+	lookup := db.shardReindexActivitySnapshot()
 	var errs []error
 	for _, c := range classes {
 		className := schema.ClassName(c)
@@ -78,7 +82,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			errs = append(errs, fmt.Errorf("%s/%s: enumerating local shards for backup-precheck: %w", nodeName, c, err))
 			continue
 		}
-		if err := idx.refuseIfAnyShardReindexInFlight(shards); err != nil {
+		if err := idx.refuseIfAnyShardReindexInFlight(lookup, shards); err != nil {
 			// No node prefix: placement reaches the operator via the WARN.
 			errs = append(errs, err)
 		}
