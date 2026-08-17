@@ -115,7 +115,7 @@ func TestRelaunchedUnitAfterSwapOpensNoSecondBucket(t *testing.T) {
 			}
 			for run := 1; run <= 2; run++ {
 				rec := newFakeRecorder()
-				p.processOneUnit(ctx, task, payload, idx, unitID, rec)
+				p.processOneUnit(ctx, task, payload, idx, unitID, rec, &keyDocColumnDrops{})
 				require.Emptyf(t, rec.failed, "run %d", run)
 				require.Equalf(t, []string{unitID}, rec.completed, "run %d", run)
 				assert.Truef(t, shard.store.Bucket(ingestName) == nil,

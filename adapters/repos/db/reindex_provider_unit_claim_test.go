@@ -213,7 +213,7 @@ func TestASealedUnitNeverStartsItsIteration(t *testing.T) {
 			p.processOneUnit(ctx, &distributedtask.Task{
 				Namespace: ReindexNamespace, TaskDescriptor: desc,
 				Status: distributedtask.TaskStatusStarted,
-			}, &payload, idx, "u1", rec)
+			}, &payload, idx, "u1", rec, &keyDocColumnDrops{})
 
 			require.Empty(t, rec.progress, "a sealed unit reports no progress: it never started")
 			require.Empty(t, rec.completed)
@@ -263,7 +263,7 @@ func TestUnitsHeldByATeardownReportAtASampledRate(t *testing.T) {
 		require.True(t, sealed)
 	}
 	for _, id := range unitIDs {
-		p.processOneUnit(ctx, task, payload, idx, id, nil)
+		p.processOneUnit(ctx, task, payload, idx, id, nil, &keyDocColumnDrops{})
 	}
 
 	held := 0
@@ -371,7 +371,7 @@ func TestAUnitDoesNotRunWhileAMigrationRecordIsUnreadable(t *testing.T) {
 			p.processOneUnit(ctx, &distributedtask.Task{
 				Namespace: ReindexNamespace, Status: distributedtask.TaskStatusStarted,
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "test-rebuild-searchable", Version: 1},
-			}, payload, idx, unit, rec)
+			}, payload, idx, unit, rec, &keyDocColumnDrops{})
 			require.NoError(t, frozen.Shutdown(ctx))
 
 			if tc.unreadable {
