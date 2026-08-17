@@ -103,6 +103,20 @@ func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask
 	return s.store.LocalUnrecognizedDistributedTasks()
 }
 
+// LocalDistributedTasks reads the task list from this node's own FSM rather
+// than routing a query to the leader, so it answers at the same applied log
+// index as every other local read — the schema included. A caller comparing a
+// task's status against schema state must use this: the leader-routed
+// [Raft.ListDistributedTasks] can report a task the local schema has not
+// caught up with yet.
+//
+// Correspondingly, it can trail the leader. Use ListDistributedTasks where a
+// decision must be made against the cluster's latest state, such as before
+// proposing a mutation.
+func (s *Raft) LocalDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return s.store.LocalDistributedTasks(ctx)
+}
+
 // RegisterDistributedTaskCollectionExtractor opts a task namespace into
 // the DELETE_CLASS cascade. See [distributedtask.CollectionExtractor]
 // and weaviate/0-weaviate-issues#231.

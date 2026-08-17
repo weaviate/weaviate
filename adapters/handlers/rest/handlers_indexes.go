@@ -135,19 +135,25 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		return schema.NewSchemaObjectsIndexesGetInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
-	class := h.appState.SchemaManager.ReadOnlyClass(collection)
-	if class == nil {
-		return schema.NewSchemaObjectsIndexesGetNotFound()
-	}
-
-	// Fetch active reindex tasks.
+	// Read the task list before the schema, and read it locally. This
+	// response compares a task's status against schema flags, so both
+	// operands have to come from the same node's applied log. Reading tasks
+	// first means the schema read is never the older of the two: a task this
+	// node already sees as FINISHED has its schema flip applied, because the
+	// flip commits inside OnTaskCompleted and finalize commits only after
+	// every node has acked.
 	var activeTasks map[string][]*distributedtask.Task
 	if h.appState.ClusterService != nil {
 		var err error
-		activeTasks, err = h.appState.ClusterService.ListDistributedTasks(context.Background())
+		activeTasks, err = h.appState.ClusterService.LocalDistributedTasks(context.Background())
 		if err != nil {
 			activeTasks = nil // degrade gracefully
 		}
+	}
+
+	class := h.appState.SchemaManager.ReadOnlyClass(collection)
+	if class == nil {
+		return schema.NewSchemaObjectsIndexesGetNotFound()
 	}
 
 	// Pre-parse the reindex task payloads once per request so the per-property

@@ -450,6 +450,11 @@ func (st *Store) LocalUnrecognizedDistributedTasks() map[string][]*distributedta
 	return st.distributedTasksManager.LocalUnrecognizedDistributedTasks()
 }
 
+// LocalDistributedTasks backs [Raft.LocalDistributedTasks].
+func (st *Store) LocalDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return st.distributedTasksManager.ListDistributedTasks(ctx)
+}
+
 // RegisterDistributedTaskCollectionExtractor opts a task namespace into
 // [SchemaManager.DeleteClass]'s cascade-delete of task records.
 // weaviate/0-weaviate-issues#231.
