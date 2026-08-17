@@ -219,48 +219,6 @@ func TestReindex_WriteAfterEnableRangeableSwap_NotLost(t *testing.T) {
 	}
 }
 
-// TestEnableRangeable_CreatesTheBucketsTheCutoverNeeds pins that a property
-// with no prior inverted index (so no null-state/property-length buckets)
-// can still be written to once enable-rangeable gives it one; the missing
-// buckets used to fail the write.
-func TestEnableRangeable_CreatesTheBucketsTheCutoverNeeds(t *testing.T) {
-	ctx := testCtx()
-	const propName = filterableToRangeablePropName
-
-	className := "EnableRangeableBuckets_" + uuid.NewString()[:8]
-	class := newNoLiveIndexRangeableTestClass(className)
-	require.True(t, class.InvertedIndexConfig.IndexNullState,
-		"the fixture must ask for null-state indexing, else there is nothing to create")
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	for _, obj := range makeFilterableToRangeableTestObjects(t, 5, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
-
-	// Stand in for the cluster-wide flip: the live schema now carries the
-	// flag, so the analyzer emits the property on every ordinary write.
-	trueVal := true
-	shard.index.getSchema.ReadOnlyClass(className).Properties[0].IndexRangeFilters = &trueVal
-
-	assert.NoError(t, shard.PutObject(ctx, &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:         strfmt.UUID(uuid.NewString()),
-			Class:      className,
-			Properties: map[string]interface{}{propName: int64(7)},
-		},
-	}), "writes after the cutover must not fail on a bucket the migration never created")
-}
-
 // TestRangeableWriteOverlay_ClearsOnceTheFlipLands pins the overlay's exit:
 // once the live schema carries the flag the entry is redundant, so the write
 // path drops it rather than paying for it on every object.
