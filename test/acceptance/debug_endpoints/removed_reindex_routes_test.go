@@ -67,6 +67,16 @@ func TestRemovedReindexDebugRoutes(t *testing.T) {
 			"the debug listener must serve /debug/config, otherwise the 404s below prove nothing: body=%s", body)
 	})
 
+	t.Run("control: a surviving route under the same prefix still resolves", func(t *testing.T) {
+		// Rules out the case where every path under /debug/index/rebuild/
+		// 404s for an unrelated reason. This route is out of scope for the
+		// removal, so it must answer something other than 404 — 501 when
+		// async indexing is off, 400 on the missing arguments.
+		status, body := get(t, debugURI, "/debug/index/rebuild/vector")
+		require.NotEqual(t, http.StatusNotFound, status,
+			"/debug/index/rebuild/vector must still be registered: body=%s", body)
+	})
+
 	t.Run("removed routes return 404", func(t *testing.T) {
 		for _, route := range removedReindexRoutes {
 			t.Run(route, func(t *testing.T) {
