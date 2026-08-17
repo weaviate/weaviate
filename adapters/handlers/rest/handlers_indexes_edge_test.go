@@ -274,11 +274,9 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 		"progress recorded before cancellation is preserved")
 }
 
-// A FINISHED task surfaces nothing at any age: the schema flag alone decides
-// whether an entry is emitted, and how long ago the task finished never enters
-// into it. Flag-off is not an error — an index DELETEd after its migration
-// completed leaves exactly that state for as long as the task record lives —
-// so it is logged at Debug and nothing else changes.
+// A FINISHED task never surfaces a synthetic entry, regardless of age or
+// flag state; flag-off after DELETE is expected, not an error, and is
+// logged at Debug only.
 func TestMergeReindexStatus_FinishedTask_SurfacesNoSyntheticEntry(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -392,12 +390,9 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 	}
 }
 
-// A retried migration produces two tasks for the same (collection,
-// prop, indexType): the older terminal attempt and the new in-flight
-// one (terminal tasks deliberately do not block fresh submits). The
-// in-flight task wins regardless of slice order — otherwise the user
-// who just retried would see the older attempt's outcome on alternate
-// polls.
+// In-flight always beats a terminal attempt (FAILED or FINISHED) on the same
+// property, regardless of slice order — otherwise a retried migration could
+// show the old outcome on alternate polls.
 func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 	now := time.Now()
 
@@ -459,14 +454,10 @@ func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 	}
 }
 
-// Two terminal tasks for the same (collection, prop, indexType) can coexist
-// if a user retried after the first failure. The newer attempt is the one to
-// surface, whichever way it ended, and it must win the tiebreak regardless of
-// slice order.
-//
-// The FINISHED row is why FINISHED tasks stay in the merge loop at all: drop
-// them from parseReindexTasks or from the loop and the older FAILED attempt
-// wins, so the entry reports "failed" after the retry succeeded.
+// Two terminal tasks on the same property (e.g. a retry after failure)
+// resolve to the newer one, regardless of slice order — also why FINISHED
+// tasks stay in the merge loop: drop them and an older FAILED attempt would
+// win instead.
 func TestMergeReindexStatus_NewestTerminalWins(t *testing.T) {
 	now := time.Now()
 

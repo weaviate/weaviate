@@ -93,15 +93,9 @@ func newFSMSnapshot(t *testing.T) *fsmSnapshot {
 	}}
 }
 
-// The index-status response compares a task's status against a schema flag.
-// Both operands must come from this node and the task list must be read first.
-// Otherwise the schema can be the older of the two: the flag reads off while
-// the task already reads FINISHED, no synthetic entry is produced, the entry is
-// dropped at the emit gate, and the response is `"indexes": []` — which the UI
-// renders as "None".
-//
-// Each row would go green again if the production read order or the production
-// read source were reverted; see the mutation receipts in the PR description.
+// Both operands (task status, schema flag) must come from this node with
+// tasks read first. Otherwise a stale flag-off can pair with an already-read
+// FINISHED task, dropping the entry so the response renders as "None".
 func TestIndexStatusOperands_ComeFromOneNodeInOneOrder(t *testing.T) {
 	tests := []struct {
 		name        string

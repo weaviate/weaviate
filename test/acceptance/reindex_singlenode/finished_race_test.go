@@ -33,20 +33,13 @@ import (
 //
 // Sequence:
 //
-//  1. The last unit's `RecordDistributedTaskUnitCompletion` runs (Raft apply).
-//     In cluster/distributedtask/manager.go AllUnitsTerminal() → true and
-//     task.Status flips to SWAPPING. The same apply also calls
-//     notifySchedulerWithLock which wakes the scheduler reactively
-//     (cluster/distributedtask/scheduler.go wakeCh path).
-//  2. The scheduler's completed-callback phase runs OnTaskCompleted within
-//     RAFT-propagation + scheduler-loop latency of the apply — typically low
-//     tens of ms with reactive firing, much faster than the periodic tick
-//     interval. OnTaskCompleted in adapters/repos/db/reindex_provider.go calls
-//     applyPerPropertySchemaUpdate (RAFT-idempotent), which flips the
-//     property's Tokenization.
-//  3. Only once that callback has fired does the finalize phase propose
-//     FINISHED, so the flip's log entry always precedes the FINISHED one. A
-//     poller against /v1/tasks sees FINISHED at this point.
+//  1. The last unit's completion triggers a RAFT apply: the task status
+//     flips to SWAPPING and wakes the scheduler.
+//  2. The scheduler's completed-callback phase (OnTaskCompleted) flips the
+//     property's Tokenization via its own RAFT-idempotent apply — typically
+//     tens of ms, well under the periodic tick interval.
+//  3. Only after that callback fires does the task move to FINISHED, so a
+//     poller seeing FINISHED already has the schema flip applied.
 //
 // Contract this test pins: after a poller observes FINISHED on /v1/tasks,
 // the schema must catch up within a bounded window. We allow up to 5
@@ -65,10 +58,8 @@ import (
 // for the entire cluster while peer nodes still served the old bucket.
 //
 // Callers that need to observe the post-migration state synchronously
-// should poll /v1/indexes: it reads its task list from the local FSM before
-// it reads the schema, so a node reporting FINISHED has the flip applied. A
-// FINISHED task surfaces no entry of its own — the schema flag alone decides
-// what the response carries.
+// should poll /v1/indexes instead: it reads the task list before the schema,
+// so a node reporting FINISHED already has the flip applied.
 func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	ctx := context.Background()
 

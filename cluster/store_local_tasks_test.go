@@ -21,15 +21,10 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// A task applied to this node's FSM is readable from this node, with no
-// leader round-trip in between: Store delegates straight to the Manager's
-// in-memory map.
-//
-// This harness cannot say more. setupApplyTest builds a bare FSM with no raft
-// node, so the leader-routed path resolves to the same function and could not
-// be caught disagreeing. The receipt for "both operands come from one node in
-// one order" is TestIndexStatusOperands_ComeFromOneNodeInOneOrder, in the
-// handler package.
+// A task applied to this node's FSM is readable from this node with no
+// leader round-trip. This harness has no raft node, so it can't catch the
+// leader-routed path disagreeing — see
+// TestIndexStatusOperands_ComeFromOneNodeInOneOrder for that receipt.
 func TestStore_LocalDistributedTasks_AnswersFromTheAppliedLog(t *testing.T) {
 	ms, addClassLog := setupApplyTest(t)
 	ms.parser.On("ParseClass", mock.Anything).Return(nil)

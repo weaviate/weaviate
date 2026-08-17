@@ -103,16 +103,13 @@ func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask
 	return s.store.LocalUnrecognizedDistributedTasks()
 }
 
-// LocalDistributedTasks reads the task list from this node's own FSM instead
-// of routing a query to the leader. Two local reads are two acquisitions, so
-// this does not answer at the same applied index as a later schema read. The
-// guarantee is one-directional: it can only be older than a subsequent local
-// read, never newer. That is exactly what a caller comparing a task's status
-// against a schema flag needs, provided it reads the tasks first.
+// LocalDistributedTasks reads this node's own FSM instead of routing to the
+// leader. The guarantee is one-directional: a local read can only be older
+// than a later local read, never newer — exactly what a caller comparing a
+// task's status against a schema flag needs, provided it reads tasks first.
 //
-// It can trail the leader. Use [Raft.ListDistributedTasks] where a decision
-// must be made against the cluster's latest state, such as before proposing a
-// mutation.
+// It can trail the leader; use [Raft.ListDistributedTasks] when a decision
+// needs the cluster's latest state, e.g. before proposing a mutation.
 func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return s.store.LocalDistributedTasks()
 }

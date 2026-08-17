@@ -116,11 +116,10 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 	return h.appState.ReindexSubmitLocks.SubmitLockFor(collection, propertyName)
 }
 
-// localTaskLister reads the reindex task list from this node's own FSM.
-// *cluster.Service satisfies it. Deliberately narrower than
-// [distributedtask.TaskLister]: the leader-routed ListDistributedTasks does
-// not belong on this path, and leaving it off makes reaching for it a
-// compile error rather than a five-letter typo.
+// localTaskLister reads this node's own FSM task list (*cluster.Service
+// satisfies it). Deliberately narrower than [distributedtask.TaskLister]:
+// omitting the leader-routed ListDistributedTasks makes reaching for it here
+// a compile error, not a typo.
 type localTaskLister interface {
 	LocalDistributedTasks() map[string][]*distributedtask.Task
 }
@@ -130,18 +129,10 @@ type classReader interface {
 	ReadOnlyClass(name string) *models.Class
 }
 
-// indexStatusOperands reads the two values the index-status response compares
-// against each other: the reindex task list and the class. Both come from this
-// node, and the tasks are read first so the class is never the older of the
-// two — a class read at a later applied index carries every flag flip the
-// tasks it is compared against have already committed.
-//
-// A nil class means the collection does not exist (404 at the caller). A nil
-// lister means there is no cluster service; the response is then schema-only.
-//
-// Split from [indexesHandlers.getIndexes] so the order and the source are
-// testable with fakes, the same way [reindexTasksOrFailClosed] is split from
-// [indexesHandlers.listReindexTasks].
+// indexStatusOperands reads the task list and the class from this node,
+// tasks first, so the class can never be the older of the two operands being
+// compared. Nil class: collection doesn't exist. Nil lister: no cluster
+// service, response is schema-only.
 func indexStatusOperands(collection string, tasks localTaskLister, schemaReader classReader) (*models.Class, []parsedReindexTask) {
 	var byNamespace map[string][]*distributedtask.Task
 	if tasks != nil {
@@ -982,11 +973,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		surfaceSyntheticFields = true
 	}
 
-	// Only paint the per-migration-type "in-flight" side-effect fields when
-	// the status switch actually surfaced an in-flight signal. If the entry
-	// stayed "ready" — which now only happens for a FINISHED task — the
-	// migration has completed and the schema-derived fields above are
-	// authoritative.
+	// Only paint the in-flight side-effect fields when the switch surfaced an
+	// in-flight signal. A "ready" entry (now only from a FINISHED task) is
+	// already fully described by the schema-derived fields above.
 	if !surfaceSyntheticFields {
 		return
 	}
@@ -1019,14 +1008,10 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	}
 }
 
-// taskStatusPriority returns a priority for picking the most user-relevant
-// task when more than one task matches a (collection, prop, indexType).
-// In-flight beats terminal: a user who has just retried a previously
-// failed migration wants to see the new attempt's progress, not the old
-// failure. FINISHED ranks alongside FAILED / CANCELLED so a completed
-// migration wins the StartedAt tiebreak over an older FAILED attempt on
-// the same property — otherwise the entry reports "failed" after the
-// retry succeeded.
+// taskStatusPriority ranks the most user-relevant task when several match
+// the same (collection, prop, indexType): in-flight beats terminal, and
+// FINISHED ranks with FAILED/CANCELLED so a completed migration still wins
+// the StartedAt tiebreak over an older FAILED attempt.
 func taskStatusPriority(task *distributedtask.Task) int {
 	if task.Status.IsActive() {
 		return 2
