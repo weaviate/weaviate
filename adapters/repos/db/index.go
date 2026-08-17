@@ -724,15 +724,14 @@ func (i *Index) unloadedShardIsEmpty(shardName string) bool {
 }
 
 func (i *Index) loadLocalShardIfActive(shardName string) error {
-	// Index.Shutdown takes closeLock for write and does not take
-	// shardCreateLocks, so without this a load can build a shard after shutdown
-	// has already swept the map, leaving one nothing will ever close.
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return nil
+	// Index.Shutdown skips a lazy shard that is not loaded yet, so a build racing
+	// its sweep leaves an open store nothing will ever close. The refcount holds
+	// the index open instead of closeLock, because a teardown queued for the write
+	// lock would park every other reader for the whole build.
+	if err := i.enterRead(); err != nil {
+		return nil // a closed index is not a load failure
 	}
+	defer i.exitRead()
 
 	// The namespace state read at boot goes stale as initLazyShardsInBackground
 	// walks its shard list, so re-read it here. A refusal returns nil because an
@@ -758,9 +757,9 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 			return nil
 		}
 
-		// The load waits for a permit from the node-wide limiter while holding
-		// closeLock, so it has to give that wait up on a close request rather
-		// than leave a teardown waiting for the lock.
+		// The load waits for a permit from the node-wide limiter while the index
+		// is held open, so it has to give that wait up on a close request rather
+		// than leave a teardown waiting for it to finish.
 		ctx, done := i.cancelOnCloseRequested(context.Background())
 		defer done()
 

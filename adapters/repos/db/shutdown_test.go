@@ -638,9 +638,9 @@ func TestShutdownSignalSurvivesDeadResourceScanner(t *testing.T) {
 }
 
 // TestCloseRequestAbortsBackgroundShardLoad pins that the background shard load
-// gives up its closeLock read once a close is requested. It waits for a node-wide
-// load permit under that lock, so a load that kept waiting would hold up the
-// teardown for as long as the permit is taken.
+// gives up its wait once a close is requested. It waits for a node-wide load
+// permit while holding the index open, so a load that kept waiting would hold up
+// the teardown for as long as the permit is taken.
 func TestCloseRequestAbortsBackgroundShardLoad(t *testing.T) {
 	tests := []struct {
 		name string
@@ -665,22 +665,10 @@ func TestCloseRequestAbortsBackgroundShardLoad(t *testing.T) {
 		t.Run(tt.name+" releases the load", func(t *testing.T) {
 			idx := newShutdownTestIndex(t, nil)
 
-			// the one permit stays taken, so the load can only end by aborting
-			limiter := loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "test_shard_load", 1)
-			require.NoError(t, limiter.Acquire(context.Background()))
-
-			// entered says the load holds closeLock and is one statement away
-			// from waiting for a permit; it must not park at the gate itself
-			entered, release := make(chan struct{}), make(chan struct{})
+			release, loadDone := startGatedBackgroundLoad(t, idx, "t1")
+			// the load must reach the permit wait rather than park at the gate,
+			// or it never exercises the wait this test is about
 			close(release)
-			idx.shards.Store("t1", &LazyLoadShard{
-				memMonitor:       gateAllocChecker{entered: entered, release: release},
-				shardLoadLimiter: limiter,
-			})
-
-			loadDone := make(chan error, 1)
-			go func() { loadDone <- idx.loadLocalShardIfActive("t1") }()
-			<-entered
 
 			closeDone := make(chan error, 1)
 			go func() { closeDone <- tt.requestClose(idx) }()
@@ -694,6 +682,54 @@ func TestCloseRequestAbortsBackgroundShardLoad(t *testing.T) {
 			require.NoError(t, <-closeDone)
 		})
 	}
+}
+
+// startGatedBackgroundLoad parks a background shard load mid-build and returns
+// once it holds the index open: closing the returned channel lets it through to
+// the permit wait. The one node-wide permit is taken and never given back, so a
+// released load ends at the limiter instead of building a shard.
+func startGatedBackgroundLoad(t *testing.T, idx *Index, shardName string) (chan struct{}, chan error) {
+	t.Helper()
+
+	limiter := loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "test_shard_load", 1)
+	require.NoError(t, limiter.Acquire(context.Background()))
+
+	entered, release := make(chan struct{}), make(chan struct{})
+	idx.shards.Store(shardName, &LazyLoadShard{
+		memMonitor:       gateAllocChecker{entered: entered, release: release},
+		shardLoadLimiter: limiter,
+	})
+
+	loadDone := make(chan error, 1)
+	go func() { loadDone <- idx.loadLocalShardIfActive(shardName) }()
+	<-entered
+
+	return release, loadDone
+}
+
+// TestTeardownProceedsDuringBackgroundShardLoad pins that a shard build in flight
+// holds the index open through the refcount rather than closeLock, so a teardown
+// closes the index straight away instead of queueing for the write lock behind
+// the build.
+func TestTeardownProceedsDuringBackgroundShardLoad(t *testing.T) {
+	idx := newShutdownTestIndex(t, nil)
+
+	release, loadDone := startGatedBackgroundLoad(t, idx, "t1")
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- idx.Shutdown(context.Background()) }()
+
+	// beginClose cancels closingCtx under the write lock, so this fires only once
+	// the teardown got that lock
+	select {
+	case <-idx.closingCtx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the shard build kept the teardown from closing the index")
+	}
+
+	close(release)
+	<-loadDone
+	require.NoError(t, <-closeDone)
 }
 
 // TestCancelOnCloseRequested pins the context a closeLock reader aborts on: live
