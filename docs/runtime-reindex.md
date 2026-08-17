@@ -233,7 +233,7 @@ applied the add-task entry (`Raft.Execute`), and
 `applyDistributedTaskCommand` does not wait for the local apply. A GET
 issued against a follower immediately after that `202` can therefore
 find no task locally and the flag still off, so the entry is dropped
-and the response is `"indexes": []`.
+and the response is `"indexes": null`.
 
 The window is bounded by one local apply rather than by unbounded
 follower lag, and it is a delayed *first* appearance rather than a
