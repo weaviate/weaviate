@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset/keydoccolumn"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -90,6 +91,11 @@ type Bucket struct {
 	flushing       memtable
 	disk           *SegmentGroup
 	logger         logrus.FieldLogger
+
+	// keyDocColumnName, when set, requests a resident key/doc column over this
+	// bucket's segments, which the segment group owns as keyDocColumn.
+	keyDocColumnName string
+	docIDCountGetter roaringset.DocIDCountGetterFunc
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -439,6 +445,8 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 			cleanupInterval:              b.segmentsCleanupInterval,
 			enableChecksumValidation:     b.enableChecksumValidation,
 			keepSegmentsInMemory:         b.keepSegmentsInMemory,
+			keyDocColumnName:             b.keyDocColumnName,
+			docIDCountGetter:             b.docIDCountGetter,
 			MinMMapSize:                  b.minMMapSize,
 			bm25config:                   b.bm25Config,
 			lazyPropertyLengths:          b.lazyPropertyLengths,
@@ -613,6 +621,12 @@ func (b *Bucket) GetDesiredStrategy() string {
 
 func (b *Bucket) GetSecondaryIndices() uint16 {
 	return b.secondaryIndices
+}
+
+// KeyDocColumn returns the resident key/doc column over this bucket's data, or
+// nil if it has none. Lock-free.
+func (b *Bucket) KeyDocColumn() *keydoccolumn.Index {
+	return b.disk.keyDocColumn.Load()
 }
 
 func (b *Bucket) GetStatus() storagestate.Status {
@@ -794,14 +808,58 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 	beforeFlushLock := time.Now()
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+	b.debugSlowFlushLock(beforeFlushLock)
 
-	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
-		b.logger.WithFields(logrus.Fields{
-			"duration": duration,
-			"action":   "lsm_bucket_get_acquire_flush_lock",
-		}).Debug("Waited more than 100ms to obtain a flush lock during get")
+	return b.consistentViewNoLock()
+}
+
+// RoaringSetConsistentView is a roaring set bucket's view plus its key/doc
+// column's state, taken under the same flushLock. A flush merges into the column
+// before its swap, so every committed write is in one or the other.
+type RoaringSetConsistentView struct {
+	BucketConsistentView
+	// KeyDocColumnState is the column's state as of this view, zero when the bucket
+	// carries no column.
+	KeyDocColumnState keydoccolumn.State
+}
+
+// NarrowedRoaringSetView is a [RoaringSetConsistentView] without its empty active
+// memtable, narrowed once so the column's reader and the fold's see the same ones.
+type NarrowedRoaringSetView struct {
+	NarrowedConsistentView
+	// KeyDocColumnState is the column's state as of the view this was narrowed from,
+	// zero when the bucket carries no column.
+	KeyDocColumnState keydoccolumn.State
+}
+
+// WithoutEmptyActiveMemtable narrows this view as
+// [BucketConsistentView.WithoutEmptyActiveMemtable] does, carrying the column
+// state across.
+func (cv RoaringSetConsistentView) WithoutEmptyActiveMemtable() NarrowedRoaringSetView {
+	return NarrowedRoaringSetView{
+		NarrowedConsistentView: cv.BucketConsistentView.WithoutEmptyActiveMemtable(),
+		KeyDocColumnState:      cv.KeyDocColumnState,
 	}
+}
 
+// GetConsistentRoaringSetView is [Bucket.GetConsistentView] plus the key/doc
+// column's state, taken under the same lock. The strategy is not checked: any
+// other bucket carries no column, so its state is zero.
+func (b *Bucket) GetConsistentRoaringSetView() RoaringSetConsistentView {
+	beforeFlushLock := time.Now()
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+	b.debugSlowFlushLock(beforeFlushLock)
+
+	return RoaringSetConsistentView{
+		BucketConsistentView: b.consistentViewNoLock(),
+		KeyDocColumnState:    b.disk.keyDocColumn.Load().State(),
+	}
+}
+
+// consistentViewNoLock builds the bucket's view. The caller must hold flushLock,
+// which makes the view, and anything taken beside it, one moment.
+func (b *Bucket) consistentViewNoLock() BucketConsistentView {
 	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
 	return BucketConsistentView{
 		Active:   b.active,
@@ -809,6 +867,17 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 		Disk:     diskSegments,
 		release:  releaseDiskSegments,
 		Bucket:   b,
+	}
+}
+
+// debugSlowFlushLock records a wait past 100ms for a caller that has just taken
+// flushLock. At debug level, so it is off unless someone is looking.
+func (b *Bucket) debugSlowFlushLock(before time.Time) {
+	if duration := time.Since(before); duration > 100*time.Millisecond {
+		b.logger.WithFields(logrus.Fields{
+			"duration": duration,
+			"action":   "lsm_bucket_get_acquire_flush_lock",
+		}).Debug("Waited more than 100ms to obtain a flush lock during get")
 	}
 }
 
@@ -2345,6 +2414,18 @@ func (b *Bucket) addFlushedSegment(segmentPath string, addSegment func(Segment) 
 	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return fmt.Errorf("precompute metadata: %w", err)
+	}
+
+	if b.strategy == StrategyRoaringSet {
+		// The merge runs before the swap, so a query finds the flushed documents in
+		// the column, the memtable or both, and both is harmless. It takes no bucket
+		// lock, so a bucket move's flush may run it under flushLock.
+		// b.flushing is read unlocked because flushAndSwitchMu leaves this path its only writer.
+		if err := b.disk.mergeMemtableIntoKeyDocColumn(b.flushing); err != nil {
+			keydoccolumn.WarnOncePerName(&keyDocColumnDetached,
+				b.logger.WithField("action", "keydoccolumn_merge_memtable").WithField("path", b.GetDir()),
+				b.keyDocColumnName, "key/doc column detached, it could not absorb a flush: %v", err)
+		}
 	}
 
 	if err := addSegment(segment); err != nil {

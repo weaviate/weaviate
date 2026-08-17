@@ -23,3 +23,10 @@ func (m *Memtable) newRoaringSetCursor() roaringset.InnerCursor {
 	// no further memtable's locking in required on cursor's methods
 	return roaringset.NewBinarySearchTreeCursor(m.roaringSet)
 }
+
+// newSealedRoaringSetCursor reads this memtable without the copy
+// [Memtable.newRoaringSetCursor] makes. It is safe only once the memtable is out
+// of active use and its writers have drained; no lock here could make it so.
+func (m *Memtable) newSealedRoaringSetCursor() roaringset.InnerCursor {
+	return roaringset.NewBinarySearchTreeCursorNoCopy(m.roaringSet)
+}
