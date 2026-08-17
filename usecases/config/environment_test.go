@@ -3069,3 +3069,139 @@ func TestFromEnv_QueryBatchedContainsEnabled(t *testing.T) {
 		})
 	}
 }
+
+// TestEnvironmentIndexFilterableKeyDocColumn covers what an operator can ask a
+// node for, and what it refuses.
+//
+// A key/doc column is resident for the life of the process and sized by the
+// data, so the wide reading of a value is the expensive one: every property of a
+// collection is written "*" rather than by leaving the list empty, and a tenant
+// — which cannot narrow anything, since a column is built per shard — is refused
+// rather than dropped.
+func TestEnvironmentIndexFilterableKeyDocColumn(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      string
+		expected map[string][]string
+		errMsg   string
+	}{
+		{
+			name: "unset leaves nothing configured",
+		},
+		{
+			name:     "one property",
+			env:      "Foo:prop1",
+			expected: map[string][]string{"Foo": {"prop1"}},
+		},
+		{
+			name:     "several properties over several collections",
+			env:      "Foo:prop1,prop2;Bar:prop3",
+			expected: map[string][]string{"Foo": {"prop1", "prop2"}, "Bar": {"prop3"}},
+		},
+		{
+			name:     "every property of a collection",
+			env:      "Foo:*",
+			expected: map[string][]string{"Foo": {"*"}},
+		},
+		{
+			// nobody writes this meaning nothing, and it used to mean every
+			// property, so guessing either way is invisible to whoever wrote it
+			name:   "a collection with no properties is refused",
+			env:    "Foo",
+			errMsg: "with no properties",
+		},
+		{
+			name:   "a collection with an empty property list is refused",
+			env:    "Foo:",
+			errMsg: "with no properties",
+		},
+		{
+			name:   "a tenant is refused, not ignored",
+			env:    "Foo:prop1:tenantA",
+			errMsg: "takes no tenants",
+		},
+		{
+			name:   "a tenant is refused even without properties",
+			env:    "Foo::tenantA",
+			errMsg: "takes no tenants",
+		},
+		{
+			name:   "an unparseable value fails",
+			env:    "foo:prop1",
+			errMsg: "INDEX_FILTERABLE_KEY_DOC_COLUMN",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if tt.env != "" {
+				// spelled out rather than taken from [KeyDocColumnEnv]: this is
+				// what an operator types, and a test that reads the constant would
+				// keep passing while every existing deployment stopped working
+				t.Setenv("INDEX_FILTERABLE_KEY_DOC_COLUMN", tt.env)
+			}
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, conf.Persistence.IndexFilterableKeyDocColumn)
+		})
+	}
+}
+
+// TestPersistenceValidateKeyDocColumn covers the same refusals reached from the
+// configuration file, which does not pass through [FromEnv] at all — where
+// without them a shape the environment would have refused is a feature silently
+// off rather than a startup that says what is wrong.
+func TestPersistenceValidateKeyDocColumn(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured map[string][]string
+		errMsg     string
+	}{
+		{name: "nothing configured"},
+		{
+			name:       "a collection and its properties",
+			configured: map[string][]string{"Article": {"title", "sku"}},
+		},
+		{
+			name:       "every property of a collection",
+			configured: map[string][]string{"Article": {AllProperties}},
+		},
+		{
+			name:       "a collection with no properties",
+			configured: map[string][]string{"Article": {}},
+			errMsg:     "with no properties",
+		},
+		{
+			name:       "a namespace-qualified collection",
+			configured: map[string][]string{"acme:Article": {"title"}},
+			errMsg:     "namespace-qualified",
+		},
+		{
+			name:       "something that is not a collection name",
+			configured: map[string][]string{"article": {"title"}},
+			errMsg:     "not a collection name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := Persistence{
+				DataPath:                    "/tmp/weaviate",
+				IndexFilterableKeyDocColumn: tt.configured,
+			}
+			err := p.Validate()
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

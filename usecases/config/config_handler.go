@@ -1135,7 +1135,12 @@ type Persistence struct {
 	IndexRangeableInMemory              bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
 	// Properties whose rangeable index keeps its segments in memory, per
 	// collection. Read only when IndexRangeableInMemory is false.
-	IndexRangeableInMemoryProps    map[string][]string `json:"indexRangeableInMemoryProps" yaml:"indexRangeableInMemoryProps"`
+	IndexRangeableInMemoryProps map[string][]string `json:"indexRangeableInMemoryProps" yaml:"indexRangeableInMemoryProps"`
+	// IndexFilterableKeyDocColumn names the properties whose filterable buckets
+	// get a resident key/doc column, as collection -> properties. A collection
+	// enables every property it has by listing [AllProperties]; an entry with no
+	// properties enables none.
+	IndexFilterableKeyDocColumn    map[string][]string `json:"indexFilterableKeyDocColumn" yaml:"indexFilterableKeyDocColumn"`
 	MinMMapSize                    int64               `json:"minMMapSize" yaml:"minMMapSize"`
 	LazySegmentsDisabled           bool                `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
 	SegmentInfoIntoFileNameEnabled bool                `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
@@ -1215,6 +1220,33 @@ func (p Persistence) Validate() error {
 		}
 	}
 
+	return validateKeyDocColumn(p.IndexFilterableKeyDocColumn)
+}
+
+// validateKeyDocColumn refuses the shapes [KeyDocColumnEnv] refuses, from here
+// rather than from the environment parser so that the configuration file is
+// held to them too: both unmarshallers are non-strict, so a file reaches the
+// consumer without passing that parser at all, and a shape it would have
+// refused becomes a feature that is silently off.
+func validateKeyDocColumn(configured map[string][]string) error {
+	classNameRegex := regexp.MustCompile(`^` + schema.ClassNameRegexCore + `$`)
+
+	for className, props := range configured {
+		if strings.Contains(className, ":") {
+			return fmt.Errorf("%s names %q: a namespace-qualified collection cannot be "+
+				"named here, because \":\" already separates the collection from its "+
+				"properties", KeyDocColumnEnv, className)
+		}
+		if !classNameRegex.MatchString(className) {
+			return fmt.Errorf("%s names %q, which is not a collection name",
+				KeyDocColumnEnv, className)
+		}
+		if len(props) == 0 {
+			return fmt.Errorf("%s names %q with no properties: list them, or write %q "+
+				"for every property it has", KeyDocColumnEnv, className,
+				className+":"+AllProperties)
+		}
+	}
 	return nil
 }
 
