@@ -85,7 +85,7 @@ type resourceScanState struct {
 	memWarning  *interval.BackoffTimer
 
 	// transition is held for write only while isReadOnly is flipped, never
-	// across a sweep - a sweep takes indexLock and the shards' own locks. A
+	// across a sweep - a sweep takes the indices' and the shards' own locks. A
 	// shard settling under the read lock therefore cannot straddle the flip.
 	transition sync.RWMutex
 
@@ -97,9 +97,9 @@ type resourceScanState struct {
 }
 
 // resourcePressureReadOnly reports whether the resource scan currently holds
-// shards read-only. Tolerates a nil DB and a nil scan state: a shard built
-// inside [NewIndex] has no owning DB to read yet, and picks the flag up from
-// [DB.reconcileIndexResourcePressure] once the index is published.
+// shards read-only. Every index gets its owning DB in [NewIndex], before it
+// builds a single shard, so a shard always reads the live flag; the nil
+// tolerance here covers indices assembled by hand in tests.
 func (db *DB) resourcePressureReadOnly() bool {
 	return db != nil && db.resourceScanState != nil && db.resourceScanState.isReadOnly.Load()
 }
@@ -199,9 +199,7 @@ func (db *DB) setShardsReadOnly(reason string) {
 	// lock, and reconciles against the flag when it is published instead.
 	db.setReadOnlyFlag(true)
 
-	db.indexLock.Lock()
-	defer db.indexLock.Unlock()
-	for _, index := range db.indices {
+	db.forEachIndexOutsideIndexLock(func(index *Index) {
 		// Loaded shards only: force-loading a cold shard here costs the memory the
 		// scan may be reacting to, and a failed load panics out of the scan
 		// goroutine. Cold shards inherit the flag when they load instead.
@@ -209,6 +207,48 @@ func (db *DB) setShardsReadOnly(reason string) {
 			db.markShardReadOnly(name, shard)
 			return nil
 		})
+	})
+}
+
+// forEachIndexOutsideIndexLock walks every index, holding indexLock only long
+// enough to snapshot the pointers.
+//
+// A sweep must not hold indexLock while it touches shards. Deciding whether a
+// shard is loaded blocks on that shard's load lock - which is exactly what
+// makes a sweep and a shard building itself mutually exclusive - and a shard
+// load can run for minutes. Every object read and write takes indexLock read
+// side, so holding it across a load would stall the whole node.
+//
+// The snapshot survives a concurrent DeleteIndex: the pointer stays valid, and
+// the per-index dropIndex read lock plus the closed check are the established
+// discipline for using an index outside indexLock. Taking dropIndex only after
+// releasing indexLock keeps the indexLock -> dropIndex order used everywhere
+// else. An index created after the snapshot is not missed: it reconciles
+// against the flag when it is published, see [DB.reconcileIndexResourcePressure].
+func (db *DB) forEachIndexOutsideIndexLock(f func(index *Index)) {
+	var indices []*Index
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+
+		indices = make([]*Index, 0, len(db.indices))
+		for _, index := range db.indices {
+			indices = append(indices, index)
+		}
+	}()
+
+	for _, index := range indices {
+		func() {
+			index.dropIndex.RLock()
+			defer index.dropIndex.RUnlock()
+			index.closeLock.RLock()
+			defer index.closeLock.RUnlock()
+
+			if index.closed {
+				return // index is shutting down, its shards take no writes
+			}
+			f(index)
+		}()
 	}
 }
 
@@ -275,9 +315,8 @@ func (db *DB) reconcileShardResourcePressure(name string, shard ShardLike) {
 
 // reconcileIndexResourcePressure applies the current read-only flag to the
 // loaded shards of an index the caller has just published. Shards built inside
-// [NewIndex] are out of the scan's reach - the index is not in db.indices for
-// its sweep, and they have no owning DB to read the flag from - so this is
-// where they pick it up.
+// [NewIndex] read the flag themselves, but are out of a sweep's reach until the
+// index lands in db.indices, so a transition in between reaches them here.
 func (db *DB) reconcileIndexResourcePressure(index *Index) {
 	index.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		db.reconcileShardResourcePressure(name, shard)
@@ -314,18 +353,14 @@ func (db *DB) setShardsReady() {
 	db.setReadOnlyFlag(false)
 
 	var failedCount atomic.Int64
-	func() {
-		db.indexLock.Lock()
-		defer db.indexLock.Unlock()
-		for _, index := range db.indices {
-			index.ForEachShardConcurrently(func(name string, shard ShardLike) error {
-				if !db.markShardReady(name, shard) {
-					failedCount.Add(1)
-				}
-				return nil
-			})
-		}
-	}()
+	db.forEachIndexOutsideIndexLock(func(index *Index) {
+		index.ForEachShardConcurrently(func(name string, shard ShardLike) error {
+			if !db.markShardReady(name, shard) {
+				failedCount.Add(1)
+			}
+			return nil
+		})
+	})
 
 	if count := failedCount.Load(); count > 0 {
 		db.setReadOnlyFlag(true)

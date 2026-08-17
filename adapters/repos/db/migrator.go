@@ -151,7 +151,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	}
 
 	var lazyLoadShardEnabled bool
-	idx, err = NewIndex(ctx,
+	idx, err = NewIndex(ctx, m.db,
 		IndexConfig{
 			ClassName:                      schema.ClassName(class.Class),
 			RootPath:                       m.db.config.RootPath,
@@ -249,13 +249,15 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	}
 
 	idx.usageLimits = m.db.usageLimits
-	idx.db = m.db
 	idx.SetReplicationFSMReader(m.db.replicationFSM)
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
 
-	// Shards built inside NewIndex pick up the read-only flag here.
+	// Shards built inside NewIndex read the read-only flag as they come up, but
+	// a transition landing after that read reaches them through neither path -
+	// the sweep cannot see an index that is not in db.indices yet. Settle them
+	// against the flag now that it can.
 	m.db.reconcileIndexResourcePressure(idx)
 
 	// NewIndex loaded shards reading the live AsyncReplicationDisabled flag, but

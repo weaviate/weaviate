@@ -106,7 +106,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 				return readFunc(class, originalSS)
 			}).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
-			index, err := NewIndex(context.Background(), IndexConfig{
+			index, err := NewIndex(context.Background(), nil, IndexConfig{
 				ClassName:         schema.ClassName("TestClass"),
 				RootPath:          t.TempDir(),
 				ReplicationFactor: 1,
@@ -548,7 +548,7 @@ func TestUpdateIndexShards(t *testing.T) {
 
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 			// Create index with proper configuration
-			index, err := NewIndex(ctx, IndexConfig{
+			index, err := NewIndex(ctx, nil, IndexConfig{
 				ClassName:            schema.ClassName("TestClass"),
 				RootPath:             rootPath,
 				ReplicationFactor:    1,
@@ -983,7 +983,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		return readFunc(class, originalSS)
 	}).Maybe()
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
-	index, err := NewIndex(context.Background(), IndexConfig{
+	index, err := NewIndex(context.Background(), nil, IndexConfig{
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,

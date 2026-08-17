@@ -513,6 +513,49 @@ func TestNewCollection_InheritsResourcePressure(t *testing.T) {
 	require.Positive(t, eagerShards, "the collection must have brought up at least one eager shard")
 }
 
+// The shards of a new collection must read the flag inside NewIndex, not only
+// when AddClass settles them afterwards: NewIndex both builds and publishes
+// them, so between the two a lazy load has no index of its own to consult.
+// Stalling the reconcile takes it out of the picture, leaving NewIndex as the
+// only thing that can have held the shard read-only.
+func TestNewCollection_InheritsResourcePressureBeforeReconcile(t *testing.T) {
+	ctx := testCtx()
+	f := newResourcePressureFixture(t)
+
+	// Eager shards, the default for a collection without multi-tenancy.
+	f.repo.config.EnableLazyLoadShards = boolPtr(false)
+
+	// 95% disk usage, threshold is 90%
+	f.repo.diskUseReadonly(diskUse{total: 100, free: 5, avail: 5})
+
+	const className = "CollectionBuiltUnderPressure"
+	class := newClassWithWarmProp(className)
+
+	added := make(chan error, 1)
+	f.repo.resourceScanState.transition.Lock()
+	enterrors.GoWrapper(func() { added <- f.migrator.AddClass(ctx, class) }, f.repo.logger)
+
+	// AddClass publishes the index before it reconciles, so the index is now
+	// visible with its shards built, waiting on the stalled reconcile.
+	var index *Index
+	require.Eventually(t, func() bool {
+		index = f.repo.GetIndex(schema.ClassName(className))
+		return index != nil
+	}, 10*time.Second, time.Millisecond, "the index was never published")
+
+	eagerShards := 0
+	require.NoError(t, index.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		eagerShards++
+		assert.Equal(t, storagestate.StatusReadOnly, shard.GetStatus())
+		assert.Equal(t, statusReasonResourcePressure, shard.GetStatusReason())
+		return nil
+	}))
+	require.Positive(t, eagerShards, "the collection must have brought up at least one eager shard")
+
+	f.repo.resourceScanState.transition.Unlock()
+	require.NoError(t, <-added)
+}
+
 // A shard loading after the pressure cleared must come up READY: the scan drops
 // its flag before the recovery sweep, so a shard that loads at any point around
 // that sweep is either flipped by it or never marked in the first place.

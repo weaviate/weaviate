@@ -403,8 +403,14 @@ func (i *Index) debugLoggingEnabled() bool {
 
 // NewIndex creates an index with the specified amount of shards, using only
 // the shards that are local to a node
+// NewIndex builds an index and every shard it owns. db is the owning DB, wired
+// in here rather than by the caller because the shards built below read state
+// off it while they come up (e.g. the resource-pressure read-only flag, see
+// [Shard.inheritResourcePressureReadOnly]) - assigning it after this returns
+// would leave those reads racing the assignment.
 func NewIndex(
 	ctx context.Context,
+	db *DB,
 	cfg IndexConfig,
 	invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schemaConfig.VectorIndexConfig,
@@ -459,6 +465,7 @@ func NewIndex(
 	}
 
 	index := &Index{
+		db:                      db,
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,
 		getSchema:               sg,

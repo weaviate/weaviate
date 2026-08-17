@@ -254,6 +254,74 @@ func TestSetShardsReadOnly_ShardError(t *testing.T) {
 	}
 }
 
+// A sweep must not hold the DB-wide index lock while it touches shards.
+// Deciding whether a shard is loaded blocks on that shard's load lock - which
+// is what makes a sweep and a shard building itself mutually exclusive - and a
+// shard load can run for minutes. Every object read and write takes indexLock
+// read side, so holding it across a load would stall the whole node.
+func TestResourceSweep_DoesNotHoldIndexLock(t *testing.T) {
+	tests := []struct {
+		name  string
+		shard func(t *testing.T, probe func()) *MockShardLike
+		sweep func(db *DB)
+	}{
+		{
+			name: "read-only sweep",
+			shard: func(t *testing.T, probe func()) *MockShardLike {
+				shard := NewMockShardLike(t)
+				shard.EXPECT().GetStatus().Return(storagestate.StatusReady)
+				shard.EXPECT().SetStatusReadonly(statusReasonResourcePressure).
+					RunAndReturn(func(string) error {
+						probe()
+						return nil
+					})
+				return shard
+			},
+			sweep: func(db *DB) { db.setShardsReadOnly(statusReasonResourcePressure) },
+		},
+		{
+			name: "recovery sweep",
+			shard: func(t *testing.T, probe func()) *MockShardLike {
+				shard := NewMockShardLike(t)
+				shard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
+				shard.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
+				shard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).
+					RunAndReturn(func(status, reason string) error {
+						probe()
+						return nil
+					})
+				return shard
+			},
+			sweep: func(db *DB) { db.setShardsReady() },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var db *DB
+			var heldDuringSweep atomic.Bool
+
+			shard := tt.shard(t, func() {
+				// TryRLock fails while any goroutine holds the write side, and a
+				// RWMutex is not reentrant, so this reports the lock either way.
+				if db.indexLock.TryRLock() {
+					db.indexLock.RUnlock()
+					return
+				}
+				heldDuringSweep.Store(true)
+			})
+
+			db = testResourceDB(t, 90, 90, map[string]*MockShardLike{"shard1": shard})
+			db.resourceScanState.isReadOnly.Store(true)
+
+			tt.sweep(db)
+
+			assert.False(t, heldDuringSweep.Load(),
+				"the sweep must release indexLock before it touches shards")
+		})
+	}
+}
+
 // A panic mid-scan must not leave the DB-wide index lock held: the scan runs in
 // a GoWrapper goroutine that recovers and exits, so a held lock would block
 // every later index operation for the life of the process.
