@@ -847,13 +847,27 @@ func assertProposeRefuses(t *testing.T, cmd proposeCommand, c inactiveNamespaceC
 	require.ErrorIs(t, err, c.wantErr)
 }
 
+// assertProposeAdmits drives cmd through the propose-time check with alpha
+// seeded by the case, and requires it to pass. The refusal cases alone leave a
+// check that refuses every namespaced command of that shape green, so each
+// command needs this direction too.
+func assertProposeAdmits(t *testing.T, cmd proposeCommand, seed func(*testing.T, *namespaces.Controller)) {
+	t.Helper()
+
+	ms, _ := setupApplyTest(t)
+	seed(t, ms.cfg.NamespacesController)
+
+	require.NoError(t, admitProposeBytes(t, &ms, cmdAsBytes(cmd.className, cmd.cmdType, cmd.jsonSub, cmd.rpcSub)))
+}
+
 // TestExecuteGate_RejectsCreateLikeApplyTypes drives the create-like commands
 // with nothing to materialize through the propose-time check. They are gated
 // there rather than in the apply switch, so a committed one applies on every
 // binary; see Store.admitPropose.
 //
 // Each carries its namespace in a different place — two subcommand fields and a
-// namespace of its own — which is what one suspended row per command pins.
+// namespace of its own — which is what one suspended and one active row per
+// command pins.
 func TestExecuteGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 	tests := []proposeCommand{
 		{
@@ -876,6 +890,9 @@ func TestExecuteGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assertProposeRefuses(t, tt, suspendedNamespaceCase())
+		})
+		t.Run(tt.name+"/active namespace admitted", func(t *testing.T) {
+			assertProposeAdmits(t, tt, alphaAt(api.NamespaceStateActive))
 		})
 	}
 }
@@ -935,6 +952,9 @@ func TestExecuteGate_RejectsShardMaterializingApplyTypes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assertProposeRefuses(t, tt, suspendedNamespaceCase())
+		})
+		t.Run(tt.name+"/active namespace admitted", func(t *testing.T) {
+			assertProposeAdmits(t, tt, alphaAt(api.NamespaceStateActive))
 		})
 	}
 
