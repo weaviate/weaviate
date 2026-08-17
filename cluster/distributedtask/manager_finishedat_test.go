@@ -20,21 +20,21 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// TestManager_FinishedAtIsStampedAtTheTerminalTransition covers the three FSM
-// paths that reach a terminal status out of a coordination phase: a failing
-// PREP ack out of PREPARING, a failing SWAP ack out of SWAPPING, and finalize
-// out of SWAPPING. The fake clock advances between the last in-flight step and
-// the terminal one, so a stamp taken when the units stopped is distinguishable
-// from a stamp taken when the task actually finished.
+// TestManager_FinishedAtIsStampedAtTheTerminalTransition covers three of the
+// four FSM paths that reach a terminal status out of a coordination phase: a
+// failing PREP ack out of PREPARING, a failing SWAP ack out of SWAPPING, and
+// finalize out of SWAPPING. The fake clock advances between the last in-flight
+// step and the terminal one, so a stamp taken when the units stopped is
+// distinguishable from a stamp taken when the task actually finished.
 //
 // Those phases run per-shard prep and two cluster-wide ack barriers, the
 // second of which has no timeout — so a stamp set on entry to them can be
-// served for an unbounded time while the task is still running. The other
-// three terminal paths leave STARTED directly and are pinned elsewhere: a
-// failing unit by TestTaskFailureInAnotherNode and TestTaskFailureInLocalNode,
-// cancel by TestTaskCancellation and
-// TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses, and a swallowed
-// cutover failure by TestManager_MarkTaskFailed.
+// served for an unbounded time while the task is still running. The fourth
+// exit, SWAPPING → FAILED via MarkTaskFailed, is pinned by
+// TestManager_MarkTaskFailed. Two more terminal paths leave STARTED directly:
+// a failing unit (TestTaskFailureInAnotherNode, TestTaskFailureInLocalNode)
+// and cancel (TestTaskCancellation,
+// TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses).
 func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 	tests := []struct {
 		name string
