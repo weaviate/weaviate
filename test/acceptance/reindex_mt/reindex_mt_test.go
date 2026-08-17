@@ -424,11 +424,13 @@ func testValidation(t *testing.T, restURI string) {
 			"non-MT class with tenants should reject as 400: %s", got.Body)
 	})
 
-	// MT class for remaining validations.
+	// MT class for remaining validations. "alreadyRangeable" ships with the
+	// rangeable index on, so a PUT asking for it resolves to a no-op.
 	mtClass := "MTValidate"
 	createMTClass(t, mtClass, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 		{Name: "score", DataType: []string{"int"}},
+		{Name: "alreadyRangeable", DataType: []string{"int"}, IndexRangeFilters: reindexhelpers.BoolPtr(true)},
 	})
 	addTenants(t, mtClass, []string{"active1", "active2"})
 	for _, tn := range []string{"active1", "active2"} {
@@ -462,6 +464,16 @@ func testValidation(t *testing.T, restURI string) {
 			"rangeFilters", `{}`, reindexhelpers.WithTenants([]string{"active1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"MT class with tenants on enable-rangeable should reject as 400: %s", got.Body)
+	})
+
+	t.Run("EnableRangeable_with_tenants_on_already_rangeable", func(t *testing.T) {
+		// Same contract on the no-op arm: the request changes nothing, but
+		// naming tenants for a collection-wide flag is still wrong, so it
+		// must be refused rather than answered with a friendly 200.
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, mtClass, "alreadyRangeable",
+			"rangeFilters", `{}`, reindexhelpers.WithTenants([]string{"active1"}))
+		require.Equal(t, http.StatusBadRequest, got.StatusCode,
+			"MT class with tenants on an already-rangeable property should reject as 400: %s", got.Body)
 	})
 
 	t.Run("Nonexistent_tenant", func(t *testing.T) {
