@@ -1892,10 +1892,9 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 				addTaskWithUnits(t, h, spec.namespace, spec.id, spec.version, []string{"su-" + spec.id})
 				task := h.manager.tasks[spec.namespace][spec.id]
 				task.Status = spec.status
-				// A terminal task whose FinishedAt was never stamped reads
-				// as long expired, and the TTL sweep deletes it before the
-				// assertions run. A non-terminal one must carry no stamp at
-				// all, which is also how the localTasks half above seeds.
+				// Terminal tasks need FinishedAt stamped, or the TTL sweep
+				// deletes them before assertions run; non-terminal tasks
+				// must stay unstamped, matching how localTasks seeds above.
 				if spec.status.IsTerminal() {
 					task.FinishedAt = h.clock.Now()
 				}

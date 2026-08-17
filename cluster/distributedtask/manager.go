@@ -970,14 +970,10 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// This check is all that stands between an in-flight task and deletion:
-	// such a task never had its FinishedAt stamped, so the age check below
-	// reads it as long expired.
-	//
-	// A status this build cannot name is deliberately not refused. The
-	// scheduler's TTL sweep is the only proposer and it reads the leader's
-	// view, so a clean-up for such a task means the rest of the cluster
-	// already considers it done.
+	// Without this guard an in-flight task — never FinishedAt-stamped — would
+	// read as long expired by the check below. An unrecognized status is let
+	// through deliberately: the TTL sweep is the sole proposer and reads the
+	// leader's view, so a clean-up for it means the cluster already calls it done.
 	if task.Status.IsActive() && task.Status.IsRecognized() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
@@ -1165,9 +1161,9 @@ func (m *Manager) Restore(bytes []byte) error {
 				m.tasks[namespace] = make(map[string]*Task)
 			}
 
-			// A snapshot written by an earlier build of this version line can
-			// hold a mid-coordination task with FinishedAt already stamped,
-			// which would serve a finish time for work still in flight.
+			// An older snapshot can hold a mid-coordination task with
+			// FinishedAt already stamped, which would misreport work still
+			// in flight.
 			if !task.Status.IsTerminal() {
 				task.FinishedAt = time.Time{}
 			}

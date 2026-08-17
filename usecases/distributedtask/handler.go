@@ -100,10 +100,8 @@ func mapUnits(task *distributedtask.Task) []*models.DistributedTaskUnit {
 	return units
 }
 
-// optionalDateTime keeps an unset timestamp out of the response body
-// entirely. strfmt.DateTime is a struct, so encoding/json ignores omitempty
-// on a non-pointer field and renders the zero value as a year-1 timestamp,
-// which a client cannot tell apart from a real one.
+// optionalDateTime nils out a zero time so the JSON response omits it — a
+// struct-typed strfmt.DateTime doesn't get omitempty support for free.
 func optionalDateTime(t time.Time) *strfmt.DateTime {
 	if t.IsZero() {
 		return nil

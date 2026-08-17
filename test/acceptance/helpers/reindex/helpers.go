@@ -323,8 +323,7 @@ func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) 
 			terminalErr.Store(&err)
 			return true // exit Eventually; Fatalf below on the test goroutine
 		}
-		// The coordination phases (PREPARING, SWAPPING) run after the units
-		// stop, so a task that is not terminal must report no finish time.
+		// Non-terminal tasks (PREPARING, SWAPPING) must report no finish time.
 		if task.FinishedAt != nil && !distributedtask.TaskStatus(task.Status).IsTerminal() {
 			err := fmt.Errorf("reindex task %s reports finishedAt %s while still in status %s",
 				taskID, task.FinishedAt, task.Status)

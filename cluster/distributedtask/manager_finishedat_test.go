@@ -21,9 +21,8 @@ import (
 )
 
 // TestManager_FinishedAtIsStampedAtTheTerminalTransition pins that FinishedAt
-// is set on the terminal transition, not when the last unit completes, so
-// retention counts from when the task actually finished. Covers three of
-// four coordination-phase exits; the fourth is TestManager_MarkTaskFailed.
+// is set on the terminal transition, not when units complete. Covers three
+// of four coordination-phase exits; the fourth is TestManager_MarkTaskFailed.
 func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 	tests := []struct {
 		name string
@@ -99,8 +98,7 @@ func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 }
 
 // TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks pins that Restore
-// clears FinishedAt from any non-terminal task in a snapshot written by an
-// earlier build of this version line.
+// clears FinishedAt from any non-terminal task in an older snapshot.
 func TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks(t *testing.T) {
 	const (
 		ns      = "ns"
