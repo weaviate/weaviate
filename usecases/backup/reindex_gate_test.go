@@ -161,8 +161,8 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 			classes:         []string{"Movies"},
 			backupErr:       unchecked,
 			wantKind:        CanCommitErrCreateReindexUndetermined,
-			wantContains:    []string{"could not be determined", "retry once the cluster is reachable"},
-			wantNotContains: []string{"in progress on", "/cancel"},
+			wantContains:    []string{"backup blocked", "could not be determined", "retry once the cluster is reachable"},
+			wantNotContains: []string{"in progress on", "/cancel", "restore blocked"},
 		},
 		{
 			name:         "one class refused, another one it could not check",
@@ -219,7 +219,7 @@ func TestIsReindexRefusal(t *testing.T) {
 			err:  errors.Join(errors.New("other"), reindexRefusal("Movies")),
 			want: true,
 		},
-		{name: "backup undetermined sentinel", err: backupUndeterminedByParticipant(), want: true},
+		{name: "backup undetermined sentinel", err: undeterminedByParticipant(backup.ErrBackupReindexActivityUndetermined), want: true},
 		{name: "the generic canCommit failure", err: errCannotCommit},
 	}
 	for _, tt := range tests {
@@ -228,7 +228,7 @@ func TestIsReindexRefusal(t *testing.T) {
 		})
 	}
 	t.Run("an observed migration outranks a node that could not check", func(t *testing.T) {
-		assert.Less(t, refusalRank(backupUndeterminedByParticipant()),
+		assert.Less(t, refusalRank(undeterminedByParticipant(backup.ErrBackupReindexActivityUndetermined)),
 			refusalRank(backupRefusedByParticipant([]string{"Movies"})))
 	})
 }
@@ -387,6 +387,19 @@ func TestRestoreGateAuthorizationPrecedesDisclosure(t *testing.T) {
 	assert.NotContains(t, err.Error(), backup.ErrReindexInFlight.Error())
 	assert.Empty(t, fs.selector.gateCalls(),
 		"an unauthorized caller must not reach the gate at all")
+
+	// The literal-include arm takes a different route to the same gate, and it is the
+	// one an unauthorized caller can reach with a class name of their choosing.
+	named := newFakeScheduler(nil)
+	named.auth = auth
+	named.selector.setReindexGate(reindexRefusal("SomeoneElsesClass"))
+	expectUnknownID(ctx, named, id)
+	_, err = named.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
+		Backend: backendName, ID: id, Include: []string{"MyClass"},
+	}, false)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), backup.ErrReindexInFlight.Error())
+	assert.Empty(t, named.selector.gateCalls(), "on that route either")
 }
 
 func TestParticipantRestoreGate(t *testing.T) {
@@ -829,6 +842,8 @@ func TestRestoreKeepsNodesNarrowedToNothing(t *testing.T) {
 			"to commit, or the blobs only it holds are never restored")
 	assert.Empty(t, asked[node2].Classes, "and asked with the empty class list it was left with")
 	assert.Equal(t, []string{allowedCls}, asked[node1].Classes)
+	assert.Equal(t, [][]string{{allowedCls}}, fs.selector.gateCalls(),
+		"the leader's own gate sees the narrowed list, never the denied collection")
 
 	// validate() reads that empty list as the node's whole descriptor, so it restores
 	// every collection it holds and its request must reach the gate. Replayed through a

@@ -102,14 +102,10 @@ func blockedSubject(classes []string) string {
 	return "at least one of " + quoteClassList(classes)
 }
 
-func backupUndeterminedByParticipant() error {
-	return fmt.Errorf("%w; retry once the cluster is reachable",
-		backup.ErrBackupReindexActivityUndetermined)
-}
-
-func restoreUndeterminedByParticipant() error {
-	return fmt.Errorf("%w; retry once the cluster is reachable",
-		backup.ErrReindexActivityUndetermined)
+// The sentinel is the caller's, because canCommitErrFromResponse already knows which
+// operation it is rebuilding and the two texts differ in nothing else.
+func undeterminedByParticipant(sentinel error) error {
+	return fmt.Errorf("%w; retry once the cluster is reachable", sentinel)
 }
 
 func quoteClassList(classes []string) string {
