@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -23,44 +24,72 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestEnableIndexSurvivesRepeatedLoadsBeforeSchemaFlip pins the invariant that
 // a shard loaded any number of times between its local bucket swap and the
-// cluster-wide schema flip must still serve the backfilled data once the flag
-// flips. The flip only lands after every replica has swapped, so a node can be
-// restarted arbitrarily often inside that window.
+// schema flag flip must still serve the backfilled data once the flag flips.
+// Every load in that window must leave the index both on disk and open: a
+// bucket that exists but is not loaded is invisible to reads, and to the
+// active-shard backup path, which enumerates loaded buckets only.
 //
 // The flip_before_loads row is the positive control: the identical sequence
 // with the flag already flipped. It separates a real regression from a broken
 // harness.
 func TestEnableIndexSurvivesRepeatedLoadsBeforeSchemaFlip(t *testing.T) {
-	const propName = "title"
 	const numObjects = 25
 
+	// enable-filterable and enable-searchable are dispatched as a task trio and
+	// wait for a cluster-wide flip; the rangeable strategy runs inline at shard
+	// init and flips from its own completion, which is a narrower window.
+	runTrio := func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+		require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+		require.NoError(t, task.RunSwapOnShard(ctx, shard))
+	}
+	runInline := func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+		for {
+			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+			require.NoError(t, err)
+			if rerunAt.IsZero() {
+				break
+			}
+		}
+	}
+
 	migrations := []struct {
-		name        string
-		bucketName  string
-		newClass    func(className string) *models.Class
-		newTask     func(t *testing.T, idx *Index, className string) *ShardReindexTaskGeneric
-		fingerprint func(t *testing.T, b *lsmkv.Bucket) map[string][]uint64
-		baseline    func(t *testing.T) map[string][]uint64
-		flipSchema  func(class *models.Class)
+		name            string
+		bucketName      string
+		newClass        func(className string) *models.Class
+		makeObjects     func(t *testing.T, className string) []*storobj.Object
+		newTask         func(t *testing.T, idx *Index, className string) *ShardReindexTaskGeneric
+		driveToPostSwap func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric)
+		fingerprint     func(t *testing.T, b *lsmkv.Bucket) any
+		baseline        func(t *testing.T) any
+		flipSchema      func(class *models.Class)
 	}{
 		{
 			name:       "enable-filterable",
-			bucketName: helpers.BucketFromPropNameLSM(propName),
+			bucketName: helpers.BucketFromPropNameLSM("title"),
 			newClass: func(className string) *models.Class {
-				return newEnableFilterableTestClass(className, propName)
+				return newEnableFilterableTestClass(className, "title")
+			},
+			makeObjects: func(t *testing.T, className string) []*storobj.Object {
+				return makeConvergenceTestObjects(t, numObjects, className)
 			},
 			newTask: func(t *testing.T, idx *Index, className string) *ShardReindexTaskGeneric {
-				task, _ := newEnableFilterableTask(t, idx, className, propName)
+				task, _ := newEnableFilterableTask(t, idx, className, "title")
 				return task
 			},
-			fingerprint: fingerprintRoaringSetBucket,
-			baseline: func(t *testing.T) map[string][]uint64 {
-				return computeEnableFilterableBaseline(t, propName, numObjects)
+			driveToPostSwap: runTrio,
+			fingerprint: func(t *testing.T, b *lsmkv.Bucket) any {
+				return fingerprintRoaringSetBucket(t, b)
+			},
+			baseline: func(t *testing.T) any {
+				return computeEnableFilterableBaseline(t, "title", numObjects)
 			},
 			flipSchema: func(class *models.Class) {
 				class.Properties[0].IndexFilterable = boolPtr(true)
@@ -68,21 +97,57 @@ func TestEnableIndexSurvivesRepeatedLoadsBeforeSchemaFlip(t *testing.T) {
 		},
 		{
 			name:       "enable-searchable",
-			bucketName: helpers.BucketSearchableFromPropNameLSM(propName),
+			bucketName: helpers.BucketSearchableFromPropNameLSM("title"),
 			newClass: func(className string) *models.Class {
-				return newEnableSearchableTestClass(className, []string{propName})
+				return newEnableSearchableTestClass(className, []string{"title"})
+			},
+			makeObjects: func(t *testing.T, className string) []*storobj.Object {
+				return makeConvergenceTestObjects(t, numObjects, className)
 			},
 			newTask: func(t *testing.T, idx *Index, className string) *ShardReindexTaskGeneric {
-				task, _ := newEnableSearchableTask(t, idx, className, propName,
+				task, _ := newEnableSearchableTask(t, idx, className, "title",
 					models.PropertyTokenizationWord)
 				return task
 			},
-			fingerprint: fingerprintInvertedBucket,
-			baseline: func(t *testing.T) map[string][]uint64 {
-				return computeEnableSearchableBaseline(t, propName, numObjects)
+			driveToPostSwap: runTrio,
+			fingerprint: func(t *testing.T, b *lsmkv.Bucket) any {
+				return fingerprintInvertedBucket(t, b)
+			},
+			baseline: func(t *testing.T) any {
+				return computeEnableSearchableBaseline(t, "title", numObjects)
 			},
 			flipSchema: func(class *models.Class) {
 				class.Properties[0].IndexSearchable = boolPtr(true)
+			},
+		},
+		{
+			name:       "enable-rangeable",
+			bucketName: helpers.BucketRangeableFromPropNameLSM(filterableToRangeablePropName),
+			newClass: func(className string) *models.Class {
+				class := newFilterableToRangeableTestClass(className)
+				// Only an explicit false arms the init sweep; the fixture's nil would
+				// leave this row green for the wrong reason.
+				class.Properties[0].IndexRangeFilters = boolPtr(false)
+				return class
+			},
+			makeObjects: func(t *testing.T, className string) []*storobj.Object {
+				return makeFilterableToRangeableTestObjects(t, numObjects, className)
+			},
+			newTask: func(t *testing.T, idx *Index, className string) *ShardReindexTaskGeneric {
+				task, _ := newFilterableToRangeableTask(t, idx, className,
+					filterableToRangeablePropName)
+				return task
+			},
+			driveToPostSwap: runInline,
+			fingerprint: func(t *testing.T, b *lsmkv.Bucket) any {
+				return filterableToRangeableFingerprint(t, b)
+			},
+			baseline: func(t *testing.T) any {
+				return computeFilterableToRangeableBaseline(t,
+					filterableToRangeablePropName, numObjects)
+			},
+			flipSchema: func(class *models.Class) {
+				class.Properties[0].IndexRangeFilters = boolPtr(true)
 			},
 		},
 	}
@@ -110,18 +175,15 @@ func TestEnableIndexSurvivesRepeatedLoadsBeforeSchemaFlip(t *testing.T) {
 					shardName := shard.Name()
 					lsmPath := shard.pathLSM()
 
-					for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+					for _, obj := range mig.makeObjects(t, className) {
 						require.NoError(t, shard.PutObject(ctx, obj))
 					}
 
-					task := mig.newTask(t, idx, className)
-					require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-					require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-					require.NoError(t, task.RunSwapOnShard(ctx, shard))
+					mig.driveToPostSwap(t, ctx, shard, mig.newTask(t, idx, className))
 					require.NoError(t, shard.Shutdown(ctx))
 
 					// No task is re-dispatched on load: this node's shard unit has already
-					// completed and only the other replicas still hold up the flip.
+					// completed and only the flag flip is outstanding.
 					load := func() *Shard {
 						idx.shardReindexer = NewShardReindexerV3Noop()
 						loaded, err := idx.initShard(ctx, shardName, class, nil, true, true)
@@ -146,22 +208,29 @@ func TestEnableIndexSurvivesRepeatedLoadsBeforeSchemaFlip(t *testing.T) {
 						return found
 					}
 
+					loadAndCheck := func(label string) *Shard {
+						live := load()
+						require.NotEmptyf(t, indexDirs(),
+							"%s deleted the backfilled %q index from %s",
+							label, mig.bucketName, lsmPath)
+						assert.NotNilf(t, live.store.Bucket(mig.bucketName),
+							"%s: the %q bucket must be open, not merely present on disk",
+							label, mig.bucketName)
+						return live
+					}
+
 					if tc.flipBeforeLoads {
 						mig.flipSchema(class)
 					}
 
-					require.NoError(t, load().Shutdown(ctx))
-					require.NoError(t, load().Shutdown(ctx))
-
-					require.NotEmptyf(t, indexDirs(),
-						"the second load deleted the backfilled %q index from %s",
-						mig.bucketName, lsmPath)
+					require.NoError(t, loadAndCheck("load 1").Shutdown(ctx))
+					require.NoError(t, loadAndCheck("load 2").Shutdown(ctx))
 
 					if !tc.flipBeforeLoads {
 						mig.flipSchema(class)
 					}
 
-					live := load()
+					live := loadAndCheck("load 3 (after the flip)")
 					defer live.Shutdown(ctx)
 
 					b := live.store.Bucket(mig.bucketName)
