@@ -237,7 +237,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 					idx.Algorithm = models.IndexStatusAlgorithmBlockmax
 				}
 			}
-			mergeReindexStatus(idx, collection, prop.Name, e.indexType, e.flagOn, parsedTasks, h.appState.Logger)
+			mergeReindexStatus(idx, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
 			// Strip the caller's namespace so status and submit responses agree.
 			if idx.TaskID != "" {
 				idx.TaskID = namespacing.StripOwnNamespace(principal, idx.TaskID)
@@ -807,10 +807,6 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 //   - "failed":     latest matching task ended in FAILED.
 //   - "cancelled":  latest matching task ended in CANCELLED.
 //
-// `flagOn` is the caller's view of the corresponding schema flag. No status
-// branches on it — the caller owns the emit gate — but it is passed so
-// FINISHED-with-the-flag-off is observable in the log.
-//
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.
 // The REST handler always populates Properties with exactly one entry;
@@ -835,7 +831,7 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
 // rely on this); the entry is still skipped, just without a log line.
-func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, flagOn bool, parsedTasks []parsedReindexTask, logger logrus.FieldLogger) {
+func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, parsedTasks []parsedReindexTask, logger logrus.FieldLogger) {
 	// Two tasks for the same (collection, prop, indexType) may coexist —
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
@@ -943,14 +939,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		idx.Progress = 1.0
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusFinished:
-		// No synthetic entry: the schema flag alone decides. Flag-off here is
-		// the normal post-DELETE state, so log at Debug to avoid poll-rate spam.
-		if !flagOn && logger != nil {
-			logger.WithFields(logrus.Fields{
-				"task_id": best.ID, "collection": collection,
-				"property": propName, "index_type": indexType,
-			}).Debug("reindex status: FINISHED task with the schema flag off")
-		}
+		// No synthetic entry: the schema flag alone decides.
 	}
 
 	if !best.Status.IsRecognized() {
