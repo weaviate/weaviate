@@ -313,6 +313,12 @@ func TestResolveUpsertPlan_Searchable(t *testing.T) {
 			wantNoop: true,
 		},
 		{
+			name:   "present + different tokenization -> change-tokenization",
+			prop:   textProp("t", "word", boolPtr(true), boolPtr(false)),
+			body:   &models.IndexUpsertRequest{Tokenization: "whitespace"},
+			wantMT: db.ReindexTypeChangeTokenization,
+		},
+		{
 			name:     "on wand + algorithm blockmax -> change-algorithm",
 			prop:     textProp("t", "word", boolPtr(true), boolPtr(false)),
 			blockmax: false,
@@ -376,6 +382,10 @@ func TestResolveUpsertPlan_Searchable(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop)
 			assert.Equal(t, tc.wantMT, plan.migrationType)
+			if tc.wantMT != "" {
+				assert.Truef(t, db.IsSemanticMigration(tc.wantMT),
+					"upsertIndex 400s a tenant-scoped request for %s on the assumption every type it submits is cluster-wide", tc.wantMT)
+			}
 		})
 	}
 }
@@ -451,6 +461,10 @@ func TestResolveUpsertPlan_Filterable(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop)
 			assert.Equal(t, tc.wantMT, plan.migrationType)
+			if tc.wantMT != "" {
+				assert.Truef(t, db.IsSemanticMigration(tc.wantMT),
+					"upsertIndex 400s a tenant-scoped request for %s on the assumption every type it submits is cluster-wide", tc.wantMT)
+			}
 		})
 	}
 }
@@ -506,6 +520,10 @@ func TestResolveUpsertPlan_RangeFilters(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop)
 			assert.Equal(t, tc.wantMT, plan.migrationType)
+			if tc.wantMT != "" {
+				assert.Truef(t, db.IsSemanticMigration(tc.wantMT),
+					"upsertIndex 400s a tenant-scoped request for %s on the assumption every type it submits is cluster-wide", tc.wantMT)
+			}
 		})
 	}
 }
@@ -612,21 +630,4 @@ func TestValidateTenantScope(t *testing.T) {
 		require.Len(t, body.Error, 1)
 		assert.Contains(t, body.Error[0].Message, "cannot be used with semantic migrations")
 	})
-}
-
-// TestEveryUpsertMigrationTypeIsSemantic pins the premise upsertIndex's
-// NO_OP branch assumes: every migration type this endpoint can submit is
-// semantic. Add a row whenever resolveUpsertPlan learns a new type.
-func TestEveryUpsertMigrationTypeIsSemantic(t *testing.T) {
-	for _, mt := range []db.ReindexMigrationType{
-		db.ReindexTypeChangeAlgorithm,
-		db.ReindexTypeChangeTokenization,
-		db.ReindexTypeChangeTokenizationFilterable,
-		db.ReindexTypeEnableFilterable,
-		db.ReindexTypeEnableRangeable,
-		db.ReindexTypeEnableSearchable,
-	} {
-		assert.Truef(t, db.IsSemanticMigration(mt),
-			"PUT .../index/{type} can submit %s, so the NO_OP branch's semantic=true must hold for it", mt)
-	}
 }
