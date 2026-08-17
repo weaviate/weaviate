@@ -968,6 +968,7 @@ transitions write fsync'd sentinel files:
 | `payload.mig` | JSON dump of the typed `ReindexTaskPayload` + task descriptor. Written by `persistRecoveryRecord` before the first iteration. Source of truth for `DiscoverInFlightReindexTasks`. |
 | `progress.mig` | Per-iteration progress checkpoint. |
 | `properties.mig` | List of properties this task targets on this shard. |
+| `finalized.mig` | The tracker's ingest→canonical promotion already ran. Written by `FinalizeCompletedMigrations` only for a promotion the schema has not caught up with yet; see §9.7. |
 
 Per-prop variants exist for `swapped.mig` (one per property) so a
 crash mid Phase 2 can resume from the last successfully-swapped prop.
@@ -1311,9 +1312,61 @@ Per namespace (strategy-prefix + props-suffix):
      **CRITICAL:** otherwise this node serves the old data under the
      new schema → divergence vs other replicas → #10675-shape bug.
 5. Remove every dir on disk with gen < effective.
-6. Remove the tracker dir for `effective`.
+6. Remove the tracker dir for `effective` — unless the index it just
+   promoted is one the schema still advertises as disabled, in which case
+   the tracker is kept and marked `finalized.mig`. See §9.7.
 7. Leave gens > effective alone (in-flight; `DiscoverInFlightReindexTasks`
    handles them).
+
+### 9.7 The completed-migration record
+
+`enable-filterable`, `enable-searchable` and `enable-rangeable` flip a
+schema flag at the end. The flip is cluster-wide and lands only after every
+replica has swapped, so on each node there is a window where the bucket is a
+finished index and the schema still says the index is disabled. The startup
+sweep in `ensureBucketsAreRemovedForNonExistentPropertyIndexes` deletes a
+bucket on exactly that signature, so before this record existed a second
+restart inside the window destroyed the rebuilt index.
+
+Finalize keeps the tracker in that window and marks it `finalized.mig`. The
+kept dir still carries `tidied.mig`, so every path that already preserves
+completed-migration state keeps working unchanged. Three readers get a new
+arm: the startup sweep skips a bucket the record names, the cold-tenant gate
+treats a record as settled rather than as work, and the index DELETE paths
+retire the record along with the bucket it names.
+
+Who retires a record:
+
+| Route | When |
+|---|---|
+| The schema flip | At the first shard load *after* the flip lands, not at the flip itself. |
+| A re-submit | The newer generation supersedes it through the `gen < effective` arm above. |
+| An index DELETE | In the same apply, on a loaded and on a cold tenant alike. |
+| A sibling flip on the same property | Its apply arrives with the failed migration's index still disabled, which is the DELETE path. |
+
+Residue that no route retires promptly, all of it protected rather than
+lost:
+
+- A task that ends **FAILED or CANCELLED** after this node finalized keeps
+  the record, the bucket and `payload.mig`. Same contract the terminal
+  sweep already documents for tidied state, one state further on.
+- **enable-rangeable** commits its flag from inside `RunSwapOnShard` rather
+  than from the cluster-wide task completion, so a crash between
+  `markTidied` and that commit leaves a record with no flip event to retire
+  it at all. A re-submit, an index DELETE or a class drop does it instead.
+- A tenant **deactivated across the whole window** that is then reactivated
+  after the user dropped the index sees a record it cannot distinguish from
+  one awaiting a flip (both read flag-false), so the sweep keeps a bucket
+  the user dropped. Invisible to queries, bounded disk, retired by any
+  re-submit or DELETE.
+
+`finalized.mig` ships in backups like every other tracker file. An older
+binary restoring such a backup ignores the marker and reverts to the
+pre-record behavior.
+
+Writes issued during the window are not captured yet: the index is complete
+up to the swap and misses anything written after it, until the write-path
+work lands.
 
 ### 9.6 Hard rules
 

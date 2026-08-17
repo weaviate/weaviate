@@ -665,12 +665,16 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 	// (e.g. "_text" or sorted-joined "_p1_p2", or "" for class-level
 	// strategies). The ok return is always true on the normal path
 	// (rehydrate=false). On rehydrate=true, ok=false means there is no
-	// in-flight migration for this strategy on disk — every prior
-	// generation's tracker dir was already cleaned up by either
-	// `FinalizeCompletedMigrations` (at startup) or the end-of-swap trim
-	// (in-process). The caller MUST skip task instantiation in that case;
-	// instantiating with a fabricated gen would later try to swap from
-	// reindex bucket dirs that no longer exist.
+	// tracker dir for this strategy on disk at all — every prior generation
+	// was already cleaned up by either `FinalizeCompletedMigrations` (at
+	// startup) or the end-of-swap trim (in-process). The caller MUST skip
+	// task instantiation in that case; instantiating with a fabricated gen
+	// would later try to swap from reindex bucket dirs that no longer exist.
+	//
+	// A completed migration's record answers like any other generation on
+	// purpose: a rehydrated task on one converges through the already-tidied
+	// branch of [ShardReindexTaskGeneric.RunSwapOnShard], and a fresh task
+	// takes the next number rather than reusing the record's.
 	genFor := func(prefix, propSuffix string) (int, bool) {
 		if rehydrate {
 			if gen := maxMigrationGeneration(lsmPath, prefix, propSuffix); gen > 0 {
