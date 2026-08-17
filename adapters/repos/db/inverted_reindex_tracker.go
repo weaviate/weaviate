@@ -20,8 +20,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
@@ -30,7 +28,6 @@ import (
 // -----------------------------------------------------------------------------
 
 type reindexTracker interface {
-	HasStartCondition() bool
 	IsStarted() bool
 	markStarted(time.Time) error
 	getStarted() (time.Time, error)
@@ -62,13 +59,9 @@ type reindexTracker interface {
 	GetProps() ([]string, error)
 	saveProps([]string) error
 
-	IsPaused() bool
-	IsRollback() bool
 	IsReset() bool
 
 	reset() error
-
-	checkOverrides(logger logrus.FieldLogger, config *reindexTaskConfig)
 }
 
 // NewFileReindexTracker creates a file-based reindex tracker under
@@ -78,7 +71,6 @@ func NewFileReindexTracker(lsmPath, migrationDirName string, keyParser indexKeyP
 		progressCheckpoint: 1,
 		keyParser:          keyParser,
 		config: fileReindexTrackerConfig{
-			filenameStart:      "start.mig",
 			filenameStarted:    "started.mig",
 			filenameProgress:   "progress.mig",
 			filenameReindexed:  "reindexed.mig",
@@ -87,10 +79,7 @@ func NewFileReindexTracker(lsmPath, migrationDirName string, keyParser indexKeyP
 			filenameSwapped:    "swapped.mig",
 			filenameTidied:     "tidied.mig",
 			filenameProperties: "properties.mig",
-			filenameRollback:   "rollback.mig",
 			filenameReset:      "reset.mig",
-			filenamePaused:     "paused.mig",
-			filenameOverrides:  "overrides.mig",
 			migrationPath:      filepath.Join(lsmPath, ".migrations", migrationDirName),
 		},
 	}
@@ -108,7 +97,6 @@ type fileReindexTracker struct {
 }
 
 type fileReindexTrackerConfig struct {
-	filenameStart      string
 	filenameStarted    string
 	filenameProgress   string
 	filenameReindexed  string
@@ -117,10 +105,7 @@ type fileReindexTrackerConfig struct {
 	filenameSwapped    string
 	filenameTidied     string
 	filenameProperties string
-	filenameRollback   string
 	filenameReset      string
-	filenamePaused     string
-	filenameOverrides  string
 	migrationPath      string
 }
 
@@ -133,10 +118,6 @@ func (t *fileReindexTracker) init() error {
 		return t.mkdirGuard(mkdir)
 	}
 	return mkdir()
-}
-
-func (t *fileReindexTracker) HasStartCondition() bool {
-	return t.fileExists(t.config.filenameStart)
 }
 
 func (t *fileReindexTracker) IsStarted() bool {
@@ -468,121 +449,4 @@ func (t *fileReindexTracker) IsReset() bool {
 
 func (t *fileReindexTracker) reset() error {
 	return os.RemoveAll(t.config.migrationPath)
-}
-
-func (t *fileReindexTracker) IsRollback() bool {
-	return t.fileExists(t.config.filenameRollback)
-}
-
-func (t *fileReindexTracker) IsPaused() bool {
-	return t.fileExists(t.config.filenamePaused)
-}
-
-func (t *fileReindexTracker) checkOverrides(logger logrus.FieldLogger, config *reindexTaskConfig) {
-	if !t.fileExists(t.config.filenameOverrides) {
-		return
-	}
-	if config == nil {
-		return
-	}
-	content, err := os.ReadFile(t.filepath(t.config.filenameOverrides))
-	if err != nil {
-		return
-	}
-	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
-	if len(lines) == 0 {
-		return
-	}
-
-	for _, line := range lines {
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			logger.WithField("line", line).Warn("invalid override line, expected 'key=value'")
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-		logger.WithFields(logrus.Fields{
-			"key":   key,
-			"value": value,
-		}).Info("processing override")
-
-		switch key {
-		case "swapBuckets":
-			config.swapBuckets = entcfg.Enabled(value)
-		case "unswapBuckets":
-			config.unswapBuckets = entcfg.Enabled(value)
-		case "tidyBuckets":
-			config.tidyBuckets = entcfg.Enabled(value)
-		case "rollback":
-			config.rollback = entcfg.Enabled(value)
-		case "conditionalStart":
-			config.conditionalStart = entcfg.Enabled(value)
-		case "concurrency":
-			if n, ok := parsePositiveInt(logger, "concurrency", value); ok {
-				config.concurrency = n
-			}
-		case "memtableOptBlockmaxFactor", "memtableOptFactor":
-			if n, ok := parsePositiveInt(logger, "memtableOptFactor", value); ok {
-				config.memtableOptFactor = n
-			}
-		case "processingDuration":
-			if d, ok := parsePositiveDuration(logger, "processingDuration", value, false); ok {
-				config.processingDuration = d
-			}
-		case "pauseDuration":
-			if d, ok := parsePositiveDuration(logger, "pauseDuration", value, false); ok {
-				config.pauseDuration = d
-			}
-		case "perObjectDelay":
-			if d, ok := parsePositiveDuration(logger, "perObjectDelay", value, true); ok {
-				config.perObjectDelay = d
-			}
-		case "checkProcessingEveryNoObjects":
-			if n, ok := parsePositiveInt(logger, "checkProcessingEveryNoObjects", value); ok {
-				config.checkProcessingEveryNoObjects = n
-			}
-		default:
-			logger.WithField("key", key).Warnf("unknown override key, ignoring: %s", key)
-			continue
-		}
-	}
-
-	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("reindex config overrides applied")
-}
-
-// parsePositiveInt parses a positive (>0) integer override. Logs a warning
-// and returns ok=false if value cannot be parsed or is not positive.
-func parsePositiveInt(logger logrus.FieldLogger, key, value string) (int, bool) {
-	n, err := strconv.Atoi(value)
-	if err != nil {
-		logger.WithField("value", value).Warnf("invalid %s value, must be an integer", key)
-		return 0, false
-	}
-	if n <= 0 {
-		logger.WithField("value", value).Warnf("invalid %s value, must be greater than 0", key)
-		return 0, false
-	}
-	return n, true
-}
-
-// parsePositiveDuration parses a duration override. If allowZero is false the
-// value must be > 0; if allowZero is true it must be >= 0. Logs a warning and
-// returns ok=false on parse failure or constraint violation.
-func parsePositiveDuration(logger logrus.FieldLogger, key, value string, allowZero bool) (time.Duration, bool) {
-	d, err := time.ParseDuration(value)
-	if err != nil {
-		logger.WithField("value", value).Warnf("invalid %s value: %v", key, err)
-		return 0, false
-	}
-	if allowZero {
-		if d < 0 {
-			logger.WithField("value", value).Warnf("invalid %s value, must be greater than or equal to 0", key)
-			return 0, false
-		}
-	} else if d <= 0 {
-		logger.WithField("value", value).Warnf("invalid %s value, must be greater than 0", key)
-		return 0, false
-	}
-	return d, true
 }

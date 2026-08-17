@@ -259,14 +259,11 @@ type reindexTaskConfig struct {
 	swapBuckets                   bool
 	unswapBuckets                 bool
 	tidyBuckets                   bool
-	rollback                      bool
-	conditionalStart              bool
 	concurrency                   int
 	memtableOptFactor             int
 	backupMemtableOptFactor       int
 	processingDuration            time.Duration
 	pauseDuration                 time.Duration
-	perObjectDelay                time.Duration
 	checkProcessingEveryNoObjects int
 	selectionEnabled              bool
 	selectedPropsByCollection     map[string]map[string]struct{}
