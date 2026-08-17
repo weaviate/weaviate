@@ -154,6 +154,40 @@ func TestUnloadedIndexDeleteRetiresOnlyTheRecordOfTheBucketItRemoves(t *testing.
 	assert.True(t, recordExists(t, coldLSM, retirementRangeableTrack))
 }
 
+// The end-of-swap trim removes what older generations of the same property
+// left on disk. A record is not leftovers: it says an index is promoted and
+// not yet advertised, and only an owner that knows why — the first start
+// after the flip, an index drop — may retire it. A re-run of the same property
+// passing by is not one of them; it supersedes the record through finalize's
+// older-generation arm at the next start instead.
+func TestEndOfSwapTrimKeepsARecordAndRemovesPlainLeftovers(t *testing.T) {
+	const propName = "title"
+
+	ctx := testCtx()
+	className := "TrimRecord_" + uuid.NewString()[:8]
+	class := newEnableFilterableTestClass(className, propName)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(context.Background())
+	lsmPath := shard.pathLSM()
+
+	recorded := append(append([]string{}, completedSentinels...), finalizedSentinel)
+	mkTrackerDir(t, lsmPath, "enable_filterable_title_1", recorded...)
+	mkTrackerDir(t, lsmPath, "enable_filterable_title_2", completedSentinels...)
+
+	// The generation-3 run that just tidied, trimming everything older.
+	task := NewShardReindexTaskGeneric("EnableFilterable", idx.logger,
+		&EnableFilterableStrategy{propNames: []string{propName}, generation: 3},
+		reindexTaskConfig{}, &UuidKeyParser{}, uuidObjectsIteratorAsync)
+	task.trimOlderGenerationsLocked(idx.logger, shard, nil, []string{propName})
+
+	assert.True(t, recordExists(t, lsmPath, "enable_filterable_title_1"),
+		"a record retires through a named owner, not through a re-run passing by")
+	assert.False(t, recordExists(t, lsmPath, "enable_filterable_title_2"),
+		"an older generation with no record is exactly what the trim is for")
+}
+
 // The sweeps that run at submit, at cancel, and when a task ends FAILED or
 // CANCELLED share their machinery with the DELETE path but have the opposite
 // need: the record, its bucket and its payload are the protected residue the
