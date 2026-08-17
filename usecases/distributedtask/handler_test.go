@@ -41,9 +41,8 @@ func TestHandler_ListTasks(t *testing.T) {
 		name string
 		task *distributedtask.Task
 		want models.DistributedTask
-		// wantJSON is the serialized task, which is what a client actually
-		// reads: a finishedAt it does not contain cannot be misread as a
-		// finish time that has not happened.
+		// wantJSON is what a client actually reads, so an absent finishedAt
+		// can't be misread as a zero-value finish time.
 		wantJSON string
 	}{
 		{

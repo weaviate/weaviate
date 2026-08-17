@@ -652,10 +652,9 @@ func (t *Task) Clone() *Task {
 	return &clone
 }
 
-// markTerminal moves the task to a terminal status and stamps FinishedAt in
-// the same step, so a terminal transition cannot set one without the other.
-// The bare Status assignments left in the FSM all write PREPARING or
-// SWAPPING, which must carry no stamp at all.
+// markTerminal stamps status and FinishedAt together, so a terminal
+// transition can never set one without the other. Bare Status assignments
+// elsewhere in the FSM only ever write the non-terminal PREPARING/SWAPPING.
 // at must come from the RAFT request, never a local clock, so every node's
 // apply of the same log entry produces the same timestamp.
 func (t *Task) markTerminal(status TaskStatus, at time.Time) {

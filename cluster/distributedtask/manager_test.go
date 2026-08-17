@@ -559,13 +559,8 @@ func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Ta
 					Version: 13,
 				},
 				Payload: []byte("test2"),
-				// Manager.RecordUnitCompletion alone takes a successful
-				// task to SWAPPING; the FINISHED transition is committed
-				// by [Manager.MarkTaskFinalized] which the [Scheduler]
-				// issues after every node's [Provider.OnTaskCompleted]
-				// returns. This helper exercises RecordUnitCompletion in
-				// isolation, so SWAPPING is the expected end state — and a
-				// SWAPPING task carries no FinishedAt.
+				// RecordUnitCompletion alone lands a successful task in
+				// SWAPPING, not FINISHED, so this fixture carries no FinishedAt.
 				Status:    TaskStatusSwapping,
 				StartedAt: now,
 				Units: map[string]*Unit{
@@ -2088,8 +2083,7 @@ func ackSwap(t *testing.T, h *testHarness, ns, id string, version uint64, node s
 	})))
 }
 
-// errIfFailed supplies the error message the FSM requires on a failing
-// ack, and the empty string a succeeding one must carry.
+// errIfFailed returns a fixed error string on failure, or empty on success.
 func errIfFailed(success bool) string {
 	if success {
 		return ""

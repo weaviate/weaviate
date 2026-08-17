@@ -20,21 +20,10 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// TestManager_FinishedAtIsStampedAtTheTerminalTransition covers three of the
-// four FSM paths that reach a terminal status out of a coordination phase: a
-// failing PREP ack out of PREPARING, a failing SWAP ack out of SWAPPING, and
-// finalize out of SWAPPING. The fake clock advances between the last in-flight
-// step and the terminal one, so a stamp taken when the units stopped is
-// distinguishable from a stamp taken when the task actually finished.
-//
-// Those phases run per-shard prep and two cluster-wide ack barriers, the
-// second of which has no timeout — so a stamp set on entry to them can be
-// served for an unbounded time while the task is still running. The fourth
-// exit, SWAPPING → FAILED via MarkTaskFailed, is pinned by
-// TestManager_MarkTaskFailed. Two more terminal paths leave STARTED directly:
-// a failing unit (TestTaskFailureInAnotherNode, TestTaskFailureInLocalNode)
-// and cancel (TestTaskCancellation,
-// TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses).
+// TestManager_FinishedAtIsStampedAtTheTerminalTransition pins that FinishedAt
+// is set on the terminal transition, not when the last unit completes, so
+// retention counts from when the task actually finished. Covers three of
+// four coordination-phase exits; the fourth is TestManager_MarkTaskFailed.
 func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 	tests := []struct {
 		name string
@@ -97,10 +86,8 @@ func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 			require.Equal(t, wantFinishedAt.UnixMilli(), got.FinishedAt.UnixMilli(),
 				"FinishedAt must be the terminal moment, not an earlier phase change")
 
-			// Retention counts from the stamp, so half an hour short of a
-			// full TTL past the terminal transition the record is still
-			// readable — even though it is half an hour past a TTL measured
-			// from the moment the units stopped.
+			// Retention counts from the stamp above; a stamp taken when the
+			// units stopped instead would already read as expired here.
 			h.clock.Advance(h.completedTaskTTL - 30*time.Minute)
 			require.ErrorContains(t, h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
 				Namespace: ns,
@@ -111,11 +98,9 @@ func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 	}
 }
 
-// TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks covers a snapshot
-// written by an earlier build of this version line, which stamped FinishedAt
-// when the units stopped. Such a snapshot can hold a PREPARING or SWAPPING
-// task with a stamp already set; restoring it verbatim would serve a finish
-// time for a task that is still running.
+// TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks pins that Restore
+// clears FinishedAt from any non-terminal task in a snapshot written by an
+// earlier build of this version line.
 func TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks(t *testing.T) {
 	const (
 		ns      = "ns"
