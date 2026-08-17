@@ -161,6 +161,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// so that buckets are found at their canonical directory names.
 	FinalizeCompletedMigrations(s.pathLSM(), class, s.index.logger)
 
+	// A migration that finished on this node stays invisible until the whole
+	// cluster agrees to advertise it: the schema flag is still false, so the
+	// property's buckets would not be opened, and an unopened bucket reaches
+	// neither reads nor the backup walker that enumerates loaded buckets. The
+	// records finalize just kept name exactly those buckets.
+	effectiveClass := classWithPromotedIndexes(class, finalizedMigrationIndexes(s.pathLSM()))
+
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
 	// migration's target property as "not locally ready" on this shard.
 	// Without this, a post-restart shard whose recovery hasn't finished
@@ -174,7 +181,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
-	if err := s.initNonVector(ctx, class); err != nil {
+	if err := s.initNonVector(ctx, effectiveClass); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
