@@ -348,6 +348,13 @@ func hasStalePartialReindexState(
 		if !matched {
 			continue
 		}
+		if fileExistsInDir(filepath.Join(lsmPath, ".migrations", name), finalizedSentinel) {
+			// A finalized record is settled: the promotion it tracks already
+			// ran, so there is nothing for a sweep to remove and nothing for a
+			// load to reclaim. Hydrating every cold tenant carrying one, for
+			// every tuple of every sweep, is the storm this arm avoids.
+			continue
+		}
 		if preservedGens == nil {
 			preservedGens = completedMigrationGens(scope)
 		}
