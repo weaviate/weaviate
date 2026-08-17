@@ -79,7 +79,11 @@ func TestFinalizeKeepsARecordOnlyWhileTheSchemaHidesAPromotedIndex(t *testing.T)
 		props      []string
 		mainBucket string
 		class      *models.Class
-		wantKept   bool
+		// payloadTokenization plants the target a change-tokenization
+		// migration recorded, which is the only thing that says which
+		// tokenization the promoted keys are under.
+		payloadTokenization string
+		wantKept            bool
 	}{
 		{
 			name:       "enable-filterable, flag still disabled",
@@ -172,30 +176,61 @@ func TestFinalizeKeepsARecordOnlyWhileTheSchemaHidesAPromotedIndex(t *testing.T)
 				Name: "score", IndexRangeFilters: boolPtr(true),
 			}),
 		},
-		// The remaining strategies flip no flag, so their tracker has nothing
-		// left to say once promoted. Retokenize joins them here because its
-		// index flag stays true throughout, and the sweep deletes only on an
-		// explicit false.
+		// The two retokenize halves flip no index flag — their property keeps
+		// its index on throughout. What the schema is behind on is the
+		// tokenization the promoted keys were written under, which both the
+		// write and the query path answer from.
 		{
-			name:       "searchable-retokenize, whose index flag stays on throughout",
-			migName:    "searchable_retokenize_title_1",
-			props:      []string{"title"},
-			mainBucket: "property_title_searchable",
+			name:                "searchable-retokenize, schema still names the old tokenization",
+			migName:             "searchable_retokenize_title_1",
+			props:               []string{"title"},
+			mainBucket:          "property_title_searchable",
+			payloadTokenization: models.PropertyTokenizationField,
 			class: classWithProperty(&models.Property{
 				Name: "title", IndexSearchable: boolPtr(true),
-				Tokenization: models.PropertyTokenizationField,
+				Tokenization: models.PropertyTokenizationWord,
 			}),
+			wantKept: true,
 		},
 		{
-			name:       "filterable-retokenize, whose index flag stays on throughout",
-			migName:    "filterable_retokenize_title_1",
-			props:      []string{"title"},
-			mainBucket: "property_title",
+			name:                "filterable-retokenize, schema still names the old tokenization",
+			migName:             "filterable_retokenize_title_1",
+			props:               []string{"title"},
+			mainBucket:          "property_title",
+			payloadTokenization: models.PropertyTokenizationField,
+			class: classWithProperty(&models.Property{
+				Name: "title", IndexFilterable: boolPtr(true),
+				Tokenization: models.PropertyTokenizationWord,
+			}),
+			wantKept: true,
+		},
+		{
+			name:                "filterable-retokenize, schema has caught up",
+			migName:             "filterable_retokenize_title_1",
+			props:               []string{"title"},
+			mainBucket:          "property_title",
+			payloadTokenization: models.PropertyTokenizationField,
 			class: classWithProperty(&models.Property{
 				Name: "title", IndexFilterable: boolPtr(true),
 				Tokenization: models.PropertyTokenizationField,
 			}),
 		},
+		{
+			// Nothing names the tokenization to wait for, and the index flag
+			// stays true either way, so the startup sweep never reaches this
+			// bucket and the record protects nothing.
+			name:       "filterable-retokenize, no payload to name the target",
+			migName:    "filterable_retokenize_title_1",
+			props:      []string{"title"},
+			mainBucket: "property_title",
+			class: classWithProperty(&models.Property{
+				Name: "title", IndexFilterable: boolPtr(true),
+				Tokenization: models.PropertyTokenizationWord,
+			}),
+		},
+		// The remaining strategies flip no flag and change no tokenization, so
+		// their promotion is never ahead of the schema and their tracker has
+		// nothing left to say.
 		{
 			name:       "searchable-map-to-blockmax, a write-strategy change",
 			migName:    "searchable_map_to_blockmax_1",
@@ -229,6 +264,9 @@ func TestFinalizeKeepsARecordOnlyWhileTheSchemaHidesAPromotedIndex(t *testing.T)
 		t.Run(tc.name, func(t *testing.T) {
 			lsmPath := t.TempDir()
 			plantCompletedMigration(t, lsmPath, tc.migName, tc.props...)
+			if tc.payloadTokenization != "" {
+				writeRecoveryPayload(t, lsmPath, tc.migName, tc.props, tc.payloadTokenization)
+			}
 
 			logger, _ := test.NewNullLogger()
 			FinalizeCompletedMigrations(lsmPath, tc.class, logger)
@@ -402,20 +440,26 @@ func TestFinalizeRetiresARecordSupersededByANewerGeneration(t *testing.T) {
 	assert.Equal(t, "category", promotedMarkerOf(t, lsmPath, "property_category"))
 }
 
-// Which index a strategy switches on decides whether its record is kept, so a
-// strategy added without an answer here would silently join the "keeps
-// nothing" side. Both directions are pinned: the list below must name every
-// prefix the build knows, and every prefix must be answered on purpose.
+// What a strategy leaves the schema behind on decides whether its record is
+// kept: an index flag the cluster has yet to flip, or the tokenization its
+// promoted keys are under. A strategy added without an answer to both would
+// silently join the "keeps nothing" side. Both directions are pinned: the list
+// below must name every prefix the build knows, and every prefix must be
+// answered on purpose.
 func TestEveryMigrationDirPrefixHasARetentionVerdict(t *testing.T) {
-	verdicts := map[string]string{
-		MigrationDirPrefixEnableFilterable:      "filterable",
-		MigrationDirPrefixEnableSearchable:      "searchable",
-		MigrationDirPrefixFilterableToRangeable: "rangeable",
-		MigrationDirPrefixSearchableRetokenize:  "",
-		MigrationDirPrefixFilterableRetokenize:  "",
-		MigrationDirPrefixRebuildSearchable:     "",
-		MigrationDirFilterableRoaringsetRefresh: "",
-		MigrationDirSearchableMapToBlockmax:     "",
+	type verdict struct {
+		indexType  string
+		retokenize bool
+	}
+	verdicts := map[string]verdict{
+		MigrationDirPrefixEnableFilterable:      {indexType: "filterable"},
+		MigrationDirPrefixEnableSearchable:      {indexType: "searchable"},
+		MigrationDirPrefixFilterableToRangeable: {indexType: "rangeable"},
+		MigrationDirPrefixSearchableRetokenize:  {retokenize: true},
+		MigrationDirPrefixFilterableRetokenize:  {retokenize: true},
+		MigrationDirPrefixRebuildSearchable:     {},
+		MigrationDirFilterableRoaringsetRefresh: {},
+		MigrationDirSearchableMapToBlockmax:     {},
 	}
 
 	answered := make([]string, 0, len(verdicts))
@@ -426,8 +470,10 @@ func TestEveryMigrationDirPrefixHasARetentionVerdict(t *testing.T) {
 		"every migration dir prefix needs an explicit retention verdict")
 
 	for prefix, want := range verdicts {
-		assert.Equalf(t, want, awaitingFlipIndexType(prefix+"_someprop_1"),
-			"retention verdict for %q", prefix)
+		assert.Equalf(t, want.indexType, awaitingFlipIndexType(prefix+"_someprop_1"),
+			"index-flag retention verdict for %q", prefix)
+		assert.Equalf(t, want.retokenize, isRetokenizeMigrationDir(prefix+"_someprop_1"),
+			"tokenization retention verdict for %q", prefix)
 	}
 }
 

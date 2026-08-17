@@ -1697,24 +1697,31 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		return fmt.Errorf("schema flip: %w", err)
 	}
 
-	if IsTokenizationChangingMigration(payload.MigrationType) {
+	promotedIndexType := awaitingFlipIndexTypeFor(payload.MigrationType)
+	if IsTokenizationChangingMigration(payload.MigrationType) || promotedIndexType != "" {
 		className := entschema.ClassName(payload.Collection)
 		if idx := p.db.GetIndex(className); idx != nil {
-			// Loaded shards only: the overlay is in memory, so a shard that
-			// is not loaded has none to clear, and loading one to clear
-			// nothing is what the swap path cannot afford.
+			// Loaded shards only: both the overlay and the write routing are
+			// in memory, so a shard that is not loaded has none to clear, and
+			// loading one to clear nothing is what the swap path cannot
+			// afford. An unloaded shard reads the flipped schema on its next
+			// load and arms neither.
 			idx.ForEachLoadedShard(func(shardName string, sh ShardLike) error {
 				// Unwrap so the clear reaches the concrete shard whose
-				// overlay the set hook populated. On unwrap failure,
-				// TokenizationFor self-clears on the next query.
+				// overlay the set hook populated. On unwrap failure, both
+				// TokenizationFor and the write overlay self-clear on the
+				// next read of a caught-up schema.
 				concreteShard, err := unwrapShard(ctx, sh)
 				if err != nil {
 					logger.WithField("shard", shardName).
-						Warnf("reindex provider: tokenization overlay clear skipped (unwrap failed); relying on TokenizationFor self-clear: %v", err)
+						Warnf("reindex provider: migration overlay clear skipped (unwrap failed); relying on the self-clear: %v", err)
 					return nil
 				}
 				for _, propName := range payload.Properties {
 					concreteShard.ClearTokenizationOverlay(propName)
+					if promotedIndexType != "" {
+						concreteShard.disarmPromotedIndex(propName, promotedIndexType)
+					}
 				}
 				return nil
 			})
@@ -1722,6 +1729,27 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	}
 
 	return nil
+}
+
+// awaitingFlipIndexTypeFor names the property index a migration type
+// advertises at its cluster-wide schema flip, so the flip can stop the write
+// routing that stood in for the flag until then.
+//
+// Answers from the same migration dir names [awaitingFlipIndexType] reads, so
+// the routing is armed and disarmed on one vocabulary. Only the two semantic
+// enable-* types are listed, because only they reach the cluster-wide flip
+// this serves: the rangeable family flips its flag inside the swap itself,
+// and the write overlay's own self-clear retires the routing on the next
+// write against the caught-up schema.
+func awaitingFlipIndexTypeFor(mt ReindexMigrationType) string {
+	switch mt {
+	case ReindexTypeEnableFilterable:
+		return awaitingFlipIndexType(MigrationDirPrefixEnableFilterable)
+	case ReindexTypeEnableSearchable:
+		return awaitingFlipIndexType(MigrationDirPrefixEnableSearchable)
+	default:
+		return ""
+	}
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration

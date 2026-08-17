@@ -448,34 +448,69 @@ func writeFinalizedMarker(migDir string) error {
 	return nil
 }
 
-// migrationAwaitsSchemaFlip reports whether the tracker at migDir promoted an
-// index that class still advertises as disabled on at least one targeted
-// property. "Disabled" means an explicit false, matching what the startup
-// sweep deletes on ([propertyDeleteIndexHelper.isPropertyIndexRemoved]); a
-// nil flag needs no record.
+// migrationAwaitsSchemaFlip reports whether class is still behind what the
+// tracker at migDir promoted, on at least one targeted property — either an
+// index it advertises as disabled, or the tokenization its keys are under.
+//
+// "Disabled" means an explicit false, matching what the startup sweep deletes
+// on ([propertyDeleteIndexHelper.isPropertyIndexRemoved]); a nil flag needs no
+// record.
 func migrationAwaitsSchemaFlip(migDir, migName string, class *models.Class) bool {
-	indexType := awaitingFlipIndexType(migName)
-	if indexType == "" || class == nil {
+	if class == nil {
 		return false
 	}
+	if indexType := awaitingFlipIndexType(migName); indexType != "" {
+		return anyTargetProperty(migDir, class, func(prop *models.Property) bool {
+			flag := propertyIndexFlag(prop, indexType)
+			return flag != nil && !*flag
+		})
+	}
+	if isRetokenizeMigrationDir(migName) {
+		// A retokenize migration flips no index flag: it rewrites the keys of
+		// a bucket the schema already advertises. What the schema still has
+		// wrong is the tokenization those keys were written under, and both
+		// the write and the query path answer from it — so until it catches
+		// up, this shard needs the record to re-arm the tokenization overlay
+		// on every load.
+		target, err := readRecoveryTargetTokenization(migDir)
+		if err != nil || target == "" {
+			return false
+		}
+		return anyTargetProperty(migDir, class, func(prop *models.Property) bool {
+			return prop.Tokenization != target
+		})
+	}
+	return false
+}
+
+// anyTargetProperty reports whether awaiting holds for any property the
+// migration at migDir targeted.
+//
+// An unreadable property list keeps the record: nothing can name what the
+// record is waiting for, and keeping it costs a directory while dropping it
+// unshields a promoted bucket for the next start's sweep. A property the
+// class no longer carries has nothing left to catch up and keeps nothing
+// alive.
+func anyTargetProperty(migDir string, class *models.Class, awaiting func(*models.Property) bool) bool {
 	props, err := readMigrationProps(migDir)
 	if err != nil || len(props) == 0 {
-		// Without the property list nothing can name the flag this record is
-		// waiting for. Keeping it costs a directory; dropping it would
-		// unshield a promoted bucket for the next start's sweep.
 		return true
 	}
 	for _, propName := range props {
-		for _, prop := range class.Properties {
-			if prop == nil || prop.Name != propName {
-				continue
-			}
-			if flag := propertyIndexFlag(prop, indexType); flag != nil && !*flag {
-				return true
-			}
+		if prop := propertyNamed(class.Properties, propName); prop != nil && awaiting(prop) {
+			return true
 		}
 	}
 	return false
+}
+
+// isRetokenizeMigrationDir reports whether a migration dir belongs to one of
+// the two halves of a change-tokenization migration. Both halves rewrite the
+// same property's keys and share one target tokenization, so one answer
+// serves both.
+func isRetokenizeMigrationDir(migName string) bool {
+	return strings.HasPrefix(migName, MigrationDirPrefixSearchableRetokenize) ||
+		strings.HasPrefix(migName, MigrationDirPrefixFilterableRetokenize)
 }
 
 // awaitingFlipIndexType names the property index whose schema flag a
@@ -516,26 +551,38 @@ func propertyIndexFlag(prop *models.Property, indexType string) *bool {
 	return nil
 }
 
-// finalizedMigrationIndexes returns, per property, the index types a
-// completed migration already promoted on the shard at lsmPath while the
-// schema still advertises them as disabled.
+// finalizedMigrations is what a shard learns from the records
+// [FinalizeCompletedMigrations] kept: which of its indexes are finished but
+// not advertised yet, and which of its properties hold keys written under a
+// tokenization the schema does not name yet.
+type finalizedMigrations struct {
+	// indexes maps a property to the index types already promoted on it.
+	indexes map[string]map[string]struct{}
+	// tokenizations maps a property to the tokenization its keys are under.
+	tokenizations map[string]string
+}
+
+func (f finalizedMigrations) empty() bool {
+	return len(f.indexes) == 0 && len(f.tokenizations) == 0
+}
+
+// readFinalizedMigrations collects the records on the shard at lsmPath.
 //
-// Read at shard load to open those buckets: without it they sit on disk
-// unopened, invisible to reads and to the loaded-bucket backup walker, until
-// the cluster flips the flag.
-func finalizedMigrationIndexes(lsmPath string) map[string]map[string]struct{} {
+// Read at shard load, for two things a restart would otherwise lose. A
+// promoted index whose flag is still false is not opened by the schema, and a
+// bucket that is not open reaches neither reads nor the backup walker that
+// enumerates loaded buckets. And a retokenized property's keys are read and
+// written under the tokenization the schema names, which is still the old one
+// — so queries miss and writes land under keys nothing looks for.
+func readFinalizedMigrations(lsmPath string) finalizedMigrations {
+	var out finalizedMigrations
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
-		return nil
+		return out
 	}
-	var out map[string]map[string]struct{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
-			continue
-		}
-		indexType := awaitingFlipIndexType(entry.Name())
-		if indexType == "" {
 			continue
 		}
 		migDir := filepath.Join(migrationsDir, entry.Name())
@@ -546,14 +593,30 @@ func finalizedMigrationIndexes(lsmPath string) map[string]map[string]struct{} {
 		if err != nil {
 			continue
 		}
+		if indexType := awaitingFlipIndexType(entry.Name()); indexType != "" {
+			for _, propName := range props {
+				if out.indexes == nil {
+					out.indexes = map[string]map[string]struct{}{}
+				}
+				if out.indexes[propName] == nil {
+					out.indexes[propName] = map[string]struct{}{}
+				}
+				out.indexes[propName][indexType] = struct{}{}
+			}
+			continue
+		}
+		if !isRetokenizeMigrationDir(entry.Name()) {
+			continue
+		}
+		target, err := readRecoveryTargetTokenization(migDir)
+		if err != nil || target == "" {
+			continue
+		}
 		for _, propName := range props {
-			if out == nil {
-				out = map[string]map[string]struct{}{}
+			if out.tokenizations == nil {
+				out.tokenizations = map[string]string{}
 			}
-			if out[propName] == nil {
-				out[propName] = map[string]struct{}{}
-			}
-			out[propName][indexType] = struct{}{}
+			out.tokenizations[propName] = target
 		}
 	}
 	return out

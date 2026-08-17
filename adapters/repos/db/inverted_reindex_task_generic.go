@@ -818,9 +818,37 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
+	// Same reason as the happy path's arming (see [runtimeSwap]): the index
+	// is promoted, the schema flag is not flipped yet, and ordinary writes
+	// have to reach it until it is.
+	t.armPromotedIndexesOnShard(ctx, logger, shard, props)
 	t.trimOlderGenerationsLocked(logger, shard, rt, props)
 	logger.Info("RunSwapOnShard: recovery path complete")
 	return nil
+}
+
+// armPromotedIndexesOnShard routes ordinary writes into the index this migration
+// just promoted, for as long as the schema still advertises it as disabled.
+//
+// A strategy that flips no schema flag arms nothing: its index is either
+// already advertised (repair and refresh strategies) or has no flag of its
+// own. [awaitingFlipIndexType] is the same answer the completed-migration
+// record is retained on, so what a restart re-arms and what a swap arms
+// cannot drift apart.
+func (t *ShardReindexTaskGeneric) armPromotedIndexesOnShard(ctx context.Context,
+	logger logrus.FieldLogger, shard ShardLike, props []string,
+) {
+	indexType := awaitingFlipIndexType(t.strategy.MigrationDirName())
+	if indexType == "" {
+		return
+	}
+	concrete, err := unwrapShard(ctx, shard)
+	if err != nil {
+		logger.Warnf("runtime swap: cannot route writes into the promoted %s index; "+
+			"writes until the schema flip will be missing from it: %v", indexType, err)
+		return
+	}
+	concrete.armPromotedIndexes(ctx, props, indexType)
 }
 
 // rebuildRangeableInMemoryReps restores the INDEX_RANGEABLE_IN_MEMORY
@@ -1947,6 +1975,16 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		}
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
+
+	// The bucket is now the migration's, but the schema flag that advertises
+	// it flips cluster-wide only after the last replica has swapped. Route
+	// ordinary writes into it for the meantime.
+	//
+	// Placed here rather than inside the loop above so it stays out of the
+	// atomic window, and before the callbacks that mirror writes into the
+	// ingest bucket come down (the defer at the top of this function) so no
+	// write falls between the two mechanisms.
+	t.armPromotedIndexesOnShard(ctx, logger, shard, props)
 
 	// Phase 2b (post-atomic, slow but inline): shutdown + rename of the
 	// OLD (now-dead) main buckets. The load-bearing rule is: rename

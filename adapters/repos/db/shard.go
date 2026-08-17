@@ -476,6 +476,35 @@ type Shard struct {
 	tokenizationOverlayMu sync.RWMutex
 	tokenizationOverlay   map[string]string
 
+	// promotedIndexesMu guards promotedIndexes. Holds, per property, the
+	// index types this shard has already built and swapped into place while
+	// the cluster-wide schema flag still advertises them as disabled.
+	//
+	// It exists because the two halves of "the index is ready" land at
+	// different times: the bucket flips here, the flag flips cluster-wide one
+	// RAFT round after the last replica has swapped. In between, the write
+	// path asks the schema, the schema says the property has no index, and
+	// the analyzer drops it — so every write in the window is acked, stored,
+	// and absent from the index the flip is about to advertise. Nothing
+	// repairs it afterwards: the backfill is over and the flip does not
+	// rescan.
+	//
+	// Armed at the moment the promotion becomes true, from both places it can
+	// become true: the per-property bucket flip in [runtimeSwap], and shard
+	// init reading the completed-migration record left by
+	// [FinalizeCompletedMigrations]. Arming from the record is what makes a
+	// restart inside the window gapless — the shard is armed before it can
+	// accept its first write, with no scheduler tick in between.
+	//
+	// Disarmed by the schema catching up (explicitly at the flip, and
+	// self-clearing on the next write for any path that misses it), and by an
+	// index DELETE, which removes the very bucket this would send writes to.
+	//
+	// Read on every write that touches the shard, so kept under a fast
+	// RWMutex rather than a sync.Map (consistent with the two maps above).
+	promotedIndexesMu sync.RWMutex
+	promotedIndexes   map[string]map[string]struct{}
+
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool

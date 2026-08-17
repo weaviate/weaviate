@@ -164,7 +164,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// A migration finished on this node stays invisible until the schema flag
 	// flips cluster-wide: without forcing it on here, the property's buckets
 	// would not be opened, reaching neither reads nor the backup walker.
-	effectiveClass := classWithPromotedIndexes(class, finalizedMigrationIndexes(s.pathLSM()))
+	finalized := readFinalizedMigrations(s.pathLSM())
+	effectiveClass := classWithPromotedIndexes(class, finalized.indexes)
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
 	// migration's target property as "not locally ready" on this shard.
@@ -182,6 +183,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err := s.initNonVector(ctx, effectiveClass); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
+
+	// Opening the buckets is only half of what the records are for: writes
+	// have to reach them too, and a write can arrive as soon as this shard is
+	// reachable. Arming here — one step after the buckets exist, still inside
+	// shard init — is what makes a restart inside a migration's window leave
+	// no gap for a write to fall through, without waiting on a scheduler tick
+	// that a completed local unit may never get.
+	s.armFinalizedMigrations(ctx, finalized)
 
 	if err = s.initShardVectors(ctx); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
@@ -324,31 +333,58 @@ var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse 
 // maxBytes refuses a larger payload before opening it;
 // [unboundedRecoveryPayload] reads any size.
 func readRecoveryPropertyNames(migDir string, maxBytes int64) ([]string, error) {
+	fields, err := readRecoveryPayloadFields(migDir, maxBytes)
+	if err != nil {
+		return nil, err
+	}
+	return fields.Properties, nil
+}
+
+// readRecoveryTargetTokenization extracts the tokenization a
+// change-tokenization migration rewrote its property's keys under. Empty for
+// every other migration type, which changes no tokenization.
+//
+// Unbounded, unlike the DELETE-path probes: those run inside a RAFT apply and
+// a payload naming every tenant of a large migration reaches megabytes. This
+// one runs at shard init, where the cost is one shard's startup rather than
+// the FSM loop of the whole cluster — the same call the sibling
+// [markInFlightRangeableMigrationsNotReady] makes for the same reason.
+func readRecoveryTargetTokenization(migDir string) (string, error) {
+	fields, err := readRecoveryPayloadFields(migDir, unboundedRecoveryPayload)
+	if err != nil {
+		return "", err
+	}
+	return fields.TargetTokenization, nil
+}
+
+// recoveryPayloadFields is the part of a tracker's payload.mig that startup
+// reads. Anonymous rather than [ReindexTaskPayload] to keep shard init lean.
+type recoveryPayloadFields struct {
+	Properties         []string `json:"properties"`
+	TargetTokenization string   `json:"targetTokenization"`
+}
+
+func readRecoveryPayloadFields(migDir string, maxBytes int64) (recoveryPayloadFields, error) {
 	path := filepath.Join(migDir, reindexRecoveryPayloadFile)
 	if maxBytes > unboundedRecoveryPayload {
 		info, err := os.Stat(path)
 		if err != nil {
-			return nil, err
+			return recoveryPayloadFields{}, err
 		}
 		if info.Size() > maxBytes {
-			return nil, fmt.Errorf("%w: %s holds %d bytes, bound is %d",
+			return recoveryPayloadFields{}, fmt.Errorf("%w: %s holds %d bytes, bound is %d",
 				errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), maxBytes)
 		}
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return recoveryPayloadFields{}, err
 	}
-	// Anonymous shape: only the field we need. Avoids depending on
-	// ReindexTaskPayload here (no import cycle risk, but keeping shard
-	// init lean).
 	var rec struct {
-		Payload struct {
-			Properties []string `json:"properties"`
-		} `json:"payload"`
+		Payload recoveryPayloadFields `json:"payload"`
 	}
 	if err := json.Unmarshal(data, &rec); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", reindexRecoveryPayloadFile, err)
+		return recoveryPayloadFields{}, fmt.Errorf("parse %s: %w", reindexRecoveryPayloadFile, err)
 	}
-	return rec.Payload.Properties, nil
+	return rec.Payload, nil
 }

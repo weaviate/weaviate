@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,9 +58,11 @@ func TestClassWithPromotedIndexesForcesOnlyTheRecordedFlags(t *testing.T) {
 		"no records means no copy")
 }
 
-// finalizedMigrationIndexes reads only records, never the trackers of a
-// migration still in flight or one whose strategy flips no flag.
-func TestFinalizedMigrationIndexesReadsOnlyRecords(t *testing.T) {
+// readFinalizedMigrations reads only records, never the trackers of a
+// migration still in flight, and it tells the two kinds of record apart: one
+// names an index the schema has yet to advertise, the other the tokenization
+// the property's keys are stored under.
+func TestReadFinalizedMigrationsReadsOnlyRecords(t *testing.T) {
 	lsmPath := t.TempDir()
 	mkTrackerDir(t, lsmPath, "enable_filterable_alpha_beta_1", finalizedSentinel)
 	require.NoError(t, os.WriteFile(
@@ -80,11 +83,40 @@ func TestFinalizedMigrationIndexesReadsOnlyRecords(t *testing.T) {
 	require.NoError(t, os.WriteFile(
 		filepath.Join(lsmPath, ".migrations", "rebuild_searchable_delta_1", "properties.mig"),
 		[]byte("delta"), 0o644))
+	// Retokenize records carry a tokenization, not an index flag.
+	mkTrackerDir(t, lsmPath, "searchable_retokenize_epsilon_1", finalizedSentinel)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lsmPath, ".migrations", "searchable_retokenize_epsilon_1", "properties.mig"),
+		[]byte("epsilon"), 0o644))
+	writeRecoveryPayload(t, lsmPath, "searchable_retokenize_epsilon_1",
+		[]string{"epsilon"}, models.PropertyTokenizationField)
+
+	finalized := readFinalizedMigrations(lsmPath)
 
 	assert.Equal(t, map[string]map[string]struct{}{
 		"alpha": {"filterable": {}, "rangeable": {}},
 		"beta":  {"filterable": {}},
-	}, finalizedMigrationIndexes(lsmPath))
+	}, finalized.indexes)
+	assert.Equal(t, map[string]string{
+		"epsilon": models.PropertyTokenizationField,
+	}, finalized.tokenizations)
+}
+
+// writeRecoveryPayload plants the payload.mig a migration's own bookkeeping
+// would have written, in the shape [readRecoveryPayloadFields] parses.
+func writeRecoveryPayload(t *testing.T, lsmPath, migName string,
+	props []string, targetTokenization string,
+) {
+	t.Helper()
+	rec := reindexRecoveryRecord{Payload: ReindexTaskPayload{
+		Properties:         props,
+		TargetTokenization: targetTokenization,
+	}}
+	encoded, err := json.Marshal(rec)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lsmPath, ".migrations", migName, reindexRecoveryPayloadFile),
+		encoded, 0o644))
 }
 
 // A bucket the shard does not open is invisible to reads and to the backup

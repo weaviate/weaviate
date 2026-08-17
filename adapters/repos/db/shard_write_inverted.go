@@ -33,7 +33,17 @@ func isPropertyForLength(dt schema.DataType) bool {
 	}
 }
 
-func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (map[string]interface{}, []inverted.NilProperty, error) {
+// analyzeObjectCommon collects the object's schema map and the nil properties
+// its null-state and property-length entries come from.
+//
+// overlay is the same view the analyzer gets, so a property the schema hides
+// but the overlay reveals contributes its absent-value state too — otherwise
+// a write in a migration's pre-flip window would record that the property IS
+// set on the objects that carry it and record nothing for the objects that do
+// not, which is not the state the same write records once the flip lands.
+func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class,
+	overlay map[string]inverted.PropertyOverlay,
+) (map[string]interface{}, []inverted.NilProperty, error) {
 	var schemaMap map[string]interface{}
 
 	if object.Properties() == nil {
@@ -66,7 +76,7 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 			// 1. They are not in the schema map ( == nil)
 			// 2. Their inverted index is enabled
 			_, ok := schemaMap[prop.Name]
-			if !ok && inverted.HasAnyInvertedIndex(prop) {
+			if !ok && inverted.HasAnyInvertedIndex(inverted.OverlaidProperty(prop, overlay)) {
 				nilProps = append(nilProps, inverted.NilProperty{
 					Name:                prop.Name,
 					AddToPropertyLength: isPropertyForLength(dt),
@@ -92,58 +102,113 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 		return nil, nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}
 
-	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c)
+	overlay := s.writeAnalyzerOverlay(c.Properties)
+
+	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c, overlay)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	analyzer := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String())
-	// Mirror the query-path overlay handling (BM25Searcher.effectiveTokenization)
-	// so writes during a change-tokenization SWAPPING window land in the
-	// canonical bucket with TARGET-tokenized keys. weaviate/0-weaviate-issues#240.
-	if overlay := s.tokenizationAnalyzerOverlay(c.Properties); overlay != nil {
+	if overlay != nil {
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}
 	props, nestedProps, err := analyzer.Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, nestedProps, err
 }
 
-// tokenizationAnalyzerOverlay projects the per-shard tokenization
-// overlay onto the inverted-analyzer PropertyOverlay shape. Only
-// `Tokenization` is populated — the Force* flags are owned by
-// from-scratch backfill strategies and must not affect ordinary writes.
-func (s *Shard) tokenizationAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
-	if len(props) == 0 {
+// writeAnalyzerOverlay is the view an ordinary write is analyzed under while
+// a migration has moved ahead of the schema on this shard: the target
+// tokenization of a change-tokenization migration, and the forced index flag
+// of a migration whose index is built and swapped but not advertised yet.
+//
+// Both close the same gap from opposite ends. The bucket flips per shard; the
+// schema flips once, cluster-wide, after the last replica has swapped. A
+// write in between is analyzed against a schema that is stale in a way that
+// matters: it tokenizes query-visible terms the old way, or it drops the
+// property entirely. Nothing repairs either afterwards — the backfill is
+// over, and the flip does not rescan. See [Shard.tokenizationOverlay] and
+// [Shard.promotedIndexes] for the two lifecycles.
+//
+// Returns nil in the steady state, where no migration is mid-window, without
+// touching the schema at all.
+func (s *Shard) writeAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
+	if len(props) == 0 || !s.hasWriteAnalyzerOverlay() {
 		return nil
 	}
 	propNames := make([]string, 0, len(props))
-	liveTok := make(map[string]string, len(props))
+	live := make(map[string]*models.Property, len(props))
 	for _, p := range props {
 		if p == nil {
 			continue
 		}
 		propNames = append(propNames, p.Name)
-		liveTok[p.Name] = p.Tokenization
+		live[p.Name] = p
 	}
-	snap := s.SnapshotTokenizationOverlay(propNames)
-	if len(snap) == 0 {
+
+	tokenizations := s.SnapshotTokenizationOverlay(propNames)
+	promoted := s.promotedIndexesFor(propNames)
+	if len(tokenizations) == 0 && len(promoted) == 0 {
 		return nil
 	}
-	var out map[string]inverted.PropertyOverlay
-	for name, target := range snap {
-		if target == liveTok[name] {
+
+	out := make(map[string]inverted.PropertyOverlay, len(tokenizations)+len(promoted))
+	for name, target := range tokenizations {
+		if p := live[name]; p == nil || target == p.Tokenization {
 			// Live schema already matches the overlay target. The
 			// authoritative clear happens via ClearTokenizationOverlay
 			// at migration completion; query-path TokenizationFor
 			// self-clears as a secondary nicety.
 			continue
 		}
-		if out == nil {
-			out = make(map[string]inverted.PropertyOverlay, len(snap))
-		}
 		out[name] = inverted.PropertyOverlay{Tokenization: target}
 	}
+	for name, indexTypes := range promoted {
+		p := live[name]
+		if p == nil {
+			continue
+		}
+		entry := out[name]
+		forced := false
+		for _, indexType := range indexTypes {
+			switch {
+			case indexType == "filterable" && !inverted.HasFilterableIndex(p):
+				entry.ForceFilterable, forced = true, true
+			case indexType == "searchable" && !inverted.HasSearchableIndex(p):
+				entry.ForceSearchable, forced = true, true
+			case indexType == "rangeable" && !inverted.HasRangeableIndex(p):
+				entry.ForceRangeable, forced = true, true
+			default:
+				// The schema advertises this index now, so the write path
+				// resolves it without help. Self-clear as TokenizationFor
+				// does, in case the flip's explicit disarm did not reach
+				// this shard.
+				s.disarmPromotedIndex(name, indexType)
+			}
+		}
+		if forced {
+			out[name] = entry
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
 	return out
+}
+
+// hasWriteAnalyzerOverlay reports whether any migration on this shard is
+// currently ahead of the schema. Keeps the steady-state write path down to
+// two uncontended read locks, with no allocation and no schema walk.
+func (s *Shard) hasWriteAnalyzerOverlay() bool {
+	s.tokenizationOverlayMu.RLock()
+	tokenizations := len(s.tokenizationOverlay)
+	s.tokenizationOverlayMu.RUnlock()
+	if tokenizations > 0 {
+		return true
+	}
+	s.promotedIndexesMu.RLock()
+	defer s.promotedIndexesMu.RUnlock()
+	return len(s.promotedIndexes) > 0
 }
 
 // AnalyzeObjectForMigrationWithOverlay is the migration-time variant of
@@ -175,7 +240,7 @@ func (s *Shard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Object,
 		return nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}
 
-	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c)
+	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c, overlay)
 	if err != nil {
 		return nil, nil, err
 	}

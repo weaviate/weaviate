@@ -97,9 +97,12 @@ func DedupItems(props []Property) []Property {
 
 // PropertyOverlay describes inverted-index flags and (optionally) a
 // tokenization to apply to a single property *for the duration of a single
-// analyzer call*. It is used by runtime reindex migrations that build a new
-// inverted bucket before the corresponding schema flag has been flipped via
-// RAFT (see EnableFilterableStrategy / EnableSearchableStrategy).
+// analyzer call*. It is used wherever a shard has moved ahead of the
+// RAFT-stored schema: by a runtime reindex migration building a new inverted
+// bucket before the corresponding flag is flipped (see
+// EnableFilterableStrategy / EnableSearchableStrategy), and by the ordinary
+// write path between that shard's swap and the flip (see
+// Shard.writeAnalyzerOverlay).
 //
 // The overlay is read by Analyzer.analyzeProps which, when an entry exists
 // for the property name, treats the property as if its IndexFilterable /
@@ -359,10 +362,13 @@ func NewAnalyzerWithRawValues(isFallbackToSearchable IsFallbackToSearchable, cla
 // analysis. See PropertyOverlay for semantics. Returns the same analyzer to
 // allow fluent chaining at the call-site. Pass nil/empty to clear.
 //
-// This is intended for runtime reindex backfill: the analyzer must treat
-// the target property as if its inverted-index flag were already on, even
-// though the RAFT-stored schema still has it off. Production ingest paths
-// MUST NOT call this — they should always see the live schema unmodified.
+// This is for the two callers that must treat a property as if the schema
+// had already caught up with a migration: the reindex backfill, whose target
+// flag is still off, and the ordinary write path between a shard's local swap
+// and the cluster-wide schema flip, whose writes would otherwise miss the
+// index the flip is about to advertise (see Shard.writeAnalyzerOverlay). Both
+// pass an overlay that is empty in the steady state, so an ordinary write
+// outside a migration window still sees the live schema unmodified.
 func (a *Analyzer) WithSchemaOverlay(overlay map[string]PropertyOverlay) *Analyzer {
 	a.schemaOverlay = overlay
 	return a

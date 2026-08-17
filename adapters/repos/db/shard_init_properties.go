@@ -184,6 +184,10 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if !ok {
 				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
+			// Before the removal, not after: a write routed into a bucket
+			// that is no longer there fails the whole PUT, so the routing has
+			// to stop first.
+			s.disarmPromotedIndex(prop.Name, indexType)
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}

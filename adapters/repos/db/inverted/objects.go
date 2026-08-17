@@ -134,10 +134,17 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 // with the relevant inverted-index flags / tokenization overridden. The
 // original is never modified. See PropertyOverlay for context.
 func (a *Analyzer) effectiveProperty(prop *models.Property) *models.Property {
-	if len(a.schemaOverlay) == 0 {
+	return OverlaidProperty(prop, a.schemaOverlay)
+}
+
+// OverlaidProperty is [Analyzer.effectiveProperty] for callers that decide
+// something about a property outside an analyzer call and must decide it on
+// the same view the analyzer will use. See PropertyOverlay for context.
+func OverlaidProperty(prop *models.Property, overlay map[string]PropertyOverlay) *models.Property {
+	if len(overlay) == 0 {
 		return prop
 	}
-	o, ok := a.schemaOverlay[prop.Name]
+	o, ok := overlay[prop.Name]
 	if !ok {
 		return prop
 	}
