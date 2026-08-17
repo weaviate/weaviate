@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -548,13 +547,9 @@ func WithEnv(
 // off, and a 1s scheduler tick so task transitions land inside test
 // timeouts. Callers needing extra env keep chaining before Start.
 func SingleNodeCompose() *docker.Compose {
-	return SingleNodeComposeWithReindex(true)
-}
-
-func SingleNodeComposeWithReindex(enabled bool) *docker.Compose {
 	return docker.New().
 		WithWeaviate().
-		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", strconv.FormatBool(enabled)).
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1")
 }
