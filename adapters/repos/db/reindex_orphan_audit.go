@@ -321,7 +321,7 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 			// Loaded-index branch uses the real class name; unloaded
 			// fallback uses the on-disk dir name.
 			collection := indexDir
-			if idx != nil {
+			if idx != nil && inScope {
 				idx.dropIndex.RLock()
 				defer idx.dropIndex.RUnlock()
 				if idx.Config.ClassName != "" {
