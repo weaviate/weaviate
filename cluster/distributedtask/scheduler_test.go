@@ -1895,8 +1895,11 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 				task.Status = spec.status
 				// A terminal task whose FinishedAt was never stamped reads
 				// as long expired, and the TTL sweep deletes it before the
-				// assertions run.
-				task.FinishedAt = h.clock.Now()
+				// assertions run. A non-terminal one must carry no stamp at
+				// all, which is also how the localTasks half above seeds.
+				if spec.status.IsTerminal() {
+					task.FinishedAt = h.clock.Now()
+				}
 			}
 
 			h.startScheduler(t)
