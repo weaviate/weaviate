@@ -365,7 +365,7 @@ func TestShardLoadBlocksTheSwapOfAMigrationWhoseMirrorFailedToArm(t *testing.T) 
 			require.ErrorContains(t, tasks[0].RunSwapOnShard(ctx, shard), "no double-write mirror armed")
 			// The task can already be past its prepare, as when the node restarts mid-swap.
 			payload := subjects[0].reindexPayload()
-			swap := p.runShardSwapPhase(ctx, &payload, subjects[0].Key.UnitID, name, shard, tasks, logger)
+			swap := p.runShardSwapPhase(ctx, &payload, subjects[0].Key.UnitID, name, shard, tasks, &keyDocColumnDrops{}, logger)
 			require.NotEmpty(t, swap.Errs)
 			for _, subject := range subjects {
 				rec, ok := shard.migrationRecords.Get(subject.Key)
@@ -412,7 +412,7 @@ func TestShardLoadWhenAMirrorFailsToArmAndItsStampCannotBeWritten(t *testing.T) 
 				Properties: []string{"title"}, UnitToShard: map[string]string{unitID: fx.name},
 			}
 			outcome := &heldStepOutcome{done: make(chan string, 1)}
-			fx.provider.processOneUnit(fx.ctx, &distributedtask.Task{TaskDescriptor: fx.desc}, &repair, fx.idx, unitID, outcome)
+			fx.provider.processOneUnit(fx.ctx, &distributedtask.Task{TaskDescriptor: fx.desc}, &repair, fx.idx, unitID, outcome, &keyDocColumnDrops{})
 			require.Equal(t, tt.unitFails, len(outcome.done) == 1)
 
 			// Only the lift's retry clears the hold. The status gate refuses a write that skips the retry.
@@ -590,7 +590,7 @@ func TestASwapRefusesTheHealthyHalfOfAStampedMigration(t *testing.T) {
 	require.True(t, ok)
 	require.NoError(t, shard.migrationRecords.Put(stamped))
 	payload := fx.subject.reindexPayload()
-	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, fx.logger)
+	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, &keyDocColumnDrops{}, fx.logger)
 	require.NotEmpty(t, swap.Errs)
 	rec, ok = shard.migrationRecords.Get(half.Key)
 	require.True(t, ok)
@@ -1317,7 +1317,7 @@ func (fx *doubleFaultFixture) requirePhasesRefused(t *testing.T, shard *Shard, w
 	require.Contains(t, prep.Errs[0], want)
 	require.False(t, prep.Transient)
 	payload := fx.subject.reindexPayload()
-	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, fx.logger)
+	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, &keyDocColumnDrops{}, fx.logger)
 	require.NotEmpty(t, swap.Errs)
 	require.Contains(t, swap.Errs[0], want)
 	require.False(t, swap.Transient)
@@ -1354,7 +1354,7 @@ func (fx *doubleFaultFixture) requireSwapProceeds(t *testing.T, shard *Shard) {
 	prepOK, prep := fx.provider.runShardPrepPhase(fx.ctx, fx.subject.Key.UnitID, shard, tasks, false, fx.logger)
 	require.True(t, prepOK, "%v", prep.Errs)
 	payload := fx.subject.reindexPayload()
-	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, fx.logger)
+	swap := fx.provider.runShardSwapPhase(fx.ctx, &payload, fx.subject.Key.UnitID, fx.name, shard, tasks, &keyDocColumnDrops{}, fx.logger)
 	require.Empty(t, swap.Errs)
 	rec, ok := shard.migrationRecords.Get(fx.subject.Key)
 	require.True(t, ok)
@@ -1412,7 +1412,7 @@ func TestWritesAfterReactivatingATenantThatOwesASwapSurviveTheSwap(t *testing.T)
 				task.IndexGroups()
 				return task
 			}
-			p.processOneUnit(ctx, task(distributedtask.TaskStatusStarted), &payload, idx, unitID, newFakeRecorder())
+			p.processOneUnit(ctx, task(distributedtask.TaskStatusStarted), &payload, idx, unitID, newFakeRecorder(), &keyDocColumnDrops{})
 			require.NoError(t, p.OnGroupCompleted(task(distributedtask.TaskStatusPreparing), group, []string{unitID}))
 			cancelled := task(distributedtask.TaskStatusCancelled)
 			atLoad := cancelled

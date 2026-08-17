@@ -176,7 +176,7 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 		UnitToNode:    map[string]string{"unit-1": "node1"},
 	}
 	swapRes := p.runShardSwapPhase(ctx, payload, "unit-1", shard.Name(), shard,
-		[]*ShardReindexTaskGeneric{task}, p.logger)
+		[]*ShardReindexTaskGeneric{task}, &keyDocColumnDrops{}, p.logger)
 	require.Empty(t, swapRes.Errs, "SWAP must succeed")
 
 	recFinal, ok := task.migrationRecord(shard)

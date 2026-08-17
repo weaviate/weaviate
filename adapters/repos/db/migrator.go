@@ -172,6 +172,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			CycleManagerRoutinesFactor:     m.db.config.CycleManagerRoutinesFactor,
 			IndexRangeableInMemory:         m.db.config.IndexRangeableInMemory,
 			IndexRangeableInMemoryProps:    m.db.config.IndexRangeableInMemoryProps[class.Class],
+			KeyDocColumnProps:              m.db.config.IndexFilterableKeyDocColumn[class.Class],
 			ObjectsTTLBatchSize:            m.db.config.ObjectsTTLBatchSize,
 			ObjectsTTLPauseEveryNoBatches:  m.db.config.ObjectsTTLPauseEveryNoBatches,
 			ObjectsTTLPauseDuration:        m.db.config.ObjectsTTLPauseDuration,
@@ -254,6 +255,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
+
+	reportKeyDocColumnConfig(m.logger, idx.Config.KeyDocColumnProps, class)
 
 	// Shards built inside NewIndex read the read-only flag as they come up, but
 	// a transition landing after that read reaches them through neither path -
@@ -591,7 +594,12 @@ func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*m
 		return errors.Errorf("cannot add property to a non-existing index for %s", className)
 	}
 
-	return idx.addProperty(ctx, prop...)
+	if err := idx.addProperty(ctx, prop...); err != nil {
+		return err
+	}
+	reportAddedKeyDocColumnProps(m.logger, idx.Config.KeyDocColumnProps,
+		className, prop)
+	return nil
 }
 
 func (m *Migrator) UpdateProperty(ctx context.Context, className string, property *models.Property) error {
@@ -1204,12 +1212,15 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 		return nil
 	}
 
+	var columnDrops keyDocColumnDrops
+	defer columnDrops.report(m.logger.WithField("action", "inverted_reindex"))
+
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
 	for _, index := range m.db.indices {
 		index.forEachShardSkipRecovering(func(name string, shard ShardLike) error {
 			eg.Go(func() error {
-				reindexer := NewShardInvertedReindexer(shard, m.logger)
+				reindexer := NewShardInvertedReindexer(shard, m.logger, &columnDrops)
 				for taskName, task := range tasks {
 					reindexer.AddTask(task)
 					m.logInvertedReindexShard(shard).
@@ -1250,6 +1261,8 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 	m.logMissingFilterable().Info("staring missing text filterable task")
 
+	var columnDrops keyDocColumnDrops
+	defer columnDrops.report(m.logMissingFilterable())
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	for _, index := range m.db.indices {
@@ -1267,7 +1280,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")
 
-					reindexer := NewShardInvertedReindexer(shard, m.logger)
+					reindexer := NewShardInvertedReindexer(shard, m.logger, &columnDrops)
 					reindexer.AddTask(task)
 
 					if err := reindexer.Do(ctx); err != nil {

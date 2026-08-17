@@ -93,6 +93,11 @@ type ReindexProvider struct {
 	// A load after a task ended in this process does not cache it again. A restart empties it. Guarded by [mu].
 	endedTasks map[distributedtask.TaskDescriptor]struct{}
 
+	// columnDrops gathers a task's key/doc column drops across its group
+	// callbacks, one per tenant on a multi-tenant collection, for
+	// OnTaskCompleted to report once.
+	columnDrops map[distributedtask.TaskDescriptor]*keyDocColumnDrops
+
 	// activeWorkers tracks units with a live worker goroutine. The re-entry guard
 	// reads this, not the reindexTasks cache, which a shard load seeds. Guarded by [mu].
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
@@ -321,6 +326,27 @@ func (p *ReindexProvider) clearTaskCaches(desc distributedtask.TaskDescriptor, e
 	}
 }
 
+func (p *ReindexProvider) taskColumnDrops(desc distributedtask.TaskDescriptor) *keyDocColumnDrops {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.columnDrops == nil {
+		p.columnDrops = map[distributedtask.TaskDescriptor]*keyDocColumnDrops{}
+	}
+	if p.columnDrops[desc] == nil {
+		p.columnDrops[desc] = &keyDocColumnDrops{}
+	}
+	return p.columnDrops[desc]
+}
+
+// takeTaskColumnDrops removes and returns a task's drop collector, nil if no group callback created one.
+func (p *ReindexProvider) takeTaskColumnDrops(desc distributedtask.TaskDescriptor) *keyDocColumnDrops {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	drops := p.columnDrops[desc]
+	delete(p.columnDrops, desc)
+	return drops
+}
+
 // claimActiveWorker reserves the (desc, unitID) slot in activeWorkers.
 // Returns false if another worker already holds it.
 func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor, unitID string) bool {
@@ -513,10 +539,15 @@ func (p *ReindexProvider) processUnits(
 ) {
 	limiter := distributedtask.NewConcurrencyLimiter(p.concurrency())
 
+	var columnDrops keyDocColumnDrops
+
 	// defer Wait so an early return on Acquire ctx-cancel still drains
 	// spawned per-unit goroutines before OnTaskCompleted's cleanup runs.
 	var wg sync.WaitGroup
-	defer wg.Wait()
+	defer func() {
+		wg.Wait()
+		columnDrops.report(p.logger.WithField("taskID", task.ID))
+	}()
 	for _, unitID := range localUnits {
 		unit := task.Units[unitID]
 		if unit != nil && (unit.Status == distributedtask.UnitStatusCompleted || unit.Status == distributedtask.UnitStatusFailed) {
@@ -533,7 +564,7 @@ func (p *ReindexProvider) processUnits(
 			defer wg.Done()
 			defer limiter.Release()
 
-			p.processOneUnit(ctx, task, payload, idx, unitID, recorder)
+			p.processOneUnit(ctx, task, payload, idx, unitID, recorder, &columnDrops)
 		}, p.logger)
 	}
 }
@@ -549,6 +580,7 @@ func (p *ReindexProvider) processOneUnit(
 	idx *Index,
 	unitID string,
 	recorder distributedtask.TaskCompletionRecorder,
+	columnDrops *keyDocColumnDrops,
 ) {
 	shardName := payload.UnitToShard[unitID]
 	logger := p.logger.WithField("taskID", task.ID).
@@ -656,6 +688,12 @@ func (p *ReindexProvider) processOneUnit(
 			return
 		}
 	}
+	defer func() {
+		for _, reindexTask := range tasks {
+			columnDrops.absorb(reindexTask.keyDocColumnDrops)
+		}
+	}()
+
 	// Compose per-task progress into a single per-unit envelope so the
 	// operator sees a monotonic 0→1 climb across N tasks instead of N
 	// independent 0→0.99 ramps that look like regressions on the same
@@ -1210,8 +1248,14 @@ func (p *ReindexProvider) runShardSwapPhase(
 	shardName string,
 	shard ShardLike,
 	unitTasks []*ShardReindexTaskGeneric,
+	columnDrops *keyDocColumnDrops,
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
+	defer func() {
+		for _, reindexTask := range unitTasks {
+			columnDrops.absorb(reindexTask.keyDocColumnDrops)
+		}
+	}()
 	for _, reindexTask := range unitTasks {
 		reindexTask.swapPhaseRan.Store(true)
 	}
@@ -1472,13 +1516,14 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	}
 
 	ctx := p.serverCtx
+	columnDrops := p.taskColumnDrops(task.TaskDescriptor)
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		// Sequential: prep is heavy disk work on every shard (flush, bucket
 		// shutdown, segment prepend), and until its swap a shard's queries
 		// still read its old buckets.
 		"group-completion", start, false,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
-			return p.onGroupCompletedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
+			return p.onGroupCompletedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, columnDrops, logger)
 		})
 }
 
@@ -1490,6 +1535,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	shard ShardLike,
 	unitTasks []*ShardReindexTaskGeneric,
 	rehydrate bool,
+	columnDrops *keyDocColumnDrops,
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
 	prepOK, prep := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
@@ -1512,7 +1558,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	}
 
 	shardName := payload.UnitToShard[unitID]
-	swap := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
+	swap := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, columnDrops, logger)
 	out.Errs = append(out.Errs, swap.Errs...)
 	if swap.Transient {
 		out.Transient = true
@@ -1551,10 +1597,11 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 	}
 
 	ctx := p.serverCtx
+	columnDrops := p.taskColumnDrops(task.TaskDescriptor)
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		"swap-requested", "reindex provider: swap-requested → starting OVERLAY+SWAP for a decided group", true,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
-			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
+			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, columnDrops, logger)
 		})
 }
 
@@ -1566,6 +1613,7 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	shard ShardLike,
 	unitTasks []*ShardReindexTaskGeneric,
 	rehydrate bool,
+	columnDrops *keyDocColumnDrops,
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
 	if rehydrate {
@@ -1583,7 +1631,7 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	}
 
 	shardName := payload.UnitToShard[unitID]
-	swap := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
+	swap := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, columnDrops, logger)
 	out.Errs = append(out.Errs, swap.Errs...)
 	if swap.Transient {
 		out.Transient = true
@@ -1612,6 +1660,9 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 
 	logger := p.logger.WithField("taskID", task.ID).WithField("status", task.Status)
 	logger.Info("reindex provider: task-completion")
+	if drops := p.takeTaskColumnDrops(task.TaskDescriptor); drops != nil {
+		drops.report(logger)
+	}
 
 	if task.Status != distributedtask.TaskStatusSwapping {
 		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip.

@@ -181,7 +181,7 @@ func TestAUnitWaitingOnAHoldLogsASampledWarn(t *testing.T) {
 	task := &distributedtask.Task{TaskDescriptor: fx.desc}
 	fx.requireStepsWait(t)
 	for range maxReportedErrors - 1 {
-		fx.provider.processOneUnit(fx.ctx, task, &repair, fx.idx, unitID, nil)
+		fx.provider.processOneUnit(fx.ctx, task, &repair, fx.idx, unitID, nil, &keyDocColumnDrops{})
 	}
 
 	var waits int

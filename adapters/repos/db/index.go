@@ -1740,6 +1740,7 @@ type IndexConfig struct {
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
 	IndexRangeableInMemoryProps         []string
+	KeyDocColumnProps                   []string
 	MaxSegmentSize                      int64
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
