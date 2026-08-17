@@ -66,13 +66,13 @@ func NewRuntimeMapToBlockmaxTask(
 }
 
 // NewFileMapToBlockmaxReindexTracker creates a file-based reindex tracker
-// for the most recent searchable map-to-blockmax migration. This is used by
-// the debug handler to inspect on-disk migration state. Migration dirs carry
-// a per-node generation suffix (`_<N>`); the debug handler doesn't know the
-// gen, so we pick the highest existing one. Returns a tracker pointing at
-// the first generation if no on-disk state exists yet — operators using the
-// debug endpoint to inspect a not-yet-started migration see the same
-// "not_started" output they did before.
+// for the most recent searchable map-to-blockmax migration. Migration dirs
+// carry a per-node generation suffix (`_<N>`); callers that don't know the
+// generation get the highest one that exists on disk, or the first
+// generation if there is no on-disk state yet.
+//
+// Only tests call this. Production code resolves its generation explicitly
+// via [nextMigrationGeneration] or [maxMigrationGeneration].
 func NewFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser) *fileReindexTracker {
 	gen := maxMigrationGeneration(lsmPath, MigrationDirSearchableMapToBlockmax, "")
 	if gen == 0 {
