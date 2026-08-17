@@ -124,9 +124,8 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 }
 
 // DeleteClassPropertyIndex deletes collection's property index. The bool
-// return reports whether a RAFT write occurred (false for a node-local no-op,
-// when the flag was already off) — callers use it to avoid synthesizing state
-// for a write that never reached RAFT.
+// return reports whether a RAFT write occurred: false for a node-local no-op,
+// when the flag was already off.
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
 	className, propertyName, indexName string,
 ) (bool, error) {

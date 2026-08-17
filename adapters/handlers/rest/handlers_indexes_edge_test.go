@@ -393,19 +393,95 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 }
 
 // A retried migration produces two tasks for the same (collection,
-// prop, indexType): the old FAILED attempt and the new STARTED one
-// (terminal tasks deliberately do not block fresh submits). The
-// in-flight STARTED task wins regardless of slice order — otherwise
-// the user who just retried would see "failed" on alternate polls.
+// prop, indexType): the older terminal attempt and the new in-flight
+// one (terminal tasks deliberately do not block fresh submits). The
+// in-flight task wins regardless of slice order — otherwise the user
+// who just retried would see the older attempt's outcome on alternate
+// polls.
 func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 	now := time.Now()
 
-	for _, liveStatus := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		unknownFutureStatus,
+	for _, terminalStatus := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusFailed,
+		distributedtask.TaskStatusFinished,
 	} {
-		t.Run(string(liveStatus), func(t *testing.T) {
-			failedAttempt := buildTask(t, "C:enable-filterable:foo:0001",
+		for _, liveStatus := range []distributedtask.TaskStatus{
+			distributedtask.TaskStatusStarted,
+			unknownFutureStatus,
+		} {
+			t.Run(string(terminalStatus)+"/"+string(liveStatus), func(t *testing.T) {
+				oldAttempt := buildTask(t, "C:enable-filterable:foo:0001",
+					terminalStatus,
+					db.ReindexTaskPayload{
+						MigrationType: db.ReindexTypeEnableFilterable,
+						Collection:    "C",
+						Properties:    []string{"foo"},
+					},
+					map[string]*distributedtask.Unit{
+						"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.4, Error: "disk full"},
+					},
+				)
+				oldAttempt.StartedAt = now.Add(-2 * time.Hour)
+
+				liveRetry := buildTask(t, "C:enable-filterable:foo:0002",
+					liveStatus,
+					db.ReindexTaskPayload{
+						MigrationType: db.ReindexTypeEnableFilterable,
+						Collection:    "C",
+						Properties:    []string{"foo"},
+					},
+					map[string]*distributedtask.Unit{
+						"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.1},
+					},
+				)
+				liveRetry.StartedAt = now
+
+				for _, order := range []struct {
+					name  string
+					tasks []*distributedtask.Task
+				}{
+					{"terminal-first", []*distributedtask.Task{oldAttempt, liveRetry}},
+					{"live-first", []*distributedtask.Task{liveRetry, oldAttempt}},
+				} {
+					t.Run(order.name, func(t *testing.T) {
+						idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+						mergeReindexStatus(idx, "C", "foo", "filterable", false,
+							parseReindexTasks(order.tasks), nil)
+
+						require.Equal(t, "indexing", idx.Status,
+							"the live retry must beat the older terminal attempt regardless of slice order")
+						require.InDelta(t, 0.1, idx.Progress, 0.0001,
+							"the stale attempt's progress must not be surfaced")
+					})
+				}
+			})
+		}
+	}
+}
+
+// Two terminal tasks for the same (collection, prop, indexType) can coexist
+// if a user retried after the first failure. The newer attempt is the one to
+// surface, whichever way it ended, and it must win the tiebreak regardless of
+// slice order.
+//
+// The FINISHED row is why FINISHED tasks stay in the merge loop at all: drop
+// them from parseReindexTasks or from the loop and the older FAILED attempt
+// wins, so the entry reports "failed" after the retry succeeded.
+func TestMergeReindexStatus_NewestTerminalWins(t *testing.T) {
+	now := time.Now()
+
+	tests := []struct {
+		newerStatus  distributedtask.TaskStatus
+		wantStatus   string
+		wantProgress float32
+	}{
+		{distributedtask.TaskStatusFailed, "failed", 0.7},
+		{distributedtask.TaskStatusFinished, "ready", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.newerStatus), func(t *testing.T) {
+			oldFail := buildTask(t, "C:enable-filterable:foo:0001",
 				distributedtask.TaskStatusFailed,
 				db.ReindexTaskPayload{
 					MigrationType: db.ReindexTypeEnableFilterable,
@@ -413,95 +489,41 @@ func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 					Properties:    []string{"foo"},
 				},
 				map[string]*distributedtask.Unit{
-					"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.4, Error: "disk full"},
+					"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.3, Error: "old: disk full"},
 				},
 			)
-			failedAttempt.StartedAt = now.Add(-2 * time.Hour)
+			oldFail.StartedAt = now.Add(-2 * time.Hour)
 
-			liveRetry := buildTask(t, "C:enable-filterable:foo:0002",
-				liveStatus,
+			newer := buildTask(t, "C:enable-filterable:foo:0002",
+				tt.newerStatus,
 				db.ReindexTaskPayload{
 					MigrationType: db.ReindexTypeEnableFilterable,
 					Collection:    "C",
 					Properties:    []string{"foo"},
 				},
 				map[string]*distributedtask.Unit{
-					"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.1},
+					"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.7, Error: "new: permission denied"},
 				},
 			)
-			liveRetry.StartedAt = now
+			newer.StartedAt = now
 
 			for _, order := range []struct {
 				name  string
 				tasks []*distributedtask.Task
 			}{
-				{"failed-first", []*distributedtask.Task{failedAttempt, liveRetry}},
-				{"live-first", []*distributedtask.Task{liveRetry, failedAttempt}},
+				{"old-first", []*distributedtask.Task{oldFail, newer}},
+				{"new-first", []*distributedtask.Task{newer, oldFail}},
 			} {
 				t.Run(order.name, func(t *testing.T) {
 					idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 					mergeReindexStatus(idx, "C", "foo", "filterable", false,
 						parseReindexTasks(order.tasks), nil)
 
-					require.Equal(t, "indexing", idx.Status,
-						"the live retry must beat the older FAILED attempt regardless of slice order")
-					require.InDelta(t, 0.1, idx.Progress, 0.0001,
-						"the stale attempt's progress must not be surfaced")
+					require.Equal(t, tt.wantStatus, idx.Status)
+					require.InDelta(t, tt.wantProgress, idx.Progress, 0.0001,
+						"the newer terminal attempt must win the tiebreak regardless of slice order")
 				})
 			}
-		})
-	}
-}
-
-// Two FAILED attempts for the same (collection, prop, indexType) can
-// coexist if a user retried after the first failure and the second
-// retry also failed. The newer attempt is the more useful one to
-// surface (its error is the latest the user saw) so it must win the
-// tiebreak regardless of slice order.
-func TestMergeReindexStatus_TwoFailedTasks_NewestWins(t *testing.T) {
-	now := time.Now()
-
-	oldFail := buildTask(t, "C:enable-filterable:foo:0001",
-		distributedtask.TaskStatusFailed,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		},
-		map[string]*distributedtask.Unit{
-			"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.3, Error: "old: disk full"},
-		},
-	)
-	oldFail.StartedAt = now.Add(-2 * time.Hour)
-
-	newFail := buildTask(t, "C:enable-filterable:foo:0002",
-		distributedtask.TaskStatusFailed,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		},
-		map[string]*distributedtask.Unit{
-			"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.7, Error: "new: permission denied"},
-		},
-	)
-	newFail.StartedAt = now
-
-	for _, order := range []struct {
-		name  string
-		tasks []*distributedtask.Task
-	}{
-		{"old-first", []*distributedtask.Task{oldFail, newFail}},
-		{"new-first", []*distributedtask.Task{newFail, oldFail}},
-	} {
-		t.Run(order.name, func(t *testing.T) {
-			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false,
-				parseReindexTasks(order.tasks), nil)
-
-			require.Equal(t, "failed", idx.Status)
-			require.InDelta(t, 0.7, idx.Progress, 0.0001,
-				"newer FAILED attempt must win the tiebreak regardless of slice order")
 		})
 	}
 }
