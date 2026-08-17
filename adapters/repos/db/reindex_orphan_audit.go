@@ -121,7 +121,9 @@ type AuditOutcome struct {
 // before this call (race between RAFT replay firing per-class-dir
 // restores and the Scheduler.Start goroutine that installs deps), the
 // counter is non-zero and a single replay sweep runs synchronously so
-// the deferred audit work is not silently lost. Closes B2.
+// the deferred audit work is not silently lost. That sweep is
+// deliberately unscoped: one sweep is a superset of every deferred
+// request's scope. Closes B2.
 //
 // The deferred-replay path runs with [context.Background]; it does not
 // inherit the caller's context. A caller-side cancellation that needs to
@@ -242,8 +244,13 @@ func (o *orphanReindexTracker) String() string {
 // from "audit ran but K cleanups failed". The outcome is also logged
 // at Info level on every successful invocation (S4 fix: absence of
 // that log line in operator dashboards is now detectable).
-// An empty classes list audits every collection on disk; naming classes limits the
-// walk to theirs, so restoring one collection cannot raise cleanup holds on the rest.
+// An empty classes list audits every collection on disk. Naming classes bounds what
+// the sweep classifies and destroys, and with it the cleanup holds it raises, so
+// restoring one collection cannot refuse backups of the rest. Clearing a stale
+// quarantine sentinel is the exception and runs everywhere: it undoes an earlier
+// sweep's own false alarm, and a stranded sentinel would turn the next
+// classification into a first-sight destructive cleanup. That holds only the
+// collection it clears one in, and only across the removal.
 func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger, classes ...string) (AuditOutcome, error) {
 	if logger == nil {
 		logger = logrus.New()
@@ -298,9 +305,10 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 			continue
 		}
 		indexDir := indexEntry.Name()
-		if len(scoped) > 0 && !scoped[indexDir] {
-			continue
-		}
+		// Scope bounds what this sweep classifies and destroys. Clearing a stale
+		// quarantine sentinel stays global: a stranded one turns the next
+		// classification into a first-sight destructive cleanup.
+		inScope := len(scoped) == 0 || scoped[indexDir]
 		indexPath := filepath.Join(rootPath, indexDir)
 		shardEntries, shardErr := os.ReadDir(indexPath)
 		if shardErr != nil {
@@ -340,8 +348,11 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				}
 				shardName := shardEntry.Name()
 				lsmPath := filepath.Join(indexPath, shardName, "lsm")
-				outcome.ScannedCount++
-				orphans := collectOrphanTrackers(lsmPath, collection, shardName, knownTask, auditLogger)
+				var orphans []orphanReindexTracker
+				if inScope {
+					outcome.ScannedCount++
+					orphans = collectOrphanTrackers(lsmPath, collection, shardName, knownTask, auditLogger)
+				}
 				if len(orphans) == 0 {
 					// Read first, so a shard with nothing to clear is never held for looking.
 					stale := staleQuarantineSentinels(lsmPath, knownTask)

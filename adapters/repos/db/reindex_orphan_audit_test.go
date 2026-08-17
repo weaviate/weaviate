@@ -956,7 +956,8 @@ func TestAuditOrphanReindexTrackers_ScopedToTheNamedCollections(t *testing.T) {
 	otherShard, otherIdx := testShard(t, ctx, other, func(i *Index) { i.Config.RootPath = restoredIdx.Config.RootPath })
 	otherLSM := otherShard.(*Shard).pathLSM()
 	layoutTrackers(t, otherLSM, other,
-		trackerSpec{name: "searchable_retokenize_orphan_1", files: []string{"started.mig"}, taskID: "task-orphan", version: 9, aged: true})
+		trackerSpec{name: "searchable_retokenize_orphan_1", files: []string{"started.mig"}, taskID: "task-orphan", version: 9, aged: true},
+		trackerSpec{name: "searchable_retokenize_flipped_1", files: []string{"started.mig"}, taskID: "task-flipped", version: 7, aged: true})
 	db := &DB{
 		indices: map[string]*Index{
 			indexID(restoredIdx.Config.ClassName): restoredIdx,
@@ -966,16 +967,25 @@ func TestAuditOrphanReindexTrackers_ScopedToTheNamedCollections(t *testing.T) {
 	}
 
 	var asked []string
-	known := func(taskID string, _ uint64) bool { asked = append(asked, taskID); return false }
-	// Sampled from inside the walk: the audit releases on its way out, so reading the hold
-	// afterwards catches a leak but not a hold kept for the length of the sweep.
-	logger := logrus.New()
 	heldElsewhere := ReindexHoldNone
-	logger.AddHook(onEachLogLine(func() { heldElsewhere = max(heldElsewhere, db.reindexHolds.HoldFor(other)) }))
-	outcome, err := db.AuditOrphanReindexTrackers(ctx, known, logger, restored)
+	// Sampled from inside the lookup, which the sweep calls on the read pass that decides
+	// whether the skipped collection has a sentinel to clear. Reading it afterwards would
+	// catch a leak but not a hold kept for the length of the sweep.
+	known := func(taskID string, _ uint64) bool {
+		heldElsewhere = max(heldElsewhere, db.reindexHolds.HoldFor(other))
+		asked = append(asked, taskID)
+		return taskID == "task-flipped"
+	}
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, known, logrus.New(), restored)
 	require.NoError(t, err)
 	assert.Zero(t, outcome.OrphansFound, "the other collection's orphan is outside this sweep")
-	assert.Empty(t, asked, "and its trackers are never even classified")
+	assert.ElementsMatch(t, []string{"task-orphan", "task-flipped"}, asked,
+		"and its trackers are consulted for their sentinels only, never classified")
 	assert.DirExists(t, filepath.Join(otherLSM, ".migrations", "searchable_retokenize_orphan_1"))
-	assert.Equal(t, ReindexHoldNone, heldElsewhere, "and it is never held, not even for the walk")
+	assert.FileExists(t, filepath.Join(otherLSM, ".migrations", "searchable_retokenize_orphan_1", reindexAuditQuarantineFile),
+		"the one DTM still does not know stays quarantined")
+	assert.NoFileExists(t, filepath.Join(otherLSM, ".migrations", "searchable_retokenize_flipped_1", reindexAuditQuarantineFile),
+		"the one whose task is live again is cleared, or the next sweep destroys it on first sight")
+	assert.Equal(t, ReindexHoldNone, heldElsewhere, "and reading it is never held")
+	assert.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor(other), "nor is the removal's hold left behind")
 }
