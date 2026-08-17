@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -76,6 +77,11 @@ type memtable interface {
 	newCursorWithSecondaryIndex(pos int) innerCursorReplace
 	newCollectionCursor() innerCursorCollection
 	newRoaringSetCursor() roaringset.InnerCursor
+	// roaringSetGetWindow reads a window of a sorted batch in one pass and
+	// reports the bytes it copied. Absence is the zero layer rather than
+	// lsmkv.NotFound, and on error no slot is meaningful. See
+	// (*Memtable).roaringSetGetWindow for the contract.
+	roaringSetGetWindow(keys inverted.SortedKeys, from, to int, dst []roaringset.BitmapLayer) (int, error)
 	newRoaringSetRangeReader() roaringsetrange.InnerReader
 	newMapCursor() innerCursorMap
 

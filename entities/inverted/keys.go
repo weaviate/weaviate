@@ -132,6 +132,41 @@ func (k SortedKeys) All() iter.Seq2[int, []byte] {
 	}
 }
 
+// FirstAtOrAfter returns the first position in [from, to) whose key is at or
+// past target, or to if there is none. It is a lower bound over a window of the
+// list rather than the whole of it, which is what a caller walking two sorted
+// runs past each other needs: to is where its window ends, and a search running
+// past that would answer with a key the caller is not reading.
+//
+// from is a hint, not a bound the answer has to clear — a target already at or
+// before keys[from] answers from. The cost is one comparison for a caller that
+// knows it is behind, and the alternative is a precondition that answers wrongly
+// and silently when it is broken.
+//
+// to is required, not a hint: 0 <= from <= to <= Len(), unchecked. Trimming a
+// range the caller got wrong would answer as if they had got it right.
+func (k SortedKeys) FirstAtOrAfter(from, to int, target []byte) int {
+	lo, hi := from, from
+	for step := 1; hi < to && bytes.Compare(k.At(hi), target) < 0; step *= 2 {
+		lo = hi + 1
+		hi = lo + step
+	}
+	if hi > to {
+		hi = to
+	}
+	// Everything before lo is before target, and hi is either past the window or
+	// at or past target, so the answer is in [lo, hi].
+	for lo < hi {
+		mid := int(uint(lo+hi) >> 1)
+		if bytes.Compare(k.At(mid), target) < 0 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return lo
+}
+
 // isAscending reports whether the keys are ordered. Off the query path — it
 // exists so tests can pin the invariant each producer promises.
 func (k SortedKeys) isAscending() bool {

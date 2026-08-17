@@ -2307,6 +2307,19 @@ func newTestMemtableRoaringSet(initialData map[string][]uint64) *testMemtable {
 	return &testMemtable{Memtable: m}
 }
 
+// docsOrNil is ToArray with one difference that matters to a differential test:
+// a bitmap holding nothing reads as nil whether it is nil or merely empty.
+// ToArray keeps those apart, as an empty slice and a nil one, and require.Equal
+// calls them unequal — so a path returning one and a path returning the other
+// would fail over a representation rather than over a document.
+func docsOrNil(bm *sroar.Bitmap) []uint64 {
+	out := bm.ToArray()
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func newTestMemtableRoaringSetRange(initialData map[uint64][]uint64) *testMemtable {
 	logger, _ := test.NewNullLogger()
 	metrics, err := newMemtableMetrics(nil, "", "")
