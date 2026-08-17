@@ -109,15 +109,15 @@ func NewStreamHandler(
 // Registration and stopAccepting share registerMu, so a stream either registers
 // before drain starts waiting or is turned away. The wait groups never see an Add
 // while drain is waiting on them, which sync.WaitGroup forbids.
-func (h *StreamHandler) registerStream() bool {
+func (h *StreamHandler) registerStream() error {
 	h.registerMu.Lock()
 	defer h.registerMu.Unlock()
-	if h.shuttingDownCtx.Err() != nil {
-		return false
+	if err := h.shuttingDownCtx.Err(); err != nil {
+		return err
 	}
 	h.recvWg.Add(1)
 	h.sendWg.Add(1)
-	return true
+	return nil
 }
 
 // stopAccepting stops new streams from registering. After it returns, every
@@ -196,8 +196,8 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr err
 	// Register only after the client has sent its start message. A client that
 	// opens a stream and never sends one would otherwise hold up shutdown for as
 	// long as it stays connected.
-	if !h.registerStream() {
-		return errShutdown(fmt.Errorf("not accepting new streams: %w", h.shuttingDownCtx.Err()))
+	if err := h.registerStream(); err != nil {
+		return errShutdown(fmt.Errorf("not accepting new streams: %w", err))
 	}
 	defer h.sendWg.Done()
 
