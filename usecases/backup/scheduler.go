@@ -319,13 +319,15 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 const wildcardAlphabet = "*?"
 
 // literalIncludes reports whether include names collections outright. There is no
-// descriptor here to expand a pattern against, so "Mov*" would ask a name-matching gate about nothing.
+// descriptor here to expand a pattern against, so "Mov*" would ask a name-matching gate
+// about nothing, and "" names nothing at all: authorization.Backups("") already collapses
+// it to the cluster-wide resource, so the gate has to be asked at that scope too.
 func literalIncludes(include []string) bool {
 	if len(include) == 0 {
 		return false
 	}
 	for _, pattern := range include {
-		if strings.ContainsAny(pattern, wildcardAlphabet) {
+		if pattern == "" || strings.ContainsAny(pattern, wildcardAlphabet) {
 			return false
 		}
 	}

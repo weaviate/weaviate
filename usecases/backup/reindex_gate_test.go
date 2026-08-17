@@ -329,16 +329,18 @@ func TestRestoreGateOrdering(t *testing.T) {
 		auth.AssertNotCalled(t, "Authorize",
 			mock.Anything, mock.Anything, authorization.CREATE, "backups/collections/*")
 	})
-	for _, include := range [][]string{{"MyCl*"}, {"MyCl*", "Other"}, {"Other", "MyCl*"}} {
-		t.Run("a wildcard in "+strings.Join(include, ",")+" widens the question", func(t *testing.T) {
+	for _, include := range [][]string{{"MyCl*"}, {"MyCl*", "Other"}, {"Other", "MyCl*"}, {""}, {"", "Other"}} {
+		t.Run(fmt.Sprintf("an include of %q widens the question", include), func(t *testing.T) {
 			fs := newFakeScheduler(nil)
+			fs.selector.setReindexGate(reindexRefusal(cls))
 			expectUnknownID(ctx, fs, id)
 			_, err := fs.scheduler().Restore(ctx, &models.Principal{}, &BackupRequest{
 				Backend: backendName, ID: id, Include: include,
 			}, false)
-			require.Error(t, err)
+			require.ErrorAs(t, err, &backup.ErrUnprocessable{},
+				"a refusal on this route is still the 422, never the 404")
 			require.Equal(t, [][]string{nil}, fs.selector.gateCalls(),
-				"an unresolvable pattern must be asked cluster-wide, never as a literal name")
+				"an include that names no collection must be asked cluster-wide, never as a literal name")
 		})
 	}
 	t.Run("a known id is gated on the resolved class list", func(t *testing.T) {
