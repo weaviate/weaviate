@@ -12,7 +12,6 @@
 package cluster
 
 import (
-	"context"
 	"testing"
 
 	"github.com/hashicorp/raft"
@@ -48,8 +47,7 @@ func TestStore_LocalDistributedTasks_AnswersFromTheAppliedLog(t *testing.T) {
 			}, nil),
 	}, "add-task")
 
-	tasks, err := ms.store.LocalDistributedTasks(context.Background())
-	require.NoError(t, err)
+	tasks := ms.store.LocalDistributedTasks()
 	require.Len(t, tasks["test-namespace"], 1,
 		"a task applied to this node's FSM must be readable without a leader round-trip")
 	require.Equal(t, "task-1", tasks["test-namespace"][0].ID)

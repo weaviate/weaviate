@@ -144,11 +144,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	// every node has acked.
 	var activeTasks map[string][]*distributedtask.Task
 	if h.appState.ClusterService != nil {
-		var err error
-		activeTasks, err = h.appState.ClusterService.LocalDistributedTasks(context.Background())
-		if err != nil {
-			activeTasks = nil // degrade gracefully
-		}
+		activeTasks = h.appState.ClusterService.LocalDistributedTasks()
 	}
 
 	class := h.appState.SchemaManager.ReadOnlyClass(collection)

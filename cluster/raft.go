@@ -103,18 +103,18 @@ func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask
 	return s.store.LocalUnrecognizedDistributedTasks()
 }
 
-// LocalDistributedTasks reads the task list from this node's own FSM rather
-// than routing a query to the leader, so it answers at the same applied log
-// index as every other local read — the schema included. A caller comparing a
-// task's status against schema state must use this: the leader-routed
-// [Raft.ListDistributedTasks] can report a task the local schema has not
-// caught up with yet.
+// LocalDistributedTasks reads the task list from this node's own FSM instead
+// of routing a query to the leader. Two local reads are two acquisitions, so
+// this does not answer at the same applied index as a later schema read. The
+// guarantee is one-directional: it can only be older than a subsequent local
+// read, never newer. That is exactly what a caller comparing a task's status
+// against a schema flag needs, provided it reads the tasks first.
 //
-// Correspondingly, it can trail the leader. Use ListDistributedTasks where a
-// decision must be made against the cluster's latest state, such as before
-// proposing a mutation.
-func (s *Raft) LocalDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
-	return s.store.LocalDistributedTasks(ctx)
+// It can trail the leader. Use [Raft.ListDistributedTasks] where a decision
+// must be made against the cluster's latest state, such as before proposing a
+// mutation.
+func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
+	return s.store.LocalDistributedTasks()
 }
 
 // RegisterDistributedTaskCollectionExtractor opts a task namespace into

@@ -451,8 +451,8 @@ func (st *Store) LocalUnrecognizedDistributedTasks() map[string][]*distributedta
 }
 
 // LocalDistributedTasks backs [Raft.LocalDistributedTasks].
-func (st *Store) LocalDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
-	return st.distributedTasksManager.ListDistributedTasks(ctx)
+func (st *Store) LocalDistributedTasks() map[string][]*distributedtask.Task {
+	return st.distributedTasksManager.LocalDistributedTasks()
 }
 
 // RegisterDistributedTaskCollectionExtractor opts a task namespace into
