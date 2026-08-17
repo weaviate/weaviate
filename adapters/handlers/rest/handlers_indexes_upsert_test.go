@@ -613,3 +613,22 @@ func TestValidateTenantScope(t *testing.T) {
 		assert.Contains(t, body.Error[0].Message, "cannot be used with semantic migrations")
 	})
 }
+
+// TestEveryUpsertMigrationTypeIsSemantic pins the premise upsertIndex's NO_OP
+// branch relies on when it passes semantic=true. Without it the same request
+// would 400 on submit and 200 on NO_OP, which is the inconsistency the
+// tenants-contract check exists to prevent. Add a row whenever
+// resolveUpsertPlan learns a new migration type.
+func TestEveryUpsertMigrationTypeIsSemantic(t *testing.T) {
+	for _, mt := range []db.ReindexMigrationType{
+		db.ReindexTypeChangeAlgorithm,
+		db.ReindexTypeChangeTokenization,
+		db.ReindexTypeChangeTokenizationFilterable,
+		db.ReindexTypeEnableFilterable,
+		db.ReindexTypeEnableRangeable,
+		db.ReindexTypeEnableSearchable,
+	} {
+		assert.Truef(t, db.IsSemanticMigration(mt),
+			"PUT .../index/{type} can submit %s, so the NO_OP branch's semantic=true must hold for it", mt)
+	}
+}
