@@ -263,7 +263,8 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
   the submit handler; full mechanics in §6.3):
   - **Semantic migrations** (`change-tokenization`,
     `change-tokenization-filterable`, `enable-filterable`,
-    `enable-searchable`, `change-algorithm`):
+    `enable-searchable`, `enable-rangeable`,
+    `change-algorithm`):
     `STARTED → PREPARING → SWAPPING → FINISHED`.
     `PREPARING` and `SWAPPING` are both reached only after every
     unit across the cluster is at terminal status. The FSM gates
@@ -933,7 +934,7 @@ change-tokenization-filterable   ✓              ✓
 enable-filterable                ✓                              ✓
 enable-searchable                ✓                              ✓
 change-algorithm                 ✓
-enable-rangeable                 ✓             (rangeable, §10)  ✓
+enable-rangeable                 ✓                              ✓
 repair-rangeable                                                ✓
 repair-filterable
 rebuild-searchable
@@ -947,6 +948,10 @@ tokenization (`IsTokenizationChangingMigration`); the analyzer overlay
 lets a from-scratch build see a property whose schema flag is still
 false (`MigrationStrategy.AnalyzerOverlay`). `change-algorithm` takes
 neither: it only swaps the searchable bucket strategy.
+
+Neither column covers the window `enable-rangeable` opens between a
+shard's swap and the cluster-wide flip. That one is a write-side
+derivation rather than an overlay; see §10.
 
 ## 6. Crash safety
 
@@ -1189,6 +1194,10 @@ Per-tenant unit groups (Journey 4 from the DTM doc): one
 as each tenant's replicas all finish. Tenant A starts serving new
 data immediately even while tenant B is still reindexing.
 
+That holds for format-only migrations. A semantic migration's schema
+flag is collection-wide, so no tenant sees the flipped behavior until
+the last tenant's replicas have all swapped.
+
 Status after cancelling a tenant-scoped task is reported at the
 collection level: `GET /v1/schema/{className}/indexes` renders
 `cancelled` for the property as a whole. The task is the unit of
@@ -1376,20 +1385,38 @@ Lifecycle:
    — the next query touching the prop after the schema eventually
    catches up will lazily clean up.
 
-`enable-rangeable` carries a sibling overlay over the same window, for
-the write path rather than the query path:
-`Shard.rangeableWriteOverlay`. Its double-write callbacks come down
-when `runtimeSwap` returns, and the cluster-wide `IndexRangeFilters`
-flip lands one RAFT round after the last replica swaps. A write in
-between is acked and durable in the objects bucket, but nothing
-rescans afterwards, so without the overlay it would be missing from
-the rangeable index for good. Set per property from the same
-`onPropSwapped` hook; cleared after the flip commits, on the
-all-failed swap path, and on a terminal task's cleanup, with a
-self-clear in `Shard.writeAnalyzerOverlay` as the backstop.
+`enable-rangeable` covers the same window on the write path, with no
+overlay of its own. Its double-write callbacks come down when
+`runtimeSwap` returns; the cluster-wide `IndexRangeFilters` flip lands
+one RAFT round later. A write in between is acked and durable in the
+objects bucket, but nothing rescans afterwards, so it would be missing
+from the rangeable index for good.
+
+The cover is derived, not stored: `Shard.forcedRangeableProps` forces
+a write into the rangeable bucket when the live `IndexRangeFilters` is
+false AND the query path's readiness map (`Shard.rangeableLocalReady`)
+holds an EXPLICIT `true` for the property. Explicit-only matters:
+readiness otherwise defaults to "ready" whenever the bucket merely
+exists, and a bucket a cancelled migration left behind must not
+collect writes. A restart re-seeds readiness from the live task
+(`seedRangeableReadinessAfterRestart` reloads the promoted bucket and
+re-marks the property ready), because on disk the window is
+indistinguishable from a migration cancelled after its swap and only a
+live task tells them apart. A cancelled or failed task marks the
+property not-ready (`unreadyRangeableAfterTerminal`), after
+`WaitForLocalTaskDrain` so an in-flight swap cannot re-mark it.
+
+Range queries stay in their pre-migration state for the whole window.
+`HasRangeableIndex` is false on every shard until the flip, which is
+exactly the pre-migration state, so queries fall back to the
+filterable bucket walk cluster-wide. There is deliberately no
+read-side counterpart to the write-side derivation: a shard serving
+from its new bucket while its siblings have not swapped would
+reintroduce the first-shard-wins inconsistency this change removes.
+Slower for the length of the window, not wrong.
 
 `enable-filterable` and `enable-searchable` have the same window and
-no overlay over it; that is a separate defect with its own issue.
+nothing covering it; that is a separate defect with its own issue.
 
 `repair-*` and `rebuild-*` need neither overlay: their flags are
 already true, so the ordinary write path covers the property
@@ -1668,11 +1695,12 @@ with the modern testcontainer style.
 **Acceptance — rangeable** ([`test/acceptance/reindex_rangeable/`](../test/acceptance/reindex_rangeable/)):
 
 - `concurrent_writes_test` — writes landing during an
-  `enable-rangeable` build. Together with
-  `reindex_multinode/enable_rangeable_concurrent_updates_test`, this is
-  the regression proof for the write overlay of §10: both storm a
-  collection across the swap and would go red if the hand-off from
-  double-write to the ordinary write path ever broke.
+  `enable-rangeable` build. Smoke coverage, as is
+  `reindex_multinode/enable_rangeable_concurrent_updates_test`: this
+  storm ends before the reindex does and the multinode one re-PATCHes
+  every object after the flip, so neither pins §10's write window. That
+  receipt is `TestReindex_WriteAfterEnableRangeableSwap_NotLost` in
+  `inverted_reindex_write_during_enable_rangeable_test.go`.
 
 **Distributed task framework** ([`test/acceptance/distributed_tasks/`](../test/acceptance/distributed_tasks/)):
 
