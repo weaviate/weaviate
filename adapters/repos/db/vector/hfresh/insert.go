@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -95,19 +96,127 @@ func (h *HFresh) add(ctx context.Context, id uint64, vector []float32) error {
 		}
 	}
 
+	var appendedTo []uint64
+	var lostHint uint64
+	lostCount := 0
 	for postingID := range targets.Iter() {
 		added, err := h.append(ctx, v, postingID, false)
 		if err != nil {
 			return errors.Wrapf(err, "failed to append vector %d to posting %d", v.ID(), postingID)
 		}
-		if !added {
-			err = h.taskQueue.EnqueueReassign(postingID, v.ID())
-			if err != nil {
-				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after posting %d disappeared", v.ID(), postingID)
-			}
+		if added {
+			appendedTo = append(appendedTo, postingID)
+		} else {
+			// any lost posting serves as the hint: the reassign task
+			// re-routes from scratch, the hint only feeds doReassign's
+			// abort-if-still-selected check
+			lostCount++
+			lostHint = postingID
 		}
 	}
+	if lostCount > 0 {
+		return h.rerouteLostInsert(ctx, v, vector, appendedTo, lostCount, lostHint)
+	}
 
+	return nil
+}
+
+// maxInsertRerouteAttempts bounds the synchronous re-routing loop in
+// rerouteLostInsert. A retry only loses if another split or merge deletes the
+// freshly selected posting within the microseconds between routing and
+// append, so repeated losses decay geometrically; three attempts make the
+// async fallback practically unreachable without risking an unbounded loop
+// under pathological maintenance churn.
+const maxInsertRerouteAttempts = 3
+
+// rerouteLostInsert re-places a vector whose target postings were deleted by
+// a concurrent split or merge between routing (RNGSelect) and append. The
+// vector was acked to the caller, so parking it in the async reassign queue
+// would leave an acked insert unsearchable until the task runs — re-route
+// synchronously instead. vector is add()'s already-normalized routing
+// representation: the retry must route on exactly what the initial RNGSelect
+// saw. v is the compressed Vector the initial appends used, so every copy
+// shares one version. appendedTo lists postings that already hold a copy
+// from this insert: a retry must never append a second same-version copy to
+// the same posting, because re-routing (unlike the reassign path) does not
+// bump the version, so garbage collection could never remove the duplicate.
+// If the deficit cannot be covered — repeated lost races, routing failure,
+// or fewer live targets than lost placements — fall back to the reassign
+// queue: the caller was acked, so no loser path may surface as an insert
+// error.
+func (h *HFresh) rerouteLostInsert(ctx context.Context, v Vector, vector []float32, appendedTo []uint64, lostCount int, lostHint uint64) error {
+	// remaining caps the replacement appends at the number of placements the
+	// insert actually lost: the retry restores the lost copies, it does not
+	// re-derive the whole replica set. The fresh selection may legitimately
+	// hold more new targets than were lost (a split publishes two children);
+	// appending to all of them would permanently over-replicate, because the
+	// surviving same-version copies can never be garbage-collected — unlike
+	// the reassign path, whose version bump retires every prior copy.
+	// targets.Iter() yields postings in ascending distance order (ResultSet
+	// keeps data sorted, HNSW returns best-first), so the cap keeps the
+	// nearest new targets.
+	remaining := lostCount
+	for attempt := 0; attempt < maxInsertRerouteAttempts && remaining > 0; attempt++ {
+		targets, _, err := h.RNGSelect(vector, 0)
+		if err != nil {
+			// The insert is acked on every other loser path; a routing
+			// failure inside the retry must not turn it into an insert
+			// error — park the vector in the reassign queue instead, like
+			// the other fallbacks.
+			h.logger.WithField("vectorID", v.ID()).
+				Warnf("insert re-route: RNG selection failed, falling back to async reassign: %v", err)
+			break
+		}
+		if targets.Len() == 0 {
+			// no live centroid matched: leave the placement to the async path
+			break
+		}
+
+		progress := false
+		for targetID := range targets.Iter() {
+			if remaining == 0 {
+				break
+			}
+			if slices.Contains(appendedTo, targetID) {
+				continue
+			}
+			added, err := h.append(ctx, v, targetID, false)
+			if err != nil {
+				return errors.Wrapf(err, "failed to append vector %d to posting %d", v.ID(), targetID)
+			}
+			// both outcomes justify another attempt: a successful append
+			// reduces the deficit, a lost race means the centroid set is
+			// shifting under us and a fresh selection may offer new targets
+			progress = true
+			if !added {
+				lostHint = targetID
+				continue
+			}
+			appendedTo = append(appendedTo, targetID)
+			remaining--
+		}
+		if !progress {
+			// every selected target already holds a copy and none was lost
+			// this attempt: re-selecting cannot help, hand the deficit to
+			// the async path
+			break
+		}
+	}
+	if remaining == 0 {
+		return nil
+	}
+
+	// The deficit could not be covered synchronously — including when the
+	// fresh selection offers fewer new targets than placements were lost.
+	// Don't leave the vector silently under-replicated: hand it to the
+	// reassign path, which re-derives the replica set under a fresh version
+	// and so can both add and retire copies safely. A single task covers
+	// every lost target: EnqueueReassign dedups by vector ID, so the
+	// pre-reroute per-target enqueue loop collapsed to one task anyway.
+	err := h.taskQueue.EnqueueReassign(lostHint, v.ID())
+	if err != nil {
+		return errors.Wrapf(err, "failed to enqueue reassign for vector %d after posting %d disappeared", v.ID(), lostHint)
+	}
 	return nil
 }
 
