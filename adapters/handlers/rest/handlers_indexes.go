@@ -116,6 +116,44 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 	return h.appState.ReindexSubmitLocks.SubmitLockFor(collection, propertyName)
 }
 
+// localTaskLister reads the reindex task list from this node's own FSM.
+// *cluster.Service satisfies it. Deliberately narrower than
+// [distributedtask.TaskLister]: the leader-routed ListDistributedTasks does
+// not belong on this path, and leaving it off makes reaching for it a
+// compile error rather than a five-letter typo.
+type localTaskLister interface {
+	LocalDistributedTasks() map[string][]*distributedtask.Task
+}
+
+// classReader reads a class from this node's schema. *schema.Manager satisfies it.
+type classReader interface {
+	ReadOnlyClass(name string) *models.Class
+}
+
+// indexStatusOperands reads the two values the index-status response compares
+// against each other: the reindex task list and the class. Both come from this
+// node, and the tasks are read first so the class is never the older of the
+// two — a class read at a later applied index carries every flag flip the
+// tasks it is compared against have already committed.
+//
+// A nil class means the collection does not exist (404 at the caller). A nil
+// lister means there is no cluster service; the response is then schema-only.
+//
+// Split from [indexesHandlers.getIndexes] so the order and the source are
+// testable with fakes, the same way [reindexTasksOrFailClosed] is split from
+// [indexesHandlers.listReindexTasks].
+func indexStatusOperands(collection string, tasks localTaskLister, schemaReader classReader) (*models.Class, []parsedReindexTask) {
+	var byNamespace map[string][]*distributedtask.Task
+	if tasks != nil {
+		byNamespace = tasks.LocalDistributedTasks()
+	}
+	class := schemaReader.ReadOnlyClass(collection)
+	if class == nil {
+		return nil, nil
+	}
+	return class, parseReindexTasks(byNamespace[db.ReindexNamespace])
+}
+
 // getIndexes implements GET /v1/schema/{className}/indexes.
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
@@ -135,26 +173,17 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		return schema.NewSchemaObjectsIndexesGetInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
-	// Read the task list before the schema, and read it locally. This
-	// response compares a task's status against schema flags, so both
-	// operands have to come from the same node's applied log. Reading tasks
-	// first means the schema read is never the older of the two: a task this
-	// node already sees as FINISHED has its schema flip applied, because the
-	// flip commits inside OnTaskCompleted and finalize commits only after
-	// every node has acked.
-	var activeTasks map[string][]*distributedtask.Task
+	// ClusterService is a concrete pointer: assigning a nil one straight into
+	// the interface produces a non-nil interface holding a nil pointer, and
+	// the first method call panics.
+	var tasks localTaskLister
 	if h.appState.ClusterService != nil {
-		activeTasks = h.appState.ClusterService.LocalDistributedTasks()
+		tasks = h.appState.ClusterService
 	}
-
-	class := h.appState.SchemaManager.ReadOnlyClass(collection)
+	class, parsedTasks := indexStatusOperands(collection, tasks, h.appState.SchemaManager)
 	if class == nil {
 		return schema.NewSchemaObjectsIndexesGetNotFound()
 	}
-
-	// Pre-parse the reindex task payloads once per request so the per-property
-	// merge below doesn't re-unmarshal each task N times.
-	parsedTasks := parseReindexTasks(activeTasks[db.ReindexNamespace])
 
 	// Precompute once so per-property resolution below is O(1); stamp/class-flag
 	// fast paths still take precedence in SearchablePropertyIsBlockmaxParsed.
