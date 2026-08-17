@@ -77,30 +77,40 @@ func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropert
 // same start (`tidied.mig` / `merged.mig`, whose promotion runs later in
 // shard init).
 //
-// Asked only where the sweep would otherwise delete: it runs on every shard
-// load over every property × three index types, and the answer costs a
-// directory walk. One shield per shard load shares both memos.
+// The sweep runs on every shard load over every property × three index types,
+// and this answer costs a directory walk, so it is asked only where the sweep
+// would otherwise delete — and the first such question is what reads the
+// shard's migrations directory at all. One shield per shard load shares that
+// listing and the tracker payloads it attributes.
 type completedMigrationShield struct {
 	lsmPath    string
+	logger     logrus.FieldLogger
 	dirs       *dirNamesCache
 	props      *taskPropsCache
+	asked      bool
 	unreadable bool
 }
 
 func newCompletedMigrationShield(lsmPath string, logger logrus.FieldLogger) *completedMigrationShield {
-	s := &completedMigrationShield{lsmPath: lsmPath, dirs: &dirNamesCache{}, props: &taskPropsCache{}}
-	migrationsDir := filepath.Join(lsmPath, ".migrations")
-	if _, err := s.dirs.list(migrationsDir); err != nil && !os.IsNotExist(err) {
-		// A listing that cannot be read cannot rule out a completed migration,
-		// and deleting on that answer is the loss this shield exists for.
-		logger.WithField("path", migrationsDir).
-			Warnf("shard init: unable to read migrations dir; leaving disabled property index buckets in place: %v", err)
-		s.unreadable = true
+	return &completedMigrationShield{
+		lsmPath: lsmPath, logger: logger,
+		dirs: &dirNamesCache{}, props: &taskPropsCache{},
 	}
-	return s
 }
 
 func (s *completedMigrationShield) protects(propName, indexType string) bool {
+	if !s.asked {
+		s.asked = true
+		migrationsDir := filepath.Join(s.lsmPath, ".migrations")
+		if _, err := s.dirs.list(migrationsDir); err != nil && !os.IsNotExist(err) {
+			// A listing that cannot be read cannot rule out a completed
+			// migration, and deleting on that answer is the loss this shield
+			// exists for.
+			s.logger.WithField("path", migrationsDir).
+				Warnf("shard init: unable to read migrations dir; leaving disabled property index buckets in place: %v", err)
+			s.unreadable = true
+		}
+	}
 	if s.unreadable {
 		return true
 	}
