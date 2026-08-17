@@ -1578,7 +1578,7 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 - [`adapters/repos/db/reindex_orphan_audit.go`](../adapters/repos/db/reindex_orphan_audit.go) — `NewLiveReindexTrackerLookup`, the orphan audit's snapshot.
 - [`adapters/repos/db/reindex_recovery.go`](../adapters/repos/db/reindex_recovery.go) — `DiscoverInFlightReindexTasks`, `buildRecoveryTasks`, recovery-only `ShardReindexerV3`.
 - [`adapters/repos/db/reindex_cancel_cleanup.go`](../adapters/repos/db/reindex_cancel_cleanup.go) — `DB.NewStalePartialReindexSweep`.
-- [`adapters/repos/db/reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go) — `DB.AnyLiveReindexForShard`, the backup gate.
+- [`adapters/repos/db/reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go) — `DB.AnyLiveReindexForShard`, the backup gate's activity lookup.
 
 **Strategy + finalize**
 
