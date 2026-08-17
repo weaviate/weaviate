@@ -49,6 +49,17 @@ type BitmapBufPool interface {
 	// CloneToBuf). Release via put; the accumulator stays reusable. acc must
 	// be non-nil (unlike CloneToBuf's nil tolerance, it panics).
 	AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func())
+	// SortedListToBuf materializes a sorted document list into a pooled
+	// buffer. Same ownership contract as AccumulatorToBuf: the returned
+	// bitmap owns the buffer's full capacity, grows in place within it and
+	// migrates to the heap past that, and is released via put. vals must be
+	// ascending (sroar panics otherwise); duplicates are collapsed, at the
+	// cost of a buffer sized for the input rather than for the distinct
+	// count.
+	SortedListToBuf(vals []uint64) (bm *sroar.Bitmap, put func())
+	// SortedList32ToBuf is SortedListToBuf for documents that fit in 32 bits,
+	// which is what lets a caller hold them half as wide up to this point.
+	SortedList32ToBuf(vals []uint32) (bm *sroar.Bitmap, put func())
 }
 
 func cloneToBuf(pool BitmapBufPool, src *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
@@ -84,6 +95,30 @@ func accumulatorToBuf(pool BitmapBufPool, acc *sroar.Accumulator) (bm *sroar.Bit
 	// short-circuits without invoking the allocation callback
 	put = func() {}
 	bm = acc.InitBitmapToBuf(func(sizeBytes int) (*sroar.Bitmap, []byte) {
+		buf, dst, p := pool.getWithBitmap(sizeBytes)
+		put = p
+		return dst, buf
+	})
+	return bm, put
+}
+
+func sortedListToBuf(pool BitmapBufPool, vals []uint64) (bm *sroar.Bitmap, put func()) {
+	// noop default so put stays callable even if a future sroar version
+	// short-circuits without invoking the allocation callback
+	put = func() {}
+	bm = sroar.InitFromSortedListToBuf(vals, func(sizeBytes int) (*sroar.Bitmap, []byte) {
+		buf, dst, p := pool.getWithBitmap(sizeBytes)
+		put = p
+		return dst, buf
+	})
+	return bm, put
+}
+
+func sortedList32ToBuf(pool BitmapBufPool, vals []uint32) (bm *sroar.Bitmap, put func()) {
+	// noop default so put stays callable even if a future sroar version
+	// short-circuits without invoking the allocation callback
+	put = func() {}
+	bm = sroar.InitFromSortedList32ToBuf(vals, func(sizeBytes int) (*sroar.Bitmap, []byte) {
 		buf, dst, p := pool.getWithBitmap(sizeBytes)
 		put = p
 		return dst, buf
@@ -147,6 +182,14 @@ func (p *bitmapBufPoolNoop) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, p
 
 func (p *bitmapBufPoolNoop) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
 	return accumulatorToBuf(p, acc)
+}
+
+func (p *bitmapBufPoolNoop) SortedListToBuf(vals []uint64) (bm *sroar.Bitmap, put func()) {
+	return sortedListToBuf(p, vals)
+}
+
+func (p *bitmapBufPoolNoop) SortedList32ToBuf(vals []uint32) (bm *sroar.Bitmap, put func()) {
+	return sortedList32ToBuf(p, vals)
 }
 
 // -----------------------------------------------------------------------------
@@ -243,6 +286,14 @@ func (p *bitmapBufPoolRanged) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroa
 	return accumulatorToBuf(p, acc)
 }
 
+func (p *bitmapBufPoolRanged) SortedListToBuf(vals []uint64) (bm *sroar.Bitmap, put func()) {
+	return sortedListToBuf(p, vals)
+}
+
+func (p *bitmapBufPoolRanged) SortedList32ToBuf(vals []uint32) (bm *sroar.Bitmap, put func()) {
+	return sortedList32ToBuf(p, vals)
+}
+
 func (p *bitmapBufPoolRanged) cleanup(n int) map[int]int {
 	cleaned := map[int]int{}
 	for i := p.firstInMemoRngIdx; i < len(p.ranges); i++ {
@@ -301,6 +352,14 @@ func (p *bitmapBufPoolFactorWrapper) CloneBytesToBuf(src []byte) (cloned *sroar.
 
 func (p *bitmapBufPoolFactorWrapper) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
 	return accumulatorToBuf(p, acc)
+}
+
+func (p *bitmapBufPoolFactorWrapper) SortedListToBuf(vals []uint64) (bm *sroar.Bitmap, put func()) {
+	return sortedListToBuf(p, vals)
+}
+
+func (p *bitmapBufPoolFactorWrapper) SortedList32ToBuf(vals []uint32) (bm *sroar.Bitmap, put func()) {
+	return sortedList32ToBuf(p, vals)
 }
 
 // -----------------------------------------------------------------------------
