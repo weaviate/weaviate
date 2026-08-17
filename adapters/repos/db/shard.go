@@ -545,6 +545,12 @@ func (s *Shard) pathHashTree() string {
 }
 
 func (s *Shard) vectorIndexID(targetVector string) string {
+	return vectorIndexID(targetVector)
+}
+
+// vectorIndexID names the files a target vector's index owns inside the shard
+// directory. Unloaded shards need it too, so it does not hang off [Shard].
+func vectorIndexID(targetVector string) string {
 	if targetVector != "" {
 		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, targetVector)
 	}
@@ -678,7 +684,7 @@ func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
 // VectorStorageUsage calculates the total storage size of all vector indexes in the shard. It also
 // returns every target vector's dimensionality, so callers need not re-read the dimensions bucket.
 func (s *Shard) VectorStorageUsage(ctx context.Context, lsmPath string, directories []string) (int64, int64, map[string]usagetypes.Dimensionality, error) {
-	vectorSize, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
+	vectorMetrics, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
 	if err != nil {
 		return 0, 0, nil, err
 	}
@@ -702,7 +708,7 @@ func (s *Shard) VectorStorageUsage(ctx context.Context, lsmPath string, director
 		return 0, 0, nil, err
 	}
 
-	return vectorSize, uncompressedSize, dimensionalities, nil
+	return vectorMetrics.StorageBytes, uncompressedSize, dimensionalities, nil
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
