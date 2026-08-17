@@ -29,16 +29,11 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestEnableIndexSurvivesRepeatedLoadsBeforeSchemaFlip pins the invariant that
-// a shard loaded any number of times between its local bucket swap and the
-// schema flag flip must still serve the backfilled data once the flag flips.
-// Every load in that window must leave the index both on disk and open: a
-// bucket that exists but is not loaded is invisible to reads, and to the
-// active-shard backup path, which enumerates loaded buckets only.
-//
-// The flip_before_loads row is the positive control: the identical sequence
-// with the flag already flipped. It separates a real regression from a broken
-// harness.
+// TestEnableIndexSurvivesRepeatedLoadsBeforeSchemaFlip pins index data
+// surviving any number of shard loads between the local swap and the schema
+// flag flip — a bucket present but unopened is invisible to reads and
+// backups. flip_before_loads_control runs the same sequence with the flag
+// already flipped, to separate a real regression from a broken harness.
 func TestEnableIndexSurvivesRepeatedLoadsBeforeSchemaFlip(t *testing.T) {
 	const numObjects = 25
 

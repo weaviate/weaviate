@@ -257,10 +257,10 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 	logger logrus.FieldLogger, props *taskPropsCache,
 ) {
 	scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props)
-	// Only the DELETE path retires a completed migration's record: the bucket
-	// it names is being removed on purpose, and a record outliving it would
-	// have the next shard load re-open an index the user dropped. The sweeps
-	// that share the helper below must preserve the same record instead.
+	// Only DELETE retires a completed migration's record — its bucket is
+	// being removed on purpose, and an outliving record would have the next
+	// load re-open a dropped index. Other sweeps sharing this helper must
+	// preserve it instead.
 	retireFinalizedMigrationDirs(scope, propName, indexType, logger)
 	if err := cleanStaleMigrationDirsIn(ctx, scope, logger); err != nil && ctx.Err() == nil {
 		// Logged and dropped here only: the DELETE this serves has already
@@ -279,10 +279,9 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 // whose promoted bucket is the one an index DELETE just removed.
 //
 // Scoped by the promoted bucket, not by the deleted index type's tracker
-// scope: one index type's scope names strategies that promote a different
-// index's bucket (dropping a filterable index reaches the
-// filterable_to_rangeable trackers), and retiring one of those would unshield
-// a bucket nobody asked to delete.
+// scope — that scope can name strategies promoting a different index's
+// bucket (a filterable drop reaches filterable_to_rangeable trackers too),
+// and retiring those would unshield a bucket nobody asked to delete.
 func retireFinalizedMigrationDirs(scope migrationDirScope, propName, indexType string,
 	logger logrus.FieldLogger,
 ) {

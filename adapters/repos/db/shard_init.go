@@ -161,11 +161,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// so that buckets are found at their canonical directory names.
 	FinalizeCompletedMigrations(s.pathLSM(), class, s.index.logger)
 
-	// A migration that finished on this node stays invisible until the whole
-	// cluster agrees to advertise it: the schema flag is still false, so the
-	// property's buckets would not be opened, and an unopened bucket reaches
-	// neither reads nor the backup walker that enumerates loaded buckets. The
-	// records finalize just kept name exactly those buckets.
+	// A migration finished on this node stays invisible until the schema flag
+	// flips cluster-wide: without forcing it on here, the property's buckets
+	// would not be opened, reaching neither reads nor the backup walker.
 	effectiveClass := classWithPromotedIndexes(class, finalizedMigrationIndexes(s.pathLSM()))
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable

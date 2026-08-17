@@ -28,11 +28,10 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// A tracker dir that used to be deleted at finalize now outlives it, so every
-// other reader of .migrations/ sees a shape it never saw before. Each of them
-// already answers correctly, all for the same reason: a record still carries
-// tidied.mig, which is what they key on. That is a property of today's code,
-// not a guarantee, so it gets pinned rather than assumed.
+// A retained record is a tracker shape other .migrations/ readers never saw
+// before finalize started keeping it. Each already answers correctly because
+// a record still carries tidied.mig — a property of today's code, not a
+// guarantee, so it gets pinned rather than assumed.
 func TestReadersToleranceOfARetainedRecord(t *testing.T) {
 	const propName = "category"
 	recordName := "enable_filterable_" + propName + "_1"
@@ -85,11 +84,9 @@ func TestReadersToleranceOfARetainedRecord(t *testing.T) {
 		}
 	})
 
-	// The rehydrate path reconstructs the strategy instance a crashed run was
-	// using, and a fresh task claims the next generation. Leaving both to read
-	// the record's generation is the choice here: a re-run against it converges
-	// through the already-tidied branch of the swap, and a fresh run never
-	// reuses its number.
+	// A record's generation is left readable like any other: a rehydrated
+	// re-run converges through the already-tidied swap branch, and a fresh
+	// task never reuses its number.
 	t.Run("generation allocation counts a record like any other generation", func(t *testing.T) {
 		lsmPath := plantRecord(t)
 		assert.Equal(t, 1, maxMigrationGeneration(lsmPath, MigrationDirPrefixEnableFilterable, "_"+propName))
@@ -97,11 +94,9 @@ func TestReadersToleranceOfARetainedRecord(t *testing.T) {
 	})
 }
 
-// The rangeable readiness scan refuses range queries on a property whose
-// migration is still in flight, so nothing answers from a bucket the swap has
-// not filled yet. A record is the opposite state: the bucket is filled and the
-// shard has opened it, and refusing queries against it would hide the data the
-// migration produced.
+// The readiness scan must refuse queries only on an in-flight migration's
+// unfilled bucket. A record is the opposite state — bucket filled and open —
+// so refusing it would hide data the migration already produced.
 func TestRangeableReadinessRefusesOnlyAnInFlightMigration(t *testing.T) {
 	const propName = filterableToRangeablePropName
 	tracker := "filterable_to_rangeable_" + propName + "_1"

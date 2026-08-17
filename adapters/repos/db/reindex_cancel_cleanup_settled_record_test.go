@@ -24,12 +24,10 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// The unloaded-shard gate hydrates a tenant for two reasons: state a sweep
-// would remove, and a completed migration's leftovers that only a load
-// reclaims. A record is neither. Its promotion already ran, so the load would
-// reclaim nothing, and every sweep over every (property, index type) tuple
-// would hydrate every tenant carrying one for as long as the flag stays
-// unflipped.
+// A record is neither of the two things the unloaded-shard gate hydrates a
+// tenant for: it names nothing a sweep would remove or a load would reclaim.
+// Otherwise every sweep would hydrate every tenant carrying one until the
+// flag flips.
 func TestHasStalePartialReindexStateSettlesOnARecord(t *testing.T) {
 	const (
 		propName  = "category"

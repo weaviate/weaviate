@@ -69,11 +69,9 @@ func classWithProperty(prop *models.Property) *models.Class {
 	return &models.Class{Class: "Retention", Properties: []*models.Property{prop}}
 }
 
-// The record exists for exactly one window: an index this node already
-// rebuilt, which the schema still advertises as disabled because the cluster
-// has not agreed to flip the flag yet. Every other outcome — flag already on,
-// flag never set, a strategy that flips nothing — must finalize the way it
-// always did and leave nothing behind.
+// A record survives only while the schema hides an index this node already
+// rebuilt. Every other outcome — flag on, flag unset, a strategy that flips
+// nothing — must finalize as before and leave nothing behind.
 func TestFinalizeKeepsARecordOnlyWhileTheSchemaHidesAPromotedIndex(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -174,11 +172,10 @@ func TestFinalizeKeepsARecordOnlyWhileTheSchemaHidesAPromotedIndex(t *testing.T)
 				Name: "score", IndexRangeFilters: boolPtr(true),
 			}),
 		},
-		// The remaining strategies flip no flag, so their promotion is never
-		// ahead of the schema and their tracker has nothing left to say. The
-		// two retokenize halves join them here on purpose: the startup sweep
-		// deletes only on an explicit false, and a retokenized property keeps
-		// its index flag true throughout.
+		// The remaining strategies flip no flag, so their tracker has nothing
+		// left to say once promoted. Retokenize joins them here because its
+		// index flag stays true throughout, and the sweep deletes only on an
+		// explicit false.
 		{
 			name:       "searchable-retokenize, whose index flag stays on throughout",
 			migName:    "searchable_retokenize_title_1",
@@ -255,10 +252,9 @@ func TestFinalizeKeepsARecordOnlyWhileTheSchemaHidesAPromotedIndex(t *testing.T)
 	}
 }
 
-// The marker's claim is "the promotion already ran", and the next start reads
-// it instead of retrying. A start that promoted only part of a multi-property
-// migration must therefore not write it — the tracker's tidied.mig keeps the
-// promoted buckets shielded meanwhile, and the next start finishes the job.
+// A start that only partially promotes a multi-property migration must not
+// mark it: the marker claims "the promotion already ran", and the next start
+// trusts it instead of retrying.
 func TestFinalizeLeavesAFailedPromotionUnmarked(t *testing.T) {
 	const migName = "enable_filterable_alpha_beta_1"
 
@@ -325,11 +321,10 @@ func TestFinalizeLeavesAFailedPromotionUnmarked(t *testing.T) {
 	})
 }
 
-// A start that crashes between the promotion and the record leaves the ingest
-// dir already renamed and no marker, so the next start re-runs the promotion
-// on a tracker whose work is done. That re-run has to be a no-op: it is the
-// only thing standing between the crash window and a canonical bucket
-// overwritten by an empty one.
+// A crash between the promotion and the record leaves the ingest dir already
+// renamed and no marker, so the next start re-runs a promotion whose work is
+// done — that re-run must be a no-op, or it overwrites the canonical bucket
+// with an empty one.
 func TestFinalizeMigrationDirReRunsAsANoOp(t *testing.T) {
 	const migName = "enable_filterable_category_1"
 	lsmPath := t.TempDir()
@@ -352,11 +347,9 @@ func TestFinalizeMigrationDirReRunsAsANoOp(t *testing.T) {
 		"and the second start must record what the first one could not")
 }
 
-// From the second start onward the record answers the question, so nothing
-// re-promotes and nothing rewrites the marker. Without that, a sidecar dir
-// that reappears under the same name — a re-submitted migration claiming the
-// same generation after operator surgery — would be renamed over a canonical
-// bucket that is already correct.
+// Once a record exists, nothing re-promotes or rewrites the marker — a
+// sidecar dir that reappears under the same name (e.g. after operator
+// surgery) must not be renamed over an already-correct canonical bucket.
 func TestFinalizeDoesNotPromoteTwiceOnTopOfARecord(t *testing.T) {
 	const migName = "enable_filterable_category_1"
 	lsmPath := t.TempDir()
@@ -467,11 +460,9 @@ func TestAllMigrationDirPrefixesCoversEveryStrategy(t *testing.T) {
 	}
 }
 
-// Every reader of a tracker dir decides from the sentinel files in it, so a
-// new sentinel is a new state each of them has to be taught. The source scan
-// makes adding one fail here rather than pass unnoticed.
-//
-// Scoped to the reindex sources on purpose: .migrations/ is shared with other
+// A new sentinel is a new state every reader of a tracker dir has to be
+// taught; this source scan makes adding one fail here rather than pass
+// unnoticed. Scoped to the reindex sources: .migrations/ is shared with other
 // subsystems that keep their own flag files under it.
 func TestMigrationSentinelVocabularyIsEnumerated(t *testing.T) {
 	known := []string{

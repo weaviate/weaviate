@@ -34,10 +34,8 @@ func newPropertyDeleteIndexHelper() *propertyDeleteIndexHelper {
 // - an error occurred during update property operation and most probably property buckets haven't been removed
 //
 // A bucket a migration completed on this shard is left alone even where the
-// schema says the index is disabled: between a local swap and the
-// cluster-wide flag flip the two disagree on purpose, and the flag is the
-// stale half. Consulted only for a bucket this sweep would otherwise delete —
-// see [completedMigrationShield].
+// schema still says the index is disabled — the flag is the stale half
+// during the window before the cluster-wide flip. See [completedMigrationShield].
 func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropertyIndexes(
 	indexPath, shardName string, class *models.Class, logger logrus.FieldLogger,
 ) error {
@@ -71,17 +69,12 @@ func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropert
 	return nil
 }
 
-// completedMigrationShield answers whether a property index bucket the
-// startup sweep is about to delete belongs to a migration that completed on
-// this shard — either promoted already (`finalized.mig`) or promoted at this
-// same start (`tidied.mig` / `merged.mig`, whose promotion runs later in
-// shard init).
-//
-// The sweep runs on every shard load over every property × three index types,
-// and this answer costs a directory walk, so it is asked only where the sweep
-// would otherwise delete — and the first such question is what reads the
-// shard's migrations directory at all. One shield per shard load shares that
-// listing and the tracker payloads it attributes.
+// completedMigrationShield answers whether a bucket the startup sweep is
+// about to delete belongs to a migration completed on this shard — promoted
+// already (`finalized.mig`) or promoted later this same start (`tidied.mig` /
+// `merged.mig`). Asked only where the sweep would otherwise delete, since it
+// costs a directory walk; one shield per shard load shares that listing
+// across questions.
 type completedMigrationShield struct {
 	lsmPath    string
 	logger     logrus.FieldLogger

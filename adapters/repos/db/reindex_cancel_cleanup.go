@@ -349,10 +349,9 @@ func hasStalePartialReindexState(
 			continue
 		}
 		if fileExistsInDir(filepath.Join(lsmPath, ".migrations", name), finalizedSentinel) {
-			// A finalized record is settled: the promotion it tracks already
-			// ran, so there is nothing for a sweep to remove and nothing for a
-			// load to reclaim. Hydrating every cold tenant carrying one, for
-			// every tuple of every sweep, is the storm this arm avoids.
+			// A finalized record is settled: nothing for a sweep to remove or a
+			// load to reclaim. Without this arm, every sweep would hydrate every
+			// cold tenant carrying one.
 			continue
 		}
 		if preservedGens == nil {

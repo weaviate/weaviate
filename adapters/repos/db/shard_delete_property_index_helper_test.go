@@ -411,12 +411,9 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 	})
 }
 
-// This sweep runs before anything else in a shard load and asks one question:
-// is there a bucket for an index the schema says is disabled? During the
-// window between a local swap and the cluster-wide flag flip the honest answer
-// is yes, and deleting on it destroys the index that was just rebuilt. A
-// migration that got as far as merging on this shard is what tells the two
-// apart.
+// During the window between a local swap and the cluster-wide flag flip, a
+// disabled schema flag does not mean the bucket is unused — a migration that
+// got as far as merging on this shard is what tells the two apart.
 func TestPropertyDeleteIndexHelperLeavesACompletedMigrationsBucketAlone(t *testing.T) {
 	const (
 		shardName = "shard1"
@@ -470,10 +467,9 @@ func TestPropertyDeleteIndexHelperLeavesACompletedMigrationsBucketAlone(t *testi
 			props:         map[string][]string{"filterable_to_rangeable_category_1": {propName}},
 			disabled:      []string{"filterable", "searchable", "rangeable"},
 			wantRangeable: true,
-			// The rangeable strategy's tracker is in the filterable scope too,
-			// so it shields that bucket as well. Over-shielding costs disk until
-			// the record retires and the next load sweeps again; under-shielding
-			// costs the index.
+			// The rangeable tracker is in the filterable scope too, so it
+			// shields that bucket as well: over-shielding costs disk, but
+			// under-shielding costs the index.
 			wantFilterable: true,
 		},
 		{

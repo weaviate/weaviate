@@ -2141,10 +2141,8 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 			continue
 		}
 		if fileExistsInDir(filepath.Join(migsDir, entry.Name()), finalizedSentinel) {
-			// A record of an index the cluster has not advertised yet retires
-			// only through an owner that knows why — the first start after the
-			// flip, an index DELETE — not through a re-run of the same
-			// property that happens to pass by.
+			// A record retires only through a named owner (schema flip, index
+			// DELETE), never through a same-property re-run passing by.
 			continue
 		}
 		t.removeAllSafe(logger, filepath.Join(migsDir, entry.Name()))

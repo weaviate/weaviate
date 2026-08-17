@@ -24,10 +24,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// finalizedSentinel records that a tracker dir's ingest→canonical promotion
-// already ran. It is written only when the promoted index is one the schema
-// still advertises as disabled, so the tracker outlives the promotion and
-// keeps naming the bucket until a named owner retires the record.
+// finalizedSentinel marks a tracker's promotion as done. Written only when
+// the schema still advertises the promoted index as disabled, so the tracker
+// survives until an owner (schema flip, re-submit, or DELETE) retires it.
 const finalizedSentinel = "finalized.mig"
 
 // nextMigrationGeneration returns the per-node generation `N` a new
@@ -236,12 +235,10 @@ func fileExistsInDir(dirPath, fileName string) bool {
 //   - Remove every dir on disk (sidecars + tracker) with gen < effective
 //     — these are pre-`effective` data, no longer referenced.
 //   - Remove the tracker dir for `effective` itself, UNLESS the index it
-//     just promoted is one `class` still advertises as disabled. The
-//     cluster flips that flag only once every replica has swapped, so
-//     between the local swap and the flip the tracker is the only note
-//     that the bucket on disk is a finished index rather than garbage.
-//     Such a tracker is kept and marked with `finalized.mig`; see
-//     [finalizeEffectiveGen] for who retires it later.
+//     just promoted is one `class` still advertises as disabled — the
+//     cluster flips that flag only once every replica has swapped, so until
+//     then the tracker is the only note that the bucket is a finished index,
+//     not garbage. Kept and marked `finalized.mig`; see [finalizeEffectiveGen].
 //   - If neither `T` nor `M` exists, do nothing — any earlier-stage
 //     in-flight migration on disk is the recovery path's
 //     responsibility ([DiscoverInFlightReindexTasks]).
@@ -366,8 +363,8 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger log
 				if !finalizeEffectiveGen(lsmPath, migDir, g.dirName, class, logger) {
 					continue
 				}
-				// The promotion is complete and nothing is waiting on the
-				// record: the sentinels have done their job.
+				// Nothing is waiting on the record anymore: the sentinels
+				// have done their job.
 				if err := os.RemoveAll(migDir); err != nil {
 					logger.WithField("path", migDir).
 						Warnf("reindex finalize: failed to remove finalized tracker dir: %v", err)
@@ -396,22 +393,18 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger log
 
 // finalizeEffectiveGen promotes the effective generation's ingest dirs to
 // their canonical names and reports whether its tracker dir may now be
-// removed.
+// removed. Three outcomes keep the record honest:
 //
-// Three outcomes keep the record honest:
+//   - Promotion failed for a property: tracker stays UNMARKED so the next
+//     start retries it; `tidied.mig` keeps the promoted buckets shielded
+//     meanwhile.
+//   - Promotion succeeded, schema already advertises the index: tracker is
+//     removed by the caller.
+//   - Promotion succeeded, schema still advertises it disabled: tracker is
+//     marked `finalized.mig` and kept, retired later by the schema flip, a
+//     re-submit, or an index DELETE.
 //
-//   - Promotion failed for at least one property: the tracker stays, and
-//     stays UNMARKED, so the next start retries it. Its `tidied.mig` keeps
-//     the promoted buckets out of the startup sweep's reach meanwhile.
-//   - Promotion succeeded and the schema already advertises the index: the
-//     tracker has nothing left to say and the caller removes it.
-//   - Promotion succeeded but the schema still advertises the index as
-//     disabled: the tracker is marked `finalized.mig` and kept. Retired by
-//     the first start after the flip, by a re-submit (which supersedes it
-//     with a higher generation), or by an index DELETE.
-//
-// A marked tracker is never promoted again — the promotion is not repeated
-// and the marker is not rewritten, so no start past the first can fail on
+// A marked tracker is never promoted again — no start past the first reaches
 // the exclusive create.
 func finalizeEffectiveGen(lsmPath, migDir, migName string, class *models.Class,
 	logger logrus.FieldLogger,
@@ -440,10 +433,9 @@ func finalizeEffectiveGen(lsmPath, migDir, migName string, class *models.Class,
 	return false
 }
 
-// writeFinalizedMarker records a completed promotion. Exclusive create, like
-// the sibling [writeRecoveryTidiedSentinels]: a marker that already exists
-// belongs to an earlier start, and [finalizeEffectiveGen] never reaches here
-// in that case.
+// writeFinalizedMarker records a completed promotion. Exclusive create: a
+// marker that already exists belongs to an earlier start, and
+// [finalizeEffectiveGen] never reaches here in that case.
 func writeFinalizedMarker(migDir string) error {
 	f, err := os.OpenFile(filepath.Join(migDir, finalizedSentinel),
 		os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
@@ -457,13 +449,10 @@ func writeFinalizedMarker(migDir string) error {
 }
 
 // migrationAwaitsSchemaFlip reports whether the tracker at migDir promoted an
-// index that class still advertises as disabled on at least one of the
-// properties the migration targeted.
-//
-// "Disabled" is an explicit false, matching what the startup sweep deletes on
-// ([propertyDeleteIndexHelper.isPropertyIndexRemoved]): a nil flag is a
-// default the sweep leaves alone, so it needs no record. A property the class
-// no longer carries has no flag left to flip and so keeps nothing alive.
+// index that class still advertises as disabled on at least one targeted
+// property. "Disabled" means an explicit false, matching what the startup
+// sweep deletes on ([propertyDeleteIndexHelper.isPropertyIndexRemoved]); a
+// nil flag needs no record.
 func migrationAwaitsSchemaFlip(migDir, migName string, class *models.Class) bool {
 	indexType := awaitingFlipIndexType(migName)
 	if indexType == "" || class == nil {
@@ -713,18 +702,14 @@ func reindexSuffixForFinalize(namespace string) string {
 // finalizeMigrationDir renames every property's ingest dir to its canonical
 // name and removes the backup dir it replaced.
 //
-// A non-nil error means at least one property of this migration is NOT
-// promoted. The caller must not record the tracker as finalized on that
-// answer: the record's whole claim is that the promotion ran, and a later
-// start reads it instead of retrying.
-//
-// Idempotent by construction: after a successful run neither the ingest nor
-// the backup dir exists, so a re-run (a crash between the promotion and the
-// record) does nothing and reports success.
+// A non-nil error means at least one property is NOT promoted; the caller
+// must not mark the tracker finalized on that answer, or a later start will
+// trust the record instead of retrying. Idempotent by construction: after a
+// successful run neither the ingest nor the backup dir exists, so a re-run
+// (crash between promotion and record) is a no-op.
 func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) error {
-	// Only finalize if both swapped and tidied sentinels exist. Callers reach
-	// here at the effective generation, where both are present or were just
-	// written, so a missing one is a tracker nothing can promote from.
+	// A missing sentinel means a tracker nothing can promote from — callers
+	// reach here at the effective generation, where both are already present.
 	if !fileExists(filepath.Join(migDir, "swapped.mig")) {
 		return fmt.Errorf("tracker has no swapped.mig")
 	}

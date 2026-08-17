@@ -52,14 +52,11 @@ func recordExists(t *testing.T, lsmPath, trackerName string) bool {
 	return dirExistsAt(t, lsmPath, filepath.Join(".migrations", trackerName))
 }
 
-// Dropping an index removes its bucket on purpose, so the record naming that
-// bucket has to go with it — a record outliving its bucket has the next shard
-// load re-open an index the user deleted.
-//
-// The neighbour is the point: one index type's tracker scope reaches
-// strategies that promote a different index's bucket, and retiring one of
-// those would unshield a bucket nobody asked to delete. Retirement is scoped
-// by the bucket a tracker promotes, not by the scope it falls into.
+// A dropped index's record must go with its bucket, or the next load
+// reopens a deleted index. But retirement is scoped by the bucket a tracker
+// promotes, not by its tracker scope: one index type's scope reaches
+// strategies that promote a different index's bucket, and retiring those too
+// would unshield a bucket nobody asked to delete.
 func TestIndexDeleteRetiresOnlyTheRecordOfTheBucketItRemoves(t *testing.T) {
 	ctx := testCtx()
 	className := "RecordRetirement_" + uuid.NewString()[:8]
@@ -78,10 +75,9 @@ func TestIndexDeleteRetiresOnlyTheRecordOfTheBucketItRemoves(t *testing.T) {
 	require.NotNil(t, shard.store.Bucket(rangeableBucket))
 	plantTwoRecords(t, lsmPath)
 
-	// The apply of a filterable-index DELETE: the merged property keeps
-	// rangeable on and turns filterable off. Identical in shape to the flip
-	// of a sibling migration on the same property, whose apply also arrives
-	// with one index still disabled.
+	// A filterable-index DELETE apply: rangeable stays on, filterable turns
+	// off — the same shape as a sibling migration's flip landing with one
+	// index still disabled.
 	dropped := &models.Property{
 		Name:              retirementProp,
 		DataType:          class.Properties[0].DataType,
@@ -103,9 +99,9 @@ func TestIndexDeleteRetiresOnlyTheRecordOfTheBucketItRemoves(t *testing.T) {
 		"the neighbour's record is what keeps its bucket out of the next start's sweep")
 }
 
-// Same delete against a tenant that is not loaded. The cold path removes bucket
-// dirs by name and reads nothing else, so the record needs its own removal
-// here — otherwise reactivating the tenant re-opens the deleted index.
+// Same delete on a cold tenant: the path removes bucket dirs by name only, so
+// the record needs its own removal, or reactivating the tenant reopens the
+// deleted index.
 func TestUnloadedIndexDeleteRetiresOnlyTheRecordOfTheBucketItRemoves(t *testing.T) {
 	const coldTenant = "cold-tenant"
 
@@ -154,12 +150,10 @@ func TestUnloadedIndexDeleteRetiresOnlyTheRecordOfTheBucketItRemoves(t *testing.
 	assert.True(t, recordExists(t, coldLSM, retirementRangeableTrack))
 }
 
-// The end-of-swap trim removes what older generations of the same property
-// left on disk. A record is not leftovers: it says an index is promoted and
-// not yet advertised, and only an owner that knows why — the first start
-// after the flip, an index drop — may retire it. A re-run of the same property
-// passing by is not one of them; it supersedes the record through finalize's
-// older-generation arm at the next start instead.
+// A record is not leftovers the end-of-swap trim may remove: only a named
+// owner (schema flip, index drop) retires it. A same-property re-run
+// supersedes it through finalize's older-generation arm at the next start
+// instead.
 func TestEndOfSwapTrimKeepsARecordAndRemovesPlainLeftovers(t *testing.T) {
 	const propName = "title"
 
@@ -188,11 +182,10 @@ func TestEndOfSwapTrimKeepsARecordAndRemovesPlainLeftovers(t *testing.T) {
 		"an older generation with no record is exactly what the trim is for")
 }
 
-// The sweeps that run at submit, at cancel, and when a task ends FAILED or
-// CANCELLED share their machinery with the DELETE path but have the opposite
-// need: the record, its bucket and its payload are the protected residue the
-// terminal contract promises, retired later by a re-submit, an index drop, or
-// the first start after a flip.
+// Submit, cancel, and FAILED/CANCELLED sweeps share machinery with DELETE but
+// have the opposite need: the record, bucket, and payload are protected
+// residue, retired later by a re-submit, an index drop, or the first start
+// after a flip.
 func TestTerminalSweepLeavesACompletedMigrationsResidueInPlace(t *testing.T) {
 	ctx := testCtx()
 	className := "ResidueContract_" + uuid.NewString()[:8]
