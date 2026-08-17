@@ -92,9 +92,9 @@ func newFSMSnapshot(t *testing.T) *fsmSnapshot {
 	}}
 }
 
-// Tasks must be read before the schema, or a stale flag-off can pair with an
-// already-read FINISHED task and drop the entry.
-func TestIndexStatusOperands_ComeFromOneNodeInOneOrder(t *testing.T) {
+// Tasks must be read before the schema, or an already-read, stale flag-off
+// pairs with a FINISHED task read after it and the entry is dropped.
+func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 	tests := []struct {
 		name        string
 		advance     bool
@@ -126,7 +126,7 @@ func TestIndexStatusOperands_ComeFromOneNodeInOneOrder(t *testing.T) {
 				lister = snapshot
 			}
 
-			class, parsed := indexStatusOperands("C", lister, snapshot)
+			class, parsed := readClassAndTasks("C", lister, snapshot)
 			require.NotNil(t, class)
 			if tt.wantNoTasks {
 				require.Empty(t, parsed)

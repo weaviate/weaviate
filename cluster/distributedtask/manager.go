@@ -1001,9 +1001,9 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	return nil
 }
 
-// LocalDistributedTasks returns a snapshot of this node's own tasks grouped by
-// namespace. Each [Task] is cloned, so callers may read the returned values
-// without holding the Manager's lock.
+// LocalDistributedTasks returns the cluster-wide task map as this node has
+// applied it, grouped by namespace. Each [Task] is cloned, so callers may
+// read the returned values without holding the Manager's lock.
 //
 // Tasks within each namespace are sorted deterministically so adjacent
 // polls return the same slice order regardless of Go's randomized map
@@ -1036,7 +1036,7 @@ func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 }
 
 // ListDistributedTasks is the [TaskLister] shim over
-// [Manager.LocalDistributedTasks]; it answers from the same snapshot.
+// [Manager.LocalDistributedTasks].
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
 	return m.LocalDistributedTasks(), nil
 }

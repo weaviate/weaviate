@@ -1393,9 +1393,8 @@ func TestDeleteClassPropertyIndex_SearchableClearsBlockmaxStamp(t *testing.T) {
 }
 
 // TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff pins that deleting an
-// already-off index performs no RAFT write and reports wrote=false, which the
-// handler needs to skip recording a GET-suppression delete marker for a
-// write that never happened.
+// already-off index performs no RAFT write and reports wrote=false, so a
+// node-local no-op never claims a RAFT write.
 func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
 	t.Parallel()
 
@@ -1443,7 +1442,7 @@ func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
 				"Movies", tc.fsmProp.Name, tc.indexName)
 			require.NoError(t, err)
 			require.False(t, wrote,
-				"deleting an already-off index must be a no-op (no RAFT write) so no masking marker is recorded")
+				"deleting an already-off index must be a no-op and must not report a RAFT write")
 			sm.AssertNotCalled(t, "UpdateProperty", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}

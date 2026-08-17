@@ -103,11 +103,11 @@ func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask
 	return s.store.LocalUnrecognizedDistributedTasks()
 }
 
-// LocalDistributedTasks reads this node's own FSM, not the leader: a local
-// read can only be as old as or older than a subsequent local read, never
-// newer. That guarantee is what lets a caller read tasks then a schema flag
-// safely. It can trail the leader — use [Raft.ListDistributedTasks] when a
-// decision needs the cluster's latest state.
+// LocalDistributedTasks reads this node's own FSM, not the leader. The schema
+// lives in that same FSM at the same applied index, so a caller that reads
+// tasks and then a schema flag gets a flag at least as new as the tasks. It
+// can trail the leader: use [Raft.ListDistributedTasks] when a decision needs
+// the cluster's latest state.
 func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return s.store.LocalDistributedTasks()
 }
