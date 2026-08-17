@@ -129,6 +129,10 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			return fmt.Errorf("restore snapshot: decode json: %w", err)
 		}
 
+		// Schema before distributed tasks: this node still serves reads during a
+		// restore, and each side swaps under its own lock, so in the gap a GET on
+		// /v1/schema/{class}/indexes sees the newer schema against the older task
+		// list. The other order lets a FINISHED task pair with an unflipped flag.
 		if snap.Schema != nil {
 			if err := st.schemaManager.Restore(snap.Schema, st.cfg.Parser); err != nil {
 				st.log.WithError(err).Error("restoring schema from snapshot")
