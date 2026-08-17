@@ -110,10 +110,8 @@ func (s *testFilterableRetokenizeStrategyWrapper) OnMigrationComplete(_ context.
 
 // TestRecoveryConvergence_FilterableRetokenize_Baseline establishes
 // that the production migration code path drives a class' filterable
-// bucket from word → field tokenization on the same scaffolding PR
-// #11415 used for the searchable half. Sanity check before the matrix:
-// if this fails, every cell in the matrix would fail for the same root
-// cause.
+// bucket from word → field tokenization, on the same scaffolding PR
+// #11415 used for the searchable half.
 func TestRecoveryConvergence_FilterableRetokenize_Baseline(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25

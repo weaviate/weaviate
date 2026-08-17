@@ -93,11 +93,9 @@ func newEnableFilterableTestClass(className, propName string) *models.Class {
 }
 
 // TestRecoveryConvergence_EnableFilterable_Baseline establishes that the
-// production enable-filterable migration code path drives a class' from
-// no filterable bucket to a fully-populated RoaringSet bucket against
-// the same scaffolding PR #11415 used for the searchable half. Sanity
-// check before the matrix: if this fails, every cell in the matrix
-// would fail for the same root cause.
+// production enable-filterable migration code path drives a class from
+// no filterable bucket to a fully-populated RoaringSet bucket, against
+// the same scaffolding PR #11415 used for the searchable half.
 func TestRecoveryConvergence_EnableFilterable_Baseline(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25

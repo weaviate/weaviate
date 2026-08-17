@@ -231,9 +231,7 @@ func (s *testFilterableToRangeableStrategyWrapper) PreReindexHook(shard *Shard, 
 
 // TestRecoveryConvergence_FilterableToRangeable_Baseline establishes that
 // the production migration code path drives the strategy from
-// "no rangeable bucket" to "fully populated rangeable bucket" on the
-// same scaffolding the matrix builds on. Sanity check: if this fails,
-// every cell in the matrix would fail for the same root cause.
+// "no rangeable bucket" to "fully populated rangeable bucket".
 func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 	const numObjects = 25
 	propName := filterableToRangeablePropName

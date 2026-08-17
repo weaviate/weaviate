@@ -129,8 +129,7 @@ func (s *testEnableSearchableStrategyWrapper) OnMigrationComplete(_ context.Cont
 // the production EnableSearchable migration code path drives a class
 // from "no searchable bucket" → "blockmax searchable bucket populated
 // from objects" on the same scaffolding PR #11415 used for the
-// retokenize halves. Sanity check before the matrix: if this fails,
-// every cell in the matrix would fail for the same root cause.
+// retokenize halves.
 func TestRecoveryConvergence_EnableSearchable_Baseline(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25
