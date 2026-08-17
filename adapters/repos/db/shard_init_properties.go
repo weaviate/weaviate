@@ -257,6 +257,11 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 	logger logrus.FieldLogger, props *taskPropsCache,
 ) {
 	scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props)
+	// Only the DELETE path retires a completed migration's record: the bucket
+	// it names is being removed on purpose, and a record outliving it would
+	// have the next shard load re-open an index the user dropped. The sweeps
+	// that share the helper below must preserve the same record instead.
+	retireFinalizedMigrationDirs(scope, propName, indexType, logger)
 	if err := cleanStaleMigrationDirsIn(ctx, scope, logger); err != nil && ctx.Err() == nil {
 		// Logged and dropped here only: the DELETE this serves has already
 		// removed the bucket, and the next re-enable fails loudly on the stale
@@ -267,6 +272,46 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 		// the tenant count.
 		logger.WithField("path", filepath.Join(lsmPath, ".migrations")).
 			Errorf("stale-state cleanup after index DELETE: %v", err)
+	}
+}
+
+// retireFinalizedMigrationDirs removes the records of completed migrations
+// whose promoted bucket is the one an index DELETE just removed.
+//
+// Scoped by the promoted bucket, not by the deleted index type's tracker
+// scope: one index type's scope names strategies that promote a different
+// index's bucket (dropping a filterable index reaches the
+// filterable_to_rangeable trackers), and retiring one of those would unshield
+// a bucket nobody asked to delete.
+func retireFinalizedMigrationDirs(scope migrationDirScope, propName, indexType string,
+	logger logrus.FieldLogger,
+) {
+	mainBucket, ok := mainBucketForPropertyIndex(propName, indexType)
+	if !ok {
+		return
+	}
+	migrationsRoot := filepath.Join(scope.lsmPath, ".migrations")
+	names, err := scope.dirs.list(migrationsRoot)
+	if err != nil {
+		return
+	}
+	for _, name := range names {
+		if !scope.inScope(name) {
+			continue
+		}
+		dirPath := filepath.Join(migrationsRoot, name)
+		if !fileExistsInDir(dirPath, finalizedSentinel) {
+			continue
+		}
+		suffixes := migrationSuffixes(name)
+		if suffixes == nil || suffixes.sourceBucketName(propName) != mainBucket {
+			continue
+		}
+		if err := os.RemoveAll(dirPath); err != nil {
+			logger.WithField("path", dirPath).
+				Errorf("failed to remove the completed-migration record of an index removed by DELETE: %v; "+
+					"the next shard load will keep the removed bucket's directory until it is removed manually", err)
+		}
 	}
 }
 
