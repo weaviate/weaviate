@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"math"
 	"runtime"
 	"slices"
 	"sort"
@@ -161,11 +162,15 @@ func benchWindowFixture(tb testing.TB, diskHitPct, docsPerRow, docsStride int) (
 
 // benchWindowFold reads the whole batch through one reader the way the contains
 // fold does: in order, once each, releasing as it goes.
+//
+// At the production byte budget, so the timings carry whatever narrowing it
+// imposes. A window the budget cuts is a window entered more often, and that cost
+// belongs in the number rather than beside it.
 func benchWindowFold(tb testing.TB, b *Bucket, keys inverted.SortedKeys, window int) {
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	r, err := newRoaringSetBatchReader(view, keys, window)
+	r, err := newRoaringSetBatchReader(view, keys, window, memtableWindowBytes)
 	if err != nil {
 		tb.Error(err)
 		return
@@ -188,7 +193,11 @@ func benchWindowCloneBytes(tb testing.TB, b *Bucket, keys inverted.SortedKeys, w
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	r, err := newRoaringSetBatchReader(view, keys, window)
+	// Uncapped, which is the point: this measures what the window size costs, and
+	// memtableWindowBytes would clamp every size above it to the same figure and
+	// flatten the curve memtableWindowKeys is tuned against. What production
+	// actually holds is this or the budget, whichever is smaller.
+	r, err := newRoaringSetBatchReader(view, keys, window, math.MaxInt)
 	require.NoError(tb, err)
 	require.NoError(tb, r.fillWindow())
 

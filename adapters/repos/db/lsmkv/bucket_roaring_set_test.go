@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -364,7 +365,7 @@ func TestBatchReaderSurvivesFlushAndSwitch(t *testing.T) {
 	// One key per window, so the second key's window is filled after the switch
 	// below rather than before it — which is the ordering a long fold meets and
 	// the only one that reads a memtable the bucket has already moved past.
-	reader, err := newRoaringSetBatchReader(view, keys, 1)
+	reader, err := newRoaringSetBatchReader(view, keys, 1, math.MaxInt)
 	require.NoError(t, err)
 
 	before, releaseBefore, err := reader.Next(concurrency.SROAR_MERGE)

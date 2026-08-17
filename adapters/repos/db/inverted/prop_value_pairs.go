@@ -426,6 +426,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 			if reader != nil {
 				st := reader.Stats()
 				fields["window_fills"] = st.Fills
+				fields["window_narrowed_fills"] = st.NarrowedFills
 				fields["window_keys_read"] = st.KeysRead
 				fields["window_bytes_peak"] = st.BytesPeak
 				fields["window_bytes_copied"] = st.BytesCopied

@@ -342,8 +342,9 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 // the number of keys) plus a single row in flight.
 //
 // The reader adds to that rather than being covered by it: a batched one caches a
-// window of cloned rows per memtable, live until the fold has walked the window. So
-// the peak here is the staging blocks plus a window, not plus a row.
+// window of cloned rows per memtable, bounded by lsmkv's window budget and live
+// until the fold has walked the window. So the peak here is the staging blocks
+// plus a window, not plus a row.
 func foldContainsAnyAccumulator(ctx context.Context, reader containsBatchReader,
 	pool roaringset.BitmapBufPool, mergeConc int,
 ) (*sroar.Bitmap, func(), error) {
