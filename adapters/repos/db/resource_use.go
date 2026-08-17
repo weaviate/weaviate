@@ -258,12 +258,13 @@ func (db *DB) forEachIndexOutsideIndexLock(f func(index *Index)) {
 // non-resource reason (e.g. a vector-index config update), and relabeling it
 // would let the recovery pass flip it back to READY mid-operation.
 func (db *DB) markShardReadOnly(name string, shard ShardLike) {
-	if shard.GetStatus() == storagestate.StatusReadOnly {
-		return
+	notReadOnly := func(current ShardStatus) bool {
+		return current.Status != storagestate.StatusReadOnly
 	}
 	// A shard whose store closed concurrently (tenant deletion, deactivation,
 	// shutdown) is going away and takes no more writes.
-	err := shard.SetStatusReadonly(statusReasonResourcePressure)
+	err := shard.UpdateStatusIf(notReadOnly,
+		storagestate.StatusReadOnly.String(), statusReasonResourcePressure)
 	if err != nil && !errors.Is(err, lsmkv.ErrAlreadyClosed) {
 		db.logger.WithField("action", "set_shard_read_only").
 			WithField("path", db.config.RootPath).
@@ -275,14 +276,15 @@ func (db *DB) markShardReadOnly(name string, shard ShardLike) {
 // shard held read-only for any other reason alone. Reports whether the release
 // succeeded.
 func (db *DB) markShardReady(name string, shard ShardLike) bool {
-	if shard.GetStatus() != storagestate.StatusReadOnly ||
-		shard.GetStatusReason() != statusReasonResourcePressure {
-		return true
+	heldByResourcePressure := func(current ShardStatus) bool {
+		return current.Status == storagestate.StatusReadOnly &&
+			current.Reason == statusReasonResourcePressure
 	}
 	// A shard whose store closed concurrently (tenant deletion, deactivation,
 	// shutdown) takes no writes either way, and comes back READY if it is ever
 	// loaded again.
-	err := shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonResourceRecovery)
+	err := shard.UpdateStatusIf(heldByResourcePressure,
+		storagestate.StatusReady.String(), statusReasonResourceRecovery)
 	if err != nil && !errors.Is(err, lsmkv.ErrAlreadyClosed) {
 		db.logger.WithField("action", "set_shard_ready").
 			WithField("path", db.config.RootPath).
