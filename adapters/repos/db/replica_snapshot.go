@@ -44,7 +44,9 @@ type replicaSnapshotState struct {
 // the file-replication service already understands. That service maps
 // [enterrors.ErrShardBusyStructuralOp] to codes.FailedPrecondition, which the consumer
 // re-dispatches without registering an error; any other error spends the op's budget, and
-// fifty of them cancel the movement.
+// fifty of them cancel the movement. A gate that could not determine whether work is in
+// flight defers on the same path: without that answer, moving replica files is the
+// fail-open the gate exists to prevent, and failing would cancel legitimate movements.
 func deferReindexRefusal(shardName string, err error) error {
 	if !errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex) &&
 		!errors.Is(err, entitiesbackup.ErrBackupReindexActivityUndetermined) {
@@ -53,7 +55,7 @@ func deferReindexRefusal(shardName string, err error) error {
 	// Text, not chain: only the busy sentinel should be reachable by errors.Is here, or
 	// an upstream gate check mistakes a deferred movement for a refused backup.
 	//nolint:errorlint // %v is deliberate; see above.
-	return fmt.Errorf("%w: shard %q: replica movement deferred while runtime-reindex work is in flight: %v",
+	return fmt.Errorf("%w: shard %q: replica movement deferred by the runtime-reindex gate: %v",
 		enterrors.ErrShardBusyStructuralOp, shardName, err)
 }
 

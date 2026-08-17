@@ -14,5 +14,6 @@ package errors
 import "errors"
 
 // ErrShardBusyStructuralOp signals HaltForTransfer rejection due to an
-// in-flight compression or dynamic flat→HNSW upgrade.
+// in-flight compression, a dynamic flat→HNSW upgrade, or the runtime-reindex
+// gate, which also defers when it cannot determine whether one is in flight.
 var ErrShardBusyStructuralOp = errors.New("shard busy: structural vector op in progress")
