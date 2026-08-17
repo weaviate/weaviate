@@ -103,8 +103,7 @@ func (d *DistributedBackupDescriptor) Classes() []string {
 	return lst
 }
 
-// UserList returns the deduped dynamic-user IDs recorded in d (empty when none), sorted
-// for determinism. Unlike Classes it has no production caller, so nothing publishes it yet.
+// UserList returns the deduped dynamic-user IDs recorded in d (empty when none).
 func (d *DistributedBackupDescriptor) UserList() []string {
 	set := make(map[string]struct{}, len(d.Users))
 	for _, u := range d.Users {
@@ -114,7 +113,6 @@ func (d *DistributedBackupDescriptor) UserList() []string {
 	for u := range set {
 		lst = append(lst, u)
 	}
-	slices.Sort(lst)
 	return lst
 }
 

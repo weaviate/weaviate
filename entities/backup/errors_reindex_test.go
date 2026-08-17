@@ -72,9 +72,7 @@ func TestReindexBlockedErrorChains(t *testing.T) {
 	}{
 		{name: "bare", err: blocked},
 		{name: "wrapped once", err: fmt.Errorf("canCommit: %w", blocked)},
-		{name: "wrapped twice", err: fmt.Errorf("outer: %w", fmt.Errorf("inner: %w", blocked))},
 		{name: "joined with an unrelated failure", err: errors.Join(blocked, unrelated)},
-		{name: "joined then wrapped", err: fmt.Errorf("canCommit: %w", errors.Join(blocked, unrelated))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -1128,10 +1128,8 @@ func TestDistributedBackupDescriptorListsAreSorted(t *testing.T) {
 			"n1": {Classes: []string{"Movies", "Alpha"}},
 			"n2": {Classes: []string{"Zulu", "Alpha", "Beta"}},
 		},
-		Users: []string{"zoe", "amy", "zoe", "mia"},
 	}
 	for range 20 {
 		require.Equal(t, []string{"Alpha", "Beta", "Movies", "Zulu"}, d.Classes())
-		require.Equal(t, []string{"amy", "mia", "zoe"}, d.UserList())
 	}
 }

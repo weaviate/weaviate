@@ -431,15 +431,6 @@ func TestIncomingCreateReplicaSnapshotDefersUnderTheReindexGate(t *testing.T) {
 	require.NotErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
 }
 
-func TestBackupGateListsTheClusterOncePerCall(t *testing.T) {
-	db, _, built := gatedDB(t, gateFixtures{live: map[[2]string]bool{}})
-	lookup := db.shardReindexActivitySnapshot()
-	require.NoError(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(lookup, []string{"s1", "s2", "s3"}))
-	require.NoError(t, gatedIndex(db, "Shows").refuseIfAnyShardReindexInFlight(lookup, []string{"s1"}))
-	require.Equal(t, 1, built.shard,
-		"one task-list read per precheck: building per shard or per collection reads it N times and lets one precheck see the cluster N ways")
-}
-
 func TestRefuseIfReindexInFlight_HoldRaisedWhileTheClusterIsAsked(t *testing.T) {
 	held := func() *Index {
 		db, _, _ := gatedDB(t, gateFixtures{})

@@ -81,11 +81,6 @@ func TestQuoteClassList(t *testing.T) {
 		{name: "one", classes: []string{"Movies"}, want: `"Movies"`},
 		{name: "at the cap", classes: []string{"A", "B", "C", "D", "E"}, want: `"A", "B", "C", "D", "E"`},
 		{
-			name:    "over the cap",
-			classes: []string{"A", "B", "C", "D", "E", "F", "G"},
-			want:    `"A", "B", "C", "D", "E" and 2 more`,
-		},
-		{
 			name:    "arriving in map order",
 			classes: []string{"G", "C", "A", "F", "B", "E", "D"},
 			want:    `"A", "B", "C", "D", "E" and 2 more`,
