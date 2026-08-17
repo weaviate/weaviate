@@ -72,7 +72,7 @@ func (u changeTokenizationUnit) process(t *testing.T, ctx context.Context) *fake
 	u.p.processOneUnit(ctx, &distributedtask.Task{
 		Namespace: ReindexNamespace, TaskDescriptor: u.desc,
 		Status: distributedtask.TaskStatusStarted, Payload: raw,
-	}, u.payload, u.idx, u.unitID, rec)
+	}, u.payload, u.idx, u.unitID, rec, &keyDocColumnDrops{})
 	return rec
 }
 

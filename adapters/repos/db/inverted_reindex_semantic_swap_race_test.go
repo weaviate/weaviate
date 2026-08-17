@@ -121,7 +121,7 @@ func TestWritesRacingSemanticSwapStayIndexed(t *testing.T) {
 							MigrationType: tc.migration,
 							Collection:    className,
 							Properties:    []string{propName},
-						}, "unit-1", shard.Name(), shard, []*ShardReindexTaskGeneric{task}, logger)
+						}, "unit-1", shard.Name(), shard, []*ShardReindexTaskGeneric{task}, &keyDocColumnDrops{}, logger)
 						require.Empty(t, res.Errs)
 					})
 				tc.flip(class.Properties[0])
