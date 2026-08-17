@@ -61,15 +61,21 @@ func errIfFailed(success bool) string {
 	return "boom"
 }
 
-// TestManager_FinishedAtIsStampedAtTheTerminalTransition walks every FSM path
-// that reaches a terminal status. The fake clock advances between the last
-// in-flight step and the terminal one, so a stamp taken when the units stopped
-// is distinguishable from a stamp taken when the task actually finished.
+// TestManager_FinishedAtIsStampedAtTheTerminalTransition covers the three FSM
+// paths that reach a terminal status out of a coordination phase: a failing
+// PREP ack out of PREPARING, a failing SWAP ack out of SWAPPING, and finalize
+// out of SWAPPING. The fake clock advances between the last in-flight step and
+// the terminal one, so a stamp taken when the units stopped is distinguishable
+// from a stamp taken when the task actually finished.
 //
-// The coordination phases this covers (PREPARING, SWAPPING) run per-shard prep
-// and two cluster-wide ack barriers, the second of which has no timeout — so a
-// stamp set on entry to them can be served for an unbounded time while the
-// task is still running.
+// Those phases run per-shard prep and two cluster-wide ack barriers, the
+// second of which has no timeout — so a stamp set on entry to them can be
+// served for an unbounded time while the task is still running. The other
+// three terminal paths leave STARTED directly and are pinned elsewhere: a
+// failing unit by TestTaskFailureInAnotherNode and TestTaskFailureInLocalNode,
+// cancel by TestTaskCancellation and
+// TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses, and a swallowed
+// cutover failure by TestManager_MarkTaskFailed.
 func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 	// driveToSwapping walks a barrier task STARTED → PREPARING → SWAPPING.
 	driveToSwapping := func(t *testing.T, h *testHarness) {
@@ -89,32 +95,6 @@ func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 		terminal   func(t *testing.T, h *testHarness)
 		wantStatus TaskStatus
 	}{
-		{
-			name: "a failing unit fails the task",
-			inFlight: func(t *testing.T, h *testHarness) {
-				addTaskWithUnits(t, h, finishedAtNS, finishedAtID, finishedAtVersion, []string{"u-n1", "u-n2"})
-				completeUnit(t, h, finishedAtNS, finishedAtID, finishedAtVersion, "n1", "u-n1")
-			},
-			terminal: func(t *testing.T, h *testHarness) {
-				failUnit(t, h, finishedAtNS, finishedAtID, finishedAtVersion, "n2", "u-n2", "boom")
-			},
-			wantStatus: TaskStatusFailed,
-		},
-		{
-			name: "cancel from STARTED",
-			inFlight: func(t *testing.T, h *testHarness) {
-				addTaskWithUnits(t, h, finishedAtNS, finishedAtID, finishedAtVersion, []string{"u-n1"})
-			},
-			terminal: func(t *testing.T, h *testHarness) {
-				require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-					Namespace:             finishedAtNS,
-					Id:                    finishedAtID,
-					Version:               finishedAtVersion,
-					CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
-			},
-			wantStatus: TaskStatusCancelled,
-		},
 		{
 			name: "a failing PREP ack fails the task from PREPARING",
 			inFlight: func(t *testing.T, h *testHarness) {
@@ -149,20 +129,6 @@ func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 				})))
 			},
 			wantStatus: TaskStatusFinished,
-		},
-		{
-			name:     "a swallowed cutover failure fails the task from SWAPPING",
-			inFlight: driveToSwapping,
-			terminal: func(t *testing.T, h *testHarness) {
-				require.NoError(t, h.manager.MarkTaskFailed(toCmd(t, &cmd.MarkTaskFailedRequest{
-					Namespace:          finishedAtNS,
-					Id:                 finishedAtID,
-					Version:            finishedAtVersion,
-					Error:              "flip failed",
-					FailedAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
-			},
-			wantStatus: TaskStatusFailed,
 		},
 	}
 
