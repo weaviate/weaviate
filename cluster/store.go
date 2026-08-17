@@ -450,13 +450,6 @@ func (st *Store) LocalUnrecognizedDistributedTasks() map[string][]*distributedta
 	return st.distributedTasksManager.LocalUnrecognizedDistributedTasks()
 }
 
-// RegisterDistributedTaskCollectionExtractor opts a task namespace into
-// [SchemaManager.DeleteClass]'s cascade-delete of task records.
-// weaviate/0-weaviate-issues#231.
-func (st *Store) RegisterDistributedTaskCollectionExtractor(namespace string, extractor distributedtask.CollectionExtractor) {
-	st.distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
-}
-
 // lastIndex returns the last index in stable storage,
 // either from the last log or from the last snapshot.
 // this method work as a protection from applying anything was applied to the db

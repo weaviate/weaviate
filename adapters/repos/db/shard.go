@@ -167,20 +167,14 @@ type ShardLike interface {
 	resetDimensionsLSM(ctx context.Context) error
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
-	addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
 
 	setFallbackToSearchable(fallback bool)
 	addJobToQueue(job job)
-	uuidFromDocID(docID uint64) (strfmt.UUID, error)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
 	putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
-	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
 	mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
-	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
 	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error
 	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error

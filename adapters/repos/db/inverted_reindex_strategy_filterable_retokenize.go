@@ -86,10 +86,6 @@ func (s *FilterableRetokenizeStrategy) WriteToReindexBucket(_ ShardLike, bucket 
 	return nil
 }
 
-func (s *FilterableRetokenizeStrategy) ShouldProcessProperty(property *inverted.Property) bool {
-	return property.HasFilterableIndex && property.Name == s.propName
-}
-
 // MakeAddCallback returns a callback for adding documents to the filterable (RoaringSet) index.
 // forTargetStrategy controls which tokenization is used: true uses the new target
 // tokenization (for the reindex bucket), false uses the existing tokenization
