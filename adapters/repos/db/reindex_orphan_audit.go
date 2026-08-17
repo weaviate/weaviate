@@ -250,7 +250,7 @@ func (o *orphanReindexTracker) String() string {
 // quarantine sentinel is the exception and runs everywhere: it undoes an earlier
 // sweep's own false alarm, and a stranded sentinel would turn the next
 // classification into a first-sight destructive cleanup. That holds only the
-// collection it clears one in, and only across the removal.
+// collection it clears one in, from the removal to the end of its walk.
 func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger, classes ...string) (AuditOutcome, error) {
 	if logger == nil {
 		logger = logrus.New()
