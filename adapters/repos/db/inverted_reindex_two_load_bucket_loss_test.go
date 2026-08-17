@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -223,14 +224,18 @@ func TestEnableIndexSurvivesRepeatedLoadsBeforeSchemaFlip(t *testing.T) {
 						mig.flipSchema(class)
 					}
 
-					require.NoError(t, loadAndCheck("load 1").Shutdown(ctx))
-					require.NoError(t, loadAndCheck("load 2").Shutdown(ctx))
+					// Three rounds rather than two: a fix that carries state across
+					// restarts is most likely to mishandle it on the boot after the one
+					// that wrote it, which only a third round can reach.
+					for round := 1; round <= 3; round++ {
+						require.NoError(t, loadAndCheck(fmt.Sprintf("load %d", round)).Shutdown(ctx))
+					}
 
 					if !tc.flipBeforeLoads {
 						mig.flipSchema(class)
 					}
 
-					live := loadAndCheck("load 3 (after the flip)")
+					live := loadAndCheck("load 4 (after the flip)")
 					defer live.Shutdown(ctx)
 
 					b := live.store.Bucket(mig.bucketName)
