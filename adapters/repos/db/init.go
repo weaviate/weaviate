@@ -65,6 +65,9 @@ func (db *DB) init(ctx context.Context) error {
 
 	objects := db.schemaGetter.GetSchemaSkipAuth().Objects
 	if objects != nil {
+		reportUnmatchedKeyDocColumns(db.logger,
+			db.config.IndexFilterableKeyDocColumn, objects.Classes)
+
 		for _, class := range objects.Classes {
 			invertedConfig := class.InvertedIndexConfig
 			if invertedConfig == nil {
@@ -149,6 +152,7 @@ func (db *DB) init(ctx context.Context) error {
 				CycleManagerRoutinesFactor:     db.config.CycleManagerRoutinesFactor,
 				IndexRangeableInMemory:         db.config.IndexRangeableInMemory,
 				IndexRangeableInMemoryProps:    db.config.IndexRangeableInMemoryProps[class.Class],
+				IndexFilterableKeyDocColumn:    db.config.IndexFilterableKeyDocColumn,
 				ObjectsTTLBatchSize:            db.config.ObjectsTTLBatchSize,
 				ObjectsTTLPauseEveryNoBatches:  db.config.ObjectsTTLPauseEveryNoBatches,
 				ObjectsTTLPauseDuration:        db.config.ObjectsTTLPauseDuration,
