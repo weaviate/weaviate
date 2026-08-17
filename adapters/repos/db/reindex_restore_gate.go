@@ -141,9 +141,15 @@ func restoreLiveTaskRefusal(collections []string, activity ReindexActivity) erro
 				"it is on, so %s cannot be restored; retry after the migration finishes. %s",
 			subject, reindex.ClusterMigrationRemedy()))
 	}
+	remedy := reindex.MigrationRemedy(matched)
+	if matched != activity.Collection {
+		// Both schema routes look the name up exactly, so one rendered in the caller's spelling
+		// answers 404, and rendering the cluster's spelling to fix that would disclose it.
+		remedy = reindex.ClusterMigrationRemedy()
+	}
 	return restoreRefusal(fmt.Sprintf(
 		"%s has an active runtime-reindex task; retry after the migration finishes. %s",
-		subject, reindex.MigrationRemedy(matched)))
+		subject, remedy))
 }
 
 func restoreUnreadableRefusal() error {

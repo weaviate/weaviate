@@ -180,6 +180,10 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 		require.ErrorContains(t, err, `collection "movies" has an active runtime-reindex task`)
 		assert.NotContains(t, err.Error(), "Movies",
 			"a spelling the caller never used is the cluster's to disclose, remedy routes included")
+		assert.NotContains(t, err.Error(), "/v1/schema/movies/",
+			"and a route in the caller's spelling answers 404, so it must not be handed out either")
+		assert.Contains(t, err.Error(), "GET /v1/tasks",
+			"leaving the route that needs no collection name as the one it can offer")
 	})
 	t.Run("admits a restore of collections nothing is migrating", func(t *testing.T) {
 		db, hook, _ := gatedDB(t, gateFixtures{tasks: live})
