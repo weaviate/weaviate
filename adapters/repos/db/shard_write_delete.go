@@ -173,7 +173,14 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	}
 
 	if err = s.subtractPropLengths(previousProps); err != nil {
-		return fmt.Errorf("subtract prop lengths: %w", err)
+		// Logged, as the update path already logs it: what fails here is a
+		// BM25 length statistic, and abandoning the delete over it would
+		// leave the object's postings in the index while the object itself is
+		// gone — findable but unreadable. The statistic has no entry to
+		// decrement for a property that has only just become searchable,
+		// which a migration's pre-flip window is full of.
+		s.index.logger.WithField("action", "subtractPropLengths").
+			Errorf("could not subtract prop lengths on delete: %v", err)
 	}
 
 	// Removing the old docId from the factory solves an issue,
