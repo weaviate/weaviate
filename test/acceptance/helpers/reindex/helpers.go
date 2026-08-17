@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -321,6 +322,14 @@ func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) 
 			err := fmt.Errorf("reindex task failed: %s", task.Error)
 			terminalErr.Store(&err)
 			return true // exit Eventually; Fatalf below on the test goroutine
+		}
+		// The coordination phases (PREPARING, SWAPPING) run after the units
+		// stop, so a task that is not terminal must report no finish time.
+		if task.FinishedAt != nil && !distributedtask.TaskStatus(task.Status).IsTerminal() {
+			err := fmt.Errorf("reindex task %s reports finishedAt %s while still in status %s",
+				taskID, task.FinishedAt, task.Status)
+			terminalErr.Store(&err)
+			return true
 		}
 		return task.Status == "FINISHED"
 	}, o.timeout, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
