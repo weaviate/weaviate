@@ -78,9 +78,9 @@ func barrierIntegrationDrivenToReindexed(
 
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 		require.NoError(t, err)
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}

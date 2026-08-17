@@ -63,7 +63,7 @@ func (r *testShardReindexer) RunAfterLsmInit(ctx context.Context, shard *Shard) 
 }
 
 func (r *testShardReindexer) RunAfterLsmInitAsync(ctx context.Context, shard *Shard) error {
-	_, _, err := r.task.OnAfterLsmInitAsync(ctx, shard)
+	_, err := r.task.OnAfterLsmInitAsync(ctx, shard)
 	return err
 }
 
@@ -123,7 +123,6 @@ func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardRe
 			memtableOptFactor:             4,
 			backupMemtableOptFactor:       1,
 			processingDuration:            10 * time.Minute,
-			pauseDuration:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
@@ -177,10 +176,9 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 
 	// Run async reindex — this will also perform the runtime swap when done.
 	for {
-		rerunAt, reloadShard, err := task.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 		require.NoError(t, err)
-		require.False(t, reloadShard, "runtime swap should not request reload")
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}
@@ -261,9 +259,9 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
 	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 		require.NoError(t, err)
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}
@@ -521,10 +519,9 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	// Run the iteration → swap path inline. The hook will fire once per
 	// prop inside runtimeSwap's Phase 2a tight loop.
 	for {
-		rerunAt, reloadShard, err := task.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 		require.NoError(t, err)
-		require.False(t, reloadShard, "runtime swap should not request reload")
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}

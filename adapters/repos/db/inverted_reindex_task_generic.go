@@ -413,11 +413,11 @@ func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard S
 	}
 
 	for {
-		rerunAt, _, err := t.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := t.OnAfterLsmInitAsync(ctx, shard)
 		if err != nil {
 			return fmt.Errorf("after async LSM init: %w", err)
 		}
-		if rerunAt.IsZero() {
+		if !moreWork {
 			return nil
 		}
 	}
@@ -1304,18 +1304,19 @@ func (t *ShardReindexTaskGeneric) newReindexTrackerGuarded(shard ShardLike) (rei
 	return rt, nil
 }
 
+// OnAfterLsmInitAsync advances the reindex by one iteration. It returns
+// true when the shard has more work left, so the caller loops; false means
+// the task is done (or has nothing to do) on this shard.
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
-) (rerunAt time.Time, reloadShard bool, err error) {
+) (moreWork bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
 	shardName := shard.Name()
 	logger, done := t.logPhase(collectionName, shardName, "OnAfterLsmInitAsync")
 	defer func(started time.Time) { done(started, err) }(time.Now())
 
-	zerotime := time.Time{}
-
 	if !t.isShardSelected(collectionName, shardName) {
 		logger.Debug("different collection/shard selected. nothing to do")
-		return zerotime, false, nil
+		return false, nil
 	}
 
 	// Guarded: a cancelled worker re-enters here with no ctx check before the
@@ -1324,16 +1325,16 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			logger.Debug("index is closing, stopping reindex drain")
-			return zerotime, false, err
+			return false, err
 		}
 		err = fmt.Errorf("creating reindex tracker: %w", err)
-		return zerotime, false, err
+		return false, err
 	}
 
 	props, err := t.readPropsToReindex(rt)
 	if err != nil {
 		err = fmt.Errorf("reading reindexable props: %w", err)
-		return zerotime, false, err
+		return false, err
 	}
 
 	if rt.IsTidied() {
@@ -1351,45 +1352,45 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 				err = fmt.Errorf(
 					"stale migration state on shard %q: tidied sentinel claims property %q is complete, but target bucket %q is missing — usually caused by a DELETE between the previous successful reindex and this one; refusing to silently report success",
 					shard.Name(), propName, bucketName)
-				return zerotime, false, err
+				return false, err
 			}
 		}
 		// Same ordering contract as runtimeSwap (see there for reasoning):
 		// this re-entry branch must recheck the rebuild too, or a retry
 		// could flip the schema without it ever succeeding.
 		if err = t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
-			return zerotime, false, err
+			return false, err
 		}
 		err = t.strategy.OnMigrationComplete(ctx, shard)
 		if err != nil {
 			err = fmt.Errorf("updating inverted index config: %w", err)
 		}
-		return zerotime, false, err
+		return false, err
 	}
 
 	if len(props) == 0 {
 		logger.Debug("no props read. nothing to do")
-		return zerotime, false, nil
+		return false, nil
 	}
 
 	if rt.IsReindexed() {
 		logger.Debug("reindexed. nothing to do")
-		return zerotime, false, nil
+		return false, nil
 	}
 
 	var reindexStarted time.Time
 	if !rt.IsStarted() {
 		err = fmt.Errorf("missing reindex started")
-		return zerotime, false, err
+		return false, err
 	} else if reindexStarted, err = rt.getStarted(); err != nil {
 		err = fmt.Errorf("getting reindex started: %w", err)
-		return zerotime, false, err
+		return false, err
 	}
 
 	var lastStoredKey indexKey
 	if lastStoredKey, _, err = rt.GetProgress(); err != nil {
 		err = fmt.Errorf("getting reindex progress: %w", err)
-		return zerotime, false, err
+		return false, err
 	}
 
 	logger.WithFields(map[string]any{
@@ -1399,7 +1400,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 
 	if err = ctx.Err(); err != nil {
 		err = fmt.Errorf("context check (1): %w / %w", err, context.Cause(ctx))
-		return zerotime, false, err
+		return false, err
 	}
 
 	processedCount := 0
@@ -1458,13 +1459,13 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	if objectsBucket != nil {
 		if err = objectsBucket.FlushAndSwitch(); err != nil {
 			err = fmt.Errorf("flushing objects bucket before reindex: %w", err)
-			return zerotime, false, err
+			return false, err
 		}
 	}
 
 	err = store.PauseObjectBucketCompaction(ctx)
 	if err != nil {
-		return zerotime, false, err
+		return false, err
 	}
 	defer store.ResumeObjectBucketCompaction(ctx)
 
@@ -1483,11 +1484,11 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			finished = true
 		} else if md.err != nil {
 			err = md.err
-			return zerotime, false, err
+			return false, err
 		} else if err = ctx.Err(); err != nil {
 			breakCh <- true
 			err = fmt.Errorf("context check (loop): %w / %w", err, context.Cause(ctx))
-			return zerotime, false, err
+			return false, err
 		} else {
 			if len(md.props) > 0 {
 				for _, invprop := range md.props {
@@ -1495,7 +1496,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 						if err := t.strategy.WriteToReindexBucket(shard, bucket, md.docID, invprop); err != nil {
 							breakCh <- true
 							err = fmt.Errorf("adding object '%s' prop '%s': %w", md.key.String(), invprop.Name, err)
-							return zerotime, false, err
+							return false, err
 						}
 					}
 				}
@@ -1527,7 +1528,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	if !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
 		if err := rt.markProgress(lastProcessedKey, processedCount, indexedCount); err != nil {
 			err = fmt.Errorf("marking reindex progress: %w", err)
-			return zerotime, false, err
+			return false, err
 		}
 		lastStoredKey = lastProcessedKey.Clone()
 	}
@@ -1567,19 +1568,19 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			}
 			if err = bucket.FlushAndSwitch(); err != nil {
 				err = fmt.Errorf("flushing reindex bucket for prop %q before markReindexed: %w", propName, err)
-				return zerotime, false, err
+				return false, err
 			}
 		}
 		if err = rt.markReindexed(); err != nil {
 			err = fmt.Errorf("marking reindexed: %w", err)
-			return zerotime, false, err
+			return false, err
 		}
 		if t.skipSwapOnFinish.Load() {
 			logger.WithFields(map[string]any{
 				"processed_count": processedCount,
 				"indexed_count":   indexedCount,
 			}).Info("reindex complete (swap deferred for barrier)")
-			return zerotime, false, nil
+			return false, nil
 		}
 		// Inline runtime swap path (non-semantic migrations: MapToBlockmax,
 		// RoaringSetRefresh, EnableRangeable / Repair-*). Semantic
@@ -1591,15 +1592,15 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		// window where the analyzer and bucket content can disagree.
 		if err = t.runtimePrepare(ctx, logger, shard, rt, props); err != nil {
 			err = fmt.Errorf("runtime prepare: %w", err)
-			return zerotime, false, err
+			return false, err
 		}
 		if err = t.runtimeSwap(ctx, logger, shard, rt, props); err != nil {
 			err = fmt.Errorf("runtime swap: %w", err)
-			return zerotime, false, err
+			return false, err
 		}
-		return zerotime, false, nil
+		return false, nil
 	}
-	return time.Now().Add(t.config.pauseDuration), false, nil
+	return true, nil
 }
 
 // runtimeSwap implements Phase 2 of the runtime swap path. See the

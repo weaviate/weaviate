@@ -263,7 +263,6 @@ type reindexTaskConfig struct {
 	memtableOptFactor             int
 	backupMemtableOptFactor       int
 	processingDuration            time.Duration
-	pauseDuration                 time.Duration
 	checkProcessingEveryNoObjects int
 	selectionEnabled              bool
 	selectedPropsByCollection     map[string]map[string]struct{}

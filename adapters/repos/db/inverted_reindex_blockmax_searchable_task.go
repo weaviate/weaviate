@@ -29,7 +29,6 @@ func blockmaxSearchableTaskConfig(propNames []string, collectionName string) rei
 		memtableOptFactor:             4,
 		backupMemtableOptFactor:       1,
 		processingDuration:            10 * time.Minute,
-		pauseDuration:                 1 * time.Second,
 		checkProcessingEveryNoObjects: 1000,
 
 		selectionEnabled: true,

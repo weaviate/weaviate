@@ -350,9 +350,9 @@ func dispatchMatrixDriveToReindexed(
 		task.skipSwapOnFinish.Store(true)
 		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 		for {
-			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+			moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 			require.NoError(t, err)
-			if rerunAt.IsZero() {
+			if !moreWork {
 				break
 			}
 		}
@@ -378,9 +378,9 @@ func dispatchMatrixDriveToMerged(
 		task.skipSwapOnFinish.Store(true)
 		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 		for {
-			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+			moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 			require.NoError(t, err)
-			if rerunAt.IsZero() {
+			if !moreWork {
 				break
 			}
 		}
@@ -411,9 +411,9 @@ func dispatchMatrixDriveToTidied(
 	case dispatchMatrixPathInline:
 		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 		for {
-			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+			moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 			require.NoError(t, err)
-			if rerunAt.IsZero() {
+			if !moreWork {
 				break
 			}
 		}

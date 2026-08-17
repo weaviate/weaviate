@@ -73,9 +73,9 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 				task.skipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 					require.NoError(t, err)
-					if rerunAt.IsZero() {
+					if !moreWork {
 						break
 					}
 				}
@@ -90,9 +90,9 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 				task.skipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 					require.NoError(t, err)
-					if rerunAt.IsZero() {
+					if !moreWork {
 						break
 					}
 				}
@@ -111,9 +111,9 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 					require.NoError(t, err)
-					if rerunAt.IsZero() {
+					if !moreWork {
 						break
 					}
 				}
@@ -177,9 +177,9 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 			idx.shards.Store(shardName, shd2)
 
 			for {
-				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
+				moreWork, err := task2.OnAfterLsmInitAsync(ctx, shard2)
 				require.NoError(t, err, "multi-prop recovery OnAfterLsmInitAsync (case %q)", tc.name)
-				if rerunAt.IsZero() {
+				if !moreWork {
 					break
 				}
 			}
@@ -235,9 +235,9 @@ func computeMultiPropBaseline(t *testing.T, propNames []string, numObjects int) 
 	task := newTestTask(idx.logger, strategy)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 		require.NoError(t, err)
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}
@@ -282,9 +282,9 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	task.skipSwapOnFinish.Store(true)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 		require.NoError(t, err)
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}
@@ -366,9 +366,9 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	idx.shards.Store(shardName, shd2)
 
 	for {
-		rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
+		moreWork, err := task2.OnAfterLsmInitAsync(ctx, shard2)
 		require.NoError(t, err, "recovery loop")
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}
@@ -529,9 +529,9 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 		task.skipSwapOnFinish.Store(true)
 		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 		for {
-			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+			moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 			require.NoError(t, err)
-			if rerunAt.IsZero() {
+			if !moreWork {
 				break
 			}
 		}
@@ -543,9 +543,9 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 		// after a full migration.
 		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 		for {
-			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+			moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 			require.NoError(t, err)
-			if rerunAt.IsZero() {
+			if !moreWork {
 				break
 			}
 		}
@@ -575,9 +575,9 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 	idx.shards.Store(shardName, shd2)
 
 	for {
-		rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
+		moreWork, err := task2.OnAfterLsmInitAsync(ctx, shard2)
 		require.NoError(t, err, "layout+crash: recovery loop")
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}
@@ -648,9 +648,9 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 	task := newTestTask(idx.logger, strategy)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 		require.NoError(t, err, "cross-replica migration loop (reverse=%v)", reverse)
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}
