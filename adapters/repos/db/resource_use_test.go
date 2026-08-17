@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -41,7 +42,7 @@ func newTestMemMonitor(usedMemory, limit int64) *memwatch.Monitor {
 
 // testResourceDB creates a minimal DB with one index containing the given mock shards.
 // The DB is configured with the given disk and memory readonly thresholds.
-func testResourceDB(t *testing.T, diskROPercent, memROPercent uint64, shards map[string]*MockShardLike) *DB {
+func testResourceDB(t *testing.T, diskROPercent, memROPercent uint64, shards map[string]ShardLike) *DB {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 
@@ -73,124 +74,123 @@ func testResourceDB(t *testing.T, diskROPercent, memROPercent uint64, shards map
 	}
 }
 
-// newStatefulShardMock returns a MockShardLike whose GetStatus/GetStatusReason
-// reflect the mutations made by SetStatusReadonly/UpdateStatus. The mutex guards
-// reads from the test goroutine.
-func newStatefulShardMock(t *testing.T, initial ShardStatus) (*MockShardLike, *ShardStatus, *sync.Mutex) {
+// statusShard is a MockShardLike backed by an in-memory ShardStatus, so tests
+// assert the status the scanner leaves behind instead of the calls it made.
+type statusShard struct {
+	*MockShardLike
+
+	mu     sync.Mutex
+	status ShardStatus
+
+	// racingWrite stands in for a producer that changes the status inside the
+	// scanner's decision window. It is applied once, right before the scanner's
+	// own write would land.
+	racingWrite *ShardStatus
+}
+
+func newStatusShard(t *testing.T, initial ShardStatus) *statusShard {
 	t.Helper()
-	mu := &sync.Mutex{}
-	status := &initial
-	shard := NewMockShardLike(t)
-	shard.EXPECT().GetStatus().RunAndReturn(func() storagestate.Status {
-		mu.Lock()
-		defer mu.Unlock()
-		return status.Status
-	}).Maybe()
-	shard.EXPECT().GetStatusReason().RunAndReturn(func() string {
-		mu.Lock()
-		defer mu.Unlock()
-		return status.Reason
-	}).Maybe()
-	shard.EXPECT().SetStatusReadonly(mock.AnythingOfType("string")).RunAndReturn(func(reason string) error {
-		mu.Lock()
-		defer mu.Unlock()
-		status.Status = storagestate.StatusReadOnly
-		status.Reason = reason
-		return nil
-	}).Maybe()
-	shard.EXPECT().UpdateStatus(mock.AnythingOfType("string"), mock.AnythingOfType("string")).RunAndReturn(func(in, reason string) error {
-		mu.Lock()
-		defer mu.Unlock()
-		st, err := storagestate.ValidateStatus(strings.ToUpper(in))
-		if err != nil {
-			return err
-		}
-		status.Status = st
-		status.Reason = reason
-		return nil
-	}).Maybe()
-	return shard, status, mu
+	s := &statusShard{MockShardLike: NewMockShardLike(t), status: initial}
+
+	s.EXPECT().UpdateStatusIf(mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("string")).
+		RunAndReturn(func(cond func(ShardStatus) bool, in, reason string) error {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+
+			if s.racingWrite != nil {
+				s.status = *s.racingWrite
+				s.racingWrite = nil
+			}
+			if !cond(s.status) {
+				return nil
+			}
+
+			status, err := storagestate.ValidateStatus(strings.ToUpper(in))
+			if err != nil {
+				return err
+			}
+			s.status = ShardStatus{Status: status, Reason: reason}
+			return nil
+		}).Maybe()
+
+	return s
+}
+
+func (s *statusShard) get() ShardStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.status
 }
 
 func TestDiskUseReadonly_OverThreshold(t *testing.T) {
-	shard := NewMockShardLike(t)
-	shard.EXPECT().GetStatus().Return(storagestate.StatusReady)
-	shard.EXPECT().SetStatusReadonly(statusReasonResourcePressure).Return(nil)
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
 
-	db := testResourceDB(t, 90, 0, map[string]*MockShardLike{"shard1": shard})
+	db := testResourceDB(t, 90, 0, map[string]ShardLike{"shard1": shard})
 
 	// 95% disk usage, threshold is 90%
 	du := diskUse{total: 100, free: 5, avail: 5}
 	db.diskUseReadonly(du)
 
 	assert.True(t, db.resourceScanState.isReadOnly, "isReadOnly should be true after exceeding disk threshold")
-	shard.AssertCalled(t, "SetStatusReadonly", statusReasonResourcePressure)
+	assert.Equal(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure}, shard.get())
 }
 
 func TestMemUseReadonly_OverThreshold(t *testing.T) {
-	shard := NewMockShardLike(t)
-	shard.EXPECT().GetStatus().Return(storagestate.StatusReady)
-	shard.EXPECT().SetStatusReadonly(statusReasonResourcePressure).Return(nil)
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
 
-	db := testResourceDB(t, 0, 90, map[string]*MockShardLike{"shard1": shard})
+	db := testResourceDB(t, 0, 90, map[string]ShardLike{"shard1": shard})
 
 	// 95% memory usage, threshold is 90%
 	mon := newTestMemMonitor(95, 100)
 	db.memUseReadonly(mon)
 
 	assert.True(t, db.resourceScanState.isReadOnly, "isReadOnly should be true after exceeding memory threshold")
-	shard.AssertCalled(t, "SetStatusReadonly", statusReasonResourcePressure)
+	assert.Equal(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure}, shard.get())
 }
 
 func TestResourceUseReadonly_BothOverThreshold(t *testing.T) {
-	shard := NewMockShardLike(t)
-	// May be called twice (once for disk, once for memory). The second call is
-	// technically redundant since isReadOnly is already true, but setShardsReadOnly
-	// is called for both.
-	shard.EXPECT().GetStatus().Return(storagestate.StatusReady)
-	shard.EXPECT().SetStatusReadonly(statusReasonResourcePressure).Return(nil)
+	// setShardsReadOnly runs for both disk and memory. The second pass finds the
+	// shard already read-only and leaves it alone.
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
 
-	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{"shard1": shard})
+	db := testResourceDB(t, 90, 90, map[string]ShardLike{"shard1": shard})
 
 	du := diskUse{total: 100, free: 5, avail: 5}
 	mon := newTestMemMonitor(95, 100)
 	db.resourceUseReadonly(mon, du)
 
 	assert.True(t, db.resourceScanState.isReadOnly)
+	assert.Equal(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure}, shard.get())
 }
 
 func TestDiskUseReadonly_UnderThreshold(t *testing.T) {
-	shard := NewMockShardLike(t)
-	// SetStatusReadonly should NOT be called
-	db := testResourceDB(t, 90, 0, map[string]*MockShardLike{"shard1": shard})
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
+	db := testResourceDB(t, 90, 0, map[string]ShardLike{"shard1": shard})
 
 	// 85% disk usage, threshold is 90%
 	du := diskUse{total: 100, free: 15, avail: 15}
 	db.diskUseReadonly(du)
 
 	assert.False(t, db.resourceScanState.isReadOnly, "isReadOnly should remain false when under threshold")
-	shard.AssertNotCalled(t, "SetStatusReadonly", mock.Anything)
+	assert.Equal(t, storagestate.StatusReady, shard.get().Status)
 }
 
 func TestDiskUseReadonly_ThresholdDisabled(t *testing.T) {
-	shard := NewMockShardLike(t)
-	db := testResourceDB(t, 0, 0, map[string]*MockShardLike{"shard1": shard})
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
+	db := testResourceDB(t, 0, 0, map[string]ShardLike{"shard1": shard})
 
 	// 95% disk usage, but threshold is 0 (disabled)
 	du := diskUse{total: 100, free: 5, avail: 5}
 	db.diskUseReadonly(du)
 
 	assert.False(t, db.resourceScanState.isReadOnly, "isReadOnly should remain false when threshold is disabled")
-	shard.AssertNotCalled(t, "SetStatusReadonly", mock.Anything)
+	assert.Equal(t, storagestate.StatusReady, shard.get().Status)
 }
 
 func TestResourceUseRecovery_BothBelowThreshold(t *testing.T) {
-	shard := NewMockShardLike(t)
-	shard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	shard.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
-	shard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
 
-	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{"shard1": shard})
+	db := testResourceDB(t, 90, 90, map[string]ShardLike{"shard1": shard})
 	db.resourceScanState.isReadOnly = true
 
 	// 50% disk and 50% memory, both below 90% threshold
@@ -200,14 +200,13 @@ func TestResourceUseRecovery_BothBelowThreshold(t *testing.T) {
 	db.resourceUseRecovery(mon, du)
 
 	assert.False(t, db.resourceScanState.isReadOnly, "isReadOnly should be false after recovery")
-	shard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
+	assert.Equal(t, storagestate.StatusReady, shard.get().Status)
 }
 
 func TestResourceUseRecovery_DiskRecoveredMemoryStillOver(t *testing.T) {
-	shard := NewMockShardLike(t)
-	// No status changes expected since memory is still above threshold
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
 
-	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{"shard1": shard})
+	db := testResourceDB(t, 90, 90, map[string]ShardLike{"shard1": shard})
 	db.resourceScanState.isReadOnly = true
 
 	// 50% disk (below 90%), 95% memory (above 90%)
@@ -217,14 +216,13 @@ func TestResourceUseRecovery_DiskRecoveredMemoryStillOver(t *testing.T) {
 	db.resourceUseRecovery(mon, du)
 
 	assert.True(t, db.resourceScanState.isReadOnly, "isReadOnly should remain true when memory is still over threshold")
-	shard.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything)
+	assert.Equal(t, storagestate.StatusReadOnly, shard.get().Status)
 }
 
 func TestResourceUseRecovery_MemoryRecoveredDiskStillOver(t *testing.T) {
-	shard := NewMockShardLike(t)
-	// No status changes expected since disk is still above threshold
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
 
-	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{"shard1": shard})
+	db := testResourceDB(t, 90, 90, map[string]ShardLike{"shard1": shard})
 	db.resourceScanState.isReadOnly = true
 
 	// 95% disk (above 90%), 50% memory (below 90%)
@@ -234,13 +232,13 @@ func TestResourceUseRecovery_MemoryRecoveredDiskStillOver(t *testing.T) {
 	db.resourceUseRecovery(mon, du)
 
 	assert.True(t, db.resourceScanState.isReadOnly, "isReadOnly should remain true when disk is still over threshold")
-	shard.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything)
+	assert.Equal(t, storagestate.StatusReadOnly, shard.get().Status)
 }
 
 func TestResourceUseRecovery_BothStillOverThreshold(t *testing.T) {
-	shard := NewMockShardLike(t)
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
 
-	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{"shard1": shard})
+	db := testResourceDB(t, 90, 90, map[string]ShardLike{"shard1": shard})
 	db.resourceScanState.isReadOnly = true
 
 	// 95% disk and 95% memory, both above 90% threshold
@@ -250,17 +248,14 @@ func TestResourceUseRecovery_BothStillOverThreshold(t *testing.T) {
 	db.resourceUseRecovery(mon, du)
 
 	assert.True(t, db.resourceScanState.isReadOnly, "isReadOnly should remain true when both are over threshold")
-	shard.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything)
+	assert.Equal(t, storagestate.StatusReadOnly, shard.get().Status)
 }
 
 func TestResourceUseRecovery_ThresholdsDisabled(t *testing.T) {
-	shard := NewMockShardLike(t)
-	shard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	shard.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
-	shard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
 
 	// Both thresholds disabled (0), but isReadOnly was set somehow
-	db := testResourceDB(t, 0, 0, map[string]*MockShardLike{"shard1": shard})
+	db := testResourceDB(t, 0, 0, map[string]ShardLike{"shard1": shard})
 	db.resourceScanState.isReadOnly = true
 
 	du := diskUse{total: 100, free: 5, avail: 5}
@@ -269,16 +264,14 @@ func TestResourceUseRecovery_ThresholdsDisabled(t *testing.T) {
 	db.resourceUseRecovery(mon, du)
 
 	assert.False(t, db.resourceScanState.isReadOnly, "isReadOnly should be false when thresholds are disabled")
+	assert.Equal(t, storagestate.StatusReady, shard.get().Status)
 }
 
 func TestResourceUseRecovery_OnlyDiskThresholdEnabled_BelowThreshold(t *testing.T) {
-	shard := NewMockShardLike(t)
-	shard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	shard.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
-	shard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
 
 	// Only disk threshold enabled, memory disabled
-	db := testResourceDB(t, 90, 0, map[string]*MockShardLike{"shard1": shard})
+	db := testResourceDB(t, 90, 0, map[string]ShardLike{"shard1": shard})
 	db.resourceScanState.isReadOnly = true
 
 	// 50% disk (below threshold), memory high but threshold disabled
@@ -288,16 +281,14 @@ func TestResourceUseRecovery_OnlyDiskThresholdEnabled_BelowThreshold(t *testing.
 	db.resourceUseRecovery(mon, du)
 
 	assert.False(t, db.resourceScanState.isReadOnly, "should recover when only enabled threshold is below limit")
+	assert.Equal(t, storagestate.StatusReady, shard.get().Status)
 }
 
 func TestResourceUseRecovery_OnlyMemThresholdEnabled_BelowThreshold(t *testing.T) {
-	shard := NewMockShardLike(t)
-	shard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	shard.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
-	shard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
 
 	// Only memory threshold enabled, disk disabled
-	db := testResourceDB(t, 0, 90, map[string]*MockShardLike{"shard1": shard})
+	db := testResourceDB(t, 0, 90, map[string]ShardLike{"shard1": shard})
 	db.resourceScanState.isReadOnly = true
 
 	// Disk high but threshold disabled, 50% memory (below threshold)
@@ -307,19 +298,14 @@ func TestResourceUseRecovery_OnlyMemThresholdEnabled_BelowThreshold(t *testing.T
 	db.resourceUseRecovery(mon, du)
 
 	assert.False(t, db.resourceScanState.isReadOnly, "should recover when only enabled threshold is below limit")
+	assert.Equal(t, storagestate.StatusReady, shard.get().Status)
 }
 
 func TestSetShardsReady_OnlyRecoverReadOnlyShards(t *testing.T) {
-	readonlyShard := NewMockShardLike(t)
-	readonlyShard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	readonlyShard.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
-	readonlyShard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
+	readonlyShard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
+	readyShard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady, Reason: statusReasonNotifyReady})
 
-	readyShard := NewMockShardLike(t)
-	readyShard.EXPECT().GetStatus().Return(storagestate.StatusReady)
-	// UpdateStatus should NOT be called on a shard that is already READY
-
-	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{
+	db := testResourceDB(t, 90, 90, map[string]ShardLike{
 		"readonly_shard": readonlyShard,
 		"ready_shard":    readyShard,
 	})
@@ -328,8 +314,9 @@ func TestSetShardsReady_OnlyRecoverReadOnlyShards(t *testing.T) {
 	db.setShardsReady()
 
 	assert.False(t, db.resourceScanState.isReadOnly)
-	readonlyShard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
-	readyShard.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything)
+	assert.Equal(t, storagestate.StatusReady, readonlyShard.get().Status)
+	assert.Equal(t, ShardStatus{Status: storagestate.StatusReady, Reason: statusReasonNotifyReady}, readyShard.get(),
+		"an already-READY shard must not be relabelled by the recovery sweep")
 }
 
 func TestReadonlyRecoveryCycle(t *testing.T) {
@@ -337,12 +324,9 @@ func TestReadonlyRecoveryCycle(t *testing.T) {
 	// 1. Usage goes over threshold → shards become READONLY
 	// 2. Usage drops below threshold → shards recover to READY
 	// 3. Usage goes over threshold again → shards become READONLY again
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
 
-	// Stateful mock so GetStatus reflects the actual transitions across the
-	// cycle (setShardsReadOnly now skips shards that are already read-only).
-	shard, status, mu := newStatefulShardMock(t, ShardStatus{Status: storagestate.StatusReady})
-
-	db := testResourceDB(t, 90, 0, map[string]*MockShardLike{"shard1": shard})
+	db := testResourceDB(t, 90, 0, map[string]ShardLike{"shard1": shard})
 
 	// Step 1: Disk usage exceeds threshold → READONLY (resource pressure)
 	du := diskUse{total: 100, free: 5, avail: 5}
@@ -350,42 +334,28 @@ func TestReadonlyRecoveryCycle(t *testing.T) {
 	db.resourceUseReadonly(mon, du)
 
 	assert.True(t, db.resourceScanState.isReadOnly, "should be readonly after exceeding threshold")
-	mu.Lock()
-	assert.Equal(t, storagestate.StatusReadOnly, status.Status)
-	assert.Equal(t, statusReasonResourcePressure, status.Reason)
-	mu.Unlock()
+	assert.Equal(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure}, shard.get())
 
 	// Step 2: Disk usage drops below threshold → recovery to READY
 	du = diskUse{total: 100, free: 50, avail: 50}
 	db.resourceUseRecovery(mon, du)
 
 	assert.False(t, db.resourceScanState.isReadOnly, "should recover after usage drops below threshold")
-	mu.Lock()
-	assert.Equal(t, storagestate.StatusReady, status.Status)
-	mu.Unlock()
+	assert.Equal(t, storagestate.StatusReady, shard.get().Status)
 
 	// Step 3: Disk usage exceeds threshold again → READONLY again
 	du = diskUse{total: 100, free: 5, avail: 5}
 	db.resourceUseReadonly(mon, du)
 
 	assert.True(t, db.resourceScanState.isReadOnly, "should be readonly again after re-exceeding threshold")
-	mu.Lock()
-	assert.Equal(t, storagestate.StatusReadOnly, status.Status)
-	mu.Unlock()
+	assert.Equal(t, storagestate.StatusReadOnly, shard.get().Status)
 }
 
 func TestSetShardsReady_MultipleIndices(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
-	shard1 := NewMockShardLike(t)
-	shard1.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	shard1.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
-	shard1.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
-
-	shard2 := NewMockShardLike(t)
-	shard2.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	shard2.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
-	shard2.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
+	shard1 := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
+	shard2 := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
 
 	idx1 := &Index{
 		closingCtx: context.Background(),
@@ -420,25 +390,18 @@ func TestSetShardsReady_MultipleIndices(t *testing.T) {
 	db.setShardsReady()
 
 	assert.False(t, db.resourceScanState.isReadOnly)
-	shard1.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
-	shard2.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
+	assert.Equal(t, storagestate.StatusReady, shard1.get().Status)
+	assert.Equal(t, storagestate.StatusReady, shard2.get().Status)
 }
 
 func TestSetShardsReady_SkipsNonResourcePressureReadonly(t *testing.T) {
 	// A shard that is READONLY due to a vector index config update should NOT
 	// be recovered by the resource scanner. Only shards set READONLY due to
 	// resource pressure should be transitioned back to READY.
-	configUpdateShard := NewMockShardLike(t)
-	configUpdateShard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	configUpdateShard.EXPECT().GetStatusReason().Return(statusReasonVectorIndexUpdate)
-	// UpdateStatus should NOT be called
+	configUpdateShard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate})
+	resourcePressureShard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
 
-	resourcePressureShard := NewMockShardLike(t)
-	resourcePressureShard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	resourcePressureShard.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
-	resourcePressureShard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
-
-	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{
+	db := testResourceDB(t, 90, 90, map[string]ShardLike{
 		"config_update_shard":     configUpdateShard,
 		"resource_pressure_shard": resourcePressureShard,
 	})
@@ -447,8 +410,8 @@ func TestSetShardsReady_SkipsNonResourcePressureReadonly(t *testing.T) {
 	db.setShardsReady()
 
 	assert.False(t, db.resourceScanState.isReadOnly)
-	configUpdateShard.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything)
-	resourcePressureShard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
+	assert.Equal(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate}, configUpdateShard.get())
+	assert.Equal(t, storagestate.StatusReady, resourcePressureShard.get().Status)
 }
 
 // A shard that is READONLY for a vector-index config update must stay READONLY
@@ -456,10 +419,9 @@ func TestSetShardsReady_SkipsNonResourcePressureReadonly(t *testing.T) {
 // relabel it as resource-pressure and then recover it mid-update.
 func TestResourceCycle_DoesNotRecoverConfigUpdateShard(t *testing.T) {
 	// Simulate UpdateVectorIndexConfig having marked the shard READONLY.
-	shard, status, mu := newStatefulShardMock(t,
-		ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate})
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate})
 
-	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{"config_update_shard": shard})
+	db := testResourceDB(t, 90, 90, map[string]ShardLike{"config_update_shard": shard})
 
 	// Resource pressure trips while the config update is in flight.
 	mon := newTestMemMonitor(0, 100)
@@ -468,41 +430,32 @@ func TestResourceCycle_DoesNotRecoverConfigUpdateShard(t *testing.T) {
 	// Resource pressure clears → recovery pass runs.
 	db.resourceUseRecovery(mon, diskUse{total: 100, free: 50, avail: 50})
 
-	mu.Lock()
-	defer mu.Unlock()
-	assert.Equal(t, storagestate.StatusReadOnly, status.Status,
+	assert.Equal(t, storagestate.StatusReadOnly, shard.get().Status,
 		"config-update shard must stay READONLY across a resource readonly→recovery cycle; "+
 			"resource recovery must not re-admit writes while the vector-index config update is still in flight")
 }
 
 func TestSetShardsReady_SkipsUserInitiatedReadonly(t *testing.T) {
 	// A shard manually set to READONLY by a user should not be auto-recovered.
-	userShard := NewMockShardLike(t)
-	userShard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	userShard.EXPECT().GetStatusReason().Return("manually set by user")
-	// UpdateStatus should NOT be called
+	userShard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate})
 
-	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{"user_shard": userShard})
+	db := testResourceDB(t, 90, 90, map[string]ShardLike{"user_shard": userShard})
 	db.resourceScanState.isReadOnly = true
 
 	db.setShardsReady()
 
 	assert.False(t, db.resourceScanState.isReadOnly)
-	userShard.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything)
+	assert.Equal(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate}, userShard.get())
 }
 
 func TestSetShardsReady_PartialFailure(t *testing.T) {
-	successShard := NewMockShardLike(t)
-	successShard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	successShard.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
-	successShard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
+	successShard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
 
 	failingShard := NewMockShardLike(t)
-	failingShard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	failingShard.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
-	failingShard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(fmt.Errorf("disk I/O error"))
+	failingShard.EXPECT().UpdateStatusIf(mock.Anything, storagestate.StatusReady.String(), mock.AnythingOfType("string")).
+		Return(fmt.Errorf("disk I/O error"))
 
-	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{
+	db := testResourceDB(t, 90, 90, map[string]ShardLike{
 		"success_shard": successShard,
 		"failing_shard": failingShard,
 	})
@@ -511,28 +464,133 @@ func TestSetShardsReady_PartialFailure(t *testing.T) {
 	db.setShardsReady()
 
 	assert.True(t, db.resourceScanState.isReadOnly, "isReadOnly should remain true when some shards fail to transition")
-	successShard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
-	failingShard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
+	assert.Equal(t, storagestate.StatusReady, successShard.get().Status)
 }
 
 // Shards held read-only by memory pressure must go ready again once memory
 // drops — the scan pass is the only thing refreshing the monitor.
 func TestScanResourceUsageOnce_SeesMemoryDropWhileReadOnly(t *testing.T) {
-	shard := NewMockShardLike(t)
-	shard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	shard.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
-	shard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
 
 	var used atomic.Int64
 	used.Store(95)
 	mon := memwatch.NewMonitor(used.Load, func(int64) int64 { return 100 }, 1.0)
 
-	db := testResourceDB(t, 0, 90, map[string]*MockShardLike{"shard1": shard})
+	db := testResourceDB(t, 0, 90, map[string]ShardLike{"shard1": shard})
 	db.resourceScanState.isReadOnly = true
 
 	used.Store(10)
 	db.scanResourceUsageOnce(mon, diskUse{total: 100, free: 100, avail: 100}, false)
 
 	assert.False(t, db.resourceScanState.isReadOnly, "isReadOnly should lift once memory drops")
-	shard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
+	assert.Equal(t, storagestate.StatusReady, shard.get().Status)
+}
+
+// Both sweeps decide and write in one shard call, so a status set between the
+// two never gets overwritten. Reading the status first and writing it after
+// leaves a window in which a freeze another writer just set is relabelled as
+// resource pressure — and then lifted by the recovery sweep.
+func TestResourceScanner_StatusChangedInsideDecisionWindow(t *testing.T) {
+	tests := []struct {
+		name        string
+		initial     ShardStatus
+		racingWrite ShardStatus
+		recovery    bool
+	}{
+		{
+			name:        "readonly sweep, manual freeze lands first",
+			initial:     ShardStatus{Status: storagestate.StatusReady},
+			racingWrite: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate},
+		},
+		{
+			name:        "readonly sweep, vector-index freeze lands first",
+			initial:     ShardStatus{Status: storagestate.StatusReady},
+			racingWrite: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate},
+		},
+		{
+			name:        "recovery sweep, manual freeze lands first",
+			initial:     ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure},
+			racingWrite: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate},
+			recovery:    true,
+		},
+		{
+			name:        "recovery sweep, vector-index freeze lands first",
+			initial:     ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure},
+			racingWrite: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate},
+			recovery:    true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			shard := newStatusShard(t, tc.initial)
+			shard.racingWrite = &tc.racingWrite
+
+			db := testResourceDB(t, 90, 0, map[string]ShardLike{"shard1": shard})
+			mon := newTestMemMonitor(0, 100)
+
+			if tc.recovery {
+				db.resourceScanState.isReadOnly = true
+				db.resourceUseRecovery(mon, diskUse{total: 100, free: 50, avail: 50})
+			} else {
+				db.resourceUseReadonly(mon, diskUse{total: 100, free: 5, avail: 5})
+			}
+
+			require.Equal(t, tc.racingWrite, shard.get(),
+				"the scanner must not overwrite a status set inside its decision window")
+		})
+	}
+}
+
+// The scanner sweeps every shard on the node, including the cold ones. Loading
+// them to record a status resurrects tenants that were deliberately unloaded,
+// and the load itself fails under the memory pressure that triggered the sweep
+// — panicking through mustLoad and killing the scan goroutine for good.
+func TestResourceScanner_DoesNotForceLoadColdShards(t *testing.T) {
+	tests := []struct {
+		name     string
+		recovery bool
+	}{
+		{name: "readonly sweep"},
+		{name: "recovery sweep", recovery: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			warm, idx := testShard(t, t.Context(), "ResourceScanColdShard")
+			cold := newColdShard(idx, "cold_tenant")
+			idx.shards.Store(cold.Name(), cold)
+
+			logger, _ := test.NewNullLogger()
+			db := &DB{
+				logger: logger,
+				config: Config{
+					ResourceUsage: config.ResourceUsage{
+						DiskUse: config.DiskUse{ReadOnlyPercentage: 90},
+					},
+				},
+				resourceScanState: newResourceScanState(),
+				indices:           map[string]*Index{idx.ID(): idx},
+			}
+			mon := newTestMemMonitor(0, 100)
+
+			require.NotPanics(t, func() {
+				if tc.recovery {
+					require.NoError(t, warm.UpdateStatus(storagestate.StatusReadOnly.String(), statusReasonResourcePressure))
+					db.resourceScanState.isReadOnly = true
+					db.resourceUseRecovery(mon, diskUse{total: 100, free: 50, avail: 50})
+				} else {
+					db.resourceUseReadonly(mon, diskUse{total: 100, free: 5, avail: 5})
+				}
+			})
+
+			require.False(t, cold.isLoaded(), "a cold tenant must not be loaded to record a status")
+
+			wantWarm := storagestate.StatusReadOnly
+			if tc.recovery {
+				wantWarm = storagestate.StatusReady
+			}
+			require.Equal(t, wantWarm, warm.GetStatus(), "the loaded shard must still be swept")
+		})
+	}
 }

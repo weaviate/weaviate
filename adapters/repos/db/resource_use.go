@@ -163,17 +163,19 @@ func (db *DB) memUseReadonly(mon *memwatch.Monitor) {
 }
 
 func (db *DB) setShardsReadOnly(reason string) {
+	// Don't overwrite the reason of an already read-only shard: it may be
+	// read-only for a non-resource reason (e.g. a vector-index config update),
+	// and relabeling it would let setShardsReady flip it back to READY
+	// mid-operation.
+	notReadOnly := func(current ShardStatus) bool {
+		return current.Status != storagestate.StatusReadOnly
+	}
+
 	db.indexLock.Lock()
 	for _, index := range db.indices {
 		index.ForEachShard(func(name string, shard ShardLike) error {
-			// Don't overwrite the reason of an already read-only shard: it may be
-			// read-only for a non-resource reason (e.g. a vector-index config
-			// update), and relabeling it would let setShardsReady flip it back to
-			// READY mid-operation.
-			if shard.GetStatus() == storagestate.StatusReadOnly {
-				return nil
-			}
-			err := shard.SetStatusReadonly(statusReasonResourcePressure)
+			err := shard.UpdateStatusIf(notReadOnly,
+				storagestate.StatusReadOnly.String(), statusReasonResourcePressure)
 			if err != nil {
 				db.logger.WithField("action", "set_shard_read_only").
 					WithField("path", db.config.RootPath).
@@ -208,22 +210,26 @@ func (db *DB) memAboveReadonlyThreshold(mon *memwatch.Monitor) bool {
 }
 
 func (db *DB) setShardsReady() {
+	// Only recover what this scanner made read-only; any other reason (a manual
+	// freeze, a vector-index config update) must survive the recovery pass.
+	heldByResourcePressure := func(current ShardStatus) bool {
+		return current.Status == storagestate.StatusReadOnly &&
+			current.Reason == statusReasonResourcePressure
+	}
+
 	var failedCount atomic.Int64
 	func() {
 		db.indexLock.Lock()
 		defer db.indexLock.Unlock()
 		for _, index := range db.indices {
 			index.ForEachShardConcurrently(func(name string, shard ShardLike) error {
-				if shard.GetStatus() == storagestate.StatusReadOnly &&
-					shard.GetStatusReason() == statusReasonResourcePressure {
-					err := shard.UpdateStatus(storagestate.StatusReady.String(), statusReasonResourceRecovery)
-					if err != nil {
-						failedCount.Add(1)
-						db.logger.WithField("action", "set_shard_ready").
-							WithField("path", db.config.RootPath).
-							WithError(err).
-							Error("failed to set to READY")
-					}
+				err := shard.UpdateStatusIf(heldByResourcePressure,
+					storagestate.StatusReady.String(), statusReasonResourceRecovery)
+				if err != nil {
+					failedCount.Add(1)
+					db.logger.WithField("action", "set_shard_ready").
+						WithField("path", db.config.RootPath).
+						Errorf("failed to set to READY: shard %q: %v", name, err)
 				}
 				return nil
 			})

@@ -213,6 +213,19 @@ func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
 	return l.shard.UpdateStatus(status, reason)
 }
 
+// UpdateStatusIf leaves an unloaded shard alone instead of loading it: the
+// status lives in the loaded shard, and loading one to record a status would
+// resurrect a shard that was deliberately unloaded.
+func (l *LazyLoadShard) UpdateStatusIf(cond func(ShardStatus) bool, status, reason string) error {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if !l.loaded {
+		return nil
+	}
+	return l.shard.UpdateStatusIf(cond, status, reason)
+}
+
 func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
 	l.mustLoad()
 	return l.shard.SetStatusReadonly(reason)
