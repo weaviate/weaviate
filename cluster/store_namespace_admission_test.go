@@ -273,7 +273,10 @@ func destructiveGateNameCases() []destructiveGateCase {
 			name: "resuming is refused", seed: alphaAt(api.NamespaceStateResuming),
 			target: "alpha:Foo", wantErr: namespaces.ErrNamespaceResuming,
 		},
-		{name: "missing namespace is applied", seed: func(*testing.T, *namespaces.Controller) {}, target: "alpha:Foo"},
+		{
+			name: "missing namespace is refused", seed: func(*testing.T, *namespaces.Controller) {},
+			target: "alpha:Foo", wantErr: namespaces.ErrNamespaceGone,
+		},
 		{
 			name: "a suspension elsewhere does not refuse",
 			seed: func(t *testing.T, c *namespaces.Controller) {

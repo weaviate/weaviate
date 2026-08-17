@@ -29,18 +29,24 @@ func RequireActive(e Exister, name string) error {
 	return stateError(ns.State)
 }
 
-// AdmitDestructiveApply returns nil for an empty name, a missing namespace, and
-// the active and deleting states. Every other state gets its error. Deleting
-// must pass so the cleanup cascade can empty a namespace, and a missing one so a
-// re-delete of an already-removed namespace is not refused. Admitting a miss is
-// safe only while nothing can exist under a prefix naming no live namespace.
+// AdmitDestructiveApply returns nil for an empty name and for the active and
+// deleting states. Every other state, and a missing namespace, gets an error.
+// Deleting must pass so the cleanup cascade can empty a namespace.
+//
+// A miss refuses like its two siblings rather than admitting, so the answer
+// does not depend on nothing being able to exist under a prefix naming no live
+// namespace. That holds today by way of three separate rules — RequireActive
+// refuses a create under an unknown prefix, RemoveEntity refuses while any
+// class, alias, user or RBAC row remains, and the live delete matches the class
+// name exactly — and admitting a miss would silently stop guarding destructive
+// commands if any of them changed.
 func AdmitDestructiveApply(e Exister, name string) error {
 	if name == "" {
 		return nil
 	}
 	ns, ok := e.GetNamespace(name)
 	if !ok {
-		return nil
+		return ErrNamespaceGone
 	}
 	// No default: arm, so a new state fails the exhaustive linter here.
 	switch ns.State {

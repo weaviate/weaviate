@@ -65,13 +65,12 @@ func TestAdmitDestructiveApply(t *testing.T) {
 		// Refusing here would stall the cleanup cascade, which deletes a
 		// namespace's aliases and classes while it is in this state.
 		{name: "deleting is allowed", seedState: cmd.NamespaceStateDeleting, lookup: "customer1"},
-		// Reached by a delete naming a namespace whose cascade already finished.
-		// Nothing survives under the prefix. Create-side gates refuse a missing
-		// namespace, and RemoveEntity at the apply layer refuses a non-empty one.
-		{name: "missing namespace is allowed", lookup: "never-existed"},
+		// Refused like the two sibling gates, so the verdict does not rest on
+		// nothing being able to exist under a prefix naming no live namespace.
+		{name: "missing namespace is refused", lookup: "never-existed", wantErr: ErrNamespaceGone},
 		// The verdict comes from the namespace the name resolves to, so
-		// suspending one must not gate a delete in another.
-		{name: "a prefix naming no live namespace is allowed", seedState: cmd.NamespaceStateSuspended, lookup: "ghost"},
+		// suspending one must not decide a delete in another.
+		{name: "a prefix naming no live namespace is refused", seedState: cmd.NamespaceStateSuspended, lookup: "ghost", wantErr: ErrNamespaceGone},
 		// An entity belonging to no namespace: nothing to check.
 		{name: "empty name is allowed", seedState: cmd.NamespaceStateActive, lookup: ""},
 	}

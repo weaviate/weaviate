@@ -371,6 +371,30 @@ func TestNamespaces_DeleteMissingReturns404FromEveryReplica(t *testing.T) {
 	}
 }
 
+// TestNamespaces_DeleteClassInMissingNamespaceIsRefused pins the destructive
+// gate's answer for a namespace with no row. It admitted one before, so the
+// delete came back 200 having done nothing; refusing means the answer no longer
+// depends on nothing being able to exist under such a prefix.
+//
+// The status asserted is the 400 the endpoint answers today, not the 422 the
+// sentinel asks for: schemaObjectsDelete has no UnprocessableEntity responder,
+// and adding one needs an openapi-specs change. Alias and tenant deletes already
+// render 422, so this is the one arm out of step. WS6b owns the responder and
+// flips this assertion in the same commit. What is pinned meanwhile is that the
+// delete is refused and says why.
+//
+// Deliberately not parallel: tests in this package repoint the process-wide
+// client at a specific node, and some stop that node.
+func TestNamespaces_DeleteClassInMissingNamespaceIsRefused(t *testing.T) {
+	err := helper.DeleteClassAuthWithReturn(t, uniqueNS()+":Ghost", adminKey)
+	require.Error(t, err, "a delete naming a namespace with no row must be refused")
+
+	var refused *schema.SchemaObjectsDeleteBadRequest
+	require.True(t, errors.As(err, &refused), "expected 400, got %T: %v", err, err)
+	assert.Contains(t, refused.Payload.Error[0].Message, "namespace no longer exists",
+		"the refusal has to say which precondition failed")
+}
+
 // dataDirEntries lists ./data in the given node's container. A failed exec
 // errors rather than returning the empty listing any absence check would pass.
 func dataDirEntries(ctx context.Context, node int) ([]string, error) {
