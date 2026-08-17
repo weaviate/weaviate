@@ -137,13 +137,10 @@ cancelled), `409` for every other in-flight status — a coordination phase
 Query parameters (PUT and rebuild):
 
 - `?tenants=t1,t2` — scope to named tenants on a multi-tenant class.
-  Rejected on single-tenant classes. On PUT, allowed only when the
-  operation is format-only (`rangeFilters` creation); rebuild allows it
-  for every index type. Rejected on every semantic migration
-  (`IsSemanticMigration`: `enable-searchable`, `enable-filterable`,
-  `change-tokenization`, `change-tokenization-filterable`,
-  `change-algorithm`) because the cluster-wide schema flip cannot be
-  sub-scoped — all tenants must migrate together.
+  Rejected on single-tenant classes. Rebuild allows it for every index
+  type; PUT rejects it outright, because every migration PUT can submit
+  is semantic (`IsSemanticMigration`) and the cluster-wide schema flip
+  cannot be sub-scoped — all tenants must migrate together.
 
 Cancel takes no query parameters; a `tenants` value on the URL is silently
 ignored. Cancel targets the task itself, which already carries the tenant
@@ -273,7 +270,7 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
     `PREPARING → SWAPPING` on every node's `PreparationCompleteAck`
     landing successfully, and gates `SWAPPING → FINISHED` on
     every node's `PostCompletionAck` landing successfully.
-  - **Format-only migrations** (`enable-rangeable`, `repair-filterable`,
+  - **Format-only migrations** (`repair-filterable`,
     `repair-rangeable`, `rebuild-searchable`):
     `STARTED → SWAPPING → FINISHED`.
     `PREPARING` is skipped because there is no cross-replica
@@ -385,7 +382,7 @@ preceding a transition on the per-task field. Annotations
         └────────────────────────────────────────────────────────────────┘
 ```
 
-Format-only migrations (`enable-rangeable`, `repair-filterable`,
+Format-only migrations (`repair-filterable`,
 `repair-rangeable`, `rebuild-searchable`) skip the OnGroupCompleted
 barrier — each shard
 runs the full lifecycle inside its own `RunOnShard` and there is no
@@ -844,7 +841,7 @@ Eight strategy implementations, one file each:
 | `MapToBlockmaxStrategy` | `change-algorithm` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | No-op; the class-level `UsingBlockMaxWAND` flip is cluster-wide from `OnTaskCompleted`. |
 | `RebuildSearchableStrategy` | `rebuild-searchable` | `searchable` (Inverted/Blockmax) | `searchable` (Inverted/Blockmax) | No-op; the property was already searchable + BlockMax, so no schema flag moves. Format-only. |
 | `RoaringSetRefreshStrategy` | `repair-filterable` | `filterable` (RoaringSet) | `filterable` (RoaringSet) | No-op (format unchanged). |
-| `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | Per-shard `setRangeableLocallyReady` so this shard's queries observe ready=true at the same moment as the RAFT flip; per-prop `IndexRangeFilters=true` via `UpdatePropertyInternalFromMigration`. Format-only. |
+| `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | Per-shard `setRangeableLocallyReady` only. `enable-rangeable` is semantic, so cluster-wide `IndexRangeFilters=true` flips from `OnTaskCompleted`; `repair-rangeable` arrives with the flag already true. |
 | `EnableFilterableStrategy` | `enable-filterable` | objects → builds RoaringSet | `filterable` (RoaringSet) | No-op; cluster-wide `IndexFilterable=true` flips from `OnTaskCompleted` to avoid the first-shard-flips-wins-the-cluster race. |
 | `EnableSearchableStrategy` | `enable-searchable` | objects → builds Blockmax | `searchable` (Blockmax) | No-op; cluster-wide flip from `OnTaskCompleted`. |
 | `SearchableRetokenizeStrategy` | `change-tokenization` (searchable half) | `searchable` | `searchable` (new tokenization) | No-op; `Tokenization` flip from `OnTaskCompleted`. |
@@ -874,19 +871,21 @@ a new strategy.
 
 **Semantic vs format-only.** `IsSemanticMigration` is the predicate:
 `change-tokenization`, `change-tokenization-filterable`,
-`enable-filterable`, `enable-searchable`, and `change-algorithm` are
-semantic. Every shard must reindex before any shard swaps (Journey 3
-barrier), and the schema flip happens cluster-wide from
-`OnTaskCompleted`. The rest are format-only: each shard runs the full
-lifecycle independently (Journey 2), with no cluster-wide schema
-dependency.
+`enable-filterable`, `enable-searchable`, `enable-rangeable`, and
+`change-algorithm` are semantic. Every shard must reindex before any
+shard swaps (Journey 3 barrier), and the schema flip happens
+cluster-wide from `OnTaskCompleted`. The rest are format-only: each
+shard runs the full lifecycle independently (Journey 2), with no
+cluster-wide schema dependency.
 
-**`enable-rangeable` is intentionally format-only.** Range queries'
-correctness during the migration is gated by the per-shard
-`rangeableLocalReady` flag — falling back to the filterable bucket
-walk on shards that haven't completed locally is slow but correct.
-The barrier dance would be over-engineering for a journey that has a
-correct (if slow) per-shard fallback.
+**Why `enable-rangeable` is semantic.** It turns an index on, so its
+flag is the cluster's statement that every shard can serve range
+queries. Flipping it per-shard made that statement from the first
+shard to swap, and a task that then stopped left the flag on over
+shards holding an empty bucket
+([0-weaviate-issues#464](https://github.com/weaviate/0-weaviate-issues/issues/464)).
+`repair-rangeable` stays format-only: its flag is already true at
+submit, so it has no cutover to coordinate.
 
 ### 4.6 LSM primitives — `adapters/repos/db/lsmkv/store.go`
 
@@ -934,14 +933,14 @@ change-tokenization-filterable   ✓              ✓
 enable-filterable                ✓                              ✓
 enable-searchable                ✓                              ✓
 change-algorithm                 ✓
-enable-rangeable                                                ✓
+enable-rangeable                 ✓             (rangeable, §10)  ✓
 repair-rangeable                                                ✓
 repair-filterable
 rebuild-searchable
 ```
 
-The five semantic migrations take the cluster-wide barrier and the
-cluster-wide schema flip; the four format-only ones take neither. The
+The six semantic migrations take the cluster-wide barrier and the
+cluster-wide schema flip; the three format-only ones take neither. The
 two overlay columns are independent of that split. The tokenization
 overlay covers the per-shard window on a migration that changes
 tokenization (`IsTokenizationChangingMigration`); the analyzer overlay
@@ -1377,11 +1376,24 @@ Lifecycle:
    — the next query touching the prop after the schema eventually
    catches up will lazily clean up.
 
-For migrations that DON'T change tokenization (the
-`AnalyzerOverlay`-driven `enable-filterable` etc., or format-only
-`enable-rangeable` / `repair-*`), no tokenization overlay is needed
-— the per-shard local-ready flag and the `OnMigrationComplete`
-hook handle the gap.
+`enable-rangeable` carries a sibling overlay over the same window, for
+the write path rather than the query path:
+`Shard.rangeableWriteOverlay`. Its double-write callbacks come down
+when `runtimeSwap` returns, and the cluster-wide `IndexRangeFilters`
+flip lands one RAFT round after the last replica swaps. A write in
+between is acked and durable in the objects bucket, but nothing
+rescans afterwards, so without the overlay it would be missing from
+the rangeable index for good. Set per property from the same
+`onPropSwapped` hook; cleared after the flip commits, on the
+all-failed swap path, and on a terminal task's cleanup, with a
+self-clear in `Shard.writeAnalyzerOverlay` as the backstop.
+
+`enable-filterable` and `enable-searchable` have the same window and
+no overlay over it; that is a separate defect with its own issue.
+
+`repair-*` and `rebuild-*` need neither overlay: their flags are
+already true, so the ordinary write path covers the property
+throughout.
 
 ## 11. The analyzer overlay
 
@@ -1656,7 +1668,11 @@ with the modern testcontainer style.
 **Acceptance — rangeable** ([`test/acceptance/reindex_rangeable/`](../test/acceptance/reindex_rangeable/)):
 
 - `concurrent_writes_test` — writes landing during an
-  `enable-rangeable` build.
+  `enable-rangeable` build. Together with
+  `reindex_multinode/enable_rangeable_concurrent_updates_test`, this is
+  the regression proof for the write overlay of §10: both storm a
+  collection across the swap and would go red if the hand-off from
+  double-write to the ordinary write path ever broke.
 
 **Distributed task framework** ([`test/acceptance/distributed_tasks/`](../test/acceptance/distributed_tasks/)):
 
