@@ -446,6 +446,8 @@ func TestParticipantRestoreGate(t *testing.T) {
 		resp := m.OnCanCommit(ctx, req)
 		assert.Equal(t, CanCommitErrCannotCommit, resp.ErrKind)
 		assert.Contains(t, resp.Err, "no space left on device")
+		assert.Equal(t, CanCommitErrCannotCommit, m.OnCanCommit(ctx, &Request{Method: OpRestore, ID: "1", Backend: "s3"}).ErrKind,
+			"and an emptied node's does too: the undetermined override rewrites gate refusals only")
 	})
 }
 
