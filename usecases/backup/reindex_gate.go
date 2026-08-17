@@ -102,8 +102,7 @@ func blockedSubject(classes []string) string {
 	return "at least one of " + quoteClassList(classes)
 }
 
-// The sentinel is the caller's, because canCommitErrFromResponse already knows which
-// operation it is rebuilding and the two texts differ in nothing else.
+// The sentinel is the caller's: canCommitErrFromResponse already knows which operation it is rebuilding.
 func undeterminedByParticipant(sentinel error) error {
 	return fmt.Errorf("%w; retry once the cluster is reachable", sentinel)
 }

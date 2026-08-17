@@ -51,8 +51,7 @@ func classifyCanCommitErr(err error) CanCommitErrorKind {
 
 // classifyRestoreGateErr keeps the gate's two answers apart across the RPC boundary: a migration it observed, and a check it could not complete.
 func classifyRestoreGateErr(err error) CanCommitErrorKind {
-	// The coordinator discards the text of every reindex kind and rebuilds it from the
-	// class list, so anything else must keep its own words.
+	// The coordinator discards the text of every reindex kind and rebuilds it from the class list, so anything else must keep its own words.
 	if !isReindexRefusal(err) {
 		return CanCommitErrCannotCommit
 	}

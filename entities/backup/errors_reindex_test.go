@@ -32,6 +32,10 @@ var reindexSentinels = []struct {
 		name: "restore gate, undetermined", err: ErrReindexActivityUndetermined,
 		text: "restore blocked: whether a runtime-reindex is in flight could not be determined",
 	},
+	{
+		name: "backup gate, undetermined", err: ErrBackupReindexActivityUndetermined,
+		text: "backup blocked: whether a runtime-reindex is in flight could not be determined",
+	},
 }
 
 func TestReindexSentinelTexts(t *testing.T) {

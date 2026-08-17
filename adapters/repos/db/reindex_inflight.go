@@ -142,8 +142,7 @@ func (i *Index) refuseIfAnyShardReindexInFlight(lookup ShardReindexActivityLooku
 		unreadable     bool
 	)
 	if lookup != nil {
-		// Asked once with no shard name, because neither answer depends on one, and both
-		// must still be answered for a collection this node holds no shards of.
+		// Asked once with no shard name: neither answer depends on one, and both are still owed for a collection with no local shards.
 		collectionLive, unreadable = lookup(collection, "")
 		for _, shardName := range shards {
 			live, _ := lookup(collection, shardName)
@@ -160,8 +159,7 @@ func (i *Index) refuseIfAnyShardReindexInFlight(lookup ShardReindexActivityLooku
 	if refusal == nil && collectionLive {
 		reason, refusal = reindexReasonLiveTask, reindexLiveTaskRefusal(collection)
 	}
-	// One read for the whole loop, after it: the hold covers the collection, so per-shard
-	// reads would answer differently either side of the teardown window. See HoldFor.
+	// One read for the whole loop: the hold covers the collection, and per-shard reads would straddle the teardown window. See HoldFor.
 	if hold := i.db.ReindexHoldFor(collection); refusal == nil && hold != ReindexHoldNone {
 		blocked, sample = len(shards), cappedSample(shards)
 		reason, refusal = hold.String(), reindexHoldRefusal(collection, hold)
@@ -202,8 +200,7 @@ func reindexLiveTaskRefusal(collection string) error {
 		collection, reindex.MigrationRemedy(collection)))
 }
 
-// No cancel remedy: neither producer named a task. Both are stated, because retrying
-// clears only one of them.
+// No cancel remedy: neither producer named a task. Both causes are stated, because retrying clears only one.
 func reindexUndeterminedRefusal(collection string) error {
 	return fmt.Errorf("%w: collection %q could not be checked, because the cluster task list "+
 		"could not be read, or a record in it names no collection; the first clears once the "+

@@ -46,7 +46,8 @@ const (
 	tmpExt        = ".tmp"
 )
 
-// Backupable returns whether all given class can be backed up.
+// Backupable returns whether all given class can be backed up. classes is never empty on
+// the production path: the scheduler resolves an empty include to the descriptor's own list.
 // Refuses if any shard has an in-flight runtime-reindex; this runs in
 // the coordinator's canCommit phase so no staging dir is created on
 // rejection.
@@ -62,8 +63,7 @@ const (
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
-	// One snapshot for the whole precheck: the builder lists the cluster on every
-	// invocation, so building per collection reads it N times, and N ways.
+	// One snapshot for the whole precheck: the builder lists the cluster on every call.
 	lookup := db.shardReindexActivitySnapshot()
 	var errs []error
 	for _, c := range classes {

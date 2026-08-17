@@ -546,10 +546,13 @@ func TestReindexGatesAreScopedToTheirCollection(t *testing.T) {
 	assert.NoError(t, newDB().RefuseIfAnyReindexInFlight(context.Background(), []string{"Movies"}))
 }
 
-// Both collection-scoped answers survive an empty shard list. The leader hands every
-// class to the precheck, so a node holding none of a class's shards is routine, and
-// admitting there would let a backup start against a collection under migration.
+// The collection-scoped answers survive a per-shard loop that never runs, whether that is
+// because the class has no local shards here (routine: the leader hands every class to the
+// precheck) or because no lookup is wired yet.
 func TestBackupGateRefusesAClassWithNoLocalShards(t *testing.T) {
+	unwired, _, _ := gatedDB(t, gateFixtures{holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup}})
+	require.ErrorContains(t, gatedBulk(unwired, "Movies", "s1"), "still removing its temporary index files")
+
 	held, _, _ := gatedDB(t, gateFixtures{
 		live:  map[[2]string]bool{},
 		holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup},

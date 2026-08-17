@@ -177,7 +177,7 @@ func TestRefuseIfAnyReindexInFlight(t *testing.T) {
 	t.Run("a case variant is answered in the caller's own spelling", func(t *testing.T) {
 		db, _, _ := gatedDB(t, gateFixtures{tasks: live})
 		err := db.RefuseIfAnyReindexInFlight(context.Background(), []string{"movies"})
-		require.ErrorContains(t, err, `collection "movies"`)
+		require.ErrorContains(t, err, `collection "movies" has an active runtime-reindex task`)
 		assert.NotContains(t, err.Error(), "Movies",
 			"a spelling the caller never used is the cluster's to disclose, remedy routes included")
 	})
