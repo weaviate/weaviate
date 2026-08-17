@@ -41,6 +41,22 @@ func newNoLiveIndexRangeableTestClass(className string) *models.Class {
 	return c
 }
 
+// newNoNullStateRangeableTestClass is newNoLiveIndexRangeableTestClass
+// without null-state and property-length indexing. A property with no live
+// index has neither bucket, and nothing creates them when a migration turns
+// its index on, so a write once the property is indexed fails on the missing
+// bucket. That gap is tracked separately; tests about the write window use
+// this variant so they fail on their own subject.
+//
+// A separate variant, not a change to the shared fixture: the shared one
+// also backs the swap-window double-write guards, which need the buckets.
+func newNoNullStateRangeableTestClass(className string) *models.Class {
+	c := newNoLiveIndexRangeableTestClass(className)
+	c.InvertedIndexConfig.IndexNullState = false
+	c.InvertedIndexConfig.IndexPropertyLength = false
+	return c
+}
+
 // readRangeableIDs returns docIDs for one int64 value in a RoaringSetRange
 // bucket; sibling of filterableToRangeableFingerprint for a single value.
 func readRangeableIDs(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
@@ -149,7 +165,7 @@ func TestReindex_WriteAfterEnableRangeableSwap_NotLost(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
 			className := "EnableRangeablePostSwap_" + uuid.NewString()[:8]
-			class := newNoLiveIndexRangeableTestClass(className)
+			class := newNoNullStateRangeableTestClass(className)
 
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
