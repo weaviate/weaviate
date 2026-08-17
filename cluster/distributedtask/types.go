@@ -563,14 +563,18 @@ type Task struct {
 	Status TaskStatus `json:"status"`
 
 	// StartedAt is the time that a task was submitted to the cluster.
+	// [Manager.AddTask] is its only writer and sets it from the request's
+	// SubmittedAtUnixMillis, so it is never zero on a task that exists —
+	// which is why it stays a value while its API siblings are pointers.
 	StartedAt time.Time `json:"startedAt"`
 
 	// FinishedAt is the time that task reached a terminal status, and is
-	// zero until it does — [Task.markTerminal] is the only writer. The
-	// coordination phases (PREPARING, SWAPPING) can run for minutes on a
-	// large collection, so a stamp set before them would report a finish
-	// time for work still in flight. Additionally, it is used to schedule
-	// task clean up.
+	// zero until it does. [Task.markTerminal] is the only writer that sets
+	// it; [Manager.Restore] is the only other writer at all, and only ever
+	// clears it on a restored non-terminal task. The coordination phases
+	// (PREPARING, SWAPPING) can run for minutes on a large collection, so a
+	// stamp set before them would report a finish time for work still in
+	// flight. Additionally, it is used to schedule task clean up.
 	FinishedAt time.Time `json:"finishedAt"`
 
 	// Error is an optional field to store the error which moved the task to FAILED status.
@@ -615,10 +619,12 @@ type PostCompletionAck struct {
 	// Error captures the aggregated error message when Success==false.
 	// Empty when Success==true.
 	Error string `json:"error,omitempty"`
-	// AckedAt is the wall-clock time the ack was applied on the FSM
-	// (set on the apply path, not from the scheduler). Useful for
-	// forensics — the gap between the earliest and the latest AckedAt is
-	// how long the cluster spent waiting on its slowest node.
+	// AckedAt is the wall-clock time the acking node read when it built the
+	// RAFT request (cluster/raft_distributed_tasks_apply_endpoints.go), not
+	// a clock read at apply time — so every node's apply of that entry
+	// stores the same value. Useful for forensics — the gap between the
+	// earliest and the latest AckedAt is how long the cluster spent waiting
+	// on its slowest node.
 	AckedAt time.Time `json:"ackedAt"`
 }
 
@@ -647,7 +653,9 @@ func (t *Task) Clone() *Task {
 }
 
 // markTerminal moves the task to a terminal status and stamps FinishedAt in
-// the same step, so a future transition cannot set one without the other.
+// the same step, so a terminal transition cannot set one without the other.
+// The bare Status assignments left in the FSM all write PREPARING or
+// SWAPPING, which must carry no stamp at all.
 // at must come from the RAFT request, never a local clock, so every node's
 // apply of the same log entry produces the same timestamp.
 func (t *Task) markTerminal(status TaskStatus, at time.Time) {
