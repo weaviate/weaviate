@@ -684,11 +684,20 @@ func (s *Shard) filePutter(ctx context.Context,
 func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]types.RepairResponse, error) {
-	// Never load from a repair write: a cold replica is activated by real
-	// traffic, not by async replication or read repair.
+	// A repair write never loads a cold replica that holds data: real traffic
+	// activates it, not async replication or read repair. A hosted shard that has
+	// never held an object is loaded here, as a user write would load it: the
+	// repair objects are the tenant's first data on this node.
 	s, release, err := idx.getLoadedShard(shard)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q: %w", shard, err)
+	}
+	if s == nil && idx.hostsUnloadedEmptyShard(shard) {
+		release()
+		s, release, err = idx.GetShard(ctx, shard)
+		if err != nil {
+			return nil, fmt.Errorf("shard %q: %w", shard, err)
+		}
 	}
 
 	defer release()
@@ -1050,13 +1059,17 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 func (i *Index) DigestObjectsInRange(ctx context.Context,
 	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
 ) (result []types.RepairResponse, err error) {
-	// Never load from async replication; empty success for unloaded would invite full propagation.
+	// Never load from async replication; empty success for an unloaded shard with
+	// data would invite full propagation. For a never-written shard it is the truth.
 	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 	defer release()
 	if shard == nil {
+		if i.hostsUnloadedEmptyShard(shardName) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
 	}
 
@@ -1072,13 +1085,17 @@ func (i *Index) IncomingDigestObjectsInRange(ctx context.Context,
 func (i *Index) CompareDigests(ctx context.Context,
 	shardName string, sourceDigests []types.RepairResponse,
 ) ([]types.RepairResponse, error) {
-	// Never load from async replication's propagation pre-check.
+	// Never load from async replication's propagation pre-check; a never-written
+	// shard is missing every source object.
 	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 	defer release()
 	if shard == nil {
+		if i.hostsUnloadedEmptyShard(shardName) {
+			return allMissingDigests(sourceDigests), nil
+		}
 		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
 	}
 
@@ -1088,13 +1105,21 @@ func (i *Index) CompareDigests(ctx context.Context,
 func (i *Index) HashTreeLevel(ctx context.Context,
 	shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
-	// Never load a shard from async replication.
+	// Never load a shard from async replication; a never-written shard is served
+	// from the empty tree.
 	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 	defer release()
 	if shard == nil {
+		if i.hostsUnloadedEmptyShard(shardName) {
+			ht, err := i.unloadedEmptyShardHashTree(shardName)
+			if err != nil {
+				return nil, err
+			}
+			return hashTreeLevel(ht, shardName, level, discriminant)
+		}
 		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
 	}
 
@@ -1107,7 +1132,8 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
 }
 
-// CompareHashTreeRoots: differing, not-ready, or erroring shards diverge (source descends); unloaded ones are omitted without loading.
+// CompareHashTreeRoots: differing, not-ready, or erroring shards diverge (source descends); unloaded ones
+// are omitted without loading, except a never-written shard, which is compared as an empty tree.
 func (i *Index) CompareHashTreeRoots(ctx context.Context,
 	roots map[string]hashtree.Digest,
 ) ([]string, error) {
@@ -1123,7 +1149,11 @@ func (i *Index) CompareHashTreeRoots(ctx context.Context,
 				return true // teardown/closing: descend, never read as converged
 			}
 			if shard == nil {
-				return false // not loaded here: omit without loading
+				if !i.hostsUnloadedEmptyShard(shardName) {
+					return false // not loaded here: omit without loading
+				}
+				ht, err := i.unloadedEmptyShardHashTree(shardName)
+				return err != nil || ht.Root() != sourceRoot
 			}
 			root, ok := shard.HashTreeRoot()
 			return !ok || root != sourceRoot

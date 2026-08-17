@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -64,7 +65,16 @@ type LazyLoadShard struct {
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter *loadlimiter.LoadLimiter
 	lazyLoadSegments bool
+
+	// neverWrittenState memoizes neverWritten() while unloaded; see there.
+	neverWrittenState atomic.Int32
 }
+
+const (
+	neverWrittenUnknown int32 = iota
+	neverWrittenYes
+	neverWrittenNo
+)
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
@@ -797,7 +807,28 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 
 	// Mark as unloaded so drop() knows the correct state
 	l.loaded = false
+	l.neverWrittenState.Store(neverWrittenUnknown)
 	return nil
+}
+
+// neverWritten reports whether this unloaded shard has never held an object,
+// read from the persisted index counter. The counter only moves through a
+// loaded shard, so the answer is memoized: it holds until the shard loads, and
+// Shutdown clears it so a later unloaded state is judged from disk again.
+func (l *LazyLoadShard) neverWritten() bool {
+	switch l.neverWrittenState.Load() {
+	case neverWrittenYes:
+		return true
+	case neverWrittenNo:
+		return false
+	}
+	empty := l.shardOpts.index.unloadedShardIsEmpty(l.shardOpts.name)
+	if empty {
+		l.neverWrittenState.Store(neverWrittenYes)
+	} else {
+		l.neverWrittenState.Store(neverWrittenNo)
+	}
+	return empty
 }
 
 func (l *LazyLoadShard) preventShutdown() (release func(), err error) {

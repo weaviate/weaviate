@@ -1578,6 +1578,21 @@ func (s *Shard) removePartialHashTreeTmp(tmpFilename string) {
 // hashtree, filtered by discriminant (Size() == hashtree.LeavesCount(level)).
 // Returns an error if the hashtree is not yet fully initialised.
 func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	if s.hashtree == nil || !s.hashtreeFullyInitialized {
+		return nil, fmt.Errorf("%w: hashtree not initialized on shard %q", errAsyncReplicationNotActive, s.ID())
+	}
+
+	return hashTreeLevel(s.hashtree, s.ID(), level, discriminant)
+}
+
+// hashTreeLevel serves one level of ht for the async-replication descent, with
+// the request validation both callers need. Shared by loaded shards and by the
+// empty tree that stands in for a never-written unloaded shard, so both answer
+// identically.
+func hashTreeLevel(ht hashtree.AggregatedHashTree, shardID string, level int, discriminant *hashtree.Bitset) ([]hashtree.Digest, error) {
 	if level < 0 {
 		return nil, fmt.Errorf("hashtree level must be non-negative: %d", level)
 	}
@@ -1589,17 +1604,10 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 		return nil, fmt.Errorf("hashtree level %d: nil discriminant", level)
 	}
 
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	if s.hashtree == nil || !s.hashtreeFullyInitialized {
-		return nil, fmt.Errorf("%w: hashtree not initialized on shard %q", errAsyncReplicationNotActive, s.ID())
-	}
-
 	// Transient during a rolling height change — retry-later, not an error.
-	if height := s.hashtree.Height(); level > height {
+	if height := ht.Height(); level > height {
 		return nil, fmt.Errorf("%w: hashtree level %d exceeds height %d on shard %q",
-			errAsyncReplicationNotActive, level, height, s.ID())
+			errAsyncReplicationNotActive, level, height, shardID)
 	}
 
 	expected := hashtree.LeavesCount(level)
@@ -1608,9 +1616,9 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 			level, discriminant.Size(), expected)
 	}
 
-	digests = make([]hashtree.Digest, discriminant.SetCount())
+	digests := make([]hashtree.Digest, discriminant.SetCount())
 
-	n, err := s.hashtree.Level(level, discriminant, digests)
+	n, err := ht.Level(level, discriminant, digests)
 	if err != nil {
 		return nil, err
 	}

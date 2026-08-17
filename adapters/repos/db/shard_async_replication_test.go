@@ -17,6 +17,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -47,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -859,40 +861,323 @@ func TestReconcileDoesNotForceLoadUnloadedShard(t *testing.T) {
 	require.False(t, lazy.isLoaded(), "reconcile must not force-load an unloaded shard")
 }
 
-// TestRepairEndpointsDoNotForceLoadUnloadedShard: the async-replication data
-// endpoints must return the typed not-ready error for a cold shard, never load it.
-func TestRepairEndpointsDoNotForceLoadUnloadedShard(t *testing.T) {
-	ctx := context.Background()
-	const class = "RepairEndpointsNoForceLoad"
-
-	_, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
-	setShardReplicas(t, idx, "node1", "node2")
-
-	const lazyName = "lazy-cold-shard-repair"
-	sl, err := idx.initShard(ctx, lazyName, &models.Class{Class: class}, nil, false, false)
+// unloadedLazyShard registers an unloaded lazy shard on idx. objectCount > 0
+// persists an index counter first, so the shard reads as holding data (the
+// counter is what unloadedShardIsEmpty consults); 0 leaves it never written.
+func unloadedLazyShard(t *testing.T, ctx context.Context, idx *Index, class, name string, objectCount uint64) *LazyLoadShard {
+	t.Helper()
+	if objectCount > 0 {
+		dir := shardPath(idx.path(), name)
+		require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+		var buf [8]byte
+		binary.LittleEndian.PutUint64(buf[:], objectCount)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "indexcount"), buf[:], 0o644))
+	}
+	sl, err := idx.initShard(ctx, name, &models.Class{Class: class}, nil, false, false)
 	require.NoError(t, err)
 	lazy, ok := sl.(*LazyLoadShard)
 	require.True(t, ok, "expected a *LazyLoadShard")
 	require.False(t, lazy.isLoaded(), "precondition: shard must start unloaded")
-	idx.shards.Store(lazyName, sl)
+	idx.shards.Store(name, sl)
+	return lazy
+}
 
-	t.Run("OverwriteObjects", func(t *testing.T) {
-		_, err := idx.OverwriteObjects(ctx, lazyName, []*objects.VObject{{}})
-		require.ErrorIs(t, err, errAsyncReplicationNotActive)
-		require.False(t, lazy.isLoaded(), "OverwriteObjects must not force-load an unloaded shard")
+// TestHostsUnloadedEmptyShard pins which shards are answered as never written:
+// only an unloaded lazy entry whose persisted counter reads 0. Anything not in
+// the map, loaded, holding data, or with an unreadable counter is not.
+func TestHostsUnloadedEmptyShard(t *testing.T) {
+	ctx := context.Background()
+	const class = "HostsUnloadedEmptyShard"
+
+	loadedSL, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
+	setShardReplicas(t, idx, "node1", "node2")
+
+	writeCounter := func(t *testing.T, name string, b []byte) {
+		t.Helper()
+		dir := shardPath(idx.path(), name)
+		require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "indexcount"), b, 0o644))
+	}
+
+	tests := []struct {
+		name  string
+		setup func(t *testing.T) string
+		want  bool
+	}{
+		{"absent from the map", func(t *testing.T) string { return "not-hosted" }, false},
+		{"loaded eager shard", func(t *testing.T) string { return loadedSL.Name() }, false},
+		{"unloaded lazy, never written", func(t *testing.T) string {
+			unloadedLazyShard(t, ctx, idx, class, "never-written", 0)
+			return "never-written"
+		}, true},
+		{"unloaded lazy, holds data", func(t *testing.T) string {
+			unloadedLazyShard(t, ctx, idx, class, "holds-data", 10)
+			return "holds-data"
+		}, false},
+		{"unloaded lazy, unreadable counter", func(t *testing.T) string {
+			writeCounter(t, "corrupt-counter", []byte{1, 2, 3})
+			unloadedLazyShard(t, ctx, idx, class, "corrupt-counter", 0)
+			return "corrupt-counter"
+		}, false},
+		{"loaded lazy", func(t *testing.T) string {
+			lazy := unloadedLazyShard(t, ctx, idx, class, "loaded-lazy", 0)
+			require.NoError(t, lazy.Load(ctx))
+			return "loaded-lazy"
+		}, false},
+		{"lazy shut down after writing is judged from disk again", func(t *testing.T) string {
+			lazy := unloadedLazyShard(t, ctx, idx, class, "written-then-shutdown", 0)
+			require.True(t, idx.hostsUnloadedEmptyShard("written-then-shutdown"), "memoized as never written")
+			require.NoError(t, lazy.Load(ctx))
+			require.NoError(t, lazy.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
+			require.NoError(t, lazy.Shutdown(ctx))
+			require.False(t, lazy.isLoaded())
+			return "written-then-shutdown"
+		}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			name := tt.setup(t)
+			require.Equal(t, tt.want, idx.hostsUnloadedEmptyShard(name))
+		})
+	}
+}
+
+// TestRepairEndpointsDoNotForceLoadColdShardWithData: for a cold shard that
+// holds data, every async-replication endpoint answers not-ready (or omits it
+// from the root compare) and never loads it.
+func TestRepairEndpointsDoNotForceLoadColdShardWithData(t *testing.T) {
+	ctx := context.Background()
+	const class = "RepairEndpointsNoForceLoad"
+
+	_, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx),
+		func(i *Index) { i.Config.AsyncReplicationConfig = minAsyncReplicationConfig() })
+	setShardReplicas(t, idx, "node1", "node2")
+
+	const name = "lazy-cold-shard-with-data"
+	lazy := unloadedLazyShard(t, ctx, idx, class, name, 10)
+
+	level0 := hashtree.NewBitset(1).SetAll()
+
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{"OverwriteObjects", func() error {
+			_, err := idx.OverwriteObjects(ctx, name, []*objects.VObject{{}})
+			return err
+		}},
+		{"CompareDigests", func() error {
+			_, err := idx.CompareDigests(ctx, name, []routerTypes.RepairResponse{{ID: string(uuidLow)}})
+			return err
+		}},
+		{"DigestObjectsInRange", func() error {
+			_, err := idx.DigestObjectsInRange(ctx, name, uuidLow, uuidHigh, 10)
+			return err
+		}},
+		{"HashTreeLevel", func() error {
+			_, err := idx.HashTreeLevel(ctx, name, 0, level0)
+			return err
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.ErrorIs(t, tt.call(), errAsyncReplicationNotActive)
+			require.False(t, lazy.isLoaded(), "%s must not force-load a cold shard with data", tt.name)
+		})
+	}
+
+	t.Run("CompareHashTreeRoots omits it", func(t *testing.T) {
+		diverging, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{name: {1, 2}})
+		require.NoError(t, err)
+		require.Empty(t, diverging)
+		require.False(t, lazy.isLoaded(), "CompareHashTreeRoots must not force-load a cold shard with data")
+	})
+}
+
+// TestRepairEndpointsAnswerNeverWrittenShardAsEmpty: a hosted shard that is
+// unloaded and has never held an object is answered as an empty shard without
+// loading it — a rejoined replica that missed a tenant's first writes must not
+// hide behind not-ready forever. Only a repair write loads it, as a user write
+// would (issue #12526).
+func TestRepairEndpointsAnswerNeverWrittenShardAsEmpty(t *testing.T) {
+	ctx := context.Background()
+	const class = "RepairEndpointsNeverWritten"
+
+	cfg := minAsyncReplicationConfig()
+	_, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx),
+		func(i *Index) { i.Config.AsyncReplicationConfig = cfg })
+	setShardReplicas(t, idx, "node1", "node2")
+
+	const name = "lazy-never-written-shard"
+	lazy := unloadedLazyShard(t, ctx, idx, class, name, 0)
+
+	emptyTree, err := hashtree.NewHashTree(cfg.hashtreeHeight)
+	require.NoError(t, err)
+	emptyRoot := emptyTree.Root()
+	otherRoot := hashtree.Digest{emptyRoot[0] + 1, emptyRoot[1]}
+
+	t.Run("HashTreeLevel serves the empty tree", func(t *testing.T) {
+		digests, err := idx.HashTreeLevel(ctx, name, 0, hashtree.NewBitset(1).SetAll())
+		require.NoError(t, err)
+		require.Equal(t, []hashtree.Digest{emptyRoot}, digests)
+
+		leaves, err := idx.HashTreeLevel(ctx, name, cfg.hashtreeHeight, hashtree.NewBitset(hashtree.LeavesCount(cfg.hashtreeHeight)).SetAll())
+		require.NoError(t, err)
+		require.Len(t, leaves, hashtree.LeavesCount(cfg.hashtreeHeight))
+		for _, d := range leaves {
+			require.Equal(t, hashtree.Digest{}, d, "an empty tree has zero leaves")
+		}
+
+		_, err = idx.HashTreeLevel(ctx, name, cfg.hashtreeHeight+1, hashtree.NewBitset(hashtree.LeavesCount(cfg.hashtreeHeight+1)).SetAll())
+		require.ErrorIs(t, err, errAsyncReplicationNotActive, "a level above the height is retry-later, as on a loaded shard")
+
+		_, err = idx.HashTreeLevel(ctx, name, -1, hashtree.NewBitset(1).SetAll())
+		require.Error(t, err, "a negative level is rejected, as on a loaded shard")
+
+		require.False(t, lazy.isLoaded(), "HashTreeLevel must not load a never-written shard")
 	})
 
-	t.Run("CompareDigests", func(t *testing.T) {
-		_, err := idx.CompareDigests(ctx, lazyName, []routerTypes.RepairResponse{{ID: string(uuidLow)}})
-		require.ErrorIs(t, err, errAsyncReplicationNotActive)
-		require.False(t, lazy.isLoaded(), "CompareDigests must not force-load an unloaded shard")
+	t.Run("CompareHashTreeRoots compares against the empty root", func(t *testing.T) {
+		diverging, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{name: emptyRoot})
+		require.NoError(t, err)
+		require.Empty(t, diverging, "an empty source matches an empty target")
+
+		diverging, err = idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{name: otherRoot})
+		require.NoError(t, err)
+		require.Equal(t, []string{name}, diverging, "a source with data diverges from an empty target")
+
+		require.False(t, lazy.isLoaded(), "CompareHashTreeRoots must not load a never-written shard")
 	})
 
-	t.Run("DigestObjectsInRange", func(t *testing.T) {
-		_, err := idx.DigestObjectsInRange(ctx, lazyName, uuidLow, uuidHigh, 10)
-		require.ErrorIs(t, err, errAsyncReplicationNotActive)
-		require.False(t, lazy.isLoaded(), "DigestObjectsInRange must not force-load an unloaded shard")
+	t.Run("CompareDigests reports every source object as missing", func(t *testing.T) {
+		source := []routerTypes.RepairResponse{{ID: string(uuidLow), UpdateTime: 5}, {ID: string(uuidHigh), UpdateTime: 7}}
+		got, err := idx.CompareDigests(ctx, name, source)
+		require.NoError(t, err)
+		require.Equal(t, []routerTypes.RepairResponse{{ID: string(uuidLow)}, {ID: string(uuidHigh)}}, got)
+		require.False(t, lazy.isLoaded(), "CompareDigests must not load a never-written shard")
 	})
+
+	t.Run("DigestObjectsInRange is empty", func(t *testing.T) {
+		got, err := idx.DigestObjectsInRange(ctx, name, uuidLow, uuidHigh, 10)
+		require.NoError(t, err)
+		require.Empty(t, got)
+		require.False(t, lazy.isLoaded(), "DigestObjectsInRange must not load a never-written shard")
+	})
+
+	// Last on purpose: it loads the shard the read subtests rely on being unloaded.
+	t.Run("OverwriteObjects loads the shard and writes", func(t *testing.T) {
+		obj := &models.Object{ID: uuidMid, Class: class, LastUpdateTimeUnix: 42}
+		res, err := idx.OverwriteObjects(ctx, name, []*objects.VObject{{LatestObject: obj, LastUpdateTimeUnixMilli: 42}})
+		require.NoError(t, err)
+		require.Empty(t, res, "no conflicts on a first write")
+		require.True(t, lazy.isLoaded(), "the first repair write must load a never-written shard")
+
+		exists, err := lazy.Exists(ctx, uuidMid)
+		require.NoError(t, err)
+		require.True(t, exists)
+
+		// Loaded now: the live shard answers with a root that holds the object.
+		awaitHashtreeInitialized(t, lazy.shard)
+		root, ok := lazy.shard.HashTreeRoot()
+		require.True(t, ok)
+		require.NotEqual(t, emptyRoot, root)
+		diverging, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{name: emptyRoot})
+		require.NoError(t, err)
+		require.Equal(t, []string{name}, diverging)
+	})
+}
+
+// TestRepairEndpointsNeverWrittenShardAsyncDisabled: with async replication off
+// for the shard, a never-written shard answers like a loaded shard with no
+// hashtree — not-ready on HashTreeLevel and diverging on the root compare — and
+// still is not loaded.
+func TestRepairEndpointsNeverWrittenShardAsyncDisabled(t *testing.T) {
+	ctx := context.Background()
+	const class = "RepairEndpointsNeverWrittenDisabled"
+
+	_, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx),
+		func(i *Index) { i.Config.AsyncReplicationConfig = minAsyncReplicationConfig() })
+	setShardReplicas(t, idx, "node1")
+
+	const name = "lazy-never-written-disabled"
+	lazy := unloadedLazyShard(t, ctx, idx, class, name, 0)
+
+	_, err := idx.HashTreeLevel(ctx, name, 0, hashtree.NewBitset(1).SetAll())
+	require.ErrorIs(t, err, errAsyncReplicationNotActive)
+
+	diverging, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{name: {1, 2}})
+	require.NoError(t, err)
+	require.Equal(t, []string{name}, diverging)
+
+	require.False(t, lazy.isLoaded())
+}
+
+// indexBackedClient forwards the RPCs a source shard issues during a hashbeat to
+// the handlers of a target index, under the target's shard name, so a cycle runs
+// end to end in-process. Everything else is FakeReplicationClient's no-op.
+type indexBackedClient struct {
+	FakeReplicationClient
+	target *Index
+	shard  string
+}
+
+func (c *indexBackedClient) HashTreeLevel(ctx context.Context, _, _, _ string, level int, discriminant *hashtree.Bitset) ([]hashtree.Digest, error) {
+	return c.target.HashTreeLevel(ctx, c.shard, level, discriminant)
+}
+
+func (c *indexBackedClient) CompareDigests(ctx context.Context, _, _, _ string, digests []routerTypes.RepairResponse) ([]routerTypes.RepairResponse, error) {
+	return c.target.CompareDigests(ctx, c.shard, digests)
+}
+
+func (c *indexBackedClient) DigestObjectsInRange(ctx context.Context, _, _, _ string, initialUUID, finalUUID strfmt.UUID, limit int) ([]routerTypes.RepairResponse, error) {
+	return c.target.DigestObjectsInRange(ctx, c.shard, initialUUID, finalUUID, limit)
+}
+
+func (c *indexBackedClient) OverwriteObjects(ctx context.Context, _, _, _ string, objs []*objects.VObject) ([]routerTypes.RepairResponse, error) {
+	return c.target.OverwriteObjects(ctx, c.shard, objs)
+}
+
+// TestHashbeatRepairsNeverWrittenTargetShard: a source with objects hashbeats a
+// target whose shard is unloaded and has never held an object — the rejoined
+// replica of #12526. One cycle must push every object, loading the target shard
+// through the repair write; the next cycle finds no diff.
+func TestHashbeatRepairsNeverWrittenTargetShard(t *testing.T) {
+	ctx := context.Background()
+	const class = "HashbeatNeverWrittenTarget"
+	cfg := minAsyncReplicationConfig()
+	withCfg := func(i *Index) { i.Config.AsyncReplicationConfig = cfg }
+
+	_, targetIdx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx), withCfg)
+	setShardReplicas(t, targetIdx, "node1", "node2")
+	const targetShard = "never-written-target"
+	targetLazy := unloadedLazyShard(t, ctx, targetIdx, class, targetShard, 0)
+
+	client := &indexBackedClient{target: targetIdx, shard: targetShard}
+	sl, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx), withRemoteReplicaClient(t, client), withCfg)
+	s := concreteShard(t, sl)
+	idx.SetReplicationFSMReader(nil)
+	setShardReplicas(t, idx, "node1", "node2")
+
+	ids := []strfmt.UUID{uuidLow, uuidMid, uuidHigh}
+	for _, id := range ids {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
+	}
+	enableAndAwaitAsync(t, ctx, s)
+
+	propagated, err := s.runHashbeatCycle(ctx, cfg)
+	require.NoError(t, err)
+	require.True(t, propagated, "the source must push its objects to the never-written replica")
+	require.True(t, targetLazy.isLoaded(), "the repair write must have loaded the target shard")
+	for _, id := range ids {
+		exists, err := targetLazy.Exists(ctx, id)
+		require.NoError(t, err)
+		require.True(t, exists, "object %s must have been repaired onto the target", id)
+	}
+
+	awaitHashtreeInitialized(t, targetLazy.shard)
+	propagated, err = s.runHashbeatCycle(ctx, cfg)
+	require.ErrorIs(t, err, replicaerrors.ErrNoDiffFound, "the replicas must be converged after one repair cycle")
+	require.False(t, propagated)
 }
 
 // TestDBReconcileAsyncReplicationWalksEveryIndex verifies that

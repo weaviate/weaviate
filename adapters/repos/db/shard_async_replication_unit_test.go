@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -295,4 +296,79 @@ func TestNoteHashbeatSkipEscalatesAfterConsecutiveRuns(t *testing.T) {
 	s.asyncRepConsecutiveSkips.Store(0)
 	s.noteHashbeatSkip(skipErr, time.Hour)
 	require.Equal(t, 1, warns())
+}
+
+// TestEmptyHashTree: the tree that stands in for a never-written unloaded shard
+// is one shared instance per height whose root equals a fresh empty tree's, and
+// hashTreeLevel on it validates like a loaded shard.
+func TestEmptyHashTree(t *testing.T) {
+	tests := []struct {
+		name   string
+		height int
+	}{
+		{"height 1", 1},
+		{"multi-tenant default", defaultHashtreeHeightMultiTenant},
+		{"single-tenant default", defaultHashtreeHeightSingleTenant},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ht, err := emptyHashTree(tt.height)
+			require.NoError(t, err)
+			again, err := emptyHashTree(tt.height)
+			require.NoError(t, err)
+			require.Same(t, ht, again, "one shared tree per height")
+
+			fresh, err := hashtree.NewHashTree(tt.height)
+			require.NoError(t, err)
+			require.Equal(t, fresh.Root(), ht.Root())
+
+			digests, err := hashTreeLevel(ht, "shard", 0, hashtree.NewBitset(1).SetAll())
+			require.NoError(t, err)
+			require.Equal(t, []hashtree.Digest{fresh.Root()}, digests)
+
+			_, err = hashTreeLevel(ht, "shard", tt.height+1, hashtree.NewBitset(hashtree.LeavesCount(tt.height+1)).SetAll())
+			require.ErrorIs(t, err, errAsyncReplicationNotActive, "a level above the height is retry-later")
+
+			_, err = hashTreeLevel(ht, "shard", 0, hashtree.NewBitset(2).SetAll())
+			require.Error(t, err, "a discriminant of the wrong size is rejected")
+
+			_, err = hashTreeLevel(ht, "shard", -1, hashtree.NewBitset(1).SetAll())
+			require.Error(t, err, "a negative level is rejected, not shifted")
+
+			_, err = hashTreeLevel(ht, "shard", maxHashtreeHeight+1, hashtree.NewBitset(1).SetAll())
+			require.Error(t, err, "a level above the maximum height is rejected")
+
+			_, err = hashTreeLevel(ht, "shard", 0, nil)
+			require.Error(t, err, "a nil discriminant is rejected")
+		})
+	}
+
+	t.Run("concurrent readers share one tree", func(t *testing.T) {
+		ht, err := emptyHashTree(4)
+		require.NoError(t, err)
+		want := ht.Root()
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for range 50 {
+					digests, err := hashTreeLevel(ht, "shard", 4, hashtree.NewBitset(hashtree.LeavesCount(4)).SetAll())
+					assert.NoError(t, err)
+					assert.Len(t, digests, hashtree.LeavesCount(4))
+					assert.Equal(t, want, ht.Root())
+				}
+			}()
+		}
+		wg.Wait()
+	})
+
+	_, err := emptyHashTree(hashtree.MaxHeight + 1)
+	require.Error(t, err)
+
+	t.Run("allMissingDigests", func(t *testing.T) {
+		got := allMissingDigests([]routertypes.RepairResponse{{ID: "a", UpdateTime: 3}, {ID: "b", UpdateTime: 4}})
+		require.Equal(t, []routertypes.RepairResponse{{ID: "a"}, {ID: "b"}}, got)
+		require.Empty(t, allMissingDigests(nil))
+	})
 }
