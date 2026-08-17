@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -87,6 +88,18 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 		shardReadSem = semaphore.NewWeighted(1)
 	}
 
+	// A dropped vector index keeps its schema entry but loses its VectorIndexConfig,
+	// so there is nothing to report on. Filtering here, once per collection rather
+	// than once per shard, matches the loaded path, where the shard holds no such
+	// index to enumerate.
+	activeVectorConfigs := make(map[string]models.VectorConfig, len(vectorConfig))
+	for targetVector, cfg := range vectorConfig {
+		if modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
+		activeVectorConfigs[targetVector] = cfg
+	}
+
 	localShards := map[string]struct{}{}
 
 	// We need a consistent view of the sharding state and the locals shards. At the same time, we do not want to lock
@@ -132,7 +145,7 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 		eg.Go(func() error {
 			defer shardReadSem.Release(1)
 
-			shardUsage, err := i.usageForShard(egCtx, shardName, exactObjectCount, vectorConfig)
+			shardUsage, err := i.usageForShard(egCtx, shardName, exactObjectCount, activeVectorConfigs)
 			if err != nil {
 				return err
 			}
@@ -184,7 +197,7 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 // in the _local_ state (i.e. loading/unloading) for the duration of the calculation. A nil
 // *ShardUsage with a nil error means the shard should be skipped (transitional states like
 // FREEZING/OFFLOADING). Safe to call concurrently for distinct shards.
-func (i *Index) usageForShard(ctx context.Context, shardName string, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.ShardUsage, error) {
+func (i *Index) usageForShard(ctx context.Context, shardName string, exactObjectCount bool, activeVectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
 	i.shardCreateLocks.RLock(shardName)
 	defer i.shardCreateLocks.RUnlock(shardName)
 
@@ -231,7 +244,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 						err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
 					}
 				} else {
-					shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, vectorConfig)
+					shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, activeVectorConfigs)
 					if err2 != nil {
 						err2 = fmt.Errorf("unloaded lazy shard %s: %w", shardName, err2)
 					}
@@ -248,7 +261,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 			}
 		}
 	case models.TenantActivityStatusINACTIVE, models.TenantActivityStatusCOLD:
-		shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, vectorConfig)
+		shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, activeVectorConfigs)
 		if err2 != nil {
 			err2 = fmt.Errorf("inactive shard %s: %w", shardName, err2)
 		}
@@ -400,6 +413,8 @@ func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities
 	return usages, nil
 }
 
+// calculateUnloadedShardUsage computes usage for a cold shard from disk. vectorConfigs must
+// contain only active vectors — a dropped vector's entry carries a nil VectorIndexConfig.
 func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
 	if shardusage.ComputedUsageDataExists(i.path(), shardName) {
 		// usage has been pre-calculated and can be read from disk
