@@ -95,7 +95,7 @@ func restoreRefusedByParticipant(classes []string) error {
 		backup.ErrReindexInFlight, blockedSubject(classes), reindex.ClusterMigrationRemedy())
 }
 
-// Only the refusal kind is rebuilt here; the participant's own text is discarded so a peer cannot dictate wording. A multi-class request therefore names no individual collection.
+// Only the refusal kind is rebuilt here; the participant's own text is discarded so a peer cannot dictate wording. A multi-class request lists the collections it asked about without saying which one is blocked.
 func blockedSubject(classes []string) string {
 	if len(classes) == 1 {
 		return quoteClassList(classes)

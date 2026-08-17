@@ -68,7 +68,7 @@ const (
 	// root path unreadable. No tracker dirs were inspected. The
 	// audit's startup retry path is expected to retry later.
 	AuditStatusSkipped AuditOutcomeStatus = iota
-	// AuditStatusRan: the sweep traversed every shard under
+	// AuditStatusRan: the sweep traversed every shard it was scoped to under
 	// RootPath and inspected every .migrations tracker. No orphans
 	// found AND no per-tracker errors. The expected steady-state
 	// outcome.
@@ -102,7 +102,7 @@ func (s AuditOutcomeStatus) String() string {
 }
 
 // AuditOutcome is the typed result returned by
-// [DB.AuditOrphanReindexTrackers] and the no-arg wrapper
+// [DB.AuditOrphanReindexTrackers] and the dependency-checking wrapper
 // [DB.AuditOrphanReindexTrackersIfReady]. Every successful invocation
 // emits one Info-level log line with these counters so absence of the
 // line is detectable in operator logs (S4 fix).
@@ -319,7 +319,7 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 		// Index down underneath the audit.
 		processIndex := func() {
 			// Loaded-index branch uses the real class name; unloaded
-			// fallback uses the on-disk dir name.
+			// or out-of-scope falls back to the on-disk dir name.
 			collection := indexDir
 			if idx != nil && inScope {
 				idx.dropIndex.RLock()

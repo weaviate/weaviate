@@ -21,7 +21,7 @@ import (
 )
 
 // ShardReindexActivityLookup reports whether any LIVE reindex task in
-// the DTM snapshot targets (collection, shardName). Used by the backup
+// the snapshot covers collection (matched case-folded), whole or at shardName. Used by the backup
 // gate; consults RAFT-replicated DTM rather than local filesystem
 // markers, so the answer is cluster-wide-consistent.
 //

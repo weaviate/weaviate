@@ -47,7 +47,7 @@ const (
 )
 
 // Backupable returns whether all given class can be backed up. classes is never empty on
-// the production path: the scheduler resolves an empty include to the descriptor's own list.
+// the production path: the scheduler errors on an empty selection, and the coordinator sends each node only the classes it grouped onto it.
 // Refuses if any shard has an in-flight runtime-reindex; this runs in
 // the coordinator's canCommit phase so no staging dir is created on
 // rejection.

@@ -19,6 +19,7 @@ const ReindexNamespace = "reindex"
 // ExtractReindexTaskCollection decodes the collection field alone, so a task a newer node
 // wrote with a field this build cannot type stays attributable. This also widens what the
 // DELETE_CLASS cascade removes, since that reads tasks through here on apply.
+// Apply recomputes this per node and never replicates the result, so two builds that type the same record differently diverge silently.
 func ExtractReindexTaskCollection(payload []byte) (string, bool) {
 	var p struct {
 		Collection string `json:"collection"`

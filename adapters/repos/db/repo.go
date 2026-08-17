@@ -133,7 +133,7 @@ type DB struct {
 	shardReindexActivityLookupBuilder ShardReindexActivityLookupBuilder
 	anyReindexActivityLookupBuilder   AnyReindexActivityLookupBuilder
 
-	// Carries its own lock. On DB, not [ReindexProvider], because the methods that raise it live on DB, not on the provider.
+	// Carries its own lock. On DB, not [ReindexProvider], because provider code reaches it through p.db while DB methods raise it directly.
 	reindexHolds ReindexHoldRegistry
 
 	bitmapBufPool      roaringset.BitmapBufPool
