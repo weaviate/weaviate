@@ -27,18 +27,56 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+)
+
+// replicaPreparer is the two-phase-commit prepare surface of a shard.
+type replicaPreparer interface {
+	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
+	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
+	prepareMergeObject(context.Context, string, *objects.MergeDocument) replica.SimpleResponse
+	prepareDeleteObject(context.Context, string, strfmt.UUID, time.Time) replica.SimpleResponse
+	prepareDeleteObjects(context.Context, string, []strfmt.UUID, time.Time, bool) replica.SimpleResponse
+	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse
+}
+
+// Makes a dropped prepare method a build failure rather than a runtime miss in writableShard.
+var (
+	_ replicaPreparer = (*Shard)(nil)
+	_ replicaPreparer = (*LazyLoadShard)(nil)
+)
+
+// shardChangeLogger is the replica-movement change-capture surface of a shard,
+// kept off ShardLike so general shard users and the mock do not carry it.
+type shardChangeLogger interface {
+	// ActivateChangeLog registers a change-capture log under opID and returns
+	// it for in-process callers.
+	ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error)
+	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
+	SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error)
+	// FinalizeChangeLog drains the pre-seal in-flight PREPARE set, then
+	// seals the log and returns the final LSN. Tailers drain to finalLSN
+	// and EOF.
+	FinalizeChangeLog(ctx context.Context, opID string) (uint64, error)
+	// StopChangeCapture unregisters and deactivates the log without sealing.
+	StopChangeCapture(ctx context.Context, opID string) error
+	// GetChangeLog returns the active log for opID, or (nil, false) if none.
+	GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool)
+}
+
+// Makes a dropped change-log method a build failure rather than a runtime miss in withShardForChangeLog.
+var (
+	_ shardChangeLogger = (*Shard)(nil)
+	_ shardChangeLogger = (*LazyLoadShard)(nil)
 )
 
 func (db *DB) ReplicateObject(ctx context.Context, class,
@@ -317,89 +355,67 @@ func (db *DB) waitForSchemaVersionForIndexWrite(ctx context.Context, schemaVersi
 	return nil
 }
 
-func (i *Index) writableShard(ctx context.Context, name string) (ShardLike, func(), *replica.SimpleResponse) {
+// writableShard runs f with the named shard pinned, releasing on every path so
+// callers cannot leak one. Skips f if the shard is not local or is read-only.
+func (i *Index) writableShard(ctx context.Context, name string, f func(shard replicaPreparer) replica.SimpleResponse) replica.SimpleResponse {
 	localShard, release, err := i.getOrInitShard(ctx, name)
+	defer release()
 	if err != nil {
-		return nil, func() {}, &replica.SimpleResponse{Errors: []replicaerrors.Error{
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{
 			{Code: replicaerrors.StatusShardNotFound, Msg: fmt.Sprintf("error getting or initializing shard %q: %v", name, err), Err: err},
 		}}
 	}
 	if localShard.isReadOnly() != nil {
-		release()
-
-		return nil, func() {}, &replica.SimpleResponse{Errors: []replicaerrors.Error{{
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{{
 			Code: replicaerrors.StatusReadOnly, Msg: name,
 		}}}
 	}
-	return localShard, release, nil
+	preparer, ok := localShard.(replicaPreparer)
+	if !ok {
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{{
+			Code: replicaerrors.StatusPreconditionFailed,
+			Msg:  fmt.Sprintf("shard %q does not implement replicaPreparer", name),
+		}}}
+	}
+	return f(preparer)
 }
 
 func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object, _ uint64) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(ctx, shard)
-	if pr != nil {
-		return *pr
-	}
-
-	defer release()
-
-	return localShard.preparePutObject(ctx, requestID, object)
+	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
+		return localShard.preparePutObject(ctx, requestID, object)
+	})
 }
 
 func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument, _ uint64) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(ctx, shard)
-	if pr != nil {
-		return *pr
-	}
-
-	defer release()
-
-	return localShard.prepareMergeObject(ctx, requestID, doc)
+	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
+		return localShard.prepareMergeObject(ctx, requestID, doc)
+	})
 }
 
 func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID, deletionTime time.Time, _ uint64) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(ctx, shard)
-	if pr != nil {
-		return *pr
-	}
-
-	defer release()
-
-	return localShard.prepareDeleteObject(ctx, requestID, uuid, deletionTime)
+	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
+		return localShard.prepareDeleteObject(ctx, requestID, uuid, deletionTime)
+	})
 }
 
 func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object, _ uint64) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(ctx, shard)
-	if pr != nil {
-		return *pr
-	}
-
-	defer release()
-
-	return localShard.preparePutObjects(ctx, requestID, objects)
+	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
+		return localShard.preparePutObjects(ctx, requestID, objects)
+	})
 }
 
 func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, _ uint64,
 ) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(ctx, shard)
-	if pr != nil {
-		return *pr
-	}
-
-	defer release()
-
-	return localShard.prepareDeleteObjects(ctx, requestID, uuids, deletionTime, dryRun)
+	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
+		return localShard.prepareDeleteObjects(ctx, requestID, uuids, deletionTime, dryRun)
+	})
 }
 
 func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference, _ uint64) replica.SimpleResponse {
-	localShard, release, pr := i.writableShard(ctx, shard)
-	if pr != nil {
-		return *pr
-	}
-
-	defer release()
-
-	return localShard.prepareAddReferences(ctx, requestID, refs)
+	return i.writableShard(ctx, shard, func(localShard replicaPreparer) replica.SimpleResponse {
+		return localShard.prepareAddReferences(ctx, requestID, refs)
+	})
 }
 
 func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) any {
@@ -478,10 +494,9 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 
 		shard, ok := i.shards.LoadAndDelete(shardName)
 		if ok {
-			if err := shard.Shutdown(ctx); err != nil {
-				if !errors.Is(err, errAlreadyShutdown) {
-					return err
-				}
+			if err := shutdownOrRestoreShard(ctx, &i.shards, shardName, shard, i.logger); err != nil &&
+				!errors.Is(err, errAlreadyShutdown) {
+				return err
 			}
 		}
 
@@ -495,83 +510,156 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 }
 
 func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID string) error {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	const action = "incoming start change capture"
+	loaded, err := i.withShardForChangeLog(ctx, shardName, true, func(shard shardChangeLogger) error {
+		if _, err := shard.ActivateChangeLog(ctx, opID); err != nil {
+			return fmt.Errorf("activate op %q: %w", opID, err)
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("incoming start change capture: get shard %q: %w", shardName, err)
+		return fmt.Errorf("%s: %w", action, err)
 	}
-	defer release()
-	if shard == nil {
-		return fmt.Errorf("incoming start change capture: shard %q not found", shardName)
-	}
-	if _, err := shard.ActivateChangeLog(ctx, opID); err != nil {
-		return fmt.Errorf("incoming start change capture: activate op %q: %w", opID, err)
+	if !loaded { // unreachable; asserted so a miss cannot report success
+		return errShardNotLoaded(action, shardName)
 	}
 	return nil
 }
 
-// IncomingGetChangeLog returns a tailer over the shard's active log. Caller
-// owns Close; the tailer has its own file handle and outlives the shard pin.
-// untilLSN is the inclusive upper bound on emitted LSNs.
-func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string, untilLSN uint64) (*changelog.Tailer, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
-		return nil, fmt.Errorf("incoming get change log: get shard %q: %w", shardName, err)
+// withShardForChangeLog runs f against the named shard's change-capture
+// surface, owning the pin lifetime, and reports whether the shard was there.
+//
+// Only activation passes forceInit; it has to load the shard to record
+// anything. Drain reads must not: loading sweeps the changelog dir, so a read
+// that initialized would delete the log it came for, and a shard unloaded
+// since capture began captured nothing.
+func (i *Index) withShardForChangeLog(ctx context.Context, shardName string, forceInit bool,
+	f func(shard shardChangeLogger) error,
+) (loaded bool, err error) {
+	var (
+		shard   ShardLike
+		release func()
+	)
+	if forceInit {
+		shard, release, err = i.getOrInitShard(ctx, shardName)
+	} else {
+		shard, release, err = i.getLoadedShard(shardName)
 	}
 	defer release()
-	if shard == nil {
-		return nil, fmt.Errorf("incoming get change log: shard %q not found", shardName)
+	if err != nil {
+		return false, fmt.Errorf("get shard %q: %w", shardName, err)
 	}
-	log, ok := shard.GetChangeLog(ctx, opID)
+	if shard == nil { // only without forceInit
+		return false, nil
+	}
+
+	// Always succeeds in production per the assertions above; MockShardLike
+	// does not implement it, so tests driving capture through a mock land here.
+	cl, ok := shard.(shardChangeLogger)
 	if !ok {
-		return nil, fmt.Errorf("incoming get change log: %s %q on shard %q", changelog.ErrMsgNoActiveLog, opID, shardName)
+		return false, fmt.Errorf("shard %q does not implement shardChangeLogger", shardName)
 	}
-	return log.NewTailerWithCap(0, untilLSN)
+	return true, f(cl)
+}
+
+// errShardNotLoaded reports a change-log request for a shard this node does not
+// hold loaded. The message must not contain changelog.ErrMsgNoActiveLog or
+// changelog.ErrMsgNoActiveChangeCaptureLog: isCCLAlreadyGone in
+// cluster/replication matches both and marks the movement complete, but an
+// unloaded shard means writes since the unload were never captured.
+func errShardNotLoaded(action, shardName string) error {
+	return fmt.Errorf("%s: shard %q is not loaded", action, shardName)
+}
+
+// IncomingGetChangeLog returns a tailer over the shard's active log. Caller
+// owns Close; the tailer has its own file handle and outlives this call.
+// untilLSN is the inclusive upper bound on emitted LSNs.
+func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string, untilLSN uint64) (*changelog.Tailer, error) {
+	const action = "incoming get change log"
+	var tailer *changelog.Tailer
+	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+		log, ok := shard.GetChangeLog(ctx, opID)
+		if !ok {
+			return fmt.Errorf("%s %q on shard %q", changelog.ErrMsgNoActiveLog, opID, shardName)
+		}
+		var err error
+		tailer, err = log.NewTailerWithCap(0, untilLSN)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", action, err)
+	}
+	if !loaded {
+		return nil, errShardNotLoaded(action, shardName)
+	}
+	return tailer, nil
 }
 
 // IncomingSnapshotChangeLogLSN returns the current LSN without sealing the log.
 func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opID string) (uint64, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	const action = "incoming snapshot change-log LSN"
+	var lsn uint64
+	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+		var err error
+		if lsn, err = shard.SnapshotChangeLogLSN(ctx, opID); err != nil {
+			return fmt.Errorf("op %q: %w", opID, err)
+		}
+		return nil
+	})
 	if err != nil {
-		return 0, fmt.Errorf("incoming snapshot change-log LSN: get shard %q: %w", shardName, err)
+		return 0, fmt.Errorf("%s: %w", action, err)
 	}
-	defer release()
-	if shard == nil {
-		return 0, fmt.Errorf("incoming snapshot change-log LSN: shard %q not found", shardName)
-	}
-	lsn, err := shard.SnapshotChangeLogLSN(ctx, opID)
-	if err != nil {
-		return 0, fmt.Errorf("incoming snapshot change-log LSN: op %q: %w", opID, err)
+	if !loaded {
+		return 0, errShardNotLoaded(action, shardName)
 	}
 	return lsn, nil
 }
 
+// IncomingFinalizeChangeLog seals the log and returns the final LSN. The wait
+// for in-flight writes to drain can run for as long as the caller's context
+// allows, so it holds only the shutdown refcount — an unload attempted mid-seal
+// fails rather than tearing the shard down under it.
 func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	const action = "incoming finalize change log"
+	var finalLSN uint64
+	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+		var err error
+		if finalLSN, err = shard.FinalizeChangeLog(ctx, opID); err != nil {
+			return fmt.Errorf("op %q: %w", opID, err)
+		}
+		return nil
+	})
 	if err != nil {
-		return 0, fmt.Errorf("incoming finalize change log: get shard %q: %w", shardName, err)
+		return 0, fmt.Errorf("%s: %w", action, err)
 	}
-	defer release()
-	if shard == nil {
-		return 0, fmt.Errorf("incoming finalize change log: shard %q not found", shardName)
-	}
-	finalLSN, err := shard.FinalizeChangeLog(ctx, opID)
-	if err != nil {
-		return 0, fmt.Errorf("incoming finalize change log: op %q: %w", opID, err)
+	if !loaded {
+		return 0, errShardNotLoaded(action, shardName)
 	}
 	return finalLSN, nil
 }
 
+// IncomingStopChangeCapture deactivates the log and removes its file. An
+// unloaded shard collects nothing, so stopping is already done — loading it to
+// serve a teardown would materialize a shard the caller never asked for. Its
+// log file is removed when the shard next loads.
 func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	const action = "incoming stop change capture"
+	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+		if err := shard.StopChangeCapture(ctx, opID); err != nil {
+			return fmt.Errorf("op %q: %w", opID, err)
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("incoming stop change capture: get shard %q: %w", shardName, err)
+		return fmt.Errorf("%s: %w", action, err)
 	}
-	defer release()
-	if shard == nil {
-		return fmt.Errorf("incoming stop change capture: shard %q not found", shardName)
-	}
-	if err := shard.StopChangeCapture(ctx, opID); err != nil {
-		return fmt.Errorf("incoming stop change capture: op %q: %w", opID, err)
+	if !loaded {
+		i.logger.WithFields(logrus.Fields{
+			"action":   "change_capture_log",
+			"op_id":    opID,
+			"shard":    shardName,
+			"resident": i.shards.Load(shardName) != nil,
+		}).Debug("no loaded shard to stop change capture on")
 	}
 	return nil
 }
@@ -660,18 +748,20 @@ func (s *Shard) filePutter(ctx context.Context,
 func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]types.RepairResponse, error) {
-	s, release, err := idx.GetShard(ctx, shard)
+	// Never load from a repair write: a cold replica is activated by real
+	// traffic, not by async replication or read repair.
+	s, release, err := idx.getLoadedShard(shard)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q not found locally", shard)
+		return nil, fmt.Errorf("shard %q: %w", shard, err)
 	}
 
 	defer release()
 	if s == nil {
-		return nil, fmt.Errorf("shard %q not found locally", shard)
+		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shard)
 	}
 
-	if s.GetStatus() == storagestate.StatusLoading && idx.replicationEnabled() {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard))
+	if err := idx.ensureShardLocallyReady(s); err != nil {
+		return nil, err
 	}
 
 	var result []types.RepairResponse
@@ -974,8 +1064,8 @@ func (i *Index) DigestObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard %q not found locally", shardName)
 	}
 
-	if s.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(s); err != nil {
+		return nil, err
 	}
 
 	multiIDs := make([]multi.Identifier, len(ids))
@@ -1024,13 +1114,14 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 func (i *Index) DigestObjectsInRange(ctx context.Context,
 	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
 ) (result []types.RepairResponse, err error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	// Never load from async replication; empty success for unloaded would invite full propagation.
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 	defer release()
 	if shard == nil {
-		return nil, nil
+		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
 	}
 
 	return shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
@@ -1045,13 +1136,14 @@ func (i *Index) IncomingDigestObjectsInRange(ctx context.Context,
 func (i *Index) CompareDigests(ctx context.Context,
 	shardName string, sourceDigests []types.RepairResponse,
 ) ([]types.RepairResponse, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	// Never load from async replication's propagation pre-check.
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 	defer release()
 	if shard == nil {
-		return nil, fmt.Errorf("shard %q is not yet initialized on this node", shardName)
+		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
 	}
 
 	return shard.CompareDigests(ctx, sourceDigests)
@@ -1060,13 +1152,14 @@ func (i *Index) CompareDigests(ctx context.Context,
 func (i *Index) HashTreeLevel(ctx context.Context,
 	shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	// Never load a shard from async replication.
+	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 	defer release()
 	if shard == nil {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+		return nil, fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
 	}
 
 	return shard.HashTreeLevel(ctx, level, discriminant)
@@ -1078,8 +1171,7 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
 }
 
-// CompareHashTreeRoots returns shards whose local root was read and differs; not-ready
-// shards (missing/uninitialised/cold) are omitted — caught once they become ready.
+// CompareHashTreeRoots: differing, not-ready, or erroring shards diverge (source descends); unloaded ones are omitted without loading.
 func (i *Index) CompareHashTreeRoots(ctx context.Context,
 	roots map[string]hashtree.Digest,
 ) ([]string, error) {
@@ -1088,15 +1180,19 @@ func (i *Index) CompareHashTreeRoots(ctx context.Context,
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		localRoot, ok := func() (hashtree.Digest, bool) {
-			shard, release, err := i.GetShard(ctx, shardName)
-			if err != nil || shard == nil {
-				return hashtree.Digest{}, false
+		diverges := func() bool {
+			shard, release, err := i.getLoadedShard(shardName)
+			defer release() // non-nil on every path, including errors
+			if err != nil {
+				return true // teardown/closing: descend, never read as converged
 			}
-			defer release()
-			return shard.HashTreeRoot()
+			if shard == nil {
+				return false // not loaded here: omit without loading
+			}
+			root, ok := shard.HashTreeRoot()
+			return !ok || root != sourceRoot
 		}()
-		if ok && localRoot != sourceRoot {
+		if diverges {
 			diverging = append(diverging, shardName)
 		}
 	}
@@ -1140,8 +1236,8 @@ func (i *Index) FetchObject(ctx context.Context,
 		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return replica.Replica{}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return replica.Replica{}, err
 	}
 
 	obj, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
@@ -1186,8 +1282,8 @@ func (i *Index) FetchObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return nil, err
 	}
 
 	objs, err := shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))

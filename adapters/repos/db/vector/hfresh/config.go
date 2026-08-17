@@ -12,7 +12,6 @@
 package hfresh
 
 import (
-	"io"
 	"math"
 
 	"github.com/pkg/errors"
@@ -35,23 +34,24 @@ const (
 )
 
 type Config struct {
-	Logger                    logrus.FieldLogger
-	Scheduler                 *queue.Scheduler
-	DistanceProvider          distancer.Provider
-	RootPath                  string
-	ID                        string
-	TargetVector              string
-	ShardName                 string
-	ClassName                 string
-	PrometheusMetrics         *monitoring.PrometheusMetrics
-	InternalPostingCandidates int                             `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
-	ReassignNeighbors         int                             `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
-	MaxDistanceRatio          float32                         `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
-	Store                     StoreConfig                     `json:"store"`                               // Configuration for the underlying LSMKV store
-	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
-	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
-	VectorForIDThunk          common.VectorForID[float32]     `json:"vectorForIDThunk,omitempty"`      // Function to get a vector by index ID
-	MultiVectorForIDThunk     common.VectorForID[[]float32]   `json:"multiVectorForIDThunk,omitempty"` // Function to get a multi-vector by index ID
+	Logger                       logrus.FieldLogger
+	Scheduler                    *queue.Scheduler
+	DistanceProvider             distancer.Provider
+	RootPath                     string
+	ID                           string
+	TargetVector                 string
+	ShardName                    string
+	ClassName                    string
+	PrometheusMetrics            *monitoring.PrometheusMetrics
+	InternalPostingCandidates    int                                     `json:"internalPostingCandidates,omitempty"` // Number of candidates to consider when running a centroid search internally
+	ReassignNeighbors            int                                     `json:"reassignNeighbors,omitempty"`         // Number of neighboring centroids to consider for reassigning vectors
+	MaxDistanceRatio             float32                                 `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
+	Store                        StoreConfig                             `json:"store"`                               // Configuration for the underlying LSMKV store
+	Centroids                    CentroidConfig                          `json:"centroids"`                           // Configuration for the centroid index
+	TombstoneCallbacks           cyclemanager.CycleCallbackGroup         // Callbacks for handling tombstones
+	VectorForIDThunk             common.VectorForID[float32]             `json:"vectorForIDThunk,omitempty"`      // Function to get a vector by index ID
+	MultiVectorForIDThunk        common.VectorForID[[]float32]           `json:"multiVectorForIDThunk,omitempty"` // Function to get a multi-vector by index ID
+	TempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32] `json:"-"`
 }
 
 type StoreConfig struct {
@@ -69,11 +69,7 @@ const (
 )
 
 func (c *Config) Validate() error {
-	if c.Logger == nil {
-		logger := logrus.New()
-		logger.Out = io.Discard
-		c.Logger = logger
-	}
+	c.Logger = common.LoggerOrDiscard(c.Logger)
 
 	if c.InternalPostingCandidates <= 0 {
 		c.InternalPostingCandidates = DefaultInternalPostingCandidates
@@ -83,6 +79,10 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxDistanceRatio <= 0 {
 		c.MaxDistanceRatio = DefaultMaxDistanceRatio
+	}
+
+	if c.TempVectorForIDWithViewThunk == nil {
+		return errors.New("tempVectorForIDWithViewThunk cannot be nil")
 	}
 
 	return nil

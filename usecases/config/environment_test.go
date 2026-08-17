@@ -168,6 +168,132 @@ func TestEnvironmentPersistence_dataPath(t *testing.T) {
 	}
 }
 
+func TestEnvironmentDropVectorReconcileInterval(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       []string
+		expected    time.Duration
+		expectedErr bool
+	}{
+		{"valid", []string{"5"}, 5 * time.Second, false},
+		{"not given", []string{}, DefaultDropVectorReconcileInterval, false},
+		{"zero", []string{"0"}, -1, true},
+		{"negative", []string{"-30"}, -1, true},
+		{"not parsable", []string{"garbage"}, -1, true},
+		// Above the cap: unchecked, seconds*time.Second would overflow negative
+		// and the reconcile loop would spin flat out.
+		{"over the cap", []string{"10000000000"}, -1, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, conf.DistributedTasks.DropVectorReconcileInterval)
+			}
+		})
+	}
+}
+
+// TestEnvironmentDistributedTasksIntervals pins the caps on the two sibling
+// DTM knobs: unchecked, seconds*time.Second (hours*time.Hour) overflows into
+// a negative duration — the tick interval panics time.NewTicker after boot,
+// and a negative TTL silently expires every completed task record.
+func TestEnvironmentDistributedTasksIntervals(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         string
+		value       []string
+		expected    time.Duration
+		read        func(c *Config) time.Duration
+		expectedErr bool
+	}{
+		{
+			name: "tick valid", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
+			value: []string{"5"}, expected: 5 * time.Second,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.SchedulerTickInterval },
+		},
+		{
+			name: "tick not given", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
+			value: []string{}, expected: DefaultDistributedTasksSchedulerTickInterval,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.SchedulerTickInterval },
+		},
+		{name: "tick zero", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", value: []string{"0"}, expectedErr: true},
+		{name: "tick negative", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", value: []string{"-30"}, expectedErr: true},
+		{name: "tick over the cap", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", value: []string{"10000000000"}, expectedErr: true},
+		{
+			name: "ttl valid", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+			value: []string{"48"}, expected: 48 * time.Hour,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.CompletedTaskTTL },
+		},
+		{
+			name: "ttl not given", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+			value: []string{}, expected: DefaultDistributedTasksCompletedTaskTTL,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.CompletedTaskTTL },
+		},
+		{
+			// 0 is the "clean completed tasks on the next tick" sentinel.
+			name: "ttl zero", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+			value: []string{"0"}, expected: 0,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.CompletedTaskTTL },
+		},
+		{name: "ttl negative", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", value: []string{"-1"}, expectedErr: true},
+		{name: "ttl over the cap", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", value: []string{"10000000000"}, expectedErr: true},
+		// Exact bounds of validateIntRange: the cap itself passes, cap+1 fails.
+		{
+			name: "tick lower bound", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
+			value: []string{"1"}, expected: time.Second,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.SchedulerTickInterval },
+		},
+		{
+			name: "tick at the cap", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
+			value: []string{"604800"}, expected: 604800 * time.Second,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.SchedulerTickInterval },
+		},
+		{name: "tick just over the cap", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", value: []string{"604801"}, expectedErr: true},
+		{
+			name: "ttl at the cap", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+			value: []string{"87600"}, expected: 87600 * time.Hour,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.CompletedTaskTTL },
+		},
+		{name: "ttl just over the cap", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", value: []string{"87601"}, expectedErr: true},
+		{
+			name: "reconcile lower bound", env: "DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS",
+			value: []string{"1"}, expected: time.Second,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.DropVectorReconcileInterval },
+		},
+		{
+			name: "reconcile at the cap", env: "DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS",
+			value: []string{"604800"}, expected: 604800 * time.Second,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.DropVectorReconcileInterval },
+		},
+		{name: "reconcile just over the cap", env: "DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", value: []string{"604801"}, expectedErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv(tt.env, tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, tt.read(&conf))
+			}
+		})
+	}
+}
+
 func TestEnvironmentMemtable_MaxSize(t *testing.T) {
 	factors := []struct {
 		name        string
@@ -448,6 +574,143 @@ func TestEnvironmentSkipAccessCheck(t *testing.T) {
 		assert.True(t, conf.Backup.SkipAccessCheck)
 		assert.True(t, conf.Export.SkipAccessCheck)
 	})
+}
+
+func TestEnvironmentBackupGCS(t *testing.T) {
+	tests := []struct {
+		name     string
+		start    BackupGCS
+		env      map[string]string
+		expected BackupGCS
+		wantErr  string
+	}{
+		{
+			name:     "unset selects http",
+			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:     "empty selects http",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": ""},
+			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:     "http",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "http"},
+			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:     "grpc",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:     "transport is case insensitive and trimmed",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": " gRPC "},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+		},
+		{
+			name:    "unknown transport is rejected",
+			env:     map[string]string{"GCS_MODULE_TRANSPORT": "https"},
+			wantErr: `GCS_MODULE_TRANSPORT must be "http" or "grpc". Got: https`,
+		},
+		{
+			name:     "connection pool overrides the default",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "16"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 16},
+		},
+		{
+			name:     "connection pool of one is accepted",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "1"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 1},
+		},
+		{
+			name:     "connection pool at the cap is accepted",
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "64"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: MaxBackupGCSGRPCConnPool},
+		},
+		{
+			name:    "connection pool of zero is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "0"},
+			wantErr: "GCS_MODULE_GRPC_CONN_POOL must be an integer between 1 and 64. Got: 0",
+		},
+		{
+			name:    "negative connection pool is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "-1"},
+			wantErr: "GCS_MODULE_GRPC_CONN_POOL must be an integer between 1 and 64",
+		},
+		{
+			name:    "connection pool past the cap is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "65"},
+			wantErr: "GCS_MODULE_GRPC_CONN_POOL must be an integer between 1 and 64",
+		},
+		{
+			name:    "absurd connection pool is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "9223372036854775807"},
+			wantErr: "GCS_MODULE_GRPC_CONN_POOL must be an integer between 1 and 64",
+		},
+		{
+			name:    "non-numeric connection pool is rejected",
+			env:     map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "many"},
+			wantErr: "parse GCS_MODULE_GRPC_CONN_POOL as int",
+		},
+		{
+			name:     "unset transport keeps the config file value",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+		},
+		{
+			name:     "empty transport keeps the config file value",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": ""},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+		},
+		{
+			name:     "http overrides the config file transport",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "http"},
+			expected: BackupGCS{GRPCConnPool: 32},
+		},
+		{
+			name:     "grpc overrides the config file transport",
+			start:    BackupGCS{GRPCConnPool: 32},
+			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+		},
+		{
+			name:     "connection pool overrides the config file value",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			env:      map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "16"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 16},
+		},
+		{
+			name:     "config file connection pool out of range is left for validation",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+		},
+		{
+			name:     "connection pool overrides an out of range config file value",
+			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+			env:      map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "8"},
+			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 8},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, key := range []string{"GCS_MODULE_TRANSPORT", "GCS_MODULE_GRPC_CONN_POOL"} {
+				t.Setenv(key, tt.env[key])
+			}
+
+			conf := Config{BackupGCS: tt.start}
+			err := FromEnv(&conf)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, conf.BackupGCS)
+		})
+	}
 }
 
 func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
@@ -1922,6 +2185,69 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 
 			require.Nil(t, err)
 			require.Equal(t, tt.expected, conf.AsyncIndexingEnabled)
+		})
+	}
+}
+
+// TestEnvironmentRuntimeReindexEnabled pins the kill switch's precedence:
+// the env var wins when set, and an absent one leaves a config-file value
+// alone. Getting the absent case wrong silently forces every
+// file-configured cluster back to off.
+func TestEnvironmentRuntimeReindexEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue []string
+		fromFile bool
+		expected bool
+	}{
+		{name: "absent env keeps file default off"},
+		{name: "absent env keeps file value on", fromFile: true, expected: true},
+		{name: "env true enables", envValue: []string{"true"}, expected: true},
+		{name: "env false disables", envValue: []string{"false"}},
+		{name: "env false overrides file on", envValue: []string{"false"}, fromFile: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.envValue) == 1 {
+				t.Setenv("RUNTIME_REINDEX_ENABLED", tt.envValue[0])
+			}
+			conf := Config{RuntimeReindexEnabled: tt.fromFile}
+			require.NoError(t, FromEnv(&conf))
+			require.Equal(t, tt.expected, conf.RuntimeReindexEnabled)
+		})
+	}
+}
+
+func TestEnvironmentAsyncReplicationGlobalSentinels(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         map[string]string
+		wantHeight  int
+		wantFreq    time.Duration
+		expectedErr bool
+	}{
+		{name: "unset means zero sentinel (per-class or code defaults apply)"},
+		{name: "explicit height", env: map[string]string{"ASYNC_REPLICATION_HASHTREE_HEIGHT": "12"}, wantHeight: 12},
+		{name: "explicit frequency", env: map[string]string{"ASYNC_REPLICATION_FREQUENCY": "7s"}, wantFreq: 7 * time.Second},
+		{name: "negative height rejected", env: map[string]string{"ASYNC_REPLICATION_HASHTREE_HEIGHT": "-1"}, expectedErr: true},
+		{name: "non-numeric height rejected", env: map[string]string{"ASYNC_REPLICATION_HASHTREE_HEIGHT": "tall"}, expectedErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.expectedErr {
+				require.NotNil(t, err)
+				return
+			}
+			require.Nil(t, err)
+			require.Equal(t, tt.wantHeight, conf.Replication.AsyncReplicationHashtreeHeight.Get())
+			require.Equal(t, tt.wantFreq, conf.Replication.AsyncReplicationFrequency.Get())
 		})
 	}
 }

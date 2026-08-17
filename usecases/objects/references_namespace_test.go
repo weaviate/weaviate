@@ -114,11 +114,23 @@ func multiTargetNSSchema(qualify bool) []*models.Class {
 	}
 }
 
+// withAutoSchema turns auto-schema on and lets AddClassProperty fail with err,
+// so a write carrying an unknown property can be steered. A nil err accepts
+// the extension.
+func withAutoSchema(err error) func(*config.WeaviateConfig, *fakeSchemaManager) {
+	return func(cfg *config.WeaviateConfig, sm *fakeSchemaManager) {
+		cfg.Config.AutoSchema.Enabled = runtime.NewDynamicValue(true)
+		sm.AddClassPropertyErr = err
+	}
+}
+
 // newNSManagers returns a Manager + BatchManager wired against the same
 // in-memory fakes, with namespaces toggled by nsEnabled. Both managers share
 // the schema, repo and authorizer so a test can exercise single-ref and
 // batch-ref paths through the same world.
-func newNSManagers(t *testing.T, classes []*models.Class, nsEnabled bool) (*Manager, *BatchManager, *fakeVectorRepo, *fakeModulesProvider, *mocks.FakeAuthorizer) {
+func newNSManagers(t *testing.T, classes []*models.Class, nsEnabled bool,
+	opts ...func(*config.WeaviateConfig, *fakeSchemaManager),
+) (*Manager, *BatchManager, *fakeVectorRepo, *fakeModulesProvider, *mocks.FakeAuthorizer) {
 	t.Helper()
 	sch := schema.Schema{Objects: &models.Schema{Classes: classes}}
 	vectorRepo := &fakeVectorRepo{}
@@ -129,6 +141,9 @@ func newNSManagers(t *testing.T, classes []*models.Class, nsEnabled bool) (*Mana
 		},
 	}
 	schemaManager := &fakeSchemaManager{GetSchemaResponse: sch}
+	for _, opt := range opts {
+		opt(cfg, schemaManager)
+	}
 	logger, _ := test.NewNullLogger()
 	authorizer := mocks.NewMockAuthorizer()
 	modulesProvider := getFakeModulesProvider()
@@ -1120,6 +1135,51 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 			"ParseSource must reject qualified source class in batch URI today")
 		assert.Contains(t, out[0].Err.Error(), "uppercase")
 	})
+}
+
+// Test_References_Batch_Uses_SchemaVersion pins the version the batch write is
+// made with, which is what db.AddBatchReferences waits for. A classless beacon on
+// a multi-target property skips the multi-tenancy check, the only other place the
+// version is raised.
+func Test_References_Batch_Uses_SchemaVersion(t *testing.T) {
+	const classVersion uint64 = 5
+
+	id := strfmt.UUID("d18c8e5e-0000-0000-0000-56b0cfe33ce7")
+	refID := strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+
+	tests := []struct {
+		name string
+		to   strfmt.URI
+	}{
+		{
+			name: "target class in the beacon",
+			to:   strfmt.URI("weaviate://localhost/Alpha/" + string(refID)),
+		},
+		{
+			name: "classless beacon on a multi-target property",
+			to:   strfmt.URI("weaviate://localhost/" + string(refID)),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, b, repo, _, _ := newNSManagers(t, multiTargetNSSchema(false), false,
+				func(_ *config.WeaviateConfig, sm *fakeSchemaManager) {
+					sm.ClassVersion = classVersion
+				})
+			repo.On("AddBatchReferences", mock.Anything).Return(nil).Once()
+
+			refs := []*models.BatchReference{{
+				From: strfmt.URI("weaviate://localhost/Source/" + string(id) + "/hasOther"),
+				To:   tt.to,
+			}}
+			_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
+
+			require.NoError(t, err)
+			assert.Equal(t, classVersion, repo.CapturedSchemaVersion,
+				"the batch write must be made with the source collection's version")
+		})
+	}
 }
 
 // denyContainingAuthorizer is a test-only authorizer that denies any Authorize

@@ -149,7 +149,10 @@ func newTestIndex(t *testing.T, uc ent.UserConfig, mvStore *muveraTestStore, opt
 		scheduler.Close(t.Context())
 	})
 
+	setDelegatingTempThunk(cfg)
+
 	store := testinghelpers.NewDummyStore(t)
+	createObjectsBucket(t, store)
 
 	index, err := New(cfg, uc, store)
 	require.NoError(t, err)
@@ -302,9 +305,13 @@ func populateRandomSingleVectorIndex(t *testing.T, nDocs, dim int, seed int64) (
 	t.Helper()
 	tf := createHFreshIndex(t)
 	stored := make(map[uint64][]float32, nDocs)
-	tf.Index.vectorForID = func(_ context.Context, id uint64) ([]float32, error) {
+	// Assign via the config so the delegating temp thunk (the pooled
+	// with-view read path used by search rescore) sees it at call time, and
+	// mirror it onto the plain field for paths that still use it directly.
+	tf.Index.config.VectorForIDThunk = func(_ context.Context, id uint64) ([]float32, error) {
 		return stored[id], nil
 	}
+	tf.Index.vectorForID = tf.Index.config.VectorForIDThunk
 	rng := rand.New(rand.NewSource(seed))
 	for i := 0; i < nDocs; i++ {
 		vec := make([]float32, dim)

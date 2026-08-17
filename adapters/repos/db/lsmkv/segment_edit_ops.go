@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/transformers"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // SegmentEditOps is a bolt-backed sidecar that records in-place segment edit
@@ -114,7 +116,21 @@ type PendingSegment struct {
 	Attempts      int    `json:"attempts"`
 	LastError     string `json:"lastError,omitempty"`
 	LastAttemptAt int64  `json:"lastAttemptAt,omitempty"`
+	// Requeues counts how many times a new round has handed this segment a
+	// fresh retry budget after quarantine. Attempts resets on each requeue —
+	// this does not, so a segment that fails every round is distinguishable
+	// from one hitting an unlucky patch. See maxQuarantineRequeues.
+	Requeues int `json:"requeues,omitempty"`
 }
+
+// maxQuarantineRequeues bounds how often a segment may be handed a fresh retry
+// budget. Requeueing exists so a TRANSIENT failure (a full disk, a momentary
+// I/O error) doesn't wedge a drop forever; a segment that fails its whole
+// budget this many rounds running is not transient, and requeueing it again
+// only buys another round of full segment rewrites. Past the bound the
+// verdict sticks: the drop stops making progress and says so through the
+// quarantine row, instead of rewriting the same segment indefinitely.
+const maxQuarantineRequeues = 5
 
 // valueTransformer rewrites a stored value in place during a segment rewrite.
 // It must be a pure, idempotent function of the value bytes.
@@ -149,9 +165,7 @@ func newSegmentEditOpsWithLookup(dir, className string, resolve transformerResol
 // ensureOpen opens — creating the file if absent — the bolt sidecar and its
 // buckets. Used by the write paths (RegisterOp/SnapshotSegments) so the sidecar
 // materializes exactly when an edit op first exists.
-func (s *SegmentEditOps) ensureOpen() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *SegmentEditOps) ensureOpenLocked() error {
 	if s.db != nil {
 		return nil
 	}
@@ -162,9 +176,7 @@ func (s *SegmentEditOps) ensureOpen() error {
 // read and bookkeeping paths (the constantly-running compaction/cleanup cycles,
 // reconcile, completion bookkeeping) never create it on an idle shard. Returns
 // false when there is nothing to open yet.
-func (s *SegmentEditOps) openIfExists() (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *SegmentEditOps) openIfExistsLocked() (bool, error) {
 	if s.db != nil {
 		return true, nil
 	}
@@ -186,7 +198,7 @@ func (s *SegmentEditOps) openLocked() error {
 	// One handle per segment group. The Timeout turns an accidental second open
 	// into a fast error instead of a forever-hang; the single-open path is uncontended.
 	db, err := bolt.Open(filepath.Join(s.dir, segmentEditOpsFileName), 0o600,
-		&bolt.Options{Timeout: 5 * time.Second})
+		&bolt.Options{Timeout: entlsmkv.BoltFlockTimeout})
 	if err != nil {
 		return fmt.Errorf("open segment edit ops db: %w", err)
 	}
@@ -221,13 +233,18 @@ func (s *SegmentEditOps) Close() error {
 // a no-op (fn never runs). This is the one home for the "writes-may-create,
 // reads-never-create" policy, and it guarantees s.db is non-nil before the tx so no
 // caller can nil-deref the handle.
+// It holds s.mu for the whole transaction: the sidecar file is removed once
+// its last op is deleted (see DeleteOp), and a handle captured outside the
+// lock could otherwise race that close+remove.
 func (s *SegmentEditOps) withWriteTx(create bool, fn func(tx *bolt.Tx) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if create {
-		if err := s.ensureOpen(); err != nil {
+		if err := s.ensureOpenLocked(); err != nil {
 			return err
 		}
 	} else {
-		ok, err := s.openIfExists()
+		ok, err := s.openIfExistsLocked()
 		if err != nil || !ok {
 			return err
 		}
@@ -238,7 +255,9 @@ func (s *SegmentEditOps) withWriteTx(create bool, fn func(tx *bolt.Tx) error) er
 // withReadTx runs fn in a single read transaction, or is a no-op (fn never runs,
 // nil returned) when no sidecar exists yet — an idle bucket has nothing to read.
 func (s *SegmentEditOps) withReadTx(fn func(tx *bolt.Tx) error) error {
-	ok, err := s.openIfExists()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ok, err := s.openIfExistsLocked()
 	if err != nil || !ok {
 		return err
 	}
@@ -344,21 +363,69 @@ func chainTransformers(transformers []valueTransformer) valueTransformer {
 	}
 }
 
-// RecordCompaction does the post-merge bookkeeping for leftID+rightID ->
-// leftID_rightID in one bolt tx (the sequenced step after rename + in-memory
-// swap). It marks the merged inputs done for every op, and re-queues the merged
-// output for any op absent from builtOps (registered after the transformer was
-// built, so not stripped) that had a pending input. Membership — not a timestamp
-// — gates this, since the compactor clock and the leader-assigned CreatedAt differ.
+// RecordCompaction does the post-merge bookkeeping for a leftID+rightID merge
+// in one bolt tx (the sequenced step after rename + in-memory swap). It marks
+// the merged inputs done for every op — quarantine rows included: the inputs
+// no longer exist, and a stale quarantine row would fail every later round
+// until a re-arm dropped it — and re-queues the merged output for any op
+// absent from builtOps (registered after the transformer was built, so not
+// stripped) that had a pending OR quarantined input. Membership — not a
+// timestamp — gates this, since the compactor clock and the leader-assigned
+// CreatedAt differ. A quarantined input counts because the merge rewrote its
+// data into a NEW file the verdict knows nothing about; the merged output is
+// covered as ordinary pending with a fresh retry budget. The output is
+// renamed to the RIGHT input's ID (stripTmpExtension), so the re-queue uses
+// rightID — a row under any other name would never match a live segment
+// again: the drain would stall on it until a restart, whose load-time prune
+// would then drop it and the drop would complete without stripping the merged
+// output's data.
 //
 // Crash window: if the process dies after switchOnDisk but before this commit,
-// the merge inputs are gone from disk but the merged output never got a pending
-// row for an op absent from builtOps. Reconcile only prunes missing-segment rows,
-// so it can't recover this; the re-snapshot on shard load (recoverEditOps) re-queues
-// every current segment for each live op, which covers the merged output.
-func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []ActiveOp) error {
-	mergedID := leftID + "_" + rightID
+// the rows are untouched — the left row goes ENOENT (pruned at load) and the
+// right row keeps naming the merged output, so the data stays covered; see
+// SegmentEditOps.Recover.
+// RepairCompactionRows is the minimal, load-bearing half of RecordCompaction,
+// for when the full bookkeeping tx could not be committed after the segments
+// were already swapped. For every op it retires the vanished left input's row
+// and pends the merged output in its place, so no op is left owing a file that
+// no longer exists.
+//
+// Deliberately smaller than RecordCompaction — no ops-table load, no quarantine
+// migration, fewer writes — because its whole purpose is to get through a
+// transient failure that took the bigger transaction down. It does not mark the
+// right input done, so an op that had already stripped it pays one redundant
+// rewrite; the transform is idempotent, and a wasted rewrite is a far better
+// outcome than a row nothing can drain.
+func (s *SegmentEditOps) RepairCompactionRows(leftID, rightID string) error {
+	return s.withWriteTx(false, func(tx *bolt.Tx) error {
+		pending := tx.Bucket(editOpsBucketPending)
+		var opIDs []string
+		if err := pending.ForEachBucket(func(opID []byte) error {
+			opIDs = append(opIDs, string(opID))
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, opID := range opIDs {
+			sub := pending.Bucket([]byte(opID))
+			if sub.Get([]byte(leftID)) == nil {
+				continue // this op never owed the vanished input
+			}
+			if err := sub.Delete([]byte(leftID)); err != nil {
+				return err
+			}
+			// addPendingTx honors a standing quarantine verdict on the merged
+			// output, so a repair cannot silently revive a segment the retry
+			// budget already gave up on.
+			if err := s.addPendingTx(tx, opID, rightID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
 
+func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []ActiveOp) error {
 	built := make(map[string]struct{}, len(builtOps))
 	for _, op := range builtOps {
 		built[op.ID] = struct{}{}
@@ -370,8 +437,18 @@ func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []Act
 			return err
 		}
 		for _, op := range ops {
-			leftWasPending := s.pendingContainsTx(tx, op.ID, leftID)
-			rightWasPending := s.pendingContainsTx(tx, op.ID, rightID)
+			inputWasPending := s.pendingContainsTx(tx, op.ID, leftID) ||
+				s.pendingContainsTx(tx, op.ID, rightID)
+			inputWasQuarantined := false
+			if quarantined := tx.Bucket(editOpsBucketQuarantine).Bucket([]byte(op.ID)); quarantined != nil {
+				inputWasQuarantined = quarantined.Get([]byte(leftID)) != nil ||
+					quarantined.Get([]byte(rightID)) != nil
+				for _, segID := range []string{leftID, rightID} {
+					if err := quarantined.Delete([]byte(segID)); err != nil {
+						return err
+					}
+				}
+			}
 
 			if err := s.markSegmentDoneTx(tx, op.ID, leftID); err != nil {
 				return err
@@ -380,8 +457,8 @@ func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []Act
 				return err
 			}
 
-			if _, wasBuilt := built[op.ID]; !wasBuilt && (leftWasPending || rightWasPending) {
-				if err := s.addPendingTx(tx, op.ID, mergedID); err != nil {
+			if _, wasBuilt := built[op.ID]; !wasBuilt && (inputWasPending || inputWasQuarantined) {
+				if err := s.addPendingTx(tx, op.ID, rightID); err != nil {
 					return err
 				}
 			}
@@ -433,8 +510,9 @@ func (s *SegmentEditOps) RegisterOpWithSnapshot(opID string, op OpDescriptor, se
 
 // addPendingRowsTx inserts pending rows for segIDs within the caller's
 // transaction, preserving existing rows (accrued retries) and skipping segments
-// quarantined for the op — a quarantine verdict (retry budget exhausted) must
-// survive restarts and re-snapshots, not ping-pong back to pending.
+// quarantined for the op — a quarantine verdict (retry budget exhausted) holds
+// for the rest of the round, not ping-ponging back to pending; the NEXT round's
+// re-arm grants a fresh budget (RequeueQuarantined).
 func (s *SegmentEditOps) addPendingRowsTx(tx *bolt.Tx, opID string, segIDs []string) error {
 	sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
 	if err != nil {
@@ -459,22 +537,56 @@ func (s *SegmentEditOps) addPendingRowsTx(tx *bolt.Tx, opID string, segIDs []str
 	return nil
 }
 
+// PendForAllOps durably records segID as pending for EVERY registered op in
+// one transaction. WAL recovery calls this BEFORE the flush deletes the WAL:
+// the flush target's segment ID derives from the WAL name, so the cover can
+// be made durable first — a crash after the WAL delete then leaves the row,
+// never a clean-looking segment holding pre-arm bytes. Crash-loop safe:
+// re-pending is idempotent (existing rows kept, quarantine honored), and a
+// row whose flush never produced a segment is pruned by Reconcile.
+func (s *SegmentEditOps) PendForAllOps(segID string) error {
+	return s.withWriteTx(false, func(tx *bolt.Tx) error {
+		ops, err := s.loadOpsTx(tx)
+		if err != nil {
+			return err
+		}
+		for _, op := range ops {
+			if err := s.addPendingTx(tx, op.ID, segID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // HasPendingSnapshot reports whether opID's segments have been snapshotted (its
 // pending sub-bucket exists, even if now empty). Only a snapshot creates that
 // sub-bucket, so this — not descriptor presence — is the correct "resume may skip
 // the snapshot" signal.
 func (s *SegmentEditOps) HasPendingSnapshot(opID string) (bool, error) {
-	if ok, err := s.openIfExists(); err != nil || !ok {
-		return false, err
-	}
 	exists := false
-	if err := s.db.View(func(tx *bolt.Tx) error {
+	if err := s.withReadTx(func(tx *bolt.Tx) error {
 		exists = tx.Bucket(editOpsBucketPending).Bucket([]byte(opID)) != nil
 		return nil
 	}); err != nil {
 		return false, err
 	}
 	return exists, nil
+}
+
+// HasOps reports whether any op is registered, without decoding or sorting
+// (the WAL-recovery probe only needs a boolean; Recover re-reads the full set
+// moments later).
+func (s *SegmentEditOps) HasOps() (bool, error) {
+	has := false
+	if err := s.withReadTx(func(tx *bolt.Tx) error {
+		k, _ := tx.Bucket(editOpsBucketOperations).Cursor().First()
+		has = k != nil
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	return has, nil
 }
 
 // LoadOps returns all active operations sorted by CreatedAt (ties broken by ID)
@@ -642,7 +754,9 @@ func (s *SegmentEditOps) BumpAttempt(opID, segID string, opErr error) error {
 }
 
 // Quarantine moves a segment from pending to quarantined for opID, preserving
-// its retry metadata. A quarantined segment fails the operation.
+// its retry metadata. A quarantined segment fails the operation's current
+// round; the next round's re-arm requeues it with a fresh retry budget
+// (RequeueQuarantined).
 func (s *SegmentEditOps) Quarantine(opID, segID string) error {
 	return s.withWriteTx(false, func(tx *bolt.Tx) error {
 		pendingSub := tx.Bucket(editOpsBucketPending).Bucket([]byte(opID))
@@ -684,6 +798,87 @@ func (s *SegmentEditOps) QuarantinedFor(opID string) ([]string, error) {
 	return out, nil
 }
 
+// RequeueQuarantined clears opID's quarantine rows at the start of a new round:
+// segments still in liveSegIDs go back to pending with a fresh retry budget,
+// rows for segments no longer on disk are dropped (the compaction that removed
+// them rewrote their data under the op's transformer, or re-queued the merged
+// output). Without this, a quarantine verdict would outlive the round that
+// exhausted the budget and wedge the drop permanently — the op survives a
+// FAILED round as the resume point, and the pending snapshot short-circuits the
+// re-arm, so nothing else can ever retry the segment. Within a round the
+// verdict stands (addPendingRowsTx skips quarantined segments).
+//
+// Bounded by maxQuarantineRequeues per segment: without a bound, a segment
+// that can never be rewritten turns each FAILED round's nudge into another
+// full budget of segment rewrites, forever. Past the bound its row stays
+// quarantined and the drop stalls visibly rather than looping.
+func (s *SegmentEditOps) RequeueQuarantined(opID string, liveSegIDs []string) error {
+	live := make(map[string]struct{}, len(liveSegIDs))
+	for _, id := range liveSegIDs {
+		live[id] = struct{}{}
+	}
+	return s.withWriteTx(false, func(tx *bolt.Tx) error {
+		sub := tx.Bucket(editOpsBucketQuarantine).Bucket([]byte(opID))
+		if sub == nil {
+			return nil
+		}
+		rows := map[string]PendingSegment{}
+		if err := sub.ForEach(func(segID, raw []byte) error {
+			meta, err := decodePending(opID, string(segID), raw)
+			if err != nil {
+				// An unreadable row cannot prove it has budget left; leave it
+				// quarantined rather than granting an unbounded retry.
+				return nil
+			}
+			rows[string(segID)] = meta
+			return nil
+		}); err != nil {
+			return err
+		}
+		for segID, meta := range rows {
+			if meta.Requeues >= maxQuarantineRequeues {
+				continue // budget spent: the verdict is now permanent
+			}
+			if err := sub.Delete([]byte(segID)); err != nil {
+				return err
+			}
+			if _, ok := live[segID]; !ok {
+				continue
+			}
+			// The quarantine row is gone (above), so addPendingRowsTx's
+			// quarantine-skip cannot undo the requeue. Attempts resets — a new
+			// round is the whole point of a fresh budget — but the EVIDENCE
+			// does not: LastError is the only record of why the rewrites
+			// failed, and zeroing it here would erase the diagnosis exactly
+			// when repeated requeues prove it is needed.
+			if err := s.addPendingWithMetaTx(tx, opID, segID, PendingSegment{
+				Requeues:      meta.Requeues + 1,
+				LastError:     meta.LastError,
+				LastAttemptAt: meta.LastAttemptAt,
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// addPendingWithMetaTx writes a pending row carrying meta, overwriting any
+// existing one. Unlike addPendingRowsTx it does not skip quarantined segments:
+// the requeue path has already removed the quarantine row and needs the new
+// bookkeeping to land.
+func (s *SegmentEditOps) addPendingWithMetaTx(tx *bolt.Tx, opID, segID string, meta PendingSegment) error {
+	sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
+	if err != nil {
+		return err
+	}
+	enc, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return sub.Put([]byte(segID), enc)
+}
+
 // Quarantined returns the quarantined segments across all operations.
 func (s *SegmentEditOps) Quarantined() ([]PendingSegment, error) {
 	var out []PendingSegment
@@ -705,38 +900,135 @@ func (s *SegmentEditOps) Quarantined() ([]PendingSegment, error) {
 }
 
 // DeleteOp removes an operation and all of its pending and quarantined rows.
-// Called when the op stops being live: task success (delivered as SWAPPING, or
-// FINISHED on a replay), terminal failure (FAILED/CANCELLED), or an orphan sweep.
+// Called when this shard's work for the op is finished for good: task success
+// (delivered as SWAPPING, or FINISHED on a replay), a terminal round whose
+// unit here completed, or an orphan sweep. A terminal round's INCOMPLETE
+// units keep their ops — the recorded pending sets are the resume points.
 func (s *SegmentEditOps) DeleteOp(opID string) error {
-	return s.withWriteTx(false, func(tx *bolt.Tx) error {
+	_, _, _, err := s.deleteOp(opID, false)
+	return err
+}
+
+// DeleteOpIfDrained deletes opID only when it has no pending and no
+// quarantined rows, verified and acted on in ONE transaction — separate
+// read-then-delete calls would let a row land in between and be deleted with
+// the op, dropping cover for unstripped data. Reports whether the op was
+// deleted (an absent op counts as deleted: nothing left to disarm) and, when
+// kept, the row counts that vetoed the delete.
+func (s *SegmentEditOps) DeleteOpIfDrained(opID string) (deleted bool, pending, quarantined int, err error) {
+	return s.deleteOp(opID, true)
+}
+
+// deleteOp removes an operation and its rows; with onlyIfDrained it first
+// counts the op's pending and quarantined rows inside the same transaction
+// and keeps everything when either is non-zero.
+func (s *SegmentEditOps) deleteOp(opID string, onlyIfDrained bool) (deleted bool, pending, quarantined int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ok, err := s.openIfExistsLocked()
+	if err != nil || !ok {
+		return err == nil, 0, 0, err // no sidecar: nothing to disarm
+	}
+	empty := false
+	if err := s.db.Update(func(tx *bolt.Tx) error {
+		if onlyIfDrained {
+			pending = countSubRows(tx.Bucket(editOpsBucketPending), opID)
+			quarantined = countSubRows(tx.Bucket(editOpsBucketQuarantine), opID)
+			if pending > 0 || quarantined > 0 {
+				return nil
+			}
+		}
+		deleted = true
 		if err := tx.Bucket(editOpsBucketOperations).Delete([]byte(opID)); err != nil {
 			return err
 		}
 		if err := deleteSubBucket(tx.Bucket(editOpsBucketPending), opID); err != nil {
 			return err
 		}
-		return deleteSubBucket(tx.Bucket(editOpsBucketQuarantine), opID)
-	})
+		if err := deleteSubBucket(tx.Bucket(editOpsBucketQuarantine), opID); err != nil {
+			return err
+		}
+		k, _ := tx.Bucket(editOpsBucketOperations).Cursor().First()
+		empty = k == nil
+		return nil
+	}); err != nil {
+		return false, 0, 0, err
+	}
+	if deleted && empty {
+		// The last op is gone: remove the sidecar file entirely. Leaving it
+		// costs a permanent fd + mmap on every shard that ever saw a drop
+		// (openIfExists reopens it on every load and cleanup pass, forever).
+		// s.mu is held across every reader/writer, so nothing can be mid-tx;
+		// a later RegisterOp simply re-creates the file.
+		s.closeAndRemoveLocked()
+	}
+	return deleted, pending, quarantined, nil
 }
 
-// Recover runs the load-time bookkeeping: sweep ops with no live task, prune rows
-// for segments gone from disk (Reconcile), then re-snapshot every surviving op
-// over segIDs. resolveLive is called only when ops exist (it may be a remote
-// lookup); a nil result skips the sweep. The reload between Reconcile and the
-// re-snapshot is load-bearing: the sweep mutates the op set, and re-snapshotting
-// a swept op would resurrect it.
+// closeAndRemoveLocked closes the bolt handle and deletes the sidecar file.
+// Caller must hold s.mu. Best-effort: on failure the sidecar merely lingers,
+// which is the pre-existing behavior.
+func (s *SegmentEditOps) closeAndRemoveLocked() {
+	err := s.db.Close()
+	// Nil unconditionally: keeping a handle whose Close errored would wedge
+	// the sidecar for the shard's remaining lifetime (every open-check treats
+	// non-nil as usable). Re-opening after a failed close at worst trips the
+	// bolt flock timeout, which is retryable.
+	s.db = nil
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warnf("close empty segment edit ops db (file kept): %v", err)
+		}
+		return
+	}
+	if err := os.Remove(filepath.Join(s.dir, segmentEditOpsFileName)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if s.logger != nil {
+			s.logger.Warnf("remove empty segment edit ops db: %v", err)
+		}
+	}
+}
+
+// Recover runs the load-time bookkeeping: sweep ops with no live task, then
+// prune pending rows for segments gone from disk (Reconcile). resolveLive is
+// called only when ops exist (it may be a remote lookup); a nil result skips
+// the sweep.
 //
-// The re-snapshot deliberately covers ALL current segments, resetting per-segment
-// progress: completion is encoded as absence from pending, which is
-// indistinguishable from the crash-window merged output this recovery exists to
-// re-queue. Re-cleaning is idempotent; correctness is bought with restart-time
-// rework. Quarantined segments are NOT re-pended (see addPendingRowsTx).
+// The surviving pending sets are kept AS RECORDED — they are authoritative
+// per-segment progress, which is what makes an interrupted strip resume
+// instead of restarting. Absence from pending firmly means "clean", because
+// segment identity survives every rewrite path:
+//
+//   - a cleanup rewrite keeps the segment's ID, and a compaction's output
+//     takes the RIGHT input's ID, so a pending row keeps naming the file
+//     that carries the data — including across the crash window between the
+//     on-disk rename and the bolt commit (the left row goes ENOENT and its
+//     content lives in the file the right row still names);
+//   - the compaction-completion bolt tx maintains the rows transactionally,
+//     and compaction and cleanup are serialized on the segment group's single
+//     compact-or-cleanup goroutine — no two rewrites can race one row, which
+//     is what lets a row's presence/absence be read as ground truth at all;
+//   - segments created after the op was armed are clean by construction:
+//     the arm flushed the memtable before its atomic register+snapshot
+//     (RegisterOpWithSnapshot), and post-marker writes are stripped/rejected
+//     by the write-path guards — the same guarantee shard-name-keyed
+//     coverage inheritance already relies on.
+//
+// Segments born from WAL replay are no exception, but need nothing here:
+// WAL recovery durably pends them for every op BEFORE the flush deletes the
+// WAL (PendForAllOps) — a WAL can hold PRE-ARM bytes outside every snapshot
+// (an older binary's b.flushing clobber orphaning a failed flush's memtable;
+// since fixed, but its WALs survive an upgrade), and only a pend committed
+// before the WAL delete survives every crash window.
+//
+// Quarantined segments stay quarantined (see addPendingRowsTx).
 func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh func() map[string]struct{}) error {
 	ops, err := s.LoadOps()
 	if err != nil {
 		return err
 	}
 	if len(ops) == 0 {
+		// A sidecar that exists with zero ops is a pure fd/mmap liability.
+		s.removeSidecarIfEmpty()
 		return nil
 	}
 
@@ -763,17 +1055,33 @@ func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh 
 	if err := s.Reconcile(existing, liveOpIDs); err != nil {
 		return err
 	}
-	if liveOpIDs != nil {
-		if ops, err = s.LoadOps(); err != nil {
-			return err
-		}
-	}
-	for _, op := range ops {
-		if err := s.SnapshotSegments(op.ID, segIDs); err != nil {
-			return err
-		}
-	}
+	// Reconcile's orphan sweep deletes ops in its own transaction, bypassing
+	// DeleteOp's remove-when-empty — re-check here so a load-time sweep of the
+	// last op doesn't leave an empty sidecar open forever.
+	s.removeSidecarIfEmpty()
 	return nil
+}
+
+// removeSidecarIfEmpty deletes the sidecar file when no ops remain (see
+// DeleteOp); best-effort, errors only mean the file lingers.
+func (s *SegmentEditOps) removeSidecarIfEmpty() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ok, err := s.openIfExistsLocked()
+	if err != nil || !ok {
+		return
+	}
+	empty := false
+	if err := s.db.View(func(tx *bolt.Tx) error {
+		k, _ := tx.Bucket(editOpsBucketOperations).Cursor().First()
+		empty = k == nil
+		return nil
+	}); err != nil {
+		return
+	}
+	if empty {
+		s.closeAndRemoveLocked()
+	}
 }
 
 // editOpsOrphanSweepInterval rate-limits the cleanup-cycle orphan sweep's
@@ -820,6 +1128,7 @@ func (s *SegmentEditOps) SweepOrphans(ctx context.Context) {
 		return
 	}
 	for _, op := range suspectedOrphans(suspected, live) {
+		s.warnIfSweepingRows(op.ID, "orphan sweep")
 		if err := s.DeleteOp(op.ID); err != nil {
 			if s.logger != nil {
 				s.logger.WithField("op_id", op.ID).Warnf("edit-ops orphan sweep: delete failed: %v", err)
@@ -830,6 +1139,40 @@ func (s *SegmentEditOps) SweepOrphans(ctx context.Context) {
 			s.logger.WithField("op_id", op.ID).Info("edit-ops orphan sweep: removed op with no live task")
 		}
 	}
+}
+
+// warnIfSweepingRows surfaces a sweep deleting an op that still holds rows.
+// A pending row is not proof of unstripped bytes — the routine journey
+// "drained, finalized while unloaded, reactivation re-pends a WAL-recovered
+// segment" leaves rows whose data the write-path guards already stripped —
+// but it CAN be the residual window's evidence (pre-arm rows re-pended on a
+// shard that unloaded before a cleanup pass and finalize both ran), and once
+// the op is gone nothing can strip them (the dropped-target fence rightly
+// blocks post-finalize strips). Deleting is still right — keeping the op
+// could not strip either and would cost decode work forever — but it must
+// not happen silently. A failed row read is reported as such, not as a count.
+func (s *SegmentEditOps) warnIfSweepingRows(opID, where string) {
+	if s.logger == nil {
+		return
+	}
+	pending, perr := s.Pending(opID)
+	quarantined, qerr := s.QuarantinedFor(opID)
+	if perr != nil || qerr != nil {
+		s.logger.WithField("op_id", opID).
+			Warnf("edit-ops %s: could not inspect rows before deleting op (pending read: %v, quarantine read: %v)", where, perr, qerr)
+		return
+	}
+	if len(pending)+len(quarantined) > 0 {
+		s.logger.WithField("op_id", opID).Warn(sweepingRowsMessage(where, len(pending), len(quarantined)))
+	}
+}
+
+// sweepingRowsMessage is the shared wording for both sweep sites (SweepOrphans
+// and Recover's orphan sweep), so the disclosure cannot drift.
+func sweepingRowsMessage(where string, pending, quarantined int) string {
+	return fmt.Sprintf("edit-ops %s: deleting op that still holds %d pending / %d quarantined segment(s); "+
+		"their dropped-vector bytes may not have been stripped (post-marker writes were stripped on write; "+
+		"anything else would need a re-drop of the name to clean)", where, pending, quarantined)
 }
 
 // suspectedOrphans returns the sweepable ops (liveness-covered types only; an
@@ -850,6 +1193,10 @@ func suspectedOrphans(ops []ActiveOp, live map[string]struct{}) []ActiveOp {
 
 // Reconcile repairs the store against ground truth at open time (C1):
 //
+//   - legacy "<left>_<right>" compaction re-queue rows written by an older
+//     binary are migrated to the merged output's real ID first — plain
+//     pruning would silently drop their cover (see
+//     migrateLegacyCompactionRowsTx).
 //   - pending/quarantined rows for segments that no longer exist on disk are
 //     dropped. This covers a crash after a segment was renamed/merged away but
 //     before its row could be cleared.
@@ -862,7 +1209,8 @@ func (s *SegmentEditOps) Reconcile(existingSegmentIDs, liveOpIDs map[string]stru
 	return s.withWriteTx(false, func(tx *bolt.Tx) error {
 		ops := tx.Bucket(editOpsBucketOperations)
 
-		// Drop orphaned operations first; the segment sweep then skips them.
+		// Drop orphaned operations first; the migration and segment sweep
+		// then skip them.
 		if liveOpIDs != nil {
 			var orphans []string
 			if err := ops.ForEach(func(k, _ []byte) error {
@@ -874,6 +1222,15 @@ func (s *SegmentEditOps) Reconcile(existingSegmentIDs, liveOpIDs map[string]stru
 				return err
 			}
 			for _, opID := range orphans {
+				// Same disclosure as SweepOrphans (see warnIfSweepingRows).
+				if s.logger != nil {
+					pending := countSubRows(tx.Bucket(editOpsBucketPending), opID)
+					quarantined := countSubRows(tx.Bucket(editOpsBucketQuarantine), opID)
+					if pending+quarantined > 0 {
+						s.logger.WithField("op_id", opID).
+							Warn(sweepingRowsMessage("recover orphan sweep", pending, quarantined))
+					}
+				}
 				if err := ops.Delete([]byte(opID)); err != nil {
 					return err
 				}
@@ -886,6 +1243,10 @@ func (s *SegmentEditOps) Reconcile(existingSegmentIDs, liveOpIDs map[string]stru
 			}
 		}
 
+		if err := s.migrateLegacyCompactionRowsTx(tx, existingSegmentIDs); err != nil {
+			return err
+		}
+
 		for _, top := range [][]byte{editOpsBucketPending, editOpsBucketQuarantine} {
 			if err := pruneMissingSegments(tx.Bucket(top), existingSegmentIDs); err != nil {
 				return err
@@ -893,6 +1254,83 @@ func (s *SegmentEditOps) Reconcile(existingSegmentIDs, liveOpIDs map[string]stru
 		}
 		return nil
 	})
+}
+
+// migrateLegacyCompactionRowsTx heals pending rows written by a pre-resume
+// binary's RecordCompaction, which re-queued a compaction's merged output
+// under "<leftID>_<rightID>" — a name no live segment ever carries (the merged
+// file takes the RIGHT input's ID; stripTmpExtension). The old code masked
+// those rows by re-snapshotting every live segment on load; with recovery now
+// trusting the recorded pending set, plain pruning would drop the row and the
+// merged output — written without the op's transformer — would be treated as
+// clean: the drop would finalize with its data unstripped. So, for a pending
+// row absent from disk whose name has the legacy shape: if its right half is
+// a live segment, the row is rewritten to it (the exact cover); if the right
+// half is gone too (merged again under the old binary), the op re-pends every
+// live segment — one conservative re-clean of this shard instead of a silent
+// under-strip. Quarantine rows need no migration: cleanup never bumps a row
+// whose segment is missing, so a phantom can never have been quarantined.
+// The downgrade direction is safe without any of this: an older binary
+// re-snapshots every live segment at load, which re-covers anything a
+// post-upgrade sidecar recorded.
+func (s *SegmentEditOps) migrateLegacyCompactionRowsTx(tx *bolt.Tx, existingSegmentIDs map[string]struct{}) error {
+	pending := tx.Bucket(editOpsBucketPending)
+	type phantomRow struct {
+		opID, segID, rightID string
+	}
+	var phantoms []phantomRow
+	if err := pending.ForEachBucket(func(opID []byte) error {
+		return pending.Bucket(opID).ForEach(func(segID, _ []byte) error {
+			id := string(segID)
+			if _, ok := existingSegmentIDs[id]; ok {
+				return nil
+			}
+			i := strings.LastIndexByte(id, '_')
+			if i < 0 {
+				return nil // plain missing segment; pruneMissingSegments handles it
+			}
+			phantoms = append(phantoms, phantomRow{opID: string(opID), segID: id, rightID: id[i+1:]})
+			return nil
+		})
+	}); err != nil {
+		return err
+	}
+	if len(phantoms) == 0 {
+		return nil
+	}
+	resnapshot := map[string]struct{}{}
+	for _, row := range phantoms {
+		if err := pending.Bucket([]byte(row.opID)).Delete([]byte(row.segID)); err != nil {
+			return err
+		}
+		if s.logger != nil {
+			s.logger.WithField("op_id", row.opID).WithField("row", row.segID).
+				Warn("edit-ops recover: migrating legacy compaction re-queue row from an older binary")
+		}
+		if _, ok := existingSegmentIDs[row.rightID]; ok {
+			// addPendingRowsTx keeps an existing row's accrued retries and
+			// honors a standing quarantine verdict on the target ID.
+			if err := s.addPendingTx(tx, row.opID, row.rightID); err != nil {
+				return err
+			}
+			continue
+		}
+		resnapshot[row.opID] = struct{}{}
+	}
+	if len(resnapshot) == 0 {
+		return nil
+	}
+	segIDs := make([]string, 0, len(existingSegmentIDs))
+	for id := range existingSegmentIDs {
+		segIDs = append(segIDs, id)
+	}
+	sort.Strings(segIDs)
+	for opID := range resnapshot {
+		if err := s.addPendingRowsTx(tx, opID, segIDs); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // pruneMissingSegments deletes, across every operation sub-bucket, the segment
@@ -918,6 +1356,18 @@ func pruneMissingSegments(parent *bolt.Bucket, existingSegmentIDs map[string]str
 		}
 	}
 	return nil
+}
+
+// countSubRows returns the number of rows in parent's opID sub-bucket (0 when
+// absent).
+func countSubRows(parent *bolt.Bucket, opID string) int {
+	sub := parent.Bucket([]byte(opID))
+	if sub == nil {
+		return 0
+	}
+	n := 0
+	_ = sub.ForEach(func(_, _ []byte) error { n++; return nil })
+	return n
 }
 
 func deleteSubBucket(parent *bolt.Bucket, opID string) error {

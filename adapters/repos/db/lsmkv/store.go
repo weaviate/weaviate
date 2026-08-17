@@ -384,6 +384,12 @@ func (s *Store) listMigrationFiles(basePath string) ([]string, error) {
 		if d == nil || d.IsDir() {
 			return nil
 		}
+		// A crash mid-rename leaves the tracker's scratch file behind, and
+		// nothing under .migrations ever sweeps it. Copying it would carry it
+		// into every later backup and restore.
+		if filepath.Ext(d.Name()) == ".tmp" {
+			return nil
+		}
 
 		relPath, err := filepath.Rel(basePath, path)
 		if err != nil {
@@ -510,6 +516,11 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	return nil
 }
 
+// ReplacedBucketDirSuffix names the dir the displaced bucket sits at between
+// [Store.ReplaceBuckets]' two renames. A crash in that window leaves it on
+// disk, where only the per-property cleanup sweep in package db picks it up.
+const ReplacedBucketDirSuffix = "___del"
+
 // replaceBucket drains the displaced bucket and swaps the two directories on
 // disk. Caller must hold replacementBucket.flushLock (flushLock OUTER →
 // maintenanceLock INNER, same order as the flush path).
@@ -518,7 +529,7 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	defer replacementBucket.disk.maintenanceLock.Unlock()
 
 	currBucketDir := bucket.dir
-	newBucketDir := bucket.dir + "___del"
+	newBucketDir := bucket.dir + ReplacedBucketDirSuffix
 	currReplacementBucketDir := replacementBucket.dir
 	newReplacementBucketDir := currBucketDir
 
@@ -730,12 +741,13 @@ func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName st
 	// CleanStalePartialReindexState at submit time).
 	//
 	// Safety vs the source bucket's eventual Shutdown: Bucket.Shutdown calls
-	// GlobalBucketRegistry.Remove(b.GetDir()) which is idempotent — removing
-	// a path that is not in the registry is a no-op, and the bucket that did
-	// claim the path between the swap and the Shutdown is not affected
+	// GlobalBucketRegistry.Remove(b.registeredPath) which is idempotent —
+	// removing a path that is not in the registry is a no-op, and the bucket
+	// that did claim the path between the swap and the Shutdown is not affected
 	// because every swap in a chain runs this same Remove, so the path is
-	// released BEFORE the next bucket claims it.
-	GlobalBucketRegistry.Remove(sourceBucket.GetDir())
+	// released BEFORE the next bucket claims it. registeredPath equals the
+	// source bucket's current dir here (no rename has run yet).
+	GlobalBucketRegistry.Remove(sourceBucket.registeredPath)
 
 	return oldBucket, nil
 }

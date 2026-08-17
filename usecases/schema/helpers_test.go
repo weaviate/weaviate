@@ -143,7 +143,7 @@ func (f *fakeDB) AddTenants(class string, cmd *command.AddTenantsRequest) error 
 	return nil
 }
 
-func (f *fakeDB) UpdateTenants(class string, cmd *command.UpdateTenantsRequest) error {
+func (f *fakeDB) UpdateTenants(class string, cmd *command.UpdateTenantsRequest, preFreezeStatuses map[string]string) error {
 	return nil
 }
 

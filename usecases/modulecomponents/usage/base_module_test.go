@@ -15,21 +15,18 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	clusterusage "github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/cluster/usage/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	configruntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -110,61 +107,44 @@ func TestBaseModule_RuntimeOverridesConcurrencyReachesService(t *testing.T) {
 	}
 }
 
-// TestBaseModule_WarnsOnOverlappingCollection verifies overlapping collection
-// cycles are allowed to run concurrently but emit a warning log.
-func TestBaseModule_WarnsOnOverlappingCollection(t *testing.T) {
-	logger, hook := logrustest.NewNullLogger()
-
+// TestBaseModule_SkipsOverlappingCollection verifies a collection tick is skipped
+// while the previous cycle is still running, and allowed again once it finishes.
+func TestBaseModule_SkipsOverlappingCollection(t *testing.T) {
 	mockStorage := NewMockStorageBackend(t)
-	mockStorage.EXPECT().UploadUsageData(mock.Anything, mock.Anything).Return(nil).Times(2)
+	mockStorage.EXPECT().UploadUsageData(mock.Anything, mock.Anything).Return(nil).Once()
 
-	entered := make(chan struct{}, 2)
+	started := make(chan struct{})
 	release := make(chan struct{})
 	mockService := clusterusage.NewMockService(t)
 	mockService.EXPECT().Usage(mock.Anything, false).RunAndReturn(
 		func(context.Context, bool) (*types.Report, error) {
-			entered <- struct{}{}
+			close(started)
 			<-release
 			return &types.Report{}, nil
-		}).Times(2)
+		}).Once()
 
 	module := NewBaseModule("test-module", mockStorage)
+	metrics := NewMetrics(prometheus.NewRegistry(), "test-module")
 
 	cfg := &config.Config{}
 	cfg.Cluster.Hostname = "test-node"
 	cfg.Persistence.DataPath = t.TempDir()
 	require.NoError(t, ParseCommonUsageConfig(cfg))
-	require.NoError(t, module.InitializeCommon(context.Background(), cfg, logger,
-		NewMetrics(prometheus.NewRegistry(), "test-module")))
+	require.NoError(t, module.InitializeCommon(context.Background(), cfg, logrus.New(), metrics))
 	// set the service directly to avoid starting the periodic collector
 	module.usageService = mockService
 
-	var wg sync.WaitGroup
-	for range 2 {
-		wg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			module.runCollectAndUpload(context.Background())
-		}, logger)
-	}
+	require.True(t, module.tryCollectAndUpload(context.Background()))
+	<-started
 
-	// both cycles are inside Usage at the same time
-	for range 2 {
-		select {
-		case <-entered:
-		case <-time.After(5 * time.Second):
-			t.Fatal("collection cycles did not run concurrently")
-		}
-	}
+	assert.False(t, module.tryCollectAndUpload(context.Background()))
+	assert.Equal(t, float64(1),
+		testutil.ToFloat64(metrics.OperationTotal.WithLabelValues("collect_and_upload", "skipped")))
+
 	close(release)
-	wg.Wait()
-
-	var warned bool
-	for _, entry := range hook.AllEntries() {
-		if entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, "still running") {
-			warned = true
-		}
-	}
-	assert.True(t, warned, "expected a warning about overlapping collection cycles")
-	assert.Equal(t, int32(0), module.collectionsInFlight.Load())
+	assert.Eventually(t, func() bool {
+		return !module.collectionInFlight.Load()
+	}, 5*time.Second, 10*time.Millisecond, "in-flight flag was not cleared after the cycle finished")
+	assert.Equal(t, float64(1),
+		testutil.ToFloat64(metrics.OperationTotal.WithLabelValues("collect_and_upload", "success")))
 }

@@ -78,6 +78,12 @@ type Segment interface {
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() innerCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
+	// targeted-scan support (bucket_targeted_scan.go): index walk, index split
+	// for weighted task sizing, and a byte-range read that is zero-copy in mmap
+	// mode and fills *buf (grown in place as needed) via pread otherwise.
+	scanIndexNodes(from, to int, fn func(n segmentNodeRange) error) error
+	indexNodeSplits(parts int) [][2]int
+	readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error)
 	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
 	newRoaringSetRangeReader() roaringsetrange.InnerReader
@@ -100,7 +106,11 @@ type Segment interface {
 
 	// replace specific
 	getCountNetAdditions() int
-	existsKey(key []byte) (bool, error)
+	// indexContainsKey reports whether this segment holds an entry for the key,
+	// live or tombstoned — not whether the key is live. Callers deciding what a
+	// newer segment supersedes want exactly that: a tombstone hides a lower
+	// segment's row just as a value does.
+	indexContainsKey(key []byte) (bool, error)
 }
 
 type segment struct {
@@ -149,6 +159,10 @@ type diskIndex interface {
 	// Get return lsmkv.NotFound in case no node can be found
 	Get(key []byte) (segmentindex.Node, error)
 
+	// GetOffsets returns only the payload position (start, end) of the
+	// matching node; prefer it on hot paths that never read Node.Key.
+	GetOffsets(key []byte) (start, end uint64, err error)
+
 	// Seek returns lsmkv.NotFound in case the seek value is larger than
 	// the highest value in the collection, otherwise it returns the next highest
 	// value (or the exact value if present)
@@ -171,6 +185,19 @@ type diskIndex interface {
 	// The key passed to fn is a subslice of the underlying data and must not
 	// be retained or modified by the caller.
 	ForEachKey(fn func(key []byte))
+
+	// ForEachNodeInRange walks the serialized nodes packed in data[from:to) —
+	// on-disk order, not key order — without allocating. The key passed to fn is
+	// a subslice of the underlying data, valid only for the duration of fn.
+	ForEachNodeInRange(from, to int, fn func(key []byte, start, end uint64) error) error
+
+	// SplitNodeRanges returns node-aligned [from,to) byte ranges partitioning the
+	// whole index into at most parts pieces of roughly equal byte size, for use
+	// with ForEachNodeInRange.
+	SplitNodeRanges(parts int) [][2]int
+
+	// Contains reports whether key is present, without materializing it.
+	Contains(key []byte) (bool, error)
 }
 
 type segmentConfig struct {
@@ -456,27 +483,26 @@ func (s *segment) close() error {
 	return nil
 }
 
+// sidecarPaths returns the paths of the files derived from the segment: bloom
+// filters, count net additions and metadata.
+func (s *segment) sidecarPaths() []string {
+	paths := make([]string, 0, 3+int(s.secondaryIndexCount))
+	paths = append(paths, s.bloomFilterPath())
+	for i := 0; i < int(s.secondaryIndexCount); i++ {
+		paths = append(paths, s.bloomFilterSecondaryPath(i))
+	}
+	return append(paths, s.countNetPath(), s.metadataPath())
+}
+
 func (s *segment) dropImmediately() error {
 	// support for persisting bloom filters and cnas was added in v1.17,
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := os.RemoveAll(s.bloomFilterPath()); err != nil {
-		return fmt.Errorf("drop bloom filter: %w", err)
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := os.RemoveAll(s.bloomFilterSecondaryPath(i)); err != nil {
-			return fmt.Errorf("drop bloom filter: %w", err)
+	for _, path := range s.sidecarPaths() {
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("drop %s: %w", filepath.Base(path), err)
 		}
-	}
-
-	if err := os.RemoveAll(s.countNetPath()); err != nil {
-		return fmt.Errorf("drop count net additions file: %w", err)
-	}
-
-	if err := os.RemoveAll(s.metadataPath()); err != nil {
-		return fmt.Errorf("drop metadata file: %w", err)
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
@@ -494,22 +520,10 @@ func (s *segment) dropMarked() error {
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := s.removeAllMarked(s.bloomFilterPath()); err != nil {
-		return fmt.Errorf("drop previously marked bloom filter: %w", err)
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := s.removeAllMarked(s.bloomFilterSecondaryPath(i)); err != nil {
-			return fmt.Errorf("drop previously marked secondary bloom filter: %w", err)
+	for _, path := range s.sidecarPaths() {
+		if err := s.removeAllMarked(path); err != nil {
+			return fmt.Errorf("drop previously marked %s: %w", filepath.Base(path), err)
 		}
-	}
-
-	if err := s.removeAllMarked(s.countNetPath()); err != nil {
-		return fmt.Errorf("drop previously marked count net additions file: %w", err)
-	}
-
-	if err := s.removeAllMarked(s.metadataPath()); err != nil {
-		return fmt.Errorf("drop previously marked metadata file: %w", err)
 	}
 
 	if s.segmentFileSuperseded {
@@ -574,29 +588,9 @@ func (s *segment) markSidecarsForDeletion() error {
 	// support for persisting bloom filters and cnas was added in v1.17,
 	// therefore the files may not be present on segments created with previous
 	// versions. If we get a not exist error, we ignore it.
-	if err := s.markDeleted(s.bloomFilterPath()); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("mark bloom filter deleted: %w", err)
-		}
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := s.markDeleted(s.bloomFilterSecondaryPath(i)); err != nil {
-			if !os.IsNotExist(err) {
-				return fmt.Errorf("mark secondary bloom filter deleted: %w", err)
-			}
-		}
-	}
-
-	if err := s.markDeleted(s.countNetPath()); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("mark count net additions file deleted: %w", err)
-		}
-	}
-
-	if err := s.markDeleted(s.metadataPath()); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("mark metadata file deleted: %w", err)
+	for _, path := range s.sidecarPaths() {
+		if err := s.markDeleted(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("mark %s deleted: %w", filepath.Base(path), err)
 		}
 	}
 
@@ -712,6 +706,19 @@ type nodeOffset struct {
 	start, end uint64
 }
 
+// readMetricName is the sync.Map key bufferedReaderAt meters under. Joining it
+// per call allocates, and read paths that fetch a few bytes per row do this once
+// a row, so the operations used there are pre-joined.
+func readMetricName(operation string) string {
+	switch operation {
+	case targetedScanPeekOp:
+		return "ReadFromSegment" + targetedScanPeekOp
+	case targetedScanRangeOp:
+		return "ReadFromSegment" + targetedScanRangeOp
+	}
+	return "ReadFromSegment" + operation
+}
+
 func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReader, error) {
 	var (
 		r       io.Reader
@@ -726,7 +733,7 @@ func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReade
 		}
 		r, err = s.bytesReaderFrom(contents)
 	} else {
-		r, release, err = s.bufferedReaderAt(offset.start, "ReadFromSegment"+operation)
+		r, release, err = s.bufferedReaderAt(offset.start, readMetricName(operation))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("new nodeReader: %w", err)

@@ -83,12 +83,13 @@ type BucketCreator interface {
 }
 
 type Bucket struct {
-	dir      string
-	rootDir  string
-	active   memtable
-	flushing memtable
-	disk     *SegmentGroup
-	logger   logrus.FieldLogger
+	dir            string
+	registeredPath string
+	rootDir        string
+	active         memtable
+	flushing       memtable
+	disk           *SegmentGroup
+	logger         logrus.FieldLogger
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -246,6 +247,12 @@ type Bucket struct {
 	// observing true is guaranteed a populated rep.
 	rangeableRepRebuilt atomic.Bool
 
+	// shuttingDown flips at Shutdown entry and never resets: registering a
+	// NEW edit op on a closing bucket must hard-fail (see RegisterEditOp) —
+	// the snapshot would race the dismantling and could record "nothing to
+	// clean" for a bucket full of data.
+	shuttingDown atomic.Bool
+
 	// Dedup for the rangeable diagnostic log lines, once per bucket-open.
 	rangeableDeferredLogOnce  sync.Once
 	rangeableFallbackWarnOnce sync.Once
@@ -277,7 +284,12 @@ type Bucket struct {
 	sequentialAccess bool
 }
 
-func NewBucketCreator() *Bucket { return &Bucket{} }
+// bucketCreator satisfies BucketCreator without being a Bucket itself: a Bucket
+// that has not been through NewBucket has no logger, no memtables and no
+// segment group, so it must never be handed out as one.
+type bucketCreator struct{}
+
+func NewBucketCreator() BucketCreator { return bucketCreator{} }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
 // it exists, or initializes new state.
@@ -285,11 +297,44 @@ func NewBucketCreator() *Bucket { return &Bucket{} }
 // You do not need to ever call NewBucket() yourself, if you are using a
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
-func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
+// newBucketPostDiskInitHook is a test-only fault-injection point between the
+// segment-group init and the rest of NewBucket. Nil in production.
+var newBucketPostDiskInitHook func(*Bucket) error
+
+func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
 ) (b *Bucket, err error) {
 	beforeAll := time.Now()
+
+	// Claim the registry entry BEFORE touching any file: a second open of a
+	// still-live bucket (e.g. re-init after a shard teardown failed deep and
+	// leaked this bucket open) must be refused up front. Checking last let a
+	// doomed re-open run WAL recovery first — deleting the live instance's
+	// active WAL, whose buffered writes then flushed into an unlinked inode
+	// on shutdown: silent data loss.
+	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
+		return nil, err
+	}
+	var constructed *Bucket // named return b is nil'd by error returns; keep our own handle
+	defer func() {
+		if err == nil {
+			return
+		}
+		// A failure after newSegmentGroup succeeded leaves mmapped segments
+		// and flocked bolt handles behind disk; tear them down before
+		// releasing the claim — freeing the slot over live handles re-opens
+		// the exact double-open the front claim prevents. If the teardown
+		// itself fails, keep the claim: re-open stays refused until restart.
+		if constructed != nil && constructed.disk != nil {
+			if serr := constructed.disk.shutdown(context.Background()); serr != nil {
+				logger.WithField("dir", dir).
+					Errorf("close partially initialized bucket: %v — keeping registry claim; re-open refused until restart", serr)
+				return
+			}
+		}
+		GlobalBucketRegistry.Remove(dir)
+	}()
 
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
@@ -299,8 +344,12 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	defaultStrategy := unsetStrategy
 
 	b = &Bucket{
-		dir:                          dir,
-		rootDir:                      rootDir,
+		dir:     dir,
+		rootDir: rootDir,
+		// The actual path of the bucket can change, e.g. on delete, without
+		// updating the registry. Keep the registered path (claimed at the top
+		// of this function) so shutdown can release the right entry.
+		registeredPath:               dir,
 		memtableThreshold:            defaultMemTableThreshold,
 		walThreshold:                 defaultWalThreshold,
 		flushDirtyAfter:              defaultFlushAfterDirty,
@@ -336,6 +385,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	if b.disableCompaction {
 		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
+
+	constructed = b
 
 	b.desiredStrategy = b.strategy
 
@@ -393,6 +444,12 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	b.disk = sg
 
+	if newBucketPostDiskInitHook != nil {
+		if err := newBucketPostDiskInitHook(b); err != nil {
+			return nil, err
+		}
+	}
+
 	if b.active == nil {
 		b.active, err = b.createNewActiveMemtable()
 		if err != nil {
@@ -404,11 +461,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	b.flushCallbackCtrl = flushCallbacks.Register(id, b.flushAndSwitchIfThresholdsMet)
 
 	b.metrics.TrackStartupBucket(beforeAll)
-
-	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
-		// prevent accidentally trying to register the same bucket twice
-		return nil, err
-	}
 
 	return b, nil
 }
@@ -432,19 +484,46 @@ func (b *Bucket) HasEditOps() bool {
 // RegisterEditOp records an in-place edit op (e.g. drop-vector) and snapshots the
 // current segments as pending for the compaction/cleanup transformer to rewrite.
 // It flushes the active memtable first so in-memory data is captured. Idempotent:
-// an op that already has a snapshot (resume) is a no-op and skips the flush.
+// an op that already has a snapshot (resume) skips the flush and the snapshot,
+// keeping the recorded pending set as the progress marker; it only requeues
+// segments an earlier round quarantined, granting them a fresh retry budget.
 func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 	if !b.HasEditOps() {
 		return fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	// Hold flushAndSwitchMu across [flag check -> flush -> snapshot]:
+	// Shutdown sets shuttingDown and then passes a barrier on this mutex, so
+	// either this registration observed the flag and refused, or it completes
+	// its flush AND snapshot before the shutdown proceeds — a shutdown flush
+	// can never land between our flush and our snapshot (a segment outside
+	// the pending set is exactly the resurrection this guard exists to stop).
+	b.flushAndSwitchMu.Lock()
+	defer b.flushAndSwitchMu.Unlock()
+	// flushAndSwitchLocked skips FlushAndSwitch's read-only guard; re-check
+	// here — arming triggers a flush, the exact write StatusReadOnly blocks.
+	if err := b.readOnlyErr(); err != nil {
+		return err
+	}
+	if b.shuttingDown.Load() {
+		// Arming against a closing bucket is unsound: the flush + segment
+		// snapshot race the dismantling, and an empty or partial snapshot
+		// would let the drop record completion without stripping. Fail the
+		// unit instead; a later round re-arms on a live instance.
+		return fmt.Errorf("bucket is shutting down; refusing to register edit op %q", opID)
 	}
 	snapshotted, err := b.disk.editOps.HasPendingSnapshot(opID)
 	if err != nil {
 		return err
 	}
 	if snapshotted {
-		return nil
+		// Resume: the recorded pending set IS the progress, so no new snapshot
+		// and no flush. A re-arm marks a new round, though, so segments
+		// quarantined by an earlier round get a fresh retry budget — otherwise
+		// a single exhausted budget would wedge the drop permanently (the op
+		// and its quarantine rows outlive FAILED rounds by design).
+		return b.disk.requeueQuarantinedEditOps(opID)
 	}
-	if err := b.FlushAndSwitch(); err != nil {
+	if err := b.flushAndSwitchLocked(); err != nil {
 		return fmt.Errorf("flush before edit-op snapshot: %w", err)
 	}
 	return b.disk.registerEditOpAndSnapshot(opID, desc)
@@ -459,17 +538,48 @@ func (b *Bucket) EditOpPending(opID string) ([]string, error) {
 	return b.disk.editOps.Pending(opID)
 }
 
-// DeleteEditOp removes opID and its bookkeeping from the sidecar once its task
-// stops being live (success — delivered as SWAPPING or a replayed FINISHED — or
-// FAILED/CANCELLED), so the op stops driving the compaction/cleanup transformer.
-// A lingering op would re-decode every object on every future compaction, force a
-// full re-clean on each restart (via recoverEditOps), and — once the dropped name
-// is freed for re-creation — strip the re-created vector. Idempotent.
-func (b *Bucket) DeleteEditOp(opID string) error {
+// DeleteEditOpIfDrained removes opID and its bookkeeping from the sidecar
+// once this bucket's work for it is finished for good: task success
+// (delivered as SWAPPING or a replayed FINISHED), or a terminal round whose
+// unit here COMPLETED (the shard enters the epoch's inherited coverage, so no
+// later round returns). A lingering op would re-decode every object on every
+// future compaction and — once the dropped name is freed for re-creation —
+// strip the re-created vector (the dropped-target fence is the runtime guard
+// against exactly that). The delete is gated, in one transaction, on the op
+// having no pending and no quarantined rows — the caller's "this op is
+// drained" belief is verified atomically instead of across separate reads,
+// because a pending row may be unstripped data's only cover. Reports whether
+// the op was deleted and, when kept, the row counts that vetoed it.
+// Idempotent; this is the ONLY delete the provider gets — an unguarded
+// variant existed and was removed so it cannot be reached for.
+func (b *Bucket) DeleteEditOpIfDrained(opID string) (deleted bool, pending, quarantined int, err error) {
 	if !b.HasEditOps() {
-		return fmt.Errorf("edit ops not enabled for this bucket")
+		return false, 0, 0, fmt.Errorf("edit ops not enabled for this bucket")
 	}
-	return b.disk.editOps.DeleteOp(opID)
+	return b.disk.editOps.DeleteOpIfDrained(opID)
+}
+
+// EditOpsHaveRows reports whether ANY edit op on this bucket still has
+// pending or quarantined segments — i.e. an in-place edit (drop-vector strip)
+// is mid-flight on this bucket's data. Replica movement consults this: the
+// sidecar is excluded from copied file lists, so moving a bucket with rows
+// would land the unstripped bytes at the target with no record they exist.
+func (b *Bucket) EditOpsHaveRows() (bool, error) {
+	if !b.HasEditOps() {
+		return false, nil
+	}
+	pending, err := b.disk.editOps.AllPending()
+	if err != nil {
+		return false, err
+	}
+	if len(pending) > 0 {
+		return true, nil
+	}
+	quarantined, err := b.disk.editOps.Quarantined()
+	if err != nil {
+		return false, err
+	}
+	return len(quarantined) > 0, nil
 }
 
 // EditOpQuarantined returns the segment IDs the cleanup driver quarantined
@@ -682,7 +792,7 @@ func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, [
 		}
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
@@ -709,10 +819,7 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	// logger nil-guard: test buckets are built as bare literals without one, and
-	// under load this slow-lock branch can fire (RLock timed >100ms) where it never
-	// would in production; a nil FieldLogger would then panic on WithFields.
-	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond && b.logger != nil {
+	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
 		b.logger.WithFields(logrus.Fields{
 			"duration": duration,
 			"action":   "lsm_bucket_get_acquire_flush_lock",
@@ -1744,6 +1851,13 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
+	b.shuttingDown.Store(true)
+	// Barrier: any RegisterEditOp that passed the flag check holds
+	// flushAndSwitchMu until its snapshot is durable — wait it out, so no
+	// arm is mid-flight once the teardown below starts. Later arms see the
+	// flag and refuse.
+	b.flushAndSwitchMu.Lock()
+	b.flushAndSwitchMu.Unlock() //nolint:staticcheck // empty critical section IS the barrier
 	// Drain all in-flight read pins first (see the lifetimeLock doc); the
 	// heartbeat makes a wedged drain diagnosable.
 	drained := make(chan struct{})
@@ -1764,7 +1878,16 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	close(drained)
 	defer b.lifetimeLock.Unlock()
 
-	defer GlobalBucketRegistry.Remove(b.GetDir())
+	defer func() {
+		// Release the registry claim only on a COMPLETED teardown: a failed
+		// one may leave open handles, and the claim is what makes a re-open
+		// over them refuse up front instead of racing a still-live instance
+		// (see the claim in NewBucket). A retried or restart shutdown clears
+		// it once the teardown actually finishes.
+		if err == nil {
+			GlobalBucketRegistry.Remove(b.registeredPath)
+		}
+	}()
 
 	start := time.Now()
 
@@ -2007,6 +2130,13 @@ func (b *Bucket) FlushAndSwitch() error {
 	b.flushAndSwitchMu.Lock()
 	defer b.flushAndSwitchMu.Unlock()
 
+	return b.flushAndSwitchLocked()
+}
+
+// flushAndSwitchLocked is FlushAndSwitch's body; the caller must hold
+// flushAndSwitchMu (RegisterEditOp holds it across flush + snapshot so a
+// concurrent Shutdown cannot interleave between them).
+func (b *Bucket) flushAndSwitchLocked() error {
 	before := time.Now()
 	var err error
 
@@ -2015,6 +2145,22 @@ func (b *Bucket) FlushAndSwitch() error {
 	b.logger.WithField("action", "lsm_memtable_flush_start").
 		WithField("path", bucketPath).
 		Trace("start flush and switch")
+
+	// A non-nil b.flushing here is the aftermath of a FAILED earlier flush
+	// (flushAndSwitchLocked returned mid-way and nothing else retries that
+	// memtable). Its acknowledged, fsynced writes are readable only through
+	// the flushing memtable — switching over it would orphan them until a
+	// restart's WAL replay (and, mid-drop, leave pre-arm bytes outside every
+	// snapshot). Complete the leftover flush first; if it fails again, this
+	// attempt fails too and the data stays readable where it is.
+	if b.flushing != nil {
+		b.logger.WithField("action", "lsm_memtable_flush_start").
+			WithField("path", bucketPath).
+			Warn("a previous memtable flush did not complete; retrying it before switching")
+		if err := b.flushFlushingLocked(); err != nil {
+			return fmt.Errorf("retry incomplete previous flush: %w", err)
+		}
+	}
 
 	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
 	if err != nil {
@@ -2030,6 +2176,30 @@ func (b *Bucket) FlushAndSwitch() error {
 		return nil
 	}
 
+	if err := b.flushFlushingLocked(); err != nil {
+		return err
+	}
+
+	took := time.Since(before)
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", bucketPath).
+		Trace("finish flush and switch")
+
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", bucketPath).
+		WithField("took", took).
+		Debugf("flush and switch took %s\n", took)
+
+	return nil
+}
+
+// flushFlushingLocked completes the flush of the memtable currently in
+// b.flushing (steps 2-4 of FlushAndSwitch): wait out its writers, flush it to
+// a segment, precompute metadata, and atomically add the segment while
+// clearing b.flushing. Split out so flushAndSwitchLocked can also drain a
+// memtable a FAILED earlier flush left behind before switching. The caller
+// must hold flushAndSwitchMu.
+func (b *Bucket) flushFlushingLocked() error {
 	// Before we can start the actual flush, we need to make sure that all
 	// ongoing writers have finished their write, otherwise we could lose the
 	// write.
@@ -2110,16 +2280,6 @@ func (b *Bucket) FlushAndSwitch() error {
 		}
 	}
 
-	took := time.Since(before)
-	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", bucketPath).
-		Trace("finish flush and switch")
-
-	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", bucketPath).
-		WithField("took", took).
-		Debugf("flush and switch took %s\n", took)
-
 	return nil
 }
 
@@ -2130,6 +2290,13 @@ func (b *Bucket) FlushAndSwitch() error {
 func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (memtable, error)) (bool, error) {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
+
+	if b.flushing != nil {
+		// Overwriting a leftover flushing memtable would orphan its
+		// acknowledged writes (unreadable until a restart's WAL replay).
+		// Callers must drain it first — flushAndSwitchLocked does.
+		return false, fmt.Errorf("previous flushing memtable still present; refusing to overwrite it")
+	}
 
 	if b.active.Size() == 0 {
 		return false, nil

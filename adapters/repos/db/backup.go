@@ -253,6 +253,8 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	if useHardlinks {
 		return i.descriptorWithHardlinks(ctx, backupID, desc, classBaseDescrs)
 	}
+	// NO-HARDLINK-BACKUP: only reachable on filesystems without hardlink support.
+	// Removed in v1.40; bugs here are not fixed.
 	return i.descriptorWithoutHardlinks(ctx, backupID, desc, classBaseDescrs)
 }
 
@@ -332,6 +334,12 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
+	// Deferred before backupLock so it runs after the unlock: dropping the last
+	// shard reference can run the shard teardown inline, and doing that under
+	// backupLock blocks every write to the shard for the teardown's duration.
+	releaseShard := func() {}
+	defer func() { releaseShard() }()
+
 	i.backupLock.Lock(name)
 	defer i.backupLock.Unlock(name)
 
@@ -384,7 +392,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 	if err != nil {
 		return nil, fmt.Errorf("prevent shutdown of shard %v: %w", name, err)
 	}
-	defer release()
+	releaseShard = release
 
 	i.shardCreateLocks.Unlock(name)
 	shardCreateLocksHeld = false
@@ -460,6 +468,8 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 
 // descriptorWithoutHardlinks is the fallback path for filesystems that don't support
 // hardlinks. Compaction remains paused for the entire backup upload duration.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	defer func() {
 		if err != nil {
@@ -503,6 +513,8 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 //
 // For inactive shards, backupProtectedShards is set and backupLock.Lock is held
 // until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
@@ -570,6 +582,8 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 
 // backupInactiveShardWithoutHardlinks backs up an inactive (unloaded) shard by reading
 // its files directly from disk.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID) error {
 	shardDir := shardPath(i.path(), name)
 	if _, err := os.Stat(shardDir); err != nil {
@@ -650,6 +664,8 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 
 	// Release non-hardlink backup protections: clear the protection flag and
 	// release the held backupLock.Lock for each protected shard.
+	//
+	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 	i.backupProtectedShards.Range(func(key, _ any) bool {
 		name := key.(string)
 		i.backupLock.Unlock(name)
@@ -868,6 +884,12 @@ func listInactiveLSMFiles(lsmDir, rootPath string) ([]string, error) {
 			// Walk migrations recursively, same as Store.listMigrationFiles.
 			if err := filepath.WalkDir(entryPath, func(fpath string, d os.DirEntry, err error) error {
 				if err != nil || d == nil || d.IsDir() {
+					return nil
+				}
+				// A crash mid-rename leaves the tracker's scratch file behind,
+				// and nothing under .migrations ever sweeps it. Copying it
+				// would carry it into every later backup and restore.
+				if filepath.Ext(d.Name()) == tmpExt {
 					return nil
 				}
 				relPath, relErr := filepath.Rel(rootPath, fpath)

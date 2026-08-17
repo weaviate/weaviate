@@ -148,6 +148,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				return readerFunc(class, shardState)
 			}).Maybe()
 			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
+			mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 			// Create mock schema getter
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
@@ -318,6 +319,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		return readerFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Create mock schema getter
 	mockSchema := schemaUC.NewMockSchemaGetter(t)

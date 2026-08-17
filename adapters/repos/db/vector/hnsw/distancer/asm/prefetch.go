@@ -19,7 +19,9 @@ func main() {
 	addr := Mem{Base: Load(Param("addr"), GP64())}
 	_ = addr
 
-	PREFETCHT0(addr)
+	// L2 prefetch: T1 avoids L1-fill-buffer (MSHR) pressure when many
+	// lines are hinted per code; see prefetch_n_amd64.s for the rationale.
+	PREFETCHT1(addr)
 
 	RET()
 

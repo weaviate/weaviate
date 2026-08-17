@@ -42,8 +42,20 @@ const (
 )
 
 type CompressorDistancer interface {
+	BatchCompressorDistancer
 	DistanceToNode(id uint64) (float32, error)
 	DistanceToFloat(vec []float32) (float32, error)
+}
+
+// BatchCompressorDistancer computes distances from the (implicit) query to a
+// batch of stored codes, fetching each code once and overlapping prefetch
+// hints with the distance kernels.
+//
+// Concurrency contract: DistancesToNodes reuses a scratch buffer owned by the
+// distancer and is therefore NOT safe for concurrent use — it must only be
+// called by the single search goroutine that owns the distancer.
+type BatchCompressorDistancer interface {
+	DistancesToNodes(ids []uint64, dists []float32) []error
 }
 
 type ReturnDistancerFn func()
@@ -890,6 +902,24 @@ func NewRQCompressor(
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
+	case 4:
+		quantizer := NewFourBitRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:         quantizer,
+			compressedStore:   store,
+			storeId:           binary.BigEndian.PutUint64,
+			loadId:            binary.BigEndian.Uint64,
+			targetVector:      targetVector,
+			logger:            logger,
+			makeBucketOptions: makeBucketOptions,
+			vectorForID:       vectorForID,
+		}
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedByteLockCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+			0, allocChecker)
 	case 8:
 		quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
@@ -909,7 +939,7 @@ func NewRQCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
 	return rqVectorsCompressor, nil
 }
@@ -954,6 +984,27 @@ func RestoreRQCompressor(
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
+	case 4:
+		quantizer, err := RestoreFourBitRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, distance)
+		if err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:         quantizer,
+			compressedStore:   store,
+			storeId:           binary.BigEndian.PutUint64,
+			loadId:            binary.BigEndian.Uint64,
+			targetVector:      targetVector,
+			logger:            logger,
+			makeBucketOptions: makeBucketOptions,
+			vectorForID:       vectorForID,
+		}
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedByteLockCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+			0, allocChecker)
 	case 8:
 		quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 		if err != nil {
@@ -976,7 +1027,7 @@ func RestoreRQCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
 	return rqVectorsCompressor, nil
 }
@@ -1016,6 +1067,24 @@ func NewRQMultiCompressor(
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedMultiUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
+	case 4:
+		quantizer := NewFourBitRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:         quantizer,
+			compressedStore:   store,
+			storeId:           binary.BigEndian.PutUint64,
+			loadId:            binary.BigEndian.Uint64,
+			targetVector:      targetVector,
+			logger:            logger,
+			makeBucketOptions: makeBucketOptions,
+			vectorForID:       vectorForID,
+		}
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedMultiByteLockCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
+			0, allocChecker)
 	case 8:
 		quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
@@ -1035,7 +1104,7 @@ func NewRQMultiCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
 	return rqVectorsCompressor, nil
 }
@@ -1080,6 +1149,27 @@ func RestoreRQMultiCompressor(
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedMultiUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
+	case 4:
+		quantizer, err := RestoreFourBitRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, distance)
+		if err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:         quantizer,
+			compressedStore:   store,
+			storeId:           binary.BigEndian.PutUint64,
+			loadId:            binary.BigEndian.Uint64,
+			targetVector:      targetVector,
+			logger:            logger,
+			makeBucketOptions: makeBucketOptions,
+			vectorForID:       vectorForID,
+		}
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedMultiByteLockCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
+			0, allocChecker)
 	case 8:
 		quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 		if err != nil {
@@ -1102,7 +1192,7 @@ func RestoreRQMultiCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
 	return rqVectorsCompressor, nil
 }
@@ -1110,6 +1200,11 @@ func RestoreRQMultiCompressor(
 type quantizedCompressorDistancer[T byte | uint64] struct {
 	compressor *quantizedVectorsCompressor[T]
 	distancer  quantizerDistancer[T]
+
+	// vecs is the scratch buffer of DistancesToNodes. It makes that method
+	// unsafe for concurrent use; the search layer owning this distancer calls
+	// it from a single goroutine.
+	vecs [][]T
 }
 
 func (distancer *quantizedCompressorDistancer[T]) DistanceToNode(id uint64) (float32, error) {
@@ -1123,6 +1218,48 @@ func (distancer *quantizedCompressorDistancer[T]) DistanceToNode(id uint64) (flo
 	}
 	return distancer.distancer.Distance(compressedVector)
 }
+
+// DistancesToNodes implements BatchCompressorDistancer. Cache misses fall
+// back to the loading DistanceToNode path per id, so error semantics match
+// calling DistanceToNode for each id individually.
+func (distancer *quantizedCompressorDistancer[T]) DistancesToNodes(ids []uint64, dists []float32) []error {
+	if cap(distancer.vecs) < len(ids) {
+		distancer.vecs = make([][]T, len(ids))
+	}
+	vecs := distancer.vecs[:len(ids)]
+	// Fetch and hint each code prefetchAhead iterations before the distance
+	// kernel consumes it, instead of prefetching the whole batch up front.
+	// A full batch of hints (~25 cache lines per 8-bit d1536 code, dozens
+	// of codes) far exceeds the core's outstanding-miss capacity, so
+	// up-front hints past the first few codes get dropped and demand-missed
+	// anyway; fetching ahead inside the loop also overlaps the cache's
+	// pointer chase with the current distance computation.
+	for i := range min(prefetchAhead, len(ids)) {
+		vecs[i] = distancer.compressor.cache.PrefetchGet(ids[i])
+	}
+	var errs []error
+	for i, id := range ids {
+		if next := i + prefetchAhead; next < len(ids) {
+			vecs[next] = distancer.compressor.cache.PrefetchGet(ids[next])
+		}
+		var err error
+		if len(vecs[i]) == 0 {
+			dists[i], err = distancer.DistanceToNode(id)
+		} else {
+			dists[i], err = distancer.distancer.Distance(vecs[i])
+		}
+		if err != nil {
+			if errs == nil {
+				errs = make([]error, len(ids))
+			}
+			errs[i] = err
+		}
+		vecs[i] = nil
+	}
+	return errs
+}
+
+const prefetchAhead = 4
 
 func (distancer *quantizedCompressorDistancer[T]) DistanceToFloat(vector []float32) (float32, error) {
 	return distancer.distancer.DistanceToFloat(vector)

@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tailor-platform/graphql"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -519,10 +520,6 @@ func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID,
 	return nil, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	return nil
-}
-
 func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {
 	return 0, nil
 }
@@ -564,4 +561,24 @@ func TestVectorFromSearchParamNoVectorizerTypedError(t *testing.T) {
 	assert.True(t, errors.As(err, &enterrors.ErrNoVectorizerModule{}),
 		"no-vectorizer fallback must carry entities/errors.ErrNoVectorizerModule, got: %v", err)
 	assert.Contains(t, err.Error(), "Make sure a vectorizer module is configured")
+}
+
+// TestBatchUpdateVector_VectorlessClassIsNoop pins the write-path
+// short-circuit for classes that vectorize nothing: legacy vectorizer "none"
+// and the vector-less shape (empty vectorizer, no named vectors — the state
+// after a collection's last named vector was dropped). Erroring here made
+// every write to a vector-less collection fail.
+func TestBatchUpdateVector_VectorlessClassIsNoop(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	p := NewProvider(logger, config.Config{})
+
+	for _, vectorizer := range []string{"none", ""} {
+		t.Run("vectorizer "+vectorizer, func(t *testing.T) {
+			class := &models.Class{Class: "C", Vectorizer: vectorizer}
+			errs, err := p.BatchUpdateVector(context.Background(), class,
+				[]*models.Object{{Class: "C"}}, nil, logger)
+			require.NoError(t, err)
+			require.Empty(t, errs)
+		})
+	}
 }

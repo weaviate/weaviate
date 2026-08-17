@@ -112,7 +112,7 @@ func (db *DB) init(ctx context.Context) error {
 				}
 			}
 
-			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig, db.logger.WithField("class", class.Class))
+			asyncConfig, err := asyncReplicationConfigFromModelOrDefaults(isMultiTenant, class.ReplicationConfig.AsyncConfig, db.logger.WithField("class", class.Class))
 			if err != nil {
 				return fmt.Errorf("async replication config: %w", err)
 			}
@@ -183,7 +183,9 @@ func (db *DB) init(ctx context.Context) error {
 				AsyncReplicationScheduler:           db.asyncReplicationScheduler,
 				DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                    db.shardLoadLimiter,
+				StartupShards:                       &db.startupShards,
 				BucketLoadLimiter:                   db.bucketLoadLimiter,
+				NamespacesExister:                   db.namespacesExister,
 				HNSWMaxLogSize:                      db.config.HNSWMaxLogSize,
 				HNSWWaitForCachePrefill: func() bool {
 					// don't wait if lazy load shard is enabled
@@ -200,6 +202,7 @@ func (db *DB) init(ctx context.Context) error {
 				QuerySlowLogEnabled:          db.config.QuerySlowLogEnabled,
 				QuerySlowLogThreshold:        db.config.QuerySlowLogThreshold,
 				InvertedSorterDisabled:       db.config.InvertedSorterDisabled,
+				QueryBatchedContainsEnabled:  db.config.QueryBatchedContainsEnabled,
 				LazyPropertyLengthsEnabled:   db.config.LazyPropertyLengthsEnabled,
 				MaintenanceModeEnabled:       db.config.MaintenanceModeEnabled,
 				HFreshEnabled:                db.config.HFreshEnabled,

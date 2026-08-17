@@ -17,6 +17,7 @@ import (
 	"math"
 	"os"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -34,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -48,7 +48,6 @@ type BM25Searcher struct {
 	store            *lsmkv.Store
 	getClass         func(string) *models.Class
 	classSearcher    ClassSearcher // to allow recursive searches on ref-props
-	propIndices      propertyspecific.Indices
 	propLenTracker   propLengthRetriever
 	logger           logrus.FieldLogger
 	shardVersion     uint16
@@ -118,7 +117,7 @@ type termListRequest struct {
 }
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
-	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
+	getClass func(string) *models.Class,
 	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider, propLenTracker propLengthRetriever,
 	logger logrus.FieldLogger, shardVersion uint16,
 ) *BM25Searcher {
@@ -126,7 +125,6 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		config:           config,
 		store:            store,
 		getClass:         getClass,
-		propIndices:      propIndices,
 		classSearcher:    classSearcher,
 		propLenTracker:   propLenTracker,
 		logger:           logger.WithField("action", "bm25_search"),
@@ -218,6 +216,11 @@ type queryTerms struct {
 	queryTermsByTokenization      map[string][]string
 	duplicateBoostsByTokenization map[string][]int
 	propertyBoosts                map[string]float32
+	// Set only for SearchOperatorAndCross, and only once every searched property
+	// is known to tokenize the query the same way. Empty means the operator was
+	// not requested or the query has no terms, so the regular path applies.
+	crossPropQueryTerms      []string
+	crossPropDuplicateBoosts []int
 }
 
 // queryStats holds corpus-level BM25 statistics gathered alongside the terms.
@@ -446,6 +449,22 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	if math.IsNaN(averagePropLength) || averagePropLength == 0 {
 		averagePropLength = 40.0
 	}
+	// Validated here rather than in either search path so the BlockMax and legacy
+	// WAND implementations reject the same queries.
+	var crossPropQueryTerms []string
+	var crossPropDuplicateBoosts []int
+	if params.SearchOperator == common_filters.SearchOperatorAndCross {
+		analyzerByTokenization := make(map[string]string, len(props))
+		for _, pi := range props {
+			analyzerByTokenization[pi.tokKey] = analyzerFingerprint(pi.prop, pi.effectiveTokenization)
+		}
+		crossPropQueryTerms, crossPropDuplicateBoosts, err = sharedCrossPropQueryTerms(analyzerByTokenization,
+			propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization)
+		if err != nil {
+			return queryTerms{}, queryStats{}, pins, err
+		}
+	}
+
 	// Success: the caller now owns the pins; disarm the error-path release.
 	failed = false
 	return queryTerms{
@@ -453,11 +472,82 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			queryTermsByTokenization:      queryTermsByTokenization,
 			duplicateBoostsByTokenization: duplicateBoostsByTokenization,
 			propertyBoosts:                propertyBoosts,
+			crossPropQueryTerms:           crossPropQueryTerms,
+			crossPropDuplicateBoosts:      crossPropDuplicateBoosts,
 		}, queryStats{
 			allBucketsAreInverted: allBucketsAreInverted,
 			n:                     N,
 			averagePropLength:     averagePropLength,
 		}, pins, nil
+}
+
+// analyzerFingerprint identifies the settings that decide how a property tokenizes
+// the query. Properties agreeing on it produce the same query terms.
+//
+// The tokenization must be the effective one, not prop.Tokenization: the per-shard
+// overlay can resolve two properties carrying identical schema settings to different
+// live analyzers, and those tokenize the same query differently.
+func analyzerFingerprint(prop *models.Property, effectiveTokenization string) string {
+	asciiFold := false
+	stopwordPreset := ""
+	var asciiFoldIgnore []string
+	if analyzer := prop.TextAnalyzer; analyzer != nil {
+		asciiFold, stopwordPreset = analyzer.ASCIIFold, analyzer.StopwordPreset
+		asciiFoldIgnore = slices.Clone(analyzer.ASCIIFoldIgnore)
+		slices.Sort(asciiFoldIgnore)
+	}
+	return fmt.Sprintf("%s|asciiFold=%t|asciiFoldIgnore=%s|stopwordPreset=%s",
+		effectiveTokenization, asciiFold, strings.Join(asciiFoldIgnore, ","), stopwordPreset)
+}
+
+// sharedCrossPropQueryTerms returns the terms every searched property agrees on,
+// which cross-property AND needs to merge postings by query-term index.
+//
+// Compatibility is decided on the analyzer settings rather than on the number of
+// tokenization keys, because a property carrying custom stopwords or
+// ASCIIFoldIgnore gets a key of its own even when its settings match another's.
+// Deciding it on the terms themselves instead would make the operator succeed or
+// fail per query, since differently configured properties can still tokenize some
+// queries the same way.
+//
+// The shared list is sorted because terms come out of tokenization in map order
+// and a term's index has to mean the same thing in every property.
+func sharedCrossPropQueryTerms(analyzerByTokenization map[string]string,
+	propNamesByTokenization, queryTermsByTokenization map[string][]string,
+	duplicateBoostsByTokenization map[string][]int,
+) ([]string, []int, error) {
+	var (
+		sharedTerms    []string
+		sharedAnalyzer string
+		boostByTerm    map[string]int
+		found          bool
+	)
+	for tokKey, propNames := range propNamesByTokenization {
+		if len(propNames) == 0 {
+			continue
+		}
+		if found {
+			if analyzerByTokenization[tokKey] != sharedAnalyzer {
+				return nil, nil, fmt.Errorf("%s requires all searched properties to share the same tokenization and analyzer settings",
+					common_filters.SearchOperatorAndCross)
+			}
+			continue
+		}
+
+		found, sharedAnalyzer = true, analyzerByTokenization[tokKey]
+		sharedTerms = slices.Clone(queryTermsByTokenization[tokKey])
+		slices.Sort(sharedTerms)
+		boostByTerm = make(map[string]int, len(sharedTerms))
+		for i, term := range queryTermsByTokenization[tokKey] {
+			boostByTerm[term] = duplicateBoostsByTokenization[tokKey][i]
+		}
+	}
+
+	sharedBoosts := make([]int, len(sharedTerms))
+	for i, term := range sharedTerms {
+		sharedBoosts[i] = boostByTerm[term]
+	}
+	return sharedTerms, sharedBoosts, nil
 }
 
 // asciiTokenizationKey returns the composite key used for ascii-insensitive properties.
@@ -490,27 +580,52 @@ func (b *BM25Searcher) wandFromStats(
 	allQueryTerms := make([]string, 0, 1000)
 	minimumOrTokensMatch := math.MaxInt64
 
-	for tokenization, propNames := range qterms.propNamesByTokenization {
-		if len(propNames) > 0 {
-			tokenTerms, duplicateBoosts := qterms.queryTermsByTokenization[tokenization], qterms.duplicateBoostsByTokenization[tokenization]
-			for queryTermIndex, queryTerm := range tokenTerms {
-				allRequests = append(allRequests, termListRequest{
-					term:               queryTerm,
-					termId:             len(allRequests),
-					duplicateTextBoost: duplicateBoosts[queryTermIndex],
-					propertyNames:      propNames,
-					propertyBoosts:     qterms.propertyBoosts,
-				})
-				allQueryTerms = append(allQueryTerms, queryTerm)
+	if len(qterms.crossPropQueryTerms) > 0 {
+		// One request per shared term spanning every searched property, so a term is
+		// required once globally. Emitting per tokenization group instead would raise
+		// the term count without raising the threshold, letting a document satisfy the
+		// AND by matching one term in two groups and never matching the others.
+		propNames := make([]string, 0, len(params.Properties))
+		for _, groupPropNames := range qterms.propNamesByTokenization {
+			propNames = append(propNames, groupPropNames...)
+		}
+		slices.Sort(propNames)
+
+		for queryTermIndex, queryTerm := range qterms.crossPropQueryTerms {
+			allRequests = append(allRequests, termListRequest{
+				term:               queryTerm,
+				termId:             len(allRequests),
+				duplicateTextBoost: qterms.crossPropDuplicateBoosts[queryTermIndex],
+				propertyNames:      propNames,
+				propertyBoosts:     qterms.propertyBoosts,
+			})
+			allQueryTerms = append(allQueryTerms, queryTerm)
+		}
+		minimumOrTokensMatch = len(qterms.crossPropQueryTerms)
+		helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_cross_prop", len(qterms.crossPropQueryTerms))
+	} else {
+		for tokenization, propNames := range qterms.propNamesByTokenization {
+			if len(propNames) > 0 {
+				tokenTerms, duplicateBoosts := qterms.queryTermsByTokenization[tokenization], qterms.duplicateBoostsByTokenization[tokenization]
+				for queryTermIndex, queryTerm := range tokenTerms {
+					allRequests = append(allRequests, termListRequest{
+						term:               queryTerm,
+						termId:             len(allRequests),
+						duplicateTextBoost: duplicateBoosts[queryTermIndex],
+						propertyNames:      propNames,
+						propertyBoosts:     qterms.propertyBoosts,
+					})
+					allQueryTerms = append(allQueryTerms, queryTerm)
+				}
+				minimumOrTokensMatchByTokenization := params.MinimumOrTokensMatch
+				if common_filters.IsAndOperator(params.SearchOperator) {
+					minimumOrTokensMatchByTokenization = len(tokenTerms)
+				}
+				if minimumOrTokensMatchByTokenization < minimumOrTokensMatch {
+					minimumOrTokensMatch = minimumOrTokensMatchByTokenization
+				}
+				helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_"+tokenization, len(tokenTerms))
 			}
-			minimumOrTokensMatchByTokenization := params.MinimumOrTokensMatch
-			if params.SearchOperator == common_filters.SearchOperatorAnd {
-				minimumOrTokensMatchByTokenization = len(tokenTerms)
-			}
-			if minimumOrTokensMatchByTokenization < minimumOrTokensMatch {
-				minimumOrTokensMatch = minimumOrTokensMatchByTokenization
-			}
-			helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_"+tokenization, len(tokenTerms))
 		}
 	}
 

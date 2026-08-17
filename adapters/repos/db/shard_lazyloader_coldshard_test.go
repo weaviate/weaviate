@@ -79,6 +79,7 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -94,7 +95,7 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil,
 	)
 	require.NoError(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -292,6 +293,57 @@ func TestAddProperty_ColdShardLoadFailureDoesNotPanic(t *testing.T) {
 	for name, shard := range cold {
 		require.False(t, shard.isLoaded(), "cold shard %q must remain unloaded", name)
 	}
+}
+
+// preventShutdown must return a callable release even when the load it triggers
+// fails, so a caller can defer the release before checking the error.
+func TestLazyLoadShard_PreventShutdownAlwaysReturnsRelease(t *testing.T) {
+	cases := []struct {
+		name      string
+		loadFails bool
+	}{
+		{name: "load succeeds"},
+		{name: "load fails", loadFails: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newAddPropertyLazyFixture(t, "PreventShutdownRelease", singleShardState())
+
+			for name, shard := range f.coldShards(t) {
+				if tc.loadFails {
+					shard.memMonitor = failingAllocChecker{}
+				}
+
+				release, err := shard.preventShutdown()
+				require.NotNil(t, release, "release for shard %q must never be nil", name)
+				if tc.loadFails {
+					require.Error(t, err)
+					require.False(t, shard.isLoaded(), "shard %q must remain unloaded", name)
+				} else {
+					require.NoError(t, err)
+				}
+				release()
+			}
+		})
+	}
+}
+
+// A failed shard init must name the shard and the index: the errors raised
+// while initializing carry no such context of their own, and the caller may be
+// one branch of a multi-shard fan-out.
+func TestGetOrInitShard_InitFailureNamesShard(t *testing.T) {
+	f := newAddPropertyLazyFixture(t, "InitFailureContext", singleShardState())
+	f.index.allocChecker = failingAllocChecker{}
+
+	shard, release, err := f.index.getOrInitShard(testCtx(), "uninitialized-shard")
+	require.NotNil(t, release)
+	defer release()
+	require.Nil(t, shard)
+
+	require.ErrorContains(t, err, `init local shard "uninitialized-shard"`)
+	require.ErrorContains(t, err, f.index.ID())
+	require.ErrorContains(t, err, "memory pressure")
 }
 
 // Resuming maintenance cycles after a backup must not force-load cold shards:

@@ -23,6 +23,7 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -775,6 +776,7 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 				},
 			}
 			sm.On("ReadOnlyClass", tt.storedClass).Return(stored).Maybe()
+			sm.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 
 			var captured *models.Class
 			sm.On("UpdateClass", mock.MatchedBy(func(c *models.Class) bool {

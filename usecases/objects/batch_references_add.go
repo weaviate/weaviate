@@ -119,7 +119,12 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		Shard string
 	}
 	uniqueClassShard := map[string]classAndShard{}
+	// A ref whose target skips the multi-tenancy check below would otherwise leave
+	// this at 0, which makes db.AddBatchReferences' wait a no-op.
 	var schemaVersion uint64
+	for _, vc := range fetchedClasses {
+		schemaVersion = max(schemaVersion, vc.Version)
+	}
 	for i, ref := range refs {
 		if ref.Err != nil {
 			continue
@@ -181,12 +186,8 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		}
 	}
 
-	// Ensure that the local schema has caught up to the version we used to validate
-	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
-	}
 	if res, err := b.vectorRepo.AddBatchReferences(ctx, refs, repl, schemaVersion); err != nil {
-		return nil, NewErrInternal("could not add batch request to connector: %v", err)
+		return nil, NewErrInternal("could not add batch request to connector: %w", err)
 	} else {
 		return res, nil
 	}

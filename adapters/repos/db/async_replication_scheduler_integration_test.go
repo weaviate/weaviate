@@ -151,8 +151,7 @@ func TestAsyncSchedulerRegistrationIdempotent(t *testing.T) {
 	s.asyncRepWg.Wait()
 }
 
-// TestIndexCompareHashTreeRoots: a shard diverges iff its local root was read and
-// differs; missing/uninitialised roots are omitted.
+// TestIndexCompareHashTreeRoots: a loaded shard diverges when its root differs or is not ready; unknown/unloaded shards are omitted without loading.
 func TestIndexCompareHashTreeRoots(t *testing.T) {
 	ctx := context.Background()
 	_, idx := testShard(t, ctx, "CompareRootsClass")
@@ -179,12 +178,34 @@ func TestIndexCompareHashTreeRoots(t *testing.T) {
 		assert.Empty(t, div)
 	})
 
-	t.Run("uninitialised hashtree is omitted", func(t *testing.T) {
+	t.Run("uninitialised hashtree is diverging", func(t *testing.T) {
 		s.hashtreeFullyInitialized = false
 		defer func() { s.hashtreeFullyInitialized = true }()
 		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
 		require.NoError(t, err)
-		assert.Empty(t, div)
+		assert.Equal(t, []string{shardName}, div, "loaded-but-not-ready must descend, not read as converged")
+	})
+
+	t.Run("shutdown-requested shard is diverging", func(t *testing.T) {
+		s.shutdownRequested.Store(true)
+		defer s.shutdownRequested.Store(false)
+		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
+		require.NoError(t, err)
+		assert.Equal(t, []string{shardName}, div, "an erroring shard must descend, not read as converged")
+	})
+
+	t.Run("closing index is diverging", func(t *testing.T) {
+		idx.closeLock.Lock()
+		idx.closed = true
+		idx.closeLock.Unlock()
+		defer func() {
+			idx.closeLock.Lock()
+			idx.closed = false
+			idx.closeLock.Unlock()
+		}()
+		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
+		require.NoError(t, err)
+		assert.Equal(t, []string{shardName}, div, "a closing index must descend, not read as converged")
 	})
 }
 
@@ -367,4 +388,56 @@ func TestAsyncSchedulerConcurrentRegisterDeregisterAndClose(t *testing.T) {
 	sched.Close()
 
 	wg.Wait() // goroutines exit via ctx.Done() in Register/Deregister
+}
+
+// TestAdjustWorkersDoesNotLeakWorkersUnderConfigFlapping pins real workers busy and flaps the pool down/up: growing back must not leak workers.
+func TestAdjustWorkersDoesNotLeakWorkersUnderConfigFlapping(t *testing.T) {
+	const n = 6
+	ctx := context.Background()
+	sched := newStartedTestScheduler(t, n)
+
+	shards := make([]*Shard, 0, n)
+	for i := range n {
+		_, idx := testShard(t, ctx, fmt.Sprintf("FlapLeak%02d", i))
+		s := firstShard(t, idx)
+		prepareShardForScheduler(t, s)
+		shards = append(shards, s)
+	}
+
+	// Hold each write lock before registering so every cycle blocks in runEntry, pinning workers off the scale-down select.
+	for _, s := range shards {
+		s.asyncReplicationRWMux.Lock()
+	}
+	defer func() {
+		for _, s := range shards {
+			s.asyncReplicationRWMux.Unlock()
+		}
+	}()
+
+	for _, s := range shards {
+		require.NoError(t, sched.Register(s))
+	}
+
+	// Wait until all n cycles are dispatched and picked up: every worker is now pinned in runEntry.
+	require.Eventually(t, func() bool {
+		if len(sched.workCh) != 0 {
+			return false
+		}
+		sched.mu.Lock()
+		defer sched.mu.Unlock()
+		inflight := 0
+		for _, e := range sched.entries {
+			if e.inFlight {
+				inflight++
+			}
+		}
+		return inflight == n
+	}, 5*time.Second, 5*time.Millisecond, "all %d workers must be pinned in-flight before flapping", n)
+
+	for i := range 3 {
+		sched.adjustWorkers(1)
+		sched.adjustWorkers(n)
+		require.Equal(t, int64(n), sched.liveWorkers.Load(),
+			"flap %d: growing back must reclaim pending scale-down tokens instead of leaking workers", i)
+	}
 }

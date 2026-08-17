@@ -204,6 +204,11 @@ func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []
 
 		merged, err := newSortedMapMerger().do(ctx, perSegmentResults)
 		if err != nil {
+			if ctx.Err() != nil {
+				// end iteration like exhaustion: nil looks like end-of-data, so
+				// callers must check ctx.Err() after their loop to tell them apart
+				return nil, nil
+			}
 			panic(fmt.Errorf("unexpected error decoding map values: %w", err))
 		}
 		if len(merged) == 0 {

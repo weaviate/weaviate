@@ -255,18 +255,6 @@ func moduleLevelCopyFiles(t *testing.T, override bool, containerName, overrideBu
 			require.Nil(t, err)
 			assert.Equal(t, expectedContents, contents)
 		})
-
-		t.Run("fetch file from backend", func(t *testing.T) {
-			destPath := dataDir + "/file_0.copy.db"
-
-			t.Logf("download file with override: %v", override)
-			err := s3.WriteToFile(testCtx, backupID, key, destPath, overrideBucket, overridePath)
-			require.Nil(t, err)
-
-			contents, err := os.ReadFile(destPath)
-			require.Nil(t, err)
-			assert.Equal(t, expectedContents, contents)
-		})
 	})
 }
 

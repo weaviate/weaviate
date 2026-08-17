@@ -113,6 +113,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(func(className string) *models.Class {
 		return n.schemaManager.ReadOnlyClass(className)
 	}).Maybe()
@@ -153,7 +154,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		MaxImportGoroutinesFactor: 1,
 		AsyncIndexingEnabled:      asyncIndexEnabled,
 	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -171,7 +172,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, nil, backendProvider, nodeResolver, n.schemaManager, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
@@ -216,11 +217,11 @@ func (r fakeRbacBackupWrapper) WriteBackupItems(context.Context, map[string][]by
 	return nil
 }
 
-func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
+func (r fakeRbacBackupWrapper) Snapshot(roles ...string) ([]byte, error) {
 	return nil, nil
 }
 
-func (r fakeRbacBackupWrapper) Restore([]byte) error {
+func (r fakeRbacBackupWrapper) Restore([]byte, bool) error {
 	return nil
 }
 
@@ -457,12 +458,6 @@ func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, overri
 
 	b, _ := json.Marshal(resp)
 	return b, nil
-}
-
-func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	f.Lock()
-	defer f.Unlock()
-	return nil
 }
 
 func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (int64, error) {

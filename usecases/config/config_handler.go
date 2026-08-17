@@ -161,6 +161,7 @@ type RuntimeOverrides struct {
 // Config outline of the config file
 type Config struct {
 	Backup                           Backup                   `json:"backup" yaml:"backup"`
+	BackupGCS                        BackupGCS                `json:"backup_gcs" yaml:"backup_gcs"`
 	Name                             string                   `json:"name" yaml:"name"`
 	Debug                            bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                    QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
@@ -245,6 +246,11 @@ type Config struct {
 
 	ReplicaMovementEnabled bool `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
 
+	// RuntimeReindexEnabled gates runtime reindex (RUNTIME_REINDEX_ENABLED),
+	// off by default. With it off, new reindex submissions are refused and
+	// the backup path performs no reindex check.
+	RuntimeReindexEnabled bool `json:"runtime_reindex_enabled" yaml:"runtime_reindex_enabled"`
+
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ
 	// interaction with a tenant leads to a log line. However, this may
 	// temporarily be desired, e.g. for analysis or debugging purposes. In this
@@ -302,6 +308,13 @@ type Config struct {
 	//
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+
+	// QueryBatchedContainsEnabled turns on the batched resolution of flat
+	// ContainsAny/ContainsAll/ContainsNone filters (many keys read under one
+	// consistent view, folded without per-value goroutines). Off by default;
+	// when off, every Contains filter takes the desugared per-value path. The
+	// batched path is behaviorally equivalent (pinned by a differential test).
+	QueryBatchedContainsEnabled *runtime.DynamicValue[bool] `json:"query_batched_contains_enabled" yaml:"query_batched_contains_enabled"`
 
 	// LazyPropertyLengthsEnabled defers loading an inverted segment's property
 	// length map until first use and frees it after a compaction drops the
@@ -404,6 +417,10 @@ func (c *Config) Validate() error {
 	}
 
 	if err := c.Raft.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.BackupGCS.Validate(); err != nil {
 		return configErr(err)
 	}
 
@@ -510,7 +527,7 @@ var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfre
 // Matches DEFAULT_QUANTIZATION values so operators can copy them across.
 // "none" means "uncompressed"; omitting it from the allow-list makes
 // every non-hfresh class require a compression.
-var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-8", "bq"}
+var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-4", "rq-8", "bq"}
 
 func IsValidRestrictionVectorIndexType(v string) bool {
 	return slices.Contains(validRestrictionVectorIndexTypes, strings.ToLower(strings.TrimSpace(v)))
@@ -870,6 +887,43 @@ type Backup struct {
 	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
 }
 
+const (
+	// DefaultBackupGCSGRPCConnPool is higher than the SDK's default of one
+	// channel, which caps throughput wherever DirectPath does not apply.
+	DefaultBackupGCSGRPCConnPool = 4
+
+	// MaxBackupGCSGRPCConnPool bounds the pool because every channel is a
+	// connection held for the process lifetime, and the GCS module builds one
+	// client for backups and one for exports.
+	MaxBackupGCSGRPCConnPool = 64
+)
+
+// BackupGCS configures which GCS API the backup-gcs module talks to. The
+// GCS_MODULE_ prefix marks it as covering both clients that module builds, the
+// backup one and the export one, unlike the backup-only BACKUP_GCS_BUCKET.
+type BackupGCS struct {
+	// UseGRPC switches from the JSON/HTTP API to the gRPC API. The throughput
+	// gRPC adds comes from DirectPath, which only applies inside GCP, and from
+	// spreading requests over GRPCConnPool channels.
+	// Env: GCS_MODULE_TRANSPORT (http or grpc).
+	UseGRPC bool `json:"use_grpc" yaml:"use_grpc"`
+
+	// GRPCConnPool is how many gRPC channels each client opens. Zero means
+	// unset and falls back to DefaultBackupGCSGRPCConnPool.
+	// Env: GCS_MODULE_GRPC_CONN_POOL.
+	GRPCConnPool int `json:"grpc_conn_pool" yaml:"grpc_conn_pool"`
+}
+
+// Validate bounds a connection pool that came from the config file. Values from
+// GCS_MODULE_GRPC_CONN_POOL are already bounded when parsed. A negative pool
+// would panic the gRPC client on its first call.
+func (b BackupGCS) Validate() error {
+	if b.GRPCConnPool == 0 {
+		return nil
+	}
+	return validateBackupGCSConnPool(b.GRPCConnPool, "backup_gcs.grpc_conn_pool")
+}
+
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
 const (
 	DefaultQueryDefaultsLimit        int64 = 10
@@ -919,6 +973,9 @@ type DistributedTasksConfig struct {
 	CompletedTaskTTL      time.Duration              `json:"completedTaskTTL" yaml:"completedTaskTTL"`
 	SchedulerTickInterval time.Duration              `json:"schedulerTickInterval" yaml:"schedulerTickInterval"`
 	ReindexConcurrency    *runtime.DynamicValue[int] `json:"reindexConcurrency" yaml:"reindexConcurrency"`
+	// DropVectorReconcileInterval paces the drop-vector marker reconciliation
+	// loop (safety net for markers without a live cleanup task).
+	DropVectorReconcileInterval time.Duration `json:"dropVectorReconcileInterval" yaml:"dropVectorReconcileInterval"`
 }
 
 type Persistence struct {
@@ -1096,7 +1153,7 @@ type Namespaces struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key, X-Twelvelabs-Baseurl, X-Twelvelabs-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {

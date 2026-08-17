@@ -17,9 +17,9 @@ import (
 	additional "github.com/weaviate/weaviate/entities/additional"
 	aggregation "github.com/weaviate/weaviate/entities/aggregation"
 
-	backup "github.com/weaviate/weaviate/entities/backup"
+	atomic "sync/atomic"
 
-	changelog "github.com/weaviate/weaviate/cluster/replication/changelog"
+	backup "github.com/weaviate/weaviate/entities/backup"
 
 	config "github.com/weaviate/weaviate/entities/schema/config"
 
@@ -83,65 +83,6 @@ type MockShardLike_Expecter struct {
 
 func (_m *MockShardLike) EXPECT() *MockShardLike_Expecter {
 	return &MockShardLike_Expecter{mock: &_m.Mock}
-}
-
-// ActivateChangeLog provides a mock function with given fields: ctx, opID
-func (_m *MockShardLike) ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error) {
-	ret := _m.Called(ctx, opID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ActivateChangeLog")
-	}
-
-	var r0 *changelog.ChangeLog
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (*changelog.ChangeLog, error)); ok {
-		return rf(ctx, opID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) *changelog.ChangeLog); ok {
-		r0 = rf(ctx, opID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*changelog.ChangeLog)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, opID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockShardLike_ActivateChangeLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ActivateChangeLog'
-type MockShardLike_ActivateChangeLog_Call struct {
-	*mock.Call
-}
-
-// ActivateChangeLog is a helper method to define mock.On call
-//   - ctx context.Context
-//   - opID string
-func (_e *MockShardLike_Expecter) ActivateChangeLog(ctx interface{}, opID interface{}) *MockShardLike_ActivateChangeLog_Call {
-	return &MockShardLike_ActivateChangeLog_Call{Call: _e.mock.On("ActivateChangeLog", ctx, opID)}
-}
-
-func (_c *MockShardLike_ActivateChangeLog_Call) Run(run func(ctx context.Context, opID string)) *MockShardLike_ActivateChangeLog_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_ActivateChangeLog_Call) Return(_a0 *changelog.ChangeLog, _a1 error) *MockShardLike_ActivateChangeLog_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockShardLike_ActivateChangeLog_Call) RunAndReturn(run func(context.Context, string) (*changelog.ChangeLog, error)) *MockShardLike_ActivateChangeLog_Call {
-	_c.Call.Return(run)
-	return _c
 }
 
 // Activity provides a mock function with no fields
@@ -1298,63 +1239,6 @@ func (_c *MockShardLike_FillQueue_Call) RunAndReturn(run func(string, uint64) er
 	return _c
 }
 
-// FinalizeChangeLog provides a mock function with given fields: ctx, opID
-func (_m *MockShardLike) FinalizeChangeLog(ctx context.Context, opID string) (uint64, error) {
-	ret := _m.Called(ctx, opID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for FinalizeChangeLog")
-	}
-
-	var r0 uint64
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (uint64, error)); ok {
-		return rf(ctx, opID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) uint64); ok {
-		r0 = rf(ctx, opID)
-	} else {
-		r0 = ret.Get(0).(uint64)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, opID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockShardLike_FinalizeChangeLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FinalizeChangeLog'
-type MockShardLike_FinalizeChangeLog_Call struct {
-	*mock.Call
-}
-
-// FinalizeChangeLog is a helper method to define mock.On call
-//   - ctx context.Context
-//   - opID string
-func (_e *MockShardLike_Expecter) FinalizeChangeLog(ctx interface{}, opID interface{}) *MockShardLike_FinalizeChangeLog_Call {
-	return &MockShardLike_FinalizeChangeLog_Call{Call: _e.mock.On("FinalizeChangeLog", ctx, opID)}
-}
-
-func (_c *MockShardLike_FinalizeChangeLog_Call) Run(run func(ctx context.Context, opID string)) *MockShardLike_FinalizeChangeLog_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_FinalizeChangeLog_Call) Return(_a0 uint64, _a1 error) *MockShardLike_FinalizeChangeLog_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockShardLike_FinalizeChangeLog_Call) RunAndReturn(run func(context.Context, string) (uint64, error)) *MockShardLike_FinalizeChangeLog_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // FindUUIDs provides a mock function with given fields: ctx, _a1, limit
 func (_m *MockShardLike) FindUUIDs(ctx context.Context, _a1 *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
 	ret := _m.Called(ctx, _a1, limit)
@@ -1549,65 +1433,6 @@ func (_c *MockShardLike_ForEachVectorQueue_Call) Return(_a0 error) *MockShardLik
 }
 
 func (_c *MockShardLike_ForEachVectorQueue_Call) RunAndReturn(run func(func(string, *VectorIndexQueue) error) error) *MockShardLike_ForEachVectorQueue_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetChangeLog provides a mock function with given fields: ctx, opID
-func (_m *MockShardLike) GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool) {
-	ret := _m.Called(ctx, opID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetChangeLog")
-	}
-
-	var r0 *changelog.ChangeLog
-	var r1 bool
-	if rf, ok := ret.Get(0).(func(context.Context, string) (*changelog.ChangeLog, bool)); ok {
-		return rf(ctx, opID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) *changelog.ChangeLog); ok {
-		r0 = rf(ctx, opID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*changelog.ChangeLog)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string) bool); ok {
-		r1 = rf(ctx, opID)
-	} else {
-		r1 = ret.Get(1).(bool)
-	}
-
-	return r0, r1
-}
-
-// MockShardLike_GetChangeLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetChangeLog'
-type MockShardLike_GetChangeLog_Call struct {
-	*mock.Call
-}
-
-// GetChangeLog is a helper method to define mock.On call
-//   - ctx context.Context
-//   - opID string
-func (_e *MockShardLike_Expecter) GetChangeLog(ctx interface{}, opID interface{}) *MockShardLike_GetChangeLog_Call {
-	return &MockShardLike_GetChangeLog_Call{Call: _e.mock.On("GetChangeLog", ctx, opID)}
-}
-
-func (_c *MockShardLike_GetChangeLog_Call) Run(run func(ctx context.Context, opID string)) *MockShardLike_GetChangeLog_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_GetChangeLog_Call) Return(_a0 *changelog.ChangeLog, _a1 bool) *MockShardLike_GetChangeLog_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockShardLike_GetChangeLog_Call) RunAndReturn(run func(context.Context, string) (*changelog.ChangeLog, bool)) *MockShardLike_GetChangeLog_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -3568,110 +3393,6 @@ func (_c *MockShardLike_Shutdown_Call) RunAndReturn(run func(context.Context) er
 	return _c
 }
 
-// SnapshotChangeLogLSN provides a mock function with given fields: ctx, opID
-func (_m *MockShardLike) SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error) {
-	ret := _m.Called(ctx, opID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SnapshotChangeLogLSN")
-	}
-
-	var r0 uint64
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (uint64, error)); ok {
-		return rf(ctx, opID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) uint64); ok {
-		r0 = rf(ctx, opID)
-	} else {
-		r0 = ret.Get(0).(uint64)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, opID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockShardLike_SnapshotChangeLogLSN_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SnapshotChangeLogLSN'
-type MockShardLike_SnapshotChangeLogLSN_Call struct {
-	*mock.Call
-}
-
-// SnapshotChangeLogLSN is a helper method to define mock.On call
-//   - ctx context.Context
-//   - opID string
-func (_e *MockShardLike_Expecter) SnapshotChangeLogLSN(ctx interface{}, opID interface{}) *MockShardLike_SnapshotChangeLogLSN_Call {
-	return &MockShardLike_SnapshotChangeLogLSN_Call{Call: _e.mock.On("SnapshotChangeLogLSN", ctx, opID)}
-}
-
-func (_c *MockShardLike_SnapshotChangeLogLSN_Call) Run(run func(ctx context.Context, opID string)) *MockShardLike_SnapshotChangeLogLSN_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_SnapshotChangeLogLSN_Call) Return(_a0 uint64, _a1 error) *MockShardLike_SnapshotChangeLogLSN_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockShardLike_SnapshotChangeLogLSN_Call) RunAndReturn(run func(context.Context, string) (uint64, error)) *MockShardLike_SnapshotChangeLogLSN_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// StopChangeCapture provides a mock function with given fields: ctx, opID
-func (_m *MockShardLike) StopChangeCapture(ctx context.Context, opID string) error {
-	ret := _m.Called(ctx, opID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for StopChangeCapture")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, opID)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockShardLike_StopChangeCapture_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StopChangeCapture'
-type MockShardLike_StopChangeCapture_Call struct {
-	*mock.Call
-}
-
-// StopChangeCapture is a helper method to define mock.On call
-//   - ctx context.Context
-//   - opID string
-func (_e *MockShardLike_Expecter) StopChangeCapture(ctx interface{}, opID interface{}) *MockShardLike_StopChangeCapture_Call {
-	return &MockShardLike_StopChangeCapture_Call{Call: _e.mock.On("StopChangeCapture", ctx, opID)}
-}
-
-func (_c *MockShardLike_StopChangeCapture_Call) Run(run func(ctx context.Context, opID string)) *MockShardLike_StopChangeCapture_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_StopChangeCapture_Call) Return(_a0 error) *MockShardLike_StopChangeCapture_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_StopChangeCapture_Call) RunAndReturn(run func(context.Context, string) error) *MockShardLike_StopChangeCapture_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // Store provides a mock function with no fields
 func (_m *MockShardLike) Store() *lsmkv.Store {
 	ret := _m.Called()
@@ -4789,6 +4510,52 @@ func (_c *MockShardLike_hasGeoIndex_Call) RunAndReturn(run func() bool) *MockSha
 	return _c
 }
 
+// hasGeoIndexForProp provides a mock function with given fields: propName
+func (_m *MockShardLike) hasGeoIndexForProp(propName string) bool {
+	ret := _m.Called(propName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for hasGeoIndexForProp")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(string) bool); ok {
+		r0 = rf(propName)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockShardLike_hasGeoIndexForProp_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'hasGeoIndexForProp'
+type MockShardLike_hasGeoIndexForProp_Call struct {
+	*mock.Call
+}
+
+// hasGeoIndexForProp is a helper method to define mock.On call
+//   - propName string
+func (_e *MockShardLike_Expecter) hasGeoIndexForProp(propName interface{}) *MockShardLike_hasGeoIndexForProp_Call {
+	return &MockShardLike_hasGeoIndexForProp_Call{Call: _e.mock.On("hasGeoIndexForProp", propName)}
+}
+
+func (_c *MockShardLike_hasGeoIndexForProp_Call) Run(run func(propName string)) *MockShardLike_hasGeoIndexForProp_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_hasGeoIndexForProp_Call) Return(_a0 bool) *MockShardLike_hasGeoIndexForProp_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_hasGeoIndexForProp_Call) RunAndReturn(run func(string) bool) *MockShardLike_hasGeoIndexForProp_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // initPropertyBuckets provides a mock function with given fields: ctx, eg, lazyLoadSegments, props
 func (_m *MockShardLike) initPropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property) {
 	_va := make([]interface{}, len(props))
@@ -5079,297 +4846,6 @@ func (_c *MockShardLike_pathLSM_Call) Return(_a0 string) *MockShardLike_pathLSM_
 }
 
 func (_c *MockShardLike_pathLSM_Call) RunAndReturn(run func() string) *MockShardLike_pathLSM_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// prepareAddReferences provides a mock function with given fields: _a0, _a1, _a2
-func (_m *MockShardLike) prepareAddReferences(_a0 context.Context, _a1 string, _a2 []objects.BatchReference) replica.SimpleResponse {
-	ret := _m.Called(_a0, _a1, _a2)
-
-	if len(ret) == 0 {
-		panic("no return value specified for prepareAddReferences")
-	}
-
-	var r0 replica.SimpleResponse
-	if rf, ok := ret.Get(0).(func(context.Context, string, []objects.BatchReference) replica.SimpleResponse); ok {
-		r0 = rf(_a0, _a1, _a2)
-	} else {
-		r0 = ret.Get(0).(replica.SimpleResponse)
-	}
-
-	return r0
-}
-
-// MockShardLike_prepareAddReferences_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'prepareAddReferences'
-type MockShardLike_prepareAddReferences_Call struct {
-	*mock.Call
-}
-
-// prepareAddReferences is a helper method to define mock.On call
-//   - _a0 context.Context
-//   - _a1 string
-//   - _a2 []objects.BatchReference
-func (_e *MockShardLike_Expecter) prepareAddReferences(_a0 interface{}, _a1 interface{}, _a2 interface{}) *MockShardLike_prepareAddReferences_Call {
-	return &MockShardLike_prepareAddReferences_Call{Call: _e.mock.On("prepareAddReferences", _a0, _a1, _a2)}
-}
-
-func (_c *MockShardLike_prepareAddReferences_Call) Run(run func(_a0 context.Context, _a1 string, _a2 []objects.BatchReference)) *MockShardLike_prepareAddReferences_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].([]objects.BatchReference))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_prepareAddReferences_Call) Return(_a0 replica.SimpleResponse) *MockShardLike_prepareAddReferences_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_prepareAddReferences_Call) RunAndReturn(run func(context.Context, string, []objects.BatchReference) replica.SimpleResponse) *MockShardLike_prepareAddReferences_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// prepareDeleteObject provides a mock function with given fields: _a0, _a1, _a2, _a3
-func (_m *MockShardLike) prepareDeleteObject(_a0 context.Context, _a1 string, _a2 strfmt.UUID, _a3 time.Time) replica.SimpleResponse {
-	ret := _m.Called(_a0, _a1, _a2, _a3)
-
-	if len(ret) == 0 {
-		panic("no return value specified for prepareDeleteObject")
-	}
-
-	var r0 replica.SimpleResponse
-	if rf, ok := ret.Get(0).(func(context.Context, string, strfmt.UUID, time.Time) replica.SimpleResponse); ok {
-		r0 = rf(_a0, _a1, _a2, _a3)
-	} else {
-		r0 = ret.Get(0).(replica.SimpleResponse)
-	}
-
-	return r0
-}
-
-// MockShardLike_prepareDeleteObject_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'prepareDeleteObject'
-type MockShardLike_prepareDeleteObject_Call struct {
-	*mock.Call
-}
-
-// prepareDeleteObject is a helper method to define mock.On call
-//   - _a0 context.Context
-//   - _a1 string
-//   - _a2 strfmt.UUID
-//   - _a3 time.Time
-func (_e *MockShardLike_Expecter) prepareDeleteObject(_a0 interface{}, _a1 interface{}, _a2 interface{}, _a3 interface{}) *MockShardLike_prepareDeleteObject_Call {
-	return &MockShardLike_prepareDeleteObject_Call{Call: _e.mock.On("prepareDeleteObject", _a0, _a1, _a2, _a3)}
-}
-
-func (_c *MockShardLike_prepareDeleteObject_Call) Run(run func(_a0 context.Context, _a1 string, _a2 strfmt.UUID, _a3 time.Time)) *MockShardLike_prepareDeleteObject_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(strfmt.UUID), args[3].(time.Time))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_prepareDeleteObject_Call) Return(_a0 replica.SimpleResponse) *MockShardLike_prepareDeleteObject_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_prepareDeleteObject_Call) RunAndReturn(run func(context.Context, string, strfmt.UUID, time.Time) replica.SimpleResponse) *MockShardLike_prepareDeleteObject_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// prepareDeleteObjects provides a mock function with given fields: _a0, _a1, _a2, _a3, _a4
-func (_m *MockShardLike) prepareDeleteObjects(_a0 context.Context, _a1 string, _a2 []strfmt.UUID, _a3 time.Time, _a4 bool) replica.SimpleResponse {
-	ret := _m.Called(_a0, _a1, _a2, _a3, _a4)
-
-	if len(ret) == 0 {
-		panic("no return value specified for prepareDeleteObjects")
-	}
-
-	var r0 replica.SimpleResponse
-	if rf, ok := ret.Get(0).(func(context.Context, string, []strfmt.UUID, time.Time, bool) replica.SimpleResponse); ok {
-		r0 = rf(_a0, _a1, _a2, _a3, _a4)
-	} else {
-		r0 = ret.Get(0).(replica.SimpleResponse)
-	}
-
-	return r0
-}
-
-// MockShardLike_prepareDeleteObjects_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'prepareDeleteObjects'
-type MockShardLike_prepareDeleteObjects_Call struct {
-	*mock.Call
-}
-
-// prepareDeleteObjects is a helper method to define mock.On call
-//   - _a0 context.Context
-//   - _a1 string
-//   - _a2 []strfmt.UUID
-//   - _a3 time.Time
-//   - _a4 bool
-func (_e *MockShardLike_Expecter) prepareDeleteObjects(_a0 interface{}, _a1 interface{}, _a2 interface{}, _a3 interface{}, _a4 interface{}) *MockShardLike_prepareDeleteObjects_Call {
-	return &MockShardLike_prepareDeleteObjects_Call{Call: _e.mock.On("prepareDeleteObjects", _a0, _a1, _a2, _a3, _a4)}
-}
-
-func (_c *MockShardLike_prepareDeleteObjects_Call) Run(run func(_a0 context.Context, _a1 string, _a2 []strfmt.UUID, _a3 time.Time, _a4 bool)) *MockShardLike_prepareDeleteObjects_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].([]strfmt.UUID), args[3].(time.Time), args[4].(bool))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_prepareDeleteObjects_Call) Return(_a0 replica.SimpleResponse) *MockShardLike_prepareDeleteObjects_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_prepareDeleteObjects_Call) RunAndReturn(run func(context.Context, string, []strfmt.UUID, time.Time, bool) replica.SimpleResponse) *MockShardLike_prepareDeleteObjects_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// prepareMergeObject provides a mock function with given fields: _a0, _a1, _a2
-func (_m *MockShardLike) prepareMergeObject(_a0 context.Context, _a1 string, _a2 *objects.MergeDocument) replica.SimpleResponse {
-	ret := _m.Called(_a0, _a1, _a2)
-
-	if len(ret) == 0 {
-		panic("no return value specified for prepareMergeObject")
-	}
-
-	var r0 replica.SimpleResponse
-	if rf, ok := ret.Get(0).(func(context.Context, string, *objects.MergeDocument) replica.SimpleResponse); ok {
-		r0 = rf(_a0, _a1, _a2)
-	} else {
-		r0 = ret.Get(0).(replica.SimpleResponse)
-	}
-
-	return r0
-}
-
-// MockShardLike_prepareMergeObject_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'prepareMergeObject'
-type MockShardLike_prepareMergeObject_Call struct {
-	*mock.Call
-}
-
-// prepareMergeObject is a helper method to define mock.On call
-//   - _a0 context.Context
-//   - _a1 string
-//   - _a2 *objects.MergeDocument
-func (_e *MockShardLike_Expecter) prepareMergeObject(_a0 interface{}, _a1 interface{}, _a2 interface{}) *MockShardLike_prepareMergeObject_Call {
-	return &MockShardLike_prepareMergeObject_Call{Call: _e.mock.On("prepareMergeObject", _a0, _a1, _a2)}
-}
-
-func (_c *MockShardLike_prepareMergeObject_Call) Run(run func(_a0 context.Context, _a1 string, _a2 *objects.MergeDocument)) *MockShardLike_prepareMergeObject_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(*objects.MergeDocument))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_prepareMergeObject_Call) Return(_a0 replica.SimpleResponse) *MockShardLike_prepareMergeObject_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_prepareMergeObject_Call) RunAndReturn(run func(context.Context, string, *objects.MergeDocument) replica.SimpleResponse) *MockShardLike_prepareMergeObject_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// preparePutObject provides a mock function with given fields: _a0, _a1, _a2
-func (_m *MockShardLike) preparePutObject(_a0 context.Context, _a1 string, _a2 *storobj.Object) replica.SimpleResponse {
-	ret := _m.Called(_a0, _a1, _a2)
-
-	if len(ret) == 0 {
-		panic("no return value specified for preparePutObject")
-	}
-
-	var r0 replica.SimpleResponse
-	if rf, ok := ret.Get(0).(func(context.Context, string, *storobj.Object) replica.SimpleResponse); ok {
-		r0 = rf(_a0, _a1, _a2)
-	} else {
-		r0 = ret.Get(0).(replica.SimpleResponse)
-	}
-
-	return r0
-}
-
-// MockShardLike_preparePutObject_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'preparePutObject'
-type MockShardLike_preparePutObject_Call struct {
-	*mock.Call
-}
-
-// preparePutObject is a helper method to define mock.On call
-//   - _a0 context.Context
-//   - _a1 string
-//   - _a2 *storobj.Object
-func (_e *MockShardLike_Expecter) preparePutObject(_a0 interface{}, _a1 interface{}, _a2 interface{}) *MockShardLike_preparePutObject_Call {
-	return &MockShardLike_preparePutObject_Call{Call: _e.mock.On("preparePutObject", _a0, _a1, _a2)}
-}
-
-func (_c *MockShardLike_preparePutObject_Call) Run(run func(_a0 context.Context, _a1 string, _a2 *storobj.Object)) *MockShardLike_preparePutObject_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(*storobj.Object))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_preparePutObject_Call) Return(_a0 replica.SimpleResponse) *MockShardLike_preparePutObject_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_preparePutObject_Call) RunAndReturn(run func(context.Context, string, *storobj.Object) replica.SimpleResponse) *MockShardLike_preparePutObject_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// preparePutObjects provides a mock function with given fields: _a0, _a1, _a2
-func (_m *MockShardLike) preparePutObjects(_a0 context.Context, _a1 string, _a2 []*storobj.Object) replica.SimpleResponse {
-	ret := _m.Called(_a0, _a1, _a2)
-
-	if len(ret) == 0 {
-		panic("no return value specified for preparePutObjects")
-	}
-
-	var r0 replica.SimpleResponse
-	if rf, ok := ret.Get(0).(func(context.Context, string, []*storobj.Object) replica.SimpleResponse); ok {
-		r0 = rf(_a0, _a1, _a2)
-	} else {
-		r0 = ret.Get(0).(replica.SimpleResponse)
-	}
-
-	return r0
-}
-
-// MockShardLike_preparePutObjects_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'preparePutObjects'
-type MockShardLike_preparePutObjects_Call struct {
-	*mock.Call
-}
-
-// preparePutObjects is a helper method to define mock.On call
-//   - _a0 context.Context
-//   - _a1 string
-//   - _a2 []*storobj.Object
-func (_e *MockShardLike_Expecter) preparePutObjects(_a0 interface{}, _a1 interface{}, _a2 interface{}) *MockShardLike_preparePutObjects_Call {
-	return &MockShardLike_preparePutObjects_Call{Call: _e.mock.On("preparePutObjects", _a0, _a1, _a2)}
-}
-
-func (_c *MockShardLike_preparePutObjects_Call) Run(run func(_a0 context.Context, _a1 string, _a2 []*storobj.Object)) *MockShardLike_preparePutObjects_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].([]*storobj.Object))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_preparePutObjects_Call) Return(_a0 replica.SimpleResponse) *MockShardLike_preparePutObjects_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_preparePutObjects_Call) RunAndReturn(run func(context.Context, string, []*storobj.Object) replica.SimpleResponse) *MockShardLike_preparePutObjects_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -5755,9 +5231,9 @@ func (_c *MockShardLike_updateMultiVectorIndexesIgnoreDelete_Call) RunAndReturn(
 	return _c
 }
 
-// updatePropertyBuckets provides a mock function with given fields: ctx, eg, property
-func (_m *MockShardLike) updatePropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property) {
-	_m.Called(ctx, eg, property)
+// updatePropertyBuckets provides a mock function with given fields: ctx, eg, property, payloadReads
+func (_m *MockShardLike) updatePropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property, payloadReads *atomic.Int64) {
+	_m.Called(ctx, eg, property, payloadReads)
 }
 
 // MockShardLike_updatePropertyBuckets_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'updatePropertyBuckets'
@@ -5769,13 +5245,14 @@ type MockShardLike_updatePropertyBuckets_Call struct {
 //   - ctx context.Context
 //   - eg *errors.ErrorGroupWrapper
 //   - property *models.Property
-func (_e *MockShardLike_Expecter) updatePropertyBuckets(ctx interface{}, eg interface{}, property interface{}) *MockShardLike_updatePropertyBuckets_Call {
-	return &MockShardLike_updatePropertyBuckets_Call{Call: _e.mock.On("updatePropertyBuckets", ctx, eg, property)}
+//   - payloadReads *atomic.Int64
+func (_e *MockShardLike_Expecter) updatePropertyBuckets(ctx interface{}, eg interface{}, property interface{}, payloadReads interface{}) *MockShardLike_updatePropertyBuckets_Call {
+	return &MockShardLike_updatePropertyBuckets_Call{Call: _e.mock.On("updatePropertyBuckets", ctx, eg, property, payloadReads)}
 }
 
-func (_c *MockShardLike_updatePropertyBuckets_Call) Run(run func(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property)) *MockShardLike_updatePropertyBuckets_Call {
+func (_c *MockShardLike_updatePropertyBuckets_Call) Run(run func(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property, payloadReads *atomic.Int64)) *MockShardLike_updatePropertyBuckets_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*errors.ErrorGroupWrapper), args[2].(*models.Property))
+		run(args[0].(context.Context), args[1].(*errors.ErrorGroupWrapper), args[2].(*models.Property), args[3].(*atomic.Int64))
 	})
 	return _c
 }
@@ -5785,7 +5262,7 @@ func (_c *MockShardLike_updatePropertyBuckets_Call) Return() *MockShardLike_upda
 	return _c
 }
 
-func (_c *MockShardLike_updatePropertyBuckets_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, *models.Property)) *MockShardLike_updatePropertyBuckets_Call {
+func (_c *MockShardLike_updatePropertyBuckets_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, *models.Property, *atomic.Int64)) *MockShardLike_updatePropertyBuckets_Call {
 	_c.Run(run)
 	return _c
 }
@@ -5995,7 +5472,8 @@ func (_c *MockShardLike_uuidFromDocID_Call) RunAndReturn(run func(uint64) (strfm
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockShardLike {
+},
+) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 

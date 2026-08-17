@@ -144,10 +144,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// ShardReindexTaskGeneric is a strategy-parameterized implementation of
-// ShardReindexTaskV3. All lifecycle logic (state machine, merge/swap/tidy,
-// object iteration, progress tracking) lives here, with strategy-specific
-// behavior delegated to a MigrationStrategy.
+// ShardReindexTaskGeneric is a strategy-parameterized reindex task. All
+// lifecycle logic (state machine, merge/swap/tidy, object iteration,
+// progress tracking) lives here, with strategy-specific behavior
+// delegated to a MigrationStrategy.
 //
 // See the file-level phase-contract godoc above for the prep / atomic
 // swap / deferred-rename invariants that every code path in this file
@@ -2051,6 +2051,9 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 	logger logrus.FieldLogger, shard ShardLike, _ reindexTracker, props []string,
 ) {
+	// Not a cold-tenant hydration despite the shape: this runs after
+	// markTidied() on a shard whose buckets this node just swapped, so it is
+	// loaded by construction and the unwrap is a type assertion.
 	concrete, err := unwrapShard(context.Background(), shard)
 	if err != nil {
 		logger.Warnf("runtime swap: trim: failed to unwrap shard; skipping cleanup: %v", err)
@@ -2776,16 +2779,8 @@ func (t *ShardReindexTaskGeneric) findPropsToReindex(shard ShardLike) (props []s
 	// strategies (enable-filterable, enable-searchable) target properties
 	// whose source bucket does not exist yet and will be created in
 	// PreReindexHook. Both cases reduce to "use the selected list".
-	if t.config.selectionEnabled {
-		if selectedProps := t.config.selectedPropsByCollection[collectionName]; len(selectedProps) > 0 {
-			for propName := range selectedProps {
-				propNames = append(propNames, propName)
-			}
-			// Sort for determinism — map iteration order is randomized
-			// and downstream sentinel/tracker state hashes the list.
-			sort.Strings(propNames)
-			return propNames, true
-		}
+	if selected, ok := t.selectedProps(collectionName); ok {
+		return selected, true
 	}
 
 	// Fallback: discover props by scanning existing buckets that have the
@@ -2803,13 +2798,75 @@ func (t *ShardReindexTaskGeneric) findPropsToReindex(shard ShardLike) (props []s
 	return propNames, true
 }
 
+// selectedProps is the sorted property list the task already carries in its own
+// config for collectionName. ok=false means it carries none, so the properties
+// have to be discovered from the shard's buckets instead.
+func (t *ShardReindexTaskGeneric) selectedProps(collectionName string) ([]string, bool) {
+	if !t.config.selectionEnabled {
+		return nil, false
+	}
+	selected := t.config.selectedPropsByCollection[collectionName]
+	if len(selected) == 0 {
+		return nil, false
+	}
+	propNames := make([]string, 0, len(selected))
+	for propName := range selected {
+		propNames = append(propNames, propName)
+	}
+	// Sort for determinism — map iteration order is randomized and downstream
+	// sentinel/tracker state hashes the list.
+	sort.Strings(propNames)
+	return propNames, true
+}
+
+// SaveSelectedProps records the task's property list in properties.mig as soon
+// as the recovery payload is written, instead of waiting for this shard's first
+// [ShardReindexTaskGeneric.getPropsToReindex]. A property DELETE arriving in
+// between then answers an ambiguous tracker-dir name from that sidecar rather
+// than parsing payload.mig, which costs megabytes per tracker inside the RAFT
+// apply that holds the FSM loop cluster-wide.
+//
+// Only a task that already knows its properties writes one. A whole-collection
+// task discovers them by scanning the shard's buckets, so there is nothing to
+// record here ahead of that discovery.
+func (t *ShardReindexTaskGeneric) SaveSelectedProps(shard ShardLike) error {
+	collectionName := shard.Index().Config.ClassName.String()
+	if !t.isShardSelected(collectionName, shard.Name()) {
+		return nil
+	}
+	props, ok := t.selectedProps(collectionName)
+	if !ok {
+		return nil
+	}
+
+	// No init(): the migration dir is the one SaveRecoveryPayload just created,
+	// so this write cannot re-materialize a class dir a concurrent DELETE
+	// renamed away.
+	rt := NewFileReindexTracker(shard.pathLSM(), t.strategy.MigrationDirName(), t.keyParser)
+	if rt.HasProps() {
+		return nil
+	}
+	return rt.saveProps(props)
+}
+
+// recordedProps reads the property list the tracker holds. HasProps only
+// reports a file that has content, so a list that parses to nothing means that
+// content is corrupt — answering "no properties" would silently retire the
+// shard's reindex instead of reporting the file.
+func recordedProps(rt reindexTracker) ([]string, error) {
+	props, err := rt.GetProps()
+	if err != nil {
+		return nil, err
+	}
+	if len(props) == 0 {
+		return nil, fmt.Errorf("properties file names no property")
+	}
+	return props, nil
+}
+
 func (t *ShardReindexTaskGeneric) getPropsToReindex(shard ShardLike, rt reindexTracker) ([]string, error) {
 	if rt.HasProps() {
-		props, err := rt.GetProps()
-		if err != nil {
-			return nil, err
-		}
-		return props, nil
+		return recordedProps(rt)
 	}
 	props, save := t.findPropsToReindex(shard)
 	if save {
@@ -2822,11 +2879,7 @@ func (t *ShardReindexTaskGeneric) getPropsToReindex(shard ShardLike, rt reindexT
 
 func (t *ShardReindexTaskGeneric) readPropsToReindex(rt reindexTracker) ([]string, error) {
 	if rt.HasProps() {
-		props, err := rt.GetProps()
-		if err != nil {
-			return nil, err
-		}
-		return props, nil
+		return recordedProps(rt)
 	}
 	return []string{}, nil
 }

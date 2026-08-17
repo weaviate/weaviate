@@ -115,6 +115,7 @@ import (
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
 	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
+	modmulti2vectwelvelabs "github.com/weaviate/weaviate/modules/multi2vec-twelvelabs"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
@@ -157,6 +158,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -210,8 +212,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// Initialize OpenTelemetry tracing
 	if err := opentelemetry.Init(appState.Logger); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Error("failed to initialize OpenTelemetry")
+			WithField("action", "startup").
+			Errorf("failed to initialize OpenTelemetry: %v", err)
 	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -243,7 +245,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 		sink, err := armonprometheus.NewPrometheusSinkFrom(opts)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create prometheus sink for raft metrics")
+			appState.Logger.WithField("action", "startup").Fatalf("failed to create prometheus sink for raft metrics: %v", err)
 		}
 
 		cfg := armonmetrics.DefaultConfig("weaviate_internal") // to differentiate it's coming from internal/dependency packages.
@@ -256,7 +258,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 		_, err = armonmetrics.NewGlobal(cfg, sink)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create metric registry raft metrics")
+			appState.Logger.WithField("action", "startup").Fatalf("failed to create metric registry raft metrics: %v", err)
 		}
 
 		// only monitoring tool supported at the moment is prometheus
@@ -318,8 +320,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		})
 		if err != nil {
 			appState.Logger.
-				WithField("action", "startup").WithError(err).
-				Fatal("sentry initialization failed")
+				WithField("action", "startup").
+				Fatalf("sentry initialization failed: %v", err)
 		}
 
 		sentry.ConfigureScope(func(scope *sentry.Scope) {
@@ -409,8 +411,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		metricsRegisterer, appState.Logger, grpcDialOpts...)
 	if err != nil {
 		appState.Logger.WithField("action", "startup").
-			WithError(err).
-			Fatal("failed to create gRPC connection manager")
+			Fatalf("failed to create gRPC connection manager: %v", err)
 	}
 	appState.GRPCConnManager = grpcConnManager
 
@@ -433,8 +434,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		replMetricsReg, appState.Logger, replDialOpts...)
 	if err != nil {
 		appState.Logger.WithField("action", "startup").
-			WithError(err).
-			Fatal("failed to create replication gRPC connection manager")
+			Fatalf("failed to create replication gRPC connection manager: %v", err)
 	}
 
 	appState.ReplGRPCConnManager = replConnManager
@@ -488,6 +488,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		LSMSkipWriteClassNameEnabled:        appState.ServerConfig.Config.Persistence.LSMSkipWriteClassNameEnabled,
 		NamespacesEnabled:                   appState.ServerConfig.Config.Namespaces.Enabled,
+		RuntimeReindexDisabled:              !appState.ServerConfig.Config.RuntimeReindexEnabled,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -527,17 +528,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		QuerySlowLogEnabled:          appState.ServerConfig.Config.QuerySlowLogEnabled,
 		QuerySlowLogThreshold:        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:       appState.ServerConfig.Config.InvertedSorterDisabled,
+		QueryBatchedContainsEnabled:  appState.ServerConfig.Config.QueryBatchedContainsEnabled,
 		LazyPropertyLengthsEnabled:   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
 		MaintenanceModeEnabled:       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		AsyncIndexingEnabled:         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                appState.ServerConfig.Config.HFreshEnabled,
 		OperationalMode:              appState.ServerConfig.Config.OperationalMode,
 		DisableDimensionMetrics:      appState.ServerConfig.Config.DisableDimensionMetrics,
-	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
+	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil, appState.NamespacesController) // TODO client
 	if err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("invalid new DB")
+			WithField("action", "startup").
+			Fatalf("invalid new DB: %v", err)
 	}
 
 	appState.DB = repo
@@ -573,8 +575,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	schemaRepo := schemarepo.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err = schemaRepo.Open(); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not initialize schema repo")
+			WithField("action", "startup").
+			Fatalf("could not initialize schema repo: %v", err)
 		os.Exit(1)
 	}
 
@@ -582,8 +584,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not initialize classifications repo")
+			WithField("action", "startup").
+			Fatalf("could not initialize classifications repo: %v", err)
 		os.Exit(1)
 	}
 
@@ -598,8 +600,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("raft-join", appState.ServerConfig.Config.Raft.Join).
-			WithError(err).
-			Fatal("parsing raft-join")
+			Fatalf("parsing raft-join %q: %v", appState.ServerConfig.Config.Raft.Join, err)
 		os.Exit(1)
 	}
 
@@ -652,6 +653,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		IsLocalHost:                 appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:            schemaRepo.LoadLegacySchema,
 		SentryEnabled:               appState.ServerConfig.Config.Sentry.Enabled,
+		TelemetryEnabled:            telemetryEnabled(appState),
 		AuthzController:             appState.AuthzController,
 		RBAC:                        appState.RBAC,
 		DynamicUserController:       appState.APIKey.Dynamic,
@@ -664,6 +666,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
 			db.ReindexNamespace:         db.ExtractReindexTaskCollection,
 			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
+		},
+		DistributedTaskTargetVectorExtractors: map[string]distributedtask.TargetVectorExtractor{
+			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskTargets,
 		},
 		ReplicaMovementEnabled:  appState.ServerConfig.Config.ReplicaMovementEnabled,
 		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
@@ -678,7 +683,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}
 
-	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.AuthzSnapshotter, appState.GRPCServerMetrics)
+	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
 	appState.ClusterService.SetInflightDrainer(repo.WaitForLocalInflightWrites)
 
@@ -748,8 +753,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	)
 	if err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not initialize schema manager")
+			WithField("action", "startup").
+			Fatalf("could not initialize schema manager: %v", err)
 		os.Exit(1)
 	}
 
@@ -778,8 +783,15 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 
+	// Assign only when RBAC is on. A nil *rbac.Manager put into this interface
+	// leaves rbacSourcer non-nil, so the backupper's nil check misses it and an
+	// includeRoles request produces an empty RBAC blob instead of being rejected.
+	var rbacSourcer backup.RBACSnapshotter
+	if appState.RBAC != nil {
+		rbacSourcer = appState.RBAC
+	}
 	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
-		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
+		schemaManager, repo, appState.Modules, rbacSourcer, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
 	// Create export participant early so the cluster API server can register it
@@ -838,8 +850,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
 				WithField("action", "startup").
-				WithError(err).
-				Fatal("could not open cloud meta store")
+				Fatalf("could not open cloud meta store: %v", err)
 			metaStoreReady.failure(err)
 		} else {
 			metaStoreReady.success()
@@ -860,9 +871,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	err = migrator.AdjustFilterablePropSettings(ctx)
 	if err != nil {
 		appState.Logger.
-			WithError(err).
 			WithField("action", "adjustFilterablePropSettings").
-			Fatal("migration failed")
+			Fatalf("migration failed: %v", err)
 		os.Exit(1)
 	}
 
@@ -886,7 +896,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		enterrors.GoWrapper(func() {
 			l := appState.Logger.WithField("action", "startup")
 			if err := metaStoreReady.waitForMetaStore(); err != nil {
-				l.WithError(err).Error("Reindexing inverted indexes skipped")
+				l.Errorf("Reindexing inverted indexes skipped: %v", err)
 				return
 			}
 			l.Info("Reindexing inverted indexes")
@@ -916,12 +926,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	enterrors.GoWrapper(func() {
 		l := appState.Logger.WithField("action", "startup")
 		if err := metaStoreReady.waitForMetaStore(); err != nil {
-			l.WithError(err).Error("Configuring crons skipped")
+			l.Errorf("Configuring crons skipped: %v", err)
 			return
 		}
 		l.Info("Configuring crons")
 		if err := appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator, namespaceCleanupCoordinator); err != nil {
-			l.WithError(err).Fatal("Configuring crons failed")
+			l.Fatalf("Configuring crons failed: %v", err)
 		}
 	}, appState.Logger)
 
@@ -1013,8 +1023,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
-			appState.Logger.WithError(err).WithField("action", "startup").
-				Error("failed to start distributed task scheduler")
+			appState.Logger.WithField("action", "startup").
+				Errorf("failed to start distributed task scheduler: %v", err)
 			return
 		}
 
@@ -1028,10 +1038,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// That cancellation propagates into Store.PauseCompaction and
 		// surfaces as a misleading "context canceled" error.
 		auditCtx := serverShutdownCtx
-		type taskKey struct {
-			id      string
-			version uint64
-		}
 		// buildKnownTask returns an error on ListDistributedTasks
 		// failure. Callers MUST propagate the error rather than
 		// substitute a soft default — prior versions returned a
@@ -1043,13 +1049,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			if err != nil {
 				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
 			}
-			live := make(map[taskKey]bool, len(tasksByNamespace[db.ReindexNamespace]))
-			for _, task := range tasksByNamespace[db.ReindexNamespace] {
-				live[taskKey{task.ID, task.Version}] = db.IsLiveReindexTaskStatus(task.Status)
-			}
-			return func(taskID string, taskVersion uint64) bool {
-				return live[taskKey{taskID, taskVersion}]
-			}, nil
+			return db.NewLiveReindexTrackerLookup(tasksByNamespace[db.ReindexNamespace]), nil
 		}
 		// Wait until ListDistributedTasks succeeds at least once before
 		// running the startup audit. Without this, a transient DTM-list
@@ -1098,10 +1098,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// fall back to refusing every backup until DTM is reachable, to
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
-		type shardKey struct {
-			collection string
-			shardName  string
-		}
 		buildShardReindexActivity := func() db.ShardReindexActivityLookup {
 			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
 			if err != nil {
@@ -1109,25 +1105,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
 				return func(string, string) bool { return true }
 			}
-			live := make(map[shardKey]bool)
-			for _, task := range tasksByNamespace[db.ReindexNamespace] {
-				if !db.IsLiveReindexTaskStatus(task.Status) {
-					continue
-				}
-				var payload db.ReindexTaskPayload
-				if err := json.Unmarshal(task.Payload, &payload); err != nil {
-					appState.Logger.WithField("action", "backup_reindex_gate").
-						WithField("task_id", task.ID).
-						Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
-					continue
-				}
-				for _, shardName := range payload.UnitToShard {
-					live[shardKey{payload.Collection, shardName}] = true
-				}
-			}
-			return func(collection, shardName string) bool {
-				return live[shardKey{collection, shardName}]
-			}
+			return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
 		}
 		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
@@ -1184,20 +1162,35 @@ func initReindexAndDistributedTasks(
 
 	// Drop-vector-index distributed-task provider. Added to the providers map so the
 	// conflict/schema-mutation detector loops below auto-register it.
-	providers[db.DropVectorIndexNamespace] = db.NewDropVectorIndexProvider(
+	// Wake the reconcile loop when a round ends with work remaining (batch
+	// chains, deferrals, failed rounds) instead of idling a full interval.
+	dropVectorReconcileNudge := make(chan struct{}, 1)
+	dropVectorFinalizer := db.NewSchemaVectorConfigFinalizer(appState.SchemaManager)
+	// Direct-finalize hook for tenant-less MT collections, where no cleanup
+	// task can ever exist to drive the finalize.
+	dropVectorEnqueuer.SetVectorConfigFinalizer(dropVectorFinalizer)
+	dropVectorProvider := db.NewDropVectorIndexProvider(
 		repo,
-		db.NewSchemaVectorConfigFinalizer(appState.SchemaManager),
+		dropVectorFinalizer,
 		appState.ClusterService.Raft,
 		appState.Logger,
 		appState.Cluster.LocalName(),
 		serverShutdownCtx,
+		func() {
+			select {
+			case dropVectorReconcileNudge <- struct{}{}:
+			default:
+			}
+		},
 	)
+	providers[db.DropVectorIndexNamespace] = dropVectorProvider
 	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {
 		runDropVectorIndexReconciliation(
 			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
-			dropVectorReconcileInterval)
+			appState.ServerConfig.Config.DistributedTasks.DropVectorReconcileInterval,
+			appState.ClusterService.IsLeader, dropVectorReconcileNudge)
 	}, appState.Logger)
 
 	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
@@ -1213,13 +1206,14 @@ func initReindexAndDistributedTasks(
 		// AckRecorder gates MarkDistributedTaskFinalized on per-node acks
 		// after OnGroupCompleted, so a failed ack flips the task to FAILED
 		// before the cluster-wide schema flip can run.
-		AckRecorder:       appState.ClusterService.Raft,
-		Providers:         providers,
-		Logger:            appState.Logger,
-		MetricsRegisterer: metricsRegisterer,
-		LocalNode:         appState.Cluster.LocalName(),
-		TickInterval:      appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
-		CompletedTaskTTL:  appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+		AckRecorder:        appState.ClusterService.Raft,
+		LocalTaskInspector: appState.ClusterService.Raft,
+		Providers:          providers,
+		Logger:             appState.Logger,
+		MetricsRegisterer:  metricsRegisterer,
+		LocalNode:          appState.Cluster.LocalName(),
+		TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
+		CompletedTaskTTL:   appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
 	})
 	// Reactive notifier: without this, barriers stagger by up to the tick
 	// interval across nodes. See [distributedtask.SchedulerNotifier].
@@ -1662,12 +1656,21 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	if appState.ServerConfig.Config.Authentication.DBUsers.Enabled && appState.APIKey != nil && appState.APIKey.Dynamic != nil {
 		userLister = appState.APIKey.Dynamic
 	}
+	// roleLister lets the scheduler resolve includeRoles selectors. Assign it only
+	// when RBAC is on: putting a nil *rbac.Manager into the interface would leave
+	// roleLister non-nil, so the scheduler's nil check would miss it and an
+	// includeRoles request would panic instead of being rejected with a clear error.
+	var roleLister backup.RoleLister
+	if appState.RBAC != nil {
+		roleLister = appState.RBAC
+	}
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, userLister, appState.Modules,
+		appState.DB, userLister, roleLister, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
+		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
 		appState.Logger)
 	return backupScheduler
 }
@@ -1708,7 +1711,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	appState.ServerConfig = serverConfig
 	err = serverConfig.LoadConfig(options, logger)
 	if err != nil {
-		logger.WithField("action", "startup").WithError(err).Error("could not load config")
+		logger.WithField("action", "startup").Errorf("could not load config: %v", err)
 		logger.Exit(1)
 	}
 	// Initialize runtime config and load overridden config
@@ -1716,7 +1719,8 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	dataPath := serverConfig.Config.Persistence.DataPath
 	if err := os.MkdirAll(dataPath, 0o777); err != nil {
 		logger.WithField("action", "startup").
-			WithField("path", dataPath).Error("cannot create data directory")
+			WithField("path", dataPath).
+			Errorf("cannot create data directory %q: %v", dataPath, err)
 		logger.Exit(1)
 	}
 
@@ -1755,7 +1759,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	appState.APIKeyRemote = apikey.NewRemoteApiKey(appState.APIKey)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	if err = configureAuthorizer(appState); err != nil {
-		logger.WithField("action", "startup").WithField("error", err).Error("cannot configure authorizer")
+		logger.WithField("action", "startup").Errorf("cannot configure authorizer: %v", err)
 		logger.Exit(1)
 	}
 	appState.Crons = configureCrons(appState, serverShutdownCtx)
@@ -1775,8 +1779,8 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	serverConfig.Config.Cluster.RaftBootstrapTimeout = serverConfig.Config.Raft.BootstrapTimeout
 	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
-		logger.WithField("action", "startup").WithError(err).
-			Error("could not init cluster state")
+		logger.WithField("action", "startup").
+			Errorf("could not init cluster state: %v", err)
 		logger.Exit(1)
 	}
 
@@ -1788,8 +1792,8 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	// Register enabled modules
 	if err := registerModules(appState); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't load")
+			WithField("action", "startup").
+			Fatalf("modules didn't load: %v", err)
 	}
 	// while we accept an overall longer startup, e.g. due to a recovery, we
 	// still want to limit the module startup context, as that's mostly service
@@ -1799,15 +1803,15 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 
 	if err := initModules(moduleCtx, appState); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't initialize")
+			WithField("action", "startup").
+			Fatalf("modules didn't initialize: %v", err)
 	}
 	// now that modules are loaded we can run the remaining config validation
 	// which is module dependent
 	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("invalid config")
+			WithField("action", "startup").
+			Fatalf("invalid config: %v", err)
 	}
 
 	// Initialize runtime config hooks and start runtime config background process
@@ -1870,6 +1874,7 @@ func registerModules(appState *state.State) error {
 		modtext2multivecjinaai.Name,
 		modnvidia.Name,
 		modmulti2vecnvidia.Name,
+		modmulti2vectwelvelabs.Name,
 		modmulti2multivecjinaai.Name,
 		modmulti2multivecweaviate.Name,
 		modmulti2vecaws.Name,
@@ -2123,6 +2128,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modmulti2vecvoyageai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2vectwelvelabs.Name]; ok {
+		appState.Modules.Register(modmulti2vectwelvelabs.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vectwelvelabs.Name).
 			Debug("enabled module")
 	}
 
@@ -2720,6 +2733,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+		registered.QueryBatchedContainsEnabled = appState.ServerConfig.Config.QueryBatchedContainsEnabled
 		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
 		registered.BM25FilterTombMergeGateRatio = appState.ServerConfig.Config.BM25FilterTombMergeGateRatio
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization

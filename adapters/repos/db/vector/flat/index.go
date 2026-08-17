@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -63,6 +62,13 @@ type flat struct {
 	compressionType CompressionType
 	quantizer       Quantizer
 	cache           *Cache
+	// cachePrefilled reports whether the cache is known to hold every vector
+	// of the index, allowing searches to iterate the cache instead of the
+	// store. It is set when the startup prefill loaded the full index, and
+	// for an index that starts empty (insert-time preloading then keeps the
+	// cache complete). It stays false when the prefill could not see the
+	// data, e.g. vectors that only live in the memtable.
+	cachePrefilled atomic.Bool
 
 	pqResults *common.PqMaxPool
 	pool      *pools
@@ -78,18 +84,15 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	logger := cfg.Logger
-	if logger == nil {
-		l := logrus.New()
-		l.Out = io.Discard
-		logger = l
-	}
+	// in place rather than into a local: the quantizer cache below reads
+	// cfg.Logger again and has no fallback of its own
+	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
 
 	index := &flat{
 		id:                   cfg.ID,
 		targetVector:         cfg.TargetVector,
 		rootPath:             cfg.RootPath,
-		logger:               logger,
+		logger:               cfg.Logger,
 		distancerProvider:    cfg.DistanceProvider,
 		metadataLock:         &sync.RWMutex{},
 		rescore:              extractCompressionRescore(uc),
@@ -110,13 +113,15 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	// If compression is BQ we create the quantizer and cache immediately
 	// For RQ we create when restoring from disk or on first batch
 	if index.compressionType == CompressionBQ {
-		index.compressed.Store(true)
 		builder := NewQuantizerBuilder(cfg.DistanceProvider)
 		quantizer, err := builder.CreateQuantizer(index.compressionType, 0)
 		if err != nil {
 			return nil, err
 		}
+		// the quantizer must be assigned before the compressed flag is set:
+		// readers access it lock-free after observing Compressed() == true
 		index.quantizer = quantizer
+		index.compressed.Store(true)
 	}
 
 	cached, cacheType := extractCache(uc)
@@ -422,12 +427,13 @@ func (index *flat) searchTimeRescore(k int) int {
 }
 
 func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	switch index.compressionType {
-	case CompressionBQ, CompressionRQ1, CompressionRQ8:
+	// route on the runtime compression state, not the configured type: with RQ
+	// the quantizer only exists after the first Add ran initializeDimensionsAndRQ,
+	// and until then the uncompressed bucket is the only complete source
+	if index.Compressed() {
 		return index.searchByVectorQuantized(ctx, vector, k, allow)
-	default:
-		return index.searchByVector(ctx, vector, k, allow)
 	}
+	return index.searchByVector(ctx, vector, k, allow)
 }
 
 func (index *flat) searchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
@@ -459,14 +465,10 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 }
 
 func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	// Ensure quantizer is initialized
+	// defensive: callers only reach this path once Compressed() is true, and
+	// the quantizer is always assigned before the compressed flag is set
 	if index.quantizer == nil {
-		dims := atomic.LoadInt32(&index.dims)
-		if dims == 0 {
-			return []uint64{}, []float32{}, nil
-		} else {
-			return nil, nil, fmt.Errorf("quantizer not initialized")
-		}
+		return nil, nil, fmt.Errorf("quantizer not initialized")
 	}
 
 	// TODO: pass context into inner methods, so it can be checked more granuarly
@@ -476,7 +478,10 @@ func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32
 
 	vector = index.normalized(vector)
 
-	if index.Compressed() && index.Cached() {
+	// the cached search iterates the cache window, which silently skips
+	// anything not cached; it is only correct once the cache is known to be
+	// complete, otherwise the store is the source of truth
+	if index.Compressed() && index.Cached() && index.cachePrefilled.Load() {
 		if err := index.findTopVectorsQuantizedCached(heap, allow, rescore, vector); err != nil {
 			return nil, nil, err
 		}
@@ -898,7 +903,13 @@ func (index *flat) Preload(id uint64, vector []float32) {
 }
 
 func (index *flat) PostStartup(ctx context.Context) {
-	if !index.Cached() || index.quantizer == nil {
+	if !index.Cached() {
+		return
+	}
+	if index.quantizer == nil {
+		// no quantizer means nothing was restored from disk: the index
+		// starts empty and insert-time preloading keeps the cache complete
+		index.cachePrefilled.Store(true)
 		return
 	}
 
@@ -1003,7 +1014,24 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 	}
 
-	// Grow cache just once
+	if count == 0 {
+		// nothing to preload: don't allocate the cache for an empty tenant.
+		// The parallel iterator only sees flushed segments, so distinguish a
+		// truly empty index (the cache is trivially complete and stays
+		// complete via insert-time preloading) from data that only lives in
+		// the memtable (the cache must not be trusted for searches).
+		c := bucket.Cursor()
+		k, _ := c.First()
+		c.Close()
+		if k == nil {
+			index.cachePrefilled.Store(true)
+		}
+		return
+	}
+
+	// Grow cache just once. Growing before LockAll also sizes the cache's
+	// lock stripes to the actual tenant size.
+	index.cache.Grow(maxID)
 	index.cache.LockAll()
 	defer index.cache.UnlockAll()
 
@@ -1055,6 +1083,8 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 	}
 
+	index.cachePrefilled.Store(true)
+
 	took := time.Since(before)
 	index.logger.WithFields(logrus.Fields{
 		"action":   "preload_cache",
@@ -1068,12 +1098,11 @@ func (index *flat) PostStartup(ctx context.Context) {
 func (index *flat) ContainsDoc(id uint64) bool {
 	var bucketName string
 
-	// logic modeled after SearchByVector which indicates that the PQ bucket is
-	// the same as the uncompressed bucket "for now"
-	switch index.compressionType {
-	case CompressionBQ, CompressionRQ1, CompressionRQ8:
+	// logic modeled after SearchByVector: the compressed bucket is only
+	// guaranteed complete once the quantizer is initialized
+	if index.Compressed() {
 		bucketName = index.getCompressedBucketName()
-	default:
+	} else {
 		bucketName = index.getBucketName()
 	}
 
@@ -1090,12 +1119,11 @@ func (index *flat) ContainsDoc(id uint64) bool {
 func (index *flat) Iterate(fn func(docID uint64) bool) {
 	var bucketName string
 
-	// logic modeled after SearchByVector which indicates that the PQ bucket is
-	// the same as the uncompressed bucket "for now"
-	switch index.compressionType {
-	case CompressionBQ, CompressionRQ1, CompressionRQ8:
+	// logic modeled after SearchByVector: the compressed bucket is only
+	// guaranteed complete once the quantizer is initialized
+	if index.Compressed() {
 		bucketName = index.getCompressedBucketName()
-	default:
+	} else {
 		bucketName = index.getBucketName()
 	}
 
@@ -1206,7 +1234,10 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 	}
 	switch index.compressionType {
 	case CompressionBQ, CompressionRQ1, CompressionRQ8:
-		if index.cache == nil {
+		// the quantized paths below dereference the quantizer, which for RQ
+		// only exists once Compressed() reports true; fall back to
+		// full-precision distances from the uncompressed bucket until then
+		if index.cache == nil || !index.Compressed() {
 			distFunc = defaultDistFunc
 		} else {
 			// For RQ-1 bit, use NewDistancer to get 5-bit query quantization for better accuracy
@@ -1215,12 +1246,18 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				// Create a distancer that uses 5-bit query quantization
 				distancer := index.quantizer.(*BinaryRotationalQuantizerWrapper).NewDistancer(queryVector)
 				distFunc = func(nodeID uint64) (float32, error) {
-					if int32(nodeID) > index.cache.Len() {
-						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.cache.Len())
+					// the window guard only makes sense on a complete cache,
+					// where an id beyond it cannot exist; on an incomplete
+					// cache, Get below falls back to disk
+					if cacheLen := index.cache.Len(); index.cachePrefilled.Load() && int32(nodeID) > cacheLen {
+						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, cacheLen)
 					}
 					vec, err := index.cache.uint64Cache.Get(context.Background(), nodeID)
 					if err != nil {
 						return 0, err
+					}
+					if len(vec) == 0 {
+						return -1, fmt.Errorf("node %v not found", nodeID)
 					}
 					return distancer.Distance(vec)
 				}
@@ -1236,19 +1273,28 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				}
 
 				distFunc = func(nodeID uint64) (float32, error) {
-					if int32(nodeID) > index.cache.Len() {
-						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.cache.Len())
+					// the window guard only makes sense on a complete cache,
+					// where an id beyond it cannot exist; on an incomplete
+					// cache, Get below falls back to disk
+					if cacheLen := index.cache.Len(); index.cachePrefilled.Load() && int32(nodeID) > cacheLen {
+						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, cacheLen)
 					}
 					if index.quantizer.Type() == Uint64Quantizer {
 						vec, err := index.cache.uint64Cache.Get(context.Background(), nodeID)
 						if err != nil {
 							return 0, err
 						}
+						if len(vec) == 0 {
+							return -1, fmt.Errorf("node %v not found", nodeID)
+						}
 						return index.quantizer.DistanceBetweenUint64Vectors(vec, queryVecEncodeUint64)
 					} else if index.quantizer.Type() == ByteQuantizer {
 						vec, err := index.cache.byteCache.Get(context.Background(), nodeID)
 						if err != nil {
 							return 0, err
+						}
+						if len(vec) == 0 {
+							return -1, fmt.Errorf("node %v not found", nodeID)
 						}
 						return index.quantizer.DistanceBetweenByteVectors(vec, queryVecEncodeBytes)
 					}

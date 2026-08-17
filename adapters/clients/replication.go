@@ -20,7 +20,6 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io"
-	"math"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -144,11 +143,14 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
 	}
 
 	if res.Header.Get("X-Response-Encoding") == "binary" {
-		return readDigestsInRangeBinaryStream(res.Body, res.ContentLength)
+		return readDigestsInRangeBinaryStream(res.Body, res.ContentLength, limit)
 	}
 
 	// Legacy JSON fallback for older nodes.
@@ -163,12 +165,19 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 // by writeDigestsInRangeResponse. Each record is
 // replica.DigestObjectsInRangeRecordLength bytes: 16-byte UUID (RFC-4122
 // binary form) + 8-byte UpdateTime (int64 big-endian).
-func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64) ([]types.RepairResponse, error) {
+func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64, maxRecords int) ([]types.RepairResponse, error) {
 	var results []types.RepairResponse
 	if contentLength > 0 {
-		if recordCount := contentLength / int64(replica.DigestObjectsInRangeRecordLength); recordCount <= int64(math.MaxInt) {
-			results = make([]types.RepairResponse, 0, int(recordCount))
+		// Content-Length is peer-controlled; never pre-size beyond the request's own bound
+		recordCount := contentLength / int64(replica.DigestObjectsInRangeRecordLength)
+		if recordCount > int64(maxRecords) {
+			recordCount = int64(maxRecords)
 		}
+		// a caller-supplied negative bound must not reach make
+		if recordCount < 0 {
+			recordCount = 0
+		}
+		results = make([]types.RepairResponse, 0, int(recordCount))
 	}
 	var buf [replica.DigestObjectsInRangeRecordLength]byte
 	for {
@@ -233,20 +242,28 @@ func (c *replicationClient) CompareDigests(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
 	}
 
-	return readCompareDigestsBinaryStream(res.Body, res.ContentLength)
+	return readCompareDigestsBinaryStream(res.Body, res.ContentLength, len(digests))
 }
 
 // readCompareDigestsBinaryStream decodes a fixed-size binary stream produced
 // by postCompareDigests. Each record is replica.CompareDigestsRecordLength bytes.
-func readCompareDigestsBinaryStream(r io.Reader, contentLength int64) ([]types.RepairResponse, error) {
+func readCompareDigestsBinaryStream(r io.Reader, contentLength int64, maxRecords int) ([]types.RepairResponse, error) {
 	var results []types.RepairResponse
 	if contentLength > 0 {
-		if recordCount := contentLength / int64(replica.CompareDigestsRecordLength); recordCount <= int64(math.MaxInt) {
-			results = make([]types.RepairResponse, 0, int(recordCount))
+		recordCount := contentLength / int64(replica.CompareDigestsRecordLength)
+		if recordCount > int64(maxRecords) {
+			recordCount = int64(maxRecords)
 		}
+		if recordCount < 0 {
+			recordCount = 0
+		}
+		results = make([]types.RepairResponse, 0, int(recordCount))
 	}
 	var buf [replica.CompareDigestsRecordLength]byte
 	for {
@@ -273,6 +290,20 @@ func readCompareDigestsBinaryStream(r io.Reader, contentLength int64) ([]types.R
 
 // HashTreeLevel fetches hash tree level digests. discriminant.Size() must
 // equal hashtree.LeavesCount(level).
+
+// asyncNotReadyError maps 412/418/503 to the retry-later sentinel family; nil otherwise (pre-1.38 peers send 500).
+func asyncNotReadyError(code int, body []byte) error {
+	switch code {
+	case http.StatusPreconditionFailed:
+		return fmt.Errorf("%w: %s", replica.ErrAsyncReplicationNotActive, body)
+	case http.StatusTeapot:
+		return fmt.Errorf("%w: %s", replica.ErrReplicaMaintenance, body)
+	case http.StatusServiceUnavailable:
+		return fmt.Errorf("%w: %s", replica.ErrReplicaBooting, body)
+	}
+	return nil
+}
+
 func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	host, index, shard string, level int, discriminant *hashtree.Bitset,
 ) ([]hashtree.Digest, error) {
@@ -315,11 +346,14 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 
 	if code := res.StatusCode; !successCode(code) {
 		errBody, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(code, errBody); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", code, errBody)
 	}
 
 	if res.Header.Get("X-Response-Encoding") == "binary" {
-		return readDigestsBinaryStream(res.Body, res.ContentLength)
+		return readDigestsBinaryStream(res.Body, res.ContentLength, discriminant.SetCount())
 	}
 
 	// Legacy JSON fallback for older nodes.
@@ -558,6 +592,9 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
 	}
 
@@ -852,15 +889,19 @@ func shouldRetry(code int) bool {
 		code == http.StatusServiceUnavailable
 }
 
-// readDigestsBinaryStream reads fixed-size digest records directly from r
-// without buffering the whole body. contentLength is used only to pre-allocate
-// the result slice; pass -1 when unknown.
-func readDigestsBinaryStream(r io.Reader, contentLength int64) ([]hashtree.Digest, error) {
+// readDigestsBinaryStream reads fixed-size digest records directly from r without
+// buffering the whole body; contentLength only pre-sizes, capped at maxRecords.
+func readDigestsBinaryStream(r io.Reader, contentLength int64, maxRecords int) ([]hashtree.Digest, error) {
 	var digests []hashtree.Digest
 	if contentLength > 0 {
-		if recordCount := contentLength / int64(hashtree.DigestLength); recordCount <= int64(math.MaxInt) {
-			digests = make([]hashtree.Digest, 0, int(recordCount))
+		recordCount := contentLength / int64(hashtree.DigestLength)
+		if recordCount > int64(maxRecords) {
+			recordCount = int64(maxRecords)
 		}
+		if recordCount < 0 {
+			recordCount = 0
+		}
+		digests = make([]hashtree.Digest, 0, int(recordCount))
 	}
 	var buf [hashtree.DigestLength]byte
 	for {

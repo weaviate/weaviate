@@ -64,16 +64,13 @@ func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, sha
 		index.dropIndex.RUnlock()
 	}()
 
-	// abort the scan as soon as a drop of this index is requested, so the drop
-	// does not wait behind the dropIndex.RLock held above
-	usageCtx, usageCancel := context.WithCancel(ctx)
-	defer usageCancel()
-	stop := context.AfterFunc(index.dropRequestedCtx, usageCancel)
-	defer stop()
+	usageCtx, done := index.cancelOnCloseRequested(ctx)
+	defer done()
 
 	usage, err := index.usageForCollection(usageCtx, shardReadSem, exactObjectCount, vectorsConfig)
-	if err != nil && index.dropRequestedCtx.Err() != nil && ctx.Err() == nil {
-		// the collection is being dropped: skip it, the report continues without it
+	// only a collection being deleted may be left out; a scan aborted by node
+	// shutdown must surface, or the report silently loses collections
+	if err != nil && errors.Is(context.Cause(index.closeRequestedCtx), errIndexDropped) && ctx.Err() == nil {
 		db.logger.Infof("usage scan aborted: collection %q is being dropped", className)
 		return nil, nil
 	}
@@ -298,12 +295,12 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 
 	lsmPath := shardPathLSM(i.path(), shard.Name())
 
-	_, directories, err := diskio.GetFileWithSizes(lsmPath)
+	directories, err := diskio.GetSubdirNames(lsmPath)
 	if err != nil {
 		return nil, err
 	}
 
-	vectorStorageSize, uncompressedVectorSize, err := shard.VectorStorageSize(ctx, lsmPath, directories)
+	vectorStorageSize, uncompressedVectorSize, dimensionalities, err := shard.VectorStorageUsage(ctx, lsmPath, directories)
 	if err != nil {
 		return nil, err
 	}
@@ -318,18 +315,32 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		return nil, err
 	}
 
+	objectsWithoutVectors, vectorsInObjects := i.splitObjectsBucketSize(shard.Name(),
+		uint64(objectStorageSize), uint64(uncompressedVectorSize))
+
 	shardUsage := &types.ShardUsage{
 		Name:                  shard.Name(),
 		Status:                strings.ToLower(models.TenantActivityStatusACTIVE),
 		ObjectsCount:          objectCount,
-		ObjectsStorageBytes:   uint64(objectStorageSize) - uint64(uncompressedVectorSize),                               // objects without vectors
-		VectorStorageBytes:    uint64(vectorStorageSize) + uint64(uncompressedVectorSize) + vectorCommitLogsStorageSize, // lsm/vectors + objects vectors + commit.log folders
-		IndexStorageBytes:     indexUsage,                                                                               // lsm property folders and dimensions folder
+		ObjectsStorageBytes:   objectsWithoutVectors,
+		VectorStorageBytes:    uint64(vectorStorageSize) + vectorsInObjects + vectorCommitLogsStorageSize, // lsm/vectors + objects vectors + commit.log folders
+		IndexStorageBytes:     indexUsage,                                                                 // lsm property folders and dimensions folder
 		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectStorageSize) + uint64(vectorStorageSize),
 	}
-	// Get vector usage for each named vector
+	shardUsage.NamedVectors, err = i.vectorUsages(ctx, shard, dimensionalities)
+	if err != nil {
+		return nil, err
+	}
+	return shardUsage, nil
+}
+
+// vectorUsages builds the usage entry of every vector index of a loaded shard.
+// dimensionalities holds what [Shard.VectorStorageUsage] already read from the
+// dimensions bucket; a target vector missing from it is read on demand.
+func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities map[string]types.Dimensionality) (types.VectorsUsage, error) {
 	vectorConfigs := i.GetVectorIndexConfigs()
-	if err = shard.ForEachVectorIndex(func(targetVector string, vectorIndex VectorIndex) error {
+	var usages types.VectorsUsage
+	if err := shard.ForEachVectorIndex(func(targetVector string, vectorIndex VectorIndex) error {
 		var vectorIndexConfig schemaConfig.VectorIndexConfig
 		if vecCfg, exists := vectorConfigs[targetVector]; exists {
 			vectorIndexConfig = vecCfg
@@ -350,9 +361,14 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 		}
 		dimInfo := GetDimensionCategory(vectorIndexConfig, isDynamicUpgraded)
 
-		dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
-		if err != nil {
-			return err
+		dimensionality, ok := dimensionalities[targetVector]
+		if !ok {
+			// a target vector added since VectorStorageUsage ran would report no dimensionality
+			var err error
+			dimensionality, err = shard.DimensionsUsage(ctx, targetVector)
+			if err != nil {
+				return err
+			}
 		}
 
 		compressionRatio := vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions)
@@ -375,13 +391,13 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 			})
 		}
 
-		shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
+		usages = append(usages, vectorUsage)
 		return nil
 	}); err != nil {
 		return nil, err
 	}
-	sort.Sort(shardUsage.NamedVectors)
-	return shardUsage, nil
+	sort.Sort(usages)
+	return usages, nil
 }
 
 func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
@@ -397,7 +413,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	}
 	lsmPath := shardPathLSM(i.path(), shardName)
 
-	_, directories, err := diskio.GetFileWithSizes(lsmPath)
+	directories, err := diskio.GetSubdirNames(lsmPath)
 	if err != nil {
 		return nil, err
 	}
@@ -464,12 +480,15 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 
 	sort.Sort(namedVectors)
 
+	objectsWithoutVectors, vectorsInObjects := i.splitObjectsBucketSize(shardName,
+		uint64(objectUsage.StorageBytes), uncompressedVectorSize)
+
 	shardUsage := &types.ShardUsage{
 		Name:                  shardName,
 		ObjectsCount:          objectUsage.Count,
 		Status:                strings.ToLower(models.TenantActivityStatusINACTIVE),
-		ObjectsStorageBytes:   uint64(objectUsage.StorageBytes) - uncompressedVectorSize,
-		VectorStorageBytes:    uint64(vectorStorageSize) + uncompressedVectorSize + vectorCommitLogsStorageSize,
+		ObjectsStorageBytes:   objectsWithoutVectors,
+		VectorStorageBytes:    uint64(vectorStorageSize) + vectorsInObjects + vectorCommitLogsStorageSize,
 		IndexStorageBytes:     indexUsage,
 		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorStorageSize),
 		NamedVectors:          namedVectors,
@@ -478,6 +497,22 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		return nil, fmt.Errorf("save usage to disk: %w", err)
 	}
 	return shardUsage, err
+}
+
+// splitObjectsBucketSize divides the objects bucket's measured size into the objects themselves and
+// the uncompressed vectors stored alongside them. The vector part is modelled from the dimensions
+// bucket rather than measured, so a stale bucket can model more bytes than the objects bucket holds
+// — capping it keeps the subtraction from wrapping to a 16 EiB bill.
+func (i *Index) splitObjectsBucketSize(shardName string, objectsBucketSize, uncompressedVectorSize uint64) (withoutVectors, vectors uint64) {
+	if uncompressedVectorSize > objectsBucketSize {
+		i.logger.WithFields(logrus.Fields{
+			"class": i.Config.ClassName.String(),
+			"shard": shardName,
+		}).Warnf("dimensions bucket models %d vector bytes but the objects bucket holds only %d; reporting no object storage for this shard",
+			uncompressedVectorSize, objectsBucketSize)
+		return 0, objectsBucketSize
+	}
+	return objectsBucketSize - uncompressedVectorSize, uncompressedVectorSize
 }
 
 func emptyShardUsageWithNameAndActivity(shardName, activity string) *types.ShardUsage {

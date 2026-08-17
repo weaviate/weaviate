@@ -98,8 +98,11 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 	}
 
 	if len(modConfigs) == 0 {
-		// short-circuit collections without vector index
-		if class.Vectorizer == config.VectorizerModuleNone {
+		// Short-circuit collections that vectorize nothing: legacy
+		// vectorizer "none", and vector-less classes (empty vectorizer, no
+		// named vectors — the state a class reaches once its last named
+		// vector is dropped and finalized).
+		if class.Vectorizer == config.VectorizerModuleNone || class.Vectorizer == "" {
 			return nil, nil
 		}
 
@@ -537,6 +540,13 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 	modConfigs := map[string]map[string]any{}
 	// get all named vectorizers for classs
 	for name, vectorConfig := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(vectorConfig) {
+			// A mid-drop named vector keeps its vectorizer config, but its
+			// index is gone and the write path rejects any object carrying the
+			// vector — computing it would fail every write to the collection
+			// until the drop finalizes, and waste the module inference call.
+			continue
+		}
 		modConfig, ok := vectorConfig.Vectorizer.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("class %v vectorizer %s not present", class.Class, name)

@@ -17,11 +17,14 @@ import (
 	"iter"
 	"math"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/concurrency"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
@@ -79,7 +82,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		nAllowList = h.wrapAllowList(ctx, allowList)
 		defer nAllowList.Close()
 	}
+	beforeCentroids := time.Now()
 	centroids, err := h.Centroids.Search(vector, candidateCentroidNum, nAllowList)
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_centroid_search_took", time.Since(beforeCentroids))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -95,7 +100,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	}
 
 	// read all the selected postings
+	beforeRead := time.Now()
 	postings, err = h.PostingStore.MultiGet(ctx, selectedCentroids)
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_read_took", time.Since(beforeRead))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -105,6 +112,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 	var decompressBuf []uint64
 
+	beforeScan := time.Now()
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
 			continue
@@ -153,6 +161,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			}
 		}
 	}
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_scan_took", time.Since(beforeScan))
 
 	if h.muvera.Load() {
 		ids := make([]uint64, 0, q.Len())
@@ -164,24 +173,72 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		return ids, dists, nil
 	}
 
-	rescored := NewResultSet(k)
+	beforeRescore := time.Now()
+	candidates := make([]uint64, 0, q.Len())
 	for id := range q.Iter() {
-		vec, err := h.vectorForID(ctx, id)
-		if err != nil {
-			// The object may have been deleted between the posting scan and the
-			// rescore step (race condition). Skip stale entries gracefully.
-			var notFound storobj.ErrNotFound
-			if errors.As(err, &notFound) {
-				continue
+		candidates = append(candidates, id)
+	}
+
+	// Budget-aware fan-out: the context budget caps the worker count under
+	// concurrent load; without one we default to 2*GOMAXPROCS (IO-bound).
+	workers := concurrency.NumWorkers(ctx, len(candidates), concurrency.GOMAXPROCSx2)
+
+	// One bucket view shared by all workers avoids a lock acquisition per
+	// candidate; pooled buffers avoid allocating per fetched vector.
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	view := h.objectsBucketView()
+	defer view.ReleaseView()
+
+	// Workers compute distances in parallel; results are inserted after,
+	// in candidate order, so ties resolve the same way on every run.
+	candidateDists := make([]float32, len(candidates))
+	skipped := make([]bool, len(candidates))
+
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := range workers {
+		eg.Go(func() error {
+			slice := h.tempVectors.Get(int(atomic.LoadUint32(&h.dims)))
+			defer h.tempVectors.Put(slice)
+
+			for pos := workerID; pos < len(candidates); pos += workers {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				vec, err := h.fetchNormalizedVector(ctx, candidates[pos], slice, view)
+				if err != nil {
+					// The object may have been deleted between the posting scan
+					// and the rescore step (race condition). Skip stale entries
+					// gracefully.
+					var notFound storobj.ErrNotFound
+					if errors.As(err, &notFound) {
+						skipped[pos] = true
+						continue
+					}
+					return err
+				}
+				dist, err := h.distancer.distancer.SingleDist(vector, vec)
+				if err != nil {
+					return err
+				}
+				candidateDists[pos] = dist
 			}
-			return nil, nil, err
+			return nil
+		})
+	}
+	err = eg.Wait()
+	helpers.AnnotateSlowQueryLog(ctx, "hfresh_rescore_took", time.Since(beforeRescore))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	rescored := NewResultSet(k)
+	for pos, id := range candidates {
+		if skipped[pos] {
+			continue
 		}
-		vec = h.normalizeVec(vec)
-		dist, err := h.distancer.distancer.SingleDist(vector, vec)
-		if err != nil {
-			return nil, nil, err
-		}
-		rescored.Insert(id, dist)
+		rescored.Insert(id, candidateDists[pos])
 	}
 
 	ids := make([]uint64, rescored.Len())
@@ -194,6 +251,26 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	}
 
 	return ids, dists, nil
+}
+
+// objectsBucketView returns a consistent view of the objects bucket, valid
+// until ReleaseView. A missing objects bucket is a wiring bug — the shard
+// creates it before any vector index — and panics rather than degrading.
+func (h *HFresh) objectsBucketView() common.BucketView {
+	return h.store.Bucket(helpers.ObjectsBucketLSM).GetConsistentView()
+}
+
+// fetchNormalizedVector reads the full vector for id into the pooled slice
+// through the shared bucket view, normalized for the index distance. The
+// read is allocation-free.
+func (h *HFresh) fetchNormalizedVector(ctx context.Context, id uint64, slice *common.VectorSlice, view common.BucketView) ([]float32, error) {
+	vec, err := h.tempVectorForIDThunk(ctx, id, slice, view)
+	if err != nil {
+		return nil, err
+	}
+	// safe in place: vec lives in the pooled slice owned by this caller
+	h.normalizeVecInPlace(vec)
+	return vec, nil
 }
 
 func (h *HFresh) SearchByVectorDistance(
