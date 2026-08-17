@@ -33,13 +33,14 @@ import (
 //
 // Sequence:
 //
-//  1. The last unit's completion triggers a RAFT apply: the task status
-//     flips to SWAPPING and wakes the scheduler.
+//  1. The last unit's completion triggers a RAFT apply. A semantic migration
+//     sets a preparation barrier, so the status flips to PREPARING and wakes
+//     the scheduler; SWAPPING lands once every node's PREP ack is in.
 //  2. The scheduler's completed-callback phase (OnTaskCompleted) flips the
 //     property's Tokenization via its own RAFT-idempotent apply — typically
 //     tens of ms, well under the periodic tick interval.
-//  3. Only after that callback fires does the task move to FINISHED, so a
-//     poller seeing FINISHED already has the schema flip applied.
+//  3. FINISHED is applied only once every node has acked that callback, so
+//     the FINISHED entry is ordered after the flip in the log.
 //
 // Contract this test pins: after a poller observes FINISHED on /v1/tasks,
 // the schema must catch up within a bounded window. We allow up to 5
@@ -57,9 +58,11 @@ import (
 // cross-node window where the first node's swap flipped the schema flag
 // for the entire cluster while peer nodes still served the old bucket.
 //
-// Callers that need to observe the post-migration state synchronously
-// should poll /v1/indexes instead: it reads the task list before the schema,
-// so a node reporting FINISHED already has the flip applied.
+// Callers that need to observe the post-migration state synchronously should
+// poll /v1/schema/{class}/indexes instead. It reads the task list and the
+// schema from the FSM of the node that answers, so it cannot report FINISHED
+// against a schema that has not caught up. /v1/tasks is leader-routed and
+// can.
 func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	ctx := context.Background()
 
