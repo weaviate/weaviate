@@ -411,21 +411,30 @@ type Shard struct {
 	// False means the rangeable bucket is mid-migration on THIS replica:
 	// a PreReindexHook created an empty main bucket but the per-shard
 	// runtimeSwap that prepends ingest+reindex segments into it hasn't
-	// run yet on this node. During this window the cluster-wide schema
-	// flag may already be true (the first replica to swap fires
-	// strategy.OnMigrationComplete which RAFTs the flip cluster-wide),
-	// so the inverted query path would otherwise route range queries to
-	// the empty bucket and return partial / zero counts. The
-	// IsRangeableLocallyReady callback wired into the Searcher
-	// overrides hasRangeableIndex=false for this prop on this shard,
-	// forcing a fallback to the filterable bucket walk until our local
-	// swap catches up.
+	// run yet on this node.
 	//
-	// Read on every range-filter query plan, so kept under a fast
-	// RWMutex rather than a sync.Map. Default value (missing key)
-	// returns true via IsRangeableLocallyReady — at shard init we
-	// pessimistically set false for any in-flight migration tracker
-	// found on disk, and the post-tidy hook flips it back to true.
+	// Which migration this matters for differs per side:
+	//
+	//   - Queries. Load-bearing for repair-rangeable, which arrives with
+	//     IndexRangeFilters already true: without the false the query
+	//     path would read the empty bucket and return partial or zero
+	//     counts while the rebuild runs. Largely redundant for
+	//     enable-rangeable, whose flag stays false until every shard has
+	//     swapped, so the query path already falls back to the
+	//     filterable bucket walk on its own.
+	//
+	//   - Writes. Load-bearing for enable-rangeable, the other way
+	//     around: an explicit true with the flag still false is what
+	//     keeps ordinary writes reaching the bucket between this shard's
+	//     swap and the cluster-wide flip. See
+	//     [Shard.forcedRangeableProps].
+	//
+	// Read on every range-filter query plan and every write that touches
+	// the collection, so kept under a fast RWMutex rather than a
+	// sync.Map. Default value (missing key) returns true via
+	// IsRangeableLocallyReady — at shard init we pessimistically set
+	// false for any in-flight migration tracker found on disk, and the
+	// post-tidy hook flips it back to true.
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
 
@@ -729,13 +738,11 @@ func (s *Shard) isFallbackToSearchable() bool {
 //   - The per-shard map has an explicit `false` entry (set by the
 //     migration's PreReindexHook), OR
 //   - There is no explicit entry AND the rangeable bucket does not
-//     exist in the LSM store yet. This catches the narrow window where
-//     another replica's runtimeSwap has already flipped the
-//     cluster-wide schema flag to `IndexRangeFilters=true` but THIS
-//     replica's PreReindexHook hasn't fired yet — without this
-//     bucket-existence default-false, the inverted query path would
-//     try to look up a bucket that isn't there and return
-//     "bucket for prop %s not found - is it indexed?" to the LB.
+//     exist in the LSM store yet. A repair-rangeable migration runs with
+//     `IndexRangeFilters` already true, so between this replica joining
+//     the task and its PreReindexHook firing the query path would
+//     otherwise look up a bucket that isn't there and return "bucket for
+//     prop %s not found - is it indexed?" to the LB.
 func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 	s.rangeableLocalReadyMu.RLock()
 	if s.rangeableLocalReady != nil {

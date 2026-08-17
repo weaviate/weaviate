@@ -127,22 +127,21 @@ type MigrationStrategy interface {
 	//
 	// Allowed work in this position:
 	//
-	//   - In-memory mutation of shard-local query-path state that MUST
-	//     match the cluster-wide schema flip before that flip
-	//     propagates. The canonical example is
+	//   - In-memory mutation of shard-local state that both the query and
+	//     the write path consult. The canonical example is
 	//     [Shard.setRangeableLocallyReady] in
-	//     [FilterableToRangeableStrategy.OnMigrationComplete] — it
-	//     ensures THIS shard's queries observe ready=true at the same
-	//     moment they could observe the new schema flag. The overlay
-	//     is the equivalent mechanism for tokenization changes; this
-	//     hook is the equivalent for per-shard ready flags.
+	//     [FilterableToRangeableStrategy.OnMigrationComplete] — it points
+	//     THIS shard's range queries at the bucket the swap just made
+	//     canonical, and keeps its ordinary writes filling that bucket
+	//     until the cluster-wide flip lands (see
+	//     [Shard.forcedRangeableProps]). The overlay is the equivalent
+	//     mechanism for tokenization changes; this hook is the equivalent
+	//     for per-shard ready flags.
 	//
-	//   - RAFT calls (per-property schema updates) for non-semantic
-	//     strategies whose schema flip is NOT batched in
-	//     OnTaskCompleted: e.g. [MapToBlockmaxStrategy]'s
+	//   - RAFT calls (schema updates) for strategies whose schema flip is
+	//     NOT batched in OnTaskCompleted: [MapToBlockmaxStrategy]'s
 	//     updateToBlockMaxInvertedIndexConfig (class-level
-	//     UsingBlockMaxWAND), [FilterableToRangeableStrategy]'s
-	//     applyPerPropertySchemaUpdate (per-property IndexRangeFilters).
+	//     UsingBlockMaxWAND).
 	//     These are slow (hundreds of ms) — correctness is preserved by
 	//     the overlay covering the per-shard window — but they widen
 	//     the FINALIZING duration beyond what the per-shard atomic
