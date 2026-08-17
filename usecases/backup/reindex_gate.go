@@ -104,7 +104,7 @@ func blockedSubject(classes []string) string {
 
 // The sentinel is the caller's: canCommitErrFromResponse already knows which operation it is rebuilding.
 func undeterminedByParticipant(sentinel error) error {
-	return fmt.Errorf("%w; retry once the cluster is reachable", sentinel)
+	return fmt.Errorf("%w; retry after any migration finishes and the cluster is reachable", sentinel)
 }
 
 func quoteClassList(classes []string) string {

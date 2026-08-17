@@ -333,6 +333,11 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		if err := m.restorer.sourcer.RefuseIfAnyReindexInFlight(ctx, req.Classes); err != nil {
 			ret.Err = err.Error()
 			ret.ErrKind = classifyRestoreGateErr(err)
+			if len(req.Classes) == 0 && ret.ErrKind == CanCommitErrRestoreBlockedByReindex {
+				// Nothing this node observed is attributable to the caller's own
+				// collections, so the refusal must not be rebuilt as naming one.
+				ret.ErrKind = CanCommitErrRestoreReindexUndetermined
+			}
 			return ret
 		}
 		meta, _, err := m.restorer.validate(ctx, &store, req)

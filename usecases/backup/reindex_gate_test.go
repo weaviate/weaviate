@@ -161,7 +161,7 @@ func TestCanCommitRefusalKeepsUnrelatedFailures(t *testing.T) {
 			classes:         []string{"Movies"},
 			backupErr:       unchecked,
 			wantKind:        CanCommitErrCreateReindexUndetermined,
-			wantContains:    []string{"backup blocked", "could not be determined", "retry once the cluster is reachable"},
+			wantContains:    []string{"backup blocked", "could not be determined", "retry after any migration finishes"},
 			wantNotContains: []string{"in progress on", "/cancel", "restore blocked"},
 		},
 		{
@@ -426,7 +426,7 @@ func TestParticipantRestoreGate(t *testing.T) {
 		m := createManager(sourcer, nil, newFakeBackend(), nil)
 		resp := m.OnCanCommit(ctx, &Request{Method: OpRestore, ID: "1", Backend: "s3"})
 		assert.Equal(t, [][]string{nil}, sourcer.gateCalls())
-		assert.Equal(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind)
+		assert.Equal(t, CanCommitErrRestoreReindexUndetermined, resp.ErrKind)
 		assert.Contains(t, resp.Err, backup.ErrReindexInFlight.Error())
 	})
 	t.Run("a gate that could not check sends its own kind", func(t *testing.T) {
@@ -856,5 +856,11 @@ func TestRestoreKeepsNodesNarrowedToNothing(t *testing.T) {
 	resp := createManager(sourcer, nil, backend, nil).OnCanCommit(ctx, asked[node2])
 	require.Len(t, sourcer.gateCalls(), 1, "the emptied node must still reach the gate")
 	assert.Empty(t, sourcer.gateCalls()[0], "and be asked as every collection")
-	assert.Equal(t, CanCommitErrRestoreBlockedByReindex, resp.ErrKind)
+	assert.Equal(t, CanCommitErrRestoreReindexUndetermined, resp.ErrKind)
+
+	published := canCommitErrFromResponse(resp, []string{allowedCls})
+	assert.ErrorIs(t, published, backup.ErrReindexActivityUndetermined,
+		"published as could-not-determine, not as a migration on the caller's collection")
+	assert.NotContains(t, published.Error(), allowedCls,
+		"the migration was never attributed to the caller's collection")
 }
