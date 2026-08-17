@@ -568,6 +568,21 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 	}
 }
 
+// TestExtractContainsBatch_IneligibleWithTheGateOff pins a shape that declines on its own still reporting not-enabled while QUERY_BATCHED_CONTAINS_ENABLED is off.
+func TestExtractContainsBatch_IneligibleWithTheGateOff(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	s := f.searcher
+	s.batchedContainsEnabled = runtime.NewDynamicValue(false)
+
+	// the switch is read before any shape check, so a ref prop, which fails on its own, still reports not-enabled;
+	// the eligible shape is TestExtractContainsBatch_DefaultOnGate's
+	ctx := helpers.InitSlowQueryDetails(context.Background())
+	_, err := s.extractContains(ctx, containsPath("prop-ref"),
+		containsValue(schema.DataTypeText, []string{"a", "b"}), filters.ContainsAny, f.class)
+	require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
+	require.Error(t, err)
+}
+
 // extractContainsDesugaredReason returns the reason of the single
 // "contains_desugared" slow-query annotation in ctx, or "" if none was
 // written.

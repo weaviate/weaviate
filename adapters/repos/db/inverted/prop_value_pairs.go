@@ -392,21 +392,25 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 	before := time.Now()
 	var dbm docBitmap
 
-	view := b.GetConsistentView()
+	// The roaring set view pins the key/doc column's state with the memtables, so
+	// the column and the fold below answer as of the same moment.
+	view := b.GetConsistentRoaringSetView()
 	defer view.ReleaseView()
 
-	// Narrowed once, so every worker's reader sees the same memtables. Built
-	// before the annotation reads it, so the closure never sees nil.
-	source := &roaringSetBatchReaderSource{
-		view: view.WithoutEmptyActiveMemtable(),
-		// Sized at what the budget affords, since the plan is not made yet and
-		// the annotation below must not read a nil source. A test override can
-		// ask for more, which append handles.
-		readers: make([]*lsmkv.RoaringSetBatchReader, 0, maxContainsFoldWorkers),
-	}
+	// Narrowed once, so the column's reader and every fold worker's reader see
+	// the same memtables.
+	nv := view.WithoutEmptyActiveMemtable()
+	// Zero until the fold runs: a zero source holds no readers, which the
+	// annotation below reads as a fold that never ran.
+	var source roaringSetBatchReaderSource
 	// Zero until the fold has planned, so a filter rejected before then is timed
 	// without inventing a strategy it never chose.
 	var plan containsFoldPlan
+	// Nil until the column path opens one, so a filter rejected before then is
+	// timed without inventing counts for work that never happened.
+	var colReader *lsmkv.RoaringSetKeyDocColumnReader
+	// servedBy names the read that answered, without which the counts below say little.
+	servedBy := "none"
 	// Deferred so a filter that fails partway is timed and reports what it did
 	// before it stopped.
 	defer helpers.AnnotateSlowQueryLogSlowest(ctx, docBitmapSlowLogKey, before, func() map[string]any {
@@ -419,6 +423,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 			// Distinct keys, not filter values: dedup means a boolean
 			// filter reports at most two regardless of value count.
 			"batched_keys": pv.containsKeys.Len(),
+			"served_by":    servedBy,
 		}
 		// A planned fold always takes at least one worker, so this reports
 		// the plan whenever there is one — a fold that failed to open a
@@ -427,9 +432,15 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 			fields["fold_workers"] = plan.workers
 			fields["fold_strategy"] = plan.strategy.String()
 		}
-		// What the batching itself did, so a slow batched filter can be told
-		// from a filter that was merely slow.
-		if st, ok := source.stats(); ok {
+		// The stats come from whichever read ran, which served_by names. The fold
+		// reports once it opened a reader, the column only once it filled a window.
+		st, ok := source.stats()
+		if !ok && colReader != nil {
+			if colSt := colReader.Stats(); colSt.Fills > 0 {
+				st, ok = colSt, true
+			}
+		}
+		if ok {
 			fields["window_fills"] = st.Fills
 			fields["window_narrowed_fills"] = st.NarrowedFills
 			fields["batch_keys_served"] = st.KeysServed
@@ -445,7 +456,31 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 		return fields
 	})
 
-	dbm, plan, err = s.docBitmapContainsBatch(ctx, source, pv)
+	// A property with a key/doc column answers ContainsAny, and ContainsNone as a
+	// deny list, from it; without one the fold below returns the same documents.
+	if servedByKeyDocColumn(pv.operator) && !nv.KeyDocColumnState.Empty() {
+		colReader, err = nv.NewRoaringSetKeyDocColumnReader(pv.containsKeys)
+		if err != nil {
+			return nil, err
+		}
+		// Set before the read: a failed read's window counts belong to this path.
+		servedBy = "key_doc_column"
+		dbm, err = s.docBitmapContainsColumn(ctx, colReader,
+			pv.operator == filters.ContainsNone)
+		if err != nil {
+			return nil, err
+		}
+		return &dbm, nil
+	}
+	servedBy = "fold"
+	source = roaringSetBatchReaderSource{
+		view: nv.NarrowedConsistentView,
+		// Sized at what the budget affords, since the plan is not made yet. A
+		// test override can ask for more, which append handles.
+		readers: make([]*lsmkv.RoaringSetBatchReader, 0, maxContainsFoldWorkers),
+	}
+
+	dbm, plan, err = s.docBitmapContainsBatch(ctx, &source, pv)
 	if err != nil {
 		return nil, err
 	}

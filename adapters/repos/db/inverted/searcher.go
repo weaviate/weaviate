@@ -96,11 +96,8 @@ func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
 }
 
 // WithBatchedContainsEnabled attaches the runtime-overridable gate for the
-// batched flat ContainsAny/ContainsAll/ContainsNone resolution.
-//
-// Nil (the default) reads as on, so a gate holding true changes exactly one
-// thing: the searcher then honours a later SetValue on that gate. One holding
-// false sends every Contains filter down the desugared per-value path.
+// batched flat ContainsAny/ContainsAll/ContainsNone resolution. Nil reads as on;
+// false sends every Contains filter down the desugared path, key/doc column included.
 func (s *Searcher) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Searcher {
 	s.batchedContainsEnabled = v
 	return s
