@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -63,9 +64,20 @@ func TestIndex_UsageForCollection_MissingShardFiles(t *testing.T) {
 		// registered-but-unloaded lazy shard (the exact reported journey).
 		loadAndDelete bool
 		// removeRelPath, relative to the shard directory, is deleted to simulate
-		// the half-deleted on-disk state.
+		// the half-deleted on-disk state. "." removes the shard directory itself,
+		// which is also the shape of a tenant that was never written to.
 		removeRelPath string
 	}{
+		{
+			name:          "unloaded lazy shard, whole shard dir gone",
+			loadAndDelete: false,
+			removeRelPath: ".",
+		},
+		{
+			name:          "inactive shard, whole shard dir gone",
+			loadAndDelete: true,
+			removeRelPath: ".",
+		},
 		{
 			name:          "unloaded lazy shard, missing lsm/objects",
 			loadAndDelete: false,
@@ -115,6 +127,13 @@ func TestIndex_UsageForCollection_MissingShardFiles(t *testing.T) {
 			assert.Equal(t, tenantName, shardUsage.Name)
 			assert.Equal(t, int64(0), shardUsage.ObjectsCount, "missing shard must be recorded as empty")
 			assert.Equal(t, uint64(0), shardUsage.ObjectsStorageBytes)
+
+			// an empty shard must spell its status the same way a computed one does
+			wantStatus := strings.ToLower(models.TenantActivityStatusACTIVE)
+			if tt.loadAndDelete {
+				wantStatus = strings.ToLower(models.TenantActivityStatusINACTIVE)
+			}
+			assert.Equal(t, wantStatus, shardUsage.Status)
 		})
 	}
 }

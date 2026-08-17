@@ -594,10 +594,13 @@ func (i *Index) splitObjectsBucketSize(shardName string, objectsBucketSize, unco
 	return objectsBucketSize - uncompressedVectorSize, uncompressedVectorSize
 }
 
+// emptyShardUsageWithNameAndActivity reports zero usage for a shard with no data on disk. Callers
+// pass the schema's upper-case activity constants, while the report spells the status in lower case
+// like the computed paths do.
 func emptyShardUsageWithNameAndActivity(shardName, activity string) *types.ShardUsage {
 	return &types.ShardUsage{
 		Name:                shardName,
-		Status:              activity,
+		Status:              strings.ToLower(activity),
 		ObjectsCount:        0,
 		ObjectsStorageBytes: 0,
 		VectorStorageBytes:  0,
