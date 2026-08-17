@@ -101,7 +101,10 @@ func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
 //
 // Nil (the default) reads as on, so a gate holding true changes exactly one
 // thing: the searcher then honours a later SetValue on that gate. One holding
-// false sends every Contains filter down the desugared per-value path.
+// false sends every Contains filter down the desugared per-value path, a
+// property carrying a key/doc column included: the gate covers everything the
+// batched path serves, so turning it off costs slower queries rather than
+// leaving one class of property on the newest code.
 func (s *Searcher) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Searcher {
 	s.batchedContainsEnabled = v
 	return s

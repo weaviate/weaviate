@@ -563,6 +563,51 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 	}
 }
 
+// TestExtractContainsBatch_IneligibleWithTheGateOff pins that with the runtime
+// switch off, every decline reports not-enabled rather than the shape detail
+// behind it.
+//
+// The switch is the thing an operator can change and the reason they would act
+// on; that a geo property also would not have batched is true but useless, and
+// on a node with the feature off it would replace the one answer that explains
+// every declined query with a different string per query. The reasons in
+// TestExtractContainsBatch_Ineligible are what the switch being on buys.
+func TestExtractContainsBatch_IneligibleWithTheGateOff(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	s := f.searcher
+	s.batchedContainsEnabled = runtime.NewDynamicValue(false)
+
+	// The switch is read before any shape check, so the shape cannot change the
+	// answer: one shape that would otherwise batch, and one that fails on its own
+	// terms afterwards. Which shapes decline for which reason with the switch on
+	// is TestExtractContainsBatch_Ineligible's table, not a second copy here.
+	tests := []struct {
+		name     string
+		path     *filters.Path
+		propType schema.DataType
+		value    interface{}
+		wantErr  bool
+	}{
+		{name: "an eligible shape, held back by nothing else", path: containsPath("prop-int"), propType: schema.DataTypeInt, value: []int{1, 2}},
+		{name: "ref prop", path: containsPath("prop-ref"), propType: schema.DataTypeText, value: []string{"a", "b"}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := helpers.InitSlowQueryDetails(context.Background())
+			pv, err := s.extractContains(ctx, tt.path,
+				containsValue(tt.propType, tt.value), filters.ContainsAny, f.class)
+			require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Zero(t, pv.containsKeys.Len(), "nothing batches with the switch off")
+		})
+	}
+}
+
 // extractContainsDesugaredReason returns the reason of the single
 // "contains_desugared" slow-query annotation in ctx, or "" if none was
 // written.
