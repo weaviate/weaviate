@@ -65,7 +65,7 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 			continue
 		}
 		if len(payload.UnitToShard) == 0 {
-			// Blocks only this collection. Submit 400s on empty ownership, and ShardReplicaOwnership leaves no node entry empty.
+			// Blocks only this collection. Submit 400s on empty ownership, and neither ownership builder leaves a node entry empty or unnamed.
 			wholeCollection[collection] = true
 			continue
 		}
@@ -83,9 +83,9 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 // gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup
 // precheck to obtain a fresh DTM snapshot.
 //
-// Calls before installation default to "no live reindex", warned at most once an hour
-// per gate. Installed ahead of the internal cluster listener, so no peer's canCommit
-// can land first; the default is left for fixtures that skip that wiring entirely.
+// Calls before installation default to "no live reindex". Installed ahead of the internal
+// cluster listener, so no peer's canCommit can land first; the default is left for
+// fixtures that skip that wiring entirely.
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()

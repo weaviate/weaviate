@@ -64,7 +64,7 @@ func cappedSample(items []string) []string {
 	return append([]string(nil), items[:min(len(items), reindexRefusalSampleLimit)]...)
 }
 
-// Unbudgeted, unlike warnUnwiredGate: every refusal is an event the operator is owed. One line per gate call, never per shard or tenant.
+// Unbudgeted, unlike warnUnwiredGate: every refusal reaching it is an event the operator is owed. One line per gate call, never per shard or tenant.
 func (db *DB) warnRefusal(action, reason, message string, fields logrus.Fields) {
 	if db.logger == nil {
 		return
@@ -115,9 +115,7 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	if live {
 		return reindexLiveTaskRefusal(collection)
 	}
-	// Sampled after the lookup, never as an argument to it: a hold raised during the
-	// round-trip is invisible to an earlier read. One released before this line
-	// correctly admits, because the teardown is done.
+	// Sampled after the cluster round-trip; see HoldFor.
 	if hold := i.db.ReindexHoldFor(collection); hold != ReindexHoldNone {
 		return reindexHoldRefusal(collection, hold)
 	}
@@ -162,10 +160,8 @@ func (i *Index) refuseIfAnyShardReindexInFlight(lookup ShardReindexActivityLooku
 	if refusal == nil && collectionLive {
 		reason, refusal = reindexReasonLiveTask, reindexLiveTaskRefusal(collection)
 	}
-	// One read for the whole loop, after it: the hold covers the collection, and the
-	// loop's round-trips are the window a teardown raises it in, so per-shard reads
-	// would answer differently either side of that window. A hold released before
-	// this line correctly admits, and never outranks a live task.
+	// One read for the whole loop, after it: the hold covers the collection, so per-shard
+	// reads would answer differently either side of the teardown window. See HoldFor.
 	if hold := i.db.ReindexHoldFor(collection); refusal == nil && hold != ReindexHoldNone {
 		blocked, sample = len(shards), cappedSample(shards)
 		reason, refusal = hold.String(), reindexHoldRefusal(collection, hold)

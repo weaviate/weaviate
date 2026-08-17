@@ -544,7 +544,7 @@ func TestAuditOrphanReindexTrackers_FirstSweep_OnlyQuarantines(t *testing.T) {
 	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logger)
 	require.NoError(t, err)
 	assert.Equal(t, ReindexHoldCleanup, held,
-		"the whole index walk must run inside the hold, not only the delete")
+		"the quarantine write is a mutation, so the hold precedes it")
 	assert.Equal(t, AuditStatusOrphansFound, outcome.Status,
 		"orphan must still be counted as found on the quarantine sweep")
 	assert.Equal(t, 1, outcome.OrphansFound)
@@ -908,10 +908,9 @@ func TestAuditOrphanReindexTrackers_TrackersItCannotTouchAreNeverHeld(t *testing
 	assert.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor(className))
 }
 
-// Clearing a sentinel is a mutation, so it is held; the read pass that finds one is not.
-// Nothing between the two speaks except a failed removal, so the second tracker's sentinel
-// is made unremovable: its WARN is the one moment a sampler can read the hold from inside
-// the removal pass, which is what tells "held before" apart from "held after".
+// The read pass that finds a sentinel is not held; clearing one is. Making the second
+// tracker's sentinel unremovable produces a WARN from inside the removal pass, which is
+// the only moment a sampler can observe the hold.
 func TestAuditOrphanReindexTrackers_ClearingASentinelIsHeld(t *testing.T) {
 	ctx := testCtx()
 	const className = "AuditSentinelClear"

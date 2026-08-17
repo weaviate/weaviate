@@ -1486,7 +1486,7 @@ v1.38 Preview merge does not fix it. The fixes live on
 `backup-runtime-reindex-fixes` and land as a follow-up PR. Tracking:
 weaviate/0-weaviate-issues#215.
 
-Backups are covered: `DB.AnyLiveReindexForShard`
+Backups are covered: `Index.refuseIfAnyShardReindexInFlight`
 ([`reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go))
 refuses a backup on any shard DTM reports a live reindex on, and
 [`test/acceptance/reindex_backup/`](../test/acceptance/reindex_backup/)

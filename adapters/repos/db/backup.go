@@ -51,11 +51,12 @@ const (
 // the coordinator's canCommit phase so no staging dir is created on
 // rejection.
 //
-// All per-class / per-shard failures are accumulated and joined into a
+// One error per class is accumulated and joined into a
 // single error rather than short-circuiting on the first one. Joining
 // ensures that when several classes are blocked at once, the operator sees
 // the full list in a single canCommit round instead of fixing one,
-// retrying, and so on. allReindexRefusals reads the join as a refusal only when every element refuses.
+// retrying, and so on. Shard identity is dropped here and reaches the operator
+// through the WARN; the join reads as a refusal only while every element is one.
 //
 // Class-missing errors stop aggregation for that class but do not short
 // circuit the whole loop; other classes still get checked.

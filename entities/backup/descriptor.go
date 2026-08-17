@@ -84,8 +84,8 @@ func (d *DistributedBackupDescriptor) RemoveEmpty() *DistributedBackupDescriptor
 	return d
 }
 
-// Classes returns all classes contained in d, sorted: it is ranged out of a map and
-// callers publish it, so unsorted refuses the same restore in different words per retry.
+// Classes returns all classes contained in d, sorted: map iteration order is random, and
+// callers put this list into user-facing refusals, which must read the same on every retry.
 func (d *DistributedBackupDescriptor) Classes() []string {
 	set := make(map[string]struct{}, 32)
 	for _, desc := range d.Nodes {
@@ -103,8 +103,8 @@ func (d *DistributedBackupDescriptor) Classes() []string {
 	return lst
 }
 
-// UserList returns the deduped dynamic-user IDs recorded in d (empty when none),
-// sorted for the same reason as Classes.
+// UserList returns the deduped dynamic-user IDs recorded in d (empty when none), sorted
+// for determinism. Unlike Classes it has no production caller, so nothing publishes it yet.
 func (d *DistributedBackupDescriptor) UserList() []string {
 	set := make(map[string]struct{}, len(d.Users))
 	for _, u := range d.Users {

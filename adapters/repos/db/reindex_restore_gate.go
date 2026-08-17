@@ -101,9 +101,7 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 	} else if lookup := builder(ctx); lookup != nil {
 		activity, blocked = lookup(collections)
 	}
-	// Sample the hold after the cluster is asked, on every path out of asking: a
-	// hold raised during the round-trip is invisible to an earlier read. A hold
-	// released before this line correctly admits, because the teardown is done.
+	// Sampled after the cluster round-trip; see HoldFor.
 	hold := db.ReindexHoldFor(collections...)
 	switch {
 	case blocked && !activity.Unreadable:
@@ -122,7 +120,7 @@ func (db *DB) RefuseIfAnyReindexInFlight(ctx context.Context, collections []stri
 
 func (db *DB) warnRestoreRefusal(collections []string, reason, taskID string) {
 	db.warnRefusal("restore_reindex_gate", reason,
-		"restore-reindex gate: refusing this restore; the published refusal names a collection only",
+		"restore-reindex gate: refusing this restore; the published refusal names at most a collection, never a shard or node",
 		logrus.Fields{
 			"task_id":               taskID,
 			"requested_class_count": len(collections),
@@ -158,7 +156,7 @@ func restoreHoldRefusal(collections []string, hold ReindexHold) error {
 	return restoreRefusal(reindexHoldDetail(subject, hold))
 }
 
-// matched is the caller's own spelling: naming a collection it did not ask about discloses the cluster, and so does spelling one back differently.
+// Echoes the caller's own casing: naming a collection it did not ask about leaks what else is in the cluster, and so does echoing one back in a different case.
 func restoreSubject(collections []string, blocking string) (subject, matched string) {
 	if blocking != "" {
 		for _, collection := range collections {

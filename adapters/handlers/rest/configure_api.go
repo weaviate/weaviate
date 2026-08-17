@@ -804,7 +804,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.ServerConfig.Config.ExportParallelism,
 	)
 
-	// Ahead of the listener below: a peer's canCommit reaching a gate before its lookup is installed admits.
+	// Install before the listener starts: a gate whose lookup is missing admits every peer's canCommit.
 	installReindexGateLookups(appState.ClusterService.ListDistributedTasks, appState.Logger, repo, serverShutdownCtx)
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)

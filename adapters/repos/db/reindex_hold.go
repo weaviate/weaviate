@@ -81,12 +81,13 @@ func (r *ReindexHoldRegistry) Hold(collection string, kind ReindexHold, fn func(
 
 // HoldReindexCleanup runs fn with the collection's backup and restore gates shut,
 // so a teardown spanning several index types is covered end to end rather than
-// re-taken per sweep. Nesting is safe: holds are refcounted.
+// re-taken per sweep.
 func (db *DB) HoldReindexCleanup(collection string, fn func()) {
 	db.reindexHolds.Hold(collection, ReindexHoldCleanup, fn)
 }
 
 // HoldFor returns the strongest hold on the named collections, or on all of them when none are named.
+// Every gate samples it after asking the cluster: a hold raised during that round-trip is invisible to an earlier read.
 func (r *ReindexHoldRegistry) HoldFor(collections ...string) ReindexHold {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -113,8 +114,9 @@ func strongestOf(byKind map[ReindexHold]int) ReindexHold {
 }
 
 // ReindexHoldFor reports the strongest cleanup hold on the given collections.
-// Flag off it reports none even while a sweep started under an earlier flag on
-// still holds one. Won't-fix: RUNTIME_REINDEX_ENABLED is preview-only, removed at GA.
+// Flag off it reports none while neither orphan-audit entry point is flag-guarded, so
+// the audit can raise a hold this reports nothing about. Won't-fix: RUNTIME_REINDEX_ENABLED
+// is preview-only, removed at GA.
 func (db *DB) ReindexHoldFor(collections ...string) ReindexHold {
 	if db.config.RuntimeReindexDisabled {
 		return ReindexHoldNone

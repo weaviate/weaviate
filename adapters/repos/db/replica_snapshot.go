@@ -40,11 +40,11 @@ type replicaSnapshotState struct {
 	isSnapshot bool
 }
 
-// deferReindexRefusal restates a reindex-gate refusal as the plumbed "not now" contract.
-// The file-replication service maps [enterrors.ErrShardBusyStructuralOp] to
-// codes.FailedPrecondition, which the consumer re-dispatches without registering an
-// error; any other error spends the op's budget, and fifty of them cancel the movement.
-// Only replica movement restates it: on a backup the refusal is the product.
+// deferReindexRefusal turns a reindex-gate refusal into the "shard busy, try later" error
+// the file-replication service already understands. That service maps
+// [enterrors.ErrShardBusyStructuralOp] to codes.FailedPrecondition, which the consumer
+// re-dispatches without registering an error; any other error spends the op's budget, and
+// fifty of them cancel the movement.
 func deferReindexRefusal(shardName string, err error) error {
 	if !errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex) &&
 		!errors.Is(err, entitiesbackup.ErrBackupReindexActivityUndetermined) {

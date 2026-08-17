@@ -42,7 +42,7 @@ func classifyCanCommitErr(err error) CanCommitErrorKind {
 		return CanCommitErrCannotCommit
 	}
 	// Backupable joins one refusal per class and an outage can answer some differently.
-	// An observed migration outranks: it is the half with something to wait for.
+	// Report the observed migration: it is the answer with something to wait for.
 	if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
 		return CanCommitErrInFlightReindex
 	}

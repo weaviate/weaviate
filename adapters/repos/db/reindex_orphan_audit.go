@@ -160,8 +160,8 @@ func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger 
 	}
 }
 
-// AuditOrphanReindexTrackersIfReady is the no-arg wrapper for callers
-// without the lookup builder in scope. The post-restore hook lives in
+// AuditOrphanReindexTrackersIfReady is the wrapper for callers without the
+// lookup builder in scope; classes scopes the walk. The post-restore hook lives in
 // `adapters/handlers/rest/configure_api.go`'s `restoreClassDirWithAudit`
 // closure (around line 711) which wraps `backup.RestoreClassDir`.
 // Returns an outcome with Status==Skipped when deps are not yet
@@ -652,14 +652,11 @@ func writeQuarantineSentinel(trackerPath string) error {
 }
 
 // staleQuarantineSentinels names the tracker dirs whose quarantine sentinel is no longer
-// load-bearing, because DTM lists their task as live again. A previous sweep on a
-// stale-RAFT follower can have mis-classified a live migration as an orphan, and leaving
-// that quarantine would turn the next legitimate classification into an immediate
-// destructive cleanup. A tracker still classified as an orphan keeps its sentinel.
-//
-// Read-only, so the caller holds the collection only when there is something to remove.
+// load-bearing. A previous sweep on a stale-RAFT follower can have mis-classified a live
+// migration as an orphan, and leaving that quarantine would turn the next legitimate
+// classification into an immediate destructive cleanup.
 func staleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLookup) []string {
-	migsDir := filepath.Join(lsmPath, ".migrations")
+	migsDir := filepath.Join(lsmPath, migrationsDir)
 	entries, err := os.ReadDir(migsDir)
 	if err != nil {
 		return nil
@@ -684,7 +681,7 @@ func staleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLookup) 
 // future-detected orphan into an immediate cleanup, and by then the orphan was real.
 func removeQuarantineSentinels(lsmPath string, dirNames []string, logger logrus.FieldLogger) {
 	for _, dirName := range dirNames {
-		path := filepath.Join(lsmPath, ".migrations", dirName, reindexAuditQuarantineFile)
+		path := filepath.Join(lsmPath, migrationsDir, dirName, reindexAuditQuarantineFile)
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			logger.WithField("tracker", dirName).
 				Warnf("reindex orphan audit: failed to clear stale quarantine sentinel after task flipped back to known-live: %v", err)

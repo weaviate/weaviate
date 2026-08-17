@@ -551,16 +551,15 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 
 	mutex := sync.RWMutex{}
 	var refusal, peerFailure error
-	// Tracked separately, and by producer and consumers alike: the error group returns
-	// only its first error, and a refusal often wins that race.
+	// Tracked separately by the goroutine that fans requests out and the ones that answer:
+	// the error group returns only its first error, and a refusal often wins that race.
 	recordPeerFailure := func(err error) error {
 		mutex.Lock()
 		defer mutex.Unlock()
 		// A cancellation is never a peer's own failure: it is either the refusal cancelling
 		// the group or the caller hanging up, and a refusal joined with one answers permanent
-		// for something a retry fixes. A run with no refusal still reports it, because that
-		// path returns the group's own first error. A deadline is kept: the shared canCommit
-		// timeout is a real signal.
+		// for something a retry fixes. A deadline is kept: the shared canCommit timeout is a
+		// real signal.
 		if errors.Is(err, context.Canceled) {
 			return err
 		}
@@ -610,7 +609,8 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 		return nil
 	})
 
-	// The whole operation's list, not the slice one node holds: which classes share a node is placement the caller cannot otherwise learn.
+	// The whole operation's list, not the slice one node holds: telling the caller which
+	// classes share a node would leak where data lives.
 	requested := req.Classes
 
 	nodes := make(map[string]string, len(c.descriptor.Nodes))
@@ -622,9 +622,9 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			}
 			if err != nil {
 				if isReindexRefusal(err) {
-					// Unprefixed: a migration is a cluster fact, not a property of the
-					// node. Equal ranks keep the first answer, so two nodes reporting
-					// the same kind refuse in the same words.
+					// No `node %q:` prefix: a migration is a cluster fact, not this node's.
+					// Equal ranks keep the first answer, so two nodes reporting the same
+					// kind refuse in the same words.
 					mutex.Lock()
 					if refusal == nil || refusalRank(err) > refusalRank(refusal) {
 						refusal = err
@@ -647,10 +647,9 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 		first, alongside := refusal, peerFailure
 		mutex.RUnlock()
 		if first != nil {
-			// Exactly two: the ranked refusal, plus one peer failure so an unresolvable
+			// At most two: the ranked refusal, plus one peer failure so an unresolvable
 			// host is not waited out as if it were the migration. Joining every error
-			// instead would sink the ranking, and the group's own first error adds
-			// nothing: every failure reaching it was offered to the recorder first.
+			// instead would sink the ranking.
 			return nil, errors.Join(first, alongside)
 		}
 		return nil, err

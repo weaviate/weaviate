@@ -24,8 +24,8 @@ import (
 
 const maxNamedClasses = 5
 
-// Every sentinel a reindex gate refuses with. One list, so the any-member and
-// all-members classifiers below can never disagree about what a refusal is.
+// Every sentinel a reindex gate refuses with. One list, so the any-member and all-members
+// classifiers below cannot disagree about what counts as a refusal.
 var reindexGateSentinels = []error{
 	backup.ErrReindexInFlight,
 	backup.ErrBackupBlockedByInFlightReindex,
@@ -44,9 +44,9 @@ func isReindexRefusal(err error) bool {
 }
 
 // allReindexRefusals reports whether every member of err is a reindex-gate refusal, so a
-// refusal joined with a permanent failure is never answered as retryable. It recurses
-// structurally and tests sentinels shallowly: errors.Is at a wrapper descends into a join
-// underneath it and answers "any member", and one fmt.Errorf is enough to hit that.
+// refusal joined with a permanent failure is never answered as retryable. It walks the
+// join itself and compares each leaf by value: errors.Is at a wrapper descends into a
+// join underneath it and answers "any member", and one fmt.Errorf is enough to hit that.
 func allReindexRefusals(err error) bool {
 	if err == nil {
 		return false
@@ -76,7 +76,7 @@ func refusalRank(err error) int {
 	return 1
 }
 
-// Only the operation context marks an operator abort; a refusal whose cause wraps a RAFT-client cancel must not be reported as one.
+// A refusal whose cause wraps a RAFT-client cancel must not be reported as an operator abort; a cancellation carrying no refusal is one.
 func publishAsCancelled(err, ctxErr error) bool {
 	return errors.Is(ctxErr, context.Canceled) ||
 		(!isReindexRefusal(err) && errors.Is(err, context.Canceled))
@@ -94,7 +94,7 @@ func restoreRefusedByParticipant(classes []string) error {
 		backup.ErrReindexInFlight, blockedSubject(classes), reindex.ClusterMigrationRemedy())
 }
 
-// Only the refusal kind survives the hop, so a multi-class request names no individual collection: the participant never said which one is migrating.
+// Only the refusal kind is rebuilt here; the participant's own text is discarded so a peer cannot dictate wording. A multi-class request therefore names no individual collection.
 func blockedSubject(classes []string) string {
 	if len(classes) == 1 {
 		return quoteClassList(classes)

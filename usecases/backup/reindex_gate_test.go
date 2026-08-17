@@ -509,7 +509,7 @@ func TestBackupRefusalBesideAPeerFailureIsNot422(t *testing.T) {
 	fs.selector.On("Shards", ctx, cls).Return([]string{node1, node2}, nil)
 	expectUnknownID(ctx, fs, id)
 	fs.backend.On("Initialize", ctx, any).Return(nil)
-	// node2 answers only once the refusal is in, so the refusal is what the error group returns.
+	// node2 answers only once the refusal is in, so the ranked refusal is what canCommit reports.
 	refused := make(chan struct{})
 	fs.client.On("CanCommit", any, node1, any).
 		Run(func(mock.Arguments) { close(refused) }).
@@ -693,8 +693,8 @@ func TestCanCommitKeepsAnUnresolvableHost(t *testing.T) {
 	refused := make(chan struct{})
 	var asked atomic.Int32
 	resolver := newFakeNodeResolver([]string{node1, node2})
-	// A slow second lookup: the refusal wins the first-error race, which is where a host
-	// that cannot be resolved used to vanish.
+	// A slow second lookup, so the refusal wins the first-error race and the unresolvable
+	// host has to survive alongside it.
 	resolver.resolve = func(node string) (string, bool) {
 		if asked.Add(1) == 1 {
 			return node, true
