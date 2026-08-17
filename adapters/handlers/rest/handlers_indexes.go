@@ -178,25 +178,6 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		}
 	}
 
-	// finalizeWindow bounds the "FINISHED but flag-off → indexing@100%"
-	// override in mergeReindexStatus. The legitimate window is at most
-	// one DTM scheduler tick (the gap between task FINISHED and the
-	// scheduler calling OnGroupCompleted) plus the per-shard swap
-	// duration (typically <1s). We use 2× the tick interval as a
-	// generous coverage. The clamp at finalizeWindowMin/Max keeps the
-	// window reasonable in both pathological sub-second tick configs
-	// (clamp up to 3s) and production 60s+ tick configs (clamp down to
-	// 10s) — a longer-lived bleed in production was the user-visible
-	// face of https://github.com/weaviate/weaviate/issues/10675, and capping the override here
-	// keeps the worst-case stale "indexing(1)" pill bounded.
-	finalizeWindow := 2 * h.appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval
-	if finalizeWindow < finalizeWindowMin {
-		finalizeWindow = finalizeWindowMin
-	}
-	if finalizeWindow > finalizeWindowMax {
-		finalizeWindow = finalizeWindowMax
-	}
-
 	// Build per-property index status.
 	props := make([]*models.PropertyIndexStatus, 0, len(class.Properties))
 	for _, prop := range class.Properties {
@@ -242,13 +223,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 					idx.Algorithm = models.IndexStatusAlgorithmBlockmax
 				}
 			}
-			mergeReindexStatus(idx, collection, prop.Name, e.indexType, e.flagOn, parsedTasks, finalizeWindow, h.appState.Logger)
-			// Suppress a stale "indexing@100%" phantom left after DELETE;
-			// idx.TaskID is still pre-strip here, matching parsedTasks.
-			if !e.flagOn && idx.Status == models.IndexStatusStatusIndexing &&
-				h.isPostDeleteFinalizeBleed(collection, prop.Name, canonicalIndexType(e.indexType), idx.TaskID, parsedTasks) {
-				continue
-			}
+			mergeReindexStatus(idx, collection, prop.Name, e.indexType, e.flagOn, parsedTasks, h.appState.Logger)
 			// Strip the caller's namespace so status and submit responses agree.
 			if idx.TaskID != "" {
 				idx.TaskID = namespacing.StripOwnNamespace(principal, idx.TaskID)
@@ -576,34 +551,6 @@ const reindexCancelStatusNoOp = "NO_OP"
 // shorter in practice — empirically <1s on test corpora).
 const reindexCancelDrainTimeout = 10 * time.Second
 
-// finalizeWindowMin / finalizeWindowMax bound the "FINISHED but
-// flag-off → indexing@100%" override in [mergeReindexStatus]. The
-// window is normally computed as 2× the DTM scheduler tick interval,
-// but is clamped at both ends:
-//
-//   - finalizeWindowMin (3s) protects against pathological sub-second
-//     tick configs where 2× would shrink the legitimate window faster
-//     than realistic swap-phase jitter. 3s comfortably covers the
-//     in-test 1s tick + swap + jitter.
-//
-//   - finalizeWindowMax (10s) caps how long a stale FINISHED task can
-//     bleed an "indexing(1)" pill after a DELETE — production tick is
-//     60s, so a naive 2× would let the bleed live for 2 minutes,
-//     which was the user-visible face of https://github.com/weaviate/weaviate/issues/10675.
-//
-// Outside the window, flagOn==false cannot legitimately mean "swap
-// pending" — either the swap failed silently (logged as "swap
-// INCOMPLETE" elsewhere) or the swap completed and DELETE flipped the
-// flag back to false (weaviate/weaviate#10675, the "indexing(1) bleed").
-// Either way, surfacing the override past the window would be a lie; we
-// accept a brief empty-entry gap in the happy path as the lesser evil.
-const (
-	finalizeWindowMin = 3 * time.Second
-	// Aliased from state so the post-DELETE marker TTL (state.reindexDeleteMarkerTTL)
-	// stays derived from the same ceiling — see its godoc.
-	finalizeWindowMax = state.FinalizeWindowMax
-)
-
 // staleSweepFailure pairs a sweep error with its index type and with what the
 // sweep left behind, so a handler can name the index type as a structured
 // field and pick its wording from the outcome rather than from the error text.
@@ -879,14 +826,7 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
 // rely on this); the entry is still skipped, just without a log line.
-// finalizeWindow caps the "FINISHED-but-flag-off → indexing@100%"
-// override (see the TaskStatusFinished branch below). Callers pass in
-// 2× the DTM scheduler tick interval (clamped to finalizeWindowMin);
-// the test harness passes a wider value because the test container
-// always uses 1s ticks. Pass 0 to disable the override entirely (rare;
-// kept for tests that want to assert the post-DELETE bleed never
-// surfaces regardless of FinishedAt freshness).
-func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, flagOn bool, parsedTasks []parsedReindexTask, finalizeWindow time.Duration, logger logrus.FieldLogger) {
+func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, flagOn bool, parsedTasks []parsedReindexTask, logger logrus.FieldLogger) {
 	// Two tasks for the same (collection, prop, indexType) may coexist —
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
@@ -992,36 +932,12 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		idx.Progress = 1.0
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusFinished:
-		// The DTM declares a task FINISHED once every unit is terminal, but
-		// for semantic migrations (enable-*, change-tokenization) the actual
-		// schema flag flip happens later, inside OnGroupCompleted's swap
-		// phase. Without a synthetic entry, that window — from "task
-		// FINISHED" to "schema flag flipped on this node" — would leave the
-		// GET response with no synthetic entry at all and no base "ready"
-		// entry (because the flag is still off), so the UI would see an
-		// empty `indexes` array and render "None".
-		// Treat it as "indexing@100%" until the schema catches up; once
-		// flagOn flips true, the base case "ready" override takes precedence
-		// and this branch is effectively ignored.
-		//
-		// Bound the window by task.FinishedAt: outside it, flagOn==false
-		// cannot mean "swap pending" — the swap window is at most one
-		// scheduler tick plus per-shard swap time, comfortably under
-		// reindexFinalizeWindow. If flagOn is still false past this
-		// window, the only realistic causes are:
-		//   - the swap completed (flag flipped true) and a subsequent
-		//     DELETE flipped it back to false (weaviate/weaviate#10675,
-		//     the "indexing(1) bleed");
-		//   - the swap failed silently (logged loudly by
-		//     OnGroupCompleted's "swap INCOMPLETE" branch).
-		// In neither case do we want a synthetic "indexing@100%" entry —
-		// the first case is a stale-task false signal, the second is an
-		// error condition the swap-incomplete logs already surface.
-		if !flagOn && finalizeWindow > 0 && time.Since(best.FinishedAt) < finalizeWindow {
-			idx.Status = "indexing"
-			idx.Progress = 1.0
-			surfaceSyntheticFields = true
-		}
+		// Nothing to surface. Reading the task list from the local FSM makes
+		// FINISHED-with-the-flag-still-off unreachable: the schema flip
+		// commits inside OnTaskCompleted, which runs only once every node has
+		// acked, and finalize is proposed only after that callback returned —
+		// so the flip's log entry always precedes the FINISHED one, and a
+		// node that has applied the second has applied the first.
 	}
 
 	if !best.Status.IsRecognized() {
@@ -1140,36 +1056,6 @@ func isSyntheticStatus(s string) bool {
 		return true
 	}
 	return false
-}
-
-// isPostDeleteFinalizeBleed reports whether a synthetic "indexing@100%"
-// entry is a phantom: its driving task (taskID) FINISHED but the index was
-// DELETEd afterward. A STARTED task always outranks a FINISHED one, so a
-// live re-enable is never suppressed.
-func (h *indexesHandlers) isPostDeleteFinalizeBleed(collection, property, indexType, taskID string, parsedTasks []parsedReindexTask) bool {
-	if taskID == "" || h.appState == nil || h.appState.ReindexDeleteMarkers == nil {
-		return false
-	}
-	var finishedAt time.Time
-	found := false
-	for _, pt := range parsedTasks {
-		if pt.task.ID != taskID {
-			continue
-		}
-		if pt.task.Status != distributedtask.TaskStatusFinished {
-			// A live (STARTED/PREPARING/SWAPPING) task drove this entry —
-			// not the finalize-window override. Never suppress.
-			return false
-		}
-		finishedAt = pt.task.FinishedAt
-		found = true
-		break
-	}
-	if !found {
-		return false
-	}
-	deletedAt := h.appState.ReindexDeleteMarkers.LastDeleted(collection, property, indexType)
-	return !deletedAt.IsZero() && deletedAt.After(finishedAt)
 }
 
 func errorResponse(principal *models.Principal, msg string) *models.ErrorResponse {

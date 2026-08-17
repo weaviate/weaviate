@@ -67,23 +67,14 @@ type reindexSubmitLockProvider interface {
 	SubmitLockFor(collection, property string) *sync.Mutex
 }
 
-// reindexDeleteMarkerRecorder records accepted property-index DELETEs so the
-// GET-indexes handler can suppress the finalize-window bleed. Interface form
-// (not the concrete *state.ReindexDeleteMarkers) keeps schemaHandlers
-// testable without the full appState graph.
-type reindexDeleteMarkerRecorder interface {
-	Record(collection, property, indexType string)
-}
-
 type schemaHandlers struct {
-	manager              *schemaUC.Manager
-	authorizer           authorization.Authorizer
-	metricRequestsTotal  restApiRequestsTotal
-	reindexTaskLister    reindexInFlightChecker
-	reindexSubmitLocks   reindexSubmitLockProvider
-	reindexDeleteMarkers reindexDeleteMarkerRecorder
-	logger               logrus.FieldLogger
-	namespacesEnabled    bool
+	manager             *schemaUC.Manager
+	authorizer          authorization.Authorizer
+	metricRequestsTotal restApiRequestsTotal
+	reindexTaskLister   reindexInFlightChecker
+	reindexSubmitLocks  reindexSubmitLockProvider
+	logger              logrus.FieldLogger
+	namespacesEnabled   bool
 }
 
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
@@ -289,7 +280,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 		indexName = "rangeFilters"
 	}
 
-	wrote, err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, indexName)
+	_, err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, indexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -300,13 +291,6 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 			return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
-	}
-
-	// Only record the marker on a real RAFT write: a node-local no-op (flag
-	// already off) never hit RAFT, so marking it would suppress a lagging
-	// follower's legitimate report before its FSM applies the flip.
-	if wrote {
-		s.reindexDeleteMarkers.Record(qualifiedClass, params.PropertyName, indexName)
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
@@ -659,16 +643,15 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, reindexDeleteMarkers reindexDeleteMarkerRecorder, namespacesEnabled bool) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, namespacesEnabled bool) {
 	h := &schemaHandlers{
-		manager:              manager,
-		authorizer:           authorizer,
-		metricRequestsTotal:  newSchemaRequestsTotal(metrics, logger),
-		reindexTaskLister:    reindexTaskLister,
-		reindexSubmitLocks:   reindexSubmitLocks,
-		reindexDeleteMarkers: reindexDeleteMarkers,
-		logger:               logger,
-		namespacesEnabled:    namespacesEnabled,
+		manager:             manager,
+		authorizer:          authorizer,
+		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
+		reindexTaskLister:   reindexTaskLister,
+		reindexSubmitLocks:  reindexSubmitLocks,
+		logger:              logger,
+		namespacesEnabled:   namespacesEnabled,
 	}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.

@@ -140,11 +140,6 @@ type State struct {
 	// single-node race window that any realistic UI/CLI flow can hit.
 	ReindexSubmitLocks *ReindexSubmitLocks
 
-	// ReindexDeleteMarkers lets GET /v1/schema/{class}/indexes suppress the
-	// finalize-window bleed for a just-deleted index. Shared between the
-	// DELETE handler (records) and GET-indexes (reads); see its godoc.
-	ReindexDeleteMarkers *ReindexDeleteMarkers
-
 	// UsageLimits gates the object-count cap only. Collections/tenants/
 	// shards caps are read directly at the schema-handler use sites.
 	UsageLimits *usagelimits.Manager
