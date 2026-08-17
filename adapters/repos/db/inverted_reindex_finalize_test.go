@@ -183,7 +183,7 @@ func TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied(t *testing.T) {
 		winnerMarker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, logger)
 
 	// Canonical main dir should exist and contain gen-3's marker.
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
@@ -232,7 +232,7 @@ func TestFinalizeCompletedMigrations_TidiedPlusInFlight(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_2"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, logger)
 
 	// Gen 1 finalized → canonical dir exists.
 	_, err := os.Stat(filepath.Join(lsmPath, "property_text_searchable"))
@@ -268,7 +268,7 @@ func TestFinalizeCompletedMigrations_OnlyUntidiedIsNoOp(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, logger)
 
 	// Tracker dir still there.
 	_, err := os.Stat(gen1)
@@ -353,7 +353,7 @@ func TestFinalizeCompletedMigrations_MergedButNotTidied_Recovers(t *testing.T) {
 		gen2Marker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, logger)
 
 	// Canonical dir must contain gen-2's marker, NOT gen-1's stale data.
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
@@ -398,7 +398,7 @@ func TestFinalizeCompletedMigrations_MergedOnly_NoPriorTidied_Recovers(t *testin
 		marker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, logger)
 
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
 	got, err := os.ReadFile(filepath.Join(canonical, "segment.db"))
@@ -442,7 +442,7 @@ func TestFinalizeCompletedMigrations_TidiedHigherThanMerged_PicksTidied(t *testi
 		winner, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, logger)
 
 	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "segment.db"))
 	require.NoError(t, err)
@@ -475,7 +475,7 @@ func TestFinalizeCompletedMigrations_RecoveryWritesMissingSentinels(t *testing.T
 		[]byte("data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, logger)
 
 	// If sentinels weren't written before finalizeMigrationDir ran, the
 	// canonical dir would not be created (finalizeMigrationDir returns
@@ -509,7 +509,7 @@ func TestFinalizeCompletedMigrations_StartedOnlyNotPromoted(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, logger)
 
 	// Tracker untouched.
 	_, err := os.Stat(gen1)
@@ -559,7 +559,7 @@ func TestFinalizeCompletedMigrations_RecoveryAcrossNamespaces(t *testing.T) {
 		[]byte("filterable-data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, logger)
 
 	// Both canonical dirs should now exist with their respective data.
 	sBytes, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "s.db"))
@@ -591,10 +591,10 @@ func TestFinalizeCompletedMigrations_IdempotentAfterRecovery(t *testing.T) {
 		[]byte("data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, logger)
 
 	// Second call should be a complete no-op now that nothing remains in .migrations.
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, logger)
 
 	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "seg.db"))
 	require.NoError(t, err)
@@ -683,7 +683,7 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 		[]byte("gamma-range-NEW"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, nil, logger)
 
 	// All three property migrations must promote to their canonical
 	// names with the correct data. A bug that processed only the first
@@ -782,7 +782,7 @@ func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing
 		case "no_migrations":
 			// Intentionally empty — finalize must be a no-op here.
 		}
-		FinalizeCompletedMigrations(lsmPath, logger)
+		FinalizeCompletedMigrations(lsmPath, nil, logger)
 	}
 
 	for _, sh := range shards {

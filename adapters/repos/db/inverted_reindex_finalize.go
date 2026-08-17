@@ -12,6 +12,7 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,7 +20,15 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
+
+// finalizedSentinel records that a tracker dir's ingest→canonical promotion
+// already ran. It is written only when the promoted index is one the schema
+// still advertises as disabled, so the tracker outlives the promotion and
+// keeps naming the bucket until a named owner retires the record.
+const finalizedSentinel = "finalized.mig"
 
 // nextMigrationGeneration returns the per-node generation `N` a new
 // migration on (migrationDirPrefix, propNamesSuffix) should use on this
@@ -226,7 +235,13 @@ func fileExistsInDir(dirPath, fileName string) bool {
 //     schema → divergence vs other replicas → #10675-shape bug.
 //   - Remove every dir on disk (sidecars + tracker) with gen < effective
 //     — these are pre-`effective` data, no longer referenced.
-//   - Remove the tracker dir for `effective` itself.
+//   - Remove the tracker dir for `effective` itself, UNLESS the index it
+//     just promoted is one `class` still advertises as disabled. The
+//     cluster flips that flag only once every replica has swapped, so
+//     between the local swap and the flip the tracker is the only note
+//     that the bucket on disk is a finished index rather than garbage.
+//     Such a tracker is kept and marked with `finalized.mig`; see
+//     [finalizeEffectiveGen] for who retires it later.
 //   - If neither `T` nor `M` exists, do nothing — any earlier-stage
 //     in-flight migration on disk is the recovery path's
 //     responsibility ([DiscoverInFlightReindexTasks]).
@@ -239,7 +254,7 @@ func fileExistsInDir(dirPath, fileName string) bool {
 // (via DTM) marking tidied while the directory renames are deferred to
 // the next startup when no buckets are loaded. See
 // `docs/runtime-reindex.md` for the rationale.
-func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
+func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger logrus.FieldLogger) {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
@@ -348,10 +363,11 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			migDir := filepath.Join(migrationsDir, g.dirName)
 			switch {
 			case g.gen == effective:
-				finalizeMigrationDir(lsmPath, migDir, g.dirName, logger)
-				// finalizeMigrationDir performs the ingest→canonical
-				// rename + backup removal. We also remove the tracker
-				// dir itself: its sentinels have done their job.
+				if !finalizeEffectiveGen(lsmPath, migDir, g.dirName, class, logger) {
+					continue
+				}
+				// The promotion is complete and nothing is waiting on the
+				// record: the sentinels have done their job.
 				if err := os.RemoveAll(migDir); err != nil {
 					logger.WithField("path", migDir).
 						Warnf("reindex finalize: failed to remove finalized tracker dir: %v", err)
@@ -376,6 +392,219 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			}
 		}
 	}
+}
+
+// finalizeEffectiveGen promotes the effective generation's ingest dirs to
+// their canonical names and reports whether its tracker dir may now be
+// removed.
+//
+// Three outcomes keep the record honest:
+//
+//   - Promotion failed for at least one property: the tracker stays, and
+//     stays UNMARKED, so the next start retries it. Its `tidied.mig` keeps
+//     the promoted buckets out of the startup sweep's reach meanwhile.
+//   - Promotion succeeded and the schema already advertises the index: the
+//     tracker has nothing left to say and the caller removes it.
+//   - Promotion succeeded but the schema still advertises the index as
+//     disabled: the tracker is marked `finalized.mig` and kept. Retired by
+//     the first start after the flip, by a re-submit (which supersedes it
+//     with a higher generation), or by an index DELETE.
+//
+// A marked tracker is never promoted again — the promotion is not repeated
+// and the marker is not rewritten, so no start past the first can fail on
+// the exclusive create.
+func finalizeEffectiveGen(lsmPath, migDir, migName string, class *models.Class,
+	logger logrus.FieldLogger,
+) bool {
+	if fileExistsInDir(migDir, finalizedSentinel) {
+		return !migrationAwaitsSchemaFlip(migDir, migName, class)
+	}
+	if err := finalizeMigrationDir(lsmPath, migDir, migName, logger); err != nil {
+		logger.WithField("migration", migName).
+			Errorf("reindex finalize: promotion did not complete for every property; "+
+				"keeping the tracker unmarked so the next start retries it: %v", err)
+		return false
+	}
+	if !migrationAwaitsSchemaFlip(migDir, migName, class) {
+		return true
+	}
+	if err := writeFinalizedMarker(migDir); err != nil {
+		logger.WithField("migration", migName).
+			Errorf("reindex finalize: failed to record the completed promotion; "+
+				"keeping the tracker so the next start records it: %v", err)
+		return false
+	}
+	logger.WithField("migration", migName).
+		Info("reindex finalize: index promoted while its schema flag is still disabled; " +
+			"keeping the record until the schema flip, a re-submit, or an index drop retires it")
+	return false
+}
+
+// writeFinalizedMarker records a completed promotion. Exclusive create, like
+// the sibling [writeRecoveryTidiedSentinels]: a marker that already exists
+// belongs to an earlier start, and [finalizeEffectiveGen] never reaches here
+// in that case.
+func writeFinalizedMarker(migDir string) error {
+	f, err := os.OpenFile(filepath.Join(migDir, finalizedSentinel),
+		os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", finalizedSentinel, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", finalizedSentinel, err)
+	}
+	return nil
+}
+
+// migrationAwaitsSchemaFlip reports whether the tracker at migDir promoted an
+// index that class still advertises as disabled on at least one of the
+// properties the migration targeted.
+//
+// "Disabled" is an explicit false, matching what the startup sweep deletes on
+// ([propertyDeleteIndexHelper.isPropertyIndexRemoved]): a nil flag is a
+// default the sweep leaves alone, so it needs no record. A property the class
+// no longer carries has no flag left to flip and so keeps nothing alive.
+func migrationAwaitsSchemaFlip(migDir, migName string, class *models.Class) bool {
+	indexType := awaitingFlipIndexType(migName)
+	if indexType == "" || class == nil {
+		return false
+	}
+	props, err := readMigrationProps(migDir)
+	if err != nil || len(props) == 0 {
+		// Without the property list nothing can name the flag this record is
+		// waiting for. Keeping it costs a directory; dropping it would
+		// unshield a promoted bucket for the next start's sweep.
+		return true
+	}
+	for _, propName := range props {
+		for _, prop := range class.Properties {
+			if prop == nil || prop.Name != propName {
+				continue
+			}
+			if flag := propertyIndexFlag(prop, indexType); flag != nil && !*flag {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// awaitingFlipIndexType names the property index whose schema flag a
+// migration dir's strategy switches on once the whole cluster has swapped.
+// The empty string means the strategy flips no flag, so a promotion of it is
+// never ahead of the schema and its record is never retained.
+//
+// [allMigrationDirPrefixes] enumerates every prefix this build knows, and
+// TestEveryMigrationDirPrefixHasARetentionVerdict pins that each one is
+// answered here on purpose rather than by falling through.
+func awaitingFlipIndexType(migName string) string {
+	switch {
+	case strings.HasPrefix(migName, MigrationDirPrefixEnableFilterable):
+		return "filterable"
+	case strings.HasPrefix(migName, MigrationDirPrefixEnableSearchable):
+		return "searchable"
+	// Shared by enable-rangeable and repair-rangeable (see rangeable.go). The
+	// answer is deliberately blind to which: repair runs with the flag already
+	// true, so it never satisfies the predicate and never needs a record.
+	case strings.HasPrefix(migName, MigrationDirPrefixFilterableToRangeable):
+		return "rangeable"
+	}
+	return ""
+}
+
+// propertyIndexFlag returns the schema flag that advertises one index type of
+// a property. Nil for an index type with no flag of its own, and for a flag
+// the class never set.
+func propertyIndexFlag(prop *models.Property, indexType string) *bool {
+	switch indexType {
+	case "filterable":
+		return prop.IndexFilterable
+	case "searchable":
+		return prop.IndexSearchable
+	case "rangeable":
+		return prop.IndexRangeFilters
+	}
+	return nil
+}
+
+// finalizedMigrationIndexes returns, per property, the index types a
+// completed migration already promoted on the shard at lsmPath while the
+// schema still advertises them as disabled.
+//
+// Read at shard load to open those buckets: without it they sit on disk
+// unopened, invisible to reads and to the loaded-bucket backup walker, until
+// the cluster flips the flag.
+func finalizedMigrationIndexes(lsmPath string) map[string]map[string]struct{} {
+	migrationsDir := filepath.Join(lsmPath, ".migrations")
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		return nil
+	}
+	var out map[string]map[string]struct{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		indexType := awaitingFlipIndexType(entry.Name())
+		if indexType == "" {
+			continue
+		}
+		migDir := filepath.Join(migrationsDir, entry.Name())
+		if !fileExistsInDir(migDir, finalizedSentinel) {
+			continue
+		}
+		props, err := readMigrationProps(migDir)
+		if err != nil {
+			continue
+		}
+		for _, propName := range props {
+			if out == nil {
+				out = map[string]map[string]struct{}{}
+			}
+			if out[propName] == nil {
+				out[propName] = map[string]struct{}{}
+			}
+			out[propName][indexType] = struct{}{}
+		}
+	}
+	return out
+}
+
+// classWithPromotedIndexes returns class with the index flags of every
+// already-promoted-but-not-yet-advertised index forced on, so the shard opens
+// those buckets. The input class is left untouched: it is the schema every
+// other reader on this node still answers from, and forcing a flag there
+// would advertise the index before the cluster agreed to.
+func classWithPromotedIndexes(class *models.Class, promoted map[string]map[string]struct{}) *models.Class {
+	if class == nil || len(promoted) == 0 {
+		return class
+	}
+	out := *class
+	out.Properties = make([]*models.Property, len(class.Properties))
+	copy(out.Properties, class.Properties)
+	for i, prop := range out.Properties {
+		if prop == nil {
+			continue
+		}
+		indexTypes, ok := promoted[prop.Name]
+		if !ok {
+			continue
+		}
+		forced := *prop
+		enabled := true
+		for indexType := range indexTypes {
+			switch indexType {
+			case "filterable":
+				forced.IndexFilterable = &enabled
+			case "searchable":
+				forced.IndexSearchable = &enabled
+			case "rangeable":
+				forced.IndexRangeFilters = &enabled
+			}
+		}
+		out.Properties[i] = &forced
+	}
+	return &out
 }
 
 // writeRecoveryTidiedSentinels is the recovery-path equivalent of the
@@ -481,19 +710,35 @@ func reindexSuffixForFinalize(namespace string) string {
 	return ""
 }
 
-func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) {
-	// Only finalize if both swapped and tidied sentinels exist.
+// finalizeMigrationDir renames every property's ingest dir to its canonical
+// name and removes the backup dir it replaced.
+//
+// A non-nil error means at least one property of this migration is NOT
+// promoted. The caller must not record the tracker as finalized on that
+// answer: the record's whole claim is that the promotion ran, and a later
+// start reads it instead of retrying.
+//
+// Idempotent by construction: after a successful run neither the ingest nor
+// the backup dir exists, so a re-run (a crash between the promotion and the
+// record) does nothing and reports success.
+func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) error {
+	// Only finalize if both swapped and tidied sentinels exist. Callers reach
+	// here at the effective generation, where both are present or were just
+	// written, so a missing one is a tracker nothing can promote from.
 	if !fileExists(filepath.Join(migDir, "swapped.mig")) {
-		return
+		return fmt.Errorf("tracker has no swapped.mig")
 	}
 	if !fileExists(filepath.Join(migDir, "tidied.mig")) {
-		return
+		return fmt.Errorf("tracker has no tidied.mig")
 	}
 
 	// Read properties from the migration.
 	props, err := readMigrationProps(migDir)
-	if err != nil || len(props) == 0 {
-		return
+	if err != nil {
+		return fmt.Errorf("read properties.mig: %w", err)
+	}
+	if len(props) == 0 {
+		return fmt.Errorf("properties.mig names no property")
 	}
 
 	// Determine bucket naming from migration dir name. The migration dir
@@ -503,17 +748,20 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	// to find the matching on-disk sidecar dirs.
 	suffixes := migrationSuffixes(migName)
 	if suffixes == nil {
-		return
+		return fmt.Errorf("no bucket naming scheme for this migration")
 	}
 	_, gen, ok := parseMigrationDirName(migName)
 	if !ok {
 		// Defensive — every dir on disk should carry the gen suffix.
-		return
+		return fmt.Errorf("tracker name carries no generation suffix")
 	}
 	genTail := "_" + strconv.Itoa(gen)
 
 	logger = logger.WithField("migration", migName)
 
+	// One property failing must not skip the rest: every one of them is a
+	// separate index the shard would otherwise come up without.
+	var failures []error
 	for _, propName := range props {
 		mainName := suffixes.sourceBucketName(propName)
 		ingestDir := filepath.Join(lsmPath, mainName+suffixes.ingestSuffix+genTail)
@@ -525,6 +773,7 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 			if err := os.RemoveAll(backupDir); err != nil {
 				logger.WithField("dir", backupDir).
 					Errorf("finalize: failed to remove backup dir: %v", err)
+				failures = append(failures, fmt.Errorf("remove backup dir of %q: %w", propName, err))
 				continue
 			}
 			logger.WithField("dir", backupDir).Debug("finalize: removed backup dir")
@@ -539,12 +788,14 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 			if err := os.Rename(ingestDir, mainDir); err != nil {
 				logger.WithField("from", ingestDir).WithField("to", mainDir).
 					Errorf("finalize: failed to rename ingest dir: %v", err)
+				failures = append(failures, fmt.Errorf("promote ingest dir of %q: %w", propName, err))
 				continue
 			}
 			logger.WithField("from", ingestDir).WithField("to", mainDir).
 				Debug("finalize: renamed ingest dir to main")
 		}
 	}
+	return errors.Join(failures...)
 }
 
 func readMigrationProps(migDir string) ([]string, error) {

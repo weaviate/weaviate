@@ -85,6 +85,25 @@ const (
 	MigrationDirPrefixRebuildSearchable = "rebuild_searchable"
 )
 
+// allMigrationDirPrefixes names every migration dir prefix this build knows.
+//
+// It is the completeness argument for the readers that decide per strategy —
+// [awaitingFlipIndexType], [reindexSuffixForFinalize], [migrationSuffixes] —
+// none of which can be enumerated from a switch. The tests assert this list
+// against each of them and against the per-index-type and class-level maps
+// below, so a strategy added without a verdict everywhere fails the build's
+// tests rather than falling through one of them silently.
+var allMigrationDirPrefixes = []string{
+	MigrationDirSearchableMapToBlockmax,
+	MigrationDirFilterableRoaringsetRefresh,
+	MigrationDirPrefixFilterableToRangeable,
+	MigrationDirPrefixSearchableRetokenize,
+	MigrationDirPrefixFilterableRetokenize,
+	MigrationDirPrefixEnableFilterable,
+	MigrationDirPrefixEnableSearchable,
+	MigrationDirPrefixRebuildSearchable,
+}
+
 // migrationDirWithProps assembles a migration directory name from a
 // prefix and an optional set of property names. Empty propNames returns
 // the prefix on its own; otherwise the prefix is joined with the
