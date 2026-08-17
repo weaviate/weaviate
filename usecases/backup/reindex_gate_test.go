@@ -100,8 +100,10 @@ func TestRestoreRefusedByParticipant(t *testing.T) {
 	require.ErrorIs(t, err, backup.ErrReindexInFlight)
 	assert.Contains(t, err.Error(), `"Movies"`)
 	assert.Contains(t, err.Error(), `"Shows"`)
-	assert.Contains(t, err.Error(), "retry after it finishes")
+	assert.Contains(t, err.Error(), "retry after it does")
 	assert.Contains(t, err.Error(), "GET /v1/tasks", "a rebuilt refusal still owes a route to check")
+	assert.Contains(t, err.Error(), "clearing a finished migration's files",
+		"this one kind is also what a node cleaning up after a terminal task sends, so polling for terminal cannot be the whole answer")
 
 	assert.Equal(t, 1, strings.Count(err.Error(), backup.ErrReindexInFlight.Error()))
 }
@@ -485,7 +487,7 @@ func TestRestoreUndeterminedReaches422(t *testing.T) {
 	assert.Contains(t, err.Error(), backup.ErrReindexActivityUndetermined.Error())
 	assert.NotContains(t, err.Error(), backup.ErrReindexInFlight.Error())
 	assert.NotContains(t, err.Error(), "has an active runtime-reindex task")
-	assert.NotContains(t, err.Error(), "runtime-reindex work is in progress")
+	assert.NotContains(t, err.Error(), "runtime-reindex work has not finished")
 	assert.NotContains(t, err.Error(), node2, "a cluster fact names no node")
 }
 

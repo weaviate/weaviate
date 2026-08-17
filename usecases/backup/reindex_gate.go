@@ -82,15 +82,16 @@ func publishAsCancelled(err, ctxErr error) bool {
 		(!isReindexRefusal(err) && errors.Is(err, context.Canceled))
 }
 
+// "has not finished", not "is in progress": one kind carries both a task still running and the cleanup that outlives one, and only the first is in progress.
 func backupRefusedByParticipant(classes []string) error {
 	return fmt.Errorf(
-		"%w: runtime-reindex work is in progress on %s; retry after it finishes. %s",
+		"%w: runtime-reindex work has not finished on %s; retry after it does. %s",
 		backup.ErrBackupBlockedByInFlightReindex, blockedSubject(classes), reindex.ClusterMigrationRemedy())
 }
 
 func restoreRefusedByParticipant(classes []string) error {
 	return fmt.Errorf(
-		"restore blocked: %w: runtime-reindex work is in progress on %s; retry after it finishes. %s",
+		"restore blocked: %w: runtime-reindex work has not finished on %s; retry after it does. %s",
 		backup.ErrReindexInFlight, blockedSubject(classes), reindex.ClusterMigrationRemedy())
 }
 

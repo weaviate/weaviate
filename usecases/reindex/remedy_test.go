@@ -41,6 +41,8 @@ func TestRenderedRoutes(t *testing.T) {
 func TestClusterMigrationRemedy(t *testing.T) {
 	remedy := ClusterMigrationRemedy()
 	assert.Contains(t, remedy, "GET /v1/tasks")
+	assert.Contains(t, remedy, "outlives every listed task",
+		"a refusal raised while a node clears a finished migration's files carries this same remedy, and waiting for a terminal state never clears that one")
 	assert.NotContains(t, remedy, "<")
 	assert.NotContains(t, remedy, "{")
 }

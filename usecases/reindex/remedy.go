@@ -41,11 +41,11 @@ func CancelRoute(collection, property, indexType string) string {
 		collection, property, indexType)
 }
 
-// ClusterMigrationRemedy is for a refusal that cannot say which collection is migrating, so it points at the one route that needs none.
+// ClusterMigrationRemedy is for a refusal that cannot say which collection is migrating, nor whether the work is still a task or the cleanup that outlives one, so it points at the one route that needs none and answers both.
 func ClusterMigrationRemedy() string {
 	return fmt.Sprintf(
 		`%s lists every distributed task in the cluster, the runtime-reindex among them, `+
-			`and reports when it reaches a terminal state`,
+			`and reports when it reaches a terminal state. A refusal that outlives every listed task is a node still clearing a finished migration's files, which no cancel shortens: retry in a moment`,
 		tasksRoute)
 }
 

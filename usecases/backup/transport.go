@@ -96,7 +96,7 @@ const (
 	// there until every node is upgraded; an older participant sends no kind, which the default arm handles.
 	CanCommitErrRestoreBlockedByReindex CanCommitErrorKind = "restore_blocked_by_reindex"
 
-	// The participant could not reach the cluster task list, so it refused without observing anything.
+	// The participant has nothing the caller can be told to wait for: either it could not reach the cluster task list, or it read the list and refused on what it saw, but the caller named no collection to attribute that to.
 	CanCommitErrRestoreReindexUndetermined CanCommitErrorKind = "restore_reindex_undetermined"
 
 	// The same answer on the create path. Kept apart from the restore kind so the
