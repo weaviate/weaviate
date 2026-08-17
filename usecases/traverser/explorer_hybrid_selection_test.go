@@ -49,6 +49,25 @@ func makeHybridVectorResults(n int) []search.Result {
 
 // Test_Explorer_HybridSelection: MMR on a hybrid query must run as a post-fusion
 // pass on the fused pool, with the legs loading the vectors MMR needs.
+// newHybridLegProbe builds an explorer whose vector leg records the fetch limit it is invoked
+// with, so tests can assert how deep Boost.Depth / MMR make the hybrid sub-searches fetch.
+func newHybridLegProbe() (*Explorer, *fakeVectorSearcher, *int) {
+	searcher := &fakeVectorSearcher{}
+	explorer := newTestExplorer(searcher, getFakeModulesProvider())
+
+	results := makeHybridVectorResults(50)
+	for i := range results {
+		results[i].Schema.(map[string]any)["likes"] = float64(i * 100)
+	}
+	legLimit := new(int)
+	searcher.On("VectorSearch", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			*legLimit = args.Get(0).(dto.GetParams).Pagination.Limit
+		}).
+		Return(results, nil)
+	return explorer, searcher, legLimit
+}
+
 func Test_Explorer_HybridSelection(t *testing.T) {
 	t.Run("MMR selection runs post-fusion on hybrid results", func(t *testing.T) {
 		searcher := &fakeVectorSearcher{}
@@ -243,19 +262,7 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 	})
 
 	t.Run("Boost.Depth deepens the leg fetch, MMR over top Limit", func(t *testing.T) {
-		searcher := &fakeVectorSearcher{}
-		explorer := newTestExplorer(searcher, getFakeModulesProvider())
-
-		results := makeHybridVectorResults(50)
-		for i := range results {
-			results[i].Schema.(map[string]any)["likes"] = float64(i * 100)
-		}
-		var legLimit int
-		searcher.On("VectorSearch", mock.Anything, mock.Anything).
-			Run(func(args mock.Arguments) {
-				legLimit = args.Get(0).(dto.GetParams).Pagination.Limit
-			}).
-			Return(results, nil)
+		explorer, searcher, legLimit := newHybridLegProbe()
 
 		var diversifyInputLen int
 		searcher.diversifyFn = func(sel *searchparams.Selection, class, target string, in []search.Result) ([]search.Result, error) {
@@ -275,7 +282,7 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, res, 5, "page size is MMR.Limit")
 
-		assert.GreaterOrEqual(t, legLimit, 40, "leg fetch must reach Boost.Depth")
+		assert.GreaterOrEqual(t, *legLimit, 40, "leg fetch must reach Boost.Depth")
 		assert.Equal(t, 10, diversifyInputLen, "MMR pool must be the query Limit")
 	})
 
@@ -283,19 +290,7 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 	// limit must deepen the sub-search legs even when MMR is not used, otherwise candidates
 	// past that depth are dropped before the boost scorer runs.
 	t.Run("Boost.Depth deepens the leg fetch without MMR", func(t *testing.T) {
-		searcher := &fakeVectorSearcher{}
-		explorer := newTestExplorer(searcher, getFakeModulesProvider())
-
-		results := makeHybridVectorResults(50)
-		for i := range results {
-			results[i].Schema.(map[string]any)["likes"] = float64(i * 100)
-		}
-		var legLimit int
-		searcher.On("VectorSearch", mock.Anything, mock.Anything).
-			Run(func(args mock.Arguments) {
-				legLimit = args.Get(0).(dto.GetParams).Pagination.Limit
-			}).
-			Return(results, nil)
+		explorer, _, legLimit := newHybridLegProbe()
 
 		params := dto.GetParams{
 			ClassName:    "TestClass",
@@ -307,7 +302,7 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NoError(t, err)
 
-		assert.GreaterOrEqual(t, legLimit, 150,
+		assert.GreaterOrEqual(t, *legLimit, 150,
 			"leg fetch must reach Boost.Depth even without MMR")
 	})
 }
