@@ -64,19 +64,3 @@ func NewRuntimeMapToBlockmaxTask(
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
 }
-
-// NewFileMapToBlockmaxReindexTracker creates a file-based reindex tracker
-// for the most recent searchable map-to-blockmax migration. Migration dirs
-// carry a per-node generation suffix (`_<N>`); callers that don't know the
-// generation get the highest one that exists on disk, or the first
-// generation if there is no on-disk state yet.
-//
-// Only tests call this. Production code resolves its generation explicitly
-// via [nextMigrationGeneration] or [maxMigrationGeneration].
-func NewFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser) *fileReindexTracker {
-	gen := maxMigrationGeneration(lsmPath, MigrationDirSearchableMapToBlockmax, "")
-	if gen == 0 {
-		gen = 1
-	}
-	return NewFileReindexTracker(lsmPath, MigrationDirSearchableMapToBlockmax+genSuffix(gen), keyParser)
-}
