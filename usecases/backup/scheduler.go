@@ -315,7 +315,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	return data, nil
 }
 
-// Shared by literalIncludes and expandWildcards; if the two disagree, the gate's scope and the include expansion diverge.
+// Shared by literalIncludes and expandWildcards. The only pattern they treat differently is "", for the reason literalIncludes gives.
 const wildcardAlphabet = "*?"
 
 // literalIncludes reports whether include names collections outright. There is no
