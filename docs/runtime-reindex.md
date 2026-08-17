@@ -1364,9 +1364,45 @@ lost:
 binary restoring such a backup ignores the marker and reverts to the
 pre-record behavior.
 
-Writes issued during the window are not captured yet: the index is complete
-up to the swap and misses anything written after it, until the write-path
-work lands.
+A change-tokenization migration flips no index flag, so the sweep never
+reaches its bucket and none of the above applies to it. What it does leave
+the schema behind on is the tokenization the promoted keys are under, which
+both the write and the query path answer from — so its record is kept on
+that predicate instead, and `payload.mig`'s `targetTokenization` is what
+says when the schema has caught up.
+
+### 9.7.1 Writes during the window
+
+The record also decides where an ordinary write goes while it exists.
+
+Between the local swap and the flip, the write path asks the schema, the
+schema says the property has no such index, and the analyzer drops the
+property — so the write is acked, stored, and missing from the index the
+flip is about to advertise. Nothing repairs it afterwards: the backfill is
+over and the flip does not rescan. The same window under a
+change-tokenization migration analyzes the write under the old tokenization,
+which lands it under keys nothing will look for.
+
+`Shard.writeAnalyzerOverlay` closes both, from a per-shard view armed at the
+two moments the promotion becomes true:
+
+| Armed at | Covers |
+|---|---|
+| The per-property bucket flip in `runtimeSwap` | The in-process window, from the flip until the flag lands. The double-write callbacks that mirror writes into the ingest bucket stay up until the swap returns, so the two mechanisms overlap rather than leave a gap. |
+| Shard init, from the record | The same window across a restart. A node that restarts here has already finished this shard's unit, so no task is dispatched and no scheduler tick is owed — arming has to happen before the shard can take its first write, which is why it reads the record rather than waiting for an event. |
+
+Disarmed by the schema catching up (explicitly in the flip's apply, and
+self-clearing on the next write for any shard the apply did not reach), and
+by an index DELETE, which removes the very bucket the writes were going to.
+
+One consequence worth naming: a property whose every index flag is off is
+dropped by the analyzer wholesale, so the migration that builds its first
+index only ever needed one bucket and its hook only creates one. Routing
+writes into it brings back the null-state and property-length arms of the
+write path, which are gated differently than the value arm — the null arm
+has no data-type gate at all, and the length arm is gated on a value rather
+than a type. Arming therefore creates those two buckets first, exactly as
+shard init creates them for a property whose flag is already on.
 
 ### 9.6 Hard rules
 
