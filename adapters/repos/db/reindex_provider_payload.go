@@ -17,11 +17,9 @@ import "encoding/json"
 const ReindexNamespace = "reindex"
 
 // ExtractReindexTaskCollection decodes the class name a reindex task is
-// bound to. Registered on startup through the cluster config's
-// DistributedTaskCollectionExtractors map (see configure_api.go) so that
-// DELETE_CLASS cascades into reindex task GC
-// (weaviate/0-weaviate-issues#231). Lives next to [ReindexTaskPayload] so
-// the payload format and its scoping-decoder evolve together.
+// bound to. Wired into DistributedTaskCollectionExtractors (see
+// configure_api.go) so DELETE_CLASS cascades into reindex task GC
+// (weaviate/0-weaviate-issues#231).
 func ExtractReindexTaskCollection(payload []byte) (string, bool) {
 	var p ReindexTaskPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
