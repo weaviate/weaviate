@@ -818,11 +818,9 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 //   - "failed":     latest matching task ended in FAILED.
 //   - "cancelled":  latest matching task ended in CANCELLED.
 //
-// `flagOn` is the caller's view of whether the corresponding schema flag
-// (IndexFilterable / IndexSearchable / IndexRangeFilters, depending on
-// indexType) is currently true. It lets this function decide whether a
-// FINISHED task is "still finalizing" (flag-off) or "fully done"
-// (flag-on, so the base "ready" entry takes over).
+// `flagOn` is the caller's view of the corresponding schema flag. No status
+// branches on it — the caller owns the emit gate — but it is passed so
+// FINISHED-with-the-flag-off is observable in the log.
 //
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.
@@ -962,6 +960,18 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		// DELETEd after its migration completed leaves exactly that, and
 		// the task record outlives the DELETE by
 		// DefaultDistributedTasksCompletedTaskTTL (5 days).
+		if !flagOn && logger != nil {
+			// Two producers, and this site cannot tell them apart: (1) the
+			// index was DELETEd after its migration completed — normal, and
+			// visible until the task record ages out; (2) this node's task
+			// list ran ahead of its schema, which reading both locally and
+			// tasks-first is supposed to prevent. Debug, not error: (1) is
+			// routine and would otherwise log on every poll for five days.
+			logger.WithFields(logrus.Fields{
+				"task_id": best.ID, "collection": collection,
+				"property": propName, "index_type": indexType,
+			}).Debug("reindex status: FINISHED task with the schema flag off")
+		}
 	}
 
 	if !best.Status.IsRecognized() {

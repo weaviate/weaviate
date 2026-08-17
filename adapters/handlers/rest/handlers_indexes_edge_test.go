@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/runtime"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -273,39 +274,55 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 		"progress recorded before cancellation is preserved")
 }
 
-// A FINISHED task surfaces nothing. The endpoint reads the task list from
-// the local FSM, so a task this node sees as FINISHED has the schema flip
-// applied too, and the base "ready" entry is the whole answer. This used to
-// be a recency-bounded "indexing@100%" override covering a leader-vs-local
-// read skew that the window could not actually cover.
+// A FINISHED task surfaces nothing at any age: the schema flag alone decides
+// whether an entry is emitted, and how long ago the task finished never enters
+// into it. Flag-off is not an error — an index DELETEd after its migration
+// completed leaves exactly that state for as long as the task record lives —
+// so it is logged at Debug and nothing else changes.
 func TestMergeReindexStatus_FinishedTask_SurfacesNoSyntheticEntry(t *testing.T) {
-	mkTask := func() *distributedtask.Task {
-		task := buildTask(t, "C:enable-filterable:foo:abcd",
-			distributedtask.TaskStatusFinished,
-			db.ReindexTaskPayload{
-				MigrationType: db.ReindexTypeEnableFilterable,
-				Collection:    "C",
-				Properties:    []string{"foo"},
-			},
-			map[string]*distributedtask.Unit{
-				"unit1": {ID: "unit1", Status: distributedtask.UnitStatusCompleted, Progress: 1.0},
-			},
-		)
-		// A stamp this fresh is what used to put the entry inside the
-		// finalize window and paint "indexing@100%" over a finished task.
-		task.FinishedAt = time.Now()
-		return task
+	tests := []struct {
+		name           string
+		flagOn         bool
+		finishedAt     time.Time
+		wantDebugLines int
+	}{
+		{"flag on, just finished", true, time.Now(), 0},
+		{"flag off, just finished", false, time.Now(), 1},
+		{"flag off, finished long ago", false, time.Now().Add(-72 * time.Hour), 1},
+		{"flag off, no stamp", false, time.Time{}, 1},
 	}
 
-	for _, flagOn := range []bool{true, false} {
-		t.Run(fmt.Sprintf("flagOn=%v", flagOn), func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := buildTask(t, "C:enable-filterable:foo:abcd",
+				distributedtask.TaskStatusFinished,
+				db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeEnableFilterable,
+					Collection:    "C",
+					Properties:    []string{"foo"},
+				},
+				map[string]*distributedtask.Unit{
+					"unit1": {ID: "unit1", Status: distributedtask.UnitStatusCompleted, Progress: 1.0},
+				},
+			)
+			task.FinishedAt = tt.finishedAt
+
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", flagOn, tasksMap(mkTask()), nil)
+			mergeReindexStatus(idx, "C", "foo", "filterable", tt.flagOn, tasksMap(task), logger)
 
 			require.Equal(t, "ready", idx.Status)
 			require.Equal(t, float32(0), idx.Progress)
 			require.Empty(t, idx.TaskID,
 				"a FINISHED task must not stamp a task ID onto the base entry")
+
+			require.Len(t, hook.AllEntries(), tt.wantDebugLines)
+			for _, entry := range hook.AllEntries() {
+				require.Equal(t, logrus.DebugLevel, entry.Level,
+					"flag-off after a completed migration is routine; an Error here fires on every poll for five days")
+			}
 		})
 	}
 }
