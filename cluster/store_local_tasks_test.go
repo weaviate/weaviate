@@ -21,11 +21,15 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// LocalDistributedTasks answers from this node's applied log rather than from
-// a query routed to the leader, so a caller that compares a task's status
-// against schema state reads both operands at the same log position. The
-// leader-routed ListDistributedTasks cannot promise that: it can report a task
-// committed at an index this node's schema has not applied yet.
+// A task applied to this node's FSM is readable from this node, with no
+// leader round-trip in between: Store delegates straight to the Manager's
+// in-memory map.
+//
+// This harness cannot say more. setupApplyTest builds a bare FSM with no raft
+// node, so the leader-routed path resolves to the same function and could not
+// be caught disagreeing. The receipt for "both operands come from one node in
+// one order" is TestIndexStatusOperands_ComeFromOneNodeInOneOrder, in the
+// handler package.
 func TestStore_LocalDistributedTasks_AnswersFromTheAppliedLog(t *testing.T) {
 	ms, addClassLog := setupApplyTest(t)
 	ms.parser.On("ParseClass", mock.Anything).Return(nil)
@@ -51,9 +55,4 @@ func TestStore_LocalDistributedTasks_AnswersFromTheAppliedLog(t *testing.T) {
 	require.Len(t, tasks["test-namespace"], 1,
 		"a task applied to this node's FSM must be readable without a leader round-trip")
 	require.Equal(t, "task-1", tasks["test-namespace"][0].ID)
-
-	// The schema entry that preceded the task in the log is visible to the
-	// same reader. This is the property the index-status endpoint relies on
-	// to compare a task's status against a schema flag.
-	require.NotNil(t, ms.store.SchemaReader().ReadOnlyClass("TestClass"))
 }
