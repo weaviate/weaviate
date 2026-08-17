@@ -1304,9 +1304,8 @@ func (t *ShardReindexTaskGeneric) newReindexTrackerGuarded(shard ShardLike) (rei
 	return rt, nil
 }
 
-// OnAfterLsmInitAsync advances the reindex by one iteration. It returns
-// true when the shard has more work left, so the caller loops; false means
-// the task is done (or has nothing to do) on this shard.
+// OnAfterLsmInitAsync runs one reindex iteration. Returns true if more
+// work remains (caller loops), false once done or if there's nothing to do.
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
 ) (moreWork bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
