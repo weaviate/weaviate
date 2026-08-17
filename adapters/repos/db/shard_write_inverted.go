@@ -128,12 +128,12 @@ func (s *Shard) writeAnalyzerOverlay(props []*models.Property) map[string]invert
 		live[p.Name] = p
 	}
 	tokSnap := s.SnapshotTokenizationOverlay(propNames)
-	rangeSnap := s.SnapshotRangeableWriteOverlay(propNames)
-	if len(tokSnap) == 0 && len(rangeSnap) == 0 {
+	forcedRangeable := s.forcedRangeableProps(props)
+	if len(tokSnap) == 0 && len(forcedRangeable) == 0 {
 		return nil
 	}
 
-	out := make(map[string]inverted.PropertyOverlay, len(tokSnap)+len(rangeSnap))
+	out := make(map[string]inverted.PropertyOverlay, len(tokSnap)+len(forcedRangeable))
 	for name, target := range tokSnap {
 		if target == live[name].Tokenization {
 			// Live schema already matches the overlay target. The
@@ -144,19 +144,54 @@ func (s *Shard) writeAnalyzerOverlay(props []*models.Property) map[string]invert
 		}
 		out[name] = inverted.PropertyOverlay{Tokenization: target}
 	}
-	for name := range rangeSnap {
-		if inverted.HasRangeableIndex(live[name]) {
-			// Backstop for a missed clear: with the flag live the entry
-			// changes nothing, so drop it and take the fast path next time.
-			s.ClearRangeableWriteOverlay(name)
-			continue
-		}
+	for name := range forcedRangeable {
 		entry := out[name]
 		entry.ForceRangeable = true
 		out[name] = entry
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+// forcedRangeableProps returns the properties whose ordinary writes must
+// reach the rangeable bucket even though the live schema still says
+// IndexRangeFilters is false.
+//
+// enable-rangeable mirrors live writes into the new bucket with
+// double-write callbacks, and those come down when this shard's swap
+// returns. The cluster-wide flip lands later, one RAFT round after the last
+// replica swaps. A write in between would be acked and stored but never
+// indexed, and nothing repairs it afterwards: the backfill is finished and
+// the flip does not rescan.
+//
+// Derived from the per-shard readiness map the query path already keeps
+// (see [Shard.rangeableLocalReady]) rather than stored a second time, so
+// the two cannot disagree and a restart inside the window cannot lose it.
+//
+// Only an EXPLICIT true counts. [Shard.IsRangeableLocallyReady]'s
+// bucket-existence default would also match a bucket that a cancelled
+// migration left behind, and forcing writes into that one fills an index
+// nothing reads.
+func (s *Shard) forcedRangeableProps(props []*models.Property) map[string]struct{} {
+	s.rangeableLocalReadyMu.RLock()
+	defer s.rangeableLocalReadyMu.RUnlock()
+	if len(s.rangeableLocalReady) == 0 {
+		return nil
+	}
+	var out map[string]struct{}
+	for _, p := range props {
+		if p == nil || inverted.HasRangeableIndex(p) {
+			continue
+		}
+		if ready, set := s.rangeableLocalReady[p.Name]; !set || !ready {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]struct{}, len(props))
+		}
+		out[p.Name] = struct{}{}
 	}
 	return out
 }

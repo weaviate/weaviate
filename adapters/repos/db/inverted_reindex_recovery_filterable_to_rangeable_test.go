@@ -176,6 +176,16 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 			generation: 1,
 		},
 	}
+	return newFilterableToRangeableTaskWithStrategy(t, idx, className, propName, wrapped), wrapped
+}
+
+// newFilterableToRangeableTaskWithStrategy is newFilterableToRangeableTask
+// with a caller-supplied strategy, for tests that need the production
+// OnMigrationComplete rather than the wrapper's flag setter.
+func newFilterableToRangeableTaskWithStrategy(t *testing.T, idx *Index, className, propName string,
+	strategy MigrationStrategy,
+) *ShardReindexTaskGeneric {
+	t.Helper()
 
 	selectedProps := map[string]struct{}{propName: {}}
 	cfg := reindexTaskConfig{
@@ -197,11 +207,10 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 		},
 	}
 
-	task := NewShardReindexTaskGeneric(
-		"FilterableToRangeable", idx.logger, wrapped, cfg,
+	return NewShardReindexTaskGeneric(
+		"FilterableToRangeable", idx.logger, strategy, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
-	return task, wrapped
 }
 
 // testFilterableToRangeableStrategyWrapper overrides OnMigrationComplete
