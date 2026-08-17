@@ -29,10 +29,6 @@ import (
 // task". The synthetic status sticks: a follow-up enable's swap doesn't
 // dislodge it because the FINISHED task it keys off is stale.
 //
-// Root cause (fixed): a since-removed override reclassified a stale
-// FINISHED task as "still finalizing" after DELETE. A FINISHED task now
-// surfaces nothing; the schema flag alone decides.
-//
 // Distinct from testDeleteThenReEnableMultiCycle (which pins the
 // silent-failure family for the bucket itself): this test pins the
 // HTTP visible state — the GET response must not lie about what
@@ -59,8 +55,6 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 		// Three enable→FINISHED→DELETE cycles. After each one, the GET
 		// /indexes surface must not surface a synthetic "indexing"/"pending"/
 		// "failed"/"cancelled" entry for the just-deleted searchable index.
-		// The old bleed compounded with each cycle, so this runs three
-		// rounds rather than one.
 		for cycle := 1; cycle <= 3; cycle++ {
 			runEnableThenDeleteCycle(t, restURI, class, "body",
 				"searchable", `{"tokenization":"word"}`,

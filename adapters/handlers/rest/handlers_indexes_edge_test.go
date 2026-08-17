@@ -274,9 +274,7 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 		"progress recorded before cancellation is preserved")
 }
 
-// A FINISHED task never surfaces a synthetic entry, regardless of age or
-// flag state; flag-off after DELETE is expected, not an error, and is
-// logged at Debug only.
+// FINISHED never surfaces a synthetic entry; flag-off after DELETE is normal and logs at Debug.
 func TestMergeReindexStatus_FinishedTask_SurfacesNoSyntheticEntry(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -390,9 +388,7 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 	}
 }
 
-// In-flight always beats a terminal attempt (FAILED or FINISHED) on the same
-// property, regardless of slice order — otherwise a retried migration could
-// show the old outcome on alternate polls.
+// In-flight beats any terminal attempt regardless of slice order.
 func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 	now := time.Now()
 
@@ -454,10 +450,8 @@ func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 	}
 }
 
-// Two terminal tasks on the same property (e.g. a retry after failure)
-// resolve to the newer one, regardless of slice order — also why FINISHED
-// tasks stay in the merge loop: drop them and an older FAILED attempt would
-// win instead.
+// Newest terminal task wins regardless of slice order; that's why FINISHED
+// tasks stay in the merge loop instead of being dropped.
 func TestMergeReindexStatus_NewestTerminalWins(t *testing.T) {
 	now := time.Now()
 

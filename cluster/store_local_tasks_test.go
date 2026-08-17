@@ -21,10 +21,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// A task applied to this node's FSM is readable from this node with no
-// leader round-trip. This harness has no raft node, so it can't catch the
-// leader-routed path disagreeing — see
-// TestIndexStatusOperands_ComeFromOneNodeInOneOrder for that receipt.
+// A task applied to this node's FSM is readable locally, no leader
+// round-trip; this bare-FSM harness can't catch the leader-routed path
+// disagreeing (see TestIndexStatusOperands_ComeFromOneNodeInOneOrder).
 func TestStore_LocalDistributedTasks_AnswersFromTheAppliedLog(t *testing.T) {
 	ms, addClassLog := setupApplyTest(t)
 	ms.parser.On("ParseClass", mock.Anything).Return(nil)

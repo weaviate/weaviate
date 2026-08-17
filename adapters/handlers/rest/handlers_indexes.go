@@ -116,10 +116,9 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 	return h.appState.ReindexSubmitLocks.SubmitLockFor(collection, propertyName)
 }
 
-// localTaskLister reads this node's own FSM task list (*cluster.Service
-// satisfies it). Deliberately narrower than [distributedtask.TaskLister]:
-// omitting the leader-routed ListDistributedTasks makes reaching for it here
-// a compile error, not a typo.
+// localTaskLister is *cluster.Service narrowed to the local-only method,
+// deliberately omitting the leader-routed ListDistributedTasks so reaching
+// for it here is a compile error, not a typo.
 type localTaskLister interface {
 	LocalDistributedTasks() map[string][]*distributedtask.Task
 }
@@ -129,10 +128,9 @@ type classReader interface {
 	ReadOnlyClass(name string) *models.Class
 }
 
-// indexStatusOperands reads the task list and the class from this node,
-// tasks first, so the class can never be the older of the two operands being
-// compared. Nil class: collection doesn't exist. Nil lister: no cluster
-// service, response is schema-only.
+// indexStatusOperands reads the task list before the class, so the class can
+// never be the older of the two operands compared. Nil class: no such
+// collection. Nil lister: no cluster service, response is schema-only.
 func indexStatusOperands(collection string, tasks localTaskLister, schemaReader classReader) (*models.Class, []parsedReindexTask) {
 	var byNamespace map[string][]*distributedtask.Task
 	if tasks != nil {
@@ -945,19 +943,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		idx.Progress = 1.0
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusFinished:
-		// Nothing to surface: a FINISHED task never produces a synthetic
-		// entry, so the schema flag alone decides whether one is emitted.
-		// FINISHED with the flag off is normal, not a skew — an index
-		// DELETEd after its migration completed leaves exactly that, and
-		// the task record outlives the DELETE by
-		// DefaultDistributedTasksCompletedTaskTTL (5 days).
+		// No synthetic entry: the schema flag alone decides. Flag-off here is
+		// the normal post-DELETE state, so log at Debug to avoid poll-rate spam.
 		if !flagOn && logger != nil {
-			// Two producers, and this site cannot tell them apart: (1) the
-			// index was DELETEd after its migration completed — normal, and
-			// visible until the task record ages out; (2) this node's task
-			// list ran ahead of its schema, which reading both locally and
-			// tasks-first is supposed to prevent. Debug, not error: (1) is
-			// routine and would otherwise log on every poll for five days.
 			logger.WithFields(logrus.Fields{
 				"task_id": best.ID, "collection": collection,
 				"property": propName, "index_type": indexType,

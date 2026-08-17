@@ -33,8 +33,7 @@ type fsmStep struct {
 // two independent local reads, plus the leader's view of the same tasks.
 //
 //	step 0 — task STARTED,  searchable flag off
-//	step 1 — task FINISHED, searchable flag on   (OnTaskCompleted committed the
-//	                                              flip, then finalize)
+//	step 1 — task FINISHED, searchable flag on
 type fsmSnapshot struct {
 	step                int
 	advanceBetweenReads bool
@@ -93,9 +92,8 @@ func newFSMSnapshot(t *testing.T) *fsmSnapshot {
 	}}
 }
 
-// Both operands (task status, schema flag) must come from this node with
-// tasks read first. Otherwise a stale flag-off can pair with an already-read
-// FINISHED task, dropping the entry so the response renders as "None".
+// Tasks must be read before the schema, or a stale flag-off can pair with an
+// already-read FINISHED task and drop the entry.
 func TestIndexStatusOperands_ComeFromOneNodeInOneOrder(t *testing.T) {
 	tests := []struct {
 		name        string
