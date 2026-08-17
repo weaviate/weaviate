@@ -20,47 +20,6 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-const (
-	finishedAtNS      = "ns"
-	finishedAtID      = "task1"
-	finishedAtVersion = uint64(10)
-)
-
-// ackPrep records one node's PREP-phase ack through the FSM.
-func ackPrep(t *testing.T, h *testHarness, node string, success bool) {
-	t.Helper()
-	require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-		Namespace:         finishedAtNS,
-		Id:                finishedAtID,
-		Version:           finishedAtVersion,
-		NodeId:            node,
-		Success:           success,
-		Error:             errIfFailed(success),
-		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
-}
-
-// ackSwap records one node's SWAP-phase ack through the FSM.
-func ackSwap(t *testing.T, h *testHarness, node string, success bool) {
-	t.Helper()
-	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-		Namespace:         finishedAtNS,
-		Id:                finishedAtID,
-		Version:           finishedAtVersion,
-		NodeId:            node,
-		Success:           success,
-		Error:             errIfFailed(success),
-		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
-}
-
-func errIfFailed(success bool) string {
-	if success {
-		return ""
-	}
-	return "boom"
-}
-
 // TestManager_FinishedAtIsStampedAtTheTerminalTransition covers the three FSM
 // paths that reach a terminal status out of a coordination phase: a failing
 // PREP ack out of PREPARING, a failing SWAP ack out of SWAPPING, and finalize
@@ -77,54 +36,38 @@ func errIfFailed(success bool) string {
 // TestManager_CancelTask_AcceptsOnlyTheCancellableStatuses, and a swallowed
 // cutover failure by TestManager_MarkTaskFailed.
 func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
-	// driveToSwapping walks a barrier task STARTED → PREPARING → SWAPPING.
-	driveToSwapping := func(t *testing.T, h *testHarness) {
-		addBarrierTaskWithUnits(t, h, finishedAtNS, finishedAtID, finishedAtVersion, []string{"u-n1"})
-		drivePreparing(t, h, finishedAtNS, finishedAtID, finishedAtVersion, []string{"n1"})
-		require.True(t, h.manager.tasks[finishedAtNS][finishedAtID].FinishedAt.IsZero(),
-			"a PREPARING task must not carry a finish time")
-		h.clock.Advance(time.Minute)
-		ackPrep(t, h, "n1", true)
-	}
-
 	tests := []struct {
 		name string
-		// inFlight drives the task to the last non-terminal state on this path.
-		inFlight func(t *testing.T, h *testHarness)
+		// from is the last non-terminal state on this path.
+		from TaskStatus
 		// terminal performs the single transition into a terminal status.
-		terminal   func(t *testing.T, h *testHarness)
+		terminal   func(t *testing.T, h *testHarness, ns, id string, version uint64)
 		wantStatus TaskStatus
 	}{
 		{
 			name: "a failing PREP ack fails the task from PREPARING",
-			inFlight: func(t *testing.T, h *testHarness) {
-				addBarrierTaskWithUnits(t, h, finishedAtNS, finishedAtID, finishedAtVersion, []string{"u-n1"})
-				drivePreparing(t, h, finishedAtNS, finishedAtID, finishedAtVersion, []string{"n1"})
-			},
-			terminal: func(t *testing.T, h *testHarness) {
-				ackPrep(t, h, "n1", false)
+			from: TaskStatusPreparing,
+			terminal: func(t *testing.T, h *testHarness, ns, id string, version uint64) {
+				ackPrep(t, h, ns, id, version, "n1", false)
 			},
 			wantStatus: TaskStatusFailed,
 		},
 		{
-			name:     "a failing SWAP ack fails the task from SWAPPING",
-			inFlight: driveToSwapping,
-			terminal: func(t *testing.T, h *testHarness) {
-				ackSwap(t, h, "n1", false)
+			name: "a failing SWAP ack fails the task from SWAPPING",
+			from: TaskStatusSwapping,
+			terminal: func(t *testing.T, h *testHarness, ns, id string, version uint64) {
+				ackSwap(t, h, ns, id, version, "n1", false)
 			},
 			wantStatus: TaskStatusFailed,
 		},
 		{
 			name: "finalize from SWAPPING",
-			inFlight: func(t *testing.T, h *testHarness) {
-				driveToSwapping(t, h)
-				ackSwap(t, h, "n1", true)
-			},
-			terminal: func(t *testing.T, h *testHarness) {
+			from: TaskStatusSwapping,
+			terminal: func(t *testing.T, h *testHarness, ns, id string, version uint64) {
 				require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
-					Namespace:             finishedAtNS,
-					Id:                    finishedAtID,
-					Version:               finishedAtVersion,
+					Namespace:             ns,
+					Id:                    id,
+					Version:               version,
 					FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
 				})))
 			},
@@ -135,9 +78,9 @@ func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := newTestHarness(t).init(t)
-			tt.inFlight(t, h)
+			ns, id, version := fixtureInStatus(t, h, tt.from)
 
-			inFlight := h.manager.tasks[finishedAtNS][finishedAtID]
+			inFlight := h.manager.tasks[ns][id]
 			require.False(t, inFlight.Status.IsTerminal(),
 				"fixture must stop short of a terminal status, got %q", inFlight.Status)
 			require.True(t, inFlight.FinishedAt.IsZero(),
@@ -145,9 +88,9 @@ func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 
 			h.clock.Advance(time.Minute)
 			wantFinishedAt := h.clock.Now()
-			tt.terminal(t, h)
+			tt.terminal(t, h, ns, id, version)
 
-			got := h.manager.tasks[finishedAtNS][finishedAtID]
+			got := h.manager.tasks[ns][id]
 			require.Equal(t, tt.wantStatus, got.Status)
 			require.Equal(t, wantFinishedAt.UnixMilli(), got.FinishedAt.UnixMilli(),
 				"FinishedAt must be the terminal moment, not an earlier phase change")
@@ -161,6 +104,11 @@ func TestManager_FinishedAtIsStampedAtTheTerminalTransition(t *testing.T) {
 // task with a stamp already set; restoring it verbatim would serve a finish
 // time for a task that is still running.
 func TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks(t *testing.T) {
+	const (
+		ns      = "ns"
+		id      = "task1"
+		version = uint64(10)
+	)
 	var (
 		startedAt = time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
 		stamped   = startedAt.Add(time.Hour)
@@ -175,9 +123,9 @@ func TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks(t *testing.T) {
 			h := newTestHarness(t).init(t)
 
 			bytes, err := json.Marshal(&snapshot{Tasks: map[string][]*Task{
-				finishedAtNS: {{
-					Namespace:      finishedAtNS,
-					TaskDescriptor: TaskDescriptor{ID: finishedAtID, Version: finishedAtVersion},
+				ns: {{
+					Namespace:      ns,
+					TaskDescriptor: TaskDescriptor{ID: id, Version: version},
 					Status:         status,
 					StartedAt:      startedAt,
 					FinishedAt:     stamped,
@@ -186,7 +134,7 @@ func TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, h.manager.Restore(bytes))
 
-			got := h.manager.tasks[finishedAtNS][finishedAtID]
+			got := h.manager.tasks[ns][id]
 			require.Equal(t, status, got.Status, "Restore must not change the status")
 			require.Equal(t, status.IsTerminal(), !got.FinishedAt.IsZero(),
 				"a restored task in %q carries a finish time iff it is terminal", status)

@@ -2060,6 +2060,43 @@ func drivePreparing(t *testing.T, h *testHarness, ns, id string, version uint64,
 		"barrier task with all units terminal MUST land in PREPARING (not SWAPPING)")
 }
 
+// ackPrep records one node's PREP-phase ack through the FSM.
+func ackPrep(t *testing.T, h *testHarness, ns, id string, version uint64, node string, success bool) {
+	t.Helper()
+	require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+		Namespace:         ns,
+		Id:                id,
+		Version:           version,
+		NodeId:            node,
+		Success:           success,
+		Error:             errIfFailed(success),
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+}
+
+// ackSwap records one node's SWAP-phase ack through the FSM.
+func ackSwap(t *testing.T, h *testHarness, ns, id string, version uint64, node string, success bool) {
+	t.Helper()
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         ns,
+		Id:                id,
+		Version:           version,
+		NodeId:            node,
+		Success:           success,
+		Error:             errIfFailed(success),
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+}
+
+// errIfFailed supplies the error message the FSM requires on a failing
+// ack, and the empty string a succeeding one must carry.
+func errIfFailed(success bool) string {
+	if success {
+		return ""
+	}
+	return "boom"
+}
+
 // TestManager_RecordPreparationCompleteAck_Success pins the core PREP barrier
 // invariant: PREPARING → SWAPPING happens only after EVERY expected
 // node ack lands with Success=true. Until the last ack arrives, the
@@ -2273,14 +2310,7 @@ func fixtureInStatus(t *testing.T, h *testHarness, status TaskStatus) (string, s
 	case TaskStatusFinished:
 		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 		completeUnit(t, h, ns, id, version, "n1", "u-n1")
-		require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-			Namespace:         ns,
-			Id:                id,
-			Version:           version,
-			NodeId:            "n1",
-			Success:           true,
-			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-		})))
+		ackSwap(t, h, ns, id, version, "n1", true)
 		require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
 			Namespace:             ns,
 			Id:                    id,
