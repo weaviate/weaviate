@@ -116,16 +116,9 @@ func TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost(t *testing.T) {
 			"%d — its ForceRangeable double-write was lost, so a range query misses it after the swap", concurrentValue)
 }
 
-// TestReindex_WriteAfterEnableRangeableSwap_NotLost pins the second half of
-// the window. RunSwapOnShard disarms the double-write callbacks on its way
-// out, and the cluster-wide IndexRangeFilters flip lands one RAFT round
-// after the LAST replica swaps — so on every replica there is a stretch
-// where the live schema still reads false. A write in it is acked and
-// durable in the objects bucket, but nothing rescans afterwards, so it
-// would be missing from the rangeable index for good.
-//
-// The per-shard write overlay is what closes it. The unwired row is the
-// mutation receipt: it is what this test looks like without the overlay.
+// TestReindex_WriteAfterEnableRangeableSwap_NotLost pins that writes
+// between this shard's swap and the cluster-wide schema flip must still
+// reach the rangeable bucket, not be silently dropped.
 func TestReindex_WriteAfterEnableRangeableSwap_NotLost(t *testing.T) {
 	const propName = filterableToRangeablePropName
 	const numObjects = 25
@@ -211,12 +204,9 @@ func TestReindex_WriteAfterEnableRangeableSwap_NotLost(t *testing.T) {
 }
 
 // TestEnableRangeable_CreatesTheBucketsTheCutoverNeeds pins that a property
-// whose only index is the one being created can still be written to
-// afterwards. Shard init creates the null-state and property-length buckets
-// only for a property that already carries an inverted index, and nothing
-// creates them when a flag flips, so a numeric property created with
-// IndexFilterable=false had neither — and the first write after the cutover
-// failed on the missing bucket.
+// with no prior inverted index (so no null-state/property-length buckets)
+// can still be written to once enable-rangeable gives it one; the missing
+// buckets used to fail the write.
 func TestEnableRangeable_CreatesTheBucketsTheCutoverNeeds(t *testing.T) {
 	ctx := testCtx()
 	const propName = filterableToRangeablePropName

@@ -187,7 +187,6 @@ func testRepairSpecificTenants(t *testing.T, restURI string) {
 		}
 	}
 
-	// Repair only t1 and t2 via a filterable rebuild on the int property.
 	targetTenants := []string{"t1", "t2"}
 	taskID := reindexhelpers.RebuildIndex(t, restURI, className, "score",
 		"filterable", reindexhelpers.WithTenants(targetTenants))

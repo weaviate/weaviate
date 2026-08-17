@@ -177,12 +177,9 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	// sweep itself is collection-wide regardless: it walks the shard map, not
 	// the tenant filter.
 	//
-	// A filterable rebuild rather than a second enable-rangeable: naming
-	// tenants is only allowed on a format-only migration, and the sweep scope
-	// is the same either way, since a (score, filterable) cleanup owns every
-	// tracker prefix that touches the filterable bucket — including the
-	// planted filterable_to_rangeable one. Step (d) below runs the identical
-	// submit on the reactivated tenants.
+	// A filterable rebuild, not enable-rangeable: enable-rangeable is now
+	// semantic and can't be tenant-scoped, though the (score, filterable)
+	// cleanup still owns the planted filterable_to_rangeable tracker prefix.
 	hotNames := tenantNames(tenants, func(tn sweepTenant) bool { return !tn.cold })
 	logMark := len(containerLogs(ctx, t, container))
 

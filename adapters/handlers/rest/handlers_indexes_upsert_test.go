@@ -614,11 +614,9 @@ func TestValidateTenantScope(t *testing.T) {
 	})
 }
 
-// TestEveryUpsertMigrationTypeIsSemantic pins the premise upsertIndex's NO_OP
-// branch relies on when it passes semantic=true. Without it the same request
-// would 400 on submit and 200 on NO_OP, which is the inconsistency the
-// tenants-contract check exists to prevent. Add a row whenever
-// resolveUpsertPlan learns a new migration type.
+// TestEveryUpsertMigrationTypeIsSemantic pins the premise upsertIndex's
+// NO_OP branch assumes: every migration type this endpoint can submit is
+// semantic. Add a row whenever resolveUpsertPlan learns a new type.
 func TestEveryUpsertMigrationTypeIsSemantic(t *testing.T) {
 	for _, mt := range []db.ReindexMigrationType{
 		db.ReindexTypeChangeAlgorithm,
