@@ -143,7 +143,7 @@ func (o *BackupsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const BackupsCreateUnprocessableEntityCode int = 422
 
 /*
-BackupsCreateUnprocessableEntity The backup cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being backed up, or this node could not determine whether one is. Both reindex answers are transient: retry once the migration finishes, or once the cluster is reachable again.
+BackupsCreateUnprocessableEntity The backup cannot proceed. Either the request is invalid, or the runtime-reindex gate refused it: a migration is in flight on one of the collections being backed up, a node is still clearing the files a finished migration left behind, or this node could not determine which. The refusal body names what to wait for and the route to check it.
 
 swagger:response backupsCreateUnprocessableEntity
 */

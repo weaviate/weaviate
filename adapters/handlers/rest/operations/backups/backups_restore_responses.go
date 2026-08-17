@@ -143,7 +143,7 @@ func (o *BackupsRestoreForbidden) WriteResponse(rw http.ResponseWriter, producer
 const BackupsRestoreNotFoundCode int = 404
 
 /*
-BackupsRestoreNotFound Backup not found on the specified backend with the given ID. A 422 is returned instead when the runtime-reindex gate covers this request and refuses it (a migration in flight, a node still tearing one down, or a task list that could not be read): the gate answers before existence does, so a caller who cannot restore right now is told that rather than sent to fix an id. The gate covers the collections named literally in include; a request whose include is empty, or holds an entry that names no collection such as a wildcard, is instead gated cluster-wide, and only for a caller holding cluster-wide backup CREATE. Any other request gets the plain 404.
+BackupsRestoreNotFound Backup not found on the specified backend with the given ID. The runtime-reindex gate answers before existence is checked, so a 404 means the gate did not refuse this request: check the id, the backend, and the bucket or path.
 
 swagger:response backupsRestoreNotFound
 */
@@ -188,7 +188,7 @@ func (o *BackupsRestoreNotFound) WriteResponse(rw http.ResponseWriter, producer 
 const BackupsRestoreUnprocessableEntityCode int = 422
 
 /*
-BackupsRestoreUnprocessableEntity The restore cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being restored, or this node could not determine whether one is. Both reindex answers are transient: retry once the migration finishes, or once the cluster is reachable again.
+BackupsRestoreUnprocessableEntity The restore cannot proceed. Either the request is invalid, or the runtime-reindex gate refused it: a migration is in flight on one of the collections being restored, a node is still clearing the files a finished migration left behind, or this node could not determine which. The refusal body names what to wait for and the route to check it.
 
 swagger:response backupsRestoreUnprocessableEntity
 */

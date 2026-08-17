@@ -269,7 +269,7 @@ func NewBackupsCreateUnprocessableEntity() *BackupsCreateUnprocessableEntity {
 /*
 BackupsCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
-The backup cannot proceed. Either the request is invalid, or a runtime-reindex is in flight on one of the collections being backed up, or this node could not determine whether one is. Both reindex answers are transient: retry once the migration finishes, or once the cluster is reachable again.
+The backup cannot proceed. Either the request is invalid, or the runtime-reindex gate refused it: a migration is in flight on one of the collections being backed up, a node is still clearing the files a finished migration left behind, or this node could not determine which. The refusal body names what to wait for and the route to check it.
 */
 type BackupsCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
