@@ -787,11 +787,11 @@ type parsedReindexTask struct {
 // checkReindexConflict at submit time; for the read-side merge they're
 // the same as no task.
 //
-// FINISHED tasks are kept in the slice (they were dropped here historically,
-// but mergeReindexStatus now uses them to surface a brief "indexing@100%"
-// SWAPPING-window entry while OnGroupCompleted's swap propagates to the
-// schema — without that, the GET response goes empty for a few ms between
-// FINISHED and the schema flip, which renders as "None" in the UI).
+// FINISHED tasks are kept: [indexesHandlers.getIndexes] crosses them against
+// [db.ReindexBucketEffect] to build finishedBlockmaxProps, which is how a
+// searchable index reports algorithm=blockmax for a property whose migration
+// completed before the class-wide flag flipped. Dropping FINISHED tasks here
+// silently downgrades that report to wand.
 func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 	parsed := make([]parsedReindexTask, 0, len(tasks))
 	for _, task := range tasks {
@@ -812,12 +812,9 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // "ready"):
 //
 //   - "pending":    STARTED task, no unit progress yet.
-//   - "indexing":   STARTED task with some progress, OR a FINISHED task
-//     whose swap hasn't propagated to the schema flag yet
-//     (the brief OnGroupCompleted finalize window). The
-//     `flagOn` parameter distinguishes the two: when the
-//     schema flag is already on, a stale FINISHED task is
-//     ignored — the base "ready" wins.
+//   - "indexing":   STARTED task with some progress, or a PREPARING /
+//     SWAPPING task, whose units are done but whose
+//     cross-replica barrier or per-node swap is still running.
 //   - "failed":     latest matching task ended in FAILED.
 //   - "cancelled":  latest matching task ended in CANCELLED.
 //
@@ -859,8 +856,10 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// Pick the most useful one to surface rather than first-in-map-order:
 	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
 	//   newer StartedAt > older StartedAt          (within the same priority)
-	// FINISHED tasks are KEPT: TaskStatusFinished below paints the brief
-	// "indexing@100%" finalize window until the schema flag flips.
+	// FINISHED tasks stay in the loop for the tiebreak below: a completed
+	// migration must outrank an older FAILED attempt on the same property,
+	// or the entry reports "failed" after the retry succeeded. FINISHED
+	// itself surfaces nothing (see its case).
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
 	for _, pt := range parsedTasks {
@@ -957,12 +956,12 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		idx.Progress = 1.0
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusFinished:
-		// Nothing to surface. Reading the task list from the local FSM makes
-		// FINISHED-with-the-flag-still-off unreachable: the schema flip
-		// commits inside OnTaskCompleted, which runs only once every node has
-		// acked, and finalize is proposed only after that callback returned —
-		// so the flip's log entry always precedes the FINISHED one, and a
-		// node that has applied the second has applied the first.
+		// Nothing to surface: a FINISHED task never produces a synthetic
+		// entry, so the schema flag alone decides whether one is emitted.
+		// FINISHED with the flag off is normal, not a skew — an index
+		// DELETEd after its migration completed leaves exactly that, and
+		// the task record outlives the DELETE by
+		// DefaultDistributedTasksCompletedTaskTTL (5 days).
 	}
 
 	if !best.Status.IsRecognized() {
@@ -974,11 +973,10 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	}
 
 	// Only paint the per-migration-type "in-flight" side-effect fields when
-	// the status switch actually surfaced an in-flight or finalizing signal.
-	// If the entry stayed "ready" (FINISHED + flag-on, or FINISHED outside
-	// the finalize window), the migration has either completed and propagated
-	// to the schema (the schema-derived fields above are authoritative) or
-	// the task is stale and shouldn't pollute the response.
+	// the status switch actually surfaced an in-flight signal. If the entry
+	// stayed "ready" — which now only happens for a FINISHED task — the
+	// migration has completed and the schema-derived fields above are
+	// authoritative.
 	if !surfaceSyntheticFields {
 		return
 	}
@@ -1015,11 +1013,10 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 // task when more than one task matches a (collection, prop, indexType).
 // In-flight beats terminal: a user who has just retried a previously
 // failed migration wants to see the new attempt's progress, not the old
-// failure. FINISHED ranks alongside FAILED / CANCELLED so a recently-
-// completed FINISHED task wins the StartedAt tiebreak over an older
-// FAILED on the same property (and mergeReindexStatus uses it to keep
-// the synthetic "indexing@100%" entry visible until the schema flip
-// propagates — see the FINISHED case there).
+// failure. FINISHED ranks alongside FAILED / CANCELLED so a completed
+// migration wins the StartedAt tiebreak over an older FAILED attempt on
+// the same property — otherwise the entry reports "failed" after the
+// retry succeeded.
 func taskStatusPriority(task *distributedtask.Task) int {
 	if task.Status.IsActive() {
 		return 2
