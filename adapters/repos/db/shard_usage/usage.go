@@ -79,6 +79,11 @@ func SaveComputedUsageData(indexPath, shardName string, shardUsage *types.ShardU
 	return nil
 }
 
+// ErrUsageVersionMismatch reports usage written by another version of the format.
+// Every caller recomputes, so it is the expected outcome of a version bump for
+// each shard that stayed cold across it — routine, unlike an unreadable file.
+var ErrUsageVersionMismatch = errors.New("usage data saved to disk version mismatch")
+
 // LoadComputedUsageData loads pre-calculated shard usage data, checks version of saved data before returning
 func LoadComputedUsageData(indexPath, shardName string) (*types.ShardUsage, error) {
 	// usage has been pre-calculated and can be read from disk
@@ -91,8 +96,8 @@ func LoadComputedUsageData(indexPath, shardName string) (*types.ShardUsage, erro
 		return nil, fmt.Errorf("unmarshal pre-calculated usage from disk: %w", err)
 	}
 	if usageDisk.Version != types.UsageDiskVersion {
-		return nil, fmt.Errorf("usage data saved to disk version mismatch, currently supported version is %d but got %d",
-			types.UsageDiskVersion, usageDisk.Version)
+		return nil, fmt.Errorf("%w, currently supported version is %d but got %d",
+			ErrUsageVersionMismatch, types.UsageDiskVersion, usageDisk.Version)
 	}
 	return usageDisk.ShardUsage, nil
 }
@@ -180,9 +185,27 @@ func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
 	return dimensionalities, nil
 }
 
+// VectorsMetrics is what a single walk over a shard's vector buckets yields: their
+// total size, and the size of each compressed bucket on its own. The per-bucket
+// sizes are a by-product of the same walk, so asking whether a target vector holds
+// quantized vectors costs no further disk reads.
+type VectorsMetrics struct {
+	// StorageBytes is the size of all vector buckets together.
+	StorageBytes int64
+	// compressedBytes is keyed by compressed bucket directory name.
+	compressedBytes map[string]uint64
+}
+
+// QuantizedVectorsExist reports whether a shard holds quantized vectors for a
+// target vector. The bucket directory alone is no proof: it is created empty as
+// soon as the schema enables quantization, so that a downgrade finds it in place.
+func (m VectorsMetrics) QuantizedVectorsExist(targetVector string) bool {
+	return m.compressedBytes[helpers.GetCompressedBucketName(targetVector)] > 0
+}
+
 // CalculateUnloadedVectorsMetrics calculates vector storage size from disk
-func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (int64, error) {
-	totalSize := int64(0)
+func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (VectorsMetrics, error) {
+	metrics := VectorsMetrics{}
 
 	// vector storage consists of:
 	// 1) size of vector folder - these are:
@@ -196,11 +219,18 @@ func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (int6
 		}
 		size, err := bucketSize(filepath.Join(lsmPath, directory))
 		if err != nil {
-			return 0, err
+			return VectorsMetrics{}, err
 		}
-		totalSize += int64(size)
+		metrics.StorageBytes += int64(size)
+
+		if strings.HasPrefix(directory, helpers.VectorsCompressedBucketLSM) {
+			if metrics.compressedBytes == nil {
+				metrics.compressedBytes = make(map[string]uint64)
+			}
+			metrics.compressedBytes[directory] = size
+		}
 	}
-	return totalSize, nil
+	return metrics, nil
 }
 
 // bucketSize sums the sizes of the files in a bucket directory. A bucket that was deleted

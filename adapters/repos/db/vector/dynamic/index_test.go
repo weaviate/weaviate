@@ -528,6 +528,7 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 		setupFlatConfig func(*flatent.UserConfig)
 		setupHNSWConfig func(*hnswent.UserConfig, int)
 		compressed      bool
+		compressionType string
 	}{
 		{
 			name: "BQ->Uncompressed",
@@ -539,7 +540,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 			},
 			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
 			},
-			compressed: false,
+			compressed:      false,
+			compressionType: "none",
 		},
 		{
 			name: "RQ->Uncompressed",
@@ -551,7 +553,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 			},
 			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
 			},
-			compressed: false,
+			compressed:      false,
+			compressionType: "none",
 		},
 		{
 			name: "BQ->PQ",
@@ -574,7 +577,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					},
 				}
 			},
-			compressed: true,
+			compressed:      true,
+			compressionType: "pq",
 		},
 		{
 			name: "BQ->SQ",
@@ -589,7 +593,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					Enabled: true,
 				}
 			},
-			compressed: true,
+			compressed:      true,
+			compressionType: "sq",
 		},
 		{
 			name: "RQ->PQ",
@@ -613,7 +618,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					},
 				}
 			},
-			compressed: true,
+			compressed:      true,
+			compressionType: "pq",
 		},
 		{
 			name: "BQ->RQ",
@@ -629,7 +635,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					Bits:    1,
 				}
 			},
-			compressed: true,
+			compressed:      true,
+			compressionType: "rq",
 		},
 		{
 			name: "RQ->BQ",
@@ -644,7 +651,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					Enabled: true,
 				}
 			},
-			compressed: true,
+			compressed:      true,
+			compressionType: "bq",
 		},
 		{
 			name: "RQ1->RQ8",
@@ -661,7 +669,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					Bits:    8,
 				}
 			},
-			compressed: true,
+			compressed:      true,
+			compressionType: "rq",
 		},
 	}
 
@@ -786,6 +795,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 			require.NoError(t, err)
 			dynamic.PostStartup(context.Background())
 			require.Equal(t, dynamic.Compressed(), tt.compressed)
+			assert.Equal(t, tt.compressionType, dynamic.CompressionStats().CompressionType(),
+				"the usage report bills from the active index's own stats")
 			recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 			assert.Equal(t, recall, recall2)
 		})
@@ -1375,6 +1386,26 @@ func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
 			name:         "target vector without state key: dir kept",
 			targetVector: "vec1",
 			storedState:  nil,
+			wantDirKept:  true,
+		},
+		{
+			// the unnamed vector gets no such migration, which is why a usage
+			// report may not read its commit log dir as an upgrade either
+			name:        "unnamed vector without state key: stale commit log removed",
+			storedState: nil,
+			wantDirKept: false,
+		},
+		{
+			// a stored empty value reads back non-nil, so it has to be treated
+			// as no recorded state rather than indexed into
+			name:        "unnamed vector with an empty state value: stale commit log removed",
+			storedState: []byte{},
+			wantDirKept: false,
+		},
+		{
+			name:         "target vector with an empty state value: dir kept",
+			targetVector: "vec1",
+			storedState:  []byte{},
 			wantDirKept:  true,
 		},
 	}
