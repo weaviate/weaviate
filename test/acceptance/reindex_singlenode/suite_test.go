@@ -160,8 +160,8 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 	})
 
 	// --- Subtest 8d: post-DELETE synthetic entry suppression ---
-	// After a DELETE, GET /indexes must not synthesize a finalize-window
-	// "indexing@100%" entry for the just-deleted index.
+	// After a DELETE, GET /indexes must not synthesize an "indexing@100%"
+	// entry for the just-deleted index.
 	t.Run("PostDeleteNoSyntheticEntry", func(t *testing.T) {
 		testPostDeleteNoSyntheticEntry(t, restURI)
 	})
@@ -211,9 +211,9 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 	})
 
 	// --- Subtest 13b: GET /indexes bleed after DELETE→re-enable cycles ---
-	// (weaviate/weaviate#10675) Pins that mergeReindexStatus's finalize-window
-	// override doesn't resurrect a phantom "indexing" entry for an index
-	// already DELETEd after its FINISHED task.
+	// (weaviate/weaviate#10675) Pins that mergeReindexStatus does not
+	// resurrect a phantom "indexing" entry for an index already DELETEd after
+	// its FINISHED task.
 	t.Run("DeleteThenReEnableIndexingBleed", func(t *testing.T) {
 		testDeleteThenReEnableIndexingBleed(t, restURI)
 	})

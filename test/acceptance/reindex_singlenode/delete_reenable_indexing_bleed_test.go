@@ -29,13 +29,13 @@ import (
 // task". The synthetic status sticks: a follow-up enable's swap doesn't
 // dislodge it because the FINISHED task it keys off is stale.
 //
-// Root cause: mergeReindexStatus has a finalize-window override that says
-// "FINISHED task with flag-off → still finalizing → indexing@100%". The
-// override forgets that after DELETE the flag is intentionally off, NOT
-// "swap hasn't propagated yet". A previous FINISHED task whose swap
-// completed (flag flipped on, then off again by DELETE) is silently
-// reclassified as "still finalizing", and the synthetic "indexing(1)"
-// entry bleeds across cycles.
+// Root cause, since removed: mergeReindexStatus carried a recency-bounded
+// override that read "FINISHED task with flag-off → still finalizing →
+// indexing@100%". It forgot that after a DELETE the flag is intentionally
+// off, not "swap hasn't propagated yet", so a previous FINISHED task whose
+// swap had completed was reclassified as still finalizing and the synthetic
+// entry bled across cycles. A FINISHED task now surfaces nothing at all; the
+// schema flag alone decides whether an entry is emitted.
 //
 // Distinct from testDeleteThenReEnableMultiCycle (which pins the
 // silent-failure family for the bucket itself): this test pins the
@@ -63,11 +63,10 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 		// Three enable→FINISHED→DELETE cycles. After each one, the GET
 		// /indexes surface must not surface a synthetic "indexing"/"pending"/
 		// "failed"/"cancelled" entry for the just-deleted searchable index.
-		// The bleed mode is the synthetic-status override in
+		// The bleed mode was the removed synthetic-status override in
 		// mergeReindexStatus reclassifying a stale FINISHED task as "still
-		// finalizing" — and the bug compounds with each completed-then-
-		// deleted cycle (more stale FINISHED tasks in DTM history to
-		// compete for the "finalize-window winner" pick).
+		// finalizing", and it compounded with each completed-then-deleted
+		// cycle: more stale FINISHED tasks in DTM history to win the pick.
 		for cycle := 1; cycle <= 3; cycle++ {
 			runEnableThenDeleteCycle(t, restURI, class, "body",
 				"searchable", `{"tokenization":"word"}`,
@@ -156,12 +155,11 @@ func runEnableThenDeleteCycle(
 	deleteIndex(t, restURI, class, propName, indexType)
 }
 
-// assertNoIndexBleedAfterDelete is the inverse of the FINISHED-task
-// "finalize-window override" bug surface: after a DELETE, GET /indexes
-// must NOT surface any entry of the named type on the named property. The
-// schema flag is off and no reindex is in flight; a synthetic entry here
-// means the mergeReindexStatus override is treating a stale FINISHED task
-// as still finalizing.
+// assertNoIndexBleedAfterDelete is the inverse of the FINISHED-task bug
+// surface: after a DELETE, GET /indexes must NOT surface any entry of the
+// named type on the named property. The schema flag is off and no reindex is
+// in flight; a synthetic entry here means a FINISHED task is producing one,
+// which is what the removed override did.
 //
 // Eventually-polls because the schema-flag flip may take a moment to
 // propagate. 12s window with 250ms poll cadence — the bug surfaces

@@ -35,17 +35,18 @@ import (
 //
 //  1. The last unit's `RecordDistributedTaskUnitCompletion` runs (Raft apply).
 //     In cluster/distributedtask/manager.go AllUnitsTerminal() → true and
-//     task.Status flips to FINISHED. A poller against /v1/tasks now sees
-//     FINISHED. The same apply also calls notifySchedulerWithLock which wakes
-//     the scheduler reactively (cluster/distributedtask/scheduler.go wakeCh
-//     path).
-//  2. The scheduler's run loop runs OnTaskCompleted within RAFT-propagation +
-//     scheduler-loop latency of the apply — typically low tens of ms with
-//     reactive firing, much faster than the periodic tick interval.
-//  3. OnTaskCompleted in adapters/repos/db/reindex_provider.go calls
+//     task.Status flips to SWAPPING. The same apply also calls
+//     notifySchedulerWithLock which wakes the scheduler reactively
+//     (cluster/distributedtask/scheduler.go wakeCh path).
+//  2. The scheduler's completed-callback phase runs OnTaskCompleted within
+//     RAFT-propagation + scheduler-loop latency of the apply — typically low
+//     tens of ms with reactive firing, much faster than the periodic tick
+//     interval. OnTaskCompleted in adapters/repos/db/reindex_provider.go calls
 //     applyPerPropertySchemaUpdate (RAFT-idempotent), which flips the
-//     property's Tokenization. The flip is observable on /v1/schema once
-//     that RAFT entry applies locally.
+//     property's Tokenization.
+//  3. Only once that callback has fired does the finalize phase propose
+//     FINISHED, so the flip's log entry always precedes the FINISHED one. A
+//     poller against /v1/tasks sees FINISHED at this point.
 //
 // Contract this test pins: after a poller observes FINISHED on /v1/tasks,
 // the schema must catch up within a bounded window. We allow up to 5
@@ -64,10 +65,10 @@ import (
 // for the entire cluster while peer nodes still served the old bucket.
 //
 // Callers that need to observe the post-migration state synchronously
-// should poll /v1/indexes, which has a "finalize-window" override
-// (mergeReindexStatus in adapters/handlers/rest/handlers_indexes.go) that
-// surfaces "indexing@100%" during this brief window so the UI does not
-// flash "ready" with the pre-migration schema.
+// should poll /v1/indexes: it reads its task list from the local FSM before
+// it reads the schema, so a node reporting FINISHED has the flip applied. A
+// FINISHED task surfaces no entry of its own — the schema flag alone decides
+// what the response carries.
 func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	ctx := context.Background()
 
@@ -130,7 +131,7 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 
 	// Poll the schema for up to flipWindow after FINISHED was first observed.
 	// The schema flip happens in ReindexProvider.OnTaskCompleted (one RAFT
-	// commit after the task transitions to FINISHED). The reactive scheduler
+	// commit before the task transitions to FINISHED). The reactive scheduler
 	// wake-up + OnTaskCompleted body + RAFT-apply latency is typically well
 	// under 100ms on a healthy cluster; allow 5s for headroom on a loaded
 	// test runner. If it doesn't converge within this window, the wiring
