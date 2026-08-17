@@ -634,8 +634,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		AckedAt: ackedAt,
 	}
 
-	// Any failure flips the task to FAILED immediately; later acks are
-	// still recorded for forensic value.
+	// Any failure flips the task to FAILED immediately.
 	if !r.Success && task.Status == TaskStatusSwapping {
 		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
 		if task.Error != "" {
