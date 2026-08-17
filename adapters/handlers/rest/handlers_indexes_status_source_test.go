@@ -12,13 +12,22 @@
 package rest
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/runtime"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // fsmStep is one applied-index position: the task list and the class as this
@@ -128,4 +137,32 @@ func TestIndexStatusOperands_ComeFromOneNodeInOneOrder(t *testing.T) {
 			require.Equal(t, tt.wantFlagOn, *class.Properties[0].IndexSearchable)
 		})
 	}
+}
+
+// A nil ClusterService must stay out of the localTaskLister interface: boxed,
+// its first call nil-derefs on the promoted method.
+func TestGetIndexes_NilClusterService_AnswersSchemaOnly(t *testing.T) {
+	reader := schemaUC.NewMockSchemaReader(t)
+	reader.EXPECT().ResolveAlias("C").Return("")
+	reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{
+		Class:      "C",
+		Properties: []*models.Property{{Name: "p", DataType: []string{"text"}}},
+	})
+
+	h := &indexesHandlers{appState: &state.State{
+		Authorizer:    &authorization.DummyAuthorizer{},
+		SchemaManager: &schemaUC.Manager{SchemaReader: reader},
+		ServerConfig:  &config.WeaviateConfig{},
+		Logger:        logrus.New(),
+	}}
+
+	resp := h.getIndexes(schema.SchemaObjectsIndexesGetParams{
+		HTTPRequest: httptest.NewRequest(http.MethodGet, "/", nil),
+		ClassName:   "C",
+	}, &models.Principal{Username: "u"})
+
+	rec := httptest.NewRecorder()
+	resp.WriteResponse(rec, runtime.JSONProducer())
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"name":"p"`)
 }
