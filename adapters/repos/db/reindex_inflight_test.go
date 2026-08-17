@@ -561,6 +561,9 @@ func TestBackupGateRefusesAClassWithNoLocalShards(t *testing.T) {
 		return func(string, string) (bool, bool) { return false, true }
 	})
 	require.ErrorIs(t, gatedBulk(out, "Movies"), entitiesbackup.ErrBackupReindexActivityUndetermined)
+
+	covered, _, _ := gatedDB(t, gateFixtures{live: map[[2]string]bool{{"Movies", ""}: true}})
+	require.ErrorIs(t, gatedBulk(covered, "Movies"), entitiesbackup.ErrBackupBlockedByInFlightReindex)
 }
 
 // The gate's wiring, distinct from what it answers: deleting the call left it green.

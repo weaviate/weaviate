@@ -137,17 +137,19 @@ func (i *Index) refuseIfAnyShardReindexInFlight(lookup ShardReindexActivityLooku
 	}
 
 	var (
-		refusal    error
-		reason     string
-		blocked    int
-		sample     []string
-		unreadable bool
+		refusal        error
+		reason         string
+		blocked        int
+		sample         []string
+		collectionLive bool
+		unreadable     bool
 	)
 	if lookup != nil {
-		// Readability is a whole-call answer, so it is asked once rather than folded
-		// per shard: a collection this node holds no shards of must reach the same
-		// verdict as one it holds many of.
-		_, unreadable = lookup(collection, "")
+		// Asked once with no shard name, because neither answer depends on one: a record
+		// that covers the whole collection, and whether the list could be read at all.
+		// Both must still be answered for a collection this node holds no shards of,
+		// which is most of them on a large cluster.
+		collectionLive, unreadable = lookup(collection, "")
 		for _, shardName := range shards {
 			live, _ := lookup(collection, shardName)
 			if !live {
@@ -159,6 +161,9 @@ func (i *Index) refuseIfAnyShardReindexInFlight(lookup ShardReindexActivityLooku
 			}
 			reason, refusal = reindexReasonLiveTask, reindexLiveTaskRefusal(collection)
 		}
+	}
+	if refusal == nil && collectionLive {
+		reason, refusal = reindexReasonLiveTask, reindexLiveTaskRefusal(collection)
 	}
 	// One read for the whole loop, after it: the hold covers the collection, and the
 	// loop's round-trips are the window a teardown raises it in, so per-shard reads
@@ -204,10 +209,12 @@ func reindexLiveTaskRefusal(collection string) error {
 		collection, reindex.MigrationRemedy(collection)))
 }
 
-// No cancel remedy: the node saw no task, so there is nothing here to cancel.
+// No cancel remedy: neither producer named a task, so there is nothing here to cancel.
+// The two remedies differ, so both are stated rather than promising the reachable one.
 func reindexUndeterminedRefusal(collection string) error {
-	return fmt.Errorf("%w: collection %q could not be checked because the cluster task "+
-		"list could not be read; retry once the cluster is reachable",
+	return fmt.Errorf("%w: collection %q could not be checked, because the cluster task list "+
+		"could not be read, or a record in it names no collection; the first clears once the "+
+		"cluster is reachable again, the second once that record leaves the list",
 		entitiesbackup.ErrBackupReindexActivityUndetermined, collection)
 }
 

@@ -103,19 +103,32 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 // spells in another case must not leave the other admitting.
 func TestReindexLookups_PayloadAgreement(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
-	for _, payload := range []string{
-		`{"collection":"C","unitToShard":"shard-1"}`,        // a field a newer node retyped
-		`{"collection":"C","unitToShard":{"u1":"sha`,        // truncated
-		`{"unitToShard":{"u1":"shard-1"}}`,                  // names no collection
-		`{"collection":"C"}`,                                // types, but scopes no shard
-		`{"collection":"c","unitToShard":{"u1":"shard-1"}}`, // spelled in another case
+	// wantUnreadable separates the two channels the backup gate refuses through: a record
+	// it can attribute to this collection, and one it can attribute to none.
+	for _, tc := range []struct {
+		payload        string
+		wantUnreadable bool
+	}{
+		{payload: `{"collection":"C","unitToShard":"shard-1"}`},                       // a field a newer node retyped
+		{payload: `{"collection":"C","unitToShard":{"u1":"sha`, wantUnreadable: true}, // truncated
+		{payload: `{"unitToShard":{"u1":"shard-1"}}`, wantUnreadable: true},           // names no collection
+		{payload: `{"collection":"C"}`},                                               // types, but scopes no shard
+		{payload: `{"collection":"c","unitToShard":{"u1":"shard-1"}}`},                // spelled in another case
 	} {
-		t.Run(payload, func(t *testing.T) {
-			tasks := []*distributedtask.Task{{Payload: []byte(payload), Status: distributedtask.TaskStatusStarted}}
-			live, _ := NewShardReindexActivityLookup(tasks, logger)("C", "shard-1")
+		t.Run(tc.payload, func(t *testing.T) {
+			tasks := []*distributedtask.Task{{Payload: []byte(tc.payload), Status: distributedtask.TaskStatusStarted}}
+			live, unreadable := NewShardReindexActivityLookup(tasks, logger)("C", "shard-1")
 			_, blocked := NewAnyReindexActivityLookup(tasks)([]string{"C"})
 			require.True(t, blocked, "the restore gate refuses this record")
-			require.Equal(t, blocked, live, "so the backup gate must not admit the shard")
+			require.Equal(t, blocked, live || unreadable, "so the backup gate must not admit the shard")
+			require.Equal(t, tc.wantUnreadable, unreadable, "and it must refuse in the kind the record earns")
+
+			// A record nothing attributed blocks every collection, so both gates must
+			// still refuse one it never named.
+			elsewhere, elsewhereUnreadable := NewShardReindexActivityLookup(tasks, logger)("Unrelated", "s9")
+			_, elsewhereBlocked := NewAnyReindexActivityLookup(tasks)([]string{"Unrelated"})
+			require.Equal(t, elsewhereBlocked, elsewhere || elsewhereUnreadable,
+				"and they must still agree on a collection this record never named")
 		})
 	}
 }

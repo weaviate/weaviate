@@ -42,17 +42,18 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 	}
 	live := make(map[shardKey]bool)
 	wholeCollection := make(map[string]bool)
-	var everyShard bool
+	var unattributable bool
 	for _, task := range tasks {
 		if !IsLiveReindexTaskStatus(task.Status) {
 			continue
 		}
-		// Scoped through the decoder the restore gate uses, so one record cannot be
-		// refused there and admitted here. A payload it cannot attribute blocks every
-		// collection, exactly as that gate reads it.
+		// Uses the same decoder as the restore gate. A record neither gate can attribute
+		// refuses on both sides: here as "could not be determined", on the restore gate
+		// cluster-wide. Naming a collection it never named would print a cancel route
+		// for a task nothing can find.
 		collection, named := ExtractReindexTaskCollection(task.Payload)
 		if !named {
-			everyShard = true
+			unattributable = true
 			continue
 		}
 		collection = strings.ToLower(collection)
@@ -75,7 +76,7 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 	}
 	return func(collection, shardName string) (bool, bool) {
 		collection = strings.ToLower(collection)
-		return everyShard || wholeCollection[collection] || live[shardKey{collection, shardName}], false
+		return wholeCollection[collection] || live[shardKey{collection, shardName}], unattributable
 	}
 }
 
