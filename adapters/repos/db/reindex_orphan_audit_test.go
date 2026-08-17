@@ -988,4 +988,13 @@ func TestAuditOrphanReindexTrackers_ScopedToTheNamedCollections(t *testing.T) {
 		"the one whose task is live again is cleared, or the next sweep destroys it on first sight")
 	assert.Equal(t, ReindexHoldNone, heldElsewhere, "and reading it is never held")
 	assert.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor(other), "nor is the removal's hold left behind")
+
+	// The harm clearing prevents: a sweep that does classify both would find a stranded sentinel already past the window.
+	after, err := db.AuditOrphanReindexTrackers(ctx, func(string, uint64) bool { return false }, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, 1, after.OrphansClean, "only the one an earlier sweep already quarantined")
+	requarantined, err := os.Stat(filepath.Join(otherLSM, ".migrations", "searchable_retokenize_flipped_1", reindexAuditQuarantineFile))
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now(), requarantined.ModTime(), reindexAuditQuarantineWindow,
+		"the other starts its quarantine over, so a second sweep still has to confirm it")
 }

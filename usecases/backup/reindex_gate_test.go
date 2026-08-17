@@ -861,8 +861,6 @@ func TestRestoreKeepsNodesNarrowedToNothing(t *testing.T) {
 	assert.Equal(t, CanCommitErrRestoreReindexUndetermined, resp.ErrKind)
 
 	published := canCommitErrFromResponse(resp, []string{allowedCls})
-	assert.ErrorIs(t, published, backup.ErrReindexActivityUndetermined,
-		"published as could-not-determine, not as a migration on the caller's collection")
-	assert.NotContains(t, published.Error(), allowedCls,
-		"the migration was never attributed to the caller's collection")
+	assert.ErrorIs(t, published, backup.ErrReindexActivityUndetermined, "published as could-not-determine, not as a migration")
+	assert.NotContains(t, published.Error(), allowedCls, "the migration was never attributed to the caller's collection")
 }
