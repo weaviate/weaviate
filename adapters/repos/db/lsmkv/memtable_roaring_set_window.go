@@ -21,48 +21,57 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
+// windowFill is what one window read produced: To is one past the last key it
+// filled, which is `to` unless the budget stopped it short, and Bytes is what
+// the rows it copied cost.
+type windowFill struct {
+	To    int
+	Bytes int
+}
+
 // roaringSetGetWindow reads the keys of keys[from:to] that this memtable holds
-// under one read lock, rather than taking it once per key. A memtable is a
-// delta, so a large filter asks it about far more keys than it has, and most of
-// those acquisitions find nothing.
+// under one read lock, rather than taking it once per key. A memtable is a delta,
+// so a large filter asks it about far more keys than it has and most of those
+// acquisitions find nothing.
 //
-// keys must be sorted and hold no duplicates, both of which SortedKeys
-// guarantees. The walk advances the batch and the tree past a key it has
-// matched, so a repeat of that key would be jumped over and read back as a row
-// the memtable does not hold.
+// keys must be sorted and free of duplicates, which SortedKeys guarantees: the
+// walk advances past a key it has matched, so a repeat would be jumped over and
+// read back as absent. Neither side is stepped through — whichever is behind
+// jumps to where the other is — so the pass costs what the sparser side holds.
 //
-// Neither side is stepped through: whichever is behind jumps to where the other
-// already is, so the pass costs what the sparser side holds and there is no
-// ratio for the caller to pick.
+// budget caps the bytes copied and the window ends before the row that would
+// cross it, so what it holds is the budget, or one row where a row alone is
+// bigger, since the key at from is taken whatever it costs. Where it ended is
+// reported.
 //
-// It reports the bytes it copied into dst, which is free to count here because the
-// rows are in hand.
-//
-// dst is the caller's, one slot per key of the range, so the key at position i
-// lands in dst[i-from]. Slots of keys this memtable does not hold are left as
-// the zero layer, which is how the caller reads absence; a row holding neither
-// additions nor deletions is absence too, and writing it changes nothing. The
-// bitmaps are copied, as roaringSetGet's are, so they outlive the lock.
-func (m *Memtable) roaringSetGetWindow(keys inverted.SortedKeys, from, to int, dst []roaringset.BitmapLayer) (int, error) {
+// dst takes at least one slot per key of the range, the key at i landing in
+// dst[i-from], and all of it is cleared first — so a slot with no row reads as
+// absence, and a buffer wider than the range answers nothing from an earlier one.
+// The bitmaps are copied, as roaringSetGet's are, so they outlive the lock.
+func (m *Memtable) roaringSetGetWindow(
+	keys inverted.SortedKeys, from, to int, dst []roaringset.BitmapLayer, budget int,
+) (windowFill, error) {
 	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
-		return 0, err
+		return windowFill{}, err
 	}
-	// keys is indexed by the range and dst by the offset within it, so a slice
-	// wider than the range would write each row at the offset of a key the
-	// window does not cover — answering those keys with another's row, and the
-	// covered ones with none. An inverted range fails the same test, and an
-	// empty one is legal and takes no slots.
-	if from < 0 || to > keys.Len() || len(dst) != to-from {
-		return 0, fmt.Errorf("roaring set window read: range [%d,%d) of %d keys into %d slots",
+	// dst is indexed by the offset within the range, so too few slots would put
+	// a row past its end. More is legal, and is how a caller holding one buffer
+	// at the widest a window gets asks for a narrower range without reslicing
+	// it. An inverted range is rejected on its own, since a negative width is
+	// under every slice count; an empty one is legal and takes no slots.
+	if from < 0 || to < from || to > keys.Len() || len(dst) < to-from {
+		return windowFill{}, fmt.Errorf("roaring set window read: range [%d,%d) of %d keys into %d slots",
 			from, to, keys.Len(), len(dst))
-	}
-	if from == to {
-		return 0, nil
 	}
 	// Absence is the zero layer, so the slots have to start that way. Clearing
 	// them here rather than asking the caller to keeps a reused buffer from
-	// answering this window's keys with the last one's rows.
+	// answering this window's keys with the last one's rows, and covers the
+	// slots past the range for a caller that passed more than it asked for.
 	clear(dst)
+
+	if from == to {
+		return windowFill{To: to}, nil
+	}
 
 	m.RLock()
 	defer m.RUnlock()
@@ -75,25 +84,36 @@ func (m *Memtable) roaringSetGetWindow(keys inverted.SortedKeys, from, to int, d
 
 	// Counted where the copy is made rather than by rescanning dst afterwards,
 	// so the accounting costs what the window matched rather than how wide it is.
-	cloned := 0
+	// It is also what the budget is spent against.
+	fill := windowFill{To: to}
 
 	// Both seeks below report NotFound once the tree is past its last key, which
 	// is exhaustion rather than failure, so the one check covers both.
 	for keyIdx := from; ; {
 		if err != nil {
 			if errors.Is(err, entlsmkv.NotFound) {
-				return cloned, nil
+				return fill, nil
 			}
-			return cloned, err
+			return fill, err
 		}
 		if key == nil || keyIdx >= to {
-			return cloned, nil
+			return fill, nil
 		}
 		switch cmp := bytes.Compare(key, keys.At(keyIdx)); {
 		case cmp == 0:
-			row := layer.CloneDroppingEmpty()
-			cloned += len(row.Additions.ToBuffer()) + len(row.Deletions.ToBuffer())
-			dst[keyIdx-from] = row
+			// Priced before copying, which is free — ToBuffer hands back the
+			// bitmap's own bytes, and a clone copies exactly that many. Pricing it
+			// afterwards would bound the row after the one that broke the budget.
+			// The first key is taken whatever it costs: refusing it would leave the
+			// slot unwritten, read as a key this memtable does not hold rather than
+			// a row too big to fit.
+			cost := len(layer.Additions.ToBuffer()) + len(layer.Deletions.ToBuffer())
+			if fill.Bytes+cost > budget && keyIdx > from {
+				fill.To = keyIdx
+				return fill, nil
+			}
+			dst[keyIdx-from] = layer.CloneDroppingEmpty()
+			fill.Bytes += cost
 			keyIdx++
 			key, layer, err = cursor.Next()
 		case cmp < 0:

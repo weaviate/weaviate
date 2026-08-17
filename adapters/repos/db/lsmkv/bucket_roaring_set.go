@@ -210,35 +210,45 @@ type RoaringSetBatchReader struct {
 	pos              int
 	winStart, winEnd int
 	// layers[mt] is mts[mt]'s window, so they fold in the same oldest-first order
-	// the merger needs. Each is the width of the window, so key i sits at
-	// i-winStart and there is nothing to search; the allocation is reused.
+	// the merger needs. Each is as wide as the widest window the batch can need,
+	// and the window in it is the prefix [0, winEnd-winStart), so key i sits at
+	// i-winStart and there is nothing to search; one allocation serves them all.
 	//
 	// A zero BitmapLayer means the memtable contributes nothing for that key:
 	// both a key it does not hold and a row holding nothing, which the fold
 	// cannot tell apart. TestNilAndEmptyBitmapsMergeAlike pins it.
 	layers [2][]roaringset.BitmapLayer
-	// windowSize is how many keys one acquisition covers. See
-	// memtableWindowKeys for what it trades against.
-	windowSize int
+	// windowSize is how many keys one acquisition covers and windowBytes what
+	// they may cost; a window ends at whichever comes first. See
+	// memtableWindowKeys and memtableWindowBytes for what they trade against.
+	windowSize  int
+	windowBytes int
 
 	// What the reader did, for the slow-query annotation. See Stats.
-	fills       int
-	bytesPeak   int
-	bytesCopied int
+	fills         int
+	narrowedFills int
+	bytesPeak     int
+	bytesCopied   int
 }
 
 // RoaringSetBatchReaderStats is what one reader spent, for a caller annotating a
-// slow query: what the batching cost, and how far the fold got for it.
+// slow query: what the batching cost, and which of the two window limits to
+// change.
 type RoaringSetBatchReaderStats struct {
 	// Fills times Memtables is the acquisitions the windowing exists to reduce.
 	Fills int
+	// Windows the allowance ended rather than the key count, which names the limit
+	// worth raising. Keys read against fills already shows that windows were cut;
+	// this says which bound did it.
+	NarrowedFills int
 	// How far the fold got. Fills cannot say: a fold stopping after eight keys and
 	// one reading thousands both enter one window if the window is wide enough.
 	KeysRead int
 	// The most one window held, which is the memory to size against.
 	BytesPeak int
-	// Every byte copied under the memtable locks, which is the work rather than
-	// the footprint; a batch spanning many windows copies that many times its peak.
+	// Every byte copied under the memtable locks, summed over the windows, which
+	// is the work rather than the footprint. Against KeysRead it is what a row
+	// costs on this property.
 	BytesCopied int
 	// One, or two while a flush is in flight — which is why the same filter can
 	// report twice the acquisitions on consecutive runs.
@@ -249,26 +259,57 @@ type RoaringSetBatchReaderStats struct {
 // counters rather than the windows, which the fold has already emptied.
 func (r *RoaringSetBatchReader) Stats() RoaringSetBatchReaderStats {
 	return RoaringSetBatchReaderStats{
-		Fills:       r.fills,
-		KeysRead:    r.pos,
-		BytesPeak:   r.bytesPeak,
-		BytesCopied: r.bytesCopied,
-		Memtables:   r.mtCount,
+		Fills:         r.fills,
+		NarrowedFills: r.narrowedFills,
+		KeysRead:      r.pos,
+		BytesPeak:     r.bytesPeak,
+		BytesCopied:   r.bytesCopied,
+		Memtables:     r.mtCount,
 	}
 }
 
-// memtableWindowKeys is how many keys one lock acquisition covers.
+// memtableWindowKeys is how many keys one lock acquisition covers, and
+// memtableWindowBytes what those keys may cost to copy. A window ends at
+// whichever it reaches first.
 //
-// Speed does not settle it, and the two sides of the trade disagree: a bigger
-// window raises writer throughput, since readers take the lock less often, but
-// writer p99 rises with it once readers reach the core count. Memory settles it —
-// a window holds a clone of every row it matched, and nothing here bounds how big
-// a row is.
+// Speed does not settle the key count, and the two sides of the trade disagree:
+// a bigger window raises writer throughput, since readers take the lock less
+// often, but writer p99 rises with it once readers reach the core count. Memory
+// settles it, and only jointly with the budget — raising this past what the
+// budget allows buys a window the budget cuts back.
 //
 // Tune against [BenchmarkRoaringSetWindowRead] and
 // [BenchmarkRoaringSetWindowUnderWrite], reading clone-B rather than allocs/op,
-// which counts events and is flat here. Neither builds a second memtable.
+// which counts events and is flat here. clone-B is measured unbudgeted, so it is
+// what a window of this size costs, not what production holds; neither benchmark
+// builds a second memtable.
 const memtableWindowKeys = 1024
+
+// What makes a row expensive is how many containers its documents touch rather than
+// how many it holds, since a clone copies whole containers. A container spans 65,536
+// ids, so the stride between one value's documents decides the cost, and the two ends
+// are orders of magnitude apart: a thousand documents sharing one container clone to a
+// couple of kilobytes, the same thousand one per container to well over a hundred.
+// Where within a container a run starts matters too — a run that straddles a boundary
+// pays for both.
+//
+// It is a reader's whole allowance rather than each memtable's, despite the name. A
+// fill divides it between the memtables it reads, so a flush in flight halves each
+// share rather than doubling what the query holds, and the peak is this many bytes
+// per query — or one row, where a row alone exceeds a share, since a window always
+// takes its first key.
+//
+// The value trades peak against acquisitions. Halving it would leave rows that share
+// a container almost untouched and roughly halve every window that any wider row
+// produces; doubling it would widen those windows and double the peak, through a
+// fan-out nothing bounds — filter children, shards and concurrent requests all fan
+// out uncapped, and turning the feature off is the only lever over the product. This
+// sits where clustered rows are not cut at all, flush or no flush, which is the
+// property worth keeping.
+//
+// [BenchmarkRoaringSetWindowRead] sweeps both spreads; read clone-B there rather than
+// allocs/op, which counts events and is flat.
+const memtableWindowBytes = 8 << 20
 
 // NewRoaringSetBatchReader opens a reader on this view for one sorted batch,
 // which it serves in order through Next. The view stays the caller's to
@@ -287,17 +328,26 @@ func NewRoaringSetBatchReader(
 	if err := CheckStrategyRoaringSet(view.Bucket.strategy); err != nil {
 		return nil, err
 	}
-	return newRoaringSetBatchReader(view, keys, memtableWindowKeys)
+	return newRoaringSetBatchReader(view, keys, memtableWindowKeys, memtableWindowBytes)
 }
 
-// newRoaringSetBatchReader builds a reader with an explicit window size, which is
-// how a test reaches a boundary the production constant would take thousands of
-// keys to cross.
+// newRoaringSetBatchReader builds a reader with an explicit window size and byte
+// budget, both of which bound a window and only one of which a test can reach
+// cheaply: rows fat enough to spend the production budget take millions of
+// documents to build.
 func newRoaringSetBatchReader(
-	view BucketConsistentView, keys inverted.SortedKeys, window int,
+	view BucketConsistentView, keys inverted.SortedKeys, window, budget int,
 ) (*RoaringSetBatchReader, error) {
 	if window <= 0 {
 		return nil, fmt.Errorf("roaring set batch reader: window size must be positive, got %d", window)
+	}
+	// Refused rather than tolerated, because tolerating it reads as working: a
+	// budget of nothing ends every window after its always-taken first key, so a
+	// batch pays a fill per key — the per-key read the windowing replaces, with
+	// the windowing still keeping its books. The window read itself takes any
+	// budget; this is where a caller's arithmetic is checked.
+	if budget <= 0 {
+		return nil, fmt.Errorf("roaring set batch reader: byte budget must be positive, got %d", budget)
 	}
 	mts, count := viewMemtablesOldestFirst(view)
 
@@ -318,12 +368,13 @@ func newRoaringSetBatchReader(
 	}
 
 	return &RoaringSetBatchReader{
-		bucket:     view.Bucket,
-		segments:   view.Disk,
-		keys:       keys,
-		windowSize: window,
-		mts:        mts,
-		mtCount:    count,
+		bucket:      view.Bucket,
+		segments:    view.Disk,
+		keys:        keys,
+		windowSize:  window,
+		windowBytes: budget,
+		mts:         mts,
+		mtCount:     count,
 	}, nil
 }
 
@@ -398,21 +449,38 @@ func (r *RoaringSetBatchReader) fillWindow() error {
 	// Starting where the walk is, rather than on a grid: the caller reads
 	// forward, so the window it needs always begins at the key it is asking for.
 	r.winStart = r.pos
-	r.winEnd = min(r.winStart+r.windowSize, r.keys.Len())
-	width := r.winEnd - r.winStart
+	// The widest this window may be. Each memtable may narrow it, so winEnd is
+	// only settled once they have all read.
+	wide := min(r.winStart+r.windowSize, r.keys.Len())
+	width := wide - r.winStart
+	r.winEnd = wide
 
 	// This window's own copying, so the peak below is a window rather than the
 	// batch: the total across a batch measures the copying, not what was ever
 	// held at once.
 	bytes := 0
 
+	// Shared across the memtables rather than given to each in full — see
+	// memtableWindowBytes for why.
+	share := r.windowBytes / max(1, r.mtCount)
+
 	for mt := 0; mt < r.mtCount; mt++ {
-		if cap(r.layers[mt]) < width {
+		if r.layers[mt] == nil {
+			// One allocation serves the batch: widths only shrink, since pos moves
+			// forward, so the first window is the widest. Handing over the whole
+			// buffer rather than this window's part of it is what keeps a clone the
+			// fold never reached from outliving the window it was made for — the
+			// read clears everything it is given.
 			r.layers[mt] = make([]roaringset.BitmapLayer, width)
 		}
-		r.layers[mt] = r.layers[mt][:width]
 
-		cloned, err := r.mts[mt].roaringSetGetWindow(r.keys, r.winStart, r.winEnd, r.layers[mt])
+		// Bounded by where the window already ends rather than by its widest
+		// extent, which winEnd carries since it only shrinks: a memtable read after
+		// one whose budget stopped early does not clone rows the fold will never
+		// ask for. One read before the narrowing is not spared, and the next fill
+		// asks it for those keys again; the alternative is a window per memtable.
+		fill, err := r.mts[mt].roaringSetGetWindow(
+			r.keys, r.winStart, r.winEnd, r.layers[mt], share)
 		if err != nil {
 			// One memtable is loaded for this window and the other still holds the
 			// last one, at its width. Emptying the window puts pos past its end,
@@ -420,11 +488,21 @@ func (r *RoaringSetBatchReader) fillWindow() error {
 			r.winStart, r.winEnd = r.pos, r.pos
 			return err
 		}
-		bytes += cloned
+
+		// The narrowest memtable decides the window: past its To it has written
+		// nothing, and a zero layer there would read as a key it does not hold
+		// rather than one it was not asked about.
+		r.winEnd = min(r.winEnd, fill.To)
+		bytes += fill.Bytes
 	}
 	// Counted here rather than on entry, so Fills times Memtables is the
 	// acquisitions that happened rather than the ones that were attempted.
 	r.fills++
+	if r.winEnd < wide {
+		// Ended on its budget rather than on the keys it was allowed, which is what
+		// says the byte limit is the one worth raising.
+		r.narrowedFills++
+	}
 	r.bytesPeak = max(r.bytesPeak, bytes)
 	r.bytesCopied += bytes
 	return nil

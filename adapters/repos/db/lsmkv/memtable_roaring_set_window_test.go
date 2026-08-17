@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"path"
 	"slices"
@@ -114,11 +115,12 @@ func TestRoaringSetGetWindowRandomized(t *testing.T) {
 // TestRoaringSetGetWindowMatchesWholeBatch pins that reading a batch in windows answers
 // exactly what reading it whole does.
 //
-// Windowing a large batch is what holds the lock briefly and keeps one window's
-// bitmaps in hand at a time, and it only works if the boundaries are invisible:
-// every window starts with its own descent rather than where the last one stopped,
-// so a key sitting on a boundary is the one a mistake drops or double-counts.
-// Window size 1 is the degenerate end of that — every key is its own boundary.
+// The caller windows a large batch so the lock is held briefly and only one
+// window's bitmaps are held at a time, which only works if the boundaries are
+// invisible: every window starts with its own descent rather than where the
+// last one stopped, so a key sitting on a boundary is the one a mistake drops
+// or double-counts. Window size 1 is the degenerate end of that — every key is
+// its own boundary.
 func TestRoaringSetGetWindowMatchesWholeBatch(t *testing.T) {
 	t.Parallel()
 
@@ -135,10 +137,9 @@ func TestRoaringSetGetWindowMatchesWholeBatch(t *testing.T) {
 		fillWindowOK(t, m, keys, 0, keys.Len(), whole)
 
 		for _, w := range []int{1, 2, 3, 7, 1000} {
-			// One slot per key, handed over a window at a time, which is how a
-			// caller reading a batch this way has to do it. Writing outside its
-			// window would index past the subslice rather than land in a
-			// neighbour's slot.
+			// One slot per key, handed over a window at a time, exactly as the
+			// batch reader does it. Writing outside its window would index past
+			// the subslice rather than land in a neighbour's slot.
 			got := make([]roaringset.BitmapLayer, keys.Len())
 			for from := 0; from < keys.Len(); from += w {
 				to := min(from+w, keys.Len())
@@ -150,15 +151,18 @@ func TestRoaringSetGetWindowMatchesWholeBatch(t *testing.T) {
 	}
 }
 
-// TestRoaringSetGetWindowRangeGuards separates an empty window from a range or
-// a slice the caller got wrong. Only the empty one can be answered by reading
-// nothing; the rest cannot be answered with "this memtable holds none of those
-// keys", because nobody asked about those keys.
+// TestRoaringSetGetWindowRangeGuards separates the ranges that can be answered
+// by reading nothing from the ones nobody asked for. A range outside the batch
+// cannot be answered with "this memtable holds none of those keys", and a slice
+// too short for its range has nowhere to put the last rows.
 //
-// A caller that derives the range from its own batch and sizes the slice to it
-// reaches none of the erroring shapes. They are the arithmetic to get wrong by
-// hand — most of all the too-long slice, where the rows would land at the offsets
-// of keys outside the window.
+// A slice longer than the range is legal, and pinned here as such: fillWindow
+// holds one buffer at the widest a window gets and asks for the narrower range
+// its budget settled on.
+//
+// None of the erroring shapes is reachable from fillWindow, which always
+// produces a range inside the batch and a slice at least its width. They are the
+// arithmetic a second caller would get wrong.
 func TestRoaringSetGetWindowRangeGuards(t *testing.T) {
 	t.Parallel()
 
@@ -174,15 +178,14 @@ func TestRoaringSetGetWindowRangeGuards(t *testing.T) {
 		{name: "empty at the start", from: 0, to: 0, slots: 0},
 		{name: "empty at the end", from: 3, to: 3, slots: 0},
 		{name: "empty in the middle", from: 1, to: 1, slots: 0},
-		// caught by the width check: to-from is negative and no slice matches it
+		{name: "slice longer than the window", from: 0, to: 2, slots: 3},
+		{name: "whole batch passed for a late window", from: 1, to: 3, slots: 3},
+		{name: "slots for an empty window", from: 1, to: 1, slots: 3},
 		{name: "inverted", from: 2, to: 1, slots: 0, wantErr: true},
 		{name: "before the first key", from: -1, to: 2, slots: 3, wantErr: true},
 		{name: "one past the last", from: 0, to: 4, slots: 4, wantErr: true},
 		{name: "far past the last", from: 1, to: 99, slots: 99, wantErr: true},
 		{name: "slice shorter than the window", from: 0, to: 3, slots: 2, wantErr: true},
-		{name: "slice longer than the window", from: 0, to: 2, slots: 3, wantErr: true},
-		{name: "whole batch passed for a late window", from: 1, to: 3, slots: 3, wantErr: true},
-		{name: "slots for an empty window", from: 1, to: 1, slots: 3, wantErr: true},
 	}
 
 	for _, tc := range tests {
@@ -190,7 +193,7 @@ func TestRoaringSetGetWindowRangeGuards(t *testing.T) {
 			t.Parallel()
 
 			into := make([]roaringset.BitmapLayer, tc.slots)
-			_, err := m.roaringSetGetWindow(keys, tc.from, tc.to, into)
+			_, err := m.roaringSetGetWindow(keys, tc.from, tc.to, into, math.MaxInt)
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -203,7 +206,7 @@ func TestRoaringSetGetWindowRangeGuards(t *testing.T) {
 // TestRoaringSetGetWindowDropsEmptySides pins which clone the read uses. A row
 // written to but never deleted from still has both bitmaps allocated in the
 // tree, and the window must hand back a nil deletion side rather than an empty
-// one, since a caller distinguishes "no row here" by that nil. Plain Clone would
+// one — that nil is what the reader's presence test reads. Plain Clone would
 // return an allocated empty bitmap and go unnoticed everywhere else.
 func TestRoaringSetGetWindowDropsEmptySides(t *testing.T) {
 	t.Parallel()
@@ -305,7 +308,7 @@ func TestRoaringSetGetWindowRejectsOtherStrategies(t *testing.T) {
 	m := newTestMemtableReplace(map[string][]byte{"a": []byte("x")})
 	keys := sortedKeysOf(t, []string{"a"})
 	into := make([]roaringset.BitmapLayer, 1)
-	_, err := m.roaringSetGetWindow(keys, 0, 1, into)
+	_, err := m.roaringSetGetWindow(keys, 0, 1, into, math.MaxInt)
 	require.Error(t, err)
 }
 
@@ -440,11 +443,156 @@ func TestMemtableLayersAreNeverBothNil(t *testing.T) {
 	}
 }
 
-// fillWindowOK reads a window and fails the test if it errors, so the callers that
-// only care about what landed in dst stay one line. What it reports is discarded:
-// no caller here reads it.
+// TestRoaringSetGetWindowStopsAtTheBudget pins what bounds a window's memory.
+// The key count caps how many rows a fill clones and nothing caps how big a row
+// is, so without this a property with few values and many documents each turns
+// one window into a multiple of what the constant suggests.
+func TestRoaringSetGetWindowStopsAtTheBudget(t *testing.T) {
+	t.Parallel()
+
+	// Rows wide enough that a couple of them exhaust any budget worth setting.
+	// Documents are spread so each lands in its own container, which is what
+	// makes a row cost bytes rather than compress to nothing.
+	const rows, docsPerRow = 8, 4096
+	batch := make([]string, rows)
+	for i := range batch {
+		batch[i] = fmt.Sprintf("k%02d", i)
+	}
+	m := memtableWith(t, nil)
+	for i, k := range batch {
+		docs := make([]uint64, docsPerRow)
+		for j := range docs {
+			docs[j] = uint64(i + j*rows*8)
+		}
+		require.NoError(t, m.roaringSetAddList([]byte(k), docs))
+	}
+	keys := sortedKeysOf(t, batch)
+
+	// what one row costs, so the budget can be expressed in rows
+	one := make([]roaringset.BitmapLayer, 1)
+	first, err := m.roaringSetGetWindow(keys, 0, 1, one, math.MaxInt)
+	require.NoError(t, err)
+	require.Positive(t, first.Bytes)
+
+	tests := []struct {
+		name   string
+		budget int
+		wantTo int
+	}{
+		{name: "unbudgeted reads the whole range", budget: math.MaxInt, wantTo: rows},
+		{name: "stops before the row that would cross the budget", budget: 3 * first.Bytes, wantTo: 3},
+		{name: "a budget under one row still takes one", budget: 1, wantTo: 1},
+		{name: "a zero budget still takes one", budget: 0, wantTo: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dst := make([]roaringset.BitmapLayer, keys.Len())
+			fill, err := m.roaringSetGetWindow(keys, 0, keys.Len(), dst, tc.budget)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantTo, fill.To)
+			require.LessOrEqual(t, fill.Bytes, max(tc.budget, first.Bytes),
+				"only the always-taken first key may exceed the budget")
+
+			// Past To the walk wrote nothing, and the caller must not read those
+			// slots as absence — which is why fillWindow narrows winEnd to To.
+			for i := fill.To; i < keys.Len(); i++ {
+				require.Nilf(t, dst[i].Additions, "slot %d past To must be untouched", i)
+			}
+			for i := 0; i < fill.To; i++ {
+				require.NotNilf(t, dst[i].Additions, "slot %d inside To must hold its row", i)
+			}
+		})
+	}
+}
+
+// fillWindowOK reads a window and fails the test if it errors, so the callers
+// that only care about what landed in dst stay one line. The bytes it reports
+// are asserted where that is the subject.
 func fillWindowOK(t *testing.T, m memtable, keys inverted.SortedKeys, from, to int, dst []roaringset.BitmapLayer) {
 	t.Helper()
-	_, err := m.roaringSetGetWindow(keys, from, to, dst)
+	// A budget nothing here can reach, so these callers read the whole range
+	// they asked for. The budget's own behaviour is covered separately.
+	fill, err := m.roaringSetGetWindow(keys, from, to, dst, math.MaxInt)
 	require.NoError(t, err)
+	require.Equal(t, to, fill.To, "an unbudgeted read must fill the whole range")
+}
+
+// TestRoaringSetGetWindowHoldsAtMostTheBudget pins the ceiling the budget
+// enforces, which a fixture of equally sized rows cannot reach: spending there
+// lands on the budget and never past it, so the same numbers come out whether a
+// row is priced before it is copied or after. One fat row among thin ones is what
+// tells the two apart, and it is the shape the budget exists for — a property
+// whose values carry wildly different document counts.
+func TestRoaringSetGetWindowHoldsAtMostTheBudget(t *testing.T) {
+	t.Parallel()
+
+	const keyCount, thinDocs, fatDocs = 8, 8, 4096
+
+	// Sixty-four apart, and each key's documents are its own, so no two rows share a
+	// container. What costs bytes here is the document count: the fat row's four
+	// thousand fill a handful of containers densely, where the thin rows' eight share
+	// one.
+	docsFor := func(key, n int) []uint64 {
+		docs := make([]uint64, n)
+		for j := range docs {
+			docs[j] = uint64(key*1_000_000 + j*64)
+		}
+		return docs
+	}
+
+	build := func(t *testing.T, fatAt int) (*Memtable, inverted.SortedKeys) {
+		batch := make([]string, keyCount)
+		for i := range batch {
+			batch[i] = fmt.Sprintf("k%02d", i)
+		}
+		m := memtableWith(t, nil)
+		for i, k := range batch {
+			n := thinDocs
+			if i == fatAt {
+				n = fatDocs
+			}
+			require.NoError(t, m.roaringSetAddList([]byte(k), docsFor(i, n)))
+		}
+		return m, sortedKeysOf(t, batch)
+	}
+
+	costOf := func(t *testing.T, m *Memtable, keys inverted.SortedKeys, from, to int) int {
+		dst := make([]roaringset.BitmapLayer, to-from)
+		fill, err := m.roaringSetGetWindow(keys, from, to, dst, math.MaxInt)
+		require.NoError(t, err)
+		return fill.Bytes
+	}
+
+	t.Run("a fat row past the first ends the window before it", func(t *testing.T) {
+		m, keys := build(t, keyCount-1)
+
+		// Just past what the thin rows cost, so they all fit and the fat one cannot.
+		// Not exactly their total: a budget landing on it stops a walk that prices
+		// rows after copying them too, since its running total reaches the budget at
+		// the same boundary, and the case would pass either way.
+		thin := costOf(t, m, keys, 0, keyCount-1)
+		budget := thin + 1
+		require.Less(t, budget, thin+costOf(t, m, keys, keyCount-1, keyCount),
+			"the fat row must not fit in a budget the thin ones leave room under")
+
+		dst := make([]roaringset.BitmapLayer, keys.Len())
+		fill, err := m.roaringSetGetWindow(keys, 0, keys.Len(), dst, budget)
+		require.NoError(t, err)
+
+		require.Equal(t, keyCount-1, fill.To, "the window must end before the fat row")
+		require.LessOrEqual(t, fill.Bytes, budget, "a window must not hold more than the budget")
+		require.Nil(t, dst[keyCount-1].Additions, "the fat row must not have been copied")
+	})
+
+	t.Run("a fat row at the first is taken whatever it costs", func(t *testing.T) {
+		m, keys := build(t, 0)
+
+		dst := make([]roaringset.BitmapLayer, keys.Len())
+		fill, err := m.roaringSetGetWindow(keys, 0, keys.Len(), dst, 1)
+		require.NoError(t, err)
+
+		require.Equal(t, 1, fill.To, "the window holds only the row that overran it")
+		require.Greater(t, fill.Bytes, 1, "the first row is taken past the budget")
+		require.NotNil(t, dst[0].Additions, "the first row must be readable at any size")
+	})
 }

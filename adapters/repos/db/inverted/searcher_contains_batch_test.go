@@ -690,7 +690,7 @@ func TestFetchContainsBatch_ReadsRows(t *testing.T) {
 // halves of that pair have to name the same set: listing them twice is how one
 // drifts and the guard stops being pinned.
 var readerAnnotationFields = []string{
-	"window_fills", "window_keys_read",
+	"window_fills", "window_narrowed_fills", "window_keys_read",
 	"window_bytes_peak", "window_bytes_copied", "memtables_read",
 }
 

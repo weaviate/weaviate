@@ -2263,12 +2263,18 @@ func (t *testMemtable) incWriterCount() {
 	t.Memtable.incWriterCount()
 }
 
-func (t *testMemtable) roaringSetGetWindow(keys inverted.SortedKeys, from, to int, into []roaringset.BitmapLayer) (int, error) {
+func (t *testMemtable) roaringSetGetWindow(
+	keys inverted.SortedKeys, from, to int, into []roaringset.BitmapLayer, budget int,
+) (windowFill, error) {
 	t.roaringSetGetWindowCalls++
 	if t.roaringSetGetWindowErr != nil {
-		return 0, t.roaringSetGetWindowErr
+		// To as the real walk reports it when a read fails part way: the range it
+		// was asked for, since it cannot say how far it got. The caller discards
+		// the fill on an error, so this only keeps the double from being the looser
+		// of the two.
+		return windowFill{To: to}, t.roaringSetGetWindowErr
 	}
-	return t.Memtable.roaringSetGetWindow(keys, from, to, into)
+	return t.Memtable.roaringSetGetWindow(keys, from, to, into, budget)
 }
 
 func (t *testMemtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
