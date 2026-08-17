@@ -72,8 +72,10 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	h.advanceClock(h.schedulerTickInterval)
 	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
-	// advance the clock just before expected clean up time to check whether it respects it
-	h.advanceClock(h.completedTaskTTL - h.clockAdvancedSoFar - time.Minute)
+	// advance the clock just before expected clean up time to check whether it
+	// respects it. Retention counts from the FINISHED transition, which lands a
+	// tick after the units stopped, so the TTL has not elapsed here either way.
+	h.advanceClock(h.completedTaskTTL - h.clockAdvancedSoFar)
 
 	h.expectCleanUpTask(t, h.tasksNamespace, taskID, version)
 	h.advanceClock(h.schedulerTickInterval + time.Minute)
@@ -393,6 +395,10 @@ func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 	completeUnit(t, h, h.tasksNamespace, startedTask.ID, startedTask.Version, h.localNodeID, "su-1")
 
 	recvWithTimeout(t, h.provider.completedCh)
+
+	// Retention counts from the FINISHED transition, which the scheduler
+	// commits a tick after the last unit stopped.
+	h.advanceClock(h.schedulerTickInterval)
 
 	h.expectCleanUpTask(t, h.tasksNamespace, startedTask.ID, startedTask.Version)
 	h.advanceClock(h.completedTaskTTL)

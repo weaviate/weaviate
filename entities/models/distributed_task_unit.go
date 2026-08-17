@@ -33,9 +33,9 @@ type DistributedTaskUnit struct {
 	// The error message if the unit failed.
 	Error string `json:"error,omitempty"`
 
-	// The time when the unit finished.
+	// The time when the unit reached a terminal status. Absent while the unit is still running.
 	// Format: date-time
-	FinishedAt strfmt.DateTime `json:"finishedAt,omitempty"`
+	FinishedAt *strfmt.DateTime `json:"finishedAt,omitempty"`
 
 	// The ID of the unit.
 	ID string `json:"id,omitempty"`
@@ -49,9 +49,9 @@ type DistributedTaskUnit struct {
 	// The status of the unit.
 	Status string `json:"status,omitempty"`
 
-	// The time when the unit was last updated.
+	// The time when the unit was last updated. Absent until the unit first reports progress.
 	// Format: date-time
-	UpdatedAt strfmt.DateTime `json:"updatedAt,omitempty"`
+	UpdatedAt *strfmt.DateTime `json:"updatedAt,omitempty"`
 }
 
 // Validate validates this distributed task unit

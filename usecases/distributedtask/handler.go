@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -67,7 +68,7 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 				Status:     task.Status.String(),
 				Error:      task.Error,
 				StartedAt:  strfmt.DateTime(task.StartedAt),
-				FinishedAt: strfmt.DateTime(task.FinishedAt),
+				FinishedAt: optionalDateTime(task.FinishedAt),
 				Payload:    payload,
 			}
 
@@ -89,12 +90,24 @@ func mapUnits(task *distributedtask.Task) []*models.DistributedTaskUnit {
 			Status:     string(u.Status),
 			Progress:   u.Progress,
 			Error:      u.Error,
-			UpdatedAt:  strfmt.DateTime(u.UpdatedAt),
-			FinishedAt: strfmt.DateTime(u.FinishedAt),
+			UpdatedAt:  optionalDateTime(u.UpdatedAt),
+			FinishedAt: optionalDateTime(u.FinishedAt),
 		})
 	}
 	sort.Slice(units, func(i, j int) bool {
 		return units[i].ID < units[j].ID
 	})
 	return units
+}
+
+// optionalDateTime keeps an unset timestamp out of the response body
+// entirely. strfmt.DateTime is a struct, so encoding/json ignores omitempty
+// on a non-pointer field and renders the zero value as a year-1 timestamp,
+// which a client cannot tell apart from a real one.
+func optionalDateTime(t time.Time) *strfmt.DateTime {
+	if t.IsZero() {
+		return nil
+	}
+	dt := strfmt.DateTime(t)
+	return &dt
 }

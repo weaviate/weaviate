@@ -9015,9 +9015,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the task was finished.",
+          "description": "The time when the task reached a terminal status. Absent while the task is still running.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "finishedNodes": {
           "description": "The nodes that finished the task.",
@@ -9067,9 +9068,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the unit finished.",
+          "description": "The time when the unit reached a terminal status. Absent while the unit is still running.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "id": {
           "description": "The ID of the unit.",
@@ -9089,9 +9091,10 @@ func init() {
           "type": "string"
         },
         "updatedAt": {
-          "description": "The time when the unit was last updated.",
+          "description": "The time when the unit was last updated. Absent until the unit first reports progress.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         }
       }
     },
@@ -21482,9 +21485,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the task was finished.",
+          "description": "The time when the task reached a terminal status. Absent while the task is still running.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "finishedNodes": {
           "description": "The nodes that finished the task.",
@@ -21534,9 +21538,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the unit finished.",
+          "description": "The time when the unit reached a terminal status. Absent while the unit is still running.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "id": {
           "description": "The ID of the unit.",
@@ -21556,9 +21561,10 @@ func init() {
           "type": "string"
         },
         "updatedAt": {
-          "description": "The time when the unit was last updated.",
+          "description": "The time when the unit was last updated. Absent until the unit first reports progress.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         }
       }
     },
