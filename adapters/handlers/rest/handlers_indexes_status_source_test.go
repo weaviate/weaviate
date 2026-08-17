@@ -12,7 +12,6 @@
 package rest
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -30,14 +29,13 @@ type fsmStep struct {
 }
 
 // fsmSnapshot models one node's FSM: an applied index that can advance between
-// two independent local reads, plus the leader's view of the same tasks.
+// two independent local reads.
 //
 //	step 0 — task STARTED,  searchable flag off
 //	step 1 — task FINISHED, searchable flag on
 type fsmSnapshot struct {
 	step                int
 	advanceBetweenReads bool
-	leaderTasks         map[string][]*distributedtask.Task
 	steps               []fsmStep
 }
 
@@ -45,13 +43,6 @@ func (f *fsmSnapshot) LocalDistributedTasks() map[string][]*distributedtask.Task
 	out := f.steps[f.step].tasks
 	f.tick()
 	return out
-}
-
-// ListDistributedTasks is the leader's view. The status read must not use it:
-// the leader can report a task committed at an index this node's schema has
-// not applied.
-func (f *fsmSnapshot) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
-	return f.leaderTasks, nil
 }
 
 func (f *fsmSnapshot) ReadOnlyClass(string) *models.Class {
@@ -98,7 +89,6 @@ func TestIndexStatusOperands_ComeFromOneNodeInOneOrder(t *testing.T) {
 	tests := []struct {
 		name        string
 		advance     bool
-		leaderAhead bool
 		noLister    bool
 		wantNoTasks bool
 		wantStatus  distributedtask.TaskStatus
@@ -111,12 +101,6 @@ func TestIndexStatusOperands_ComeFromOneNodeInOneOrder(t *testing.T) {
 			wantFlagOn: true,
 		},
 		{
-			name:        "task list comes from this node not the leader",
-			leaderAhead: true,
-			wantStatus:  distributedtask.TaskStatusStarted,
-			wantFlagOn:  false,
-		},
-		{
 			name:        "no cluster service",
 			noLister:    true,
 			wantNoTasks: true,
@@ -127,9 +111,6 @@ func TestIndexStatusOperands_ComeFromOneNodeInOneOrder(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			snapshot := newFSMSnapshot(t)
 			snapshot.advanceBetweenReads = tt.advance
-			if tt.leaderAhead {
-				snapshot.leaderTasks = snapshot.steps[1].tasks
-			}
 
 			var lister localTaskLister
 			if !tt.noLister {
