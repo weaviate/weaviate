@@ -128,8 +128,7 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	return nil
 }
 
-// The snapshot is the caller's, so one precheck over many collections lists DTM once
-// rather than once per collection and cannot read the cluster two ways.
+// The snapshot is the caller's, so a precheck over many collections lists DTM once.
 func (i *Index) refuseIfAnyShardReindexInFlight(lookup ShardReindexActivityLookup, shards []string) error {
 	collection := i.Config.ClassName.String()
 	if i.db == nil {
@@ -145,10 +144,8 @@ func (i *Index) refuseIfAnyShardReindexInFlight(lookup ShardReindexActivityLooku
 		unreadable     bool
 	)
 	if lookup != nil {
-		// Asked once with no shard name, because neither answer depends on one: a record
-		// that covers the whole collection, and whether the list could be read at all.
-		// Both must still be answered for a collection this node holds no shards of,
-		// which is most of them on a large cluster.
+		// Asked once with no shard name, because neither answer depends on one, and both
+		// must still be answered for a collection this node holds no shards of.
 		collectionLive, unreadable = lookup(collection, "")
 		for _, shardName := range shards {
 			live, _ := lookup(collection, shardName)
@@ -209,8 +206,8 @@ func reindexLiveTaskRefusal(collection string) error {
 		collection, reindex.MigrationRemedy(collection)))
 }
 
-// No cancel remedy: neither producer named a task, so there is nothing here to cancel.
-// The two remedies differ, so both are stated rather than promising the reachable one.
+// No cancel remedy: neither producer named a task. Both are stated, because retrying
+// clears only one of them.
 func reindexUndeterminedRefusal(collection string) error {
 	return fmt.Errorf("%w: collection %q could not be checked, because the cluster task list "+
 		"could not be read, or a record in it names no collection; the first clears once the "+

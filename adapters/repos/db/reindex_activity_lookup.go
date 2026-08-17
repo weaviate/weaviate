@@ -48,9 +48,8 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 			continue
 		}
 		// Uses the same decoder as the restore gate. A record neither gate can attribute
-		// refuses on both sides: here as "could not be determined", on the restore gate
-		// cluster-wide. Naming a collection it never named would print a cancel route
-		// for a task nothing can find.
+		// refuses on both sides: here as "could not be determined", there cluster-wide.
+		// Naming a collection it never named prints a cancel route nothing can follow.
 		collection, named := ExtractReindexTaskCollection(task.Payload)
 		if !named {
 			unattributable = true

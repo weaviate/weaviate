@@ -61,9 +61,8 @@ const (
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
-	// One DTM snapshot for the whole precheck: the builder lists the cluster on every
-	// invocation, so building per collection lists it N times and lets one precheck
-	// read the cluster N ways.
+	// One snapshot for the whole precheck: the builder lists the cluster on every
+	// invocation, so building per collection reads it N times, and N ways.
 	lookup := db.shardReindexActivitySnapshot()
 	var errs []error
 	for _, c := range classes {

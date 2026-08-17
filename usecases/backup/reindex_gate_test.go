@@ -424,6 +424,14 @@ func TestParticipantRestoreGate(t *testing.T) {
 		assert.Equal(t, CanCommitErrRestoreReindexUndetermined, resp.ErrKind)
 		assert.Zero(t, resp.Timeout)
 	})
+	t.Run("a failure the gate did not raise keeps its own words", func(t *testing.T) {
+		sourcer := &fakeSourcer{}
+		sourcer.setReindexGate(errors.New("staging dir: no space left on device"))
+		m := createManager(sourcer, nil, newFakeBackend(), nil)
+		resp := m.OnCanCommit(ctx, req)
+		assert.Equal(t, CanCommitErrCannotCommit, resp.ErrKind)
+		assert.Contains(t, resp.Err, "no space left on device")
+	})
 }
 
 func TestRestoreUndeterminedReaches422(t *testing.T) {
