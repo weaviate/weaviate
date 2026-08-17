@@ -101,47 +101,62 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 	// Mirror the query-path overlay handling (BM25Searcher.effectiveTokenization)
 	// so writes during a change-tokenization SWAPPING window land in the
 	// canonical bucket with TARGET-tokenized keys. weaviate/0-weaviate-issues#240.
-	if overlay := s.tokenizationAnalyzerOverlay(c.Properties); overlay != nil {
+	if overlay := s.writeAnalyzerOverlay(c.Properties); overlay != nil {
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}
 	props, nestedProps, err := analyzer.Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, nestedProps, err
 }
 
-// tokenizationAnalyzerOverlay projects the per-shard tokenization
-// overlay onto the inverted-analyzer PropertyOverlay shape. Only
-// `Tokenization` is populated — the Force* flags are owned by
-// from-scratch backfill strategies and must not affect ordinary writes.
-func (s *Shard) tokenizationAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
+// writeAnalyzerOverlay projects the per-shard migration overlays onto the
+// inverted-analyzer PropertyOverlay shape: the target tokenization of a
+// change-tokenization migration, and the forced rangeable flag of an
+// enable-rangeable one. ForceFilterable / ForceSearchable are deliberately
+// absent — those belong to from-scratch backfill strategies and must not
+// affect ordinary writes.
+func (s *Shard) writeAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil
 	}
 	propNames := make([]string, 0, len(props))
-	liveTok := make(map[string]string, len(props))
+	live := make(map[string]*models.Property, len(props))
 	for _, p := range props {
 		if p == nil {
 			continue
 		}
 		propNames = append(propNames, p.Name)
-		liveTok[p.Name] = p.Tokenization
+		live[p.Name] = p
 	}
-	snap := s.SnapshotTokenizationOverlay(propNames)
-	if len(snap) == 0 {
+	tokSnap := s.SnapshotTokenizationOverlay(propNames)
+	rangeSnap := s.SnapshotRangeableWriteOverlay(propNames)
+	if len(tokSnap) == 0 && len(rangeSnap) == 0 {
 		return nil
 	}
-	var out map[string]inverted.PropertyOverlay
-	for name, target := range snap {
-		if target == liveTok[name] {
+
+	out := make(map[string]inverted.PropertyOverlay, len(tokSnap)+len(rangeSnap))
+	for name, target := range tokSnap {
+		if target == live[name].Tokenization {
 			// Live schema already matches the overlay target. The
 			// authoritative clear happens via ClearTokenizationOverlay
 			// at migration completion; query-path TokenizationFor
 			// self-clears as a secondary nicety.
 			continue
 		}
-		if out == nil {
-			out = make(map[string]inverted.PropertyOverlay, len(snap))
-		}
 		out[name] = inverted.PropertyOverlay{Tokenization: target}
+	}
+	for name := range rangeSnap {
+		if inverted.HasRangeableIndex(live[name]) {
+			// Backstop for a missed clear: with the flag live the entry
+			// changes nothing, so drop it and take the fast path next time.
+			s.ClearRangeableWriteOverlay(name)
+			continue
+		}
+		entry := out[name]
+		entry.ForceRangeable = true
+		out[name] = entry
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

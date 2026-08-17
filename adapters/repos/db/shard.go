@@ -476,6 +476,31 @@ type Shard struct {
 	tokenizationOverlayMu sync.RWMutex
 	tokenizationOverlay   map[string]string
 
+	// rangeableWriteOverlayMu guards rangeableWriteOverlay, the set of
+	// properties whose ordinary writes must reach the rangeable bucket on
+	// this shard even though the live schema still says
+	// IndexRangeFilters=false.
+	//
+	// enable-rangeable mirrors live writes into the new bucket with
+	// double-write callbacks, and those callbacks come down when this
+	// shard's runtimeSwap returns. The cluster-wide IndexRangeFilters flip
+	// lands later, one RAFT round after the last replica swaps. Without an
+	// entry here, a write in between is acked, stored in the objects
+	// bucket, and never indexed — a silent gap that no later pass repairs,
+	// because the backfill is finished and the flip does not rescan.
+	//
+	// Lifecycle (see reindex_provider.go):
+	//   1. SET: per property, from the swap's onPropSwapped hook.
+	//   2. CLEAR: after the cluster-wide flip commits (OnTaskCompleted), on
+	//      the all-failed swap path, and on a terminal task's cleanup.
+	//   3. CLEAR (backstop): the write path drops an entry whose live
+	//      schema flag has caught up.
+	//
+	// Read on every write that touches the collection, so kept under a
+	// fast RWMutex; per-shard and in-memory only.
+	rangeableWriteOverlayMu sync.RWMutex
+	rangeableWriteOverlay   map[string]struct{}
+
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
@@ -957,6 +982,56 @@ func (s *Shard) SnapshotTokenizationOverlay(propNames []string) map[string]strin
 				out = make(map[string]string, len(propNames))
 			}
 			out[name] = v
+		}
+	}
+	return out
+}
+
+// SetRangeableWriteOverlay records that propName's ordinary writes on this
+// shard must reach the rangeable bucket regardless of the live schema flag.
+// Set per property as its bucket pointer flips; see the
+// [rangeableWriteOverlay] field godoc for the window it covers.
+func (s *Shard) SetRangeableWriteOverlay(propName string) {
+	if propName == "" {
+		return
+	}
+	s.rangeableWriteOverlayMu.Lock()
+	defer s.rangeableWriteOverlayMu.Unlock()
+	if s.rangeableWriteOverlay == nil {
+		s.rangeableWriteOverlay = map[string]struct{}{}
+	}
+	s.rangeableWriteOverlay[propName] = struct{}{}
+}
+
+// ClearRangeableWriteOverlay removes propName's entry. Idempotent.
+func (s *Shard) ClearRangeableWriteOverlay(propName string) {
+	if propName == "" {
+		return
+	}
+	s.rangeableWriteOverlayMu.Lock()
+	defer s.rangeableWriteOverlayMu.Unlock()
+	delete(s.rangeableWriteOverlay, propName)
+}
+
+// SnapshotRangeableWriteOverlay returns the subset of propNames currently
+// carrying an overlay entry, or nil when none do so the caller takes its
+// fast path. The returned map is owned by the caller.
+func (s *Shard) SnapshotRangeableWriteOverlay(propNames []string) map[string]struct{} {
+	if len(propNames) == 0 {
+		return nil
+	}
+	s.rangeableWriteOverlayMu.RLock()
+	defer s.rangeableWriteOverlayMu.RUnlock()
+	if len(s.rangeableWriteOverlay) == 0 {
+		return nil
+	}
+	var out map[string]struct{}
+	for _, name := range propNames {
+		if _, ok := s.rangeableWriteOverlay[name]; ok {
+			if out == nil {
+				out = make(map[string]struct{}, len(propNames))
+			}
+			out[name] = struct{}{}
 		}
 	}
 	return out

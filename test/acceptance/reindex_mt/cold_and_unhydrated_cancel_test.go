@@ -176,6 +176,13 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	// get a task unit and fail on a shard the index map no longer has. The
 	// sweep itself is collection-wide regardless: it walks the shard map, not
 	// the tenant filter.
+	//
+	// A filterable rebuild rather than a second enable-rangeable: naming
+	// tenants is only allowed on a format-only migration, and the sweep scope
+	// is the same either way, since a (score, filterable) cleanup owns every
+	// tracker prefix that touches the filterable bucket — including the
+	// planted filterable_to_rangeable one. Step (d) below runs the identical
+	// submit on the reactivated tenants.
 	hotNames := tenantNames(tenants, func(tn sweepTenant) bool { return !tn.cold })
 	logMark := len(containerLogs(ctx, t, container))
 
@@ -183,12 +190,12 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	// so the shards loaded across this call are the ones it decided to hydrate.
 	probeStart := time.Now()
 	loadedBefore := loadedShardsOfClass(ctx, t, container, coldCancelClass)
-	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, coldCancelClass, coldCancelProp,
-		"rangeable", `{}`, reindexhelpers.WithTenants(hotNames))
+	taskID := reindexhelpers.RebuildIndex(t, restURI, coldCancelClass, coldCancelProp,
+		"filterable", reindexhelpers.WithTenants(hotNames))
 	loadedAfter := loadedShardsOfClass(ctx, t, container, coldCancelClass)
 	probeWindow := time.Since(probeStart)
 
-	t.Logf("post-restart enable-rangeable task: %s", taskID)
+	t.Logf("post-restart filterable rebuild task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	sweepLog := containerLogs(ctx, t, container)[logMark:]
@@ -255,7 +262,9 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 			tn.name, dirs)
 	}
 
-	// (e) The migration itself still landed, on every tenant it named.
+	// (e) The migration itself still landed, on every tenant it named: the
+	// rebuilt filterable bucket serves the range filter, since the cancelled
+	// enable-rangeable correctly left IndexRangeFilters false.
 	for _, name := range hotNames {
 		hits := rangeHits(t, name, 50)
 		assert.Len(t, hits, coldCancelObjectsPerTenant/2,

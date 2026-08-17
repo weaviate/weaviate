@@ -45,29 +45,22 @@ import (
 // Migration family classification (see [IsSemanticMigration] for the
 // authoritative predicate):
 //
-//   - "Semantic" migrations are the ones that change query
-//     semantics for the migrated property — change-tokenization,
+//   - "Semantic" migrations are the ones that turn a property's index on or
+//     change what it means — change-tokenization,
 //     change-tokenization-filterable, enable-filterable, enable-searchable,
-//     change-algorithm (Map/WAND → Blockmax). These get the full barrier
-//     dance: every shard reindexes first (RunReindexOnlyOnShard), and only
-//     after every unit is terminal does OnGroupCompleted fire to run the swap
-//     phase (RunSwapOnShard) on each local shard, followed by
+//     enable-rangeable, change-algorithm (Map/WAND → Blockmax). These get the
+//     full barrier dance: every shard reindexes first (RunReindexOnlyOnShard),
+//     and only after every unit is terminal does OnGroupCompleted fire to run
+//     the swap phase (RunSwapOnShard) on each local shard, followed by
 //     OnTaskCompleted's cluster-wide schema flip. No shard serves new data
-//     until ALL shards are ready. This is where the SWAPPING-window
-//     tokenization overlay lives (for the tokenization-changing ones).
+//     until ALL shards are ready, and a task that stops short leaves the
+//     schema exactly as it found it. This is where the SWAPPING-window
+//     overlays live (see [maybeWirePerPropOverlaySet]).
 //
-//   - "Format-only" migrations don't change query semantics — they only
-//     change the on-disk bucket format. enable-rangeable, repair-rangeable,
-//     repair-filterable, rebuild-searchable (rebuild an existing Blockmax
-//     bucket in place), and the RoaringSetRefresh strategy fall in this
-//     bucket. Each shard runs the full lifecycle independently via RunOnShard;
-//     there is no cluster-wide schema flip to coordinate.
-//
-// Note on enable-rangeable: it is intentionally NOT classified as
-// semantic. Range queries' correctness during the migration is gated
-// by the per-shard rangeableLocalReady flag (see [Shard.rangeableLocalReady]),
-// not by the barrier dance — falling back to the filterable bucket walk
-// on shards that haven't completed locally is slow but correct.
+//   - "Format-only" migrations rebuild a bucket whose schema flag is already
+//     true — repair-rangeable, repair-filterable, rebuild-searchable — so
+//     there is no cutover to coordinate. Each shard runs the full lifecycle
+//     independently via RunOnShard.
 type ReindexProvider struct {
 	mu       sync.Mutex
 	recorder distributedtask.TaskCompletionRecorder
@@ -725,7 +718,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
+			NewRuntimeFilterableToRangeableTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableFilterable:
@@ -1257,9 +1250,15 @@ func (p *ReindexProvider) runShardSwapPhase(
 	// Wire a per-prop hook rather than setting the overlay once up front;
 	// see [maybeWirePerPropOverlaySet] for why the latter is a correctness bug.
 	setShard, setUnwrapErr := unwrapShard(ctx, shard)
-	if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Warnf("reindex provider: cannot wire tokenization overlay — shard unwrap failed; queries during SWAPPING window may observe stale-tokenization results: %v", setUnwrapErr)
+	if setUnwrapErr != nil {
+		switch {
+		case IsTokenizationChangingMigration(payload.MigrationType):
+			logger.WithField("unit", unitID).WithField("shard", shardName).
+				Warnf("reindex provider: cannot wire tokenization overlay — shard unwrap failed; queries during SWAPPING window may observe stale-tokenization results: %v", setUnwrapErr)
+		case payload.MigrationType == ReindexTypeEnableRangeable:
+			logger.WithField("unit", unitID).WithField("shard", shardName).
+				Warnf("reindex provider: cannot wire rangeable write overlay — shard unwrap failed; writes between this shard's swap and the cluster-wide flip will be missing from the rangeable index and need a rebuild: %v", setUnwrapErr)
+		}
 	}
 	overlayWasSet := maybeWirePerPropOverlaySet(setShard, payload, unitTasks)
 
@@ -1278,10 +1277,10 @@ func (p *ReindexProvider) runShardSwapPhase(
 	}
 
 	// All swaps failed: tear the overlay back down so the analyzer stops
-	// claiming the new tokenization while buckets still hold old data.
-	if maybeClearTokenizationOverlayOnAllFailed(setShard, payload, overlayWasSet, anySwapped) {
+	// claiming a bucket state this shard never reached.
+	if maybeClearOverlayOnAllFailed(setShard, payload, overlayWasSet, anySwapped) {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Debug("reindex provider: cleared tokenization overlay — every swap sub-task failed; no bucket pointer was flipped on this shard")
+			Debug("reindex provider: cleared swap-window overlay — every swap sub-task failed; no bucket pointer was flipped on this shard")
 	}
 
 	if allSwapped {
@@ -1643,6 +1642,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		// FAILED/CANCELLED auto-clean partial sidecar state on every node,
 		// and log operator repair guidance when a swap can have run.
 		if payloadErr == nil {
+			p.clearRangeableWriteOverlayOnTerminal(payload, logger)
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
 				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
@@ -1693,31 +1693,64 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		return fmt.Errorf("schema flip: %w", err)
 	}
 
-	if IsTokenizationChangingMigration(payload.MigrationType) {
-		className := entschema.ClassName(payload.Collection)
-		if idx := p.db.GetIndex(className); idx != nil {
-			// Loaded shards only: the overlay is in memory, so a shard that
-			// is not loaded has none to clear, and loading one to clear
-			// nothing is what the swap path cannot afford.
-			idx.ForEachLoadedShard(func(shardName string, sh ShardLike) error {
-				// Unwrap so the clear reaches the concrete shard whose
-				// overlay the set hook populated. On unwrap failure,
-				// TokenizationFor self-clears on the next query.
-				concreteShard, err := unwrapShard(ctx, sh)
-				if err != nil {
-					logger.WithField("shard", shardName).
-						Warnf("reindex provider: tokenization overlay clear skipped (unwrap failed); relying on TokenizationFor self-clear: %v", err)
-					return nil
-				}
-				for _, propName := range payload.Properties {
-					concreteShard.ClearTokenizationOverlay(propName)
-				}
-				return nil
-			})
-		}
+	if IsTokenizationChangingMigration(payload.MigrationType) ||
+		payload.MigrationType == ReindexTypeEnableRangeable {
+		p.forEachLoadedShardConcrete(ctx, payload.Collection, logger, func(shard *Shard) {
+			clearSwapWindowOverlays(shard, payload.MigrationType, payload.Properties)
+		})
 	}
 
 	return nil
+}
+
+// clearRangeableWriteOverlayOnTerminal drops the write overlay when an
+// enable-rangeable migration ends without its flip. A shard that swapped
+// before the task stopped would otherwise keep writing to a bucket the
+// schema does not know about, and would fail every write for the property
+// the moment an operator drops that bucket.
+//
+// The tokenization overlay is deliberately not cleared here — see
+// [maybeClearOverlayOnAllFailed] for why a partially swapped shard keeps it.
+func (p *ReindexProvider) clearRangeableWriteOverlayOnTerminal(
+	payload *ReindexTaskPayload, logger logrus.FieldLogger,
+) {
+	if payload.MigrationType != ReindexTypeEnableRangeable {
+		return
+	}
+	p.forEachLoadedShardConcrete(p.serverCtx, payload.Collection, logger, func(shard *Shard) {
+		for _, propName := range payload.Properties {
+			shard.ClearRangeableWriteOverlay(propName)
+		}
+	})
+}
+
+// forEachLoadedShardConcrete runs fn on every loaded shard of the
+// collection. Loaded shards only: a per-shard overlay is in memory, so a
+// shard that is not loaded has none to clear, and loading one to clear
+// nothing is what the swap path cannot afford.
+func (p *ReindexProvider) forEachLoadedShardConcrete(
+	ctx context.Context, collection string, logger logrus.FieldLogger, fn func(*Shard),
+) {
+	if p.db == nil {
+		return
+	}
+	idx := p.db.GetIndex(entschema.ClassName(collection))
+	if idx == nil {
+		return
+	}
+	idx.ForEachLoadedShard(func(shardName string, sh ShardLike) error {
+		// Unwrap so the call reaches the concrete shard whose overlay the
+		// set hook populated. On unwrap failure both overlays self-clear on
+		// the next read (TokenizationFor) or write (writeAnalyzerOverlay).
+		concreteShard, err := unwrapShard(ctx, sh)
+		if err != nil {
+			logger.WithField("shard", shardName).
+				Warnf("reindex provider: swap-window overlay clear skipped (unwrap failed); relying on self-clear: %v", err)
+			return nil
+		}
+		fn(concreteShard)
+		return nil
+	})
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration
@@ -2201,6 +2234,8 @@ func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName stri
 		return []string{put("searchable", fmt.Sprintf(`{"tokenization":%q}`, tok))}
 	case ReindexTypeEnableFilterable:
 		return []string{put("filterable", "{}")}
+	case ReindexTypeEnableRangeable:
+		return []string{put("rangeFilters", "{}")}
 	case ReindexTypeChangeAlgorithm:
 		return []string{put("searchable", `{"algorithm":"blockmax"}`)}
 	case ReindexTypeChangeTokenization:
@@ -2331,11 +2366,13 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 		return []string{"searchable"}
 	case ReindexTypeEnableFilterable:
 		return []string{"filterable"}
+	case ReindexTypeEnableRangeable:
+		return []string{"rangeable"}
 	case ReindexTypeChangeAlgorithm:
 		return []string{"searchable"}
 	case ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		ReindexTypeRepairRangeable:
 		// Format-only migrations. Returning nil short-circuits
 		// LocalCallbacksDone's recovery check — they don't go through
 		// the swap barrier so there's nothing to recover at this layer.
@@ -2389,7 +2426,8 @@ func hasUntidiedTracker(scope migrationDirScope) bool {
 // completes a semantic migration. For change-tokenization the schema's
 // Tokenization is set to the target; for enable-filterable the per-property
 // IndexFilterable flag is set to true; for enable-searchable the
-// IndexSearchable flag is set to true and Tokenization to the target.
+// IndexSearchable flag is set to true and Tokenization to the target; for
+// enable-rangeable the IndexRangeFilters flag is set to true.
 //
 // applyPerPropertySchemaUpdate is idempotent at the mutator level (returns
 // apply=false when the value already matches) so multiple nodes firing
@@ -2448,6 +2486,25 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// Missing properties are tolerated for multi-property enable-*:
 		// a dropped property is the same outcome we'd want.
 		logger.Info("reindex provider: enable-filterable cutover committed")
+		return nil
+
+	case ReindexTypeEnableRangeable:
+		trueVal := true
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+			[]string{api.PropertyFieldIndexRangeFilters},
+			func(prop *models.Property) bool {
+				if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+					return false
+				}
+				prop.IndexRangeFilters = &trueVal
+				return true
+			})
+		if err != nil {
+			return fmt.Errorf("flip indexRangeFilters: %w", err)
+		}
+		// Missing properties are tolerated for the same reason as
+		// enable-filterable: a dropped property needs no index.
+		logger.Info("reindex provider: enable-rangeable cutover committed")
 		return nil
 
 	case ReindexTypeEnableSearchable:
@@ -2566,13 +2623,14 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 
 // IsSemanticMigration returns true for migration types that change query
 // behavior and therefore require the cross-replica swap barrier + cluster-
-// wide schema flip after every node has acknowledged. enable-rangeable is
-// intentionally NOT semantic — predates the barrier family.
+// wide schema flip after every node has acknowledged. repair-* stays out:
+// its flag is already true at submit, so there is no cutover to coordinate.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||
 		mt == ReindexTypeEnableFilterable ||
 		mt == ReindexTypeEnableSearchable ||
+		mt == ReindexTypeEnableRangeable ||
 		mt == ReindexTypeChangeAlgorithm
 }
 
@@ -2585,13 +2643,18 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeChangeTokenizationFilterable
 }
 
-// maybeWirePerPropOverlaySet installs the per-prop onPropSwapped hook
-// on every task of a tokenization-changing migration so the per-shard
-// tokenization overlay is SET atomically with each property's
-// bucket-pointer flip, inside the swap's Phase 2a tight loop. Returns
-// true iff the hook was wired (i.e. this is a tokenization-changing
-// migration with a non-empty target), so the caller can match
-// [maybeClearTokenizationOverlayOnAllFailed]'s clear decision.
+// maybeWirePerPropOverlaySet installs the per-prop onPropSwapped hook on
+// every task of a migration that needs a per-shard overlay, so the overlay
+// is SET atomically with each property's bucket-pointer flip inside the
+// swap's Phase 2a tight loop. Returns true iff a hook was wired, so the
+// caller can match [maybeClearOverlayOnAllFailed]'s clear decision.
+//
+// Two migration families need one, for opposite reasons. A
+// tokenization-changing migration needs the QUERY path to tokenize input
+// against the freshly swapped bucket; enable-rangeable needs the WRITE
+// path to keep filling the freshly swapped bucket after the double-write
+// callbacks come down. Both windows close when the cluster-wide schema
+// flip lands on this node.
 //
 // Why per-prop, not once up front: RunSwapOnShard's disk-I/O preamble
 // (MkdirAll, sentinel stats, prop read) runs between the loop start and
@@ -2604,13 +2667,22 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 	if shard == nil || payload == nil {
 		return false
 	}
-	if !IsTokenizationChangingMigration(payload.MigrationType) {
+	switch {
+	case IsTokenizationChangingMigration(payload.MigrationType):
+		if payload.TargetTokenization == "" {
+			return false
+		}
+		wireTokenizationOverlaySet(shard, payload.TargetTokenization, tasks)
+		return true
+	case payload.MigrationType == ReindexTypeEnableRangeable:
+		wireRangeableWriteOverlaySet(shard, tasks)
+		return true
+	default:
 		return false
 	}
-	if payload.TargetTokenization == "" {
-		return false
-	}
-	target := payload.TargetTokenization
+}
+
+func wireTokenizationOverlaySet(shard *Shard, target string, tasks []*ShardReindexTaskGeneric) {
 	for _, task := range tasks {
 		if task == nil {
 			continue
@@ -2630,16 +2702,29 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 				})
 		}
 	}
-	return true
 }
 
-// maybeClearTokenizationOverlayOnAllFailed is the defensive CLEAR
-// hook — called by [OnGroupCompleted] AFTER the per-task swap loop
-// on a shard. It clears the per-shard tokenization overlay iff (a)
-// the per-prop overlay hook was wired by
-// [maybeWirePerPropOverlaySet] (the `wasSet` argument) AND
-// (b) every per-task swap failed before flipping its bucket pointer
-// (the `anySwapped` argument is false).
+// wireRangeableWriteOverlaySet needs no swapPropAtomic counterpart: the
+// write path reads the overlay and resolves the bucket by name afterwards,
+// so it cannot observe a mixed pair, and the double-write callbacks stay
+// armed until runtimeSwap returns — later than every flip in the loop.
+func wireRangeableWriteOverlaySet(shard *Shard, tasks []*ShardReindexTaskGeneric) {
+	for _, task := range tasks {
+		if task == nil {
+			continue
+		}
+		task.onPropSwapped = func(propName string) {
+			shard.SetRangeableWriteOverlay(propName)
+		}
+	}
+}
+
+// maybeClearOverlayOnAllFailed is the defensive CLEAR hook — called by
+// [OnGroupCompleted] AFTER the per-task swap loop on a shard. It clears the
+// per-shard overlay iff (a) the per-prop overlay hook was wired by
+// [maybeWirePerPropOverlaySet] (the `wasSet` argument) AND (b) every
+// per-task swap failed before flipping its bucket pointer (the
+// `anySwapped` argument is false).
 //
 // Idempotent backstop: with per-prop wiring a fully-failed swap never
 // sets the overlay. It still matters if a flip succeeded but the
@@ -2656,7 +2741,7 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 //
 // Returns true iff the clear was actually applied (for tests +
 // observability).
-func maybeClearTokenizationOverlayOnAllFailed(
+func maybeClearOverlayOnAllFailed(
 	shard *Shard, payload *ReindexTaskPayload, wasSet, anySwapped bool,
 ) bool {
 	if shard == nil || payload == nil {
@@ -2665,10 +2750,23 @@ func maybeClearTokenizationOverlayOnAllFailed(
 	if !wasSet || anySwapped {
 		return false
 	}
-	for _, propName := range payload.Properties {
-		shard.ClearTokenizationOverlay(propName)
-	}
+	clearSwapWindowOverlays(shard, payload.MigrationType, payload.Properties)
 	return true
+}
+
+// clearSwapWindowOverlays drops whichever overlay
+// [maybeWirePerPropOverlaySet] wires for this migration type. Shared by the
+// all-failed path, the post-flip success path, and terminal cleanup so the
+// three cannot drift apart.
+func clearSwapWindowOverlays(shard *Shard, mt ReindexMigrationType, propNames []string) {
+	for _, propName := range propNames {
+		switch {
+		case IsTokenizationChangingMigration(mt):
+			shard.ClearTokenizationOverlay(propName)
+		case mt == ReindexTypeEnableRangeable:
+			shard.ClearRangeableWriteOverlay(propName)
+		}
+	}
 }
 
 // WaitForLocalTaskDrain blocks until the local goroutine processing the

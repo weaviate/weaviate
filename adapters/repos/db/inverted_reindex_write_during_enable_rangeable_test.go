@@ -22,10 +22,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -112,4 +114,166 @@ func TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost(t *testing.T) {
 	assert.NotEmptyf(t, ids,
 		"#298 enable-rangeable: object written during the reindex window is NOT under the target rangeable value "+
 			"%d — its ForceRangeable double-write was lost, so a range query misses it after the swap", concurrentValue)
+}
+
+// TestReindex_WriteAfterEnableRangeableSwap_NotLost pins the second half of
+// the window. RunSwapOnShard disarms the double-write callbacks on its way
+// out, and the cluster-wide IndexRangeFilters flip lands one RAFT round
+// after the LAST replica swaps — so on every replica there is a stretch
+// where the live schema still reads false. A write in it is acked and
+// durable in the objects bucket, but nothing rescans afterwards, so it
+// would be missing from the rangeable index for good.
+//
+// The per-shard write overlay is what closes it. The unwired row is the
+// mutation receipt: it is what this test looks like without the overlay.
+func TestReindex_WriteAfterEnableRangeableSwap_NotLost(t *testing.T) {
+	const propName = filterableToRangeablePropName
+	const numObjects = 25
+	// Outside the corpus so its posting list is unambiguously this write.
+	const postSwapValue = int64(5150)
+
+	for _, tc := range []struct {
+		name         string
+		wireOverlay  bool
+		wantIndexed  bool
+		explainEmpty string
+	}{
+		{
+			name:        "overlay wired: the write reaches the rangeable bucket",
+			wireOverlay: true,
+			wantIndexed: true,
+			explainEmpty: "object written after the swap is NOT under rangeable value %d — " +
+				"the double-write is gone and the schema flip has not landed, so the write was silently dropped from the index",
+		},
+		{
+			name:        "overlay not wired: the write is silently dropped",
+			wireOverlay: false,
+			wantIndexed: false,
+			explainEmpty: "without the overlay the write must be missing from rangeable value %d; " +
+				"finding it means some other path already covers the window and the overlay is not what this test claims",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "EnableRangeablePostSwap_" + uuid.NewString()[:8]
+			class := newNoLiveIndexRangeableTestClass(className)
+
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+
+			for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+
+			task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+			if tc.wireOverlay {
+				payload := &ReindexTaskPayload{
+					MigrationType: ReindexTypeEnableRangeable,
+					Properties:    []string{propName},
+				}
+				require.True(t, maybeWirePerPropOverlaySet(shard, payload,
+					[]*ShardReindexTaskGeneric{task}))
+			}
+
+			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+			require.NoError(t, task.RunSwapOnShard(ctx, shard))
+
+			// The live schema still says IndexRangeFilters=false here: the
+			// flip is the provider's job and has not run.
+			require.False(t, inverted.HasRangeableIndex(class.Properties[0]),
+				"the window this test covers only exists while the flag is still false")
+
+			require.NoError(t, shard.PutObject(ctx, &storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					ID:         strfmt.UUID(uuid.NewString()),
+					Class:      className,
+					Properties: map[string]interface{}{propName: postSwapValue},
+				},
+			}))
+
+			rangeBucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
+			require.NotNil(t, rangeBucket, "post-swap rangeable bucket must exist")
+			require.NotEmptyf(t, readRangeableIDs(t, rangeBucket, 0),
+				"positive control: the backfilled corpus (value 0) must be present, else the assertion below proves nothing")
+
+			ids := readRangeableIDs(t, rangeBucket, postSwapValue)
+			if tc.wantIndexed {
+				assert.NotEmptyf(t, ids, tc.explainEmpty, postSwapValue)
+			} else {
+				assert.Emptyf(t, ids, tc.explainEmpty, postSwapValue)
+			}
+		})
+	}
+}
+
+// TestEnableRangeable_CreatesTheBucketsTheCutoverNeeds pins that a property
+// whose only index is the one being created can still be written to
+// afterwards. Shard init creates the null-state and property-length buckets
+// only for a property that already carries an inverted index, and nothing
+// creates them when a flag flips, so a numeric property created with
+// IndexFilterable=false had neither — and the first write after the cutover
+// failed on the missing bucket.
+func TestEnableRangeable_CreatesTheBucketsTheCutoverNeeds(t *testing.T) {
+	ctx := testCtx()
+	const propName = filterableToRangeablePropName
+
+	className := "EnableRangeableBuckets_" + uuid.NewString()[:8]
+	class := newNoLiveIndexRangeableTestClass(className)
+	require.True(t, class.InvertedIndexConfig.IndexNullState,
+		"the fixture must ask for null-state indexing, else there is nothing to create")
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	for _, obj := range makeFilterableToRangeableTestObjects(t, 5, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+	require.NoError(t, task.RunSwapOnShard(ctx, shard))
+
+	// Stand in for the cluster-wide flip: the live schema now carries the
+	// flag, so the analyzer emits the property on every ordinary write.
+	trueVal := true
+	shard.index.getSchema.ReadOnlyClass(className).Properties[0].IndexRangeFilters = &trueVal
+
+	assert.NoError(t, shard.PutObject(ctx, &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:         strfmt.UUID(uuid.NewString()),
+			Class:      className,
+			Properties: map[string]interface{}{propName: int64(7)},
+		},
+	}), "writes after the cutover must not fail on a bucket the migration never created")
+}
+
+// TestRangeableWriteOverlay_ClearsOnceTheFlipLands pins the overlay's exit:
+// once the live schema carries the flag the entry is redundant, so the write
+// path drops it rather than paying for it on every object.
+func TestRangeableWriteOverlay_ClearsOnceTheFlipLands(t *testing.T) {
+	trueVal := true
+	props := []*models.Property{{
+		Name:     "price",
+		DataType: schema.DataTypeInt.PropString(),
+	}}
+
+	s := &Shard{}
+	s.SetRangeableWriteOverlay("price")
+	require.Equal(t, map[string]inverted.PropertyOverlay{"price": {ForceRangeable: true}},
+		s.writeAnalyzerOverlay(props),
+		"flag still false: the overlay must force the write into the rangeable bucket")
+
+	props[0].IndexRangeFilters = &trueVal
+	assert.Nil(t, s.writeAnalyzerOverlay(props),
+		"flag now live: the overlay adds nothing and must not be projected")
+	assert.Nil(t, s.SnapshotRangeableWriteOverlay([]string{"price"}),
+		"the redundant entry must be dropped, not re-evaluated on every write")
 }

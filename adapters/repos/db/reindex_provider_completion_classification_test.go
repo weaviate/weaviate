@@ -111,6 +111,35 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("enable-rangeable flips from here, not from the first shard to swap", func(t *testing.T) {
+		// Reaching the rangeable arm at all is the claim: before
+		// enable-rangeable became semantic this fell through to the
+		// "unexpected semantic migration type" default. A missing property
+		// is tolerated like the other enable-* types; an already-true flag
+		// is skipped, so N nodes firing produce at most one RAFT commit.
+		trueVal := true
+		for _, tc := range []struct {
+			name  string
+			props []*models.Property
+		}{
+			{name: "property gone", props: nil},
+			{
+				name:  "flag already true",
+				props: []*models.Property{{Name: "price", IndexRangeFilters: &trueVal}},
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				p := newClassificationProvider(&models.Class{Class: "Docs", Properties: tc.props})
+				payload := &ReindexTaskPayload{
+					MigrationType: ReindexTypeEnableRangeable,
+					Collection:    "Docs",
+					Properties:    []string{"price"},
+				}
+				require.NoError(t, p.flipSemanticMigrationSchema(ctx, payload, logger))
+			})
+		}
+	})
+
 	t.Run("enable-searchable tolerates a missing property", func(t *testing.T) {
 		p := newClassificationProvider(&models.Class{Class: "Docs"})
 		payload := &ReindexTaskPayload{
