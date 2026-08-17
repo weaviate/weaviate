@@ -55,7 +55,8 @@ func MigrationRemedy(collection string) string {
 			`To stop it instead, that same call names the property and the index type (one of %s) `+
 			`still migrating, and %s cancels that one. A cancel is accepted only while the task is `+
 			`STARTED: it answers 409 in a coordination phase, and again for a status this node `+
-			`cannot classify, whose task has to terminate on the nodes that do recognize it.`,
+			`cannot classify, whose task has to terminate on the nodes that do recognize it. `+
+			`A task whose payload this build cannot read at all is reported by neither call, and still blocks: it clears when the nodes that can read it finish it.`,
 		IndexesRoute(collection),
 		indexTypeSegments,
 		CancelRoute(collection, cancelPropertySegment, cancelIndexTypeSegment),

@@ -58,6 +58,8 @@ func TestMigrationRemedy(t *testing.T) {
 		"the index-type segment must name the values the API accepts")
 	assert.Contains(t, remedy, "accepted only while the task is STARTED")
 	assert.Contains(t, remedy, "409")
+	assert.Contains(t, remedy, "reported by neither call, and still blocks",
+		"a record the gate blocks on but this build cannot fully decode is skipped by both routes named here, so the refusal has to say so")
 
 	assert.NotContains(t, remedy, "every stage")
 	assert.NotContains(t, remedy, "at any stage")
