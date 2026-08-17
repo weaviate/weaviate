@@ -355,7 +355,6 @@ type Config struct {
 
 type MapToBlockamaxConfig struct {
 	SwapBuckets                bool                     `json:"swap_buckets" yaml:"swap_buckets"`
-	UnswapBuckets              bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
 	TidyBuckets                bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
 	ReloadShards               bool                     `json:"reload_shards" yaml:"reload_shards"`
 	Rollback                   bool                     `json:"rollback" yaml:"rollback"`

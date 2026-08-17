@@ -388,13 +388,6 @@ func (r *shardReindexerV3RecoveryOnly) registerTask(t *ShardReindexTaskGeneric) 
 	r.tasks = append(r.tasks, t)
 }
 
-func (r *shardReindexerV3RecoveryOnly) RunBeforeLsmInit(_ context.Context, _ *Shard) error {
-	// Intentionally a no-op. The DTM's OnGroupCompleted is the
-	// authoritative path for completing the swap; nothing at shard
-	// init should race with it.
-	return nil
-}
-
 func (r *shardReindexerV3RecoveryOnly) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
 	if len(r.tasks) == 0 {
 		return nil

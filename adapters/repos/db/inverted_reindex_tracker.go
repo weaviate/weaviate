@@ -50,10 +50,8 @@ type reindexTracker interface {
 
 	IsSwapped() bool
 	markSwapped() error
-	unmarkSwapped() error
 	IsSwappedProp(propName string) bool
 	markSwappedProp(propName string) error
-	unmarkSwappedProp(propName string) error
 
 	IsTidied() bool
 	markTidied() error
@@ -64,9 +62,6 @@ type reindexTracker interface {
 
 	IsPaused() bool
 	IsRollback() bool
-	IsReset() bool
-
-	reset() error
 
 	checkOverrides(logger logrus.FieldLogger, config *reindexTaskConfig)
 }
@@ -88,7 +83,6 @@ func NewFileReindexTracker(lsmPath, migrationDirName string, keyParser indexKeyP
 			filenameTidied:     "tidied.mig",
 			filenameProperties: "properties.mig",
 			filenameRollback:   "rollback.mig",
-			filenameReset:      "reset.mig",
 			filenamePaused:     "paused.mig",
 			filenameOverrides:  "overrides.mig",
 			migrationPath:      filepath.Join(lsmPath, ".migrations", migrationDirName),
@@ -118,7 +112,6 @@ type fileReindexTrackerConfig struct {
 	filenameTidied     string
 	filenameProperties string
 	filenameRollback   string
-	filenameReset      string
 	filenamePaused     string
 	filenameOverrides  string
 	migrationPath      string
@@ -404,20 +397,12 @@ func (t *fileReindexTracker) markSwappedProp(propName string) error {
 	return t.createFile(t.config.filenameSwapped+"."+propName, []byte(t.encodeTimeNow()))
 }
 
-func (t *fileReindexTracker) unmarkSwappedProp(propName string) error {
-	return t.removeFile(t.config.filenameSwapped + "." + propName)
-}
-
 func (t *fileReindexTracker) IsSwapped() bool {
 	return t.fileExists(t.config.filenameSwapped)
 }
 
 func (t *fileReindexTracker) markSwapped() error {
 	return t.createFile(t.config.filenameSwapped, []byte(t.encodeTimeNow()))
-}
-
-func (t *fileReindexTracker) unmarkSwapped() error {
-	return t.removeFile(t.config.filenameSwapped)
 }
 
 func (t *fileReindexTracker) getSwapped() (time.Time, error) {
@@ -555,14 +540,6 @@ func (t *fileReindexTracker) GetProps() ([]string, error) {
 		return []string{}, nil
 	}
 	return strings.Split(trimmed, ","), nil
-}
-
-func (t *fileReindexTracker) IsReset() bool {
-	return t.fileExists(t.config.filenameReset)
-}
-
-func (t *fileReindexTracker) reset() error {
-	return os.RemoveAll(t.config.migrationPath)
 }
 
 func (t *fileReindexTracker) IsRollback() bool {
@@ -727,12 +704,6 @@ func (t *fileReindexTracker) checkOverrides(logger logrus.FieldLogger, config *r
 		}).Info("processing override")
 
 		switch key {
-		case "swapBuckets":
-			config.swapBuckets = entcfg.Enabled(value)
-		case "unswapBuckets":
-			config.unswapBuckets = entcfg.Enabled(value)
-		case "tidyBuckets":
-			config.tidyBuckets = entcfg.Enabled(value)
 		case "rollback":
 			config.rollback = entcfg.Enabled(value)
 		case "conditionalStart":

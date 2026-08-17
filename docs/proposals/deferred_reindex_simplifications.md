@@ -5,27 +5,12 @@ worthwhile but that I deliberately did NOT apply autonomously on
 branch `runtime-reindex-wip`. Each touches either a crash-safety path
 or the hottest write hook, and warrants a human reviewer in the loop.
 
-## 1. Unify `swapIngestAndBackupBuckets` and `unswapIngestAndBackupBuckets`
+## 1. Unify the two directory-rename helpers — no longer applicable
 
-**File:** `adapters/repos/db/inverted_reindex_task_generic.go` (~lines 1125–1223)
-
-**Current shape.** Two ~50-line mirror-image methods:
-- `swapIngestAndBackupBuckets`: `main → backup`, `ingest → main`, `markSwappedProp`.
-- `unswapIngestAndBackupBuckets`: `main → ingest`, `backup → main`, `unmarkSwappedProp`, guarded by inverted `IsSwappedProp` checks.
-
-**Proposed.** A `renameProps(ctx, shard, props, direction)` helper parameterized on three rename triples and a mark/unmark fn. Saves ~50 lines.
-
-**Why deferred.** Rename order matters for crash recovery. The
-`recoverRuntimeSwapBuckets` switch reads `mainExists` / `backupExists`
-to decide which recovery recipe to run, and that decision depends on
-the exact rename sequence each direction performs. A reorder during
-refactor would silently change which recovery branch fires on a
-post-crash startup.
-
-**Risk gating.** Needs a reviewer who understands the on-disk
-state-transition diagram to sign off, plus a crash-during-swap
-acceptance test that exercises every sentinel boundary in both
-directions.
+**Status: obsolete.** Both methods this item proposed to unify were
+deleted along with the unreachable `OnBeforeLsmInit`, their only
+caller. There is nothing left to unify. `recoverRuntimeSwapBuckets`
+remains and still owns the on-disk rename recipes.
 
 ## 2. Share Add/Delete callback boilerplate via `withPropBucket`
 
@@ -57,14 +42,14 @@ confirm no allocation regression in the hot path.
 
 **Current shape.** Two methods, near-identical bodies. `readPropsToReindex`
 returns `[]string{}` if no props saved; `getPropsToReindex` instead calls
-`findPropsToReindex` + saves. Called inconsistently across the file
-(`OnBeforeLsmInit` uses `read`, `OnAfterLsmInit` uses `get`).
+`findPropsToReindex` + saves. Called inconsistently across the file (the
+per-shard run hooks use `read`, `OnAfterLsmInit` uses `get`).
 
 **Proposed.** One method with an explicit `discoverAndSave bool` arg.
 
 **Why deferred.** The two callers serve materially different shapes: the
-`read` callers don't have a `shard` handy (they run before LSM init)
-and don't want one; the `get` caller has the shard and wants discovery.
+`read` callers only want the props that were already recorded and must
+not discover new ones; the `get` caller wants discovery.
 A bool-parameterized unified method forces every `read` caller to
 either invent a `shard` or accept a `nil` parameter that the helper has
 to defensively check. The simplification trades clarity for a marginal
