@@ -305,9 +305,8 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 			continue
 		}
 		indexDir := indexEntry.Name()
-		// Scope bounds what this sweep classifies and destroys. Clearing a stale
-		// quarantine sentinel stays global: a stranded one turns the next
-		// classification into a first-sight destructive cleanup.
+		// Out-of-scope indexes are still walked: only classification and destruction
+		// are scoped, not the clearing of a stale sentinel (see the godoc for why).
 		inScope := len(scoped) == 0 || scoped[indexDir]
 		indexPath := filepath.Join(rootPath, indexDir)
 		shardEntries, shardErr := os.ReadDir(indexPath)
