@@ -235,6 +235,11 @@ func TestReindex_WriteAfterEnableRangeableSwap_NotLost(t *testing.T) {
 // journey that produces the pair; readiness is only ever written by
 // PreReindexHook (false), OnMigrationComplete and the post-restart seed
 // (true), and the terminal transition (false).
+//
+// Several journeys land on the same pair, deliberately: what separates a
+// restart inside the window from a cancel after the swap is whether the
+// seed runs, not what the predicate then sees. That separation is pinned
+// in TestSeedRangeableReadinessAfterRestart.
 func TestForcedRangeableProps_StateWalk(t *testing.T) {
 	const propName = "price"
 	trueVal, falseVal := true, false
