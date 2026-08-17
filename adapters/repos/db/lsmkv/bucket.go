@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset/keydoccolumn"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -90,6 +91,12 @@ type Bucket struct {
 	flushing       memtable
 	disk           *SegmentGroup
 	logger         logrus.FieldLogger
+
+	// buildKeyDocColumn requests a resident key/doc column over this bucket's
+	// segments; the segment group owns it — and names it keyDocColumn — as with
+	// the rangeable in-memory representation.
+	buildKeyDocColumn bool
+	docIDCountGetter  roaringset.DocIDCountGetterFunc
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -439,6 +446,8 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 			cleanupInterval:              b.segmentsCleanupInterval,
 			enableChecksumValidation:     b.enableChecksumValidation,
 			keepSegmentsInMemory:         b.keepSegmentsInMemory,
+			buildKeyDocColumn:            b.buildKeyDocColumn,
+			docIDCountGetter:             b.docIDCountGetter,
 			MinMMapSize:                  b.minMMapSize,
 			bm25config:                   b.bm25Config,
 			lazyPropertyLengths:          b.lazyPropertyLengths,
@@ -613,6 +622,20 @@ func (b *Bucket) GetDesiredStrategy() string {
 
 func (b *Bucket) GetSecondaryIndices() uint16 {
 	return b.secondaryIndices
+}
+
+// KeyDocColumn returns the resident key/doc column over this bucket's data, or
+// nil if it has none — not configured, a build that declined, or a flush that
+// detached it. Lock-free.
+func (b *Bucket) KeyDocColumn() *keydoccolumn.Index {
+	return b.disk.keyDocColumn.Load()
+}
+
+// DetachKeyDocColumn drops the bucket's key/doc column; ContainsAny then uses
+// the standard fold. Call this when what the index was built over changed — a
+// property being retokenized, or segments spliced in behind it.
+func (b *Bucket) DetachKeyDocColumn() {
+	b.disk.dropKeyDocColumn()
 }
 
 func (b *Bucket) GetStatus() storagestate.Status {
@@ -794,14 +817,81 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 	beforeFlushLock := time.Now()
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+	b.debugSlowFlushLock(beforeFlushLock)
 
-	if duration := time.Since(beforeFlushLock); duration > 100*time.Millisecond {
-		b.logger.WithFields(logrus.Fields{
-			"duration": duration,
-			"action":   "lsm_bucket_get_acquire_flush_lock",
-		}).Debug("Waited more than 100ms to obtain a flush lock during get")
+	return b.consistentViewNoLock()
+}
+
+// RoaringSetConsistentView is a view of a roaring set bucket, carrying the state
+// of its key/doc column alongside the layers a fold would read.
+//
+// The column's state belongs to the view rather than being read when a query
+// gets round to it, so that the two agree: the flush path merges into the column
+// before the swap that drops a memtable, so with no swap possible between the
+// two being taken, every committed write is in one or the other and neither can
+// move relative to the other. Taken separately, a flush landing in between would
+// leave the column holding what the memtables no longer do.
+//
+// The general view has no such field, so buckets of other strategies pay
+// nothing for this.
+type RoaringSetConsistentView struct {
+	BucketConsistentView
+	// KeyDocColumnState is the column's state as of this view, zero when the bucket
+	// carries no column.
+	KeyDocColumnState keydoccolumn.State
+}
+
+// NarrowedRoaringSetView is a [RoaringSetConsistentView] whose empty active
+// memtable has been dropped, carrying the same column state the view took.
+//
+// The narrowing is on the view rather than in each reader because the column
+// path opens two readers over one view — the column's, and the fold's when the
+// column declines — and a write landing between them would otherwise leave the
+// two disagreeing about which memtables took part.
+type NarrowedRoaringSetView struct {
+	NarrowedConsistentView
+	// KeyDocColumnState is the column's state as of the view this was narrowed from,
+	// zero when the bucket carries no column.
+	KeyDocColumnState keydoccolumn.State
+}
+
+// WithoutEmptyActiveMemtable narrows this view as
+// [BucketConsistentView.WithoutEmptyActiveMemtable] does, carrying the column
+// state across.
+func (cv RoaringSetConsistentView) WithoutEmptyActiveMemtable() NarrowedRoaringSetView {
+	return NarrowedRoaringSetView{
+		NarrowedConsistentView: cv.BucketConsistentView.WithoutEmptyActiveMemtable(),
+		KeyDocColumnState:      cv.KeyDocColumnState,
 	}
+}
 
+// GetConsistentRoaringSetView is [Bucket.GetConsistentView] for a roaring set
+// bucket, taking the key/doc column's state under the same lock as the layers.
+//
+// Deliberately not GetConsistentView followed by a read of the column: that is
+// the pair of moments this exists to collapse.
+//
+// The strategy is not checked here. A bucket of another strategy carries no
+// column, so the state is zero and a reader over it declines — and the readers
+// that do refuse one say so where a caller has already started timing the query,
+// rather than before there is anything to annotate.
+func (b *Bucket) GetConsistentRoaringSetView() RoaringSetConsistentView {
+	beforeFlushLock := time.Now()
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+	b.debugSlowFlushLock(beforeFlushLock)
+
+	return RoaringSetConsistentView{
+		BucketConsistentView: b.consistentViewNoLock(),
+		KeyDocColumnState:    b.disk.keyDocColumn.Load().State(),
+	}
+}
+
+// consistentViewNoLock builds the view of what the bucket holds; caller must
+// hold flushLock. Holding it is what makes the memtables and the segments — and
+// anything a caller takes beside them under the same lock — one moment rather
+// than several.
+func (b *Bucket) consistentViewNoLock() BucketConsistentView {
 	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
 	return BucketConsistentView{
 		Active:   b.active,
@@ -809,6 +899,17 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 		Disk:     diskSegments,
 		release:  releaseDiskSegments,
 		Bucket:   b,
+	}
+}
+
+// debugSlowFlushLock records a wait past 100ms for a caller that has just taken
+// flushLock. At debug level, so it is off unless someone is looking.
+func (b *Bucket) debugSlowFlushLock(before time.Time) {
+	if duration := time.Since(before); duration > 100*time.Millisecond {
+		b.logger.WithFields(logrus.Fields{
+			"duration": duration,
+			"action":   "lsm_bucket_get_acquire_flush_lock",
+		}).Debug("Waited more than 100ms to obtain a flush lock during get")
 	}
 }
 
@@ -2312,6 +2413,28 @@ func (b *Bucket) addFlushedSegment(segmentPath string) error {
 	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return fmt.Errorf("precompute metadata: %w", err)
+	}
+
+	if b.strategy == StrategyRoaringSet {
+		// Before the swap, not inside it, and not after it. The memtable is sealed
+		// by now, so the index can read it without a copy; leaving it visible
+		// meanwhile means the flushed documents are briefly in the index and the
+		// memtable both, and a query applying both lands them once. After the swap
+		// there would be an instant with the memtable no longer visible and the
+		// index not yet holding it, and a query in that instant would answer
+		// without those documents — which is the one thing reading the column
+		// instead of the rows must never do. Walking every key a flush carried is
+		// also not work to hold flushLock for: it gates every read and every write
+		// on the bucket.
+		//
+		// b.flushing is read without it for the same reason it can be: this path
+		// is the only writer and flushAndSwitchMu serializes it, so the read is of
+		// a value this goroutine wrote itself.
+		if err := b.disk.mergeMemtableIntoKeyDocColumn(b.flushing); err != nil {
+			b.logger.WithField("action", "keydoccolumn_merge_memtable").
+				WithField("path", b.GetDir()).
+				Warnf("key/doc column detached, it could not absorb a flush: %v", err)
+		}
 	}
 
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {

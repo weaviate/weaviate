@@ -82,6 +82,9 @@ type memtable interface {
 	newCursorWithSecondaryIndex(pos int) innerCursorReplace
 	newCollectionCursor() innerCursorCollection
 	newRoaringSetCursor() roaringset.InnerCursor
+	// newSealedRoaringSetCursor reads without copying, for a memtable whose
+	// writers have drained. See [Memtable.newSealedRoaringSetCursor].
+	newSealedRoaringSetCursor() roaringset.InnerCursor
 	// roaringSetGetWindow reads a window of a sorted batch in one pass, stopping
 	// once it has copied budget bytes and reporting where it stopped and what it
 	// spent. Absence is the zero layer rather than lsmkv.NotFound, and on error

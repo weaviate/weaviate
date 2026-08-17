@@ -290,15 +290,33 @@ func (w *memtableWindow) recountCarried(winStart, winEnd int) {
 // each memtable's read lock separately too, so a write landing between the two
 // is in one layer and not the other. What differs is how wide the gap can be.
 type RoaringSetBatchReader struct {
-	bucket   *Bucket
+	// What the reader took from the view, resolved once.
+	roaringSetBatch
+	// The segments to fold through, which only this reader reads.
 	segments []Segment
+}
+
+// roaringSetBatch is one sorted batch being walked over a bucket's unflushed
+// memtables: which of them contribute, in which order, how a window over them
+// is sized and bounded, and how far the walk has got.
+//
+// Shared by the readers built on a view, so that what they see of the bucket
+// cannot drift apart. Which memtables contribute and in which order they are
+// replayed is subtle enough that a second implementation would be a second
+// chance to answer it differently, and two readers of one bucket answering
+// differently is a wrong result with nothing to report it.
+type roaringSetBatch struct {
+	// bucket is what the batch is read from, and what carries any resident
+	// column over it.
+	bucket *Bucket
 	// windows[:mtCount] are the memtables that contribute; an empty active
 	// memtable is already dropped here, so there is nothing to skip while
 	// reading.
 	windows [2]memtableWindow
 	mtCount int
 
-	// [winStart, winEnd) is the filled window around pos, the next key to serve.
+	// [winStart, winEnd) is the filled window around pos, the next key to walk
+	// to.
 	keys             inverted.SortedKeys
 	pos              int
 	winStart, winEnd int
@@ -307,7 +325,9 @@ type RoaringSetBatchReader struct {
 	windowSize  int
 	windowBytes int
 
-	// What the reader did, for the slow-query annotation. See Stats.
+	// What the reads over this batch did, for the slow-query annotation. Counted
+	// where the reads happen rather than by each reader, so a query says the same
+	// thing about the same work whichever reader answered it. See Stats.
 	fills         int
 	narrowedFills int
 	memtableReads int
@@ -364,17 +384,17 @@ func (s *RoaringSetBatchReaderStats) Add(other RoaringSetBatchReaderStats) {
 	s.Memtables = max(s.Memtables, other.Memtables)
 }
 
-// Stats reports what this reader did. Safe to call once the caller has stopped
-// calling Next.
-func (r *RoaringSetBatchReader) Stats() RoaringSetBatchReaderStats {
+// Stats reports what the reads over this batch did. Safe to call once the
+// caller has stopped walking it.
+func (b *roaringSetBatch) Stats() RoaringSetBatchReaderStats {
 	return RoaringSetBatchReaderStats{
-		Fills:         r.fills,
-		MemtableReads: r.memtableReads,
-		NarrowedFills: r.narrowedFills,
-		KeysServed:    r.pos,
-		BytesPeak:     r.bytesPeak,
-		BytesCopied:   r.bytesCopied,
-		Memtables:     r.mtCount,
+		Fills:         b.fills,
+		MemtableReads: b.memtableReads,
+		NarrowedFills: b.narrowedFills,
+		KeysServed:    b.pos,
+		BytesPeak:     b.bytesPeak,
+		BytesCopied:   b.bytesCopied,
+		Memtables:     b.mtCount,
 	}
 }
 
@@ -425,42 +445,56 @@ func NewRoaringSetBatchReader(
 	return newRoaringSetBatchReaderWithBounds(nv, keys, BatchReaderWindowKeys, BatchReaderWindowBytes)
 }
 
-// newRoaringSetBatchReaderWithBounds builds a reader with an explicit window
-// size and byte budget, so a test can exercise the window-size limit without
-// building rows fat enough to spend the production byte budget.
+// newRoaringSetBatch resolves a narrowed view for one batch with an explicit
+// window size and byte budget, so a test can exercise the window-size limit
+// without building rows fat enough to spend the production byte budget.
 //
-// It checks those bounds and not the strategy, which is the one check
-// [NewRoaringSetBatchReader] adds on top of it.
-func newRoaringSetBatchReaderWithBounds(
+// Every reader over a view starts here, which is what keeps them agreeing about
+// which memtables contribute and in which order.
+func newRoaringSetBatch(
 	nv NarrowedConsistentView, keys inverted.SortedKeys, window, budget int,
-) (*RoaringSetBatchReader, error) {
+) (roaringSetBatch, error) {
 	if window <= 0 {
-		return nil, fmt.Errorf("roaring set batch reader: window size must be positive, got %d", window)
+		return roaringSetBatch{}, fmt.Errorf("roaring set batch: window size must be positive, got %d", window)
 	}
 	if budget <= 0 {
 		// The share below clamps to one byte, so a window ends after its
 		// always-taken first key: correct, but a fill per key and no windowing.
-		return nil, fmt.Errorf("roaring set batch reader: byte budget must be positive, got %d", budget)
+		return roaringSetBatch{}, fmt.Errorf("roaring set batch: byte budget must be positive, got %d", budget)
 	}
 	// The view arrives already narrowed, so every reader opened on it sees the
 	// same memtables — see [BucketConsistentView.WithoutEmptyActiveMemtable].
 	mts, count := nv.memtablesOldestFirst()
 
-	r := &RoaringSetBatchReader{
+	b := roaringSetBatch{
 		bucket:      nv.view.Bucket,
-		segments:    nv.view.Disk,
 		keys:        keys,
 		windowSize:  window,
 		windowBytes: budget,
 		mtCount:     count,
 	}
 	for mt := 0; mt < count; mt++ {
-		r.windows[mt].mt = mts[mt]
+		b.windows[mt].mt = mts[mt]
 	}
-	return r, nil
+	return b, nil
 }
 
-func (r *RoaringSetBatchReader) Len() int { return r.keys.Len() }
+// newRoaringSetBatchReaderWithBounds builds the fold's reader over that batch,
+// adding the segments only it reads.
+//
+// It checks the batch's bounds and not the strategy, which is the one check
+// [NewRoaringSetBatchReader] adds on top of it.
+func newRoaringSetBatchReaderWithBounds(
+	nv NarrowedConsistentView, keys inverted.SortedKeys, window, budget int,
+) (*RoaringSetBatchReader, error) {
+	batch, err := newRoaringSetBatch(nv, keys, window, budget)
+	if err != nil {
+		return nil, err
+	}
+	return &RoaringSetBatchReader{roaringSetBatch: batch, segments: nv.view.Disk}, nil
+}
+
+func (b *roaringSetBatch) Len() int { return b.keys.Len() }
 
 // Next reads the batch's next row under the held view. On error it returns no
 // release; the row it does return is the caller's to mutate, as RoaringSetGet's
@@ -529,7 +563,7 @@ func (r *RoaringSetBatchReader) Next(mergeConc int) (*sroar.Bitmap, func(), erro
 // rebase allocates or clears the tail it vacates, a read clears the range it is
 // given, dropWindow clears what a failed read left behind, and Next clears each
 // slot as it serves it.
-func (r *RoaringSetBatchReader) fillWindow() error {
+func (r *roaringSetBatch) fillWindow() error {
 	prevStart := r.winStart
 	r.winStart = r.pos
 	// Opened at its widest; each memtable may narrow it below, so winEnd is only
@@ -605,7 +639,7 @@ func (r *RoaringSetBatchReader) fillWindow() error {
 // A fill that failed part way is still counted, or MemtableReads could exceed
 // Fills times Memtables. It is not narrowed, though: it ended on the failure
 // rather than on either limit.
-func (r *RoaringSetBatchReader) recordFill(narrowed bool, carriedIn, copied int) {
+func (r *roaringSetBatch) recordFill(narrowed bool, carriedIn, copied int) {
 	r.fills++
 	if narrowed {
 		r.narrowedFills++
@@ -617,7 +651,7 @@ func (r *RoaringSetBatchReader) recordFill(narrowed bool, carriedIn, copied int)
 // dropWindow makes the next Next refill from scratch. Kept rows go with it:
 // a failed read can leave a hole in them, which would otherwise be served as
 // absence rather than re-read.
-func (r *RoaringSetBatchReader) dropWindow() {
+func (r *roaringSetBatch) dropWindow() {
 	r.winStart, r.winEnd = r.pos, r.pos
 	for mt := 0; mt < r.mtCount; mt++ {
 		w := &r.windows[mt]

@@ -114,6 +114,7 @@ type Metrics struct {
 	objectCount                  prometheus.Gauge
 	memtableDurations            prometheus.ObserverVec
 	memtableSize                 *prometheus.GaugeVec
+	keyDocColumnSize             prometheus.Gauge
 	IOWrite                      *prometheus.SummaryVec
 	IORead                       *prometheus.SummaryVec
 	LazySegmentUnLoad            prometheus.Gauge
@@ -725,6 +726,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"class_name": className,
 			"shard_name": shardName,
 		}),
+		keyDocColumnSize:  promMetrics.LSMKeyDocColumnSize,
 		IOWrite:           promMetrics.FileIOWrites,
 		IORead:            promMetrics.FileIOReads,
 		LazySegmentLoad:   lazySegmentLoad,
@@ -1063,6 +1065,26 @@ func (m *Metrics) ReadObserver(op string) BytesReadObserver {
 	})
 
 	return func(n int64, nanoseconds int64) { curried.Observe(float64(n)) }
+}
+
+// AddKeyDocColumnSize moves the node's key/doc column total by what a bucket's
+// column has gained or lost since that bucket last said anything. Bytes, and
+// signed: a bucket that loses its column subtracts what it was holding.
+//
+// The three parts are passed separately and reported as one number. They are
+// what an operator would want apart — the column itself, the cost of values
+// that are not unique, and the flushes not yet folded in, the last two being
+// the ones that grow between flattenings — so taking them here is what makes
+// splitting the gauge later a change to this function alone.
+//
+// One figure for the node rather than one per bucket: a per-bucket gauge is one
+// series per shard, which is tens of thousands on a node of many tenants.
+// Which property holds it is a question for the logs.
+func (m *Metrics) AddKeyDocColumnSize(base, overflow, layers int64) {
+	if m == nil {
+		return
+	}
+	m.keyDocColumnSize.Add(float64(base + overflow + layers))
 }
 
 func (m *Metrics) MemtableSizeSetter(path, strategy string) Setter {
