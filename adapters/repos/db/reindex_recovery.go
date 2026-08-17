@@ -301,11 +301,10 @@ func buildRecoveryTasks(
 // NewShardReindexerV3FromRecovered wires the recovered tasks into a
 // fresh recovery-only [ShardReindexerV3]. The reindexer only fires
 // [OnAfterLsmInit] — the iteration loop ([OnAfterLsmInitAsync]) is the
-// DTM provider's job, and [OnBeforeLsmInit]'s restart-based merge/swap
-// is intentionally skipped so the DTM's OnGroupCompleted is the single
-// source of truth for the swap step. This keeps recovery's
-// responsibility narrow: re-install the double-write callbacks before
-// any writes arrive.
+// DTM provider's job. The swap is left entirely to the DTM's
+// OnGroupCompleted, so there is a single source of truth for it. This
+// keeps recovery's responsibility narrow: re-install the double-write
+// callbacks before any writes arrive.
 func NewShardReindexerV3FromRecovered(
 	recovered []RecoveredReindex,
 	logger logrus.FieldLogger,
@@ -391,8 +390,8 @@ func (r *shardReindexerV3RecoveryOnly) registerTask(t *ShardReindexTaskGeneric) 
 
 func (r *shardReindexerV3RecoveryOnly) RunBeforeLsmInit(_ context.Context, _ *Shard) error {
 	// Intentionally a no-op. The DTM's OnGroupCompleted is the
-	// authoritative path for completing the swap; we don't want the
-	// restart-based merge/swap in OnBeforeLsmInit to race with it.
+	// authoritative path for completing the swap; nothing at shard
+	// init should race with it.
 	return nil
 }
 

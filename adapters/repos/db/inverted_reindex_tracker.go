@@ -344,8 +344,8 @@ func (t *fileReindexTracker) unmarkReindexed() error {
 // keep the "next iteration runs from scratch" invariant.
 //
 // MUST NOT run concurrently with any markProgress emitter. Today this
-// holds because only the torn-state guard in OnBeforeLsmInit / OnAfterLsmInit
-// calls it, and both run before the async reindex loop spawns.
+// holds because only the torn-state guard in OnAfterLsmInit calls it,
+// and that runs before the async reindex loop spawns.
 func (t *fileReindexTracker) clearProgressFiles() error {
 	prefix := t.config.filenameProgress + "."
 	expectedLen := len(prefix) + 9 // matches findLastProgressFile
