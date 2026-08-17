@@ -5815,7 +5815,7 @@ func init() {
     },
     "/schema/{className}/indexes": {
       "get": {
-        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
+        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status. The response reflects the state of the node that answered, which may briefly omit the entry for a just-submitted migration or still report its pre-migration state.",
         "tags": [
           "schema"
         ],
@@ -18133,7 +18133,7 @@ func init() {
     },
     "/schema/{className}/indexes": {
       "get": {
-        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
+        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status. The response reflects the state of the node that answered, which may briefly omit the entry for a just-submitted migration or still report its pre-migration state.",
         "tags": [
           "schema"
         ],
