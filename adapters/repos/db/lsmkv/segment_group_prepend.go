@@ -60,7 +60,8 @@ var ErrPrependWouldDesyncInMemoryRep = errors.New(
 //	Replace                          -> rejected (countNetAdditions)
 //	Inverted                         -> maintained (avgPropertyLengths, below)
 //	RoaringSetRange                  -> guarded (in-memory rep can't be spliced)
-//	RoaringSet/SetCollection/MapCollection -> no derived state to maintain
+//	RoaringSet                       -> guarded (key/doc column detached, below)
+//	SetCollection/MapCollection      -> no derived state to maintain
 func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
 	// Step 1: Validate strategy — Replace is not supported.
 	if sg.strategy == StrategyReplace {
@@ -123,6 +124,11 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 		cleanupCopiedFiles(sg.dir, copiedDBPaths)
 		return fmt.Errorf("prepend segments: init segments: %w", err)
 	}
+
+	// Detach the column, which would answer without the prepended documents. Here,
+	// after every step that can fail without touching the segments, so a failed
+	// prepend keeps its column.
+	sg.dropKeyDocColumn()
 
 	// Step 5: Atomic prepend under maintenanceLock.
 	func() {
