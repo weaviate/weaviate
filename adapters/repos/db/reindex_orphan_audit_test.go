@@ -967,10 +967,15 @@ func TestAuditOrphanReindexTrackers_ScopedToTheNamedCollections(t *testing.T) {
 
 	var asked []string
 	known := func(taskID string, _ uint64) bool { asked = append(asked, taskID); return false }
-	outcome, err := db.AuditOrphanReindexTrackers(ctx, known, logrus.New(), restored)
+	// Sampled from inside the walk: the audit releases on its way out, so reading the hold
+	// afterwards catches a leak but not a hold kept for the length of the sweep.
+	logger := logrus.New()
+	heldElsewhere := ReindexHoldNone
+	logger.AddHook(onEachLogLine(func() { heldElsewhere = max(heldElsewhere, db.reindexHolds.HoldFor(other)) }))
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, known, logger, restored)
 	require.NoError(t, err)
 	assert.Zero(t, outcome.OrphansFound, "the other collection's orphan is outside this sweep")
 	assert.Empty(t, asked, "and its trackers are never even classified")
 	assert.DirExists(t, filepath.Join(otherLSM, ".migrations", "searchable_retokenize_orphan_1"))
-	assert.Equal(t, ReindexHoldNone, db.reindexHolds.HoldFor(other))
+	assert.Equal(t, ReindexHoldNone, heldElsewhere, "and it is never held, not even for the walk")
 }
