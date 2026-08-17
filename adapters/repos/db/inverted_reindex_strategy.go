@@ -164,6 +164,8 @@ type MigrationStrategy interface {
 	//     OnTaskCompleted (after every shard's OnMigrationComplete);
 	//     for non-semantic, this hook may itself drive the flip but
 	//     must not assume it has already propagated to other replicas.
+	//     Whichever hook drives it, the flip must land before the task
+	//     reaches FINISHED; GET /v1/schema/{class}/indexes relies on that.
 	OnMigrationComplete(ctx context.Context, shard ShardLike) error
 }
 

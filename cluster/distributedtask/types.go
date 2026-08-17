@@ -370,6 +370,10 @@ type UnitAwareProvider interface {
 	// failure to fail the task immediately; a plain error is transient and
 	// retried up to a bounded count before failing. Errors on terminal-status
 	// invocations are best-effort and must not reopen the task (return nil).
+	//
+	// A schema flag flipped from here must land before the task reaches
+	// FINISHED: GET /v1/schema/{class}/indexes reads tasks and the class from
+	// one node's FSM and treats FINISHED as proof the flip applied.
 	OnTaskCompleted(task *Task) error
 }
 
