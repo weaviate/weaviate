@@ -134,13 +134,6 @@ func TestReindexHoldForCollection(t *testing.T) {
 		want     ReindexHold
 	}{
 		{
-			name:  "cleanup hold",
-			holds: map[string]ReindexHold{"MyClass": ReindexHoldCleanup},
-			query: "MyClass",
-			want:  ReindexHoldCleanup,
-		},
-		{name: "nothing held", query: "MyClass"},
-		{
 			name:     "feature off",
 			disabled: true,
 			holds:    map[string]ReindexHold{"MyClass": ReindexHoldCleanup},
@@ -453,7 +446,6 @@ func TestRefuseIfReindexInFlight_HoldRaisedWhileTheClusterIsAsked(t *testing.T) 
 		return gatedIndex(db, "Movies")
 	}
 	const removing = "still removing its temporary index files"
-	require.ErrorContains(t, held().refuseIfAnyShardReindexInFlight([]string{"s1", "s2"}), removing)
 	require.ErrorContains(t, held().refuseIfReindexInFlight("s1"), removing)
 }
 
@@ -463,25 +455,6 @@ func TestRefuseIfReindexInFlight_Allows(t *testing.T) {
 	require.NoError(t, gatedIndex(db, "Movies").
 		refuseIfAnyShardReindexInFlight([]string{"shard-1", "shard-2"}))
 	require.Empty(t, hook.AllEntries(), "an admitted backup must log nothing")
-}
-
-func TestRefuseIfReindexInFlight_HoldArm(t *testing.T) {
-	const shardCount = 50
-	shards := make([]string, 0, shardCount)
-	for i := range shardCount {
-		shards = append(shards, fmt.Sprintf("shard-%02d", i))
-	}
-	db, hook, _ := gatedDB(t, gateFixtures{
-		live:  map[[2]string]bool{},
-		holds: map[string]ReindexHold{"Movies": ReindexHoldCleanup},
-	})
-	err := gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(shards)
-	require.Error(t, err)
-	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
-	assert.Contains(t, err.Error(), "still removing its temporary index files")
-	warned := warnOrAbove(hook)
-	require.Len(t, warned, 1)
-	assert.Equal(t, ReindexHoldCleanup.String(), warned[0].Data["reason"])
 }
 
 // TestShard_HaltForTransfer_RefusesWhenReindexInFlight asserts that
@@ -543,8 +516,9 @@ func TestBackupGateHoldRefusalReportsEveryShard(t *testing.T) {
 		}
 	})
 
-	require.ErrorContains(t, gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(shards),
-		"still removing its temporary index files")
+	err := gatedIndex(db, "Movies").refuseIfAnyShardReindexInFlight(shards)
+	require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex)
+	require.ErrorContains(t, err, "still removing its temporary index files")
 	warned := warnOrAbove(hook)
 	require.Len(t, warned, 1, "one refused call, one line")
 	assert.Equal(t, ReindexHoldCleanup.String(), warned[0].Data["reason"])

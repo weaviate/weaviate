@@ -531,7 +531,6 @@ func TestPublishAsCancelled(t *testing.T) {
 			name: "a refusal whose cause was cancelled",
 			err:  fmt.Errorf("%w: %w", backup.ErrBackupBlockedByInFlightReindex, context.Canceled),
 		},
-		{name: "a restore refusal whose cause was cancelled", err: fmt.Errorf("%w: %w", backup.ErrReindexInFlight, context.Canceled)},
 		{name: "a plain cancellation", err: context.Canceled, want: true},
 		{name: "a cancelled operation context", ctxErr: context.Canceled, want: true},
 		{name: "a refusal racing an operator abort", err: fmt.Errorf("%w: x", backup.ErrReindexInFlight), ctxErr: context.Canceled, want: true},

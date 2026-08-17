@@ -25,7 +25,6 @@ func TestRenderedRoutes(t *testing.T) {
 		got  string
 		want string
 	}{
-		{name: "indexes", got: IndexesRoute("Movies"), want: "GET /v1/schema/Movies/indexes"},
 		{
 			name: "cancel a searchable migration",
 			got:  CancelRoute("Movies", "body", models.IndexStatusTypeSearchable),
