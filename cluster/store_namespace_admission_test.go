@@ -694,13 +694,17 @@ func TestApplyGate_GatedTypesIgnoreNamespaceState(t *testing.T) {
 }
 
 // applyUndrivableGatedTypes are the gated types this mock store cannot drive
-// through Apply, with what covers them instead. The RBAC and dynamic-user
-// managers are built over nil controllers here, so their arms panic rather than
-// apply.
+// through Apply, each naming the test that covers it instead. This store builds
+// its RBAC and dynamic-user managers over nil controllers, so those arms write
+// nothing here and no landed predicate can read an outcome back off them.
+//
+// A package name is not enough for a value here: it reads as covered whether or
+// not anything in that package asserts the property, which is how both RBAC
+// entries once pointed at a package that had no such test. Name the test.
 var applyUndrivableGatedTypes = map[api.ApplyRequest_Type]string{
-	api.ApplyRequest_TYPE_UPSERT_USER:              "cluster/dynusers",
-	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: "cluster/rbac",
-	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       "cluster/rbac",
+	api.ApplyRequest_TYPE_UPSERT_USER:              "cluster/dynusers.TestManager_CreateUser",
+	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: "cluster/rbac.TestUpsertRolesPermissionsIgnoresTheNamespace",
+	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       "cluster/rbac.TestAddRolesForUserIgnoresTheNamespace",
 }
 
 // TestApplyGate_CoversEveryGatedType fails when a gated type has no apply-side

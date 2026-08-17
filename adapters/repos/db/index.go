@@ -3395,8 +3395,13 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	}
 	defer i.exitRead()
 
-	// Above both load points: preventShutdown below loads a resident lazy shard
-	// even with ensureInit false, so a check further down would miss the reads.
+	// Above the shard-map read, not merely above the load points. preventShutdown
+	// below loads a resident lazy shard even with ensureInit false, so a check
+	// further down would miss those reads — and sitting above the lookup also
+	// refuses a shard that is already resident and loaded, which is what makes a
+	// suspend cut reads and writes rather than only materialization. Moving it
+	// below the map read, or gating it on a shard being lazy, quietly restores
+	// both.
 	if err := i.requireNamespaceAllowsShardLoad(caller); err != nil {
 		return nil, func() {}, err
 	}

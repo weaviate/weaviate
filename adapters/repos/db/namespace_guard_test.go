@@ -1180,13 +1180,15 @@ func TestMovementCannotStartWhileSuspended(t *testing.T) {
 // getOptInitLocalShard is the read/write request path, which has two load points
 // the load path does not cover: the ensureInit creation, and preventShutdown
 // loading a resident lazy shard even when ensureInit is false. The guard sits
-// above both.
+// above both, and above the shard-map read that precedes them.
 //
 // Each case is discriminating in its own way. Without a resident shard and with
 // ensureInit false the function otherwise returns no shard and no error, so a
 // refusal there is red if the guard moves into the ensureInit branch. With a
 // resident zero-value LazyLoadShard, reaching preventShutdown panics on Load, so
-// a namespace error rather than a panic is what proves the guard ran first.
+// a namespace error rather than a panic is what proves the guard ran first. With
+// a resident loaded shard there is no load left to refuse at all, so that case
+// is the one that pins the guard above the lookup.
 func TestGuardRequestPath(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
@@ -1212,6 +1214,22 @@ func TestGuardRequestPath(t *testing.T) {
 		assert.Nil(t, shard)
 		require.NotNil(t, release)
 		assert.False(t, lazy.loaded, "the resident shard must not have been loaded")
+	})
+
+	// The data-plane case: nothing here needs loading, so a refusal can only come
+	// from the guard sitting above the shard-map read. A zero-value Shard is
+	// enough because the guard answers before anything touches it. This is the
+	// case that goes red if the check is moved below the lookup, or gated on the
+	// resident shard being lazy — either of which would quietly let a suspended
+	// namespace keep serving reads off a shard it already holds open.
+	t.Run("a read refuses holding a resident loaded shard", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		idx.shards.Store("t1", &Shard{})
+
+		shard, release, err := idx.GetShard(ctx, "t1")
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+		assert.Nil(t, shard)
+		require.NotNil(t, release)
 	})
 
 	t.Run("a write refuses", func(t *testing.T) {
