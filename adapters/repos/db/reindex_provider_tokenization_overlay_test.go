@@ -107,11 +107,9 @@ func TestMaybeWirePerPropOverlaySet_MigrationsWithoutAnOverlay_NoOp(t *testing.T
 	}
 }
 
-// TestMaybeWirePerPropOverlaySet_EnableRangeable_WiresAndSets pins the
-// hand-off enable-rangeable relies on: from the moment a property's bucket
-// pointer flips, ordinary writes must keep reaching the rangeable bucket,
-// because the double-write callbacks come down at the end of runtimeSwap
-// and the cluster-wide flip lands later (weaviate/0-weaviate-issues#464).
+// TestMaybeWirePerPropOverlaySet_EnableRangeable_WiresAndSets pins that once
+// a property's bucket flips, writes must keep reaching the rangeable bucket
+// until the cluster-wide flip lands (weaviate/0-weaviate-issues#464).
 func TestMaybeWirePerPropOverlaySet_EnableRangeable_WiresAndSets(t *testing.T) {
 	s := &Shard{}
 	tasks := []*ShardReindexTaskGeneric{{}}

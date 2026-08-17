@@ -112,11 +112,9 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 	})
 
 	t.Run("enable-rangeable flips from here, not from the first shard to swap", func(t *testing.T) {
-		// Reaching the rangeable arm at all is the claim: before
-		// enable-rangeable became semantic this fell through to the
-		// "unexpected semantic migration type" default. A missing property
-		// is tolerated like the other enable-* types; an already-true flag
-		// is skipped, so N nodes firing produce at most one RAFT commit.
+		// A missing property is tolerated like the other enable-* types;
+		// an already-true flag is skipped, so N nodes firing produce at
+		// most one RAFT commit.
 		trueVal := true
 		for _, tc := range []struct {
 			name  string

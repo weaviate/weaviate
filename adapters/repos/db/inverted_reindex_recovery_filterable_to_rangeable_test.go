@@ -164,11 +164,10 @@ func filterableToRangeableFingerprint(t *testing.T, b *lsmkv.Bucket) map[uint64]
 	return out
 }
 
-// newFilterableToRangeableTask wraps a FilterableToRangeableStrategy in
-// the test infrastructure. Mirrors NewRuntimeFilterableToRangeableTask
-// (the production constructor in inverted_reindexer_filterable_to_rangeable.go)
-// but overrides OnMigrationComplete with a flag setter, so the baseline test
-// can assert the hook fired without a real shard-unwrap.
+// newFilterableToRangeableTask wraps a FilterableToRangeableStrategy for
+// tests, mirroring NewRuntimeFilterableToRangeableTask but overriding
+// OnMigrationComplete with a flag setter so the baseline test can assert
+// the hook fired without a real shard unwrap.
 func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName string) (*ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testFilterableToRangeableStrategyWrapper{

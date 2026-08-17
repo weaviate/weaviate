@@ -59,8 +59,8 @@ import (
 //
 //   - "Format-only" migrations rebuild a bucket whose schema flag is already
 //     true — repair-rangeable, repair-filterable, rebuild-searchable — so
-//     there is no cutover to coordinate. Each shard runs the full lifecycle
-//     independently via RunOnShard.
+//     nothing needs coordinating across shards. Each shard runs the full
+//     lifecycle independently via RunOnShard.
 type ReindexProvider struct {
 	mu       sync.Mutex
 	recorder distributedtask.TaskCompletionRecorder
@@ -1704,13 +1704,11 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 }
 
 // clearRangeableWriteOverlayOnTerminal drops the write overlay when an
-// enable-rangeable migration ends without its flip. A shard that swapped
-// before the task stopped would otherwise keep writing to a bucket the
-// schema does not know about, and would fail every write for the property
-// the moment an operator drops that bucket.
-//
-// The tokenization overlay is deliberately not cleared here — see
-// [maybeClearOverlayOnAllFailed] for why a partially swapped shard keeps it.
+// enable-rangeable migration ends without its cluster-wide flip. Left set,
+// a shard that already swapped keeps writing to a bucket the schema
+// doesn't know about, and fails every write once an operator drops it.
+// The tokenization overlay is deliberately untouched here; see
+// [maybeClearOverlayOnAllFailed].
 func (p *ReindexProvider) clearRangeableWriteOverlayOnTerminal(
 	payload *ReindexTaskPayload, logger logrus.FieldLogger,
 ) {
@@ -2624,7 +2622,7 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 // IsSemanticMigration returns true for migration types that change query
 // behavior and therefore require the cross-replica swap barrier + cluster-
 // wide schema flip after every node has acknowledged. repair-* stays out:
-// its flag is already true at submit, so there is no cutover to coordinate.
+// its flag is already true at submit, so there is nothing to coordinate.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||
@@ -2649,12 +2647,11 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 // swap's Phase 2a tight loop. Returns true iff a hook was wired, so the
 // caller can match [maybeClearOverlayOnAllFailed]'s clear decision.
 //
-// Two migration families need one, for opposite reasons. A
-// tokenization-changing migration needs the QUERY path to tokenize input
-// against the freshly swapped bucket; enable-rangeable needs the WRITE
-// path to keep filling the freshly swapped bucket after the double-write
-// callbacks come down. Both windows close when the cluster-wide schema
-// flip lands on this node.
+// Two families need one, for opposite reasons: tokenization-changing
+// migrations need the QUERY path to read the freshly swapped bucket;
+// enable-rangeable needs the WRITE path to keep filling it once the
+// double-write callbacks come down. Both windows close at the
+// cluster-wide schema flip.
 //
 // Why per-prop, not once up front: RunSwapOnShard's disk-I/O preamble
 // (MkdirAll, sentinel stats, prop read) runs between the loop start and

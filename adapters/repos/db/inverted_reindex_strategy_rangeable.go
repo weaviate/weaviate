@@ -179,14 +179,9 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 }
 
 // ensureNullStateAndLengthBuckets creates the null-state / property-length
-// buckets the migrated properties are about to need. A numeric property
-// created with IndexFilterable=false carries no inverted index at all, so
-// shard init skipped both buckets for it, and nothing creates them when a
-// flag later flips. The first write to reach the property once it has a
-// rangeable index would fail on the missing bucket.
-//
-// Best-effort and idempotent: a failure here is logged, and the write that
-// would have used the bucket reports it far more loudly than this line does.
+// buckets a property gains once it has an inverted index. Shard init skips
+// them for a property with none, and nothing creates them when a flag
+// later turns the index on; a missing bucket then fails the next write.
 func ensureNullStateAndLengthBuckets(ctx context.Context, shard *Shard, props []string) {
 	cfg := shard.index.invertedIndexConfig
 	if !cfg.IndexNullState && !cfg.IndexPropertyLength {
@@ -221,18 +216,11 @@ func ensureNullStateAndLengthBuckets(ctx context.Context, shard *Shard, props []
 	}
 }
 
-// AnalyzerOverlay forces IndexRangeFilters=true on the targeted properties
-// while the backfill iterator scans the objects bucket and while the
-// double-write callbacks mirror live writes. Until the cluster-wide flip in
-// [ReindexProvider.OnTaskCompleted], the analyzer would otherwise emit the
-// property with HasRangeableIndex=false (and skip it entirely via
-// HasAnyInvertedIndex when IndexFilterable is also false), leaving the new
-// rangeable bucket empty — the silent-FINISHED data-loss failure mode
-// pinned by the property-state matrix.
-//
-// This overlay ends with the double-write callbacks, at the end of
-// runtimeSwap. The per-shard [Shard.rangeableWriteOverlay] takes over from
-// there until the flip lands on this node.
+// AnalyzerOverlay forces IndexRangeFilters=true while the backfill scans
+// and while the double-write callbacks mirror live writes (see the type
+// doc for why an unset flag here means silent data loss). It ends with
+// those callbacks at runtimeSwap's return; [Shard.rangeableWriteOverlay]
+// carries the flag from there until the cluster-wide flip lands.
 func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil
@@ -245,22 +233,16 @@ func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[stri
 }
 
 // OnMigrationComplete marks each migrated property "locally ready" so this
-// shard's query path stops falling back to the filterable bucket walk. See
-// GH https://github.com/weaviate/0-weaviate-issues/issues/212 Issue C +
-// Shard.rangeableLocalReady.
+// shard's query path stops falling back to the filterable bucket walk
+// (GH weaviate/0-weaviate-issues#212 Issue C, Shard.rangeableLocalReady).
 //
-// It does NOT touch the schema. enable-rangeable is a semantic migration
-// ([IsSemanticMigration]), so IndexRangeFilters is flipped once
-// cluster-wide from [ReindexProvider.OnTaskCompleted] after every node has
-// swapped. Flipping it here instead advertised range-query support from the
-// first shard to reach this line, and a task that then stopped left the
-// flag on over shards holding an empty bucket
-// (weaviate/0-weaviate-issues#464). repair-rangeable reaches this line with
-// the flag already true, so it has nothing to flip either.
+// It does not flip the schema. IndexRangeFilters flips once, cluster-wide,
+// from [ReindexProvider.OnTaskCompleted] after every node has swapped —
+// flipping it per-shard here instead let range queries work off the first
+// shard to finish, so a task that then stopped left the flag on over
+// shards with an empty bucket (weaviate/0-weaviate-issues#464).
 //
-// Unwrap before the assertion: a *LazyLoadShard wraps the concrete *Shard
-// we need to flip the flag on. unwrapShard returns the concrete pointer for
-// both *Shard and *LazyLoadShard.
+// unwrapShard resolves the *LazyLoadShard wrapper to the concrete *Shard.
 func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
 	concrete, err := unwrapShard(ctx, shard)
 	if err != nil || concrete == nil {
