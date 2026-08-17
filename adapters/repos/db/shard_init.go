@@ -52,7 +52,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
 	}
 
-	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(index.path(), shardName, class); err != nil {
+	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(index.path(), shardName, class, index.logger); err != nil {
 		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
 	}
 
@@ -159,7 +159,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// Finalize any completed migrations whose directory renames were deferred
 	// from a runtime swap. This must run before bucket loading (initNonVector)
 	// so that buckets are found at their canonical directory names.
-	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+	FinalizeCompletedMigrations(s.pathLSM(), class, s.index.logger)
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
 	// migration's target property as "not locally ready" on this shard.

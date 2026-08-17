@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -24,6 +26,11 @@ import (
 
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+func nullLogger() logrus.FieldLogger {
+	logger, _ := test.NewNullLogger()
+	return logger
 }
 
 func TestPropertyDeleteIndexHelper_IsPropertyIndexRemoved(t *testing.T) {
@@ -140,7 +147,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			Properties: nil,
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, nullLogger())
 		require.NoError(t, err)
 	})
 
@@ -169,7 +176,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, nullLogger())
 		require.NoError(t, err)
 
 		assert.True(t, bucketExists(indexPath, shardName, filterableBucket))
@@ -202,7 +209,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, nullLogger())
 		require.NoError(t, err)
 
 		assert.True(t, bucketExists(indexPath, shardName, filterableBucket))
@@ -235,7 +242,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, nullLogger())
 		require.NoError(t, err)
 
 		assert.False(t, bucketExists(indexPath, shardName, filterableBucket))
@@ -268,7 +275,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, nullLogger())
 		require.NoError(t, err)
 
 		assert.False(t, bucketExists(indexPath, shardName, filterableBucket))
@@ -301,7 +308,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, nullLogger())
 		require.NoError(t, err)
 
 		assert.True(t, bucketExists(indexPath, shardName, filterableBucket))
@@ -334,7 +341,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, nullLogger())
 		require.NoError(t, err)
 
 		assert.True(t, bucketExists(indexPath, shardName, filterableBucket))
@@ -358,7 +365,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, nullLogger())
 		require.NoError(t, err)
 	})
 
@@ -394,7 +401,7 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 			},
 		}
 
-		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class)
+		err := h.ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, nullLogger())
 		require.NoError(t, err)
 
 		assert.False(t, bucketExists(indexPath, shardName, prop1Filterable))
@@ -402,4 +409,152 @@ func TestPropertyDeleteIndexHelper_EnsureBucketsAreRemovedForNonExistentProperty
 		assert.True(t, bucketExists(indexPath, shardName, prop2Filterable))
 		assert.False(t, bucketExists(indexPath, shardName, prop2Searchable))
 	})
+}
+
+// This sweep runs before anything else in a shard load and asks one question:
+// is there a bucket for an index the schema says is disabled? During the
+// window between a local swap and the cluster-wide flag flip the honest answer
+// is yes, and deleting on it destroys the index that was just rebuilt. A
+// migration that got as far as merging on this shard is what tells the two
+// apart.
+func TestPropertyDeleteIndexHelperLeavesACompletedMigrationsBucketAlone(t *testing.T) {
+	const (
+		shardName = "shard1"
+		propName  = "category"
+	)
+
+	tests := []struct {
+		name string
+		// trackers are .migrations dirs, mapped to the sentinels inside them.
+		trackers map[string][]string
+		// props is the property list each tracker recorded.
+		props map[string][]string
+		// disabled names the index types the class advertises as off.
+		disabled []string
+		// unreadableMigrations denies the sweep the .migrations listing.
+		unreadableMigrations bool
+		wantFilterable       bool
+		wantSearchable       bool
+		wantRangeable        bool
+	}{
+		{
+			name:     "no migration ever ran, which is the legitimate index drop",
+			disabled: []string{"filterable", "searchable", "rangeable"},
+		},
+		{
+			name: "a recorded promotion awaiting the schema flip",
+			trackers: map[string][]string{
+				"enable_filterable_category_1": append(completedSentinels, finalizedSentinel),
+			},
+			props:          map[string][]string{"enable_filterable_category_1": {propName}},
+			disabled:       []string{"filterable", "searchable", "rangeable"},
+			wantFilterable: true,
+		},
+		// The crash window between the promotion and the record: the tracker
+		// has tidied.mig and no marker, and the promotion re-runs later in this
+		// same load.
+		{
+			name: "a promotion this same load is about to redo",
+			trackers: map[string][]string{
+				"enable_searchable_category_1": completedSentinels,
+			},
+			props:          map[string][]string{"enable_searchable_category_1": {propName}},
+			disabled:       []string{"filterable", "searchable", "rangeable"},
+			wantSearchable: true,
+		},
+		{
+			name: "a swap that merged but died before it could tidy",
+			trackers: map[string][]string{
+				"filterable_to_rangeable_category_1": {"started.mig", "merged.mig"},
+			},
+			props:         map[string][]string{"filterable_to_rangeable_category_1": {propName}},
+			disabled:      []string{"filterable", "searchable", "rangeable"},
+			wantRangeable: true,
+			// The rangeable strategy's tracker is in the filterable scope too,
+			// so it shields that bucket as well. Over-shielding costs disk until
+			// the record retires and the next load sweeps again; under-shielding
+			// costs the index.
+			wantFilterable: true,
+		},
+		{
+			name: "a run that was cancelled before it merged anything",
+			trackers: map[string][]string{
+				"enable_filterable_category_1": {"started.mig"},
+			},
+			props:    map[string][]string{"enable_filterable_category_1": {propName}},
+			disabled: []string{"filterable", "searchable", "rangeable"},
+		},
+		{
+			name: "another property's record shields nothing here",
+			trackers: map[string][]string{
+				"enable_filterable_other_1": append(completedSentinels, finalizedSentinel),
+			},
+			props:    map[string][]string{"enable_filterable_other_1": {"other"}},
+			disabled: []string{"filterable", "searchable", "rangeable"},
+		},
+		{
+			name:                 "a migrations dir the sweep cannot read",
+			disabled:             []string{"filterable", "searchable", "rangeable"},
+			unreadableMigrations: true,
+			wantFilterable:       true,
+			wantSearchable:       true,
+			wantRangeable:        true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.unreadableMigrations && os.Geteuid() == 0 {
+				t.Skip("root reads a directory whatever its mode says")
+			}
+			indexPath := t.TempDir()
+			lsmPath := filepath.Join(indexPath, shardName, "lsm")
+			require.NoError(t, os.MkdirAll(lsmPath, 0o755))
+
+			filterable := helpers.BucketFromPropNameLSM(propName)
+			searchable := helpers.BucketSearchableFromPropNameLSM(propName)
+			rangeable := helpers.BucketRangeableFromPropNameLSM(propName)
+			for _, bucket := range []string{filterable, searchable, rangeable} {
+				require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, bucket), 0o755))
+			}
+
+			for name, sentinels := range tc.trackers {
+				mkTrackerDir(t, lsmPath, name, sentinels...)
+				if props, ok := tc.props[name]; ok {
+					mkRecoveryPayload(t, lsmPath, name, props...)
+				}
+			}
+			if tc.unreadableMigrations {
+				denied := filepath.Join(lsmPath, ".migrations")
+				require.NoError(t, os.MkdirAll(denied, 0o755))
+				defer func() { require.NoError(t, os.Chmod(denied, 0o755)) }()
+				require.NoError(t, os.Chmod(denied, 0o000))
+			}
+
+			prop := &models.Property{Name: propName}
+			for _, indexType := range tc.disabled {
+				switch indexType {
+				case "filterable":
+					prop.IndexFilterable = boolPtr(false)
+				case "searchable":
+					prop.IndexSearchable = boolPtr(false)
+				case "rangeable":
+					prop.IndexRangeFilters = boolPtr(false)
+				}
+			}
+			class := &models.Class{Class: "SweepShield", Properties: []*models.Property{prop}}
+
+			err := newPropertyDeleteIndexHelper().
+				ensureBucketsAreRemovedForNonExistentPropertyIndexes(indexPath, shardName, class, nullLogger())
+			require.NoError(t, err)
+
+			bucketExists := func(name string) bool {
+				_, err := os.Stat(filepath.Join(lsmPath, name))
+				return err == nil
+			}
+			assert.Equal(t, tc.wantFilterable, bucketExists(filterable), "filterable bucket")
+			assert.Equal(t, tc.wantSearchable, bucketExists(searchable), "searchable bucket")
+			assert.Equal(t, tc.wantRangeable, bucketExists(rangeable), "rangeable bucket")
+		})
+	}
 }
