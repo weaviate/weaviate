@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -2246,6 +2247,15 @@ type testMemtable struct {
 	// roaringSetGetErr, when set, makes roaringSetGet fail, simulating a
 	// memtable read error mid-way through a consistent-view lookup.
 	roaringSetGetErr error
+	// roaringSetGetWindowErr is the same for the windowed read, which fails a
+	// whole window rather than one key.
+	roaringSetGetWindowErr error
+	// Call counts for the two ways a memtable is read. Each is one acquisition
+	// of its read lock, which is the cost the batch path exists to reduce, so
+	// counting them is how a test states that reduction rather than inferring
+	// it from a timing.
+	roaringSetGetCalls       int
+	roaringSetGetWindowCalls int
 }
 
 func (t *testMemtable) incWriterCount() {
@@ -2253,7 +2263,16 @@ func (t *testMemtable) incWriterCount() {
 	t.Memtable.incWriterCount()
 }
 
+func (t *testMemtable) roaringSetGetWindow(keys inverted.SortedKeys, from, to int, into []roaringset.BitmapLayer) (int, error) {
+	t.roaringSetGetWindowCalls++
+	if t.roaringSetGetWindowErr != nil {
+		return 0, t.roaringSetGetWindowErr
+	}
+	return t.Memtable.roaringSetGetWindow(keys, from, to, into)
+}
+
 func (t *testMemtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+	t.roaringSetGetCalls++
 	if t.roaringSetGetErr != nil {
 		return roaringset.BitmapLayer{}, t.roaringSetGetErr
 	}

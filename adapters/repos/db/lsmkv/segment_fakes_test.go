@@ -106,6 +106,9 @@ type fakeSegment struct {
 	// roaringSetGet was actually invoked, so tests can pin buffer-release
 	// behavior without a production seam.
 	roaringSetReleases int
+	// roaringSetGetErr, when set, fails the disk half of a row read — the half a
+	// memtable-read failure cannot reach.
+	roaringSetGetErr error
 	// roaringSetMergeErr, when set, makes roaringSetMergeWith fail, simulating a
 	// mid-merge disk read error.
 	roaringSetMergeErr error
@@ -355,6 +358,9 @@ func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 	f.getCounter++
 	if f.strategy != segmentindex.StrategyRoaringSet {
 		return nil, nil, fmt.Errorf("not a roaring set segment")
+	}
+	if f.roaringSetGetErr != nil {
+		return nil, nil, f.roaringSetGetErr
 	}
 
 	if val, ok := f.roaringStore[string(key)]; ok {
