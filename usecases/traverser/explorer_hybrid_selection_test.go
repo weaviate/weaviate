@@ -278,4 +278,36 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 		assert.GreaterOrEqual(t, legLimit, 40, "leg fetch must reach Boost.Depth")
 		assert.Equal(t, 10, diversifyInputLen, "MMR pool must be the query Limit")
 	})
+
+	// https://github.com/weaviate/weaviate/issues/12536: a Boost.Depth larger than the user
+	// limit must deepen the sub-search legs even when MMR is not used, otherwise candidates
+	// past that depth are dropped before the boost scorer runs.
+	t.Run("Boost.Depth deepens the leg fetch without MMR", func(t *testing.T) {
+		searcher := &fakeVectorSearcher{}
+		explorer := newTestExplorer(searcher, getFakeModulesProvider())
+
+		results := makeHybridVectorResults(50)
+		for i := range results {
+			results[i].Schema.(map[string]any)["likes"] = float64(i * 100)
+		}
+		var legLimit int
+		searcher.On("VectorSearch", mock.Anything, mock.Anything).
+			Run(func(args mock.Arguments) {
+				legLimit = args.Get(0).(dto.GetParams).Pagination.Limit
+			}).
+			Return(results, nil)
+
+		params := dto.GetParams{
+			ClassName:    "TestClass",
+			Pagination:   &filters.Pagination{Offset: 0, Limit: 10},
+			HybridSearch: &searchparams.HybridSearch{Query: "foo", Alpha: 1, Vector: []float32{0.1, 0.2, 0.3}},
+			Boost:        likesBoost(1.0, 150), // Depth = 150, larger than the user limit
+		}
+
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NoError(t, err)
+
+		assert.GreaterOrEqual(t, legLimit, 150,
+			"leg fetch must reach Boost.Depth even without MMR")
+	})
 }

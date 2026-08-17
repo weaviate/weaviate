@@ -228,9 +228,14 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	if params.Boost != nil && params.Boost.OriginalLimit > 0 {
 		subSearchLimit = params.Boost.OriginalLimit
 	}
-	// Under MMR, fetch deep enough to reach the [offset:offset+limit] window (and
-	// Boost.Depth deep when boost is active so it re-ranks that deep).
-	if origParams.Selection != nil && origParams.Selection.MMR != nil {
+	// Fetch deep enough to reach the [offset:offset+limit] window under MMR, and Boost.Depth
+	// deep whenever boost is active so it re-ranks that deep (bounded by QueryMaximumResults).
+	// This must also apply when boost is active without MMR; otherwise a Boost.Depth larger than
+	// QueryHybridMaximumResults would be silently truncated and candidates past that depth would
+	// never reach the boost scorer. See https://github.com/weaviate/weaviate/issues/12536
+	mmrActive := origParams.Selection != nil && origParams.Selection.MMR != nil
+	boostActive := origParams.Boost != nil && origParams.Boost.Weight > 0
+	if mmrActive || boostActive {
 		windowEnd := origParams.Pagination.Offset + params.Pagination.Limit
 		if d := e.mmrFetchDepth(origParams.Boost, windowEnd); d > subSearchLimit {
 			subSearchLimit = d
