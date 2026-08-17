@@ -3289,6 +3289,10 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	return nil
 }
 
+// UnloadLocalShard closes a shard and takes it out of the shard map. A shard
+// that is already gone or already shut is success — the caller wanted it not
+// loaded, and it is not. Every returned error means the shard is still loaded,
+// including the errAlreadyShutdown a closing index refuses with.
 func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	if err := i.enterRead(); err != nil {
 		return err
@@ -3304,6 +3308,14 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	}
 
 	if err := shutdownOrRestoreShard(ctx, &i.shards, shardName, shardLike, i.logger); err != nil {
+		if errors.Is(err, errAlreadyShutdown) {
+			// The shard is shut, which is the outcome this call asked for. It
+			// is worth a line: reaching it means the shutdown burned its retry
+			// backoff holding shardCreateLocks.
+			i.logger.WithField("shard", shardName).
+				Debugf("shard was already shut or dropped: %v", err)
+			return nil
+		}
 		return errors.Wrapf(err, "shutdown shard %q", shardName)
 	}
 

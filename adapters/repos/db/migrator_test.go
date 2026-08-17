@@ -217,6 +217,12 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 		incoming map[string]sharding.Physical
 		// failingUnload are loaded shards, listed in incoming, whose shutdown fails.
 		failingUnload []string
+		// alreadyShutUnload are loaded shards, listed in incoming, whose shutdown
+		// reports the shard was already shut — the outcome the unload asked for.
+		alreadyShutUnload []string
+		// wantNoErrFor names tenants the error must not mention, so a failure
+		// reported beside them does not hide that they succeeded.
+		wantNoErrFor []string
 		// refuseLoad fails the load of every tenant the incoming state lists as HOT.
 		refuseLoad bool
 		// resident are loaded shards absent from incoming, so the delete claims them.
@@ -318,6 +324,25 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 			},
 		},
 		{
+			// The shard is shut, which is what the unload asked for, so the
+			// reconcile has nothing to report for it.
+			name:              "an already-shut tenant is not a failure",
+			incoming:          map[string]sharding.Physical{"cold1": coldTenant("cold1")},
+			alreadyShutUnload: []string{"cold1"},
+			resident:          []string{"gone1"},
+		},
+		{
+			name: "an already-shut tenant does not mask a real failure beside it",
+			incoming: map[string]sharding.Physical{
+				"cold1": coldTenant("cold1"), "cold2": coldTenant("cold2"),
+			},
+			alreadyShutUnload: []string{"cold1"},
+			failingUnload:     []string{"cold2"},
+			resident:          []string{"gone1"},
+			wantErrFor:        []string{"shutdown tenant shard cold2"},
+			wantNoErrFor:      []string{"cold1"},
+		},
+		{
 			name:     "no tenants leaves the delete to claim the residents",
 			incoming: map[string]sharding.Physical{},
 			resident: []string{"gone1"},
@@ -363,6 +388,11 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 				shard.EXPECT().Shutdown(mock.Anything).Return(shutdownRefused).Maybe()
 				idx.shards.Store(name, shard)
 			}
+			for _, name := range tt.alreadyShutUnload {
+				shard := NewMockShardLike(t)
+				shard.EXPECT().Shutdown(mock.Anything).Return(errAlreadyShutdown).Maybe()
+				idx.shards.Store(name, shard)
+			}
 			// A tenant incoming still lists must survive the delete, whatever the
 			// status update did with it.
 			keptDirs := make(map[string]string, len(tt.incoming))
@@ -379,6 +409,12 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 				require.Error(t, err)
 				for _, want := range tt.wantErrFor {
 					require.ErrorContains(t, err, want)
+				}
+			}
+			for _, unwanted := range tt.wantNoErrFor {
+				if err != nil {
+					require.NotContains(t, err.Error(), unwanted,
+						"tenant %q unloaded, so it must not be reported", unwanted)
 				}
 			}
 
@@ -648,6 +684,9 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 		acceptingShutdown []string
 		// refusingShutdown are shards already in the index whose shutdown fails.
 		refusingShutdown []string
+		// alreadyShutShutdown are shards already in the index whose shutdown
+		// reports them already shut — the outcome the unload asked for.
+		alreadyShutShutdown []string
 		// backupProtected are shards a backup holds, so their load fails.
 		backupProtected []string
 		// closed shuts the index, which fails every shard for the same reason.
@@ -738,6 +777,18 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 			wantCappedBy:     2,
 		},
 		{
+			name:                "an already-shut shard is not a failure",
+			alreadyShutShutdown: []string{"gone1"},
+		},
+		{
+			// Benign outcomes must not spend the cap: they would push the one
+			// real failure out of the message on a node unloading many shards.
+			name:                "already-shut shards do not crowd out a real failure",
+			alreadyShutShutdown: numberedShards(maxReportedErrors + 2),
+			refusingShutdown:    []string{"real1"},
+			wantErrFor:          []string{"shutdown shard real1"},
+		},
+		{
 			name: "nothing to reconcile",
 		},
 		{
@@ -776,6 +827,9 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 			for _, name := range tt.refusingShutdown {
 				storeShard(name, shutdownRefused)
 			}
+			for _, name := range tt.alreadyShutShutdown {
+				storeShard(name, errAlreadyShutdown)
+			}
 			for _, name := range tt.backupProtected {
 				idx.backupProtectedShards.Store(name, struct{}{})
 			}
@@ -789,6 +843,10 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 				require.Error(t, err)
 				for _, want := range tt.wantErrFor {
 					require.ErrorContains(t, err, want)
+				}
+				if tt.wantCappedBy == 0 {
+					require.NotContains(t, err.Error(), " more)",
+						"only the expected failures are reported, so nothing is capped")
 				}
 				if tt.wantCappedBy > 0 {
 					require.ErrorContains(t, err, fmt.Sprintf("(and %d more)", tt.wantCappedBy))
