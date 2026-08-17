@@ -1,18 +1,11 @@
 # Deferred reindex simplifications
 
-Three simplifications that the multi-agent scout pass identified as
+Two simplifications that the multi-agent scout pass identified as
 worthwhile but that I deliberately did NOT apply autonomously on
 branch `runtime-reindex-wip`. Each touches either a crash-safety path
 or the hottest write hook, and warrants a human reviewer in the loop.
 
-## 1. Unify the two directory-rename helpers — no longer applicable
-
-**Status: obsolete.** Both methods this item proposed to unify were
-deleted along with the unreachable `OnBeforeLsmInit`, their only
-caller. There is nothing left to unify. `recoverRuntimeSwapBuckets`
-remains and still owns the on-disk rename recipes.
-
-## 2. Share Add/Delete callback boilerplate via `withPropBucket`
+## 1. Share Add/Delete callback boilerplate via `withPropBucket`
 
 **Files:** Add+Delete callbacks in all seven `inverted_reindex_strategy_*.go` files
 (e.g. `enable_filterable.go:101–139`, `rangeable.go:95–137`, `roaringset.go:80–122`).
@@ -36,7 +29,7 @@ and we don't notice until production) is a regression.
 per-strategy semantics paged in. Add benchmarks before and after to
 confirm no allocation regression in the hot path.
 
-## 3. Inline `readPropsToReindex` into `getPropsToReindex` with a `bool` flag
+## 2. Inline `readPropsToReindex` into `getPropsToReindex` with a `bool` flag
 
 **File:** `adapters/repos/db/inverted_reindex_task_generic.go` (~lines 1497–1523)
 
@@ -62,9 +55,9 @@ move discovery out of `getPropsToReindex` entirely (let the
 
 ---
 
-_Each of the three deferrals above was re-evaluated for the v1.38
-Preview merge of runtime reindex and kept deferred. Items 1 and 2
-remain risk-gated on the same crash-recovery / hot-path concerns the
-original deferral documented; item 3 stays as-is per its own
-recommendation. Future re-evaluations should append a dated note rather
-than rewriting this footer — the deferral history is the value._
+_Both deferrals above were re-evaluated for the v1.38 Preview merge of
+runtime reindex and kept deferred. Item 1 remains risk-gated on the
+same hot-path concern the original deferral documented; item 2 stays
+as-is per its own recommendation. Future re-evaluations should append a
+dated note rather than rewriting this footer — the deferral history is
+the value._
