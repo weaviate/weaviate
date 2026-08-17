@@ -26,8 +26,8 @@ var reindexSentinels = []struct {
 	err  error
 	text string
 }{
-	{name: "backup gate", err: ErrBackupBlockedByInFlightReindex, text: "backup blocked: runtime-reindex in flight"},
-	{name: "restore gate", err: ErrReindexInFlight, text: "runtime-reindex in flight in the cluster"},
+	{name: "backup gate", err: ErrBackupBlockedByInFlightReindex, text: "backup blocked: unfinished runtime-reindex work"},
+	{name: "restore gate", err: ErrReindexInFlight, text: "unfinished runtime-reindex work in the cluster"},
 	{
 		name: "restore gate, undetermined", err: ErrReindexActivityUndetermined,
 		text: "restore blocked: whether a runtime-reindex is in flight could not be determined",
@@ -63,7 +63,7 @@ func TestReindexSentinelsAreDistinguishable(t *testing.T) {
 }
 
 func TestReindexBlockedErrorChains(t *testing.T) {
-	const msg = `backup blocked: runtime-reindex in flight: collection "Movies" is migrating`
+	const msg = `backup blocked: unfinished runtime-reindex work: collection "Movies" is migrating`
 	blocked := ReindexBlockedError{Msg: msg}
 	unrelated := errors.New("raft: leader unreachable")
 	tests := []struct {

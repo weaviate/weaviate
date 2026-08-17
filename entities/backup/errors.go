@@ -17,9 +17,9 @@ import (
 )
 
 // Match with errors.Is, never by substring. The texts name no shard and no node.
-var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight")
+var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: unfinished runtime-reindex work")
 
-var ErrReindexInFlight = errors.New("runtime-reindex in flight in the cluster")
+var ErrReindexInFlight = errors.New("unfinished runtime-reindex work in the cluster")
 
 // The gate could not answer. Separate from ErrReindexInFlight because "I could not check" and "a migration is running" send the operator elsewhere.
 var ErrReindexActivityUndetermined = errors.New("restore blocked: whether a runtime-reindex is in flight could not be determined")

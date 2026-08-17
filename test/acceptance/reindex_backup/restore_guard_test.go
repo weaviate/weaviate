@@ -61,7 +61,7 @@ func testRestoreRefusedDuringInFlightReindex(t *testing.T, restURI string) {
 		sameCollectionErr, sameCollectionErr)
 	require.NotNil(t, refusal.Payload, "422 payload must not be nil")
 	errMsg := errorResponseMessage(refusal.Payload)
-	require.Contains(t, errMsg, "restore blocked: runtime-reindex in flight in the cluster",
+	require.Contains(t, errMsg, "restore blocked: unfinished runtime-reindex work in the cluster",
 		"the body must name the refused operation and the blocking condition; got: %s", errMsg)
 	require.Contains(t, errMsg, "retry after the migration finishes",
 		"the body must include an actionable next step; got: %s", errMsg)
