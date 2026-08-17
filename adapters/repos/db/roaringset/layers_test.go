@@ -384,6 +384,91 @@ func Test_BitmapLayers_Merge(t *testing.T) {
 	}
 }
 
+// Test_BitmapLayers_FlattenFirstLayerWithoutAdditions covers a first layer that
+// only deletes, which every later layer's deletions would otherwise be applied
+// to as a nil receiver. A delete-only row is ordinary — a memtable that has
+// only ever removed a document produces one — but Flatten reaches the case only
+// when the caller does not clone, and every production caller does; cloning a
+// nil bitmap yields an empty one, so no production caller reaches it.
+func Test_BitmapLayers_FlattenFirstLayerWithoutAdditions(t *testing.T) {
+	tests := []struct {
+		name  string
+		first BitmapLayer
+		want  []uint64
+	}{
+		{name: "nil additions", first: BitmapLayer{Deletions: NewBitmap(9)}, want: []uint64{1, 2}},
+		{name: "nil additions, deletes a later addition", first: BitmapLayer{Deletions: NewBitmap(1)}, want: []uint64{1, 2}},
+		{name: "empty additions", first: BitmapLayer{Additions: NewBitmap(), Deletions: NewBitmap(9)}, want: []uint64{1, 2}},
+		{name: "both sides nil", first: BitmapLayer{}, want: []uint64{1, 2}},
+		{name: "populated additions", first: BitmapLayer{Additions: NewBitmap(7)}, want: []uint64{1, 2, 7}},
+	}
+
+	for _, tc := range tests {
+		for _, clone := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/clone=%t", tc.name, clone), func(t *testing.T) {
+				layers := BitmapLayers{tc.first, {Additions: NewBitmap(1, 2)}}
+				got := layers.Flatten(clone, 1)
+				require.NotNil(t, got)
+				assert.Equal(t, tc.want, got.ToArray())
+			})
+		}
+	}
+}
+
+// Test_BitmapLayer_CloneDroppingEmpty pins what the variant does differently
+// from [BitmapLayer.Clone]: a side holding nothing comes back nil rather than
+// as an allocated empty bitmap. Nothing else asserts it, so swapping the one
+// call site used Clone, no other test would fail.
+//
+// Dropping a side is what puts nil layers in front of [LayerMerger], which has
+// to fold them as it would empty ones — TestNilAndEmptyBitmapsMergeAlike is
+// where that equivalence is pinned.
+func Test_BitmapLayer_CloneDroppingEmpty(t *testing.T) {
+	populated := func(v uint64) *sroar.Bitmap {
+		bm := NewBitmap()
+		bm.Set(v)
+		return bm
+	}
+
+	tests := []struct {
+		name          string
+		layer         BitmapLayer
+		wantAdditions []uint64 // nil means the side must come back nil
+		wantDeletions []uint64
+	}{
+		{name: "both sides populated", layer: BitmapLayer{populated(1), populated(2)}, wantAdditions: []uint64{1}, wantDeletions: []uint64{2}},
+		{name: "additions only", layer: BitmapLayer{Additions: populated(1)}, wantAdditions: []uint64{1}},
+		{name: "deletions only", layer: BitmapLayer{Deletions: populated(2)}, wantDeletions: []uint64{2}},
+		{name: "allocated but empty", layer: BitmapLayer{NewBitmap(), NewBitmap()}},
+		{name: "both nil", layer: BitmapLayer{}},
+		{name: "one side allocated and empty", layer: BitmapLayer{populated(1), NewBitmap()}, wantAdditions: []uint64{1}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.layer.CloneDroppingEmpty()
+
+			for _, side := range []struct {
+				name string
+				want []uint64
+				got  *sroar.Bitmap
+				src  *sroar.Bitmap
+			}{
+				{"additions", tc.wantAdditions, got.Additions, tc.layer.Additions},
+				{"deletions", tc.wantDeletions, got.Deletions, tc.layer.Deletions},
+			} {
+				if side.want == nil {
+					assert.Nilf(t, side.got, "%s holding nothing must come back nil", side.name)
+					continue
+				}
+				require.NotNilf(t, side.got, "%s", side.name)
+				assert.Equalf(t, side.want, side.got.ToArray(), "%s", side.name)
+				assert.NotSamef(t, side.src, side.got, "%s must be a copy, not the original", side.name)
+			}
+		})
+	}
+}
+
 func Test_BitmapLayer_Clone(t *testing.T) {
 	t.Run("cloning empty BitmapLayer", func(t *testing.T) {
 		layerEmpty := BitmapLayer{}
@@ -451,4 +536,119 @@ func Test_BitmapLayers_Merge_PanicSliceBoundOutOfRange(t *testing.T) {
 	assert.Nil(t, err)
 
 	assert.ElementsMatch(t, genSlice(289_800, 290_000), failingDeletionsLayer.Deletions.ToArray())
+}
+
+// TestNilAndEmptyBitmapsMergeAlike pins that a nil bitmap and an empty one are
+// interchangeable to the merger, which is what lets a reader leave an empty one
+// nil rather than pay to clone it.
+//
+// The case worth the test is not AndNot or Or but Add's first branch: with
+// nothing merged yet it adopts the layer's additions and returns, so a nil
+// there leaves nothing merged and that layer's deletions are never applied.
+// Sound, because a deletion only has to apply to layers older than itself and
+// nothing merged means no older layer contributed — but sound by argument
+// rather than by construction, so it is checked.
+func TestNilAndEmptyBitmapsMergeAlike(t *testing.T) {
+	nilIfEmpty := func(b *sroar.Bitmap) *sroar.Bitmap {
+		if b != nil && b.IsEmpty() {
+			return nil
+		}
+		return b
+	}
+
+	type layer struct{ add, del []uint64 }
+	for _, tt := range []struct {
+		name     string
+		disk     []uint64
+		diskMiss bool
+		layers   []layer
+	}{
+		{"disk hit, write-only layer", []uint64{1, 2}, false, []layer{{add: []uint64{3}}}},
+		{"disk hit, delete-only layer", []uint64{1, 2}, false, []layer{{del: []uint64{2}}}},
+		{"disk hit, delete then re-add", []uint64{1}, false, []layer{{del: []uint64{1}}, {add: []uint64{1}}}},
+		{"disk miss, delete-only then add", nil, true, []layer{{del: []uint64{5}}, {add: []uint64{5}}}},
+		{"disk miss, delete-only then unrelated add", nil, true, []layer{{del: []uint64{5}}, {add: []uint64{9}}}},
+		{"disk miss, delete-only alone", nil, true, []layer{{del: []uint64{5}}}},
+		{"disk miss, two delete-only", nil, true, []layer{{del: []uint64{5}}, {del: []uint64{6}}}},
+		{"disk miss, add then delete", nil, true, []layer{{add: []uint64{7}}, {del: []uint64{7}}}},
+		{"disk hit, layer holding nothing", []uint64{1, 2}, false, []layer{{}}},
+		{"disk miss, layer holding nothing", nil, true, []layer{{}}},
+		{"disk hit, layer holding nothing between two that do", []uint64{1}, false, []layer{{add: []uint64{2}}, {}, {del: []uint64{1}}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			run := func(nilEmpty bool) []uint64 {
+				var base *sroar.Bitmap
+				if !tt.diskMiss {
+					base = NewBitmap(tt.disk...)
+				}
+				m := NewLayerMerger(base, false, 1)
+				for _, l := range tt.layers {
+					lay := BitmapLayer{Additions: NewBitmap(l.add...), Deletions: NewBitmap(l.del...)}
+					if nilEmpty {
+						lay.Additions = nilIfEmpty(lay.Additions)
+						lay.Deletions = nilIfEmpty(lay.Deletions)
+					}
+					m.Add(lay)
+				}
+				return m.Result().ToArray()
+			}
+			require.Equal(t, run(false), run(true),
+				"nilling an empty bitmap must not change the merged result")
+		})
+	}
+}
+
+// TestLayerHoldingNothingMergesAsIfAbsent pins what the windowed reader encodes
+// absence with. It drops a layer whose sides are both empty, so a key the
+// memtable holds an empty row for is folded as if the memtable did not hold it
+// — the same shape an empty write produces, which reaches the tree through an
+// ordinary AddList with no values.
+//
+// The two are indistinguishable to the fold and to nothing else: an empty layer
+// deletes nothing and adds nothing. A consumer reading layers rather than
+// folding them would see a difference, and none does.
+func TestLayerHoldingNothingMergesAsIfAbsent(t *testing.T) {
+	empty := func() BitmapLayer { return BitmapLayer{Additions: sroar.NewBitmap(), Deletions: sroar.NewBitmap()} }
+
+	for _, tt := range []struct {
+		name     string
+		disk     []uint64
+		diskMiss bool
+		before   []BitmapLayer // layers folded before the empty one
+		after    []BitmapLayer // and after it
+	}{
+		{name: "alone, over a disk row", disk: []uint64{1, 2}},
+		{name: "alone, no disk row", diskMiss: true},
+		{
+			name: "between two that contribute", disk: []uint64{1},
+			before: []BitmapLayer{{Additions: NewBitmap(2)}},
+			after:  []BitmapLayer{{Deletions: NewBitmap(1)}},
+		},
+		{
+			name: "first, ahead of a delete-only layer", diskMiss: true,
+			after: []BitmapLayer{{Deletions: NewBitmap(5)}, {Additions: NewBitmap(5)}},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fold := func(withEmpty bool) []uint64 {
+				var base *sroar.Bitmap
+				if !tt.diskMiss {
+					base = NewBitmap(tt.disk...)
+				}
+				m := NewLayerMerger(base, false, 1)
+				for _, l := range tt.before {
+					m.Add(l)
+				}
+				if withEmpty {
+					m.Add(empty())
+				}
+				for _, l := range tt.after {
+					m.Add(l)
+				}
+				return m.Result().ToArray()
+			}
+			require.Equal(t, fold(false), fold(true),
+				"a layer holding nothing must fold as if it were not there")
+		})
+	}
 }
