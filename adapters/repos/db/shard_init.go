@@ -219,16 +219,14 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 }
 
 // inheritResourcePressureReadOnly marks a freshly built shard READONLY while
-// the resource scan holds the DB read-only. Every shard is built here - loaded
-// lazily, loaded eagerly at startup, created for a new or activated tenant,
-// re-created for a replica - so this is the one place that state can be picked
-// up. Without it a shard that did not exist when the scan swept would come up
-// READY and take the writes the scan is trying to stop.
+// the resource scan holds the DB read-only, so a shard that did not exist when
+// the scan swept does not come up READY and take the writes the scan is trying
+// to stop.
 //
-// The scan raises its flag before it sweeps, so a shard the sweep cannot see
-// yet (still loading, or not yet in the shard map) reads the raised flag here
-// instead. For a lazily loaded shard the two are mutually exclusive: this runs
-// under the load lock the sweep needs to see the shard as loaded.
+// The flag is raised before the sweep, so a lazily loaded shard is caught by
+// exactly one of the two: this runs under the load lock the sweep needs to see
+// the shard as loaded. An eagerly built shard is not in the shard map yet here,
+// and reconciles against the flag when it is published instead.
 func (s *Shard) inheritResourcePressureReadOnly() {
 	if !s.index.db.resourcePressureReadOnly() {
 		return

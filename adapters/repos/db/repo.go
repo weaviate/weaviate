@@ -189,6 +189,8 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 	}
 
 	db.startupComplete.Store(true)
+	// Only once init has returned: the indices it builds publish their shards
+	// without reconciling them against the read-only flag.
 	db.scanResourceUsage()
 
 	return nil

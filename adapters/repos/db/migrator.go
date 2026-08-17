@@ -255,6 +255,9 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
 
+	// Shards built inside NewIndex pick up the read-only flag here.
+	m.db.reconcileIndexResourcePressure(idx)
+
 	// NewIndex loaded shards reading the live AsyncReplicationDisabled flag, but
 	// the index was not yet in db.indices, so a concurrent runtime flag toggle's
 	// reconcile hook could have skipped it. Re-reconcile now that it is visible
