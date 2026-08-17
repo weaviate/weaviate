@@ -19,7 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 // FilterableToRangeableStrategy implements MigrationStrategy for building
@@ -173,45 +172,6 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 		if err := shard.store.CreateOrLoadBucket(ctx, bucketName, opts...); err != nil {
 			shard.index.logger.WithField("bucket", bucketName).
 				Errorf("PreReindexHook: failed to create rangeable bucket: %v", err)
-		}
-	}
-	ensureNullStateAndLengthBuckets(ctx, shard, props)
-}
-
-// ensureNullStateAndLengthBuckets creates the null-state / property-length
-// buckets a property gains once it has an inverted index. Shard init skips
-// them for a property with none, and nothing creates them when a flag
-// later turns the index on; a missing bucket then fails the next write.
-func ensureNullStateAndLengthBuckets(ctx context.Context, shard *Shard, props []string) {
-	cfg := shard.index.invertedIndexConfig
-	if !cfg.IndexNullState && !cfg.IndexPropertyLength {
-		return
-	}
-	className := shard.index.Config.ClassName.String()
-	class := shard.index.getSchema.ReadOnlyClass(className)
-	if class == nil {
-		return
-	}
-	byName := make(map[string]*models.Property, len(class.Properties))
-	for _, prop := range class.Properties {
-		byName[prop.Name] = prop
-	}
-	for _, propName := range props {
-		prop, ok := byName[propName]
-		if !ok {
-			continue
-		}
-		if cfg.IndexNullState {
-			if err := shard.createPropertyNullIndex(ctx, prop, shard.makeDefaultBucketOptions); err != nil {
-				shard.index.logger.WithField("property", propName).
-					Errorf("PreReindexHook: failed to create null-state bucket: %v", err)
-			}
-		}
-		if cfg.IndexPropertyLength {
-			if err := shard.createPropertyLengthIndex(ctx, prop, shard.makeDefaultBucketOptions); err != nil {
-				shard.index.logger.WithField("property", propName).
-					Errorf("PreReindexHook: failed to create property-length bucket: %v", err)
-			}
 		}
 	}
 }
