@@ -226,21 +226,34 @@ index carries every flag flip the tasks it is compared against have
 already committed. A FINISHED task surfaces nothing of its own — the
 schema flag alone decides whether an entry is emitted.
 
-#### The submit edge
+#### The apply edge
 
-`PUT .../index/{indexType}` returns `202` as soon as the **leader**
-applied the add-task entry (`Raft.Execute`), and
-`applyDistributedTaskCommand` does not wait for the local apply. A GET
-issued against a follower immediately after that `202` can therefore
-find no task locally and the flag still off, so the entry is dropped
-and the response is `"indexes": null`.
+`PUT .../index/{indexType}` returns `202` as soon as the **leader** applied
+the add-task entry (`Raft.Execute`). On a follower the call does not wait for
+that node's own apply; a leader-served PUT has already applied locally when
+the `202` returns. Cancel works the same way: it decides on the leader-routed
+task list and applies through `Raft.Execute`.
 
-The window is bounded by one local apply rather than by unbounded
-follower lag, and it is a delayed *first* appearance rather than a
-flap: once the entry shows up it does not go away again. It is left
-open deliberately. Closing it means blocking a mutation on a local
-apply, which turns a `202` into a latency-bound call that can hang on
-a partitioned follower, to remove a transient polling artifact.
+A GET against a lagging follower right after that `202` finds no task and
+answers from the flags alone, in one of two shapes:
+
+- `enable-*`, flag still off: the entry is dropped. The `indexes` array reads
+  `null` only when every applicable type on the property is off; with
+  `indexFilterable` still on you get a non-null array that is merely missing
+  one entry.
+- `change-tokenization` / `change-algorithm`, flag already on at submit time:
+  the entry emits as `ready` with the pre-migration tokenization, reporting
+  the property done and unchanged.
+
+The window is bounded by one log entry of catch-up, not by an unbounded
+amount of state, and the entry does not flap. It is left open deliberately:
+closing it means blocking a mutation on a local apply, which turns a `202`
+into a latency-bound call that can hang on a partitioned follower, to remove
+a transient polling artifact.
+
+This endpoint is node-local while `GET /v1/cluster/distributed-tasks` is
+leader-routed, so a UI polling both against a lagging follower can render the
+task FINISHED and the index pill `indexing` at the same moment.
 
 ### RBAC
 
