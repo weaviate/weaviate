@@ -1135,7 +1135,10 @@ type Persistence struct {
 	IndexRangeableInMemory              bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
 	// Properties whose rangeable index keeps its segments in memory, per
 	// collection. Read only when IndexRangeableInMemory is false.
-	IndexRangeableInMemoryProps    map[string][]string `json:"indexRangeableInMemoryProps" yaml:"indexRangeableInMemoryProps"`
+	IndexRangeableInMemoryProps map[string][]string `json:"indexRangeableInMemoryProps" yaml:"indexRangeableInMemoryProps"`
+	// IndexFilterableKeyDocColumn names, per collection, the properties whose
+	// filterable buckets get a resident key/doc column; [AllProperties] names all.
+	IndexFilterableKeyDocColumn    map[string][]string `json:"indexFilterableKeyDocColumn" yaml:"indexFilterableKeyDocColumn"`
 	MinMMapSize                    int64               `json:"minMMapSize" yaml:"minMMapSize"`
 	LazySegmentsDisabled           bool                `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
 	SegmentInfoIntoFileNameEnabled bool                `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
@@ -1202,19 +1205,34 @@ func (p Persistence) Validate() error {
 		return fmt.Errorf("persistence.dataPath must be set")
 	}
 
-	// A config file writes this field past the environment parser's refusals.
-	for collection, props := range p.IndexRangeableInMemoryProps {
-		if _, err := schema.ValidateClassName(collection); err != nil {
-			return fmt.Errorf("persistence.indexRangeableInMemoryProps names %q: %w",
-				collection, err)
+	// A config file sets these fields without the environment parser's checks, so
+	// they are validated here.
+	if err := validateCollectionProps("persistence.indexRangeableInMemoryProps",
+		"rangeable property", p.IndexRangeableInMemoryProps); err != nil {
+		return err
+	}
+	// Values from either source arrive here, so the error names both.
+	return validateCollectionProps(KeyDocColumnEnv+" (persistence.indexFilterableKeyDocColumn)",
+		"property", p.IndexFilterableKeyDocColumn)
+}
+
+// validateCollectionProps refuses a collection name the schema refuses, and a
+// collection naming no properties, in a per-collection property setting.
+func validateCollectionProps(setting, propNoun string, configured map[string][]string) error {
+	for className, props := range configured {
+		if strings.Contains(className, schema.NamespaceSeparator) {
+			return fmt.Errorf("%s names %q: a namespace-qualified collection cannot be "+
+				"named here, because %q separates a collection from its properties in the "+
+				"environment variable", setting, className, schema.NamespaceSeparator)
+		}
+		if _, err := schema.ValidateClassName(className); err != nil {
+			return fmt.Errorf("%s names %q: %w", setting, className, err)
 		}
 		if len(props) == 0 {
-			return fmt.Errorf("persistence.indexRangeableInMemoryProps names %q with no "+
-				"properties: list them, or write %q for every rangeable property it has",
-				collection, AllProperties)
+			return fmt.Errorf("%s names %q with no properties: list them, or write %q "+
+				"for every %s it has", setting, className, AllProperties, propNoun)
 		}
 	}
-
 	return nil
 }
 
