@@ -23,7 +23,7 @@ import (
 
 // A task applied to this node's FSM is readable locally, no leader
 // round-trip; this bare-FSM harness can't catch the leader-routed path
-// disagreeing (see TestIndexStatusOperands_ComeFromOneNodeInOneOrder).
+// disagreeing (see TestReadClassAndTasks_ComeFromOneNodeInOneOrder).
 func TestStore_LocalDistributedTasks_AnswersFromTheAppliedLog(t *testing.T) {
 	ms, addClassLog := setupApplyTest(t)
 	ms.parser.On("ParseClass", mock.Anything).Return(nil)
