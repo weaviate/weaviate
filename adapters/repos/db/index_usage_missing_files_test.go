@@ -222,7 +222,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T) *Index {
 			scheduler,
 			nil,
 			nil,
-			NewShardReindexerV3Noop(),
+			nil,
 			roaringset.NewBitmapBufPoolNoop(),
 			false,
 			nil,

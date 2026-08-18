@@ -453,7 +453,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task2 := newTestTask(idx.logger, strategy2)
 			task2.skipSwapOnFinish.Store(false)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			armRecoveredTask(ctx, idx, shard, task2)
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)
@@ -613,7 +613,7 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 
 			task2, _ := newSearchableRetokenizeTask(t, idx, className, propName,
 				models.PropertyTokenizationField, preStrategy)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			armRecoveredTask(ctx, idx, shard, task2)
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)

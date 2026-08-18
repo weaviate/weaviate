@@ -286,7 +286,7 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	require.NoError(t, shardB.Shutdown(ctxB))
 
 	taskB2, _ := newFilterableToRangeableTask(t, idxB, classNameB, propName)
-	idxB.shardReindexer = &testShardReindexer{task: taskB2}
+	armRecoveredTask(ctxB, idxB, shardB, taskB2)
 
 	shdB2, err := idxB.initShard(ctxB, shardName, newFilterableToRangeableTestClass(classNameB), nil, true, true)
 	require.NoError(t, err)

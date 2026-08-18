@@ -808,7 +808,7 @@ types so a new `ReindexMigrationType` cannot silently be treated as
 "doesn't touch X" — it surfaces on the first request.
 
 **`reindex_recovery.go`** — `DiscoverInFlightReindexTasks`,
-`buildRecoveryTasks`, `NewShardReindexerV3FromRecovered`,
+`buildRecoveryTasks`, `Shard.runRecoveredReindexTasks`,
 `SeedReindexProviderFromRecovery`. Called from `MakeAppState` BEFORE
 `DB.WaitForStartup`, so reconstructed `ShardReindexTaskGeneric`
 instances are registered before any post-restart write can reach the
@@ -983,9 +983,9 @@ Sequence in `MakeAppState`:
    `ShardReindexTaskGeneric` at the correct generation. The narrow
    window — "terminal but not yet tidied" — is exactly the recovery
    gap the design exists to close.
-2. `NewShardReindexerV3FromRecovered` wires the recovered tasks into
-   a stripped-down recovery-only `ShardReindexerV3` that fires
-   `OnAfterLsmInit` per shard load — re-installing the double-write
+2. `DB.SetRecoveredReindexTasks` hands the recovered tasks to the DB,
+   which threads them down to every shard. `runRecoveredReindexTasks`
+   fires `OnAfterLsmInit` per shard load — re-installing the double-write
    callbacks BEFORE any post-restart write can reach the shard.
    Without this, writes that arrive between shard init and the swap
    that completes a deferred reindex go only to the old main bucket
@@ -1551,7 +1551,7 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 - [`adapters/repos/db/reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go) — `CheckConflict`, `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`, `Touches*` predicates, `MutationRemedy`.
 - [`adapters/repos/db/reindex_activity_lookup.go`](../adapters/repos/db/reindex_activity_lookup.go) — `NewShardReindexActivityLookup`, the backup gate's snapshot.
 - [`adapters/repos/db/reindex_orphan_audit.go`](../adapters/repos/db/reindex_orphan_audit.go) — `NewLiveReindexTrackerLookup`, the orphan audit's snapshot.
-- [`adapters/repos/db/reindex_recovery.go`](../adapters/repos/db/reindex_recovery.go) — `DiscoverInFlightReindexTasks`, `buildRecoveryTasks`, recovery-only `ShardReindexerV3`.
+- [`adapters/repos/db/reindex_recovery.go`](../adapters/repos/db/reindex_recovery.go) — `DiscoverInFlightReindexTasks`, `buildRecoveryTasks`, `Shard.runRecoveredReindexTasks`.
 - [`adapters/repos/db/reindex_cancel_cleanup.go`](../adapters/repos/db/reindex_cancel_cleanup.go) — `DB.NewStalePartialReindexSweep`.
 - [`adapters/repos/db/reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go) — `DB.AnyLiveReindexForShard`, the backup gate.
 

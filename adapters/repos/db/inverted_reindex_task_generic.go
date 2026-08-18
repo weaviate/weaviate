@@ -734,10 +734,9 @@ func (t *ShardReindexTaskGeneric) ingestBucketsLoaded(shard ShardLike, props []s
 //     from the store's bucket map without persisting a sentinel
 //     advance, and the cancellation can leave compaction callbacks
 //     unregistered partway through the unhook sequence.
-//   - On restart, the recovery-only shard reindexer's RunBeforeLsmInit
-//     is intentionally a no-op (see [shardReindexerV3RecoveryOnly])
-//     and the shard-registered recovery task's OnAfterLsmInit is the
-//     only re-load hook. If for any reason the bucket name lookup in
+//   - On restart no reindex hook runs before LSM init, so the
+//     recovered task's OnAfterLsmInit is the only re-load hook. If
+//     for any reason the bucket name lookup in
 //     [runtimeSwap]'s first iteration misses (lsm store re-init,
 //     concurrent bucket shutdown, cached-task vs fresh-task pointer
 //     differences after the rehydrate path's [createReindexTasks]),

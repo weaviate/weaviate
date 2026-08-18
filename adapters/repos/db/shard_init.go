@@ -39,7 +39,8 @@ import (
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
-	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
+	recoveredReindexTasks []*ShardReindexTaskGeneric, lazyLoadSegments bool,
+	bitmapBufPool roaringset.BitmapBufPool,
 ) (_ *Shard, err error) {
 	start := time.Now()
 	index.logger.WithFields(logrus.Fields{
@@ -89,7 +90,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 		status:                          ShardStatus{Status: storagestate.StatusLoading},
 		searchableBlockmaxPropNamesLock: new(sync.Mutex),
-		reindexer:                       reindexer,
+		recoveredReindexTasks:           recoveredReindexTasks,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 		bitmapBufPool:                   bitmapBufPool,
 		HFreshEnabled:                   index.HFreshEnabled,
@@ -172,8 +173,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// FinalizeCompletedMigrations above promoted them to canonical).
 	markInFlightRangeableMigrationsNotReady(s)
 
-	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
-
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
@@ -201,7 +200,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
 	}
 
-	_ = s.reindexer.RunAfterLsmInit(ctx, s)
+	s.runRecoveredReindexTasks(ctx)
 	return s, nil
 }
 

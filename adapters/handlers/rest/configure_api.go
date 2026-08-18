@@ -824,8 +824,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
-	// Discover in-flight runtime reindex tasks from disk so the static
-	// ShardReindexerV3 can re-register their double-write callbacks via
+	// Discover in-flight runtime reindex tasks from disk so they can
+	// re-register their double-write callbacks via
 	// OnAfterLsmInit during shard load — BEFORE any post-restart write
 	// reaches the shard. Without this, writes between shard init and the
 	// deferred swap go only to the old main bucket and are silently lost.
@@ -842,8 +842,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger.WithError(recoveryErr).
 			Warn("reindex recovery: disk scan failed; writes during the swap-recovery window may be lost")
 	}
-	reindexer := configureReindexer(recoveredReindexes, appState.Logger)
-	repo.SetReindexer(reindexer)
+	if len(recoveredReindexes) > 0 {
+		appState.Logger.WithField("count", len(recoveredReindexes)).
+			Info("reindex recovery: registering in-flight tasks discovered on disk")
+	}
+	repo.SetRecoveredReindexTasks(recoveredReindexes)
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
@@ -1147,7 +1150,7 @@ func initReindexAndDistributedTasks(
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
 	)
-	// Seed re-uses the SAME task instances ShardReindexerV3 registered, so
+	// Seed re-uses the SAME task instances startup recovery registered, so
 	// OnGroupCompleted's swap phase doesn't take the rehydrate path and try
 	// to load already-loaded ingest buckets.
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
@@ -1239,22 +1242,6 @@ func initReindexAndDistributedTasks(
 		}
 	}
 	appState.ClusterService.SetDistributedTaskSchemaMutationDetectors(schemaMutationDetectors)
-}
-
-func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogger) db.ShardReindexerV3 {
-	// All reindex operations are now triggered via the REST API
-	// (DTM-based). The V3 startup reindexer is no longer used for
-	// kicking off new reindexes — but we still need it for restart
-	// recovery: in-flight runtime reindex tasks discovered on disk
-	// register here so that OnAfterLsmInit fires during shard load and
-	// re-installs the double-write callbacks before any post-restart
-	// write reaches the shard.
-	if len(recovered) == 0 {
-		return db.NewShardReindexerV3Noop()
-	}
-	logger.WithField("count", len(recovered)).
-		Info("reindex recovery: registering in-flight tasks discovered on disk")
-	return db.NewShardReindexerV3FromRecovered(recovered, logger)
 }
 
 // enforceNamespaceStartupInvariants decides whether the current cluster state
