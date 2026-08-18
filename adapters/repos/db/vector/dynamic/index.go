@@ -506,6 +506,44 @@ func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 	return dynamic.index.Drop(ctx, keepFiles)
 }
 
+// DropTargetVector removes ONE named vector's dynamic index, leaving the shard
+// intact. It is the per-vector counterpart of Drop, and the difference is not
+// cosmetic: the state DB is shared by every dynamic vector on the shard (the
+// shard opens it once, see getOrInitDynamicVectorIndexDB, and each vector is a
+// KEY inside it), so Drop's Close()+Remove would take every sibling's state
+// with it — their flat-to-hnsw upgrades, the shard backup, and the shard's own
+// shutdown all use that handle.
+//
+// So this deletes only this vector's key and leaves the handle open. Deleting
+// the key is also what stops a re-created vector of the same name inheriting a
+// stale "already upgraded" verdict and booting straight into an empty hnsw,
+// skipping its flat stage.
+func (dynamic *dynamic) DropTargetVector(ctx context.Context) error {
+	if dynamic.ctx.Err() != nil {
+		// already dropped
+		return nil
+	}
+
+	dynamic.cancel()
+
+	dynamic.Lock()
+	defer dynamic.Unlock()
+
+	if err := dynamic.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		if b == nil {
+			return nil // nothing was ever recorded for this shard
+		}
+		return b.Delete(dynamic.dbKey())
+	}); err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", dynamic.targetVector, err)
+	}
+
+	// keepFiles=false: the underlying index's own files go, but the SHARED
+	// state DB above is untouched by this path.
+	return dynamic.index.Drop(ctx, false)
+}
+
 func (dynamic *dynamic) Flush() error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()

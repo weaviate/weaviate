@@ -42,17 +42,26 @@ func GetVectorsBucketName(targetVector string) string {
 	return VectorsBucketLSM
 }
 
-// GetMuveraBucketName returns the bucket a muvera-encoded multi-vector index
-// keeps its encoded vectors in (see hnsw.New, which builds it as
-// "<vectorIndexID>_muvera_vectors"). It is a bucket of the index's own, held
-// outside the vectors/compressed pair, so anything tearing an index down has to
-// name it explicitly or the encoded copies survive.
-func GetMuveraBucketName(targetVector string) string {
-	if targetVector != "" {
-		return fmt.Sprintf("%s_muvera_vectors", GetVectorsBucketName(targetVector))
-	}
-	// Mirrors vectorIndexID's unnamed case, which the index uses as its ID.
-	return "main_muvera_vectors"
+// A multivector index keeps its per-object encoding in a bucket of its own,
+// named off the index ID. Which one depends on the config — muvera on, or
+// mv_mappings when it is off — and they are mutually exclusive.
+//
+// These live here rather than being concatenated at the point of use so the
+// code that CREATES the bucket and the drop that removes it share one
+// definition. Concatenated inline, a rename on the hnsw side compiles cleanly
+// while the cleanup keeps deleting the old name: removeBucket no-ops and the
+// leak returns silently.
+
+// MuveraBucketName is the bucket a muvera-encoded multivector index stores its
+// encoded vectors in. indexID is the vector index's ID ("vectors_<target>").
+func MuveraBucketName(indexID string) string {
+	return fmt.Sprintf("%s_muvera_vectors", indexID)
+}
+
+// MVMappingsBucketName is the bucket a multivector index WITHOUT muvera stores
+// its node-to-doc mappings in. indexID is the vector index's ID.
+func MVMappingsBucketName(indexID string) string {
+	return fmt.Sprintf("%s_mv_mappings", indexID)
 }
 
 // HFresh keeps more on-disk state than the other index types: a directory of
@@ -74,6 +83,108 @@ func HFreshPostingsBucketName(indexID string) string {
 // HFreshSharedBucketName is the LSM bucket holding hfresh's shared metadata.
 func HFreshSharedBucketName(indexID string) string {
 	return fmt.Sprintf("hfresh_shared_%s", indexID)
+}
+
+// VectorIndexArtifacts is everything a named vector's index owns on disk:
+// LSMBuckets are directories under <shard>/lsm, ShardDirs under <shard>.
+type VectorIndexArtifacts struct {
+	LSMBuckets []string
+	ShardDirs  []string
+}
+
+// All returns every artifact as a single slice, LSM buckets first.
+func (a VectorIndexArtifacts) All() []string {
+	return append(append([]string{}, a.LSMBuckets...), a.ShardDirs...)
+}
+
+// vectorIndexArtifactNames is the raw, unfiltered artifact set for a target
+// vector. Split out from VectorIndexArtifactsFor so the sibling-collision guard
+// can compute what OTHER vectors own without recursing through the filter.
+func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
+	indexID := GetVectorsBucketName(targetVector)
+	return VectorIndexArtifacts{
+		LSMBuckets: []string{
+			indexID,                               // raw vectors
+			GetCompressedBucketName(targetVector), // BQ/PQ/SQ/RQ
+			MuveraBucketName(indexID),             // multivector + muvera
+			MVMappingsBucketName(indexID),         // multivector without muvera
+			HFreshPostingsBucketName(indexID),     // hfresh
+			HFreshSharedBucketName(indexID),       // hfresh
+			// hfresh runs a nested centroids HNSW whose id is
+			// "<indexID>_centroids"; hnsw derives its compressed bucket from
+			// that id with the "vectors_" prefix stripped, so it lands in the
+			// shard's lsm dir under this name. Its commitlog and snapshot dirs
+			// do NOT need listing — they live inside the .hfresh.d directory
+			// below, which goes wholesale.
+			GetCompressedBucketName(targetVector + "_centroids"),
+		},
+		ShardDirs: []string{
+			GetHNSWCommitLogDirName(targetVector),
+			GetHNSWSnapshotDirName(targetVector),
+			HFreshDirName(indexID),
+			// The async-indexing queue. The live drop closes it via queue.Drop,
+			// but every files-only path (cold lazy shard, inactive tenant, crash
+			// before the live drop) leaves it — and DiskQueue.Init replays stale
+			// chunks into a re-created index of the same name, so this is wrong
+			// vectors and dimension errors, not just disk cost.
+			indexID + ".queue.d",
+		},
+	}
+}
+
+// VectorIndexArtifactsFor lists what dropping targetVector has to remove. It is
+// the single source of truth for that set: the live drop, the file sweep and
+// the tests all read it, because three hand-maintained copies is exactly how
+// "<indexID>_mv_mappings" ended up missing from all of them at once.
+//
+// Some entries only exist for some index types (muvera and mv_mappings are
+// mutually exclusive; hfresh's are hfresh-only). Listing them unconditionally
+// is deliberate — removal is a no-op when the artifact is absent, whereas
+// reading the config back to decide would miss an index that failed to load, or
+// one whose config changed since it was written.
+//
+// otherTargetVectors are the collection's OTHER vector names, and they are not
+// optional. Target vector names are only constrained by TargetVectorNameRegex,
+// so a vector may legally be called "<other>_muvera_vectors", "<other>_centroids"
+// and so on — names that make one of THIS target's artifacts byte-identical to
+// a live sibling's own bucket. Removing it would destroy a live vector's data,
+// and the file sweep would re-remove it on every restart while the drop marker
+// persists, so a re-import would not survive either. Any artifact claimed by a
+// sibling is therefore dropped from the list: leaking is strictly better than
+// deleting data that is still in use.
+func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) VectorIndexArtifacts {
+	artifacts := vectorIndexArtifactNames(targetVector)
+
+	// Skipping the target itself is what keeps its OWN artifacts in the list;
+	// callers routinely pass the whole schema rather than filtering first.
+	protected := map[string]struct{}{}
+	for _, other := range otherTargetVectors {
+		if other == targetVector {
+			continue
+		}
+		for _, name := range vectorIndexArtifactNames(other).All() {
+			protected[name] = struct{}{}
+		}
+	}
+	if len(protected) == 0 {
+		return artifacts
+	}
+
+	// Only LSM buckets can collide. Every ShardDirs entry ends in a dotted
+	// suffix (".hnsw.commitlog.d", ".hfresh.d", ".queue.d") and
+	// TargetVectorNameRegex forbids dots in vector names, so no sibling's
+	// artifact can ever equal one — filtering them would be unreachable code.
+	// A future shard directory WITHOUT a dotted suffix would break that and
+	// needs the guard extended.
+	keptBuckets := artifacts.LSMBuckets[:0:0]
+	for _, name := range artifacts.LSMBuckets {
+		if _, clash := protected[name]; clash {
+			continue
+		}
+		keptBuckets = append(keptBuckets, name)
+	}
+	artifacts.LSMBuckets = keptBuckets
+	return artifacts
 }
 
 func GetHNSWCommitLogDirName(targetVector string) string {

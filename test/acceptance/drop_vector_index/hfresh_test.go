@@ -14,7 +14,6 @@ package drop_vector_index
 import (
 	"context"
 	"fmt"
-	"io"
 	"path"
 	"sort"
 	"strings"
@@ -23,8 +22,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	tcexec "github.com/testcontainers/testcontainers-go/exec"
 
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -185,10 +182,7 @@ func hfreshDirsOnEveryNode(ctx context.Context, t *testing.T, compose *docker.Do
 		if node == nil {
 			continue
 		}
-		out := hfreshExec(ctx, t, node.Container(), []string{
-			"find", "/", "-xdev", "-type", "d",
-			"(", "-name", "vectors_*", "-o", "-name", "hfresh_*", ")",
-		})
+		out := findVectorDirs(ctx, t, node.Container())
 		for _, line := range strings.Split(out, "\n") {
 			if line = strings.TrimSpace(line); line != "" {
 				dirs = append(dirs, node.Name()+":"+line)
@@ -205,16 +199,4 @@ func hasBase(paths []string, base string) bool {
 		}
 	}
 	return false
-}
-
-func hfreshExec(ctx context.Context, t *testing.T, c testcontainers.Container, cmd []string) string {
-	t.Helper()
-	code, reader, err := c.Exec(ctx, cmd, tcexec.Multiplexed())
-	require.NoError(t, err, "exec %v", cmd)
-	buf := new(strings.Builder)
-	_, err = io.Copy(buf, reader)
-	require.NoError(t, err)
-	// find exits non-zero only on a real error; "no matches" is exit 0 + empty.
-	require.Zero(t, code, "exec %v failed: %s", cmd, buf.String())
-	return buf.String()
 }

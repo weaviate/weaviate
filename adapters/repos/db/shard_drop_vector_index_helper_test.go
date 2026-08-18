@@ -49,7 +49,7 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(vectorsBucket, "data.db"), []byte("data"), 0o644))
 		require.NoError(t, os.MkdirAll(compressedBucket, 0o755))
 
-		err := h.removeVectorIndexFiles(indexPath, shardName, "flat_bq")
+		err := h.removeVectorIndexFiles(indexPath, shardName, "flat_bq", nil)
 		require.NoError(t, err)
 
 		assert.False(t, pathExists(vectorsBucket))
@@ -69,7 +69,7 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		lsm := filepath.Join(indexPath, shardName, "lsm")
 		vectorsBucket := filepath.Join(lsm, helpers.GetVectorsBucketName(target))
 		compressedBucket := filepath.Join(lsm, helpers.GetCompressedBucketName(target))
-		muveraBucket := filepath.Join(lsm, helpers.GetMuveraBucketName(target))
+		muveraBucket := filepath.Join(lsm, helpers.MuveraBucketName(helpers.GetVectorsBucketName(target)))
 		commitLog := filepath.Join(indexPath, shardName, helpers.GetHNSWCommitLogDirName(target))
 
 		for _, dir := range []string{vectorsBucket, compressedBucket, muveraBucket, commitLog} {
@@ -79,30 +79,12 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		require.Equal(t, filepath.Join(lsm, "vectors_multivector_muvera_bq_muvera_vectors"), muveraBucket,
 			"the bucket name must match what hnsw.New creates")
 
-		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, target))
+		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, target, nil))
 
 		assert.False(t, pathExists(muveraBucket), "the muvera bucket must not survive the drop")
 		assert.False(t, pathExists(vectorsBucket))
 		assert.False(t, pathExists(compressedBucket))
 		assert.False(t, pathExists(commitLog))
-	})
-
-	t.Run("a sibling vector's muvera bucket is untouched", func(t *testing.T) {
-		// The bucket names share a prefix, so a sweep matching loosely would
-		// take a live index's encoded vectors with it.
-		indexPath, shardName := setup(t)
-
-		lsm := filepath.Join(indexPath, shardName, "lsm")
-		dropped := filepath.Join(lsm, helpers.GetMuveraBucketName("mv"))
-		sibling := filepath.Join(lsm, helpers.GetMuveraBucketName("mv_other"))
-		for _, dir := range []string{dropped, sibling} {
-			require.NoError(t, os.MkdirAll(dir, 0o755))
-		}
-
-		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, "mv"))
-
-		assert.False(t, pathExists(dropped))
-		assert.True(t, pathExists(sibling), "another vector's muvera bucket must survive")
 	})
 
 	t.Run("removes the directory and buckets of an hfresh index", func(t *testing.T) {
@@ -131,29 +113,38 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		require.Equal(t, filepath.Join(lsm, "hfresh_shared_vectors_hfresh_vec"), shared)
 		require.Equal(t, filepath.Join(indexPath, shardName, "vectors_hfresh_vec.hfresh.d"), hfreshDir)
 
-		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, target))
+		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, target, nil))
 
 		assert.False(t, pathExists(postings), "the hfresh postings bucket must not survive the drop")
 		assert.False(t, pathExists(shared), "the hfresh shared bucket must not survive the drop")
 		assert.False(t, pathExists(hfreshDir), "the hfresh directory must not survive the drop")
 	})
 
-	t.Run("a sibling vector's hfresh state is untouched", func(t *testing.T) {
-		// The names share a prefix, so a sweep matching loosely would take a
-		// live index's postings with it.
+	t.Run("a sibling whose bucket name collides is not deleted", func(t *testing.T) {
+		// The only way this sweep can destroy live data: target vector names may
+		// legally be "<other>_muvera_vectors" or "<other>_mv_mappings", which
+		// makes that sibling's PRIMARY vectors bucket identical to one of the
+		// dropped vector's artifacts. Deleting it takes a live vector's raw
+		// vectors, and this sweep re-runs on every restart while the drop marker
+		// persists, so a re-import would not survive either.
 		indexPath, shardName := setup(t)
-
 		lsm := filepath.Join(indexPath, shardName, "lsm")
-		dropped := filepath.Join(lsm, helpers.HFreshPostingsBucketName(helpers.GetVectorsBucketName("hf")))
-		sibling := filepath.Join(lsm, helpers.HFreshPostingsBucketName(helpers.GetVectorsBucketName("hf_other")))
-		for _, dir := range []string{dropped, sibling} {
-			require.NoError(t, os.MkdirAll(dir, 0o755))
+
+		const dropped = "foo"
+		for _, sibling := range []string{"foo_muvera_vectors", "foo_mv_mappings"} {
+			siblingBucket := filepath.Join(lsm, helpers.GetVectorsBucketName(sibling))
+			ownBucket := filepath.Join(lsm, helpers.GetVectorsBucketName(dropped))
+			require.NoError(t, os.MkdirAll(siblingBucket, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(siblingBucket, "segment.db"), []byte("live"), 0o644))
+			require.NoError(t, os.MkdirAll(ownBucket, 0o755))
+
+			require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, dropped, []string{sibling}))
+
+			assert.True(t, pathExists(siblingBucket),
+				"%s is %s's live vectors bucket and must survive dropping %s",
+				siblingBucket, sibling, dropped)
+			assert.False(t, pathExists(ownBucket), "the dropped vector's own bucket must still go")
 		}
-
-		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, "hf"))
-
-		assert.False(t, pathExists(dropped))
-		assert.True(t, pathExists(sibling), "another vector's hfresh postings must survive")
 	})
 
 	t.Run("removes all hnsw vector artifacts", func(t *testing.T) {
@@ -169,7 +160,7 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		require.NoError(t, os.MkdirAll(commitLog, 0o755))
 		require.NoError(t, os.MkdirAll(snapshot, 0o755))
 
-		err := h.removeVectorIndexFiles(indexPath, shardName, "hnsw_rq8")
+		err := h.removeVectorIndexFiles(indexPath, shardName, "hnsw_rq8", nil)
 		require.NoError(t, err)
 
 		assert.False(t, pathExists(vectorsBucket))
@@ -182,7 +173,7 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		indexPath, shardName := setup(t)
 		require.NoError(t, os.MkdirAll(filepath.Join(indexPath, shardName, "lsm"), 0o755))
 
-		err := h.removeVectorIndexFiles(indexPath, shardName, "nonexistent")
+		err := h.removeVectorIndexFiles(indexPath, shardName, "nonexistent", nil)
 		require.NoError(t, err)
 	})
 }

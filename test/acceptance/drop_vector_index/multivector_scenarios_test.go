@@ -18,6 +18,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -122,22 +124,12 @@ func testMultiVectorLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*tes
 				clschema.NewSchemaObjectsCreateParams().WithObjectClass(cls), nil)
 			require.NoError(t, err)
 
-			// Confirm each config survived the round trip: a variant that
-			// silently lost its multivector or muvera flag would create less
-			// on-disk state and make its assertions vacuous.
-			got := helper.GetClass(t, className)
-			for _, v := range variants {
-				cfg, ok := got.VectorConfig[v.name].VectorIndexConfig.(map[string]any)
-				require.True(t, ok, "%s: index config should be readable", v.name)
-				mv, ok := cfg["multivector"].(map[string]any)
-				require.True(t, ok, "%s: multivector config should be present", v.name)
-				require.Equal(t, true, mv["enabled"], "%s: multivector must be enabled", v.name)
-				if v.muvera {
-					muvera, ok := mv["muvera"].(map[string]any)
-					require.True(t, ok, "%s: muvera config should be present", v.name)
-					require.Equal(t, true, muvera["enabled"], "%s: muvera must be enabled", v.name)
-				}
-			}
+			// The configs are deliberately NOT re-read here. Two later checks
+			// pin the same thing more strongly: the batch below is only
+			// accepted as [][]float32 if multivector really stuck, and the
+			// muvera variants' on-disk precondition fails if muvera did not.
+			// Re-reading the flags we just sent would only move the failure
+			// slightly earlier.
 
 			batch := make([]*models.Object, count)
 			for i := range count {
@@ -164,7 +156,7 @@ func testMultiVectorLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*tes
 		// assertions below compare against observed state rather than a list of
 		// paths guessed in advance.
 		owned := map[string][]string{}
-		t.Run("every encoding owns directories on disk", func(t *testing.T) {
+		inventoried := t.Run("every encoding owns directories on disk", func(t *testing.T) {
 			all := multiVectorDirsOnEveryNode(ctx, t, compose)
 			for _, v := range variants {
 				owned[v.name] = dirsOwnedBy(all, v.name)
@@ -181,6 +173,14 @@ func testMultiVectorLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*tes
 				}
 			}
 		})
+
+		// Without the snapshot above, the drop subtests assert against nil
+		// `owned` entries: one real precondition failure would surface as five,
+		// four of them bogus "drop disturbed a sibling" reports pointing at the
+		// wrong thing. t.Run returns false when its subtest failed.
+		if !inventoried {
+			t.Fatal("skipping the drops: the pre-drop inventory failed, so nothing below can be trusted")
+		}
 
 		// Dropped one at a time so each drop can be checked against the indexes
 		// still standing.
@@ -215,13 +215,13 @@ func testMultiVectorLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*tes
 // variants' names are prefixes of one another, so "multivector" would claim
 // every other variant's directories too.
 func dirsOwnedBy(allDirs []string, targetVector string) []string {
-	indexID := "vectors_" + targetVector
-	names := map[string]struct{}{
-		indexID:                              {}, // vectors bucket
-		"vectors_compressed_" + targetVector: {}, // BQ/PQ/SQ compressed bucket
-		indexID + "_muvera_vectors":          {}, // muvera's own bucket
-		indexID + ".hnsw.commitlog.d":        {},
-		indexID + ".hnsw.snapshot.d":         {},
+	// Read from the same helper the cleanup uses, so a newly added artifact
+	// cannot be cleaned-but-unasserted or asserted-but-uncleaned. A hand-copied
+	// list here is how "_mv_mappings" came to be missing from this filter while
+	// the bucket leaked in the container and the test still reported clean.
+	names := map[string]struct{}{}
+	for _, n := range helpers.VectorIndexArtifactsFor(targetVector, nil).All() {
+		names[n] = struct{}{}
 	}
 	var out []string
 	for _, dir := range allDirs {
@@ -249,15 +249,78 @@ func multiVectorDirsOnEveryNode(ctx context.Context, t *testing.T, compose *dock
 		if node == nil {
 			continue
 		}
-		out := execInContainer(ctx, t, node.Container(),
-			[]string{"find", "/", "-xdev", "-type", "d", "-name", "vectors_*"})
-		for _, line := range strings.Split(out, "\n") {
+		for _, line := range strings.Split(findVectorDirs(ctx, t, node.Container()), "\n") {
 			if line = strings.TrimSpace(line); line != "" {
 				dirs = append(dirs, node.Name()+":"+line)
 			}
 		}
 	}
 	return dirs
+}
+
+// dataRoots caches the discovered data directory per container, so the walk
+// below is scoped to it instead of crossing the whole filesystem on every one
+// of the ~10 calls a run makes.
+var (
+	dataRootsMu sync.Mutex
+	dataRoots   = map[string]string{}
+)
+
+// dataRootOf locates PERSISTENCE_DATA_PATH inside the container once. Resolved
+// at runtime rather than hardcoded: a path that moved would otherwise make
+// every post-drop assertion pass vacuously by finding nothing.
+func dataRootOf(ctx context.Context, t *testing.T, c testcontainers.Container) string {
+	t.Helper()
+	dataRootsMu.Lock()
+	defer dataRootsMu.Unlock()
+	if root, ok := dataRoots[c.GetContainerID()]; ok {
+		return root
+	}
+
+	// Located by finding a shard's "lsm" directory at ANY depth and walking up
+	// two levels (<root>/<class>/<shard>/lsm). Depth is not assumed: with the
+	// default PERSISTENCE_DATA_PATH the marker sits at depth 4, and a bounded
+	// search that guessed wrong found nothing at all. `head -1` stops the walk
+	// at the first hit, so this stays cheap despite being unbounded, and it
+	// runs once per container.
+	out, _ := execInContainer(ctx, t, c, []string{
+		"sh", "-c", "find / -xdev -type d -name lsm 2>/dev/null | head -1",
+	})
+	root := ""
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			// <root>/<class>/<shard>/lsm — three levels up, not two. Stopping
+			// at the class directory scopes every later search to whichever
+			// class happened to be found first, and the result is CACHED, so
+			// one test passes and the next finds nothing.
+			root = path.Dir(path.Dir(path.Dir(line)))
+			break
+		}
+	}
+	require.NotEmpty(t, root,
+		"could not locate the data root in the container; a scoped search would find nothing and pass vacuously")
+	// Logged once per container: if the root is ever wrong again, the failure
+	// says which directory was searched instead of only that nothing was found.
+	t.Logf("data root in %s resolved to %s", c.GetContainerID()[:12], root)
+	dataRoots[c.GetContainerID()] = root
+	return root
+}
+
+// findVectorDirs lists candidate directories under the data root.
+//
+// find's exit code is deliberately NOT asserted. BusyBox find lstats every
+// entry it reads and exits 1 when one vanishes between readdir and lstat —
+// which segment flushes and compactions make routine here — while still
+// printing every real match. Failing on that would flake a run with zero
+// leaks. A genuinely broken search shows up instead as an empty result, which
+// the precondition subtest turns into a loud failure.
+func findVectorDirs(ctx context.Context, t *testing.T, c testcontainers.Container) string {
+	t.Helper()
+	out, _ := execInContainer(ctx, t, c, []string{
+		"find", dataRootOf(ctx, t, c), "-xdev", "-type", "d",
+		"(", "-name", "vectors_*", "-o", "-name", "hfresh_*", ")",
+	})
+	return out
 }
 
 func hasSuffix(paths []string, suffix string) bool {
@@ -269,14 +332,15 @@ func hasSuffix(paths []string, suffix string) bool {
 	return false
 }
 
-func execInContainer(ctx context.Context, t *testing.T, c testcontainers.Container, cmd []string) string {
+// execInContainer runs cmd and returns its stdout and exit code. The code is
+// returned rather than asserted: callers decide, because for `find` a non-zero
+// exit is routine (see findVectorDirs) while for other commands it is not.
+func execInContainer(ctx context.Context, t *testing.T, c testcontainers.Container, cmd []string) (string, int) {
 	t.Helper()
 	code, reader, err := c.Exec(ctx, cmd, tcexec.Multiplexed())
 	require.NoError(t, err, "exec %v", cmd)
 	buf := new(strings.Builder)
 	_, err = io.Copy(buf, reader)
 	require.NoError(t, err)
-	// find exits non-zero only on a real error; "no matches" is exit 0 + empty.
-	require.Zero(t, code, "exec %v failed: %s", cmd, buf.String())
-	return buf.String()
+	return buf.String(), code
 }
