@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -438,8 +439,9 @@ func writeFinalizedMarker(migDir string) error {
 	if err != nil {
 		return fmt.Errorf("create %s: %w", finalizedSentinel, err)
 	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("close %s: %w", finalizedSentinel, err)
+	_, werr := f.WriteString(time.Now().UTC().Format(time.RFC3339Nano))
+	if err := errors.Join(werr, f.Close()); err != nil {
+		return fmt.Errorf("finish %s: %w", finalizedSentinel, err)
 	}
 	return nil
 }
