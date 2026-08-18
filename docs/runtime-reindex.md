@@ -1361,8 +1361,12 @@ Who retires a record:
 | A class drop | Takes the whole shard directory, record included. |
 | An index DELETE | Not the index the record is waiting on: the schema already advertises that index as disabled, so `DeleteClassPropertyIndex` returns without a RAFT write and no apply runs. The promoted bucket stays on disk, invisible to queries, until one of the routes above retires it. |
 
-Residue that no route retires promptly, all of it protected rather than
-lost:
+The apply removes without consulting the record, on purpose: a flag-false
+property apply cannot tell a sibling update inside the window from a DELETE
+after the flip, and declining it would keep a bucket the user dropped. The
+active-task guard in `CheckPropertyUpdate` covers the window instead.
+
+Residue that no route retires promptly, all of it protected rather than lost:
 
 - A task that ends **FAILED or CANCELLED** after this node finalized keeps
   the record, the bucket and `payload.mig`. Same contract the terminal
