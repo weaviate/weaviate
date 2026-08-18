@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -126,6 +127,7 @@ type localTaskLister interface {
 
 // classReader reads a class from this node's schema. *schema.Manager satisfies it.
 type classReader interface {
+	ClassInfo(name string) clusterSchema.ClassInfo
 	ReadOnlyClass(name string) *models.Class
 }
 
@@ -133,7 +135,16 @@ type classReader interface {
 // never be the older of the two. A nil class means the collection does not
 // exist. A nil lister means there is no cluster service, and the caller gets
 // the class with no tasks. schemaReader must be non-nil.
+//
+// ClassInfo runs ahead of the task read purely to spare a collection that
+// does not exist the cost of one: it answers from a small value struct, so
+// it neither copies the class nor its properties. It is not the existence
+// check the response is built on — that stays on ReadOnlyClass below, after
+// the task read, so the order above holds for every class this returns.
 func readClassAndTasks(collection string, tasks localTaskLister, schemaReader classReader) (*models.Class, []parsedReindexTask) {
+	if !schemaReader.ClassInfo(collection).Exists {
+		return nil, nil
+	}
 	var byNamespace map[string][]*distributedtask.Task
 	if tasks != nil {
 		byNamespace = tasks.LocalDistributedTasks()

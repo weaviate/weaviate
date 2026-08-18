@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -46,9 +47,13 @@ type fsmSnapshot struct {
 	step                int
 	advanceBetweenReads bool
 	steps               []fsmStep
+	// listCalls counts the task reads, so a collection that does not exist
+	// can assert it took none.
+	listCalls int
 }
 
 func (f *fsmSnapshot) LocalDistributedTasks() map[string][]*distributedtask.Task {
+	f.listCalls++
 	out := f.steps[f.step].tasks
 	f.tick()
 	return out
@@ -58,6 +63,13 @@ func (f *fsmSnapshot) ReadOnlyClass(string) *models.Class {
 	out := f.steps[f.step].class
 	f.tick()
 	return out
+}
+
+// ClassInfo answers the cheap existence pre-check. It does not advance the
+// applied index: the pre-check is not one of the two ordered reads, and
+// letting it consume the window would leave that order unpinned.
+func (f *fsmSnapshot) ClassInfo(string) clusterSchema.ClassInfo {
+	return clusterSchema.ClassInfo{Exists: f.steps[f.step].class != nil}
 }
 
 func (f *fsmSnapshot) tick() {
@@ -93,26 +105,38 @@ func newFSMSnapshot(t *testing.T) *fsmSnapshot {
 }
 
 // Tasks must be read before the schema, or an already-read, stale flag-off
-// pairs with a FINISHED task read after it and the entry is dropped.
+// pairs with a FINISHED task read after it and the entry is dropped. A
+// collection that does not exist is answered before the task read, which is
+// the one thing that read is too expensive to do for nothing: it copies every
+// task in every namespace, unit by unit.
 func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 	tests := []struct {
-		name        string
-		advance     bool
-		noLister    bool
-		wantNoTasks bool
-		wantStatus  distributedtask.TaskStatus
-		wantFlagOn  bool
+		name          string
+		advance       bool
+		noLister      bool
+		noClass       bool
+		wantNoTasks   bool
+		wantListCalls int
+		wantStatus    distributedtask.TaskStatus
+		wantFlagOn    bool
 	}{
 		{
-			name:       "schema is never the older operand",
-			advance:    true,
-			wantStatus: distributedtask.TaskStatusStarted,
-			wantFlagOn: true,
+			name:          "schema is never the older operand",
+			advance:       true,
+			wantListCalls: 1,
+			wantStatus:    distributedtask.TaskStatusStarted,
+			wantFlagOn:    true,
 		},
 		{
 			name:        "no cluster service",
 			noLister:    true,
 			wantNoTasks: true,
+		},
+		{
+			name:          "no such collection, so no task read",
+			noClass:       true,
+			wantNoTasks:   true,
+			wantListCalls: 0,
 		},
 	}
 
@@ -120,6 +144,11 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			snapshot := newFSMSnapshot(t)
 			snapshot.advanceBetweenReads = tt.advance
+			if tt.noClass {
+				for i := range snapshot.steps {
+					snapshot.steps[i].class = nil
+				}
+			}
 
 			var lister localTaskLister
 			if !tt.noLister {
@@ -127,6 +156,12 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 			}
 
 			class, parsed := readClassAndTasks("C", lister, snapshot)
+			require.Equal(t, tt.wantListCalls, snapshot.listCalls)
+			if tt.noClass {
+				require.Nil(t, class)
+				require.Empty(t, parsed)
+				return
+			}
 			require.NotNil(t, class)
 			if tt.wantNoTasks {
 				require.Empty(t, parsed)
@@ -144,6 +179,7 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 func TestGetIndexes_NilClusterService_AnswersSchemaOnly(t *testing.T) {
 	reader := schemaUC.NewMockSchemaReader(t)
 	reader.EXPECT().ResolveAlias("C").Return("")
+	reader.EXPECT().ClassInfo("C").Return(clusterSchema.ClassInfo{Exists: true})
 	reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{
 		Class:      "C",
 		Properties: []*models.Property{{Name: "p", DataType: []string{"text"}}},
