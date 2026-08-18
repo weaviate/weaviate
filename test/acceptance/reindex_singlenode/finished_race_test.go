@@ -33,14 +33,19 @@ import (
 //
 // Sequence:
 //
-//  1. The last unit's completion triggers a RAFT apply. A semantic migration
-//     sets a preparation barrier, so the status flips to PREPARING and wakes
-//     the scheduler; SWAPPING lands once every node's PREP ack is in.
-//  2. The scheduler's completed-callback phase (OnTaskCompleted) flips the
-//     property's Tokenization via its own RAFT-idempotent apply — typically
-//     tens of ms, well under the periodic tick interval.
-//  3. FINISHED is applied only once every node has acked that callback, so
-//     the FINISHED entry is ordered after the flip in the log.
+//  1. The last unit's `RecordDistributedTaskUnitCompletion` runs (Raft apply).
+//     In cluster/distributedtask/manager.go AllUnitsTerminal() → true and
+//     task.Status flips to FINISHED. A poller against /v1/tasks now sees
+//     FINISHED. The same apply also calls notifySchedulerWithLock which wakes
+//     the scheduler reactively (cluster/distributedtask/scheduler.go wakeCh
+//     path).
+//  2. The scheduler's run loop runs OnTaskCompleted within RAFT-propagation +
+//     scheduler-loop latency of the apply — typically low tens of ms with
+//     reactive firing, much faster than the periodic tick interval.
+//  3. OnTaskCompleted in adapters/repos/db/reindex_provider.go calls
+//     applyPerPropertySchemaUpdate (RAFT-idempotent), which flips the
+//     property's Tokenization. The flip is observable on /v1/schema once
+//     that RAFT entry applies locally.
 //
 // Contract this test pins: after a poller observes FINISHED on /v1/tasks,
 // the schema must catch up within a bounded window. We allow up to 5
@@ -58,11 +63,11 @@ import (
 // cross-node window where the first node's swap flipped the schema flag
 // for the entire cluster while peer nodes still served the old bucket.
 //
-// Callers that need to observe the post-migration state synchronously should
-// poll /v1/schema/{class}/indexes instead. It reads the task list and the
-// schema from the FSM of the node that answers, so it cannot report FINISHED
-// against a schema that has not caught up. /v1/tasks is leader-routed and
-// can.
+// Callers that need to observe the post-migration state synchronously
+// should poll /v1/schema/{class}/indexes. It reads the task list and the
+// property's schema flags from the node that answers, task list first, so
+// the flags it reports are never the older of the two. /v1/tasks is
+// leader-routed, so a status read from it can outrun this node's schema.
 func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	ctx := context.Background()
 
@@ -125,7 +130,7 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 
 	// Poll the schema for up to flipWindow after FINISHED was first observed.
 	// The schema flip happens in ReindexProvider.OnTaskCompleted (one RAFT
-	// commit before the task transitions to FINISHED). The reactive scheduler
+	// commit after the task transitions to FINISHED). The reactive scheduler
 	// wake-up + OnTaskCompleted body + RAFT-apply latency is typically well
 	// under 100ms on a healthy cluster; allow 5s for headroom on a loaded
 	// test runner. If it doesn't converge within this window, the wiring
