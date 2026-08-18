@@ -431,7 +431,7 @@ func finalizeEffectiveGen(lsmPath, migDir, migName string, class *models.Class,
 }
 
 // writeFinalizedMarker records a completed promotion. Exclusive create: a
-// marker that already exists belongs to an earlier start, and
+// marker that already exists belongs to an earlier load, and
 // [finalizeEffectiveGen] never reaches here in that case.
 func writeFinalizedMarker(migDir string) error {
 	f, err := os.OpenFile(filepath.Join(migDir, finalizedSentinel),
@@ -699,7 +699,6 @@ func reindexSuffixForFinalize(namespace string) string {
 	return ""
 }
 
-// errUnfinalizableTracker classifies a promotion no restart can complete.
 var errUnfinalizableTracker = errors.New("no start can finalize this tracker")
 
 // finalizeMigrationDir renames every property's ingest dir to its canonical

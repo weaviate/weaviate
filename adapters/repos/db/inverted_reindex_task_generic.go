@@ -1846,8 +1846,8 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 			continue
 		}
 		if fileExistsInDir(filepath.Join(migsDir, entry.Name()), finalizedSentinel) {
-			// A record retires only through a named owner (schema flip, index
-			// DELETE), never through a same-property re-run passing by.
+			// The trim only defers this: the next start's finalize removes every
+			// gen below the effective one, this record included.
 			continue
 		}
 		t.removeAllSafe(logger, filepath.Join(migsDir, entry.Name()))

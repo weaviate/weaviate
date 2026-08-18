@@ -70,11 +70,11 @@ func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropert
 }
 
 // completedMigrationShield answers whether a bucket the startup sweep is
-// about to delete belongs to a migration completed on this shard — promoted
-// already (`finalized.mig`) or promoted later this same start (`tidied.mig` /
-// `merged.mig`). Asked only where the sweep would otherwise delete, since it
-// costs a directory walk; one shield per shard load shares that listing
-// across questions.
+// about to delete belongs to a migration completed on this shard, which
+// `tidied.mig` / `merged.mig` says and `finalized.mig` does not. An index
+// DELETE retires on the same pair, so the two cannot disagree. Asked only
+// where the sweep would otherwise delete, since it costs a directory walk;
+// one shield per shard load shares that listing across questions.
 type completedMigrationShield struct {
 	lsmPath    string
 	logger     logrus.FieldLogger
@@ -107,6 +107,8 @@ func (s *completedMigrationShield) protects(propName, indexType string) bool {
 	if s.unreadable {
 		return true
 	}
+	// preserving() reaches the class-level tracker and every strategy of this
+	// index type, so a neighbour's completed migration shields this bucket too.
 	scope := migrationDirsOf(s.lsmPath, s.dirs, propName, indexType).
 		cachingProps(s.props).preserving(indexType)
 	return len(completedMigrationGens(scope)) > 0
