@@ -856,10 +856,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// Pick the most useful one to surface rather than first-in-map-order:
 	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
 	//   newer StartedAt > older StartedAt          (within the same priority)
-	// FINISHED tasks stay in the loop for the tiebreak below: a completed
-	// migration must outrank an older FAILED attempt on the same property,
-	// or the entry reports "failed" after the retry succeeded. FINISHED
-	// itself surfaces nothing (see its case).
+	// FINISHED tasks stay in the loop for the tiebreak below; see
+	// [parseReindexTasks] for why. FINISHED itself surfaces nothing (see
+	// its case).
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
 	for _, pt := range parsedTasks {
@@ -1004,9 +1003,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 
 // taskStatusPriority returns 2 for an in-flight task and 1 for a terminal
 // one, so the merge loop prefers in-flight when several tasks match the same
-// (collection, prop, indexType). FINISHED ranks with FAILED and CANCELLED, so
-// a completed migration still wins the StartedAt tiebreak over an older
-// FAILED attempt.
+// (collection, prop, indexType). FINISHED ranks with FAILED and CANCELLED;
+// see [parseReindexTasks] for why.
 func taskStatusPriority(task *distributedtask.Task) int {
 	if task.Status.IsActive() {
 		return 2
