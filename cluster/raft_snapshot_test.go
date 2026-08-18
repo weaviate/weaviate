@@ -37,7 +37,6 @@ import (
 func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	ctx := context.Background()
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
-	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 
 	// Open
@@ -45,10 +44,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 
 	// Ensure Raft starts and a leader is elected
-	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
-	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
-	assert.True(t, tryNTimesWithWait(20, time.Millisecond*200, srv.store.IsLeader))
-	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
+	electRaftLeader(t, srv, &m)
 
 	// DeleteClass
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -108,10 +104,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	// shall be called because of restoring from snapshot
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return().Once()
 	assert.Nil(t, srv.Open(ctx, m.indexer))
-	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
-	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
-	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
-	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
+	electRaftLeader(t, srv, &m)
 
 	// Ensure that the class has been restored and that the tenant is present with the right state
 	schemaReader = srv.SchemaReader()
@@ -131,16 +124,13 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 func TestSnapshotRestoreReloadsDBBeforeWaitToRestoreDB(t *testing.T) {
 	ctx := context.Background()
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
-	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 
 	// Seed a node: one class, then snapshot as the last raft entry so the
 	// reopen restores through the snapshot path.
 	m.indexer.On("Open", Anything).Return(nil)
 	require.NoError(t, srv.Open(ctx, m.indexer))
-	require.NoError(t, srv.store.Notify(m.cfg.NodeID, addr))
-	require.NoError(t, srv.WaitUntilDBRestored(ctx, time.Second, make(chan struct{})))
-	require.True(t, tryNTimesWithWait(20, time.Millisecond*200, srv.store.IsLeader))
+	electRaftLeader(t, srv, &m)
 
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	m.indexer.On("AddClass", Anything).Return(nil)

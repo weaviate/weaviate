@@ -1598,6 +1598,21 @@ func (m *MockStore) Store(doBefore func(*MockStore)) *Store {
 	return m.store
 }
 
+// electRaftLeader bootstraps srv as the only voter in its cluster and blocks
+// until it has won the election and is ready to serve. srv must already be open,
+// and whatever mocks the test needs must already be set on m.
+func electRaftLeader(t *testing.T, srv *Raft, m *MockStore) {
+	t.Helper()
+
+	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+	require.NoError(t, srv.store.Notify(m.cfg.NodeID, addr))
+	require.NoError(t, srv.WaitUntilDBRestored(context.Background(), time.Second, make(chan struct{})))
+	require.True(t, tryNTimesWithWait(20, time.Millisecond*200, srv.store.IsLeader),
+		"node did not become raft leader")
+	require.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready),
+		"raft did not become ready to serve")
+}
+
 // Runs the provided function `predicate` up to `n` times, sleeping `sleepDuration` between each
 // function call until `f` returns true or returns false if all `n` calls return false.
 // Useful in tests which require an unknown but bounded delay where the component under test has

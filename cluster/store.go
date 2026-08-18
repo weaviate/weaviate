@@ -238,6 +238,11 @@ type Store struct {
 	// applyTimeout timeout limit the amount of time raft waits for a command to be applied
 	applyTimeout time.Duration
 
+	// fsmCaughtUpTerm is the leader term whose FSM catch-up a barrier has already
+	// confirmed; see [Store.waitLeaderFSMCaughtUp]. Zero until the first barrier
+	// succeeds.
+	fsmCaughtUpTerm atomic.Uint64
+
 	// raft snapshot store
 	snapshotStore *raft.FileSnapshotStore
 
@@ -813,6 +818,37 @@ func (st *Store) IsLeader() bool {
 	return st.raft != nil && st.raft.State() == raft.Leader
 }
 
+// waitLeaderFSMCaughtUp returns once this leader's FSM has applied everything
+// committed before it took office. Callers must already be leader.
+//
+// raft reports leadership as soon as the election is won, so without this
+// PreApplyFilter in [Store.Execute] would judge a propose against a schema map
+// that is behind the log this node is already leading. A barrier entry applies
+// after everything ahead of it, which is where the map is trustworthy again.
+//
+// One barrier per term covers the lag a leader inherits at election, not the
+// order of two proposes within a term, and concurrent first proposes each append
+// their own. The wait is unbounded if the FSM stops draining, as the raft.Apply
+// in [Store.Execute] already is.
+func (st *Store) waitLeaderFSMCaughtUp() error {
+	term := st.raft.CurrentTerm()
+	// fsmCaughtUpTerm's zero value means no term has been confirmed, and raft reports
+	// term 0 until the first election, so that pair must not read as a match. No
+	// leader is ever in that state, but a non-leader caller is, which is what the
+	// failure test exercises.
+	if term != 0 && st.fsmCaughtUpTerm.Load() == term {
+		return nil
+	}
+	if err := st.raft.Barrier(st.applyTimeout).Error(); err != nil {
+		st.log.Warnf("leader FSM catch-up barrier failed on term %d: %v", term, err)
+		return fmt.Errorf("waiting for leader FSM to catch up: %w", err)
+	}
+	// Stamping the term read above is safe even if a later term has since begun:
+	// terms only climb, so a stale stamp never matches and only costs a barrier.
+	st.fsmCaughtUpTerm.Store(term)
+	return nil
+}
+
 // SchemaReader returns a SchemaReader from the underlying schema manager using a wait function that will make it wait
 // for a raft log entry to be applied in the FSM Store before authorizing the read to continue.
 func (st *Store) SchemaReader() schema.SchemaReader {
@@ -1186,8 +1222,9 @@ func (st *Store) maybeCommitClusterID() {
 		Type:       api.ApplyRequest_TYPE_CLUSTER_ID_SET,
 		SubCommand: subCmd,
 	}
-	// A new leader may commit a duplicate before replaying the existing entry;
-	// harmless, since applyClusterIDSet is set-once.
+	// Execute drains this leader's FSM first, so the ClusterID check above has
+	// normally settled the question by now; a duplicate that still slips through
+	// is harmless, since applyClusterIDSet is set-once.
 	if _, err := st.Execute(applyReq); err != nil {
 		st.log.WithFields(logrus.Fields{"cluster_id": id}).Warnf("commit cluster-id set command: %v", err)
 	}

@@ -27,11 +27,21 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
+// Execute proposes req to raft, first rejecting it outright if PreApplyFilter
+// finds it invalid, so an invalid command never reaches the log. The caller must
+// already be leader.
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	st.log.WithFields(logrus.Fields{
 		"type":  api.ApplyRequest_Type_name[int32(req.Type)],
 		"class": req.Class,
 	}).Debug("server.execute")
+
+	// PreApplyFilter below judges this propose against in-memory FSM state, so a
+	// leader that has not drained what it inherited must not judge yet. Ahead of
+	// the tenant lock, which is not worth holding across a barrier round-trip.
+	if err := st.waitLeaderFSMCaughtUp(); err != nil {
+		return 0, err
+	}
 
 	// Serialize AddTenants per class so the pre-commit cap check can't race the
 	// apply that increments the count (Execute blocks until apply). Skipped when

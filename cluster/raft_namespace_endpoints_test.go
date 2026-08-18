@@ -13,9 +13,7 @@ package cluster
 
 import (
 	"context"
-	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,7 +32,6 @@ func setupRaftForNamespaceTests(t *testing.T) (*Raft, context.Context, func()) {
 	t.Helper()
 	ctx := context.Background()
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
-	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 
 	m.indexer.On("Open", Anything).Return(nil)
 	m.indexer.On("Close", Anything).Return(nil)
@@ -42,10 +39,7 @@ func setupRaftForNamespaceTests(t *testing.T) (*Raft, context.Context, func()) {
 
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	require.NoError(t, srv.Open(ctx, m.indexer))
-	require.NoError(t, srv.store.Notify(m.cfg.NodeID, addr))
-	require.NoError(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
-	require.True(t, tryNTimesWithWait(20, time.Millisecond*200, srv.store.IsLeader))
-	require.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
+	electRaftLeader(t, srv, &m)
 
 	cleanup := func() {
 		_ = srv.Close(ctx)

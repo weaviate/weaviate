@@ -313,6 +313,17 @@ func (s *Raft) UpdateTenantsProcess(ctx context.Context, class string, req *cmd.
 	return s.Execute(ctx, command)
 }
 
+// classifyLeaderErr marks err for the retry loop in [Raft.Execute]. Only
+// raft.ErrNotLeader and raft.ErrLeadershipLost clear by trying again; every other
+// error fails the caller rather than repeating a wait that has already timed out.
+// Nil stays nil.
+func classifyLeaderErr(err error) error {
+	if errors.Is(err, raft.ErrNotLeader) || errors.Is(err, raft.ErrLeadershipLost) {
+		return err
+	}
+	return backoff.Permanent(err)
+}
+
 func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, error) {
 	t := prometheus.NewTimer(
 		monitoring.GetMetrics().SchemaWrites.WithLabelValues(
@@ -334,11 +345,7 @@ func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, erro
 		// We are the leader, let's apply
 		if s.store.IsLeader() {
 			schemaVersion, err = s.store.Execute(req)
-			// We might fail due to leader not found as we are losing or transferring leadership, retry
-			if errors.Is(err, raft.ErrNotLeader) || errors.Is(err, raft.ErrLeadershipLost) {
-				return err
-			}
-			return backoff.Permanent(err)
+			return classifyLeaderErr(err)
 		}
 
 		leader := s.store.Leader()
