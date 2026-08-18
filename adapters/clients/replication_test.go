@@ -604,6 +604,18 @@ func TestReplicationOverwriteObjects(t *testing.T) {
 	assert.Equal(t, expected[0].ID, resp[0].ID)
 	assert.Equal(t, expected[0].Version, resp[0].Version)
 	assert.Equal(t, expected[0].UpdateTime, resp[0].UpdateTime)
+
+	t.Run("NotReady412MapsToSentinel", func(t *testing.T) {
+		notReady := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "shard \"S1\" not loaded on this node", http.StatusPreconditionFailed)
+		}))
+		defer notReady.Close()
+
+		c := newReplicationClient(t, notReady.Client())
+		_, err := c.OverwriteObjects(context.Background(), notReady.URL[7:], "C1", "S1", input)
+		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
+			"a 412 from a cold replica must map to the typed retry-later sentinel")
+	})
 }
 
 func TestReplicationHashTreeLevel(t *testing.T) {
@@ -672,6 +684,32 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		_, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "status code")
+		assert.NotErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
+			"a 500 must stay a hard failure, not a retry-later signal")
+	})
+
+	t.Run("NotReady412MapsToSentinel", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "hashtree not initialized on shard \"S1\"", http.StatusPreconditionFailed)
+		}))
+		defer server.Close()
+
+		c := newReplicationClient(t, server.Client())
+		_, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
+		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
+			"a 412 means the replica is not ready and must map to the typed sentinel")
+	})
+
+	t.Run("NodeBooting503MapsToSentinel", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "503 Node not ready", http.StatusServiceUnavailable)
+		}))
+		defer server.Close()
+
+		c := newReplicationClient(t, server.Client())
+		_, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
+		require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive,
+			"the node-level boot gate (503) must map to the typed retry-later sentinel")
 	})
 
 	t.Run("InvalidBinaryLength", func(t *testing.T) {
@@ -1180,4 +1218,33 @@ func TestReplicationClient_GetAsyncCheckpointStatus_RootLengthMismatchSurfaces(t
 		context.Background(), host, "MyClass", []string{"s1"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode async-checkpoint root for shard")
+}
+
+func TestAsyncNotReadyErrorStatusMapping(t *testing.T) {
+	tests := []struct {
+		name     string
+		code     int
+		sentinel bool
+		reasonIs error
+	}{
+		{name: "412 replica not ready", code: http.StatusPreconditionFailed, sentinel: true},
+		{name: "503 boot gate", code: http.StatusServiceUnavailable, sentinel: true, reasonIs: replica.ErrReplicaBooting},
+		{name: "418 maintenance mode", code: http.StatusTeapot, sentinel: true, reasonIs: replica.ErrReplicaMaintenance},
+		{name: "422 unprocessable", code: http.StatusUnprocessableEntity, sentinel: false},
+		{name: "500 internal", code: http.StatusInternalServerError, sentinel: false},
+		{name: "404 not found", code: http.StatusNotFound, sentinel: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := asyncNotReadyError(tt.code, []byte("body"))
+			if !tt.sentinel {
+				require.Nil(t, err)
+				return
+			}
+			require.ErrorIs(t, err, replica.ErrAsyncReplicationNotActive)
+			if tt.reasonIs != nil {
+				require.ErrorIs(t, err, tt.reasonIs)
+			}
+		})
+	}
 }

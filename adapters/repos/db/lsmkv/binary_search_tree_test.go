@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bytes"
 	"crypto/rand"
 	"fmt"
 	mathrand "math/rand"
@@ -320,5 +321,41 @@ func BenchmarkFlattenInOrder(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+// TestBinarySearchTreeFlattenInOrderRange: bounded flatten must equal the filtered full flatten, sized exactly by countInRange.
+func TestBinarySearchTreeFlattenInOrderRange(t *testing.T) {
+	rnd := mathrand.New(mathrand.NewSource(42))
+	randKey := func() []byte {
+		return []byte(fmt.Sprintf("key-%03d", rnd.Intn(150)))
+	}
+	for round := 0; round < 250; round++ {
+		tree := &binarySearchTree{}
+		for i, n := 0, rnd.Intn(120); i < n; i++ {
+			if rnd.Intn(5) == 0 {
+				tree.setTombstone(randKey(), nil, nil)
+			} else {
+				tree.insert(randKey(), []byte(fmt.Sprintf("v-%d", i)), nil)
+			}
+		}
+		full := tree.flattenInOrder()
+		for _, bounds := range [][2][]byte{{nil, nil}, {randKey(), nil}, {nil, randKey()}, {randKey(), randKey()}} {
+			min, max := bounds[0], bounds[1]
+			var want []*binarySearchNode
+			for _, node := range full {
+				if (min == nil || bytes.Compare(node.key, min) >= 0) && (max == nil || bytes.Compare(node.key, max) <= 0) {
+					want = append(want, node)
+				}
+			}
+			got := tree.flattenInOrderRange(min, max)
+			require.Equal(t, want, got, "bounds %q..%q", min, max)
+			if len(got) > 0 {
+				require.Equal(t, len(got), cap(got))
+			}
+			if tree.root != nil {
+				require.Equal(t, len(want), tree.root.countInRange(min, max))
+			}
+		}
 	}
 }

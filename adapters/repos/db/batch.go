@@ -64,6 +64,10 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 		objectByClass[item.Object.Class] = queue
 	}
 
+	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, err
+	}
+
 	// wrapped by func to acquire and safely release indexLock only for duration of loop
 	func() {
 		db.indexLock.RLock()
@@ -132,6 +136,10 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 		refByClass[item.From.Class] = append(refByClass[item.From.Class], item)
 	}
 
+	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, err
+	}
+
 	// wrapped by func to acquire and safely release indexLock only for duration of loop
 	func() {
 		db.indexLock.RLock()
@@ -178,6 +186,10 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (objects.BatchDeleteResult, error) {
+	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return objects.BatchDeleteResult{}, err
+	}
+
 	start := time.Now()
 	// get index for a given class
 	className := params.ClassName

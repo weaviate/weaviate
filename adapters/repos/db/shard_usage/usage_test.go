@@ -244,7 +244,8 @@ func TestLoadComputedUsageDataVersion(t *testing.T) {
 
 			usage, err := LoadComputedUsageData(dirName, "shard1")
 			if tt.wantError {
-				require.Error(t, err)
+				require.ErrorIs(t, err, ErrUsageVersionMismatch,
+					"callers tell a stale version from an unreadable file by this error")
 				return
 			}
 			require.NoError(t, err)
@@ -310,9 +311,10 @@ func TestStorageCalculation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, sizeTracker[helpers.ObjectsBucketLSM], uint64(objectsBytes.StorageBytes))
 
-	vectorBytes, err := CalculateUnloadedVectorsMetrics(lsmFolder, buckets)
+	vectorMetrics, err := CalculateUnloadedVectorsMetrics(lsmFolder, buckets)
 	require.NoError(t, err)
-	require.Equal(t, sizeTracker["vectors"]+sizeTracker["vectors_compressed"]+sizeTracker["vectors_compressed_named_vector"], uint64(vectorBytes))
+	vectorBytes := uint64(vectorMetrics.StorageBytes)
+	require.Equal(t, sizeTracker["vectors"]+sizeTracker["vectors_compressed"]+sizeTracker["vectors_compressed_named_vector"], vectorBytes)
 
 	indexBytes, err := CalculateUnloadedIndicesSize(lsmFolder, buckets)
 	require.NoError(t, err)
@@ -324,7 +326,74 @@ func TestStorageCalculation(t *testing.T) {
 
 	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
 	require.NoError(t, err)
-	require.Equal(t, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+uint64(vectorBytes))
+	require.Equal(t, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+vectorBytes)
+}
+
+func TestQuantizedVectorsExist(t *testing.T) {
+	tests := []struct {
+		name string
+		// bucket is created when named, and holds a file when fileSize > 0
+		bucket   string
+		fileSize int
+		want     bool
+	}{
+		{
+			name:   "no bucket at all",
+			bucket: "",
+		},
+		{
+			name:   "bucket created empty for a downgrade",
+			bucket: "vectors_compressed_named",
+		},
+		{
+			name:     "bucket holding quantized vectors",
+			bucket:   "vectors_compressed_named",
+			fileSize: 1,
+			want:     true,
+		},
+		{
+			name:     "another target vector's bucket does not count",
+			bucket:   "vectors_compressed_other",
+			fileSize: 100,
+		},
+		{
+			name:     "the target vector's uncompressed bucket does not count",
+			bucket:   "vectors_named",
+			fileSize: 100,
+		},
+		{
+			name:     "legacy unnamed vector",
+			bucket:   "vectors_compressed",
+			fileSize: 100,
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			targetVector := "named"
+			if tt.bucket == "vectors_compressed" {
+				targetVector = ""
+			}
+
+			lsmPath := filepath.Join(t.TempDir(), "lsm")
+			require.NoError(t, os.MkdirAll(lsmPath, 0o777))
+			var directories []string
+			if tt.bucket != "" {
+				bucketPath := filepath.Join(lsmPath, tt.bucket)
+				require.NoError(t, os.MkdirAll(bucketPath, 0o777))
+				directories = append(directories, tt.bucket)
+				if tt.fileSize > 0 {
+					require.NoError(t, os.WriteFile(filepath.Join(bucketPath, "segment.db"),
+						make([]byte, tt.fileSize), 0o600))
+				}
+			}
+
+			metrics, err := CalculateUnloadedVectorsMetrics(lsmPath, directories)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, metrics.QuantizedVectorsExist(targetVector))
+		})
+	}
 }
 
 func BenchmarkStorageCalculation(b *testing.B) {
@@ -371,9 +440,10 @@ func BenchmarkStorageCalculation(b *testing.B) {
 		require.NoError(b, err)
 		require.Equal(b, sizeTracker[helpers.ObjectsBucketLSM], uint64(objectsBytes.StorageBytes))
 
-		vectorBytes, err := CalculateUnloadedVectorsMetrics(lsmFolder, buckets)
+		vectorMetrics, err := CalculateUnloadedVectorsMetrics(lsmFolder, buckets)
 		require.NoError(b, err)
-		require.Equal(b, sizeTracker["vectors"]+sizeTracker["vectors_compressed"]+sizeTracker["vectors_compressed_named_vector"], uint64(vectorBytes))
+		vectorBytes := uint64(vectorMetrics.StorageBytes)
+		require.Equal(b, sizeTracker["vectors"]+sizeTracker["vectors_compressed"]+sizeTracker["vectors_compressed_named_vector"], vectorBytes)
 
 		indexBytes, err := CalculateUnloadedIndicesSize(lsmFolder, buckets)
 		require.NoError(b, err)
@@ -381,7 +451,7 @@ func BenchmarkStorageCalculation(b *testing.B) {
 
 		vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
 		require.NoError(b, err)
-		require.Equal(b, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+uint64(vectorBytes))
+		require.Equal(b, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+vectorBytes)
 
 	}
 }
@@ -527,7 +597,7 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 			defer wg.Done()
 			<-start
 			for range 10 {
-				if _, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, []string{"text"}); err != nil {
+				if _, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, map[string]int{"text": 0}); err != nil {
 					errs <- err
 				}
 			}
@@ -580,20 +650,27 @@ func TestCalculateUnloadedDimensionsUsageAll(t *testing.T) {
 	require.NoError(t, b.FlushMemtable())
 	require.NoError(t, b.Shutdown(ctx))
 
-	targetVectors := []string{"text", "image", "missing"}
+	targetVectors := map[string]int{"text": 0, "image": 0, "missing": 0}
 	all, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, targetVectors)
 	require.NoError(t, err)
 	require.Len(t, all, len(targetVectors))
-	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, all["text"])
-	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, all["image"])
-	assert.Equal(t, types.Dimensionality{}, all["missing"])
+	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, all["text"].Reported)
+	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, all["image"].Reported)
+	assert.Equal(t, DimensionsScan{}, all["missing"])
 
 	// parity with the single-vector variant
-	for _, targetVector := range targetVectors {
+	for targetVector := range targetVectors {
 		single, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, targetVector)
 		require.NoError(t, err)
-		assert.Equal(t, all[targetVector], single, targetVector)
+		assert.Equal(t, all[targetVector].Raw, single, targetVector)
 	}
+
+	withEncoded, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName,
+		map[string]int{"text": 2560, "image": 0})
+	require.NoError(t, err)
+	assert.Equal(t, types.Dimensionality{Dimensions: 2560, Count: 5}, withEncoded["text"].Reported)
+	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, withEncoded["text"].Raw)
+	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, withEncoded["image"].Reported)
 
 	// no target vectors → nothing to calculate, no bucket open
 	none, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, nil)
@@ -601,14 +678,16 @@ func TestCalculateUnloadedDimensionsUsageAll(t *testing.T) {
 	assert.Nil(t, none)
 }
 
-// TestCalculateTargetVectorDimensionsFromBucket pins that a vector name which is a prefix of a
+// TestScanTargetVectorDimensions pins that a vector name which is a prefix of a
 // longer name still reports its own dimensions and object count: its dimension bytes sort after
 // the longer name's keys ("texts…" before "text\x80…" at 384 dimensions), so the scan has to skip
 // past those instead of stopping at them. Every vector gets its own dimensions and object count,
 // so a scan that lands on a neighbour's key cannot pass.
-func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
+func TestScanTargetVectorDimensions(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ctx := context.Background()
+
+	const encodedDims = 2560
 
 	stored := []struct {
 		targetVector string
@@ -620,42 +699,90 @@ func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
 		{targetVector: "texts", dims: 256, docIDs: []uint64{4, 5}},
 		{targetVector: "textbook", dims: 192, docIDs: []uint64{1, 2, 3, 4, 5}},
 		{targetVector: "", dims: 128, docIDs: []uint64{1, 2, 3, 4, 5, 6}},
+		// multi-vector objects vary in per-object total dims, dims=0 rows have no vector
+		{targetVector: "colbert", dims: 0, docIDs: []uint64{7, 8}},
+		{targetVector: "colbert", dims: 1280, docIDs: []uint64{1, 2}},
+		{targetVector: "colbert", dims: 2560, docIDs: []uint64{3, 4, 5}},
+		{targetVector: "colbert", dims: 12800, docIDs: []uint64{6}},
+		{targetVector: "novectors", dims: 0, docIDs: []uint64{1, 2, 3}},
 	}
 
 	tests := []struct {
-		name         string
-		targetVector string
-		expected     types.Dimensionality
+		name              string
+		targetVector      string
+		encodedDimensions int
+		expectedRaw       types.Dimensionality
+		expectedReported  types.Dimensionality
 	}{
 		{
-			name:         "no other name shares the prefix",
-			targetVector: "image",
-			expected:     types.Dimensionality{Dimensions: 512, Count: 4},
+			name:             "no other name shares the prefix",
+			targetVector:     "image",
+			expectedRaw:      types.Dimensionality{Dimensions: 512, Count: 4},
+			expectedReported: types.Dimensionality{Dimensions: 512, Count: 4},
 		},
 		{
-			name:         "name is a prefix of two longer names",
-			targetVector: "text",
-			expected:     types.Dimensionality{Dimensions: 384, Count: 3},
+			name:             "name is a prefix of two longer names",
+			targetVector:     "text",
+			expectedRaw:      types.Dimensionality{Dimensions: 384, Count: 3},
+			expectedReported: types.Dimensionality{Dimensions: 384, Count: 3},
 		},
 		{
-			name:         "name extends a shorter name",
-			targetVector: "texts",
-			expected:     types.Dimensionality{Dimensions: 256, Count: 2},
+			name:             "name extends a shorter name",
+			targetVector:     "texts",
+			expectedRaw:      types.Dimensionality{Dimensions: 256, Count: 2},
+			expectedReported: types.Dimensionality{Dimensions: 256, Count: 2},
 		},
 		{
-			name:         "name extends a shorter name and precedes a sibling",
-			targetVector: "textbook",
-			expected:     types.Dimensionality{Dimensions: 192, Count: 5},
+			name:             "name extends a shorter name and precedes a sibling",
+			targetVector:     "textbook",
+			expectedRaw:      types.Dimensionality{Dimensions: 192, Count: 5},
+			expectedReported: types.Dimensionality{Dimensions: 192, Count: 5},
 		},
 		{
-			name:         "unnamed vector alongside named ones",
-			targetVector: "",
-			expected:     types.Dimensionality{Dimensions: 128, Count: 6},
+			name:             "unnamed vector alongside named ones",
+			targetVector:     "",
+			expectedRaw:      types.Dimensionality{Dimensions: 128, Count: 6},
+			expectedReported: types.Dimensionality{Dimensions: 128, Count: 6},
 		},
 		{
-			name:         "vector without entries",
-			targetVector: "missing",
-			expected:     types.Dimensionality{},
+			name:             "vector without entries",
+			targetVector:     "missing",
+			expectedRaw:      types.Dimensionality{},
+			expectedReported: types.Dimensionality{},
+		},
+		{
+			name:              "muvera vector sums the count across all its rows",
+			targetVector:      "colbert",
+			encodedDimensions: encodedDims,
+			expectedRaw:       types.Dimensionality{Dimensions: 1280, Count: 2},
+			expectedReported:  types.Dimensionality{Dimensions: encodedDims, Count: 6},
+		},
+		{
+			name:             "muvera vector without muvera reporting keeps the raw reading",
+			targetVector:     "colbert",
+			expectedRaw:      types.Dimensionality{Dimensions: 1280, Count: 2},
+			expectedReported: types.Dimensionality{Dimensions: 1280, Count: 2},
+		},
+		{
+			name:              "muvera single-vector name is unaffected by the summing",
+			targetVector:      "image",
+			encodedDimensions: encodedDims,
+			expectedRaw:       types.Dimensionality{Dimensions: 512, Count: 4},
+			expectedReported:  types.Dimensionality{Dimensions: encodedDims, Count: 4},
+		},
+		{
+			name:              "muvera vector with only objects without a vector",
+			targetVector:      "novectors",
+			encodedDimensions: encodedDims,
+			expectedRaw:       types.Dimensionality{},
+			expectedReported:  types.Dimensionality{},
+		},
+		{
+			name:              "muvera vector without entries",
+			targetVector:      "missing",
+			encodedDimensions: encodedDims,
+			expectedRaw:       types.Dimensionality{},
+			expectedReported:  types.Dimensionality{},
 		},
 	}
 
@@ -679,9 +806,10 @@ func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
 
 				for _, tt := range tests {
 					t.Run(tt.name, func(t *testing.T) {
-						dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, b, tt.targetVector)
+						scan, err := ScanTargetVectorDimensions(ctx, b, tt.targetVector, tt.encodedDimensions)
 						require.NoError(t, err)
-						assert.Equal(t, tt.expected, dimensionality)
+						assert.Equal(t, tt.expectedRaw, scan.Raw, "raw reading")
+						assert.Equal(t, tt.expectedReported, scan.Reported, "reported reading")
 					})
 				}
 			})
@@ -695,7 +823,7 @@ func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
 		require.NoError(t, err)
 		defer b.Shutdown(ctx)
 
-		_, err = CalculateTargetVectorDimensionsFromBucket(ctx, b, "text")
+		_, err = ScanTargetVectorDimensions(ctx, b, "text", 0)
 		require.Error(t, err)
 	})
 }

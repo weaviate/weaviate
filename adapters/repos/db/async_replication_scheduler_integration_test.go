@@ -151,8 +151,7 @@ func TestAsyncSchedulerRegistrationIdempotent(t *testing.T) {
 	s.asyncRepWg.Wait()
 }
 
-// TestIndexCompareHashTreeRoots: a shard diverges iff its local root was read and
-// differs; missing/uninitialised roots are omitted.
+// TestIndexCompareHashTreeRoots: a loaded shard diverges when its root differs or is not ready; unknown/unloaded shards are omitted without loading.
 func TestIndexCompareHashTreeRoots(t *testing.T) {
 	ctx := context.Background()
 	_, idx := testShard(t, ctx, "CompareRootsClass")
@@ -179,12 +178,34 @@ func TestIndexCompareHashTreeRoots(t *testing.T) {
 		assert.Empty(t, div)
 	})
 
-	t.Run("uninitialised hashtree is omitted", func(t *testing.T) {
+	t.Run("uninitialised hashtree is diverging", func(t *testing.T) {
 		s.hashtreeFullyInitialized = false
 		defer func() { s.hashtreeFullyInitialized = true }()
 		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
 		require.NoError(t, err)
-		assert.Empty(t, div)
+		assert.Equal(t, []string{shardName}, div, "loaded-but-not-ready must descend, not read as converged")
+	})
+
+	t.Run("shutdown-requested shard is diverging", func(t *testing.T) {
+		s.shutdownRequested.Store(true)
+		defer s.shutdownRequested.Store(false)
+		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
+		require.NoError(t, err)
+		assert.Equal(t, []string{shardName}, div, "an erroring shard must descend, not read as converged")
+	})
+
+	t.Run("closing index is diverging", func(t *testing.T) {
+		idx.closeLock.Lock()
+		idx.closed = true
+		idx.closeLock.Unlock()
+		defer func() {
+			idx.closeLock.Lock()
+			idx.closed = false
+			idx.closeLock.Unlock()
+		}()
+		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
+		require.NoError(t, err)
+		assert.Equal(t, []string{shardName}, div, "a closing index must descend, not read as converged")
 	})
 }
 

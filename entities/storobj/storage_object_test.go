@@ -1284,15 +1284,15 @@ func TestMultiVectorFromBinary(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	outVector1, err := MultiVectorFromBinary(asBinary, nil, "vector1")
+	outVector1, err := MultiVectorFromBinary(asBinary, "vector1")
 	require.Nil(t, err)
 	assert.Equal(t, vector1, outVector1)
 
-	outVector2, err := MultiVectorFromBinary(asBinary, nil, "vector2")
+	outVector2, err := MultiVectorFromBinary(asBinary, "vector2")
 	require.Nil(t, err)
 	assert.Equal(t, vector2, outVector2)
 
-	outVector3, err := MultiVectorFromBinary(asBinary, nil, "vector3")
+	outVector3, err := MultiVectorFromBinary(asBinary, "vector3")
 	require.Nil(t, err)
 	assert.Equal(t, vector3, outVector3)
 

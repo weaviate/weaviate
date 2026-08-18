@@ -43,6 +43,9 @@ var (
 	ErrAsyncCheckpointStale = errors.New("checkpoint createdAt is not newer than the active one")
 	// ErrAsyncReplicationNotActive maps to HTTP 412 / FailedPrecondition.
 	ErrAsyncReplicationNotActive = errors.New("async replication is not active on this shard")
+	// Skip-reason refinements; both wrap ErrAsyncReplicationNotActive so existing errors.Is checks keep matching.
+	ErrReplicaMaintenance = fmt.Errorf("%w: peer in maintenance mode", ErrAsyncReplicationNotActive)
+	ErrReplicaBooting     = fmt.Errorf("%w: peer not ready", ErrAsyncReplicationNotActive)
 	// ErrAsyncCheckpointCutoffInPast maps to HTTP 412 / FailedPrecondition.
 	ErrAsyncCheckpointCutoffInPast = errors.New("checkpoint cutoff is not in this node's future")
 	// MsgCLevel consistency level cannot be achieved
@@ -60,6 +63,24 @@ var (
 )
 
 const AsyncCheckpointMaxShardsPerRequest = 10_000
+
+// Readiness-gate messages; clients map gRPC Unavailable to retry-later only on these (transport Unavailable stays loud).
+const (
+	NodeNotReadyMsg       = "node not ready"
+	LocalIndexNotReadyMsg = "local index not ready"
+)
+
+// AsyncReplicationSkipReason returns the skip-metric label for a retry-later error.
+func AsyncReplicationSkipReason(err error) string {
+	switch {
+	case errors.Is(err, ErrReplicaMaintenance):
+		return "maintenance"
+	case errors.Is(err, ErrReplicaBooting):
+		return "node_boot"
+	default:
+		return "not_active"
+	}
+}
 
 // AsyncCheckpointCreatedAtSkewTolerance prevents a single far-future createdAt
 // from blocking every later legitimate create via the strict-greater-than
@@ -470,6 +491,8 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
 	}
 
+	notReadyTargets := 0
+	sawConverged := false
 	for i, targetNodeAddress := range replicasHostAddrs {
 		targetNodeName := replicaNodeNames[i]
 		if targetNodeAddress == localHostAddr {
@@ -478,7 +501,16 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 		diffReader, err := collectDiffForTargetNode(targetNodeAddress, targetNodeName)
 		if err != nil {
-			if !errors.Is(err, replicaerrors.ErrNoDiffFound) {
+			switch {
+			case errors.Is(err, replicaerrors.ErrNoDiffFound):
+				sawConverged = true
+			case errors.Is(err, ErrAsyncReplicationNotActive):
+				// Not-ready peer (unloaded or hashtree initializing): retry-later,
+				// not a fault — kept out of the error compounder so callers can
+				// classify the aggregate by errors.Is.
+				f.metrics.IncAsyncReplicationTargetSkip(err)
+				notReadyTargets++
+			default:
 				ec.Add(err)
 			}
 			continue
@@ -490,6 +522,11 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	err = ec.ToError()
 	if err != nil {
 		return nil, err
+	}
+
+	if notReadyTargets > 0 && !sawConverged {
+		// Nothing was verified this cycle — it must not read as convergence.
+		return nil, fmt.Errorf("%w: %d target replica(s) not ready", ErrAsyncReplicationNotActive, notReadyTargets)
 	}
 
 	return &ShardDifferenceReader{}, replicaerrors.ErrNoDiffFound

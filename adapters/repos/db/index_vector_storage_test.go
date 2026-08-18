@@ -185,6 +185,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				return readerFunc(class, shardState)
 			}).Maybe()
 			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
+			mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 
 			// Create mock schema getter
@@ -520,6 +521,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				return readerFunc(class, shardState)
 			}).Maybe()
 			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
+			mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 
 			// Create mock schema getter
@@ -617,11 +619,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
 
-				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector, 0)
 				require.NoError(t, err)
 
-				assert.Equal(t, tt.expectedCount, dimensionality.Count)
-				assert.Equal(t, tt.expectedDims, dimensionality.Dimensions)
+				assert.Equal(t, tt.expectedCount, dimensionality.Raw.Count)
+				assert.Equal(t, tt.expectedDims, dimensionality.Raw.Dimensions)
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -648,11 +650,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
 
-				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector, 0)
 				require.NoError(t, err)
 
-				assert.Equal(t, tt.expectedCount, dimensionality.Count)
-				assert.Equal(t, tt.expectedDims, dimensionality.Dimensions)
+				assert.Equal(t, tt.expectedCount, dimensionality.Raw.Count)
+				assert.Equal(t, tt.expectedDims, dimensionality.Raw.Dimensions)
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -741,6 +743,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Create mock schema getter
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
@@ -903,6 +906,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		},
 	)
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Create a new index instance to test inactive calculation methods
 	// This ensures we're testing the inactive methods on a fresh index that reads from disk

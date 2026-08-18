@@ -122,6 +122,7 @@ func newShardCountingDB(t *testing.T, class *models.Class, state *sharding.State
 		}).Maybe()
 	sr.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
 	sr.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	sr.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	sr.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	sr.EXPECT().LocalActiveShardsCount(mock.Anything).Return(len(state.Physical), nil).Maybe()
 	sr.EXPECT().LocalShards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()

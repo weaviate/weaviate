@@ -158,6 +158,38 @@ func (b *Bucket) CursorReplaceDigestReusable(valuePrefixLen int) *CursorReplace 
 	}
 }
 
+// CursorReplaceDigestReusableRange behaves like CursorReplaceDigestReusable but
+// bounds the memtable snapshots to [min, max] (inclusive; nil bound =
+// unbounded), so per-RPC digest readers don't flatten the entire memtable.
+// The cursor must only be used within those bounds.
+func (b *Bucket) CursorReplaceDigestReusableRange(valuePrefixLen int, min, max []byte) *CursorReplace {
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
+
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	innerCursors, unlockSegmentGroup := b.disk.newDigestReusableCursors(valuePrefixLen)
+
+	if b.flushing != nil {
+		innerCursors = append(innerCursors, b.flushing.newCursorWithRange(min, max))
+	}
+	innerCursors = append(innerCursors, b.active.newCursorWithRange(min, max))
+
+	return &CursorReplace{
+		innerCursors: innerCursors,
+		unlock: func() {
+			unlockSegmentGroup()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
+		},
+	}
+}
+
 // CursorInMem returns a cursor which scans over the primary key of entries
 // not yet persisted on disk.
 // Segment creation and compaction will be blocked until the cursor is closed.
