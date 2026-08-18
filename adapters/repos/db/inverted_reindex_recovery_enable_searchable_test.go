@@ -74,7 +74,7 @@ func newEnableSearchableTestClass(className string, propNames []string) *models.
 //
 // The reindexTaskConfig mirrors production's blockmaxSearchableTaskConfig
 // (`inverted_reindex_blockmax_searchable_task.go:20`) — same
-// concurrency, memtable factors, processing/pause durations, and
+// concurrency, memtable factors, processing duration, and
 // selectionEnabled with the prop list. Drift from production here
 // would let the test pass while production fails the same convergence
 // invariant.
@@ -99,7 +99,6 @@ func newEnableSearchableTask(
 			memtableOptFactor:             4,
 			backupMemtableOptFactor:       1,
 			processingDuration:            10 * time.Minute,
-			pauseDuration:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
 
 			selectionEnabled: true,
@@ -390,9 +389,9 @@ func TestRecoveryConvergence_EnableSearchable_FromEachState(t *testing.T) {
 			// for non-set cases we still drain it in case any work is
 			// pending.
 			for {
-				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
+				moreWork, err := task2.OnAfterLsmInitAsync(ctx, shard2)
 				require.NoErrorf(t, err, "recovery OnAfterLsmInitAsync must not error (case %q)", tc.name)
-				if rerunAt.IsZero() {
+				if !moreWork {
 					break
 				}
 			}

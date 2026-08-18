@@ -89,7 +89,6 @@ func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName stri
 			memtableOptFactor:             4,
 			backupMemtableOptFactor:       1,
 			processingDuration:            10 * time.Minute,
-			pauseDuration:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
 
 			selectionEnabled: true,
@@ -363,9 +362,9 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 			// when skipSwapOnFinish is set; for non-set cases we still
 			// drain it in case any work is pending.
 			for {
-				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
+				moreWork, err := task2.OnAfterLsmInitAsync(ctx, shard2)
 				require.NoErrorf(t, err, "recovery OnAfterLsmInitAsync must not error (case %q)", tc.name)
-				if rerunAt.IsZero() {
+				if !moreWork {
 					break
 				}
 			}

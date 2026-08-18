@@ -57,9 +57,9 @@ func runTornStateMigrationToReindexed(t *testing.T, ctx context.Context, classNa
 	task.skipSwapOnFinish.Store(true) // halt at IsReindexed, BEFORE runtimeSwap
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 		require.NoError(t, err)
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}
@@ -167,9 +167,9 @@ func TestTornState_OnAfterLsmInit_RecoveryConvergesToBaseline(t *testing.T) {
 	idx.shards.Store(shardName, shd2)
 
 	for {
-		rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
+		moreWork, err := task2.OnAfterLsmInitAsync(ctx, shard2)
 		require.NoError(t, err)
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}

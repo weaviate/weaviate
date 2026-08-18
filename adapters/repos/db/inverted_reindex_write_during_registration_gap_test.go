@@ -96,9 +96,9 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 	}
 
 	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 		require.NoError(t, err)
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}

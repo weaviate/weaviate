@@ -208,9 +208,9 @@ func TestReindexDoubleWrite_ConcurrentWritePreservesColocatedProp(t *testing.T) 
 			tc.mutate(t, ctx, shard, className, victimID, futureTS)
 
 			for {
-				rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+				moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 				require.NoError(t, err)
-				if rerunAt.IsZero() {
+				if !moreWork {
 					break
 				}
 			}

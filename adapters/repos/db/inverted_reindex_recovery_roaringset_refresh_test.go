@@ -50,7 +50,6 @@ func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneri
 			memtableOptFactor:             4,
 			backupMemtableOptFactor:       1,
 			processingDuration:            10 * time.Minute,
-			pauseDuration:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
@@ -95,9 +94,9 @@ func computeRoaringSetRefreshBaseline(t *testing.T, propName string, numObjects 
 	task, _ := newRoaringSetRefreshTask(t, idx)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 		require.NoError(t, err)
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}
@@ -140,9 +139,9 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 	task, wrapped := newRoaringSetRefreshTask(t, idx)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 		require.NoError(t, err)
-		if rerunAt.IsZero() {
+		if !moreWork {
 			break
 		}
 	}
@@ -204,9 +203,9 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 				task.skipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 					require.NoError(t, err)
-					if rerunAt.IsZero() {
+					if !moreWork {
 						break
 					}
 				}
@@ -231,9 +230,9 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 				task.skipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 					require.NoError(t, err)
-					if rerunAt.IsZero() {
+					if !moreWork {
 						break
 					}
 				}
@@ -264,9 +263,9 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 				// markSwapped() and markTidied().
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 					require.NoError(t, err)
-					if rerunAt.IsZero() {
+					if !moreWork {
 						break
 					}
 				}
@@ -293,9 +292,9 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 				task.skipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 					require.NoError(t, err)
-					if rerunAt.IsZero() {
+					if !moreWork {
 						break
 					}
 				}
@@ -322,9 +321,9 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 					require.NoError(t, err)
-					if rerunAt.IsZero() {
+					if !moreWork {
 						break
 					}
 				}
@@ -399,10 +398,10 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			// Drive the async loop to completion in case recovery is
 			// only partially handled by OnBeforeLsmInit + OnAfterLsmInit.
 			for {
-				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
+				moreWork, err := task2.OnAfterLsmInitAsync(ctx, shard2)
 				require.NoErrorf(t, err,
 					"recovery OnAfterLsmInitAsync must not error (case %q)", tc.name)
-				if rerunAt.IsZero() {
+				if !moreWork {
 					break
 				}
 			}

@@ -96,11 +96,11 @@ func runReindexToCompletionOrError(t *testing.T, ctx context.Context, task *Shar
 		return err
 	}
 	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 		if err != nil {
 			return err
 		}
-		if rerunAt.IsZero() {
+		if !moreWork {
 			return nil
 		}
 	}

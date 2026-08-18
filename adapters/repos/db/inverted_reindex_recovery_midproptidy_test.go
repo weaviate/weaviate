@@ -208,9 +208,9 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 			task.skipSwapOnFinish.Store(true)
 			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 			for {
-				rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+				moreWork, err := task.OnAfterLsmInitAsync(ctx, shard)
 				require.NoError(t, err)
-				if rerunAt.IsZero() {
+				if !moreWork {
 					break
 				}
 			}
@@ -349,11 +349,11 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 			idx.shards.Store(shardName, shd2)
 
 			for {
-				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
+				moreWork, err := task2.OnAfterLsmInitAsync(ctx, shard2)
 				require.NoErrorf(t, err,
 					"mid-prop-tidy recovery OnAfterLsmInitAsync (phase=%s, haltAfter=%d)",
 					tc.phase, tc.haltAfter)
-				if rerunAt.IsZero() {
+				if !moreWork {
 					break
 				}
 			}
