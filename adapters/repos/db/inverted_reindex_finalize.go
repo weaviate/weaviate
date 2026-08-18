@@ -384,8 +384,8 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger log
 //   - Promotion failed for a property: tracker stays UNMARKED so the next
 //     start retries it; `tidied.mig` keeps the promoted buckets shielded
 //     meanwhile.
-//   - Nothing was promoted (no canonical, ingest or backup dir left): the
-//     tracker is removed, since the index a record would revive is gone.
+//   - Nothing was promoted and no dir is left to promote from: the tracker is
+//     removed, since the index a record would revive is gone from disk.
 //   - Promotion succeeded, schema already advertises the index: tracker is
 //     removed by the caller.
 //   - Promotion succeeded, schema still advertises it disabled: tracker is
@@ -401,14 +401,17 @@ func finalizeEffectiveGen(lsmPath, migDir, migName string, class *models.Class,
 		return !migrationAwaitsSchemaFlip(migDir, migName, class)
 	}
 	promoted, err := finalizeMigrationDir(lsmPath, migDir, migName, logger)
-	if err != nil {
+	switch {
+	case errors.Is(err, errUnfinalizableTracker):
+		logger.WithField("migration", migName).Warnf("reindex finalize: %v; the promoted state is deliberately retained", err)
+		return false
+	case err != nil:
 		logger.WithField("migration", migName).
 			Errorf("reindex finalize: promotion did not complete for every property; "+
 				"keeping the tracker unmarked so the next start retries it: %v", err)
 		return false
-	}
-	if !promoted {
-		logger.WithField("migration", migName).Warnf("reindex finalize: %s left no index dir behind; removing its tracker", migName)
+	case !promoted:
+		logger.WithField("migration", migName).Warn("reindex finalize: promotion left no index dir behind; removing the tracker")
 		return true
 	}
 	if !migrationAwaitsSchemaFlip(migDir, migName, class) {
@@ -532,8 +535,7 @@ func finalizedMigrationIndexes(lsmPath string) map[string]map[string]struct{} {
 			continue
 		}
 		migDir := filepath.Join(migrationsDir, entry.Name())
-		// A record without the completion the shield reads is torn state: forcing
-		// the flag on it would open a bucket nothing protects.
+		// A record without the completion the shield reads would open a bucket nothing protects.
 		if !fileExistsInDir(migDir, finalizedSentinel) ||
 			(!fileExistsInDir(migDir, "tidied.mig") && !fileExistsInDir(migDir, "merged.mig")) {
 			continue
@@ -695,6 +697,9 @@ func reindexSuffixForFinalize(namespace string) string {
 	return ""
 }
 
+// errUnfinalizableTracker classifies a promotion no restart can complete.
+var errUnfinalizableTracker = errors.New("no start can finalize this tracker")
+
 // finalizeMigrationDir renames every property's ingest dir to its canonical
 // name and removes the backup dir it replaced.
 //
@@ -717,10 +722,10 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	// Read properties from the migration.
 	props, err := readMigrationProps(migDir)
 	if err != nil {
-		return false, fmt.Errorf("read properties.mig: %w", err)
+		return false, fmt.Errorf("%w: read properties.mig: %w", errUnfinalizableTracker, err)
 	}
 	if len(props) == 0 {
-		return false, fmt.Errorf("properties.mig names no property")
+		return false, fmt.Errorf("%w: properties.mig names no property", errUnfinalizableTracker)
 	}
 
 	// Determine bucket naming from migration dir name. The migration dir
