@@ -42,6 +42,19 @@ func GetVectorsBucketName(targetVector string) string {
 	return VectorsBucketLSM
 }
 
+// GetMuveraBucketName returns the bucket a muvera-encoded multi-vector index
+// keeps its encoded vectors in (see hnsw.New, which builds it as
+// "<vectorIndexID>_muvera_vectors"). It is a bucket of the index's own, held
+// outside the vectors/compressed pair, so anything tearing an index down has to
+// name it explicitly or the encoded copies survive.
+func GetMuveraBucketName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_muvera_vectors", GetVectorsBucketName(targetVector))
+	}
+	// Mirrors vectorIndexID's unnamed case, which the index uses as its ID.
+	return "main_muvera_vectors"
+}
+
 func GetHNSWCommitLogDirName(targetVector string) string {
 	if targetVector != "" {
 		return fmt.Sprintf("%s.hnsw.commitlog.d", GetVectorsBucketName(targetVector))

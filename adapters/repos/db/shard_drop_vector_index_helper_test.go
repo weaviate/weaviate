@@ -56,6 +56,55 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		assert.False(t, pathExists(compressedBucket))
 	})
 
+	t.Run("removes the muvera bucket of a multi-vector index", func(t *testing.T) {
+		// A muvera-encoded multi-vector index owns a bucket outside the
+		// vectors/compressed pair. It was missing from this sweep, so the
+		// encoded copy of every vector survived a completed drop — and nothing
+		// collects it later: once the drop finishes, the vector's entry is gone
+		// from the schema, so ensureFilesAreRemovedForDroppedVectorIndexes
+		// never iterates over it again.
+		indexPath, shardName := setup(t)
+
+		const target = "multivector_muvera_bq"
+		lsm := filepath.Join(indexPath, shardName, "lsm")
+		vectorsBucket := filepath.Join(lsm, helpers.GetVectorsBucketName(target))
+		compressedBucket := filepath.Join(lsm, helpers.GetCompressedBucketName(target))
+		muveraBucket := filepath.Join(lsm, helpers.GetMuveraBucketName(target))
+		commitLog := filepath.Join(indexPath, shardName, helpers.GetHNSWCommitLogDirName(target))
+
+		for _, dir := range []string{vectorsBucket, compressedBucket, muveraBucket, commitLog} {
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "segment.db"), []byte("data"), 0o644))
+		}
+		require.Equal(t, filepath.Join(lsm, "vectors_multivector_muvera_bq_muvera_vectors"), muveraBucket,
+			"the bucket name must match what hnsw.New creates")
+
+		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, target))
+
+		assert.False(t, pathExists(muveraBucket), "the muvera bucket must not survive the drop")
+		assert.False(t, pathExists(vectorsBucket))
+		assert.False(t, pathExists(compressedBucket))
+		assert.False(t, pathExists(commitLog))
+	})
+
+	t.Run("a sibling vector's muvera bucket is untouched", func(t *testing.T) {
+		// The bucket names share a prefix, so a sweep matching loosely would
+		// take a live index's encoded vectors with it.
+		indexPath, shardName := setup(t)
+
+		lsm := filepath.Join(indexPath, shardName, "lsm")
+		dropped := filepath.Join(lsm, helpers.GetMuveraBucketName("mv"))
+		sibling := filepath.Join(lsm, helpers.GetMuveraBucketName("mv_other"))
+		for _, dir := range []string{dropped, sibling} {
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+		}
+
+		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, "mv"))
+
+		assert.False(t, pathExists(dropped))
+		assert.True(t, pathExists(sibling), "another vector's muvera bucket must survive")
+	})
+
 	t.Run("removes all hnsw vector artifacts", func(t *testing.T) {
 		indexPath, shardName := setup(t)
 

@@ -439,6 +439,16 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 		return fmt.Errorf("drop compressed vectors bucket for %q: %w", targetVector, err)
 	}
 
+	// A muvera-encoded multi-vector index keeps its encoded vectors in a bucket
+	// of its own, which neither of the two above covers and hnsw.Drop does not
+	// touch. Unconditional: reading the config back to decide would miss an
+	// index whose muvera setting changed, and removeBucket is a no-op when the
+	// bucket does not exist.
+	muveraBucket := helpers.GetMuveraBucketName(targetVector)
+	if err := s.removeBucket(ctx, muveraBucket); err != nil {
+		return fmt.Errorf("drop muvera vectors bucket for %q: %w", targetVector, err)
+	}
+
 	// Remove the index checkpoint entry for this vector.
 	if s.indexCheckpoints != nil {
 		if err := s.indexCheckpoints.Delete(s.ID(), targetVector); err != nil {
