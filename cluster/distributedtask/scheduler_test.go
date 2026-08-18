@@ -1009,8 +1009,10 @@ func TestReactiveFiring_NilNotifierIsSafe(t *testing.T) {
 	require.Equal(t, "1234", recvWithTimeout(t, h.provider.startedCh).ID)
 }
 
-// TestReactiveFiring_PeriodicTickFallback pins that the periodic tick still
-// clears completed tasks even when reactive firing is wired.
+// TestReactiveFiring_PeriodicTickFallback verifies that the periodic
+// tick still fires even when reactive firing is wired — this catches
+// any regression where the new select arm accidentally starves the tick
+// path, or where the scheduler's loop only progresses on wake-ups.
 func TestReactiveFiring_PeriodicTickFallback(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -1030,12 +1032,19 @@ func TestReactiveFiring_PeriodicTickFallback(t *testing.T) {
 	}), 10))
 	startedTask := recvWithTimeout(t, h.provider.startedCh)
 
-	// Complete via the manager first, then advance the clock — the tick,
-	// not the reactive Wake, must be what clears the task.
+	// Complete the unit; the scheduler should clean up on the NEXT tick.
+	// We deliberately complete via the manager FIRST then advance the
+	// clock, to confirm that the periodic tick still drives the cleanup
+	// path. In a reactive-firing-only design, this would also fire via
+	// Wake; the fallback assertion here ensures the timer arm of the
+	// loop's select is still active.
 	startedTask.Complete()
 	completeUnit(t, h, h.tasksNamespace, "1234", 10, h.localNodeID, "su-1")
 	recvWithTimeout(t, h.provider.completedCh)
 
+	// Now advance the clock and confirm the periodic tick clears the
+	// running task entry. (totalRunningTaskCount is zero only after a
+	// tick observes the task is no longer in startedTasks.)
 	h.advanceClock(h.schedulerTickInterval)
 	require.Eventually(t, func() bool {
 		return h.scheduler.totalRunningTaskCount() == 0

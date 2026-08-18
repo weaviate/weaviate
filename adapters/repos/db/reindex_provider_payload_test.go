@@ -18,8 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Pins the DELETE_CLASS cascade extractor for the reindex namespace
-// (weaviate/0-weaviate-issues#231).
+// Pins the extractor wired into [Raft.RegisterDistributedTaskCollectionExtractor]
+// for the reindex namespace (weaviate/0-weaviate-issues#231). A regression
+// here would silently disable the DELETE_CLASS cascade for reindex tasks.
 func TestExtractReindexTaskCollection(t *testing.T) {
 	t.Run("well-formed payload returns class name", func(t *testing.T) {
 		payload, err := json.Marshal(ReindexTaskPayload{

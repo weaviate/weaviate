@@ -321,8 +321,10 @@ func (t *ShardReindexTaskGeneric) SetProgressCallback(fn func(float32)) {
 	t.progressCallback = fn
 }
 
-// MigrationDirName exposes the strategy's migration sub-directory so callers
-// can read/drop recovery sentinels without reaching into reindexTracker.
+// MigrationDirName returns the strategy-specific sub-directory under each
+// shard's <lsm>/.migrations/ that this task owns. Exposed so callers can
+// drop or read recovery sentinels (e.g. payload.mig) without depending on
+// the unexported reindexTracker.
 func (t *ShardReindexTaskGeneric) MigrationDirName() string {
 	return t.strategy.MigrationDirName()
 }
