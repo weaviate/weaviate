@@ -106,4 +106,5 @@ func runSuite(t *testing.T, compose *docker.DockerCompose) {
 	t.Run("re-drop after re-create", testRedropAfterRecreate())
 	t.Run("multi vector", testMultiVector())
 	t.Run("multi vector drop leaves no files on disk", testMultiVectorLeavesNoFilesOnDisk(compose))
+	t.Run("hfresh drop leaves no files on disk", testHFreshLeavesNoFilesOnDisk(compose))
 }

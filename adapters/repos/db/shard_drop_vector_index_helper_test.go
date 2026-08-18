@@ -105,6 +105,57 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		assert.True(t, pathExists(sibling), "another vector's muvera bucket must survive")
 	})
 
+	t.Run("removes the directory and buckets of an hfresh index", func(t *testing.T) {
+		// hfresh keeps its state outside the vectors/compressed pair that every
+		// index has, and its own Drop() removes none of it — so a per-vector
+		// drop used to leave all of it behind. Nothing collects it afterwards:
+		// once the drop completes the vector's schema entry is gone, so
+		// ensureFilesAreRemovedForDroppedVectorIndexes never iterates over it.
+		indexPath, shardName := setup(t)
+
+		const target = "hfresh_vec"
+		indexID := helpers.GetVectorsBucketName(target)
+		lsm := filepath.Join(indexPath, shardName, "lsm")
+		postings := filepath.Join(lsm, helpers.HFreshPostingsBucketName(indexID))
+		shared := filepath.Join(lsm, helpers.HFreshSharedBucketName(indexID))
+		hfreshDir := filepath.Join(indexPath, shardName, helpers.HFreshDirName(indexID))
+
+		for _, dir := range []string{postings, shared, hfreshDir} {
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "segment.db"), []byte("data"), 0o644))
+		}
+		// Pinned literally: these are the names the running index creates, and
+		// a rename on either side has to fail here rather than silently leave
+		// the sweep looking for something that no longer exists.
+		require.Equal(t, filepath.Join(lsm, "hfresh_postings_vectors_hfresh_vec"), postings)
+		require.Equal(t, filepath.Join(lsm, "hfresh_shared_vectors_hfresh_vec"), shared)
+		require.Equal(t, filepath.Join(indexPath, shardName, "vectors_hfresh_vec.hfresh.d"), hfreshDir)
+
+		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, target))
+
+		assert.False(t, pathExists(postings), "the hfresh postings bucket must not survive the drop")
+		assert.False(t, pathExists(shared), "the hfresh shared bucket must not survive the drop")
+		assert.False(t, pathExists(hfreshDir), "the hfresh directory must not survive the drop")
+	})
+
+	t.Run("a sibling vector's hfresh state is untouched", func(t *testing.T) {
+		// The names share a prefix, so a sweep matching loosely would take a
+		// live index's postings with it.
+		indexPath, shardName := setup(t)
+
+		lsm := filepath.Join(indexPath, shardName, "lsm")
+		dropped := filepath.Join(lsm, helpers.HFreshPostingsBucketName(helpers.GetVectorsBucketName("hf")))
+		sibling := filepath.Join(lsm, helpers.HFreshPostingsBucketName(helpers.GetVectorsBucketName("hf_other")))
+		for _, dir := range []string{dropped, sibling} {
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+		}
+
+		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, "hf"))
+
+		assert.False(t, pathExists(dropped))
+		assert.True(t, pathExists(sibling), "another vector's hfresh postings must survive")
+	})
+
 	t.Run("removes all hnsw vector artifacts", func(t *testing.T) {
 		indexPath, shardName := setup(t)
 
