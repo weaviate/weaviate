@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -492,23 +493,33 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		switch {
-		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsShardsUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrNotFound):
-			return schema.NewSchemaObjectsShardsUpdateNotFound().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
-			return schema.NewSchemaObjectsShardsUpdateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		}
+		return shardStatusErrResponder(principal, err)
 	}
 
 	payload := params.Body
 
 	s.metricRequestsTotal.logOk("")
 	return schema.NewSchemaObjectsShardsUpdateOK().WithPayload(payload)
+}
+
+// shardStatusErrResponder maps a failed shard status update to its response. A
+// namespace that refuses the change answers 422 rather than the 500 an
+// unrecognized error gets, so a suspended instance does not read as a fault.
+func shardStatusErrResponder(principal *models.Principal, err error) middleware.Responder {
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
+		return schema.NewSchemaObjectsShardsUpdateForbidden().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrNotFound):
+		return schema.NewSchemaObjectsShardsUpdateNotFound().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case cerrors.NamespaceErrRendersUnprocessable(err):
+		return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	default:
+		return schema.NewSchemaObjectsShardsUpdateInternalServerError().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
 }
 
 func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,

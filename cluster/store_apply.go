@@ -103,7 +103,22 @@ func (st *Store) admitPropose(req *api.ApplyRequest) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
 	}
-	return st.admitCreateLike(req)
+	if err := st.admitCreateLike(req); err != nil {
+		return err
+	}
+	return st.admitShardStatus(req)
+}
+
+// admitShardStatus refuses a manual shard status change outside the active
+// state. It writes no schema, only the status of a shard the namespace holds
+// open, which a namespace that serves no requests has nothing to set.
+func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
+	if req.Type != api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS {
+		return nil
+	}
+	// The command names its class outright, and Handler.UpdateShardStatus
+	// qualifies it before the propose.
+	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
 }
 
 // admitCreateLike refuses a create-like command outside the active state. The

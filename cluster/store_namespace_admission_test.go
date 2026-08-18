@@ -52,15 +52,16 @@ const (
 // TestExecuteGate_RejectsCreateLikeApplyTypes and
 // TestExecuteGate_DestructiveApplyTypes pin the behaviour.
 
-// Commands gated by namespaces.RequireActive in store.admitCreateLike at propose
-// time. The alias and user commands materialize nothing. The class and tenant
-// commands do materialize a shard, and Store.admitPropose says why refusing them
-// before the append is still enough.
+// Commands gated by namespaces.RequireActive at propose time, in
+// store.admitCreateLike and store.admitShardStatus. The alias and user commands
+// materialize nothing. The class and tenant commands do materialize a shard, and
+// Store.admitPropose says why refusing them before the append is still enough.
 var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_ADD_CLASS:                {},
 	api.ApplyRequest_TYPE_RESTORE_CLASS:            {},
 	api.ApplyRequest_TYPE_ADD_TENANT:               {},
 	api.ApplyRequest_TYPE_UPDATE_TENANT:            {},
+	api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:      {},
 	api.ApplyRequest_TYPE_CREATE_ALIAS:             {},
 	api.ApplyRequest_TYPE_REPLACE_ALIAS:            {},
 	api.ApplyRequest_TYPE_UPSERT_USER:              {},
@@ -89,7 +90,6 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPDATE_CLASS:                                               {},
 	api.ApplyRequest_TYPE_ADD_PROPERTY:                                               {},
 	api.ApplyRequest_TYPE_UPDATE_PROPERTY:                                            {},
-	api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:                                        {},
 	api.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD:                                       {},
 	api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD:                                  {},
 	api.ApplyRequest_TYPE_TENANT_PROCESS:                                             {},
@@ -380,6 +380,37 @@ func destructiveCommands() []gatedCommand {
 // createLikeCommands are the gated commands that write schema and no store. The
 // RBAC and user commands belong here too but cannot be driven through this mock
 // store; see applyUndrivableGatedTypes.
+// shardStatusCommand drives the manual shard status change through Apply. It
+// writes no schema, so reaching the Indexer is what says the apply took effect.
+func shardStatusCommand() gatedCommand {
+	return gatedCommand{
+		cmdType: api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS,
+		build: func(target string) *api.ApplyRequest {
+			sub, err := json.Marshal(api.UpdateShardStatusRequest{
+				Class: target, Shard: seededTenant, Status: "READONLY",
+			})
+			if err != nil {
+				panic(err)
+			}
+			return &api.ApplyRequest{
+				Type: api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS, Class: target, SubCommand: sub,
+			}
+		},
+		seedEntity: seedClass,
+		expectApplied: func(t *testing.T, ms *MockStore, _ string) {
+			ms.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+		},
+		landed: func(ms *MockStore, _ string) bool {
+			for _, call := range ms.indexer.Calls {
+				if call.Method == "UpdateShardStatus" {
+					return true
+				}
+			}
+			return false
+		},
+	}
+}
+
 func createLikeCommands() []gatedCommand {
 	return []gatedCommand{
 		{
@@ -547,6 +578,7 @@ func gatedCommands() []gatedCommand {
 	all = append(all, destructiveCommands()...)
 	all = append(all, createLikeCommands()...)
 	all = append(all, shardMaterializingCommands()...)
+	all = append(all, shardStatusCommand())
 	return all
 }
 
@@ -902,6 +934,41 @@ func TestExecuteGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 			assertProposeAdmits(t, tt, alphaAt(api.NamespaceStateActive))
 		})
 	}
+}
+
+// TestExecuteGate_RejectsShardStatusApplyType drives the manual shard status
+// change through the propose-time check. It is gated there rather than in the
+// apply switch, so a committed one applies on every binary; see
+// Store.admitPropose.
+func TestExecuteGate_RejectsShardStatusApplyType(t *testing.T) {
+	const class = "alpha:Foo"
+
+	statusCmd := func(className string) proposeCommand {
+		return proposeCommand{
+			name:      "TYPE_UPDATE_SHARD_STATUS",
+			cmdType:   api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS,
+			className: className,
+			jsonSub: api.UpdateShardStatusRequest{
+				Class: className, Shard: seededTenant, Status: "READONLY",
+			},
+		}
+	}
+
+	for _, c := range inactiveNamespaceCases() {
+		t.Run(c.name, func(t *testing.T) {
+			assertProposeRefuses(t, statusCmd(class), c)
+		})
+	}
+
+	t.Run("active namespace admitted", func(t *testing.T) {
+		assertProposeAdmits(t, statusCmd(class), alphaAt(api.NamespaceStateActive))
+	})
+
+	// Every class on a cluster running with namespaces off, which must stay
+	// admitted whatever the namespace map holds.
+	t.Run("an unqualified class is admitted", func(t *testing.T) {
+		assertProposeAdmits(t, statusCmd("Foo"), alphaAt(api.NamespaceStateSuspended))
+	})
 }
 
 // TestExecuteGate_RejectsShardMaterializingApplyTypes drives the commands that
