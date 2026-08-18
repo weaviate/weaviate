@@ -50,6 +50,7 @@ func (h *vectorDropIndexHelper) ensureFilesAreRemovedForDroppedVectorIndexes(
 // removeVectorIndexFiles removes all on-disk artifacts for a named vector index:
 // - LSM bucket: vectors_{name}
 // - LSM compressed bucket: vectors_compressed_{name}
+// - LSM muvera bucket: vectors_{name}_muvera_vectors (multi-vector + muvera only)
 // - HNSW commit log directory: vectors_{name}.hnsw.commitlog.d
 // - HNSW snapshot directory: vectors_{name}.hnsw.snapshot.d
 func (h *vectorDropIndexHelper) removeVectorIndexFiles(indexPath, shardName, targetVector string) error {
@@ -58,12 +59,14 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(indexPath, shardName, tar
 
 	vectorsBucket := helpers.GetVectorsBucketName(targetVector)
 	compressedBucket := helpers.GetCompressedBucketName(targetVector)
+	muveraBucket := helpers.GetMuveraBucketName(targetVector)
 	hnswCommitLogDir := helpers.GetHNSWCommitLogDirName(targetVector)
 	hnswSnapshotDir := helpers.GetHNSWSnapshotDirName(targetVector)
 
 	vectorIndexDirectories := []string{
 		filepath.Join(lsmDir, vectorsBucket),
 		filepath.Join(lsmDir, compressedBucket),
+		filepath.Join(lsmDir, muveraBucket),
 		filepath.Join(shardDir, hnswCommitLogDir),
 		filepath.Join(shardDir, hnswSnapshotDir),
 	}
