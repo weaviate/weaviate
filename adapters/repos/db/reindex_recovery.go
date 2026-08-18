@@ -408,12 +408,3 @@ func (r *shardReindexerV3RecoveryOnly) RunAfterLsmInit(ctx context.Context, shar
 	}
 	return nil
 }
-
-func (r *shardReindexerV3RecoveryOnly) RunAfterLsmInitAsync(_ context.Context, _ *Shard) error {
-	// Intentionally a no-op. See type doc.
-	return nil
-}
-
-func (r *shardReindexerV3RecoveryOnly) Stop(_ *Shard, _ error) {
-	// Nothing to stop — we don't run any background loops.
-}

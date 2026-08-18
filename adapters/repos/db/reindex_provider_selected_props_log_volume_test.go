@@ -64,7 +64,7 @@ func TestPersistRecoveryRecordDoesNotWarnPerUnit(t *testing.T) {
 	// write: the recovery payload, already on disk with identical content,
 	// still writes fine.
 	for _, task := range tasks {
-		migDir := filepath.Join(lsm, ".migrations", task.MigrationDirName())
+		migDir := task.migrationPath(lsm)
 		require.FileExists(t, filepath.Join(migDir, "properties.mig"),
 			"first call must write the sidecar, or the arm below proves nothing")
 		require.NoError(t, os.Remove(filepath.Join(migDir, "properties.mig")))
