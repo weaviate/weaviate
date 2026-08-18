@@ -11313,7 +11313,7 @@ func init() {
           "x-omitempty": false
         },
         "references": {
-          "description": "The selected cross-references: reference property name to the array of referenced objects. Omitted when the request selects no references.",
+          "description": "The selected cross-references: reference property name to the array of referenced objects. Omitted when the request selects no references, or when the hit has no entry for any of the selected references.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
@@ -11348,7 +11348,7 @@ func init() {
           "x-omitempty": false
         },
         "references": {
-          "description": "The cross-references selected one hop deeper. Omitted when the selector selects none.",
+          "description": "The cross-references selected one hop deeper. Omitted when the selector selects none, or when the referenced object has no entry for any of them.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
@@ -23908,7 +23908,7 @@ func init() {
           "x-omitempty": false
         },
         "references": {
-          "description": "The selected cross-references: reference property name to the array of referenced objects. Omitted when the request selects no references.",
+          "description": "The selected cross-references: reference property name to the array of referenced objects. Omitted when the request selects no references, or when the hit has no entry for any of the selected references.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
@@ -23943,7 +23943,7 @@ func init() {
           "x-omitempty": false
         },
         "references": {
-          "description": "The cross-references selected one hop deeper. Omitted when the selector selects none.",
+          "description": "The cross-references selected one hop deeper. Omitted when the selector selects none, or when the referenced object has no entry for any of them.",
           "type": "object",
           "additionalProperties": {
             "type": "array",

@@ -43,7 +43,7 @@ type SearchResultObject struct {
 	// Required: true
 	Properties map[string]JSONObject `json:"properties"`
 
-	// The selected cross-references: reference property name to the array of referenced objects. Omitted when the request selects no references.
+	// The selected cross-references: reference property name to the array of referenced objects. Omitted when the request selects no references, or when the hit has no entry for any of the selected references.
 	References map[string][]SearchResultReference `json:"references,omitempty"`
 }
 

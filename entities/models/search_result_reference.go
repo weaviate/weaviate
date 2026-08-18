@@ -41,7 +41,7 @@ type SearchResultReference struct {
 	// Required: true
 	Properties map[string]JSONObject `json:"properties"`
 
-	// The cross-references selected one hop deeper. Omitted when the selector selects none.
+	// The cross-references selected one hop deeper. Omitted when the selector selects none, or when the referenced object has no entry for any of them.
 	References map[string][]SearchResultReference `json:"references,omitempty"`
 }
 
