@@ -567,7 +567,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	migrator.SetNode(appState.Cluster.LocalName())
 	// TODO-offload: "offload-s3" has to come from config when enable modules more than S3
 	migrator.SetOffloadProvider(appState.Modules, "offload-s3")
-	appState.Migrator = migrator
 
 	vectorRepo = repo
 	// migrator = vectorMigrator
@@ -822,8 +821,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
 	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
-	var reindexCtx context.Context
-	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
 	// Discover in-flight runtime reindex tasks from disk so the static
 	// ShardReindexerV3 can re-register their double-write callbacks via
 	// OnAfterLsmInit during shard load — BEFORE any post-restart write
@@ -900,7 +897,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				return
 			}
 			l.Info("Reindexing inverted indexes")
-			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
+			reindexFinished <- migrator.InvertedReindex(serverShutdownCtx, reindexTaskNamesWithArgs)
 		}, appState.Logger)
 	}
 

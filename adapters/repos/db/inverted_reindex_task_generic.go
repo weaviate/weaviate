@@ -946,21 +946,9 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 		return err
 	}
 
-	rt.checkOverrides(logger, &t.config)
-
-	if rt.IsRollback() {
-		// make it so it "survives" the rt.reset()
-		t.config.rollback = true
-	}
-
 	if rt.IsReset() && rt.IsTidied() {
 		rt.reset()
 		err = fmt.Errorf("reset was manually triggered")
-		return err
-	}
-
-	if t.config.conditionalStart && !rt.HasStartCondition() {
-		err = fmt.Errorf("conditional start is set, but file trigger is not found")
 		return err
 	}
 
@@ -968,36 +956,6 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 	if err != nil {
 		err = fmt.Errorf("reading reindexable props: %w", err)
 		return err
-	}
-
-	if t.config.rollback {
-		logger.Debugf("rollback started: config=%v, runtime=%v", t.config.rollback, rt.IsRollback())
-
-		if rt.IsTidied() {
-			err = fmt.Errorf("rollback: backup buckets are deleted, can not restore")
-			return err
-		}
-		if rt.IsSwapped() {
-			if err = t.unswapIngestAndBackupBuckets(ctx, logger, shard, rt, props); err != nil {
-				err = fmt.Errorf("rollback: unswapping buckets: %w", err)
-				return err
-			}
-		}
-		if err = t.removeReindexBucketsDirs(ctx, logger, shard, props); err != nil {
-			err = fmt.Errorf("rollback: removing reindex buckets: %w", err)
-			return err
-		}
-		if err = t.removeIngestBucketsDirs(ctx, logger, shard, props); err != nil {
-			err = fmt.Errorf("rollback: removing ingest buckets: %w", err)
-			return err
-		}
-		if err = rt.reset(); err != nil {
-			err = fmt.Errorf("rollback: removing migration files: %w", err)
-			return err
-		}
-
-		logger.Debug("rollback completed")
-		return nil
 	}
 
 	if len(props) == 0 {
@@ -1176,14 +1134,9 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 	logger, done := t.logPhase(collectionName, shardName, "OnAfterLsmInit")
 	defer func(started time.Time) { done(started, err) }(time.Now())
 
-	// skip shard only if not started or rollback requested
-	// otherwise double writes have to be enabled if migration was already started
+	// skip shard only if not started, otherwise double writes have to be
+	// enabled if migration was already started
 	isShardSelected := t.isShardSelected(collectionName, shardName)
-
-	if t.config.rollback && isShardSelected {
-		logger.Debug("rollback. nothing to do")
-		return nil
-	}
 
 	rt, err := newTracker(shard)
 	if err != nil {
@@ -1193,18 +1146,6 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 			return err
 		}
 		err = fmt.Errorf("creating reindex tracker: %w", err)
-		return err
-	}
-
-	rt.checkOverrides(logger, &t.config)
-
-	if rt.IsRollback() {
-		logger.Debug("rollback. nothing to do")
-		return err
-	}
-
-	if t.config.conditionalStart && !rt.HasStartCondition() {
-		err = fmt.Errorf("conditional start is set, but file trigger is not found")
 		return err
 	}
 
@@ -1381,57 +1322,10 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		return zerotime, false, err
 	}
 
-	rt.checkOverrides(logger, &t.config)
-
-	// rollback initiated by the user after restart, stop double writes
-	if rt.IsRollback() {
-		logger.Debug("rollback started")
-		props, err2 := t.readPropsToReindex(rt)
-		if err2 != nil {
-			err = fmt.Errorf("reading reindexable props for rollback: %w", err2)
-			return zerotime, false, err
-		}
-		err = nil
-
-		if !rt.IsSwapped() {
-			err = t.unloadReindexBuckets(ctx, logger, shard, props)
-			if err != nil {
-				err = fmt.Errorf("unloading reindex buckets: %w", err)
-				return zerotime, false, err
-			}
-			logger.Info("reindex buckets unloaded")
-			err = t.unloadIngestBuckets(ctx, logger, shard, props)
-			if err != nil {
-				err = fmt.Errorf("unloading ingest buckets: %w", err)
-				return zerotime, false, err
-			}
-			logger.Info("ingest buckets unloaded")
-		} else {
-			logger.Warnf("inverted bucket is being used for search, will not be unloaded: %s. Rollback will proceed on restart", shard.Name())
-		}
-		// return early to stop ingestion
-		return zerotime, false, nil
-	}
-
-	if t.config.rollback {
-		logger.Debug("rollback. nothing to do")
-		return zerotime, false, nil
-	}
-
-	if t.config.conditionalStart && !rt.HasStartCondition() {
-		err = fmt.Errorf("conditional start is set, but file trigger is not found")
-		return zerotime, false, err
-	}
-
 	props, err := t.readPropsToReindex(rt)
 	if err != nil {
 		err = fmt.Errorf("reading reindexable props: %w", err)
 		return zerotime, false, err
-	}
-
-	if rt.IsPaused() {
-		logger.Debug("paused. waiting for resuming")
-		return time.Now().Add(t.config.pauseDuration), false, nil
 	}
 
 	if rt.IsTidied() {
@@ -1618,8 +1512,8 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 				}
 			}
 
-			breakCh <- processedCount%t.config.checkProcessingEveryNoObjects == 0 && (time.Since(processingStarted) > t.config.processingDuration || rt.IsPaused())
-			time.Sleep(t.config.perObjectDelay)
+			breakCh <- processedCount%t.config.checkProcessingEveryNoObjects == 0 &&
+				time.Since(processingStarted) > t.config.processingDuration
 		}
 	}
 	if !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
@@ -2583,42 +2477,6 @@ func (t *ShardReindexTaskGeneric) loadBuckets(ctx context.Context,
 	return eg.Wait()
 }
 
-func (t *ShardReindexTaskGeneric) unloadIngestBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string,
-) error {
-	return t.unloadBuckets(ctx, logger, shard, props, t.ingestBucketName)
-}
-
-func (t *ShardReindexTaskGeneric) unloadReindexBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string,
-) error {
-	return t.unloadBuckets(ctx, logger, shard, props, t.reindexBucketName)
-}
-
-func (t *ShardReindexTaskGeneric) unloadBuckets(ctx context.Context,
-	logger logrus.FieldLogger, shard ShardLike, props []string, bucketNamer func(string) string,
-) error {
-	store := shard.Store()
-
-	eg, gctx := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
-	eg.SetLimit(t.config.concurrency)
-	for i := range props {
-		propName := props[i]
-
-		eg.Go(func() error {
-			bucketName := bucketNamer(propName)
-			logger.WithField("bucket", bucketName).Debug("unloading bucket")
-			if err := store.ShutdownBucket(gctx, bucketName); err != nil {
-				return err
-			}
-			logger.WithField("bucket", bucketName).Debug("bucket unloaded")
-			return nil
-		})
-	}
-
-	return eg.Wait()
-}
-
 func (t *ShardReindexTaskGeneric) recoverReindexBucket(ctx context.Context,
 	logger logrus.FieldLogger, shard *Shard, bucketName string,
 ) error {
@@ -2642,12 +2500,6 @@ func (t *ShardReindexTaskGeneric) removeReindexBucketsDirs(ctx context.Context, 
 	shard ShardLike, props []string,
 ) error {
 	return t.removeBucketsDirs(ctx, logger, shard, props, t.reindexBucketName)
-}
-
-func (t *ShardReindexTaskGeneric) removeIngestBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
-	shard ShardLike, props []string,
-) error {
-	return t.removeBucketsDirs(ctx, logger, shard, props, t.ingestBucketName)
 }
 
 func (t *ShardReindexTaskGeneric) removeBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
