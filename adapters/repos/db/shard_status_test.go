@@ -14,6 +14,7 @@ package db
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -78,7 +79,13 @@ func TestShardUpdateStatusIf_ConcurrentFreezeKeepsItsReason(t *testing.T) {
 	shard, _ := testShard(t, t.Context(), "UpdateStatusIfConcurrent")
 	s := underlyingShard(t, shard)
 
+	// The sleep holds the decision open long enough for the other writer to
+	// land in it. An implementation that reads the status, drops the lock and
+	// writes afterwards overwrites that write; one that holds the lock across
+	// both makes the other writer queue up, and either order it ends up in
+	// leaves the manual reason in place.
 	notReadOnly := func(current ShardStatus) bool {
+		time.Sleep(50 * time.Microsecond)
 		return current.Status != storagestate.StatusReadOnly
 	}
 
@@ -86,17 +93,24 @@ func TestShardUpdateStatusIf_ConcurrentFreezeKeepsItsReason(t *testing.T) {
 		require.NoError(t, s.UpdateStatus(storagestate.StatusReady.String(), statusReasonNotifyReady))
 
 		var wg sync.WaitGroup
+		// Both writers park on start so they are released together. Spawning
+		// them one after the other lets the first finish before the second is
+		// scheduled, which leaves iterations that never overlap at all.
+		start := make(chan struct{})
 		errs := make([]error, 2)
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
+			<-start
 			errs[0] = s.UpdateStatus(storagestate.StatusReadOnly.String(), statusReasonManualUpdate)
 		}()
 		go func() {
 			defer wg.Done()
+			<-start
 			errs[1] = s.UpdateStatusIf(notReadOnly,
 				storagestate.StatusReadOnly.String(), statusReasonResourcePressure)
 		}()
+		close(start)
 		wg.Wait()
 
 		require.NoError(t, errs[0])
