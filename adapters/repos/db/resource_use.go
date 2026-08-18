@@ -65,16 +65,26 @@ func (d *DB) scanResourceUsage() {
 }
 
 // scanResourceUsageOnce runs a single scan pass. The monitor is refreshed here
-// because both branches read from it: without it, shards held read-only by
+// because every pass below reads from it: without it, shards held read-only by
 // memory pressure would never see the usage drop back below the threshold.
 func (db *DB) scanResourceUsageOnce(mon *memwatch.Monitor, du diskUse, updateMappings bool) {
 	mon.Refresh(updateMappings)
+
 	if db.resourceScanState.isReadOnly {
 		db.resourceUseRecovery(mon, du)
 	} else {
 		db.resourceUseWarn(mon, du)
-		db.resourceUseReadonly(mon, du)
 	}
+
+	// The read-only pass runs on every tick, not only on the one that crosses
+	// the threshold. It leaves shards that are not loaded alone, so a shard that
+	// loads later in the episode — a tenant that gets activated, a shard created
+	// after the crossing — is READY when it comes up and takes writes on a node
+	// that is over its limit until a pass reaches it. Repeating the pass bounds
+	// that window by the tick interval instead of the length of the episode. The
+	// pass writes only to shards that are not already read-only, and no longer
+	// loads cold ones, so repeating it costs a status read per loaded shard.
+	db.resourceUseReadonly(mon, du)
 }
 
 type resourceScanState struct {
@@ -140,11 +150,12 @@ func (db *DB) diskUseReadonly(du diskUse) {
 	diskROPercent := db.config.ResourceUsage.DiskUse.ReadOnlyPercentage
 	if diskROPercent > 0 {
 		if pu := du.percentUsed(); pu > float64(diskROPercent) {
-			db.setShardsReadOnly(fmt.Sprintf("disk usage too high. Set to read-only at %.2f%%, threshold set to %.2f%%", pu, float64(diskROPercent)))
-			db.logger.WithField("action", "set_shard_read_only").
-				WithField("path", db.config.RootPath).
-				Warnf("Set READONLY, disk usage currently at %.2f%%, threshold set to %.2f%%",
-					pu, float64(diskROPercent))
+			if db.setShardsReadOnly(fmt.Sprintf("disk usage too high. Set to read-only at %.2f%%, threshold set to %.2f%%", pu, float64(diskROPercent))) {
+				db.logger.WithField("action", "set_shard_read_only").
+					WithField("path", db.config.RootPath).
+					Warnf("Set READONLY, disk usage currently at %.2f%%, threshold set to %.2f%%",
+						pu, float64(diskROPercent))
+			}
 		}
 	}
 }
@@ -153,16 +164,21 @@ func (db *DB) memUseReadonly(mon *memwatch.Monitor) {
 	memROPercent := db.config.ResourceUsage.MemUse.ReadOnlyPercentage
 	if memROPercent > 0 {
 		if pu := mon.Ratio() * 100; pu > float64(memROPercent) {
-			db.setShardsReadOnly(fmt.Sprintf("memory usage too high. Set to read-only at %.2f%%, threshold set to %.2f%%", pu, float64(memROPercent)))
-			db.logger.WithField("action", "set_shard_read_only").
-				WithField("path", db.config.RootPath).
-				Warnf("Set READONLY, memory usage currently at %.2f%%, threshold set to %.2f%%",
-					pu, float64(memROPercent))
+			if db.setShardsReadOnly(fmt.Sprintf("memory usage too high. Set to read-only at %.2f%%, threshold set to %.2f%%", pu, float64(memROPercent))) {
+				db.logger.WithField("action", "set_shard_read_only").
+					WithField("path", db.config.RootPath).
+					Warnf("Set READONLY, memory usage currently at %.2f%%, threshold set to %.2f%%",
+						pu, float64(memROPercent))
+			}
 		}
 	}
 }
 
-func (db *DB) setShardsReadOnly(reason string) {
+// setShardsReadOnly sets every loaded shard that is not already read-only to
+// READONLY. It reports whether this is the pass that put the node into
+// read-only, so the caller logs the crossing once instead of on every tick of
+// the episode.
+func (db *DB) setShardsReadOnly(reason string) bool {
 	// Don't overwrite the reason of an already read-only shard: it may be
 	// read-only for a non-resource reason (e.g. a vector-index config update),
 	// and relabeling it would let setShardsReady flip it back to READY
@@ -185,7 +201,10 @@ func (db *DB) setShardsReadOnly(reason string) {
 		})
 	}
 	db.indexLock.Unlock()
+
+	entered := !db.resourceScanState.isReadOnly
 	db.resourceScanState.isReadOnly = true
+	return entered
 }
 
 // resourceUseRecovery checks whether resource usage has dropped below the

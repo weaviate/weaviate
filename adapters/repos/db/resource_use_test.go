@@ -82,9 +82,14 @@ type statusShard struct {
 	mu     sync.Mutex
 	status ShardStatus
 
-	// racingWrite stands in for a producer that changes the status inside the
-	// scanner's decision window. It is applied once, right before the scanner's
-	// own write would land.
+	// calls counts UpdateStatusIf calls, so tests whose shard must come out
+	// unchanged can tell "the scanner reached it and declined" from "the
+	// scanner never got there".
+	calls int
+
+	// racingWrite stands in for a producer that changes the status between the
+	// scanner's read and its write. It is applied once, right before the
+	// scanner's own write would land.
 	racingWrite *ShardStatus
 }
 
@@ -97,6 +102,7 @@ func newStatusShard(t *testing.T, initial ShardStatus) *statusShard {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 
+			s.calls++
 			if s.racingWrite != nil {
 				s.status = *s.racingWrite
 				s.racingWrite = nil
@@ -121,6 +127,27 @@ func (s *statusShard) get() ShardStatus {
 	defer s.mu.Unlock()
 	return s.status
 }
+
+func (s *statusShard) updateCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
+}
+
+// countingAllocChecker fails every mapping reservation like failingAllocChecker,
+// and records the attempts. A pass that force-loads a cold shard is otherwise
+// invisible in the recovery direction, where the worker group recovers the
+// resulting panic into a value the caller drops.
+type countingAllocChecker struct{ attempts atomic.Int64 }
+
+func (*countingAllocChecker) CheckAlloc(int64) error { return nil }
+
+func (c *countingAllocChecker) CheckMappingAndReserve(int64, int) error {
+	c.attempts.Add(1)
+	return fmt.Errorf("memory pressure: injected")
+}
+
+func (*countingAllocChecker) Refresh(bool) {}
 
 func TestDiskUseReadonly_OverThreshold(t *testing.T) {
 	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
@@ -416,23 +443,55 @@ func TestSetShardsReady_SkipsNonResourcePressureReadonly(t *testing.T) {
 
 // A shard that is READONLY for a vector-index config update must stay READONLY
 // across a resource readonly→recovery cycle: the resource scanner must not
-// relabel it as resource-pressure and then recover it mid-update.
+// relabel it as resource-pressure and then recover it mid-update. The same has
+// to hold when the other writer's status lands between the scanner's read and
+// its write, which is what the check-and-set is for.
 func TestResourceCycle_DoesNotRecoverConfigUpdateShard(t *testing.T) {
-	// Simulate UpdateVectorIndexConfig having marked the shard READONLY.
-	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate})
+	tests := []struct {
+		name string
+		// initial is the status the shard carries into the cycle, racingWrite
+		// the status another writer sets just before the scanner's own write
+		// would land. Exactly one of the two is what must survive.
+		initial     ShardStatus
+		racingWrite *ShardStatus
+		want        ShardStatus
+	}{
+		{
+			// Simulate UpdateVectorIndexConfig having marked the shard READONLY.
+			name:    "config update marked it READONLY before the cycle",
+			initial: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate},
+			want:    ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate},
+		},
+		{
+			name:        "a manual READONLY lands between the read and the write",
+			initial:     ShardStatus{Status: storagestate.StatusReady},
+			racingWrite: &ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate},
+			want:        ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate},
+		},
+	}
 
-	db := testResourceDB(t, 90, 90, map[string]ShardLike{"config_update_shard": shard})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			shard := newStatusShard(t, tc.initial)
+			shard.racingWrite = tc.racingWrite
 
-	// Resource pressure trips while the config update is in flight.
-	mon := newTestMemMonitor(0, 100)
-	db.resourceUseReadonly(mon, diskUse{total: 100, free: 5, avail: 5})
+			db := testResourceDB(t, 90, 90, map[string]ShardLike{"shard1": shard})
 
-	// Resource pressure clears → recovery pass runs.
-	db.resourceUseRecovery(mon, diskUse{total: 100, free: 50, avail: 50})
+			// Resource pressure trips while the other writer's operation is in flight.
+			mon := newTestMemMonitor(0, 100)
+			db.resourceUseReadonly(mon, diskUse{total: 100, free: 5, avail: 5})
 
-	assert.Equal(t, storagestate.StatusReadOnly, shard.get().Status,
-		"config-update shard must stay READONLY across a resource readonly→recovery cycle; "+
-			"resource recovery must not re-admit writes while the vector-index config update is still in flight")
+			// Resource pressure clears → recovery pass runs.
+			db.resourceUseRecovery(mon, diskUse{total: 100, free: 50, avail: 50})
+
+			assert.Equal(t, tc.want, shard.get(),
+				"a shard held READONLY by another writer must stay READONLY across a resource "+
+					"readonly→recovery cycle; resource recovery must not re-admit writes while "+
+					"the other writer's operation is still in flight")
+			assert.Equal(t, 2, shard.updateCalls(),
+				"both passes must reach the shard and decline, not skip it")
+		})
+	}
 }
 
 func TestSetShardsReady_SkipsUserInitiatedReadonly(t *testing.T) {
@@ -446,6 +505,8 @@ func TestSetShardsReady_SkipsUserInitiatedReadonly(t *testing.T) {
 
 	assert.False(t, db.resourceScanState.isReadOnly)
 	assert.Equal(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate}, userShard.get())
+	assert.Equal(t, 1, userShard.updateCalls(),
+		"the recovery pass must reach the shard and decline, not skip it")
 }
 
 func TestSetShardsReady_PartialFailure(t *testing.T) {
@@ -486,60 +547,93 @@ func TestScanResourceUsageOnce_SeesMemoryDropWhileReadOnly(t *testing.T) {
 	assert.Equal(t, storagestate.StatusReady, shard.get().Status)
 }
 
-// Both sweeps decide and write in one shard call, so a status set between the
-// two never gets overwritten. Reading the status first and writing it after
-// leaves a window in which a freeze another writer just set is relabelled as
-// resource pressure — and then lifted by the recovery sweep.
-func TestResourceScanner_StatusChangedInsideDecisionWindow(t *testing.T) {
-	tests := []struct {
-		name        string
-		initial     ShardStatus
-		racingWrite ShardStatus
-		recovery    bool
-	}{
-		{
-			name:        "readonly sweep, manual freeze lands first",
-			initial:     ShardStatus{Status: storagestate.StatusReady},
-			racingWrite: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate},
-		},
-		{
-			name:        "readonly sweep, vector-index freeze lands first",
-			initial:     ShardStatus{Status: storagestate.StatusReady},
-			racingWrite: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate},
-		},
-		{
-			name:        "recovery sweep, manual freeze lands first",
-			initial:     ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure},
-			racingWrite: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate},
-			recovery:    true,
-		},
-		{
-			name:        "recovery sweep, vector-index freeze lands first",
-			initial:     ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure},
-			racingWrite: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate},
-			recovery:    true,
-		},
+// A shard that is not loaded holds no status to freeze, so the read-only pass
+// leaves it alone — and the pass that follows has to pick it up once it is
+// loaded, or it serves writes on a node that is over the threshold.
+func TestScanResourceUsageOnce_ShardLoadedDuringPressureGoesReadOnly(t *testing.T) {
+	loadedBefore := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
+
+	db := testResourceDB(t, 90, 0, map[string]ShardLike{"loaded_before": loadedBefore})
+	mon := newTestMemMonitor(0, 100)
+	overThreshold := diskUse{total: 100, free: 5, avail: 5}
+
+	db.scanResourceUsageOnce(mon, overThreshold, false)
+	require.Equal(t, storagestate.StatusReadOnly, loadedBefore.get().Status,
+		"the shard that was loaded when the threshold was crossed must be READONLY")
+
+	// A tenant is activated while the node is still over the threshold. It ends
+	// its load in NotifyReady, i.e. READY, which is the state the read-only pass
+	// skipped it in while it was cold.
+	loadedDuring := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady, Reason: statusReasonNotifyReady})
+	db.indices["TestIndex"].shards.Store("loaded_during", loadedDuring)
+
+	db.scanResourceUsageOnce(mon, overThreshold, false)
+
+	require.Equal(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure},
+		loadedDuring.get(),
+		"a shard that loads while the node is over the read-only threshold must be set READONLY "+
+			"by the next scan pass; leaving it READY admits writes to a full disk")
+
+	// It was frozen by the resource scanner, so the recovery pass owns it too.
+	db.scanResourceUsageOnce(mon, diskUse{total: 100, free: 50, avail: 50}, false)
+
+	require.False(t, db.resourceScanState.isReadOnly)
+	require.Equal(t, storagestate.StatusReady, loadedBefore.get().Status)
+	require.Equal(t, storagestate.StatusReady, loadedDuring.get().Status,
+		"a shard frozen mid-episode must recover with the rest of them")
+}
+
+// The read-only pass repeats for as long as the node is over the threshold, so
+// it meets shards another writer froze in the meantime on every one of those
+// ticks. Relabelling one as resource pressure would hand it to the recovery
+// pass, which lifts a freeze the scanner never set.
+func TestScanResourceUsageOnce_RepeatedPassKeepsAnotherWritersReadonly(t *testing.T) {
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
+
+	db := testResourceDB(t, 90, 0, map[string]ShardLike{"shard1": shard})
+	mon := newTestMemMonitor(0, 100)
+	overThreshold := diskUse{total: 100, free: 5, avail: 5}
+
+	db.scanResourceUsageOnce(mon, overThreshold, false)
+
+	// A vector-index config update freezes the shard while the episode runs.
+	manual := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate})
+	db.indices["TestIndex"].shards.Store("manual_shard", manual)
+
+	for range 5 {
+		db.scanResourceUsageOnce(mon, overThreshold, false)
+	}
+	require.Equal(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate}, manual.get())
+	require.Equal(t, 5, manual.updateCalls(), "every repeated pass must reach the shard and decline")
+
+	db.scanResourceUsageOnce(mon, diskUse{total: 100, free: 50, avail: 50}, false)
+	require.Equal(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate}, manual.get(),
+		"the recovery pass must not lift a freeze the scanner never set")
+}
+
+// The read-only pass runs on every tick of an episode, but the node crosses into
+// read-only once. Logging the crossing from the pass itself would put the line
+// on every tick, i.e. twice a second for as long as the disk stays full.
+func TestScanResourceUsageOnce_LogsTheReadOnlyCrossingOnce(t *testing.T) {
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
+
+	logger, hook := test.NewNullLogger()
+	db := testResourceDB(t, 90, 0, map[string]ShardLike{"shard1": shard})
+	db.logger = logger
+	mon := newTestMemMonitor(0, 100)
+
+	for range 5 {
+		db.scanResourceUsageOnce(mon, diskUse{total: 100, free: 5, avail: 5}, false)
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			shard := newStatusShard(t, tc.initial)
-			shard.racingWrite = &tc.racingWrite
-
-			db := testResourceDB(t, 90, 0, map[string]ShardLike{"shard1": shard})
-			mon := newTestMemMonitor(0, 100)
-
-			if tc.recovery {
-				db.resourceScanState.isReadOnly = true
-				db.resourceUseRecovery(mon, diskUse{total: 100, free: 50, avail: 50})
-			} else {
-				db.resourceUseReadonly(mon, diskUse{total: 100, free: 5, avail: 5})
-			}
-
-			require.Equal(t, tc.racingWrite, shard.get(),
-				"the scanner must not overwrite a status set inside its decision window")
-		})
+	var crossings int
+	for _, e := range hook.AllEntries() {
+		if strings.HasPrefix(e.Message, "Set READONLY") {
+			crossings++
+		}
 	}
+	require.Equal(t, 1, crossings, "the read-only crossing must be logged once per episode, not once per tick")
+	require.Equal(t, storagestate.StatusReadOnly, shard.get().Status)
 }
 
 // The scanner sweeps every shard on the node, including the cold ones. Loading
@@ -559,6 +653,8 @@ func TestResourceScanner_DoesNotForceLoadColdShards(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			warm, idx := testShard(t, t.Context(), "ResourceScanColdShard")
 			cold := newColdShard(idx, "cold_tenant")
+			loads := &countingAllocChecker{}
+			cold.memMonitor = loads
 			idx.shards.Store(cold.Name(), cold)
 
 			logger, _ := test.NewNullLogger()
@@ -584,7 +680,11 @@ func TestResourceScanner_DoesNotForceLoadColdShards(t *testing.T) {
 				}
 			})
 
-			require.False(t, cold.isLoaded(), "a cold tenant must not be loaded to record a status")
+			// isLoaded() alone cannot carry this: a load that is attempted and
+			// fails leaves the shard unloaded either way, and in the recovery
+			// direction the worker group recovers the panic and drops it.
+			require.Zero(t, loads.attempts.Load(), "a cold tenant must not be loaded to record a status")
+			require.False(t, cold.isLoaded())
 
 			wantWarm := storagestate.StatusReadOnly
 			if tc.recovery {
