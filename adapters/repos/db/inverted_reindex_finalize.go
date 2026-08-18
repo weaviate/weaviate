@@ -532,7 +532,10 @@ func finalizedMigrationIndexes(lsmPath string) map[string]map[string]struct{} {
 			continue
 		}
 		migDir := filepath.Join(migrationsDir, entry.Name())
-		if !fileExistsInDir(migDir, finalizedSentinel) {
+		// A record without the completion the shield reads is torn state: forcing
+		// the flag on it would open a bucket nothing protects.
+		if !fileExistsInDir(migDir, finalizedSentinel) ||
+			(!fileExistsInDir(migDir, "tidied.mig") && !fileExistsInDir(migDir, "merged.mig")) {
 			continue
 		}
 		props, err := readMigrationProps(migDir)
