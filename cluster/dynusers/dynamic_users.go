@@ -204,9 +204,9 @@ func (m *Manager) Restore(snapshot []byte) error {
 	return nil
 }
 
-// ValidateBackupSnapshot checks the user blob without touching the user store.
-// When namespaces are enabled, every namespace the blob references must be
-// active.
+// ValidateBackupSnapshot checks the backup's users without changing anything.
+// If this cluster uses namespaces, every namespace the users name must exist
+// and be active.
 func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, ns usecasesNamespaces.Exister) error {
 	if m.dynUser == nil || len(req.Users) == 0 {
 		return nil
@@ -215,7 +215,8 @@ func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, n
 		return err
 	}
 	if req.StripNamespaces {
-		// The strip removes every namespace prefix, so there is nothing to check.
+		// This cluster has namespaces turned off, so there is no namespace here
+		// that could be active. The check above covers this case instead.
 		return nil
 	}
 	refs, err := apikey.ReferencedNamespaces(req.Users)
@@ -228,9 +229,10 @@ func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, n
 	return nil
 }
 
-// RestoreFromBackup replaces the whole user store and persists it. Restore
-// serves RAFT snapshot install instead: it never strips and must not touch
-// disk, because a failure there stops the node booting.
+// RestoreFromBackup replaces every user with the ones from the backup and saves
+// them to disk. Not to be confused with Restore, which loads users when a node
+// starts up — that one must not write to disk, because a failed write would
+// stop the node from starting.
 func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error {
 	if m.dynUser == nil || len(req.Users) == 0 {
 		return nil
@@ -238,8 +240,8 @@ func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error 
 	if err := m.dynUser.Restore(req.Users, req.StripNamespaces); err != nil {
 		return err
 	}
-	// The file is only a boot cache. A failed write must not fail an apply
-	// that the other nodes completed.
+	// The file is only a copy used at startup. If saving fails, don't fail the
+	// whole restore — the other nodes already finished theirs.
 	if err := m.dynUser.Persist(); err != nil {
 		m.logger.WithField("action", "restore_users_from_backup").
 			Warnf("restored users are not on disk yet, RAFT state remains authoritative: %v", err)

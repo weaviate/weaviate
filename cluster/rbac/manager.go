@@ -300,9 +300,9 @@ func (m *Manager) Restore(b []byte) error {
 	return nil
 }
 
-// ValidateBackupSnapshot checks the role blob without touching the policy
-// store. When namespaces are enabled, every namespace the blob references
-// must be active.
+// ValidateBackupSnapshot checks the backup's roles without changing anything.
+// If this cluster uses namespaces, every namespace the roles name must exist
+// and be active.
 func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, ns usecasesNamespaces.Exister) error {
 	if m.authZ == nil || len(req.Roles) == 0 {
 		return nil
@@ -312,7 +312,8 @@ func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, n
 		return err
 	}
 	if req.StripNamespaces {
-		// The strip removes every namespace prefix, so there is nothing to check.
+		// This cluster has namespaces turned off, so there is no namespace here
+		// that could be active. The check above covers this case instead.
 		return nil
 	}
 	refs, err := rbac.ReferencedNamespaces(req.Roles, staticAPIKeyUsers)
@@ -325,16 +326,16 @@ func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, n
 	return nil
 }
 
-// RestoreFromBackup replaces the whole role store. Restore is the
-// snapshot-install path and never strips.
+// RestoreFromBackup replaces every role with the ones from the backup.
+// Not to be confused with Restore, which loads roles when a node starts up.
 func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error {
 	if m.authZ == nil || len(req.Roles) == 0 {
 		return nil
 	}
 	if err := m.authZ.Restore(req.Roles, req.StripNamespaces); err != nil {
-		// Restore clears the policy store before the steps that can fail, so this node
-		// can be left with no custom roles while the rest of the cluster applied
-		// the entry cleanly. The marker is what an operator greps for.
+		// The restore wipes the old roles before the part that can fail, so this
+		// node may now have no custom roles at all while every other node
+		// succeeded. Log a fixed word so this is easy to search for.
 		m.logger.WithField("action", "restore_roles_from_backup").
 			Errorf("rbac_restore_torn: role store may be cleared on this node only: %v", err)
 		return err
