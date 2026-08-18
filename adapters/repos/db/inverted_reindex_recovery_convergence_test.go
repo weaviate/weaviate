@@ -169,7 +169,7 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	require.NotNil(t, postBucket, "post-migration searchable bucket must exist")
 	require.Equal(t, lsmkv.StrategyInverted, postBucket.Strategy())
 
-	rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	require.True(t, rt.IsReindexed())
 	require.True(t, rt.IsPrepended())
 	require.True(t, rt.IsMerged())

@@ -12,7 +12,6 @@
 package state
 
 import (
-	"context"
 	"net/http"
 	"sync"
 
@@ -87,7 +86,6 @@ type State struct {
 	BatchManager       *objects.BatchManager
 	AutoSchemaManager  *objects.AutoSchemaManager
 	ClusterHttpClient  *http.Client
-	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
 	ClusterService       *rCluster.Service
@@ -99,7 +97,6 @@ type State struct {
 	ObjectTTLLocalStatus *objectttl.LocalStatus
 
 	DistributedTaskScheduler *distributedtask.Scheduler
-	Migrator                 *db.Migrator
 
 	// ReindexProvider is the local handle for the runtime-reindex
 	// distributed-task provider. Exposed here so the REST cancel handler
