@@ -14,12 +14,8 @@ package helpers
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/vectorindex/flat"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 var (
@@ -178,41 +174,4 @@ func BucketSearchableFromPropertyLSM(prop *models.Property) string {
 // a property at its currently-active generation. See [BucketFromPropertyLSM].
 func BucketRangeableFromPropertyLSM(prop *models.Property) string {
 	return BucketRangeableFromPropNameLSMAtGen(prop.Name, prop.BucketGeneration)
-}
-
-// CompressionRatioFromConfig calculates the compression ratio from vector index config
-// This is used for inactive tenants where we don't have access to the actual vector index
-func CompressionRatioFromConfig(config schemaConfig.VectorIndexConfig, dimensions int) float64 {
-	// Check for different compression types in config by type asserting
-	if hnswConfig, ok := config.(hnsw.UserConfig); ok {
-		// Check for different compression types in HNSW config
-		if hnswConfig.PQ.Enabled {
-			// PQ compression ratio depends on segments
-			segments := hnswConfig.PQ.Segments
-			if segments == 0 {
-				segments = common.CalculateOptimalSegments(dimensions)
-			}
-			return float64(dimensions*4) / float64(segments)
-		} else if hnswConfig.BQ.Enabled {
-			// BQ compression ratio is approximately 32x
-			return 32
-		} else if hnswConfig.SQ.Enabled {
-			// SQ compression ratio is approximately 4x
-			return 4
-		}
-	} else if flatConfig, ok := config.(flat.UserConfig); ok {
-		// Check for different compression types in Flat config
-		if flatConfig.BQ.Enabled {
-			// BQ compression ratio is approximately 32x
-			return 32
-		} else if flatConfig.PQ.Enabled {
-			// PQ compression ratio depends on segments (not supported in flat but handle gracefully)
-		} else if flatConfig.SQ.Enabled {
-			// SQ compression ratio is approximately 4x
-			return 4
-		}
-	}
-
-	// Default to no compression
-	return 1
 }
