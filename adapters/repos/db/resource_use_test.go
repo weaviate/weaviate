@@ -585,6 +585,33 @@ func TestSetShardsReady_ClosedStoreDoesNotBlockRecovery(t *testing.T) {
 	assert.Nil(t, firstErrorEntry(hook), "a shard closing concurrently is routine, not an error")
 }
 
+// The recovery sweep must skip cold shards for the same reason the read-only
+// sweep does: a cold shard has no resource-pressure status to release, and
+// force-loading one spends the memory this pass is recovering from. It must
+// also not count as a failed transition, which would put the DB straight back
+// into read-only.
+func TestSetShardsReady_SkipsUnloadedShard(t *testing.T) {
+	coldShard := &LazyLoadShard{shardOpts: &deferredShardOpts{name: "cold_shard"}}
+
+	loadedShard := NewMockShardLike(t)
+	loadedShard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
+	loadedShard.EXPECT().GetStatusReason().Return(statusReasonResourcePressure)
+	loadedShard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
+
+	db := testResourceDBWithShards(t, 90, 90, map[string]ShardLike{
+		"cold_shard":   coldShard,
+		"loaded_shard": loadedShard,
+	})
+	db.resourceScanState.isReadOnly.Store(true)
+
+	assert.NotPanics(t, func() { db.setShardsReady() })
+
+	assert.False(t, coldShard.isLoaded(), "a cold shard must not be loaded by the recovery sweep")
+	loadedShard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
+	assert.False(t, db.resourceScanState.isReadOnly.Load(),
+		"a skipped cold shard must not count as a failed transition")
+}
+
 func TestReadonlyRecoveryCycle(t *testing.T) {
 	// This test simulates the full cycle:
 	// 1. Usage goes over threshold → shards become READONLY

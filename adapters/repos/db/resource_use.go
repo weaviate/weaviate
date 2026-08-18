@@ -354,7 +354,11 @@ func (db *DB) setShardsReady() {
 
 	var failedCount atomic.Int64
 	db.forEachIndexOutsideIndexLock(func(index *Index) {
-		index.ForEachShardConcurrently(func(name string, shard ShardLike) error {
+		// Loaded shards only, mirroring the read-only sweep: a cold shard has no
+		// resource-pressure status to release, and touching one would force it to
+		// load - spending the memory this pass is recovering from, on the shard
+		// least likely to need it. Cold shards come up READY on their next load.
+		index.ForEachLoadedShardConcurrently(func(name string, shard ShardLike) error {
 			if !db.markShardReady(name, shard) {
 				failedCount.Add(1)
 			}
