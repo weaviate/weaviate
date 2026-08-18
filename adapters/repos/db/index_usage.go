@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -87,6 +88,18 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 		shardReadSem = semaphore.NewWeighted(1)
 	}
 
+	// A dropped vector index keeps its schema entry but loses its VectorIndexConfig,
+	// so there is nothing to report on. Filtering here, once per collection rather
+	// than once per shard, matches the loaded path, where the shard holds no such
+	// index to enumerate.
+	activeVectorConfigs := make(map[string]models.VectorConfig, len(vectorConfig))
+	for targetVector, cfg := range vectorConfig {
+		if modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
+		activeVectorConfigs[targetVector] = cfg
+	}
+
 	localShards := map[string]struct{}{}
 
 	// We need a consistent view of the sharding state and the locals shards. At the same time, we do not want to lock
@@ -132,7 +145,7 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 		eg.Go(func() error {
 			defer shardReadSem.Release(1)
 
-			shardUsage, err := i.usageForShard(egCtx, shardName, exactObjectCount, vectorConfig)
+			shardUsage, err := i.usageForShard(egCtx, shardName, exactObjectCount, activeVectorConfigs)
 			if err != nil {
 				return err
 			}
@@ -184,7 +197,7 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 // in the _local_ state (i.e. loading/unloading) for the duration of the calculation. A nil
 // *ShardUsage with a nil error means the shard should be skipped (transitional states like
 // FREEZING/OFFLOADING). Safe to call concurrently for distinct shards.
-func (i *Index) usageForShard(ctx context.Context, shardName string, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.ShardUsage, error) {
+func (i *Index) usageForShard(ctx context.Context, shardName string, exactObjectCount bool, activeVectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
 	i.shardCreateLocks.RLock(shardName)
 	defer i.shardCreateLocks.RUnlock(shardName)
 
@@ -231,7 +244,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 						err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
 					}
 				} else {
-					shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, vectorConfig)
+					shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, activeVectorConfigs)
 					if err2 != nil {
 						err2 = fmt.Errorf("unloaded lazy shard %s: %w", shardName, err2)
 					}
@@ -248,7 +261,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 			}
 		}
 	case models.TenantActivityStatusINACTIVE, models.TenantActivityStatusCOLD:
-		shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, vectorConfig)
+		shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, activeVectorConfigs)
 		if err2 != nil {
 			err2 = fmt.Errorf("inactive shard %s: %w", shardName, err2)
 		}
@@ -400,13 +413,84 @@ func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities
 	return usages, nil
 }
 
+// unloadedVectorState is what a shard's files say about one target vector that
+// its schema config cannot: whether a configured quantizer has actually run, and
+// which index a dynamic vector settled on.
+type unloadedVectorState struct {
+	quantizedVectorsExist bool
+	dynamicUpgraded       bool
+}
+
+// unloadedVectorState reads the state of one target vector of an unloaded shard.
+// Whether quantized vectors exist is taken from the vector metrics rather than read
+// again, as the walk that produced them already sized the compressed bucket.
+func (i *Index) unloadedVectorState(shardName, targetVector string,
+	vectorConfig models.VectorConfig, vectorMetrics shardusage.VectorsMetrics,
+) unloadedVectorState {
+	state := unloadedVectorState{
+		quantizedVectorsExist: vectorMetrics.QuantizedVectorsExist(targetVector),
+	}
+	if vectorConfig.VectorIndexType == common.IndexTypeDynamic {
+		upgraded, err := dynamic.UpgradedOnDisk(shardPath(i.path(), shardName),
+			vectorIndexID(targetVector), targetVector)
+		if err != nil {
+			i.logger.WithFields(logrus.Fields{
+				"class":         i.Config.ClassName.String(),
+				"shard":         shardName,
+				"target_vector": targetVector,
+			}).Warnf("cannot read dynamic upgrade state, reporting it as not upgraded: %v", err)
+		}
+		state.dynamicUpgraded = upgraded
+	}
+	return state
+}
+
+// unloadedVectorUsage builds the usage entry of one target vector of an unloaded
+// shard from its schema config, the dimensions read off disk, and what the shard's
+// files say about the index the config asks for.
+func unloadedVectorUsage(targetVector string, vectorConfig models.VectorConfig,
+	dimensionality types.Dimensionality, state unloadedVectorState,
+) (*types.VectorUsage, error) {
+	vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+	if !ok {
+		return nil, fmt.Errorf("vector index config for %q is not of expected type", targetVector)
+	}
+
+	dimInfo := GetDimensionCategory(vectorIndexConfig, state.dynamicUpgraded)
+	vectorUsage := &types.VectorUsage{
+		Name:                   targetVector,
+		Compression:            dimInfo.category.String(),
+		Bits:                   dimInfo.bits,
+		VectorCompressionRatio: dimInfo.compressionRatio(dimensionality.Dimensions, state.quantizedVectorsExist),
+		VectorIndexType:        vectorIndexConfig.IndexType(),
+		IsDynamic:              vectorConfig.VectorIndexType == common.IndexTypeDynamic,
+		Dimensionalities:       []*types.Dimensionality{&dimensionality},
+		MultiVectorConfig:      multiVectorConfigFromConfig(vectorIndexConfig),
+	}
+	if vectorUsage.IsDynamic {
+		// name the index that holds the vectors, as the loaded path does
+		vectorUsage.VectorIndexType = common.IndexTypeFlat
+		if state.dynamicUpgraded {
+			vectorUsage.VectorIndexType = common.IndexTypeHNSW
+		}
+	}
+	return vectorUsage, nil
+}
+
+// calculateUnloadedShardUsage computes usage for a cold shard from disk. vectorConfigs must
+// contain only active vectors — a dropped vector's entry carries a nil VectorIndexConfig.
 func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
 	if shardusage.ComputedUsageDataExists(i.path(), shardName) {
 		// usage has been pre-calculated and can be read from disk
 		shardUsage, err := shardusage.LoadComputedUsageData(i.path(), shardName)
 		if err != nil {
-			// in case of error just log an information and proceed with computation
-			i.logger.Errorf("failed to load pre-calculated usage data for shard %s: %v", shardName, err)
+			// the computation below overwrites the unusable file, so a stale
+			// version is routine; anything else is worth an operator's attention
+			if errors.Is(err, shardusage.ErrUsageVersionMismatch) {
+				i.logger.Debugf("recomputing usage data for shard %s: %v", shardName, err)
+			} else {
+				i.logger.Warnf("failed to load pre-calculated usage data for shard %s: %v", shardName, err)
+			}
 		} else {
 			return shardUsage, nil
 		}
@@ -424,7 +508,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		return nil, err
 	}
 
-	vectorStorageSize, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
+	vectorMetrics, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
 	if err != nil {
 		return nil, err
 	}
@@ -453,28 +537,14 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	var namedVectors types.VectorsUsage
 	uncompressedVectorSize := uint64(0) // calculate total uncompressed vector size for all vectors
 	for targetVector, vectorConfig := range vectorConfigs {
-		vectorUsage := &types.VectorUsage{
-			Name:                   targetVector,
-			VectorCompressionRatio: 1.0, // Default ratio for cold shards
-		}
+		dimensionality := dimensionalitiesAll[targetVector]
+		uncompressedVectorSize += uint64(dimensionality.Count) * uint64(dimensionality.Dimensions) * 4
 
-		vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
-		if !ok {
-			return nil, fmt.Errorf("vector index config for %q is not of expected type", targetVector)
+		state := i.unloadedVectorState(shardName, targetVector, vectorConfig, vectorMetrics)
+		vectorUsage, err := unloadedVectorUsage(targetVector, vectorConfig, dimensionality, state)
+		if err != nil {
+			return nil, err
 		}
-
-		vectorUsage.IsDynamic = vectorConfig.VectorIndexType == common.IndexTypeDynamic
-		if !vectorUsage.IsDynamic {
-			// for cold tenants we cannot distinguish know if dynamic has been upgraded or not. Do not include wrong data
-			dimInfo := GetDimensionCategory(vectorIndexConfig, false)
-			vectorUsage.Compression = dimInfo.category.String()
-			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
-		}
-
-		dimensionalities := dimensionalitiesAll[targetVector]
-		uncompressedVectorSize += uint64(dimensionalities.Count) * uint64(dimensionalities.Dimensions) * 4
-		vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &dimensionalities)
-		vectorUsage.MultiVectorConfig = multiVectorConfigFromConfig(vectorIndexConfig)
 		namedVectors = append(namedVectors, vectorUsage)
 	}
 
@@ -488,9 +558,9 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		ObjectsCount:          objectUsage.Count,
 		Status:                strings.ToLower(models.TenantActivityStatusINACTIVE),
 		ObjectsStorageBytes:   objectsWithoutVectors,
-		VectorStorageBytes:    uint64(vectorStorageSize) + vectorsInObjects + vectorCommitLogsStorageSize,
+		VectorStorageBytes:    uint64(vectorMetrics.StorageBytes) + vectorsInObjects + vectorCommitLogsStorageSize,
 		IndexStorageBytes:     indexUsage,
-		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorStorageSize),
+		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorMetrics.StorageBytes),
 		NamedVectors:          namedVectors,
 	}
 	if err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage); err != nil {

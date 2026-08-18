@@ -106,6 +106,6 @@ func TestUnloadedSizesSkipVanishedBucket(t *testing.T) {
 
 // vectorsSize adapts CalculateUnloadedVectorsMetrics to the table's uint64 signature.
 func vectorsSize(lsmPath string, directories []string) (uint64, error) {
-	size, err := CalculateUnloadedVectorsMetrics(lsmPath, directories)
-	return uint64(size), err
+	metrics, err := CalculateUnloadedVectorsMetrics(lsmPath, directories)
+	return uint64(metrics.StorageBytes), err
 }

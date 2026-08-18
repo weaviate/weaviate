@@ -244,7 +244,8 @@ func TestLoadComputedUsageDataVersion(t *testing.T) {
 
 			usage, err := LoadComputedUsageData(dirName, "shard1")
 			if tt.wantError {
-				require.Error(t, err)
+				require.ErrorIs(t, err, ErrUsageVersionMismatch,
+					"callers tell a stale version from an unreadable file by this error")
 				return
 			}
 			require.NoError(t, err)
@@ -310,9 +311,10 @@ func TestStorageCalculation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, sizeTracker[helpers.ObjectsBucketLSM], uint64(objectsBytes.StorageBytes))
 
-	vectorBytes, err := CalculateUnloadedVectorsMetrics(lsmFolder, buckets)
+	vectorMetrics, err := CalculateUnloadedVectorsMetrics(lsmFolder, buckets)
 	require.NoError(t, err)
-	require.Equal(t, sizeTracker["vectors"]+sizeTracker["vectors_compressed"]+sizeTracker["vectors_compressed_named_vector"], uint64(vectorBytes))
+	vectorBytes := uint64(vectorMetrics.StorageBytes)
+	require.Equal(t, sizeTracker["vectors"]+sizeTracker["vectors_compressed"]+sizeTracker["vectors_compressed_named_vector"], vectorBytes)
 
 	indexBytes, err := CalculateUnloadedIndicesSize(lsmFolder, buckets)
 	require.NoError(t, err)
@@ -324,7 +326,74 @@ func TestStorageCalculation(t *testing.T) {
 
 	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
 	require.NoError(t, err)
-	require.Equal(t, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+uint64(vectorBytes))
+	require.Equal(t, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+vectorBytes)
+}
+
+func TestQuantizedVectorsExist(t *testing.T) {
+	tests := []struct {
+		name string
+		// bucket is created when named, and holds a file when fileSize > 0
+		bucket   string
+		fileSize int
+		want     bool
+	}{
+		{
+			name:   "no bucket at all",
+			bucket: "",
+		},
+		{
+			name:   "bucket created empty for a downgrade",
+			bucket: "vectors_compressed_named",
+		},
+		{
+			name:     "bucket holding quantized vectors",
+			bucket:   "vectors_compressed_named",
+			fileSize: 1,
+			want:     true,
+		},
+		{
+			name:     "another target vector's bucket does not count",
+			bucket:   "vectors_compressed_other",
+			fileSize: 100,
+		},
+		{
+			name:     "the target vector's uncompressed bucket does not count",
+			bucket:   "vectors_named",
+			fileSize: 100,
+		},
+		{
+			name:     "legacy unnamed vector",
+			bucket:   "vectors_compressed",
+			fileSize: 100,
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			targetVector := "named"
+			if tt.bucket == "vectors_compressed" {
+				targetVector = ""
+			}
+
+			lsmPath := filepath.Join(t.TempDir(), "lsm")
+			require.NoError(t, os.MkdirAll(lsmPath, 0o777))
+			var directories []string
+			if tt.bucket != "" {
+				bucketPath := filepath.Join(lsmPath, tt.bucket)
+				require.NoError(t, os.MkdirAll(bucketPath, 0o777))
+				directories = append(directories, tt.bucket)
+				if tt.fileSize > 0 {
+					require.NoError(t, os.WriteFile(filepath.Join(bucketPath, "segment.db"),
+						make([]byte, tt.fileSize), 0o600))
+				}
+			}
+
+			metrics, err := CalculateUnloadedVectorsMetrics(lsmPath, directories)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, metrics.QuantizedVectorsExist(targetVector))
+		})
+	}
 }
 
 func BenchmarkStorageCalculation(b *testing.B) {
@@ -371,9 +440,10 @@ func BenchmarkStorageCalculation(b *testing.B) {
 		require.NoError(b, err)
 		require.Equal(b, sizeTracker[helpers.ObjectsBucketLSM], uint64(objectsBytes.StorageBytes))
 
-		vectorBytes, err := CalculateUnloadedVectorsMetrics(lsmFolder, buckets)
+		vectorMetrics, err := CalculateUnloadedVectorsMetrics(lsmFolder, buckets)
 		require.NoError(b, err)
-		require.Equal(b, sizeTracker["vectors"]+sizeTracker["vectors_compressed"]+sizeTracker["vectors_compressed_named_vector"], uint64(vectorBytes))
+		vectorBytes := uint64(vectorMetrics.StorageBytes)
+		require.Equal(b, sizeTracker["vectors"]+sizeTracker["vectors_compressed"]+sizeTracker["vectors_compressed_named_vector"], vectorBytes)
 
 		indexBytes, err := CalculateUnloadedIndicesSize(lsmFolder, buckets)
 		require.NoError(b, err)
@@ -381,7 +451,7 @@ func BenchmarkStorageCalculation(b *testing.B) {
 
 		vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
 		require.NoError(b, err)
-		require.Equal(b, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+uint64(vectorBytes))
+		require.Equal(b, expectedTotal, vectorCommitLogsStorageSize+otherNonLSMFoldersStorageSize+indexBytes+uint64(objectsBytes.StorageBytes)+vectorBytes)
 
 	}
 }

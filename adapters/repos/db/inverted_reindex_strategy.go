@@ -77,10 +77,6 @@ type MigrationStrategy interface {
 	WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket, docID uint64,
 		prop inverted.Property) error
 
-	// ShouldProcessProperty returns true if this property should be handled
-	// by the double-write callbacks.
-	ShouldProcessProperty(property *inverted.Property) bool
-
 	// MakeAddCallback creates a double-write callback for property additions.
 	// forTargetStrategy=true during ingest phase, false during backup phase.
 	MakeAddCallback(bucketNamer func(string) string, propsByName map[string]struct{},
