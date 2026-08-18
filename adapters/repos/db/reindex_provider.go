@@ -1469,9 +1469,9 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	//      phase 3.
 	//   3. ATOMIC SWAP (RunSwapOnShard, per task) — in-memory
 	//      bucket-pointer flip + per-prop sentinel fsync + per-prop
-	//      overlay set, all in the Phase 2a tight loop. The disk
-	//      dirs aren't renamed here; that's deferred to next startup
-	//      via OnBeforeLsmInit's recoverRuntimeSwapBuckets path.
+	//      overlay set, all in the Phase 2a tight loop. The live
+	//      ingest dir keeps its name here; FinalizeCompletedMigrations
+	//      renames it to the canonical name at the next startup.
 	//
 	// Under barrier=false, all three phases run inside this single
 	// OnGroupCompleted callback on each node. Under barrier=true,

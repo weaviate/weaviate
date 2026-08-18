@@ -83,3 +83,9 @@ remain risk-gated on the same crash-recovery / hot-path concerns the
 original deferral documented; item 3 stays as-is per its own
 recommendation. Future re-evaluations should append a dated note rather
 than rewriting this footer — the deferral history is the value._
+
+_2026-08-18: item 1 is moot. `OnBeforeLsmInit` and the helpers it was the
+sole caller of — `swapIngestAndBackupBuckets` and
+`unswapIngestAndBackupBuckets` — were deleted as unreachable, so there is
+no longer a pair to unify. The section stays for the deferral history.
+Items 2 and 3 are unchanged._

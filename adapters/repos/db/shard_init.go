@@ -172,8 +172,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// FinalizeCompletedMigrations above promoted them to canonical).
 	markInFlightRangeableMigrationsNotReady(s)
 
-	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
-
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}

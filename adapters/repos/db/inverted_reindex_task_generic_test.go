@@ -54,10 +54,6 @@ type testShardReindexer struct {
 	task *ShardReindexTaskGeneric
 }
 
-func (r *testShardReindexer) RunBeforeLsmInit(ctx context.Context, shard *Shard) error {
-	return r.task.OnBeforeLsmInit(ctx, shard)
-}
-
 func (r *testShardReindexer) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
 	return r.task.OnAfterLsmInit(ctx, shard)
 }
@@ -110,8 +106,6 @@ func newTestClassWithProps(className string, propNames []string) *models.Class {
 func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardReindexTaskGeneric {
 	return NewShardReindexTaskGeneric("MapToBlockmax", logger, strategy,
 		reindexTaskConfig{
-			swapBuckets:                   true,
-			tidyBuckets:                   true,
 			concurrency:                   2,
 			memtableOptFactor:             4,
 			backupMemtableOptFactor:       1,
@@ -561,10 +555,4 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	assert.True(t, rt.IsTidied(), "aggregate tidied sentinel should be set post-runtimeSwap (inline path)")
 
 	require.NoError(t, shard.Shutdown(ctx))
-}
-
-func TestGetSegmentPathsToMove_WalkRootRemoved(t *testing.T) {
-	task := &ShardReindexTaskGeneric{}
-	_, _, err := task.getSegmentPathsToMove(filepath.Join(t.TempDir(), "does-not-exist"), t.TempDir())
-	require.ErrorIs(t, err, os.ErrNotExist)
 }

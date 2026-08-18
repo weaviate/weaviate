@@ -47,10 +47,8 @@ type reindexTracker interface {
 
 	IsSwapped() bool
 	markSwapped() error
-	unmarkSwapped() error
 	IsSwappedProp(propName string) bool
 	markSwappedProp(propName string) error
-	unmarkSwappedProp(propName string) error
 
 	IsTidied() bool
 	markTidied() error
@@ -58,10 +56,6 @@ type reindexTracker interface {
 	HasProps() bool
 	GetProps() ([]string, error)
 	saveProps([]string) error
-
-	IsReset() bool
-
-	reset() error
 }
 
 // NewFileReindexTracker creates a file-based reindex tracker under
@@ -79,7 +73,6 @@ func NewFileReindexTracker(lsmPath, migrationDirName string, keyParser indexKeyP
 			filenameSwapped:    "swapped.mig",
 			filenameTidied:     "tidied.mig",
 			filenameProperties: "properties.mig",
-			filenameReset:      "reset.mig",
 			migrationPath:      filepath.Join(lsmPath, ".migrations", migrationDirName),
 		},
 	}
@@ -105,7 +98,6 @@ type fileReindexTrackerConfig struct {
 	filenameSwapped    string
 	filenameTidied     string
 	filenameProperties string
-	filenameReset      string
 	migrationPath      string
 }
 
@@ -246,8 +238,8 @@ func (t *fileReindexTracker) unmarkReindexed() error {
 // keep the "next iteration runs from scratch" invariant.
 //
 // MUST NOT run concurrently with any markProgress emitter. Today this
-// holds because only the torn-state guard in OnBeforeLsmInit / OnAfterLsmInit
-// calls it, and both run before the async reindex loop spawns.
+// holds because only the torn-state guard in OnAfterLsmInit calls it,
+// and that runs before the async reindex loop spawns.
 func (t *fileReindexTracker) clearProgressFiles() error {
 	prefix := t.config.filenameProgress + "."
 	expectedLen := len(prefix) + 9 // matches findLastProgressFile
@@ -298,20 +290,12 @@ func (t *fileReindexTracker) markSwappedProp(propName string) error {
 	return t.createFile(t.config.filenameSwapped+"."+propName, []byte(t.encodeTimeNow()))
 }
 
-func (t *fileReindexTracker) unmarkSwappedProp(propName string) error {
-	return t.removeFile(t.config.filenameSwapped + "." + propName)
-}
-
 func (t *fileReindexTracker) IsSwapped() bool {
 	return t.fileExists(t.config.filenameSwapped)
 }
 
 func (t *fileReindexTracker) markSwapped() error {
 	return t.createFile(t.config.filenameSwapped, []byte(t.encodeTimeNow()))
-}
-
-func (t *fileReindexTracker) unmarkSwapped() error {
-	return t.removeFile(t.config.filenameSwapped)
 }
 
 func (t *fileReindexTracker) IsTidied() bool {
@@ -441,12 +425,4 @@ func (t *fileReindexTracker) GetProps() ([]string, error) {
 		return []string{}, nil
 	}
 	return strings.Split(trimmed, ","), nil
-}
-
-func (t *fileReindexTracker) IsReset() bool {
-	return t.fileExists(t.config.filenameReset)
-}
-
-func (t *fileReindexTracker) reset() error {
-	return os.RemoveAll(t.config.migrationPath)
 }

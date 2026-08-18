@@ -252,9 +252,6 @@ func applyPerPropertySchemaUpdate(
 // reindexTaskConfig holds the configuration for a ShardReindexTaskGeneric.
 // Renamed from mapToBlockmaxConfig to be strategy-agnostic.
 type reindexTaskConfig struct {
-	swapBuckets                   bool
-	unswapBuckets                 bool
-	tidyBuckets                   bool
 	concurrency                   int
 	memtableOptFactor             int
 	backupMemtableOptFactor       int
