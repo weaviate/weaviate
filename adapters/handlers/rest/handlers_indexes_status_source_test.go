@@ -38,12 +38,12 @@ type fsmStep struct {
 	class *models.Class
 }
 
-// fsmSnapshot models one node's FSM: an applied index that can advance between
+// advancingFSM models one node's FSM: an applied index that can advance between
 // two independent local reads.
 //
 //	step 0 — task STARTED,  searchable flag off
 //	step 1 — task FINISHED, searchable flag on
-type fsmSnapshot struct {
+type advancingFSM struct {
 	step                int
 	advanceBetweenReads bool
 	steps               []fsmStep
@@ -52,33 +52,33 @@ type fsmSnapshot struct {
 	listCalls int
 }
 
-func (f *fsmSnapshot) LocalDistributedTasks() map[string][]*distributedtask.Task {
+func (f *advancingFSM) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	f.listCalls++
 	out := f.steps[f.step].tasks
-	f.tick()
+	f.advance()
 	return out
 }
 
-func (f *fsmSnapshot) ReadOnlyClass(string) *models.Class {
+func (f *advancingFSM) ReadOnlyClass(string) *models.Class {
 	out := f.steps[f.step].class
-	f.tick()
+	f.advance()
 	return out
 }
 
 // ClassInfo answers the cheap existence pre-check. It does not advance the
 // applied index: the pre-check is not one of the two ordered reads, and
 // letting it consume the window would leave that order unpinned.
-func (f *fsmSnapshot) ClassInfo(string) clusterSchema.ClassInfo {
+func (f *advancingFSM) ClassInfo(string) clusterSchema.ClassInfo {
 	return clusterSchema.ClassInfo{Exists: f.steps[f.step].class != nil}
 }
 
-func (f *fsmSnapshot) tick() {
+func (f *advancingFSM) advance() {
 	if f.advanceBetweenReads && f.step == 0 {
 		f.step = 1
 	}
 }
 
-func newFSMSnapshot(t *testing.T) *fsmSnapshot {
+func newAdvancingFSM(t *testing.T) *advancingFSM {
 	t.Helper()
 
 	payload := db.ReindexTaskPayload{
@@ -98,7 +98,7 @@ func newFSMSnapshot(t *testing.T) *fsmSnapshot {
 		}
 	}
 
-	return &fsmSnapshot{steps: []fsmStep{
+	return &advancingFSM{steps: []fsmStep{
 		{tasks: tasks(distributedtask.TaskStatusStarted), class: class(false)},
 		{tasks: tasks(distributedtask.TaskStatusFinished), class: class(true)},
 	}}
@@ -121,7 +121,7 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 		wantFlagOn    bool
 	}{
 		{
-			name:          "schema is never the older operand",
+			name:          "the class is never the older of the two reads",
 			advance:       true,
 			wantListCalls: 1,
 			wantStatus:    distributedtask.TaskStatusStarted,
@@ -142,21 +142,21 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snapshot := newFSMSnapshot(t)
-			snapshot.advanceBetweenReads = tt.advance
+			fsm := newAdvancingFSM(t)
+			fsm.advanceBetweenReads = tt.advance
 			if tt.noClass {
-				for i := range snapshot.steps {
-					snapshot.steps[i].class = nil
+				for i := range fsm.steps {
+					fsm.steps[i].class = nil
 				}
 			}
 
 			var lister localTaskLister
 			if !tt.noLister {
-				lister = snapshot
+				lister = fsm
 			}
 
-			class, parsed := readClassAndTasks("C", lister, snapshot)
-			require.Equal(t, tt.wantListCalls, snapshot.listCalls)
+			class, parsed := readClassAndTasks("C", lister, fsm)
+			require.Equal(t, tt.wantListCalls, fsm.listCalls)
 			if tt.noClass {
 				require.Nil(t, class)
 				require.Empty(t, parsed)

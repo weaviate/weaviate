@@ -141,13 +141,13 @@ type classReader interface {
 // it neither copies the class nor its properties. It is not the existence
 // check the response is built on — that stays on ReadOnlyClass below, after
 // the task read, so the order above holds for every class this returns.
-func readClassAndTasks(collection string, tasks localTaskLister, schemaReader classReader) (*models.Class, []parsedReindexTask) {
+func readClassAndTasks(collection string, taskSource localTaskLister, schemaReader classReader) (*models.Class, []parsedReindexTask) {
 	if !schemaReader.ClassInfo(collection).Exists {
 		return nil, nil
 	}
 	var byNamespace map[string][]*distributedtask.Task
-	if tasks != nil {
-		byNamespace = tasks.LocalDistributedTasks()
+	if taskSource != nil {
+		byNamespace = taskSource.LocalDistributedTasks()
 	}
 	class := schemaReader.ReadOnlyClass(collection)
 	if class == nil {
@@ -177,11 +177,11 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 
 	// A nil ClusterService must not be assigned into the interface: the boxed
 	// nil panics on the first call.
-	var tasks localTaskLister
+	var taskSource localTaskLister
 	if h.appState.ClusterService != nil {
-		tasks = h.appState.ClusterService
+		taskSource = h.appState.ClusterService
 	}
-	class, parsedTasks := readClassAndTasks(collection, tasks, h.appState.SchemaManager)
+	class, parsedTasks := readClassAndTasks(collection, taskSource, h.appState.SchemaManager)
 	if class == nil {
 		return schema.NewSchemaObjectsIndexesGetNotFound()
 	}

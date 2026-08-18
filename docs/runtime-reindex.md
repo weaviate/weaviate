@@ -219,7 +219,7 @@ Per-property, per-index-type snapshot:
 
 Status values: `ready`, `pending`, `indexing`, `failed`, `cancelled`.
 The status is synthesized in `mergeReindexStatus` from the DTM task
-list crossed with the schema flags. Both operands are read from the
+list crossed with the schema flags. Both values are read from the
 node serving the request, and the task list is read first, so the
 schema is never the older of the two: a class read at a later applied
 index carries every flag flip the tasks it is compared against have
