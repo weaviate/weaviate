@@ -257,7 +257,7 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 
 	// (e) The migration itself still landed, on every tenant it named.
 	for _, name := range hotNames {
-		hits := rangeHits(t, name, 50)
+		hits := rangeHits(t, coldCancelClass, coldCancelProp, name, 50, coldCancelObjectsPerTenant*2)
 		assert.Len(t, hits, coldCancelObjectsPerTenant/2,
 			"tenant %q must answer the range query from a fully built index; %d hits means the migration "+
 				"reported success on an empty bucket", name, len(hits))
@@ -287,21 +287,28 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 func importColdCancelCorpus(t *testing.T, tenants []sweepTenant) {
 	t.Helper()
 	for _, tn := range tenants {
-		objs := make([]*models.Object, 0, coldCancelObjectsPerTenant)
-		for i := 0; i < coldCancelObjectsPerTenant; i++ {
-			// Half above the range-query pivot, half below.
-			score := 10
-			if i%2 == 0 {
-				score = 100
-			}
-			objs = append(objs, &models.Object{
-				Class:      coldCancelClass,
-				Properties: map[string]interface{}{"name": "corpus doc", "score": score},
-				Tenant:     tn.name,
-			})
-		}
-		helper.CreateObjectsBatch(t, objs)
+		importCorpus(t, coldCancelClass, coldCancelProp, tn.name, coldCancelObjectsPerTenant)
 	}
+}
+
+// importCorpus writes one tenant's objects, half of them carrying a value
+// above the range-query pivot and half below, so a bucket that lost its
+// contents answers zero where a complete one answers half.
+func importCorpus(t *testing.T, className, prop, tenant string, n int) {
+	t.Helper()
+	objs := make([]*models.Object, 0, n)
+	for i := 0; i < n; i++ {
+		score := 10
+		if i%2 == 0 {
+			score = 100
+		}
+		objs = append(objs, &models.Object{
+			Class:      className,
+			Properties: map[string]interface{}{"name": "corpus doc", prop: score},
+			Tenant:     tenant,
+		})
+	}
+	helper.CreateObjectsBatch(t, objs)
 }
 
 // cancelEnableRangeableInFlight submits an enable-rangeable across every
@@ -602,15 +609,15 @@ func maxSkippedShards(logs string) (int, bool) {
 // rangeHits runs a range filter with an explicit limit — the container's
 // QUERY_DEFAULTS_LIMIT would otherwise truncate a per-tenant corpus this size
 // and make a half-built index look complete.
-func rangeHits(t *testing.T, tenant string, pivot int) []string {
+func rangeHits(t *testing.T, className, prop, tenant string, pivot, limit int) []string {
 	t.Helper()
-	return runGraphQLQuery(t, coldCancelClass, fmt.Sprintf(`{
+	return runGraphQLQuery(t, className, fmt.Sprintf(`{
 		Get {
 			%s(where: {path:[%q], operator: LessThan, valueInt: %d}, tenant: %q, limit: %d) {
 				_additional { id }
 			}
 		}
-	}`, coldCancelClass, coldCancelProp, pivot, tenant, coldCancelObjectsPerTenant*2))
+	}`, className, prop, pivot, tenant, limit))
 }
 
 func tenantNames(tenants []sweepTenant, keep func(sweepTenant) bool) []string {
