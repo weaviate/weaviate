@@ -221,8 +221,12 @@ func (s *ReplicationService) CompareDigests(ctx context.Context, req *pb.Compare
 				len(req.GetDigestsPacked()), replica.CompareDigestsMaxBodyBytes)
 		}
 		digests, err = replica.RepairDigestsFromBinary(req.GetDigestsPacked())
-	default:
+	case replica.RepairDigestsEncodingProto:
 		digests, err = repairDigestsFromProto(req.GetDigests())
+	default:
+		// Fail closed: silently decoding an unknown dialect as proto records
+		// would compare an empty digest list and report a clean no-op.
+		return nil, status.Errorf(codes.InvalidArgument, "unsupported digests encoding %d", req.GetEncoding())
 	}
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "decode digests: %v", err)

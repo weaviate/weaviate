@@ -77,8 +77,11 @@ type fakeGRPCReplicationServer struct {
 	hashTreeLevelResp    *pb.HashTreeLevelResponse
 	lastHashTreeLevelReq atomic.Pointer[pb.HashTreeLevelRequest]
 
-	// Pre-configured digest responses, returned verbatim when set.
+	// Pre-configured digest responses, returned verbatim when set; the handler,
+	// when set, takes precedence and computes the response per call.
 	compareDigestsResp    *pb.CompareDigestsResponse
+	compareDigestsHandler func(*pb.CompareDigestsRequest) (*pb.CompareDigestsResponse, error)
+	compareDigestsCalls   atomic.Int32
 	digestsInRangeResp    *pb.DigestObjectsInRangeResponse
 	lastCompareDigestsReq atomic.Pointer[pb.CompareDigestsRequest]
 	lastDigestsInRangeReq atomic.Pointer[pb.DigestObjectsInRangeRequest]
@@ -131,6 +134,10 @@ func (f *fakeGRPCReplicationServer) HashTreeLevel(_ context.Context, req *pb.Has
 
 func (f *fakeGRPCReplicationServer) CompareDigests(_ context.Context, req *pb.CompareDigestsRequest) (*pb.CompareDigestsResponse, error) {
 	f.lastCompareDigestsReq.Store(req)
+	f.compareDigestsCalls.Add(1)
+	if f.compareDigestsHandler != nil {
+		return f.compareDigestsHandler(req)
+	}
 	if f.compareDigestsErr != nil {
 		return nil, f.compareDigestsErr
 	}
@@ -1200,22 +1207,18 @@ func TestGRPCReplicationCompareDigestsEncoding(t *testing.T) {
 		assert.Equal(t, replica.RepairDigestsEncodingPacked, req.GetEncoding())
 		assert.Equal(t, replica.RepairDigestsEncodingPacked, req.GetAcceptEncoding())
 		assert.Empty(t, req.GetDigests())
+		assert.Equal(t, int32(1), fake.compareDigestsCalls.Load())
 	})
 
-	t.Run("LegacyEmptyFromOldServer", func(t *testing.T) {
+	t.Run("OldServerFallsBackToProtoDialect", func(t *testing.T) {
 		fake := newFakeGRPCReplicationServer(t)
-		client, cleanup := setupGRPCTestServer(t, fake)
-		defer cleanup()
-
-		resp, err := client.CompareDigests(context.Background(), "passthrough:bufnet", "C1", "S1", source)
-		require.NoError(t, err)
-		assert.Empty(t, resp)
-	})
-
-	t.Run("LegacyDigestsDecoded", func(t *testing.T) {
-		fake := newFakeGRPCReplicationServer(t)
-		fake.compareDigestsResp = &pb.CompareDigestsResponse{
-			Digests: []*pb.RepairResponse{{Id: source[0].ID.String(), UpdateTime: 1}},
+		fake.compareDigestsHandler = func(req *pb.CompareDigestsRequest) (*pb.CompareDigestsResponse, error) {
+			if len(req.GetDigests()) == 0 {
+				return &pb.CompareDigestsResponse{}, nil
+			}
+			return &pb.CompareDigestsResponse{
+				Digests: []*pb.RepairResponse{{Id: req.GetDigests()[0].GetId(), UpdateTime: 1}},
+			}, nil
 		}
 		client, cleanup := setupGRPCTestServer(t, fake)
 		defer cleanup()
@@ -1223,6 +1226,51 @@ func TestGRPCReplicationCompareDigestsEncoding(t *testing.T) {
 		resp, err := client.CompareDigests(context.Background(), "passthrough:bufnet", "C1", "S1", source)
 		require.NoError(t, err)
 		require.Equal(t, source[:1], resp)
+		assert.Equal(t, int32(2), fake.compareDigestsCalls.Load())
+
+		req := fake.lastCompareDigestsReq.Load()
+		require.NotNil(t, req)
+		require.Len(t, req.GetDigests(), len(source))
+		assert.Equal(t, source[0].ID.String(), req.GetDigests()[0].GetId())
+		assert.Equal(t, source[1].ID.String(), req.GetDigests()[1].GetId())
+		assert.True(t, req.GetDigests()[1].GetDeleted())
+		assert.Empty(t, req.GetDigestsPacked())
+		assert.Equal(t, replica.RepairDigestsEncodingProto, req.GetEncoding())
+		assert.Equal(t, replica.RepairDigestsEncodingPacked, req.GetAcceptEncoding())
+	})
+
+	t.Run("PeerUpgradedBetweenResends", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.compareDigestsHandler = func(req *pb.CompareDigestsRequest) (*pb.CompareDigestsResponse, error) {
+			if fake.compareDigestsCalls.Load() == 1 {
+				return &pb.CompareDigestsResponse{}, nil
+			}
+			return &pb.CompareDigestsResponse{
+				DigestsPacked: replica.RepairDigestsToBinary(source[1:]),
+				Encoding:      replica.RepairDigestsEncodingPacked,
+			}, nil
+		}
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		resp, err := client.CompareDigests(context.Background(), "passthrough:bufnet", "C1", "S1", source)
+		require.NoError(t, err)
+		require.Equal(t, source[1:], resp)
+		assert.Equal(t, int32(2), fake.compareDigestsCalls.Load())
+	})
+
+	t.Run("UnknownEncodingRejected", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.compareDigestsResp = &pb.CompareDigestsResponse{
+			DigestsPacked: replica.RepairDigestsToBinary(source[1:]),
+			Encoding:      replica.RepairDigestsEncodingPacked + 1,
+		}
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.CompareDigests(context.Background(), "passthrough:bufnet", "C1", "S1", source)
+		require.ErrorContains(t, err, "unsupported digests encoding")
+		assert.Equal(t, int32(1), fake.compareDigestsCalls.Load())
 	})
 
 	t.Run("OversizedPackedRejected", func(t *testing.T) {
@@ -1301,5 +1349,18 @@ func TestGRPCReplicationDigestObjectsInRangeEncoding(t *testing.T) {
 
 		_, err := client.DigestObjectsInRange(context.Background(), "passthrough:bufnet", "C1", "S1", initial, final, 1)
 		require.ErrorContains(t, err, "exceeds")
+	})
+
+	t.Run("UnknownEncodingRejected", func(t *testing.T) {
+		fake := newFakeGRPCReplicationServer(t)
+		fake.digestsInRangeResp = &pb.DigestObjectsInRangeResponse{
+			DigestsPacked: replica.RepairDigestsToBinary(digests),
+			Encoding:      replica.RepairDigestsEncodingPacked + 1,
+		}
+		client, cleanup := setupGRPCTestServer(t, fake)
+		defer cleanup()
+
+		_, err := client.DigestObjectsInRange(context.Background(), "passthrough:bufnet", "C1", "S1", initial, final, 10)
+		require.ErrorContains(t, err, "unsupported digests encoding")
 	})
 }

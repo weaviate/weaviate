@@ -387,12 +387,8 @@ func (c *grpcReplicationClient) DigestObjectsInRange(ctx context.Context, host, 
 		return nil, fmt.Errorf("gRPC DigestObjectsInRange: %w", err)
 	}
 
-	if resp.GetEncoding() == replica.RepairDigestsEncodingPacked {
-		return decodePackedDigests(resp.GetDigestsPacked(), limit)
-	}
-
-	// Proto records: older servers ignore accept_encoding.
-	return protoToRepairDigests(resp.GetDigests())
+	// Proto-records replies come from older servers that ignore accept_encoding.
+	return decodeDigestsReply(resp, limit)
 }
 
 func (c *grpcReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
@@ -420,14 +416,28 @@ func (c *grpcReplicationClient) CompareDigests(ctx context.Context, host, index,
 		return nil, fmt.Errorf("gRPC CompareDigests: %w", err)
 	}
 
-	// The result is a subset of the sent digests, so their count bounds the decode.
-	if resp.GetEncoding() == replica.RepairDigestsEncodingPacked {
-		return decodePackedDigests(resp.GetDigestsPacked(), len(digests))
+	// A packed-aware server always echoes the packed encoding when asked, so a
+	// proto-encoded reply proves an older peer that ignored the packed field and
+	// compared an empty digest list. Its reply is meaningless — resend once in
+	// the proto dialect it understands so repair keeps working during rolling
+	// upgrades (mirrors the REST legacy JSON fallback).
+	if resp.GetEncoding() == replica.RepairDigestsEncodingProto {
+		resp, err = client.CompareDigests(ctx, &protocol.CompareDigestsRequest{
+			Index:          index,
+			Shard:          shard,
+			Digests:        repairDigestsToProto(digests),
+			AcceptEncoding: replica.RepairDigestsEncodingPacked,
+		})
+		if err != nil {
+			if nrErr := asyncNotReadyGRPCError(err); nrErr != nil {
+				return nil, nrErr
+			}
+			return nil, fmt.Errorf("gRPC CompareDigests (proto dialect): %w", err)
+		}
 	}
 
-	// Proto records: an older server ignored the packed request and compared an
-	// empty digest list — degraded to a no-op until the peer upgrades.
-	return protoToRepairDigests(resp.GetDigests())
+	// The result is a subset of the sent digests, so their count bounds the decode.
+	return decodeDigestsReply(resp, len(digests))
 }
 
 // decodePackedDigests decodes a packed digests payload, rejecting payloads
@@ -438,6 +448,26 @@ func decodePackedDigests(payload []byte, maxRecords int) ([]types.RepairDigest, 
 			len(payload), maxLen, maxRecords)
 	}
 	return replica.RepairDigestsFromBinary(payload)
+}
+
+// digestsReply is the reply surface shared by the two digest RPCs.
+type digestsReply interface {
+	GetEncoding() uint32
+	GetDigestsPacked() []byte
+	GetDigests() []*protocol.RepairResponse
+}
+
+// decodeDigestsReply decodes a digest RPC reply by its declared encoding,
+// failing closed on encodings this client does not know.
+func decodeDigestsReply(resp digestsReply, maxRecords int) ([]types.RepairDigest, error) {
+	switch resp.GetEncoding() {
+	case replica.RepairDigestsEncodingPacked:
+		return decodePackedDigests(resp.GetDigestsPacked(), maxRecords)
+	case replica.RepairDigestsEncodingProto:
+		return protoToRepairDigests(resp.GetDigests())
+	default:
+		return nil, fmt.Errorf("unsupported digests encoding %d", resp.GetEncoding())
+	}
 }
 
 func (c *grpcReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
@@ -753,6 +783,20 @@ func protoToRepairResponses(results []*protocol.RepairResponse) []types.RepairRe
 			UpdateTime: r.GetUpdateTime(),
 			Err:        r.GetErr(),
 			Deleted:    r.GetDeleted(),
+		}
+	}
+	return out
+}
+
+// repairDigestsToProto encodes digests in the proto-records dialect for peers
+// that predate the packed encoding.
+func repairDigestsToProto(digests []types.RepairDigest) []*protocol.RepairResponse {
+	out := make([]*protocol.RepairResponse, len(digests))
+	for i, d := range digests {
+		out[i] = &protocol.RepairResponse{
+			Id:         d.ID.String(),
+			UpdateTime: d.UpdateTime,
+			Deleted:    d.Deleted,
 		}
 	}
 	return out

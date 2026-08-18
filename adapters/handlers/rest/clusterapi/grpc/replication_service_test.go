@@ -311,6 +311,16 @@ func TestCompareDigestsEncoding(t *testing.T) {
 			wantCode: codes.InvalidArgument,
 			wantMsg:  "exceeds",
 		},
+		{
+			name: "unknown encoding rejected",
+			req: &pb.CompareDigestsRequest{
+				Index: index, Shard: shard,
+				DigestsPacked: replica.RepairDigestsToBinary(source),
+				Encoding:      replica.RepairDigestsEncodingPacked + 1,
+			},
+			wantCode: codes.InvalidArgument,
+			wantMsg:  "unsupported digests encoding",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
