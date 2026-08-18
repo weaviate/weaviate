@@ -1091,7 +1091,7 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 // same check runs again at apply time and is the one that counts; this early
 // copy exists so the caller sees the error before any node does work.
 func (s *Scheduler) validateNamespaceReferences(userBlob, rbacBlob []byte, userRestoreOption, rbacRestoreOption string) error {
-	if !s.schema.NamespacesEnabled() || s.namespaces == nil {
+	if !s.schema.NamespacesEnabled() {
 		return nil // restore strips namespaces instead of resolving them
 	}
 

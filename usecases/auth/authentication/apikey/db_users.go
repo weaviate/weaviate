@@ -744,9 +744,9 @@ func ValidateSnapshot(snapshot []byte, stripNamespaces bool) error {
 	return err
 }
 
-// ReferencedNamespaces returns each user's Namespace field, or the
-// "<namespace>:" prefix on its id when the field is empty. A user id never
-// contains a colon of its own.
+// ReferencedNamespaces returns each user's Namespace field. A user written
+// before the field existed carries its namespace only on the id and is not
+// read; namespaced backups predating the field are unsupported.
 func ReferencedNamespaces(snapshot []byte) ([]string, error) {
 	if len(snapshot) == 0 {
 		return nil, nil
@@ -761,16 +761,9 @@ func ReferencedNamespaces(snapshot []byte) ([]string, error) {
 	}
 
 	seen := map[string]struct{}{}
-	for id, user := range snapshotRestore.Data.Users {
-		ns := ""
-		if user != nil {
-			ns = user.Namespace
-		}
-		if ns == "" {
-			ns = namespacing.NamespaceFromQualified(id)
-		}
-		if ns != "" {
-			seen[ns] = struct{}{}
+	for _, user := range snapshotRestore.Data.Users {
+		if user != nil && user.Namespace != "" {
+			seen[user.Namespace] = struct{}{}
 		}
 	}
 	return slices.Sorted(maps.Keys(seen)), nil

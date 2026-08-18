@@ -48,13 +48,27 @@ type rolesAndUsersStores struct {
 	policyDir string
 }
 
+// staticLister reports each named namespace as existing, for the source side
+// of snapshot fixtures.
+type staticLister []string
+
+func (l staticLister) List() []api.Namespace {
+	out := make([]api.Namespace, len(l))
+	for i, name := range l {
+		out[i] = api.Namespace{Name: name, State: api.NamespaceStateActive}
+	}
+	return out
+}
+
 func newRolesAndUsersStores(t *testing.T, ns usecasesNamespaces.Exister) *rolesAndUsersStores {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 
 	policyDir := t.TempDir()
+	// The lister makes snapshots carry ns1 in their Namespaces list, the shape a
+	// real namespace-enabled source produces; nothing else reads it.
 	authZ, err := rbac.New(filepath.Join(policyDir, "policy.csv"),
-		rbacconf.Config{Enabled: true}, config.Authentication{}, true, nil, logger)
+		rbacconf.Config{Enabled: true}, config.Authentication{}, true, staticLister{"ns1"}, logger)
 	require.NoError(t, err)
 	// enabled=false: the one-minute storeToFile ticker would otherwise mask a
 	// missing persistence call.

@@ -1245,8 +1245,8 @@ func TestValidateNamespaceStrip(t *testing.T) {
 }
 
 // TestReferencedNamespaces pins which namespaces a backup's user blob is
-// checked against on a namespace-enabled target: the explicit field, falling
-// back to the "<namespace>:" prefix on the id.
+// checked against on a namespace-enabled target: the explicit field only. A
+// pre-field user carries its namespace on the id alone and is not read.
 func TestReferencedNamespaces(t *testing.T) {
 	src, err := NewDBUser(t.TempDir(), false, log, activeExister{})
 	require.NoError(t, err)
@@ -1272,13 +1272,12 @@ func TestReferencedNamespaces(t *testing.T) {
 			want: []string{"ns1", "ns2"},
 		},
 		{
-			name: "qualified id is the fallback",
+			name: "a pre-field user's qualified id is not read",
 			snap: func(t *testing.T) []byte {
 				b, err := src.Snapshot(MakeUserKey("dave", "ns3"))
 				require.NoError(t, err)
 				return b
 			},
-			want: []string{"ns3"},
 		},
 		{
 			name: "unqualified users yield nothing",

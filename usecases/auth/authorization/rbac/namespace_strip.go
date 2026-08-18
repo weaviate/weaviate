@@ -304,18 +304,16 @@ func ValidateSnapshot(blob []byte, stripNamespaces bool, staticAPIKeyUsers []str
 	return err
 }
 
-// ReferencedNamespaces returns every namespace the snapshot names in any
-// column: role names, resource paths, and user subjects. A "db:" user subject
-// always counts, because a dynamic user name cannot contain a colon, so a
-// colon there always marks a namespace. The restoring cluster's static API
-// key users are the exception. The strip leaves db subjects out of its own
-// namespace set; this set must include them, because it has to name every
-// namespace the blob touches.
-// For the other columns the snapshot's Namespaces list decides: only the
-// source cluster can tell a namespace prefix from a colon inside a global id
-// such as the OIDC subject "urn:foo". Without the list, the fallback reads
-// role names alone and, like the strip, misses a namespace that appears only
-// in a resource path or an OIDC subject.
+// ReferencedNamespaces returns every namespace the snapshot names: the
+// snapshot's own Namespaces list, plus the prefixes of its "db:" user
+// subjects. The list is written by the source cluster, the only side that can
+// tell a namespace prefix from a colon inside a global id such as the OIDC
+// subject "urn:foo", and it covers role names, resource paths, and OIDC
+// subjects. It leaves db subjects out (see referencedNamespaces), so they are
+// read here: a dynamic user name cannot contain a colon, so a colon there
+// always marks a namespace. The restoring cluster's static API key users are
+// the exception. A blob from before the list existed gets no checking beyond
+// its db subjects; namespaced backups predating the list are unsupported.
 func ReferencedNamespaces(blob []byte, staticAPIKeyUsers []string) ([]string, error) {
 	if len(blob) == 0 {
 		return nil, nil
@@ -351,23 +349,9 @@ func ReferencedNamespaces(blob []byte, staticAPIKeyUsers []string) ([]string, er
 		add(user)
 	}
 
-	if len(snap.Namespaces) > 0 {
-		for _, ns := range snap.Namespaces {
-			if ns != "" {
-				seen[ns] = struct{}{}
-			}
-		}
-		return slices.Sorted(maps.Keys(seen)), nil
-	}
-
-	for _, p := range snap.Policy {
-		if len(p) > 0 {
-			add(conv.TrimRoleNamePrefix(p[0]))
-		}
-	}
-	for _, g := range snap.GroupingPolicy {
-		if len(g) > 1 {
-			add(conv.TrimRoleNamePrefix(g[1]))
+	for _, ns := range snap.Namespaces {
+		if ns != "" {
+			seen[ns] = struct{}{}
 		}
 	}
 	return slices.Sorted(maps.Keys(seen)), nil

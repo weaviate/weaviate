@@ -150,12 +150,12 @@ func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 			states: map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateResuming},
 		},
 		{
-			// The id prefix is the fallback when the field is empty, which is
-			// what a user written by an older server carries.
-			name:    "qualified id alone is enough to be checked",
-			users:   map[string]string{"ns2:bob": ""},
-			states:  map[string]cmd.NamespaceState{},
-			wantErr: "ns2",
+			// A user written before the Namespace field existed carries its
+			// namespace on the id alone. Such users are not checked; namespaced
+			// backups from before the field are unsupported.
+			name:   "a pre-field user's qualified id is not checked",
+			users:  map[string]string{"ns2:bob": ""},
+			states: map[string]cmd.NamespaceState{},
 		},
 		{
 			name:   "strip skips the check entirely",

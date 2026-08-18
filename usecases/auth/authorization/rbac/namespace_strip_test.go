@@ -21,10 +21,10 @@ import (
 
 // TestReferencedNamespaces pins which namespaces a backup's RBAC blob is
 // checked against on a namespace-enabled target. db grouping subjects are read
-// whatever the list says, because their colon always marks a namespace. For the
-// other columns the blob's own list wins, since only the source cluster could
-// tell a namespace prefix from a colon inside a global id. Without a list the
-// fallback reads role names alone.
+// whatever the list says, because their colon always marks a namespace. Every
+// other column is covered by the blob's own list alone, since only the source
+// cluster could tell a namespace prefix from a colon inside a global id. A
+// blob without a list is checked on its db subjects only.
 func TestReferencedNamespaces(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -43,20 +43,22 @@ func TestReferencedNamespaces(t *testing.T) {
 			want: []string{"acme"},
 		},
 		{
-			name: "no list falls back to role names",
+			// beta appears only in a role name and acme:Movies only in a resource
+			// path. With no list, neither is read; the db subject alone counts.
+			name: "no list reads db subjects only",
 			in: &snapshot{
 				Policy: [][]string{
-					{"role:acme:manager", "data/collections/acme:Movies/shards/*/objects/*", "R", "data"},
+					{"role:beta:manager", "data/collections/acme:Movies/shards/*/objects/*", "R", "data"},
 				},
 				GroupingPolicy: [][]string{
 					{"db:acme:alice", "role:beta:reader"},
 				},
 			},
-			want: []string{"acme", "beta"},
+			want: []string{"acme"},
 		},
 		{
-			// A colon in an OIDC subject is not a namespace separator. With no list
-			// to confirm one, the fallback must not invent "urn".
+			// A colon in an OIDC subject is not a namespace separator. Nothing here
+			// reads OIDC subjects; the source's list carries their namespaces.
 			name: "an OIDC subject with no list yields nothing",
 			in: &snapshot{
 				GroupingPolicy: [][]string{

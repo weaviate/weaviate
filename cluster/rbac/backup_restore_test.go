@@ -22,12 +22,34 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-// snapshotOf builds a backup blob from a manager holding exactly the given roles.
+// listerOf reports each named namespace as existing, so a source manager built
+// with it writes those names into its snapshots' Namespaces list, the shape a
+// namespace-enabled cluster produces.
+type listerOf []string
+
+func (l listerOf) List() []cmd.Namespace {
+	out := make([]cmd.Namespace, len(l))
+	for i, name := range l {
+		out[i] = cmd.Namespace{Name: name, State: cmd.NamespaceStateActive}
+	}
+	return out
+}
+
+// snapshotOf builds a backup blob from a manager holding exactly the given
+// roles. The source knows the namespaces its role names carry, so the blob
+// gets a Namespaces list exactly as a real backup would.
 func snapshotOf(t *testing.T, roles ...string) []byte {
 	t.Helper()
-	source := newTestManager(t)
+	var nss listerOf
+	for _, r := range roles {
+		if ns := namespacing.NamespaceFromQualified(r); ns != "" {
+			nss = append(nss, ns)
+		}
+	}
+	source := newTestManagerWithNamespaces(t, nss)
 	for _, r := range roles {
 		require.NoError(t, applyCreateRole(source, r))
 	}
@@ -208,12 +230,10 @@ func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 // TestValidateBackupSnapshotNamespaceFromDBSubject covers a blob whose only
 // mention of a namespace is a role assignment: "db:ns3:bob -> viewer" names
 // ns3, while every role name and every resource path stays unqualified. The
-// fixture wires no namespace lister, so the snapshot carries no Namespaces
-// list and this pins the fallback path; TestReferencedNamespaces and the
-// scheduler case cover the path where the list is present. The users blob
-// would carry ns3 too, but
-// usersOptions=noRestore turns that check off, so the roles blob has to stand
-// alone.
+// source never records db subjects in the blob's Namespaces list, so the
+// check has to read the subjects themselves; this pins that. The users blob
+// would carry ns3 too, but usersOptions=noRestore turns that check off, so
+// the roles blob has to stand alone.
 func TestValidateBackupSnapshotNamespaceFromDBSubject(t *testing.T) {
 	source := newTestManager(t)
 	require.NoError(t, source.authZ.AddRolesForUser("db:ns3:bob", []string{authorization.Viewer}))

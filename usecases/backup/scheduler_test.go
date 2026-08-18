@@ -2848,8 +2848,8 @@ func namespacesInState(t *testing.T, states map[string]cmd.NamespaceState) *name
 // names it. Suspended and resuming namespaces pass.
 func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 	ctx := context.Background()
-	// Namespaces list absent, so the check falls back to role names.
-	rbacBlob := []byte(`{"version":1,"roles_policies":[["role:ns1:editor","*","R","*"]]}`)
+	// The blob's namespaces list is how a roles blob names its namespaces.
+	rbacBlob := []byte(`{"version":1,"namespaces":["ns1"],"roles_policies":[["role:ns1:editor","*","R","*"]]}`)
 	// The only mention of ns3 is the role assignment. The role name is global and
 	// the blob lists its namespaces, so nothing else here carries ns3.
 	rbacBlobDBSubject := []byte(`{"version":1,"namespaces":["ns1"],"roles_policies":[["role:ns1:editor","*","R","*"]],"grouping_policies":[["db:ns3:bob","role:viewer"]]}`)
