@@ -901,7 +901,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}, appState.Logger)
 	}
 
-	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
+	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager,
+		appState.NamespacesController, appState.DB,
 		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
 
 	// appState.RBAC is a typed nil when RBAC is disabled; pass an untyped-nil

@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -362,8 +363,8 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 						c.cancelOp(operation, opLogger)
 						return
 					}
-					if isShardBusyError(err) {
-						opLogger.Infof("replication operation deferred: source shard busy: %v", err)
+					if IsReversibleRefusal(err) {
+						opLogger.Infof("replication operation deferred: %v", err)
 						return
 					}
 					c.engineOpCallbacks.OnOpFailed(c.nodeId)
@@ -437,11 +438,11 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 			if err := c.checkCancelled(logger, op); err != nil {
 				return api.ShardReplicationState(""), backoff.Permanent(fmt.Errorf("error while checking if op is cancelled: %w", err))
 			}
-			// Skip ReplicationRegisterError so a slow structural op cannot
-			// burn the MaxErrors budget and auto-cancel the movement; the
+			// Skip ReplicationRegisterError so a refusal that can be undone
+			// cannot burn the MaxErrors budget and auto-cancel the movement; the
 			// outer worker re-dispatches on the next poll.
-			if isShardBusyError(err) {
-				logger.Infof("source shard busy with structural vector op; deferring movement step: %v", err)
+			if IsReversibleRefusal(err) {
+				logger.Infof("deferring movement step: %v", err)
 				return api.ShardReplicationState(""), backoff.Permanent(err)
 			}
 			logger.Warnf("state transition handler failed: %v", err)
@@ -903,16 +904,46 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 	return DELETED, nil
 }
 
-func isShardBusyError(err error) bool {
+// reversibleRefusals are the refusals a movement waits for rather than counting
+// against its error budget. Each can be undone: a structural vector op on the
+// source shard finishes, and a suspended or resuming namespace is resumed. A
+// deleting namespace is absent on purpose, since it never becomes active again
+// and waiting would keep the movement alive forever.
+var reversibleRefusals = []error{
+	enterrors.ErrShardBusyStructuralOp,
+	namespaces.ErrNamespaceSuspended,
+	namespaces.ErrNamespaceResuming,
+}
+
+// IsReversibleRefusal reports whether err names one of [reversibleRefusals],
+// either as the sentinel or in the message of a FailedPrecondition status. A
+// movement re-runs its whole step on every dispatch, so registering these would
+// spend all [MaxErrors] of them and cancel a movement that only had to wait.
+//
+// A deleting namespace reaches the message check carrying FailedPrecondition
+// too, so that check is the only thing keeping it out.
+func IsReversibleRefusal(err error) bool {
 	if err == nil {
 		return false
 	}
-	for e := err; e != nil; e = errors.Unwrap(e) {
-		st, ok := status.FromError(e)
-		if !ok {
-			continue
+	// The tenant activation is refused by the apply, which hands back the
+	// sentinel itself. The source node's shard calls arrive as a gRPC status,
+	// where only the message text survives.
+	for _, refusal := range reversibleRefusals {
+		if errors.Is(err, refusal) {
+			return true
 		}
-		return st.Code() == codes.FailedPrecondition && strings.Contains(st.Message(), enterrors.ErrShardBusyStructuralOp.Error())
+	}
+	// FromError reaches a wrapped status through errors.As, which also walks the
+	// slice errors.Join builds, and reports the whole chain's text as Message.
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.FailedPrecondition {
+		return false
+	}
+	for _, refusal := range reversibleRefusals {
+		if strings.Contains(st.Message(), refusal.Error()) {
+			return true
+		}
 	}
 	return false
 }

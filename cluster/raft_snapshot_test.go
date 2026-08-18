@@ -103,8 +103,14 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	m.indexer = fakes.NewMockSchemaExecutor()
 	// NewRaft will try to restore from any snapshot it can find on disk
 	srv = NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
-	// Ensure raft starts and a leader is elected
-	m.indexer.On("Open", Anything).Return(nil)
+	// Ensure raft starts and a leader is elected. The DB is opened before the
+	// snapshot and logs replay the schema, so the schema must still be empty at
+	// that point — the index set is derived from the schema, so nothing is
+	// materialized before replay.
+	classesAtOpen := -1
+	m.indexer.On("Open", Anything).Run(func(mock.Arguments) {
+		classesAtOpen = m.store.SchemaReader().Len()
+	}).Return(nil)
 	// shall be called because of restoring from snapshot
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return().Once()
 	assert.Nil(t, srv.Open(ctx, m.indexer))
@@ -117,6 +123,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	schemaReader = srv.SchemaReader()
 	assert.Equal(t, cls.Class, schemaReader.ClassEqual(cls.Class))
 	assert.Equal(t, "S1", getTenantStatus(t, schemaReader, cls.Class, "T0"))
+	assert.Equal(t, 0, classesAtOpen, "schema must be empty when the DB is opened on restart")
 
 	// Ensure there was no supplementary call to the underlying DB as we were just recovering the schema
 	m.indexer.AssertExpectations(t)
