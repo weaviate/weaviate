@@ -572,15 +572,16 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 			if !ok {
 				return fmt.Errorf("cannot remove unloaded %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
-			if err := l.shard.removeDirIfExists(l.pathLSM(), mainBucket); err != nil {
-				return fmt.Errorf("cannot remove unloaded %s index for %s property: %w", indexType, prop.Name, err)
-			}
 			// The one exception to the by-name-only rule above: a completed
 			// migration's tracker would otherwise survive the delete and have
-			// the tenant's next load re-open the bucket just removed.
+			// the tenant's next load re-open the bucket just removed. Retired
+			// first, so a crash leaves a bucket with no tracker, not the reverse.
 			retireFinalizedMigrationDirs(
 				migrationDirsOf(l.pathLSM(), nil, prop.Name, indexType),
 				prop.Name, indexType, l.shardOpts.index.logger)
+			if err := l.shard.removeDirIfExists(l.pathLSM(), mainBucket); err != nil {
+				return fmt.Errorf("cannot remove unloaded %s index for %s property: %w", indexType, prop.Name, err)
+			}
 		}
 		return nil
 	})

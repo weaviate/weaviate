@@ -184,10 +184,12 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if !ok {
 				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
+			// Tracker dirs first: the reverse order resurrects the index. Sidecars
+			// stay behind removeBucket, which closes them.
+			s.cleanStaleMigrationDirs(ctx, prop.Name, indexType, props)
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
-			s.cleanStaleMigrationDirs(ctx, prop.Name, indexType, props)
 			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		return nil
