@@ -118,7 +118,7 @@ func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 	}
 	newGateShard := func(allocChecker memwatch.AllocChecker) *LazyLoadShard {
 		return NewLazyLoadShard(ctx, nil, gateShard, idx, class, idx.centralJobQueue,
-			idx.indexCheckpoints, allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+			idx.indexCheckpoints, allocChecker, idx.shardLoadLimiter, idx.recoveredReindexTasks,
 			false, idx.bitmapBufPool)
 	}
 

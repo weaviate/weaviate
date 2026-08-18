@@ -535,7 +535,7 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 			require.NoError(t, shard.Shutdown(ctx))
 
 			task2, _ := newFilterableToRangeableTask(t, idx, className, propName)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			armRecoveredTask(ctx, idx, shard, task2)
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)

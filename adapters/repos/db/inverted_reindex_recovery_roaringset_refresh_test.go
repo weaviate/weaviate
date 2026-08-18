@@ -388,7 +388,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 
 			task2, _ := newRoaringSetRefreshTask(t, idx)
 			task2.skipSwapOnFinish.Store(false)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			armRecoveredTask(ctx, idx, shard, task2)
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)

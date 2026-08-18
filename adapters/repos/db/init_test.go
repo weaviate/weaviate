@@ -118,7 +118,7 @@ func TestNewShard_AbortsWhenUsageFileRemovalFails(t *testing.T) {
 
 	_, err := NewShard(ctx, nil, shardName, index, &models.Class{Class: className},
 		index.centralJobQueue, index.scheduler, index.indexCheckpoints,
-		index.shardReindexer, false, index.bitmapBufPool)
+		index.recoveredReindexTasks, false, index.bitmapBufPool)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "remove computed usage file")
 }

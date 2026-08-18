@@ -48,18 +48,16 @@ func (s *testMigrationStrategy) OnMigrationComplete(_ context.Context, _ ShardLi
 	return nil
 }
 
-// testShardReindexer wraps a single task into a ShardReindexerV3 for use
-// during shard initialization. It calls task methods synchronously.
-type testShardReindexer struct {
-	task *ShardReindexTaskGeneric
-}
-
-func (r *testShardReindexer) RunBeforeLsmInit(ctx context.Context, shard *Shard) error {
-	return r.task.OnBeforeLsmInit(ctx, shard)
-}
-
-func (r *testShardReindexer) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
-	return r.task.OnAfterLsmInit(ctx, shard)
+// armRecoveredTask models the restart sequence the recovery cases
+// exercise: the task's pre-LSM-init hook runs against the shard's
+// on-disk state while no LSM store is up, then the task is handed to
+// the index so shard re-init fires its OnAfterLsmInit. The hook's
+// error is dropped, as it was when shard init drove this.
+func armRecoveredTask(ctx context.Context, idx *Index, shutdownShard *Shard,
+	task *ShardReindexTaskGeneric,
+) {
+	_ = task.OnBeforeLsmInit(ctx, shutdownShard)
+	idx.recoveredReindexTasks = []*ShardReindexTaskGeneric{task}
 }
 
 func createTestObjectWithText(className, text string) *storobj.Object {
@@ -268,7 +266,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task2 := newTestTask(idx.logger, strategy2)
-	idx.shardReindexer = &testShardReindexer{task: task2}
+	armRecoveredTask(ctx, idx, shard, task2)
 
 	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 	require.NoError(t, err)

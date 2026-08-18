@@ -168,7 +168,7 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task2 := newTestTask(idx.logger, strategy2)
 			task2.skipSwapOnFinish.Store(false)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			armRecoveredTask(ctx, idx, shard, task2)
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 			require.NoError(t, err, "multi-prop shard re-init (case %q)", tc.name)
@@ -357,7 +357,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task2 := newTestTask(idx.logger, strategy2)
 	task2.skipSwapOnFinish.Store(false)
-	idx.shardReindexer = &testShardReindexer{task: task2}
+	armRecoveredTask(ctx, idx, shard, task2)
 
 	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 	require.NoError(t, err, "shard re-init")
@@ -560,13 +560,14 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 	shardName := shard.Name()
 	shardLSMPath := shard.pathLSM()
 	require.NoError(t, shard.Shutdown(ctx))
+	shutdownShard := shard
 	shard = nil // disable the defer's Shutdown
 	simulateProcessRestartBucketCleanup(t, shardLSMPath)
 
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task2 := newTestTask(idx.logger, strategy2)
 	task2.skipSwapOnFinish.Store(false)
-	idx.shardReindexer = &testShardReindexer{task: task2}
+	armRecoveredTask(ctx, idx, shutdownShard, task2)
 
 	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 	require.NoError(t, err, "layout+crash: shard re-init must succeed")

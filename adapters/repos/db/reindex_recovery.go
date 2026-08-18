@@ -36,7 +36,7 @@ import (
 //
 // Callers use these to:
 //
-//  1. Register the Tasks with the static [ShardReindexerV3] before
+//  1. Hand the Tasks to the DB via [DB.SetRecoveredReindexTasks] before
 //     [DB.WaitForStartup] runs, so the [OnAfterLsmInit] hook fires
 //     during shard load and re-installs the double-write callbacks
 //     BEFORE any post-restart write can reach the shard. Without this,
@@ -298,27 +298,6 @@ func buildRecoveryTasks(
 	return raw, nil
 }
 
-// NewShardReindexerV3FromRecovered wires the recovered tasks into a
-// fresh recovery-only [ShardReindexerV3]. The reindexer only fires
-// [OnAfterLsmInit] — the iteration loop ([OnAfterLsmInitAsync]) is the
-// DTM provider's job, and [OnBeforeLsmInit]'s restart-based merge/swap
-// is intentionally skipped so the DTM's OnGroupCompleted is the single
-// source of truth for the swap step. This keeps recovery's
-// responsibility narrow: re-install the double-write callbacks before
-// any writes arrive.
-func NewShardReindexerV3FromRecovered(
-	recovered []RecoveredReindex,
-	logger logrus.FieldLogger,
-) ShardReindexerV3 {
-	r := newShardReindexerV3RecoveryOnly(logger)
-	for _, rr := range recovered {
-		for _, t := range rr.Tasks {
-			r.registerTask(t)
-		}
-	}
-	return r
-}
-
 // SeedReindexProviderFromRecovery pre-populates the provider's
 // per-descriptor task cache with instances reconstructed during startup
 // recovery. The purpose is to make [ReindexProvider.OnGroupCompleted]
@@ -327,7 +306,7 @@ func NewShardReindexerV3FromRecovered(
 // rehydrate branch and call [OnAfterLsmInit] a second time (which would
 // attempt to load already-loaded ingest buckets).
 //
-// Pass the same slice as was given to [NewShardReindexerV3FromRecovered]
+// Pass the same slice as was given to [DB.SetRecoveredReindexTasks]
 // so the in-memory instances stay in sync between the two consumers.
 func SeedReindexProviderFromRecovery(provider *ReindexProvider, recovered []RecoveredReindex) {
 	if provider == nil || len(recovered) == 0 {
@@ -368,43 +347,16 @@ func (t *ShardReindexTaskGeneric) constrainToShard(collection, shardName string)
 	}
 }
 
-// shardReindexerV3RecoveryOnly is a stripped-down [ShardReindexerV3]
-// used during startup recovery. It only fires [OnAfterLsmInit] for each
-// registered task on each shard load; the heavier iteration / scheduler
-// path is left to the distributed task provider so we don't bring up a
-// second scheduling loop just for recovery. See
-// [NewShardReindexerV3FromRecovered] for the rationale.
-type shardReindexerV3RecoveryOnly struct {
-	logger logrus.FieldLogger
-	tasks  []*ShardReindexTaskGeneric
-}
-
-func newShardReindexerV3RecoveryOnly(logger logrus.FieldLogger) *shardReindexerV3RecoveryOnly {
-	return &shardReindexerV3RecoveryOnly{
-		logger: logger,
-	}
-}
-
-func (r *shardReindexerV3RecoveryOnly) registerTask(t *ShardReindexTaskGeneric) {
-	r.tasks = append(r.tasks, t)
-}
-
-func (r *shardReindexerV3RecoveryOnly) RunBeforeLsmInit(_ context.Context, _ *Shard) error {
-	// Intentionally a no-op. The DTM's OnGroupCompleted is the
-	// authoritative path for completing the swap; we don't want the
-	// restart-based merge/swap in OnBeforeLsmInit to race with it.
-	return nil
-}
-
-func (r *shardReindexerV3RecoveryOnly) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
-	if len(r.tasks) == 0 {
-		return nil
-	}
-	for _, t := range r.tasks {
-		if err := t.OnAfterLsmInit(ctx, shard); err != nil {
-			r.logger.WithField("task", t.Name()).WithField("shard", shard.Name()).
+// runRecoveredReindexTasks fires OnAfterLsmInit for every reindex task
+// that startup recovery reconstructed from disk, re-installing their
+// double-write callbacks before any post-restart write can reach the
+// shard. A task that fails is logged and skipped: the shard must still
+// come up.
+func (s *Shard) runRecoveredReindexTasks(ctx context.Context) {
+	for _, t := range s.recoveredReindexTasks {
+		if err := t.OnAfterLsmInit(ctx, s); err != nil {
+			s.index.logger.WithField("task", t.Name()).WithField("shard", s.Name()).
 				Errorf("reindex recovery: after-LSM-init failed: %v", err)
 		}
 	}
-	return nil
 }

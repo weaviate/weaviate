@@ -349,7 +349,7 @@ func TestRecoveryConvergence_FilterableRetokenize_FromEachState(t *testing.T) {
 
 			task2, _ := newFilterableRetokenizeTask(t, idx, className, propName,
 				models.PropertyTokenizationField)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			armRecoveredTask(ctx, idx, shard, task2)
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)

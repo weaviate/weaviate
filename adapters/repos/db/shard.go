@@ -498,7 +498,7 @@ type Shard struct {
 	shutCtx       context.Context
 	shutCtxCancel context.CancelCauseFunc
 
-	reindexer ShardReindexerV3
+	recoveredReindexTasks []*ShardReindexTaskGeneric
 
 	// Folded snapshot (propValueIndexState) for lock-free reads on the write
 	// path; registration/arm/disarm publish a fresh copy under the mutex.
