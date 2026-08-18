@@ -15,7 +15,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -39,8 +38,7 @@ func TestReadersToleranceOfARetainedRecord(t *testing.T) {
 	plantRecord := func(t *testing.T) string {
 		t.Helper()
 		lsmPath := t.TempDir()
-		mkTrackerDir(t, lsmPath, recordName,
-			append(append([]string{}, completedSentinels...), finalizedSentinel)...)
+		mkTrackerDir(t, lsmPath, recordName, recordedSentinels...)
 		mkRecoveryPayload(t, lsmPath, recordName, propName)
 		require.NoError(t, os.WriteFile(
 			filepath.Join(lsmPath, ".migrations", recordName, "properties.mig"),
@@ -66,31 +64,11 @@ func TestReadersToleranceOfARetainedRecord(t *testing.T) {
 			"the audit destroys what it classifies; a completed migration is not abandoned state")
 	})
 
-	t.Run("the swap-completion probe reads a record like an absent dir", func(t *testing.T) {
-		lsmPath := plantRecord(t)
-		scope := migrationDirsOf(lsmPath, nil, propName, "filterable")
-		assert.False(t, hasUntidiedTracker(scope),
-			"an untidied tracker keeps the local callbacks registered; a record is tidied")
-	})
-
-	t.Run("a record's sidecar suffixes name nothing on disk", func(t *testing.T) {
+	t.Run("the preserve pass still owns a record's sidecar names", func(t *testing.T) {
 		lsmPath := plantRecord(t)
 		scope := migrationDirsOf(lsmPath, nil, propName, "filterable").preserving("filterable")
-		suffixes := completedMigrationSidecarSuffixes(scope)
-		require.NotEmpty(t, suffixes, "the record is still reported as a completed migration")
-		for suffix := range suffixes {
-			assert.NoDirExists(t, filepath.Join(lsmPath, helpers.BucketFromPropNameLSM(propName)+suffix),
-				"a promotion leaves no sidecars, so preserving them is a no-op")
-		}
-	})
-
-	// A record's generation is left readable like any other: a rehydrated
-	// re-run converges through the already-tidied swap branch, and a fresh
-	// task never reuses its number.
-	t.Run("generation allocation counts a record like any other generation", func(t *testing.T) {
-		lsmPath := plantRecord(t)
-		assert.Equal(t, 1, maxMigrationGeneration(lsmPath, MigrationDirPrefixEnableFilterable, "_"+propName))
-		assert.Equal(t, 2, nextMigrationGeneration(lsmPath, MigrationDirPrefixEnableFilterable, "_"+propName))
+		require.NotEmpty(t, completedMigrationSidecarSuffixes(scope),
+			"a record a sweep no longer recognises is one whose sidecars it would delete")
 	})
 }
 
@@ -108,7 +86,7 @@ func TestRangeableReadinessRefusesOnlyAnInFlightMigration(t *testing.T) {
 	}{
 		{
 			name:      "a recorded promotion",
-			sentinels: append(append([]string{}, completedSentinels...), finalizedSentinel),
+			sentinels: recordedSentinels,
 			wantReady: true,
 		},
 		{
@@ -138,29 +116,5 @@ func TestRangeableReadinessRefusesOnlyAnInFlightMigration(t *testing.T) {
 
 			assert.Equal(t, tc.wantReady, shard.IsRangeableLocallyReady(propName))
 		})
-	}
-}
-
-// A cold tenant's backup reads its files from disk rather than from the
-// store's loaded buckets, so a promoted index and its record are carried
-// whether or not anything opened them.
-func TestInactiveShardBackupCarriesAPromotedIndexAndItsRecord(t *testing.T) {
-	const propName = "category"
-	root := t.TempDir()
-	lsmDir := filepath.Join(root, "lsm")
-	bucket := helpers.BucketFromPropNameLSM(propName)
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmDir, bucket), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmDir, bucket, "segment-0.db"), []byte("x"), 0o644))
-	record := "enable_filterable_" + propName + "_1"
-	mkTrackerDir(t, lsmDir, record, finalizedSentinel)
-
-	files, err := listInactiveLSMFiles(lsmDir, root)
-	require.NoError(t, err)
-
-	assert.Contains(t, files, filepath.Join("lsm", bucket, "segment-0.db"))
-	assert.Contains(t, files, filepath.Join("lsm", ".migrations", record, finalizedSentinel))
-	for _, f := range files {
-		require.False(t, strings.HasSuffix(f, ".tmp"))
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,10 @@ import (
 // completedSentinels are what a migration that finished its in-process swap
 // leaves in its tracker dir.
 var completedSentinels = []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"}
+
+// recordedSentinels add the marker a load writes once it has promoted what the
+// migration produced.
+var recordedSentinels = append(append([]string{}, completedSentinels...), finalizedSentinel)
 
 // plantCompletedMigration lays out the on-disk state finalize finds after a
 // migration completed in-process: the tracker with its sentinels and property
@@ -80,6 +85,10 @@ func TestFinalizeKeepsARecordOnlyWhileTheSchemaHidesAPromotedIndex(t *testing.T)
 		mainBucket string
 		class      *models.Class
 		wantKept   bool
+		// noOutput strips every dir the promotion could have produced or
+		// promoted from, so absent ingest and backup dirs are the only thing
+		// left to read the outcome off.
+		noOutput bool
 	}{
 		{
 			name:       "enable-filterable, flag still disabled",
@@ -130,6 +139,17 @@ func TestFinalizeKeepsARecordOnlyWhileTheSchemaHidesAPromotedIndex(t *testing.T)
 				{Name: "beta", IndexFilterable: boolPtr(false)},
 			}},
 			wantKept: true,
+		},
+		{
+			// A record would have the next load open a bucket that is gone, and
+			// shield the empty dir it then creates from every sweep.
+			name:    "enable-filterable, nothing left on disk to promote",
+			migName: "enable_filterable_category_1",
+			props:   []string{"category"},
+			class: classWithProperty(&models.Property{
+				Name: "category", IndexFilterable: boolPtr(false),
+			}),
+			noOutput: true,
 		},
 		{
 			name:       "enable-searchable, flag still disabled",
@@ -229,14 +249,23 @@ func TestFinalizeKeepsARecordOnlyWhileTheSchemaHidesAPromotedIndex(t *testing.T)
 		t.Run(tc.name, func(t *testing.T) {
 			lsmPath := t.TempDir()
 			plantCompletedMigration(t, lsmPath, tc.migName, tc.props...)
+			if tc.noOutput {
+				buckets, err := filepath.Glob(filepath.Join(lsmPath, "property_*"))
+				require.NoError(t, err)
+				for _, dir := range buckets {
+					require.NoError(t, os.RemoveAll(dir))
+				}
+			}
 
 			logger, _ := test.NewNullLogger()
 			FinalizeCompletedMigrations(lsmPath, tc.class, logger)
 
 			// Whatever the verdict, the promotion itself must have run: the
 			// record decides who cleans up, never whether the data lands.
-			assert.Equal(t, tc.props[0], promotedMarkerOf(t, lsmPath, tc.mainBucket),
-				"the ingest dir must have been promoted to the canonical name")
+			if !tc.noOutput {
+				assert.Equal(t, tc.props[0], promotedMarkerOf(t, lsmPath, tc.mainBucket),
+					"the ingest dir must have been promoted to the canonical name")
+			}
 
 			migDir := filepath.Join(lsmPath, ".migrations", tc.migName)
 			if !tc.wantKept {
@@ -290,19 +319,39 @@ func TestFinalizeLeavesAFailedPromotionUnmarked(t *testing.T) {
 		assert.FileExists(t, filepath.Join(migDir, finalizedSentinel))
 	})
 
-	t.Run("a property list that cannot be read", func(t *testing.T) {
-		lsmPath := t.TempDir()
-		plantCompletedMigration(t, lsmPath, migName, "alpha", "beta")
-		migDir := filepath.Join(lsmPath, ".migrations", migName)
-		require.NoError(t, os.Remove(filepath.Join(migDir, "properties.mig")))
+	// A tracker whose property list is gone names nothing to promote, so no
+	// later start can get further than this one.
+	for _, damage := range []struct {
+		name string
+		to   func(t *testing.T, propsFile string)
+	}{
+		{
+			name: "a property list that cannot be read",
+			to:   func(t *testing.T, propsFile string) { require.NoError(t, os.Remove(propsFile)) },
+		},
+		{
+			name: "a property list a kill mid-write left empty",
+			to:   func(t *testing.T, propsFile string) { require.NoError(t, os.Truncate(propsFile, 0)) },
+		},
+	} {
+		t.Run(damage.name, func(t *testing.T) {
+			lsmPath := t.TempDir()
+			plantCompletedMigration(t, lsmPath, migName, "alpha", "beta")
+			migDir := filepath.Join(lsmPath, ".migrations", migName)
+			damage.to(t, filepath.Join(migDir, "properties.mig"))
 
-		logger, _ := test.NewNullLogger()
-		FinalizeCompletedMigrations(lsmPath, class, logger)
+			logger, hook := test.NewNullLogger()
+			FinalizeCompletedMigrations(lsmPath, class, logger)
 
-		assert.DirExists(t, migDir,
-			"removing the tracker would strand both properties' data under their ingest names")
-		assert.NoFileExists(t, filepath.Join(migDir, finalizedSentinel))
-	})
+			assert.DirExists(t, migDir,
+				"removing the tracker would strand both properties' data under their ingest names")
+			assert.NoFileExists(t, filepath.Join(migDir, finalizedSentinel))
+			for _, entry := range hook.AllEntries() {
+				assert.NotEqual(t, logrus.ErrorLevel, entry.Level,
+					"an Error every load asks an operator to retry work no start can finish")
+			}
+		})
+	}
 
 	t.Run("a marker that cannot be written", func(t *testing.T) {
 		lsmPath := t.TempDir()

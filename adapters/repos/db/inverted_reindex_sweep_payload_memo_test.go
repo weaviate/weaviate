@@ -310,7 +310,8 @@ func TestSweepMemoLeavesTheDeletedSetAlone(t *testing.T) {
 			for _, f := range sweepMemoFixtures {
 				names = append(names, f.dir)
 			}
-			want := sweepSurvivors(names, completedMigrationGens(refScope), refScope.inScope)
+			want := sweepSurvivors(refLSM, tc.propName, tc.idxType, names,
+				completedMigrationGens(refScope), refScope.inScope)
 
 			lsm := writeSweepMemoFixtures(t)
 			cleanStaleMigrationDirsAt(t.Context(), lsm, tc.propName, tc.idxType, logger, nil)
@@ -319,15 +320,25 @@ func TestSweepMemoLeavesTheDeletedSetAlone(t *testing.T) {
 	}
 }
 
-// sweepSurvivors is which of names a sweep leaves behind: the ones inScope
-// rejects, plus the ones whose generation preserved holds. Both differential
-// tests build their reference answer with it, so the real sweep and its
-// reference can only differ where inScope or preserved does.
-func sweepSurvivors(names []string, preserved map[int]bool, inScope func(string) bool) []string {
+// sweepSurvivors is which of names an index DELETE's sweep leaves behind: the
+// ones inScope rejects, plus the ones whose generation preserved holds, minus
+// the completed trackers of the bucket the DELETE removes, which it retires
+// first. Both differential tests build their reference answer with it, so the
+// real sweep and its reference can only differ where inScope or preserved does.
+func sweepSurvivors(lsm, propName, indexType string, names []string,
+	preserved map[int]bool, inScope func(string) bool,
+) []string {
+	mainBucket, _ := mainBucketForPropertyIndex(propName, indexType)
 	var survivors []string
 	for _, name := range names {
 		if !inScope(name) {
 			survivors = append(survivors, name)
+			continue
+		}
+		migDir := filepath.Join(lsm, ".migrations", name)
+		completed := fileExistsInDir(migDir, "tidied.mig") || fileExistsInDir(migDir, "merged.mig")
+		suffixes := migrationSuffixes(name)
+		if completed && suffixes != nil && suffixes.sourceBucketName(propName) == mainBucket {
 			continue
 		}
 		if _, gen, ok := parseMigrationDirName(name); ok && preserved[gen] {

@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -154,6 +155,22 @@ func TestListInactiveLSMFiles(t *testing.T) {
 				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "progress.mig.000000001"),
 				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "properties.mig"),
 				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "started.mig"),
+			},
+		},
+		{
+			// A cold tenant's backup reads disk, not the store's loaded buckets,
+			// so an index promoted ahead of its schema flag travels with the
+			// record that says what it is.
+			name: "a promoted index and its record",
+			setup: func(t *testing.T, lsmDir string) {
+				bucketDir := filepath.Join(lsmDir, helpers.BucketFromPropNameLSM("category"))
+				require.NoError(t, os.MkdirAll(bucketDir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "segment-0.db"), []byte("x"), 0o644))
+				mkTrackerDir(t, lsmDir, "enable_filterable_category_1", finalizedSentinel)
+			},
+			expected: []string{
+				filepath.Join(migrationsDir, "enable_filterable_category_1", finalizedSentinel),
+				filepath.Join(helpers.BucketFromPropNameLSM("category"), "segment-0.db"),
 			},
 		},
 		{

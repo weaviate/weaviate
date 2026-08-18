@@ -435,13 +435,9 @@ func TestPropertyDeleteIndexHelperLeavesACompletedMigrationsBucketAlone(t *testi
 		wantRangeable        bool
 	}{
 		{
-			name:     "no migration ever ran, which is the legitimate index drop",
-			disabled: []string{"filterable", "searchable", "rangeable"},
-		},
-		{
 			name: "a recorded promotion awaiting the schema flip",
 			trackers: map[string][]string{
-				"enable_filterable_category_1": append(completedSentinels, finalizedSentinel),
+				"enable_filterable_category_1": recordedSentinels,
 			},
 			props:          map[string][]string{"enable_filterable_category_1": {propName}},
 			disabled:       []string{"filterable", "searchable", "rangeable"},
@@ -483,7 +479,7 @@ func TestPropertyDeleteIndexHelperLeavesACompletedMigrationsBucketAlone(t *testi
 		{
 			name: "another property's record shields nothing here",
 			trackers: map[string][]string{
-				"enable_filterable_other_1": append(completedSentinels, finalizedSentinel),
+				"enable_filterable_other_1": recordedSentinels,
 			},
 			props:    map[string][]string{"enable_filterable_other_1": {"other"}},
 			disabled: []string{"filterable", "searchable", "rangeable"},

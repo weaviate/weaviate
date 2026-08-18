@@ -33,8 +33,6 @@ func TestHasStalePartialReindexStateSettlesOnARecord(t *testing.T) {
 		propName  = "category"
 		indexType = "filterable"
 	)
-	completed := []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"}
-	recorded := append(append([]string{}, completed...), finalizedSentinel)
 
 	tests := []struct {
 		name            string
@@ -45,21 +43,21 @@ func TestHasStalePartialReindexStateSettlesOnARecord(t *testing.T) {
 	}{
 		{
 			name:     "a record on its own is settled",
-			trackers: map[string][]string{"enable_filterable_category_1": recorded},
+			trackers: map[string][]string{"enable_filterable_category_1": recordedSentinels},
 		},
 		{
 			// The promotion is still ahead of this tenant: only a load runs it,
 			// and until it does the data sits under the ingest sidecar name.
 			name:            "a completed migration with no record yet still needs a load",
-			trackers:        map[string][]string{"enable_filterable_category_1": completed},
+			trackers:        map[string][]string{"enable_filterable_category_1": completedSentinels},
 			sidecars:        []string{"property_category__enable_filterable_ingest_1"},
 			wantFinalizable: true,
 		},
 		{
 			name: "a record next to a newer generation that has not been promoted",
 			trackers: map[string][]string{
-				"enable_filterable_category_1": recorded,
-				"enable_filterable_category_2": completed,
+				"enable_filterable_category_1": recordedSentinels,
+				"enable_filterable_category_2": completedSentinels,
 			},
 			sidecars:        []string{"property_category__enable_filterable_ingest_2"},
 			wantFinalizable: true,
@@ -67,7 +65,7 @@ func TestHasStalePartialReindexStateSettlesOnARecord(t *testing.T) {
 		{
 			name: "a record next to a cancelled run's leftovers",
 			trackers: map[string][]string{
-				"enable_filterable_category_1": recorded,
+				"enable_filterable_category_1": recordedSentinels,
 				"enable_filterable_category_2": {"started.mig"},
 			},
 			wantStale: true,
@@ -101,8 +99,8 @@ func TestHasStalePartialReindexStateSettlesOnARecord(t *testing.T) {
 }
 
 // The gate's answer decides whether a cold tenant is hydrated, and a hydration
-// storm is what the whole gate exists to avoid. Run over the sweep an index
-// actually calls, on a tenant carrying nothing but a record.
+// storm is what the whole gate exists to avoid. Run over the index-level sweep
+// rather than the gate alone, on a tenant whose only state is a record.
 func TestSweepLeavesAColdTenantWithARecordAlone(t *testing.T) {
 	const (
 		propName   = "category"
@@ -120,8 +118,7 @@ func TestSweepLeavesAColdTenantWithARecordAlone(t *testing.T) {
 
 	coldLSM := shardPathLSM(idx.path(), coldTenant)
 	require.NoError(t, os.MkdirAll(coldLSM, 0o755))
-	mkTrackerDir(t, coldLSM, tracker,
-		append(append([]string{}, completedSentinels...), finalizedSentinel)...)
+	mkTrackerDir(t, coldLSM, tracker, recordedSentinels...)
 	mkRecoveryPayload(t, coldLSM, tracker, propName)
 	mkSidecarDir(t, coldLSM, helpers.BucketFromPropNameLSM(propName))
 

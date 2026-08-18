@@ -18,6 +18,8 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // Tests for the per-migration generation helpers added for
@@ -74,6 +76,20 @@ func fakeMigrationsDir(t *testing.T, dirs []string) string {
 		require.NoError(t, os.MkdirAll(filepath.Join(migsDir, d), 0o755))
 	}
 	return lsmPath
+}
+
+// classAdvertising is the schema a shard loads with every index flag set to on:
+// true once the cluster advertises what the trackers below promoted, false while
+// the promotion is still ahead of the schema and the tracker is the only note
+// that the bucket it produced is a finished index rather than garbage.
+func classAdvertising(on bool, propNames ...string) *models.Class {
+	props := make([]*models.Property, len(propNames))
+	for i, name := range propNames {
+		props[i] = &models.Property{
+			Name: name, IndexFilterable: &on, IndexSearchable: &on, IndexRangeFilters: &on,
+		}
+	}
+	return &models.Class{Class: "Finalize", Properties: props}
 }
 
 // touchSentinel creates an empty file at the given path. Used to
@@ -145,7 +161,11 @@ func TestMaxMigrationGeneration_Existing(t *testing.T) {
 		"searchable_retokenize_text_2",
 		"searchable_retokenize_text_5",
 	})
+	// A recorded promotion still holds its number: a fresh task that reused it
+	// would write into the dirs the record names.
+	touchSentinel(t, filepath.Join(lsmPath, ".migrations", "searchable_retokenize_text_5", finalizedSentinel))
 	require.Equal(t, 5, maxMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
+	require.Equal(t, 6, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
 }
 
 // TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied verifies
@@ -183,7 +203,7 @@ func TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied(t *testing.T) {
 		winnerMarker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, nil, logger)
+	FinalizeCompletedMigrations(lsmPath, classAdvertising(true, "text"), logger)
 
 	// Canonical main dir should exist and contain gen-3's marker.
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
@@ -232,7 +252,7 @@ func TestFinalizeCompletedMigrations_TidiedPlusInFlight(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_2"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, nil, logger)
+	FinalizeCompletedMigrations(lsmPath, classAdvertising(true, "text"), logger)
 
 	// Gen 1 finalized → canonical dir exists.
 	_, err := os.Stat(filepath.Join(lsmPath, "property_text_searchable"))
@@ -268,7 +288,7 @@ func TestFinalizeCompletedMigrations_OnlyUntidiedIsNoOp(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, nil, logger)
+	FinalizeCompletedMigrations(lsmPath, classAdvertising(true, "text"), logger)
 
 	// Tracker dir still there.
 	_, err := os.Stat(gen1)
@@ -353,7 +373,7 @@ func TestFinalizeCompletedMigrations_MergedButNotTidied_Recovers(t *testing.T) {
 		gen2Marker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, nil, logger)
+	FinalizeCompletedMigrations(lsmPath, classAdvertising(true, "text"), logger)
 
 	// Canonical dir must contain gen-2's marker, NOT gen-1's stale data.
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
@@ -398,7 +418,7 @@ func TestFinalizeCompletedMigrations_MergedOnly_NoPriorTidied_Recovers(t *testin
 		marker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, nil, logger)
+	FinalizeCompletedMigrations(lsmPath, classAdvertising(true, "text"), logger)
 
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
 	got, err := os.ReadFile(filepath.Join(canonical, "segment.db"))
@@ -442,7 +462,7 @@ func TestFinalizeCompletedMigrations_TidiedHigherThanMerged_PicksTidied(t *testi
 		winner, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, nil, logger)
+	FinalizeCompletedMigrations(lsmPath, classAdvertising(true, "text"), logger)
 
 	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "segment.db"))
 	require.NoError(t, err)
@@ -475,7 +495,7 @@ func TestFinalizeCompletedMigrations_RecoveryWritesMissingSentinels(t *testing.T
 		[]byte("data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, nil, logger)
+	FinalizeCompletedMigrations(lsmPath, classAdvertising(true, "text"), logger)
 
 	// If sentinels weren't written before finalizeMigrationDir ran, the
 	// canonical dir would not be created (finalizeMigrationDir returns
@@ -509,7 +529,7 @@ func TestFinalizeCompletedMigrations_StartedOnlyNotPromoted(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, nil, logger)
+	FinalizeCompletedMigrations(lsmPath, classAdvertising(true, "text"), logger)
 
 	// Tracker untouched.
 	_, err := os.Stat(gen1)
@@ -559,7 +579,7 @@ func TestFinalizeCompletedMigrations_RecoveryAcrossNamespaces(t *testing.T) {
 		[]byte("filterable-data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, nil, logger)
+	FinalizeCompletedMigrations(lsmPath, classAdvertising(true, "text"), logger)
 
 	// Both canonical dirs should now exist with their respective data.
 	sBytes, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "s.db"))
@@ -591,10 +611,10 @@ func TestFinalizeCompletedMigrations_IdempotentAfterRecovery(t *testing.T) {
 		[]byte("data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, nil, logger)
+	FinalizeCompletedMigrations(lsmPath, classAdvertising(true, "text"), logger)
 
 	// Second call should be a complete no-op now that nothing remains in .migrations.
-	FinalizeCompletedMigrations(lsmPath, nil, logger)
+	FinalizeCompletedMigrations(lsmPath, classAdvertising(true, "text"), logger)
 
 	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "seg.db"))
 	require.NoError(t, err)
@@ -634,6 +654,28 @@ func TestFinalizeCompletedMigrations_IdempotentAfterRecovery(t *testing.T) {
 //     sentinels for it because finalize doesn't distinguish format-only
 //     vs semantic on the recovery path).
 func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		advertised bool
+		// wantKept names the trackers finalize must leave behind, marked.
+		wantKept []string
+	}{
+		{name: "the cluster advertises every promoted index", advertised: true},
+		{
+			// The two enable-* promotions are ahead of the schema, so their
+			// trackers are the only note that the buckets they produced are
+			// finished indexes rather than garbage the next sweep may delete.
+			name:     "the flip is still pending",
+			wantKept: []string{"enable_filterable_beta_1", "filterable_to_rangeable_gamma_1"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			concurrentMultiPropMigrationsConverge(t, tc.advertised, tc.wantKept)
+		})
+	}
+}
+
+func concurrentMultiPropMigrationsConverge(t *testing.T, advertised bool, wantKept []string) {
 	lsmPath := t.TempDir()
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	require.NoError(t, os.MkdirAll(migsDir, 0o755))
@@ -683,7 +725,7 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 		[]byte("gamma-range-NEW"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, nil, logger)
+	FinalizeCompletedMigrations(lsmPath, classAdvertising(advertised, "alpha", "beta", "gamma"), logger)
 
 	// All three property migrations must promote to their canonical
 	// names with the correct data. A bug that processed only the first
@@ -702,12 +744,15 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 		require.Equalf(t, c.want, string(got), "%s data mismatch", c.canonical)
 	}
 
-	// All four .migrations/ tracker dirs must be removed (recovery completes
-	// the full promotion and trims their entries).
 	migEntries, err := os.ReadDir(migsDir)
 	require.NoError(t, err)
-	require.Empty(t, migEntries,
-		"every tracker must be cleared after multi-prop recovery — got %v", migEntries)
+	var kept []string
+	for _, entry := range migEntries {
+		kept = append(kept, entry.Name())
+		require.FileExists(t, filepath.Join(migsDir, entry.Name(), finalizedSentinel),
+			"a tracker kept past its promotion must record that the promotion ran")
+	}
+	require.ElementsMatch(t, wantKept, kept)
 }
 
 // TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge
@@ -782,7 +827,7 @@ func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing
 		case "no_migrations":
 			// Intentionally empty — finalize must be a no-op here.
 		}
-		FinalizeCompletedMigrations(lsmPath, nil, logger)
+		FinalizeCompletedMigrations(lsmPath, classAdvertising(true, "path"), logger)
 	}
 
 	for _, sh := range shards {

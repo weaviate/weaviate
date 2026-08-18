@@ -310,7 +310,7 @@ func TestWidenedSweepLeavesTheSameDirsBehind(t *testing.T) {
 					for _, d := range dirs {
 						names = append(names, d.name)
 					}
-					want := sweepSurvivors(names,
+					want := sweepSurvivors(refLSM, propName, indexType, names,
 						completedMigrationGensNarrow(t, refLSM, refScope, dirs),
 						func(name string) bool { return narrowMatches(refScope, name) })
 

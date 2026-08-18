@@ -28,9 +28,12 @@ func TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug(t *testing.T) {
 	propName := "category"
 	indexType := "filterable"
 
+	// The rangeable strategy is in the filterable sweep's scope but promotes a
+	// bucket this DELETE does not remove, so its trackers reach the preserve arm
+	// instead of being retired with the bucket.
 	const preservedGens = 3
 	for gen := 1; gen <= preservedGens; gen++ {
-		dir := migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{propName}) + genSuffix(gen)
+		dir := migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{propName}) + genSuffix(gen)
 		mkTrackerDir(t, lsm, dir, "started.mig", "merged.mig", "tidied.mig")
 	}
 

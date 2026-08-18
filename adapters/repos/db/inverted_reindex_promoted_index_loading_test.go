@@ -58,28 +58,28 @@ func TestClassWithPromotedIndexesForcesOnlyTheRecordedFlags(t *testing.T) {
 }
 
 // finalizedMigrationIndexes reads only records, never the trackers of a
-// migration still in flight or one whose strategy flips no flag.
+// migration still in flight, one whose strategy flips no flag, or one whose
+// completion the shield can no longer read.
 func TestFinalizedMigrationIndexesReadsOnlyRecords(t *testing.T) {
 	lsmPath := t.TempDir()
-	mkTrackerDir(t, lsmPath, "enable_filterable_alpha_beta_1", finalizedSentinel)
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, ".migrations", "enable_filterable_alpha_beta_1", "properties.mig"),
-		[]byte("alpha,beta"), 0o644))
-	mkTrackerDir(t, lsmPath, "filterable_to_rangeable_alpha_1", finalizedSentinel)
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, ".migrations", "filterable_to_rangeable_alpha_1", "properties.mig"),
-		[]byte("alpha"), 0o644))
+	plant := func(migName, props string, sentinels ...string) {
+		mkTrackerDir(t, lsmPath, migName, sentinels...)
+		require.NoError(t, os.WriteFile(
+			filepath.Join(lsmPath, ".migrations", migName, "properties.mig"),
+			[]byte(props), 0o644))
+	}
+
+	plant("enable_filterable_alpha_beta_1", "alpha,beta", recordedSentinels...)
+	plant("filterable_to_rangeable_alpha_1", "alpha", recordedSentinels...)
 	// In flight: no record, so nothing is promoted for it yet.
-	mkTrackerDir(t, lsmPath, "enable_searchable_gamma_1", "started.mig")
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, ".migrations", "enable_searchable_gamma_1", "properties.mig"),
-		[]byte("gamma"), 0o644))
+	plant("enable_searchable_gamma_1", "gamma", "started.mig")
 	// A strategy that flips no flag never gets a record; one planted by hand
 	// still names no index to force on.
-	mkTrackerDir(t, lsmPath, "rebuild_searchable_delta_1", finalizedSentinel)
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, ".migrations", "rebuild_searchable_delta_1", "properties.mig"),
-		[]byte("delta"), 0o644))
+	plant("rebuild_searchable_delta_1", "delta", recordedSentinels...)
+	// A tracker dir removal that stopped partway can leave the marker without
+	// the completion the shield reads, so forcing this flag on would open a
+	// bucket the next sweep is free to delete.
+	plant("enable_filterable_epsilon_1", "epsilon", finalizedSentinel)
 
 	assert.Equal(t, map[string]map[string]struct{}{
 		"alpha": {"filterable": {}, "rangeable": {}},
