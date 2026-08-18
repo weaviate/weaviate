@@ -1508,7 +1508,9 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 // BEFORE removeReindexBucketsDirs. A crash in that window leaves
 // IsPrepended=true with reindex dirs partially removed. The recovery
 // path here and RunSwapOnShard's prepended branch both finish the
-// cleanup.
+// on-disk cleanup, but neither reloads the live bucket, so the shard
+// can report the migration complete while still serving pre-migration
+// data. Tracked as weaviate/etienne-claude-issues#390.
 func (t *ShardReindexTaskGeneric) runtimePrepare(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
 ) error {
@@ -1912,6 +1914,16 @@ func (t *ShardReindexTaskGeneric) firstMissingReindexBucketDir(lsmPath string, p
 //     merged and prepended branches route here to do the rename pair.
 //     The startup-time ingest-to-canonical rename belongs to
 //     [FinalizeCompletedMigrations] and does not come through here.
+//
+// CAUTION: this can run on live buckets, unlike
+// [FinalizeCompletedMigrations], which is called before any bucket
+// loads for exactly this reason. Both [RunSwapOnShard] branches that
+// reach this function run after LSM init, so the canonical bucket is
+// normally already open. An open bucket keeps serving the segments it
+// opened, so renaming its directory does not change what the shard
+// returns: the caller must also flip the in-memory bucket pointer, or
+// the migrated data only becomes visible after the next restart.
+// Tracked as weaviate/etienne-claude-issues#390.
 //
 // For each property the disk state is one of:
 //
