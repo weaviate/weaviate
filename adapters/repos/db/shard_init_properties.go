@@ -257,8 +257,8 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 	logger logrus.FieldLogger, props *taskPropsCache,
 ) {
 	scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props)
-	// Only DELETE retires a completed migration's record — its bucket is
-	// being removed on purpose, and an outliving record would have the next
+	// Only DELETE retires a completed migration's tracker — its bucket is
+	// being removed on purpose, and an outliving tracker would have the next
 	// load re-open a dropped index. Other sweeps sharing this helper must
 	// preserve it instead.
 	retireFinalizedMigrationDirs(scope, propName, indexType, logger)
@@ -275,8 +275,10 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 	}
 }
 
-// retireFinalizedMigrationDirs removes the records of completed migrations
-// whose promoted bucket is the one an index DELETE just removed.
+// retireFinalizedMigrationDirs removes the trackers of migrations completed on
+// this shard whose promoted bucket is the one an index DELETE just removed.
+// Completion is spelled `tidied.mig` / `merged.mig`, exactly as the shield
+// spells it: one signal honoured and the other ignored keeps a deleted index.
 //
 // Scoped by the promoted bucket, not by the deleted index type's tracker
 // scope — that scope can name strategies promoting a different index's
@@ -299,9 +301,11 @@ func retireFinalizedMigrationDirs(scope migrationDirScope, propName, indexType s
 			continue
 		}
 		dirPath := filepath.Join(migrationsRoot, name)
-		if !fileExistsInDir(dirPath, finalizedSentinel) {
+		if !fileExistsInDir(dirPath, "tidied.mig") && !fileExistsInDir(dirPath, "merged.mig") {
 			continue
 		}
+		// One property per tracker today (submitReindexTask sends a one-element
+		// list), so the whole dir belongs to the index this DELETE removes.
 		suffixes := migrationSuffixes(name)
 		if suffixes == nil || suffixes.sourceBucketName(propName) != mainBucket {
 			continue
