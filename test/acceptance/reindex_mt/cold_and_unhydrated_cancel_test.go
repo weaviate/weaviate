@@ -287,28 +287,46 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 func importColdCancelCorpus(t *testing.T, tenants []sweepTenant) {
 	t.Helper()
 	for _, tn := range tenants {
-		importCorpus(t, coldCancelClass, coldCancelProp, tn.name, coldCancelObjectsPerTenant)
+		importCorpus(t, coldCancelClass, coldCancelProp, tn.name, coldCancelObjectsPerTenant, 0)
 	}
 }
 
 // importCorpus writes one tenant's objects, half of them carrying a value
 // above the range-query pivot and half below, so a bucket that lost its
 // contents answers zero where a complete one answers half.
-func importCorpus(t *testing.T, className, prop, tenant string, n int) {
+//
+// ballast adds that many further values per object, all above the pivot and
+// distinct across the corpus, which leaves the count the filter returns alone
+// but grows the index the migration has to build. It needs prop to be an array
+// type; zero keeps the property scalar.
+func importCorpus(t *testing.T, className, prop, tenant string, n, ballast int) {
 	t.Helper()
-	objs := make([]*models.Object, 0, n)
+	const batch = 250
+	objs := make([]*models.Object, 0, batch)
 	for i := 0; i < n; i++ {
 		score := 10
 		if i%2 == 0 {
 			score = 100
 		}
+		var value any = score
+		if ballast > 0 {
+			values := make([]int, 0, ballast+1)
+			values = append(values, score)
+			for b := 0; b < ballast; b++ {
+				values = append(values, crashWindowPivot+1+i*ballast+b)
+			}
+			value = values
+		}
 		objs = append(objs, &models.Object{
 			Class:      className,
-			Properties: map[string]interface{}{"name": "corpus doc", prop: score},
+			Properties: map[string]interface{}{"name": "corpus doc", prop: value},
 			Tenant:     tenant,
 		})
+		if len(objs) == batch || i == n-1 {
+			helper.CreateObjectsBatch(t, objs)
+			objs = objs[:0]
+		}
 	}
-	helper.CreateObjectsBatch(t, objs)
 }
 
 // cancelEnableRangeableInFlight submits an enable-rangeable across every
