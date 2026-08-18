@@ -177,7 +177,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 
 	className := "TestUsageClass"
 	tenantName := "test-tenant"
-	objectCount := 20
+	objectCount := int(populatedObjectsCount)
 
 	shardState := &sharding.State{
 		Physical: map[string]sharding.Physical{

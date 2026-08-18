@@ -20,15 +20,17 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
 
+	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entflat "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestIndex_UsageForCollection_LoadedAndUnloadedAgree pins that one shard reports
-// the same named vectors whether it is loaded or not. The loaded path asks the
-// shard's index, the unloaded path reads the shard's files. A bill must not change
-// because a tenant happened to be active when the report ran.
+// the same named vectors and the same full storage size whether it is loaded or
+// not. The loaded path asks the shard's index, the unloaded path reads the shard's
+// files. A bill must not change because a tenant happened to be active when the
+// report ran.
 func TestIndex_UsageForCollection_LoadedAndUnloadedAgree(t *testing.T) {
 	hnswConfig := func(mutate func(*enthnsw.UserConfig)) models.VectorConfig {
 		cfg := enthnsw.NewDefaultUserConfig()
@@ -119,6 +121,18 @@ func TestIndex_UsageForCollection_LoadedAndUnloadedAgree(t *testing.T) {
 
 			require.Len(t, loaded.Shards[0].NamedVectors, len(vectorConfigs))
 			assert.Equal(t, loaded.Shards[0].NamedVectors, unloaded.Shards[0].NamedVectors)
+			assert.Equal(t, loaded.Shards[0].FullShardStorageBytes, unloaded.Shards[0].FullShardStorageBytes)
+
+			// the first cold report leaves its saved usage in the shard directory, so
+			// a second one walks a directory the loaded shard never has
+			writeSavedShardUsage(t, index.path(), tenantName, &types.UsageDisk{
+				Version:    types.UsageDiskVersion,
+				ShardUsage: unloaded.Shards[0],
+			})
+			recomputed, err := index.usageForCollection(ctx, semaphore.NewWeighted(4), true, vectorConfigs)
+			require.NoError(t, err)
+			require.Len(t, recomputed.Shards, 1)
+			assert.Equal(t, loaded.Shards[0].FullShardStorageBytes, recomputed.Shards[0].FullShardStorageBytes)
 		})
 	}
 }

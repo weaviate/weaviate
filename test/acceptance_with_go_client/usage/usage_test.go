@@ -478,6 +478,19 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	require.Len(t, colUsageCold.Shards, 1)
 	require.Equal(t, expected, namedVectorDimensionalities(t, colUsageCold.Shards[0]))
 
+	// Drop vector2's index while the tenant stays cold. The report above saved its
+	// numbers to the shard directory and only loading the shard deletes that file,
+	// so the next report has to notice the schema changed under it.
+	require.NoError(t, c.Schema().VectorIndexDeleter().
+		WithClassName(className).WithVectorIndexName(vector2).Do(ctx))
+	delete(expected, vector2)
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		colUsageColdAfterDrop, err := GetDebugUsageForCollection(className)
+		require.NoError(ct, err)
+		require.Len(ct, colUsageColdAfterDrop.Shards, 1)
+		require.Equal(ct, expected, namedVectorDimensionalities(ct, colUsageColdAfterDrop.Shards[0]))
+	}, 30*time.Second, 500*time.Millisecond)
+
 	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
 		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx))
 

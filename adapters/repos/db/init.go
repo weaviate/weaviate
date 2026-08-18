@@ -301,7 +301,9 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 		// Prefer precomputed usage data if available; it is cheap to read
 		// and already contains the full shard storage size.
 		if shardusage.ComputedUsageDataExists(indexPath, shardName) {
-			shardUsage, err := shardusage.LoadComputedUsageData(indexPath, shardName)
+			// the fingerprint of the vector configs is not compared here. The full
+			// shard size on disk does not depend on them.
+			saved, err := shardusage.LoadComputedUsageData(indexPath, shardName)
 			if errors.Is(err, shardusage.ErrUsageVersionMismatch) {
 				// a version bump leaves this behind on every shard that stayed
 				// cold across it; the on-disk size below is exact anyway
@@ -314,8 +316,8 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 					WithField("class", className).
 					WithField("shard", shardName).
 					Warnf("failed to load pre-calculated shard usage; falling back to on-disk size: %v", err)
-			} else if shardUsage != nil {
-				total += shardUsage.FullShardStorageBytes
+			} else {
+				total += saved.ShardUsage.FullShardStorageBytes
 				if sizeThresholdBytes > 0 && total > sizeThresholdBytes {
 					return total
 				}
