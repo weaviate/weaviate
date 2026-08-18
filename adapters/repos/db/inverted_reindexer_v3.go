@@ -17,8 +17,6 @@ import (
 
 type ShardReindexerV3 interface {
 	RunAfterLsmInit(ctx context.Context, shard *Shard) error
-	RunAfterLsmInitAsync(ctx context.Context, shard *Shard) error
-	Stop(shard *Shard, cause error)
 }
 
 // -----------------------------------------------------------------------------
@@ -32,9 +30,3 @@ type shardReindexerV3Noop struct{}
 func (r *shardReindexerV3Noop) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
 	return nil
 }
-
-func (r *shardReindexerV3Noop) RunAfterLsmInitAsync(ctx context.Context, shard *Shard) error {
-	return nil
-}
-
-func (r *shardReindexerV3Noop) Stop(shard *Shard, cause error) {}

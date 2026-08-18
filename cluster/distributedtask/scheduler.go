@@ -1394,17 +1394,6 @@ func (s *Scheduler) setCompletionRecorders(recorder TaskCompletionRecorder) {
 	}
 }
 
-func (s *Scheduler) totalRunningTaskCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	count := 0
-	for _, tasks := range s.runningTasks {
-		count += len(tasks)
-	}
-	return count
-}
-
 func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *logrus.Entry {
 	return s.logger.WithFields(logrus.Fields{
 		"namespace":   namespace,

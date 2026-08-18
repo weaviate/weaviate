@@ -117,7 +117,7 @@ func TestEveryPerPropertyStrategyWritesASidecarThatRebuildsItsDirName(t *testing
 			}
 			t.Run(s.name+"/"+pl.name, func(t *testing.T) {
 				task := s.newTask(logger, pl.props, 1)
-				dirName := task.MigrationDirName()
+				dirName := task.strategy.MigrationDirName()
 
 				require.Equal(t, migrationDirWithProps(s.prefix, pl.props),
 					migrationDirBase(dirName),
@@ -251,7 +251,7 @@ func TestPersistRecoveryRecordWritesThePropsSidecar(t *testing.T) {
 			want := slices.Clone(tc.props)
 			sort.Strings(want)
 			for _, task := range tasks {
-				migDir := filepath.Join(lsm, ".migrations", task.MigrationDirName())
+				migDir := task.migrationPath(lsm)
 				got, err := readMigrationProps(migDir)
 				require.NoErrorf(t, err, "task %q wrote no properties.mig", task.Name())
 				require.Equal(t, want, got)
@@ -318,7 +318,7 @@ func TestSaveSelectedPropsWritesNoSidecarWithoutASelectedList(t *testing.T) {
 			defer shard.Shutdown(ctx)
 
 			task := tc.newTask(className, shard.Name())
-			migDir := filepath.Join(shard.pathLSM(), ".migrations", task.MigrationDirName())
+			migDir := task.migrationPath(shard.pathLSM())
 			require.NoError(t, os.MkdirAll(migDir, 0o777))
 
 			require.NoError(t, task.SaveSelectedProps(shard))
@@ -377,7 +377,7 @@ func TestAZeroBytePropsSidecarIsRebuiltNotObeyed(t *testing.T) {
 			defer shard.Shutdown(ctx)
 
 			task := tc.newTask(className)
-			rt := NewFileReindexTracker(shard.pathLSM(), task.MigrationDirName(), &UuidKeyParser{})
+			rt := NewFileReindexTracker(shard.pathLSM(), task.strategy.MigrationDirName(), &UuidKeyParser{})
 			require.NoError(t, rt.init())
 			migDir := rt.config.migrationPath
 			require.NoError(t, os.WriteFile(filepath.Join(migDir, "properties.mig"), nil, 0o644))
@@ -418,7 +418,7 @@ func TestAPropsSidecarNamingNoPropertyIsAnError(t *testing.T) {
 	defer shard.Shutdown(ctx)
 
 	task := newTestTask(logger, &MapToBlockmaxStrategy{generation: 1})
-	rt := NewFileReindexTracker(shard.pathLSM(), task.MigrationDirName(), &UuidKeyParser{})
+	rt := NewFileReindexTracker(shard.pathLSM(), task.strategy.MigrationDirName(), &UuidKeyParser{})
 	require.NoError(t, rt.init())
 	// Non-empty, so the file reads as a recorded list, yet it names nothing.
 	require.NoError(t, os.WriteFile(

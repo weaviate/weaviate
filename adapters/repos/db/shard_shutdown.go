@@ -254,8 +254,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))
 	}()
 
-	s.reindexer.Stop(s, fmt.Errorf("shard shutdown"))
-
 	s.haltForTransferMux.Lock()
 	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
 	s.mayStopInactivityMonitoring()

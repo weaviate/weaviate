@@ -58,13 +58,6 @@ func (r *testShardReindexer) RunAfterLsmInit(ctx context.Context, shard *Shard) 
 	return r.task.OnAfterLsmInit(ctx, shard)
 }
 
-func (r *testShardReindexer) RunAfterLsmInitAsync(ctx context.Context, shard *Shard) error {
-	_, _, err := r.task.OnAfterLsmInitAsync(ctx, shard)
-	return err
-}
-
-func (r *testShardReindexer) Stop(_ *Shard, _ error) {}
-
 func createTestObjectWithText(className, text string) *storobj.Object {
 	return &storobj.Object{
 		MarshallerVersion: 1,
