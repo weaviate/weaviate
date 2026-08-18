@@ -976,6 +976,24 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// 0 is a valid, documented value here ("auto": 16x/10x GOMAXPROCS), so use
+	// the non-negative parser rather than the positive one which rejects 0.
+	if err = parseNonNegativeInt(
+		"QUERY_ADMISSION_BUDGET",
+		func(val int) { config.QueryAdmissionBudget = val },
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err = parseNonNegativeInt(
+		"QUERY_ADMISSION_MAX_QUEUE",
+		func(val int) { config.QueryAdmissionMaxQueue = val },
+		0,
+	); err != nil {
+		return err
+	}
+
 	if err := parsePositiveInt(
 		"GRPC_MAX_MESSAGE_SIZE",
 		func(val int) { config.GRPC.MaxMsgSize = val },
@@ -1445,6 +1463,12 @@ func FromEnv(config *Config) error {
 	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(
 		entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS")))
 
+	// Query admission control is enabled by default; this is the kill switch.
+	queryAdmissionControlDisabled := false
+	if v := os.Getenv("QUERY_ADMISSION_CONTROL_DISABLED"); v != "" {
+		queryAdmissionControlDisabled = entcfg.Enabled(v)
+	}
+	config.QueryAdmissionControlDisabled = configRuntime.NewDynamicValue(queryAdmissionControlDisabled)
 	operationalMode := READ_WRITE
 	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
 		operationalMode = v

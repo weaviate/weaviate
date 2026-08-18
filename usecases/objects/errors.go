@@ -21,6 +21,7 @@ const (
 	StatusBadRequest          = 400
 	StatusNotFound            = 404
 	StatusUnprocessableEntity = 422
+	StatusTooManyRequests     = 429
 	StatusInternalServerError = 500
 )
 
