@@ -12,13 +12,47 @@
 package db
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
+
+// writeMigrationPayload drops a payload.mig into a tracker dir in the
+// exact shape [ReindexProvider.persistRecoveryRecord] writes, so the
+// merged-recovery branch can read the migration type it gates on.
+func writeMigrationPayload(t *testing.T, migDir string, payload ReindexTaskPayload) {
+	t.Helper()
+	encoded, err := json.Marshal(reindexRecoveryRecord{
+		TaskID:      "finalize-test-task",
+		TaskVersion: 1,
+		UnitID:      "unit-0",
+		Payload:     payload,
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(migDir, reindexRecoveryPayloadFile), encoded, 0o600))
+}
+
+// retokenizedClass returns a one-property class whose tokenization is
+// already the migration's target — i.e. the cluster-wide schema flip has
+// committed, which is what authorizes promoting a merged-but-untidied
+// generation.
+func retokenizedClass(propName, tokenization string) *models.Class {
+	return &models.Class{
+		Class: "FinalizeTestClass",
+		Properties: []*models.Property{{
+			Name:         propName,
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: tokenization,
+		}},
+	}
+}
 
 // Tests for the per-migration generation helpers added for
 // https://github.com/weaviate/weaviate/issues/10675. The functions under test live in
@@ -183,7 +217,7 @@ func TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied(t *testing.T) {
 		winnerMarker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath, nil, logger))
 
 	// Canonical main dir should exist and contain gen-3's marker.
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
@@ -232,7 +266,7 @@ func TestFinalizeCompletedMigrations_TidiedPlusInFlight(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_2"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath, nil, logger))
 
 	// Gen 1 finalized → canonical dir exists.
 	_, err := os.Stat(filepath.Join(lsmPath, "property_text_searchable"))
@@ -268,7 +302,7 @@ func TestFinalizeCompletedMigrations_OnlyUntidiedIsNoOp(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath, nil, logger))
 
 	// Tracker dir still there.
 	_, err := os.Stat(gen1)
@@ -337,6 +371,12 @@ func TestFinalizeCompletedMigrations_MergedButNotTidied_Recovers(t *testing.T) {
 	touchSentinel(t, filepath.Join(gen2, "prepended.mig"))
 	touchSentinel(t, filepath.Join(gen2, "merged.mig"))
 	require.NoError(t, os.WriteFile(filepath.Join(gen2, "properties.mig"), []byte("text"), 0o644))
+	writeMigrationPayload(t, gen2, ReindexTaskPayload{
+		MigrationType:      ReindexTypeChangeTokenization,
+		Collection:         "FinalizeTestClass",
+		Properties:         []string{"text"},
+		TargetTokenization: models.PropertyTokenizationWord,
+	})
 
 	// Gen-1 ingest dir holds the previous live-main data (field-tokenized
 	// in the real bug). Gen-2 ingest holds the new merged data
@@ -353,7 +393,8 @@ func TestFinalizeCompletedMigrations_MergedButNotTidied_Recovers(t *testing.T) {
 		gen2Marker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath,
+		retokenizedClass("text", models.PropertyTokenizationWord), logger))
 
 	// Canonical dir must contain gen-2's marker, NOT gen-1's stale data.
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
@@ -390,6 +431,12 @@ func TestFinalizeCompletedMigrations_MergedOnly_NoPriorTidied_Recovers(t *testin
 	touchSentinel(t, filepath.Join(gen1, "prepended.mig"))
 	touchSentinel(t, filepath.Join(gen1, "merged.mig"))
 	require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("text"), 0o644))
+	writeMigrationPayload(t, gen1, ReindexTaskPayload{
+		MigrationType:      ReindexTypeChangeTokenization,
+		Collection:         "FinalizeTestClass",
+		Properties:         []string{"text"},
+		TargetTokenization: models.PropertyTokenizationField,
+	})
 
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
 	marker := []byte("gen-1-recovered")
@@ -398,7 +445,8 @@ func TestFinalizeCompletedMigrations_MergedOnly_NoPriorTidied_Recovers(t *testin
 		marker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath,
+		retokenizedClass("text", models.PropertyTokenizationField), logger))
 
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
 	got, err := os.ReadFile(filepath.Join(canonical, "segment.db"))
@@ -442,7 +490,7 @@ func TestFinalizeCompletedMigrations_TidiedHigherThanMerged_PicksTidied(t *testi
 		winner, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath, nil, logger))
 
 	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "segment.db"))
 	require.NoError(t, err)
@@ -468,6 +516,12 @@ func TestFinalizeCompletedMigrations_RecoveryWritesMissingSentinels(t *testing.T
 	require.NoError(t, os.MkdirAll(gen1, 0o755))
 	touchSentinel(t, filepath.Join(gen1, "merged.mig")) // ONLY merged, no swapped/tidied
 	require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("text"), 0o644))
+	writeMigrationPayload(t, gen1, ReindexTaskPayload{
+		MigrationType:      ReindexTypeChangeTokenization,
+		Collection:         "FinalizeTestClass",
+		Properties:         []string{"text"},
+		TargetTokenization: models.PropertyTokenizationField,
+	})
 
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
 	require.NoError(t, os.WriteFile(
@@ -475,7 +529,8 @@ func TestFinalizeCompletedMigrations_RecoveryWritesMissingSentinels(t *testing.T
 		[]byte("data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath,
+		retokenizedClass("text", models.PropertyTokenizationField), logger))
 
 	// If sentinels weren't written before finalizeMigrationDir ran, the
 	// canonical dir would not be created (finalizeMigrationDir returns
@@ -509,7 +564,7 @@ func TestFinalizeCompletedMigrations_StartedOnlyNotPromoted(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath, nil, logger))
 
 	// Tracker untouched.
 	_, err := os.Stat(gen1)
@@ -547,6 +602,12 @@ func TestFinalizeCompletedMigrations_RecoveryAcrossNamespaces(t *testing.T) {
 	require.NoError(t, os.MkdirAll(f1, 0o755))
 	touchSentinel(t, filepath.Join(f1, "merged.mig"))
 	require.NoError(t, os.WriteFile(filepath.Join(f1, "properties.mig"), []byte("text"), 0o644))
+	writeMigrationPayload(t, f1, ReindexTaskPayload{
+		MigrationType:      ReindexTypeChangeTokenizationFilterable,
+		Collection:         "FinalizeTestClass",
+		Properties:         []string{"text"},
+		TargetTokenization: models.PropertyTokenizationField,
+	})
 
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
 	require.NoError(t, os.WriteFile(
@@ -559,7 +620,8 @@ func TestFinalizeCompletedMigrations_RecoveryAcrossNamespaces(t *testing.T) {
 		[]byte("filterable-data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath,
+		retokenizedClass("text", models.PropertyTokenizationField), logger))
 
 	// Both canonical dirs should now exist with their respective data.
 	sBytes, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "s.db"))
@@ -584,17 +646,24 @@ func TestFinalizeCompletedMigrations_IdempotentAfterRecovery(t *testing.T) {
 	require.NoError(t, os.MkdirAll(gen1, 0o755))
 	touchSentinel(t, filepath.Join(gen1, "merged.mig"))
 	require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("text"), 0o644))
+	writeMigrationPayload(t, gen1, ReindexTaskPayload{
+		MigrationType:      ReindexTypeChangeTokenization,
+		Collection:         "FinalizeTestClass",
+		Properties:         []string{"text"},
+		TargetTokenization: models.PropertyTokenizationField,
+	})
 
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1", "seg.db"),
 		[]byte("data"), 0o644))
 
+	class := retokenizedClass("text", models.PropertyTokenizationField)
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath, class, logger))
 
 	// Second call should be a complete no-op now that nothing remains in .migrations.
-	FinalizeCompletedMigrations(lsmPath, logger)
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath, class, logger))
 
 	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "seg.db"))
 	require.NoError(t, err)
@@ -643,6 +712,11 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 	require.NoError(t, os.MkdirAll(alphaSearchable, 0o755))
 	touchSentinel(t, filepath.Join(alphaSearchable, "merged.mig"))
 	require.NoError(t, os.WriteFile(filepath.Join(alphaSearchable, "properties.mig"), []byte("alpha"), 0o644))
+	writeMigrationPayload(t, alphaSearchable, ReindexTaskPayload{
+		MigrationType:      ReindexTypeChangeTokenization,
+		Properties:         []string{"alpha"},
+		TargetTokenization: models.PropertyTokenizationField,
+	})
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_alpha_searchable__retokenize_ingest_1"), 0o755))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(lsmPath, "property_alpha_searchable__retokenize_ingest_1", "seg.db"),
@@ -652,6 +726,11 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 	require.NoError(t, os.MkdirAll(alphaFilterable, 0o755))
 	touchSentinel(t, filepath.Join(alphaFilterable, "merged.mig"))
 	require.NoError(t, os.WriteFile(filepath.Join(alphaFilterable, "properties.mig"), []byte("alpha"), 0o644))
+	writeMigrationPayload(t, alphaFilterable, ReindexTaskPayload{
+		MigrationType:      ReindexTypeChangeTokenizationFilterable,
+		Properties:         []string{"alpha"},
+		TargetTokenization: models.PropertyTokenizationField,
+	})
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_alpha__filt_retokenize_ingest_1"), 0o755))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(lsmPath, "property_alpha__filt_retokenize_ingest_1", "seg.db"),
@@ -664,6 +743,10 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 	require.NoError(t, os.MkdirAll(betaFilt, 0o755))
 	touchSentinel(t, filepath.Join(betaFilt, "merged.mig"))
 	require.NoError(t, os.WriteFile(filepath.Join(betaFilt, "properties.mig"), []byte("beta"), 0o644))
+	writeMigrationPayload(t, betaFilt, ReindexTaskPayload{
+		MigrationType: ReindexTypeEnableFilterable,
+		Properties:    []string{"beta"},
+	})
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_beta__enable_filterable_ingest_1"), 0o755))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(lsmPath, "property_beta__enable_filterable_ingest_1", "seg.db"),
@@ -677,13 +760,40 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 	require.NoError(t, os.MkdirAll(gammaRange, 0o755))
 	touchSentinel(t, filepath.Join(gammaRange, "merged.mig"))
 	require.NoError(t, os.WriteFile(filepath.Join(gammaRange, "properties.mig"), []byte("gamma"), 0o644))
+	writeMigrationPayload(t, gammaRange, ReindexTaskPayload{
+		MigrationType: ReindexTypeEnableRangeable,
+		Properties:    []string{"gamma"},
+	})
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_gamma_rangeable__rangeable_ingest_1"), 0o755))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(lsmPath, "property_gamma_rangeable__rangeable_ingest_1", "seg.db"),
 		[]byte("gamma-range-NEW"), 0o644))
 
+	// Every migration's target state is already committed in the schema:
+	// alpha retokenized, beta filterable-enabled, gamma rangeable-enabled.
+	class := &models.Class{
+		Class: "FinalizeTestClass",
+		Properties: []*models.Property{
+			{
+				Name:         "alpha",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationField,
+			},
+			{
+				Name:            "beta",
+				DataType:        schema.DataTypeText.PropString(),
+				IndexFilterable: ptBool(true),
+			},
+			{
+				Name:              "gamma",
+				DataType:          schema.DataTypeInt.PropString(),
+				IndexRangeFilters: ptBool(true),
+			},
+		},
+	}
+
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	require.NoError(t, FinalizeCompletedMigrations(lsmPath, class, logger))
 
 	// All three property migrations must promote to their canonical
 	// names with the correct data. A bug that processed only the first
@@ -775,6 +885,11 @@ func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing
 			require.NoError(t, os.MkdirAll(gen1, 0o755))
 			touchSentinel(t, filepath.Join(gen1, "merged.mig"))
 			require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("path"), 0o644))
+			writeMigrationPayload(t, gen1, ReindexTaskPayload{
+				MigrationType:      ReindexTypeChangeTokenization,
+				Properties:         []string{"path"},
+				TargetTokenization: models.PropertyTokenizationField,
+			})
 			require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_path_searchable__retokenize_ingest_1"), 0o755))
 			require.NoError(t, os.WriteFile(
 				filepath.Join(lsmPath, "property_path_searchable__retokenize_ingest_1", "seg.db"),
@@ -782,7 +897,8 @@ func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing
 		case "no_migrations":
 			// Intentionally empty — finalize must be a no-op here.
 		}
-		FinalizeCompletedMigrations(lsmPath, logger)
+		require.NoError(t, FinalizeCompletedMigrations(lsmPath,
+			retokenizedClass("path", models.PropertyTokenizationField), logger))
 	}
 
 	for _, sh := range shards {
@@ -829,3 +945,7 @@ func itoa(i int) string {
 	}
 	return string(buf[pos:])
 }
+
+// ptBool returns a pointer to b, for the *bool schema flags the
+// merged-recovery gate reads.
+func ptBool(b bool) *bool { return &b }

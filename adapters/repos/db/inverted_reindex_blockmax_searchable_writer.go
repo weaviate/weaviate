@@ -37,14 +37,12 @@ func writeBlockmaxSearchablePostings(shard ShardLike, bucket *lsmkv.Bucket,
 	return nil
 }
 
-// swapFallbackNamer is the canonical-name fallback passed to
-// resolveDoubleWriteBucket; nil skips on a missing sidecar (backup phase).
-func blockmaxSearchableAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
-) onAddToPropertyValueIndex {
+// blockmaxSearchableAddCallback is the add-leg double-write callback
+// shared by every strategy whose target bucket is a BlockMax searchable
+// index (enable-searchable, rebuild-searchable).
+func blockmaxSearchableAddCallback(scope doubleWriteScope) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property, scope)
 		if skip {
 			return nil
 		}
@@ -59,12 +57,11 @@ func blockmaxSearchableAddCallback(bucketNamer func(string) string,
 	}
 }
 
-func blockmaxSearchableDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
-) onDeleteFromPropertyValueIndex {
+// blockmaxSearchableDeleteCallback is the delete-leg counterpart of
+// [blockmaxSearchableAddCallback].
+func blockmaxSearchableDeleteCallback(scope doubleWriteScope) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property, scope)
 		if skip {
 			return nil
 		}
