@@ -12,6 +12,7 @@
 package usage
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,7 +26,7 @@ import (
 type CollectionUsage = usagetypes.CollectionUsage
 
 func getDebugUsage() (*usagetypes.Report, error) {
-	return getDebugUsageWithPort("localhost:6060")
+	return getDebugUsageWithPort(wvhost.Debug())
 }
 
 // Get the debug usage report from the endpoint
