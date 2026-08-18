@@ -2843,8 +2843,9 @@ func namespacesInState(t *testing.T, states map[string]cmd.NamespaceState) *name
 }
 
 // TestRestoreRejectsInactiveNamespaceRefs pins the request-time half of the
-// fail-closed namespace check: a blob naming a namespace this cluster does not
-// have active is rejected before any node stages data, and the message names it.
+// fail-closed namespace check: a blob naming a namespace this cluster is
+// missing or deleting is rejected before any node stages data, and the message
+// names it. Suspended and resuming namespaces pass.
 func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 	ctx := context.Background()
 	// Namespaces list absent, so the check falls back to role names.
@@ -2870,18 +2871,18 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 			wantErr:  []string{"roles", "ns1"},
 		},
 		{
-			name:     "suspended namespace in the users blob is named",
+			name:     "deleting namespace in the users blob is named",
 			userBlob: userBlob,
-			states:   map[string]cmd.NamespaceState{"ns2": cmd.NamespaceStateSuspended},
+			states:   map[string]cmd.NamespaceState{"ns2": cmd.NamespaceStateDeleting},
 			wantErr:  []string{"dynamic users", "ns2"},
 		},
 		{
-			name:     "active namespaces pass",
+			name:     "active and suspended namespaces pass",
 			rbacBlob: rbacBlob,
 			userBlob: userBlob,
 			states: map[string]cmd.NamespaceState{
 				"ns1": cmd.NamespaceStateActive,
-				"ns2": cmd.NamespaceStateActive,
+				"ns2": cmd.NamespaceStateSuspended,
 			},
 		},
 		{

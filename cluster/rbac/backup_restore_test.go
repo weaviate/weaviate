@@ -136,9 +136,10 @@ func TestRestoreFromBackupHonoursStripFlag(t *testing.T) {
 }
 
 // TestValidateBackupSnapshotNamespaceStates pins the fail-closed namespace
-// check: on a namespace-enabled target every namespace the blob references must
-// be active, the error names it, and the strip arm skips the check because the
-// strip drops every qualification anyway.
+// check: on a namespace-enabled target every namespace the blob references
+// must exist and not be deleting, the error names each offender, suspended and
+// resuming pass, and the strip arm skips the check because the strip drops
+// every qualification anyway.
 func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -159,10 +160,9 @@ func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 			wantErr: "ns1",
 		},
 		{
-			name:    "suspended namespace is named",
-			roles:   []string{"ns1:editor"},
-			states:  map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateSuspended},
-			wantErr: "ns1",
+			name:   "suspended namespace passes",
+			roles:  []string{"ns1:editor"},
+			states: map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateSuspended},
 		},
 		{
 			name:    "deleting namespace is named",
@@ -171,10 +171,9 @@ func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 			wantErr: "ns1",
 		},
 		{
-			name:    "resuming namespace is named",
-			roles:   []string{"ns1:editor"},
-			states:  map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateResuming},
-			wantErr: "ns1",
+			name:   "resuming namespace passes",
+			roles:  []string{"ns1:editor"},
+			states: map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateResuming},
 		},
 		{
 			name:   "strip skips the check entirely",
@@ -236,8 +235,12 @@ func TestValidateBackupSnapshotNamespaceFromDBSubject(t *testing.T) {
 			wantErr: "ns3",
 		},
 		{
-			name:    "suspended namespace is named",
-			states:  map[string]cmd.NamespaceState{"ns3": cmd.NamespaceStateSuspended},
+			name:   "suspended namespace passes",
+			states: map[string]cmd.NamespaceState{"ns3": cmd.NamespaceStateSuspended},
+		},
+		{
+			name:    "deleting namespace is named",
+			states:  map[string]cmd.NamespaceState{"ns3": cmd.NamespaceStateDeleting},
 			wantErr: "ns3",
 		},
 	}

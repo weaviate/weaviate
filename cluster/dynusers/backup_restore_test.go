@@ -111,8 +111,9 @@ func TestSnapshotRestoreDoesNotWriteUserFile(t *testing.T) {
 }
 
 // TestValidateBackupSnapshotNamespaceStates pins the fail-closed namespace
-// check for the user blob, across both places a dynamic user carries its
-// namespace: the explicit field and the "<namespace>:" prefix on its id.
+// check for the user blob (missing and deleting refuse; suspended and resuming
+// pass), across both places a dynamic user carries its namespace: the explicit
+// field and the "<namespace>:" prefix on its id.
 func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -133,10 +134,9 @@ func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 			wantErr: "ns1",
 		},
 		{
-			name:    "suspended namespace is named",
-			users:   map[string]string{"ns1:alice": "ns1"},
-			states:  map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateSuspended},
-			wantErr: "ns1",
+			name:   "suspended namespace passes",
+			users:  map[string]string{"ns1:alice": "ns1"},
+			states: map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateSuspended},
 		},
 		{
 			name:    "deleting namespace is named",
@@ -145,10 +145,9 @@ func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 			wantErr: "ns1",
 		},
 		{
-			name:    "resuming namespace is named",
-			users:   map[string]string{"ns1:alice": "ns1"},
-			states:  map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateResuming},
-			wantErr: "ns1",
+			name:   "resuming namespace passes",
+			users:  map[string]string{"ns1:alice": "ns1"},
+			states: map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateResuming},
 		},
 		{
 			// The id prefix is the fallback when the field is empty, which is

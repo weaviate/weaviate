@@ -202,6 +202,23 @@ func TestApplyRestoreRolesAndUsersValidatesBeforeMutating(t *testing.T) {
 			wantRoles: []string{"incumbent"},
 			wantUsers: []string{"incumbent-user"},
 		},
+		{
+			// A suspended namespace keeps its rows through the state flip, so
+			// restoring rows for it is legal and must not block the restore.
+			name:      "suspended namespace: both stores replaced",
+			req:       api.RestoreRolesAndUsersRequest{Roles: nsRoles, Users: nsUsers},
+			states:    map[string]api.NamespaceState{"ns1": api.NamespaceStateSuspended},
+			wantRoles: []string{"ns1:scoped"},
+			wantUsers: []string{apikey.MakeUserKey("scoped-user", "ns1")},
+		},
+		{
+			name:      "deleting namespace leaves both stores untouched",
+			req:       api.RestoreRolesAndUsersRequest{Roles: nsRoles, Users: nsUsers},
+			states:    map[string]api.NamespaceState{"ns1": api.NamespaceStateDeleting},
+			wantErr:   "ns1",
+			wantRoles: []string{"incumbent"},
+			wantUsers: []string{"incumbent-user"},
+		},
 	}
 
 	for _, tt := range tests {

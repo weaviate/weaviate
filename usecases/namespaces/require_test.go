@@ -63,10 +63,53 @@ func TestRequireActive_UnknownStateIsRejected(t *testing.T) {
 	assert.ErrorIs(t, RequireActive(c, "customer1"), ErrInvalidState)
 }
 
-// TestRequireActiveAll pins the operator-facing half of the contract: every
-// name that is not an active namespace appears in the message with the state
-// that made it fail.
-func TestRequireActiveAll(t *testing.T) {
+func TestRequireExisting(t *testing.T) {
+	tests := []struct {
+		name      string
+		seedState cmd.NamespaceState // empty = no namespace exists
+		lookup    string
+		wantErr   error
+	}{
+		{name: "active is allowed", seedState: cmd.NamespaceStateActive, lookup: "customer1"},
+		{name: "suspended is allowed", seedState: cmd.NamespaceStateSuspended, lookup: "customer1"},
+		{name: "resuming is allowed", seedState: cmd.NamespaceStateResuming, lookup: "customer1"},
+		{name: "deleting reports deletion", seedState: cmd.NamespaceStateDeleting, lookup: "customer1", wantErr: ErrNamespaceDeleting},
+		{name: "missing namespace reports gone", lookup: "never-existed", wantErr: ErrNamespaceGone},
+		// An entity belonging to no namespace: nothing to check.
+		{name: "empty name is allowed", seedState: cmd.NamespaceStateActive, lookup: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestController(t)
+			seedNamespace(t, c, "customer1", tc.seedState)
+
+			err := RequireExisting(c, tc.lookup)
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestRequireExisting_UnknownStateIsRejected(t *testing.T) {
+	// A state this binary doesn't know must not be treated as usable. Only a
+	// snapshot from a newer binary can produce one, so set the field directly.
+	c := newTestController(t)
+	require.NoError(t, c.Restore([]byte(
+		`{"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"active"}}`)))
+	c.namespaces["customer1"].State = cmd.NamespaceState("not-a-state")
+
+	assert.ErrorIs(t, RequireExisting(c, "customer1"), ErrInvalidState)
+}
+
+// TestRequireAllExisting pins the operator-facing half of the contract:
+// every missing or deleting name appears in the message with the state that
+// made it fail, and suspended names pass silently.
+func TestRequireAllExisting(t *testing.T) {
 	tests := []struct {
 		name  string
 		seed  map[string]cmd.NamespaceState
@@ -74,8 +117,8 @@ func TestRequireActiveAll(t *testing.T) {
 		want  []string // substrings the message must carry; empty means no error
 	}{
 		{
-			name:  "all active returns nil",
-			seed:  map[string]cmd.NamespaceState{"onens": cmd.NamespaceStateActive, "twons": cmd.NamespaceStateActive},
+			name:  "active and suspended return nil",
+			seed:  map[string]cmd.NamespaceState{"onens": cmd.NamespaceStateActive, "twons": cmd.NamespaceStateSuspended},
 			names: []string{"onens", "twons"},
 		},
 		{
@@ -84,10 +127,10 @@ func TestRequireActiveAll(t *testing.T) {
 		},
 		{
 			name:  "each offender is named with its state",
-			seed:  map[string]cmd.NamespaceState{"okay": cmd.NamespaceStateActive, "susp": cmd.NamespaceStateSuspended},
-			names: []string{"okay", "susp", "gone"},
+			seed:  map[string]cmd.NamespaceState{"okay": cmd.NamespaceStateSuspended, "dying": cmd.NamespaceStateDeleting},
+			names: []string{"okay", "dying", "gone"},
 			want: []string{
-				`"susp"`, ErrNamespaceSuspended.Error(),
+				`"dying"`, ErrNamespaceDeleting.Error(),
 				`"gone"`, ErrNamespaceGone.Error(),
 			},
 		},
@@ -100,7 +143,7 @@ func TestRequireActiveAll(t *testing.T) {
 				seedNamespace(t, c, name, state)
 			}
 
-			err := RequireActiveAll(c, tc.names)
+			err := RequireAllExisting(c, tc.names)
 			if len(tc.want) == 0 {
 				require.NoError(t, err)
 				return
@@ -109,7 +152,7 @@ func TestRequireActiveAll(t *testing.T) {
 			for _, want := range tc.want {
 				assert.Contains(t, err.Error(), want)
 			}
-			assert.NotContains(t, err.Error(), `"okay"`, "an active namespace must not be reported")
+			assert.NotContains(t, err.Error(), `"okay"`, "a suspended namespace must not be reported")
 		})
 	}
 }

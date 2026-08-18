@@ -302,7 +302,9 @@ func (m *Manager) Restore(b []byte) error {
 
 // ValidateBackupSnapshot checks the backup's roles without changing anything.
 // If this cluster uses namespaces, every namespace the roles name must exist
-// and be active.
+// and not be deleting. Suspended and resuming namespaces are accepted: a
+// frozen tenant keeps its rows, so restoring them is legal and must not block
+// a cluster-wide restore.
 func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, ns usecasesNamespaces.Exister) error {
 	if m.authZ == nil || len(req.Roles) == 0 {
 		return nil
@@ -320,7 +322,7 @@ func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, n
 	if err != nil {
 		return err
 	}
-	if err := usecasesNamespaces.RequireActiveAll(ns, refs); err != nil {
+	if err := usecasesNamespaces.RequireAllExisting(ns, refs); err != nil {
 		return fmt.Errorf("restore roles: %w", err)
 	}
 	return nil
