@@ -1599,12 +1599,9 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// entirely; they should land only in whatever the main pointer
 	// resolves to.
 	//
-	// Recovery after a mid-swap failure happens after the next node
-	// restart: FinalizeCompletedMigrations repairs the disk layout
-	// before any bucket loads, OnAfterLsmInit re-registers fresh
-	// callbacks, and RunSwapOnShard's sentinel dispatch finishes the
-	// swap. Same-process retry of runtimeSwap is not supported (the
-	// in-memory bucket state is partially mutated).
+	// Recovery from a mid-swap failure is restart-only (FinalizeCompletedMigrations,
+	// then OnAfterLsmInit, then RunSwapOnShard's sentinel dispatch); same-process
+	// retry isn't supported since the in-memory bucket state is partially mutated.
 	defer t.disableCallbacks()
 
 	store := shard.Store()

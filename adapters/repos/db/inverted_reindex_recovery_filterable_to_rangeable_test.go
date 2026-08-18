@@ -36,15 +36,10 @@ import (
 // Recovery-convergence baseline for FilterableToRangeable
 // -----------------------------------------------------------------------------
 //
-// Run a clean migration and record the rangeable bucket fingerprint that
-// every recovery path has to converge to.
-//
-// FilterableToRangeable is unique among inline-path strategies in that its
-// target (rangeable) bucket is created by [FilterableToRangeableStrategy.PreReindexHook],
-// not by createPropertyValueIndex. weaviate/0-weaviate-issues#246 closed a
-// recovery-path bug here: a restart could leave the replica stuck because
-// the target bucket was never reloaded into the in-memory store. The fix
-// calls PreReindexHook in the recovery tidy branch.
+// Regression test for weaviate/0-weaviate-issues#246: a restart could
+// strand a replica because its rangeable bucket — created by
+// [FilterableToRangeableStrategy.PreReindexHook], not
+// createPropertyValueIndex — was never reloaded into memory.
 //
 // Source data is int64 (rangeable applies only to numeric props); the
 // fingerprint helper queries each known value via ReaderRoaringSetRange.Read
@@ -229,9 +224,8 @@ func (s *testFilterableToRangeableStrategyWrapper) PreReindexHook(shard *Shard, 
 	s.FilterableToRangeableStrategy.PreReindexHook(shard, props)
 }
 
-// TestRecoveryConvergence_FilterableToRangeable_Baseline establishes that
-// the production migration code path drives the strategy from
-// "no rangeable bucket" to "fully populated rangeable bucket".
+// TestRecoveryConvergence_FilterableToRangeable_Baseline drives the
+// strategy from no rangeable bucket to a fully populated one.
 func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 	const numObjects = 25
 	propName := filterableToRangeablePropName

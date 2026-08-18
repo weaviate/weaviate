@@ -127,9 +127,8 @@ func makeConvergenceTestObjects(t *testing.T, n int, className string) []*storob
 	return out
 }
 
-// TestRecoveryConvergence_Baseline drives a clean MapToBlockmax
-// migration to completion and fingerprints the post-state, as the
-// ground truth other recovery-convergence tests compare against.
+// TestRecoveryConvergence_Baseline fingerprints a clean MapToBlockmax
+// migration; other recovery-convergence tests compare against it.
 func TestRecoveryConvergence_Baseline(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"

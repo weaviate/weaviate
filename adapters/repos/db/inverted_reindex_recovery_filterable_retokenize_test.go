@@ -26,12 +26,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Recovery-convergence baseline for FilterableRetokenize — the
-// filterable half of change-tokenization. Production runs Searchable
-// AND Filterable in sequence; the per-shard bucket pointer swap on
-// filterable buckets is FilterableRetokenize's responsibility, so
-// #240 Symptom B divergences can land here too. Source/target is
-// StrategyRoaringSet.
+// FilterableRetokenize migrates a filterable bucket's tokenization
+// (StrategyRoaringSet) independently of the searchable half.
 
 // fingerprintRoaringSetBucket returns a deterministic (term → sorted
 // []docID) snapshot. RoaringSet-aware sibling of
@@ -108,10 +104,8 @@ func (s *testFilterableRetokenizeStrategyWrapper) OnMigrationComplete(_ context.
 	return nil
 }
 
-// TestRecoveryConvergence_FilterableRetokenize_Baseline establishes
-// that the production migration code path drives a class' filterable
-// bucket from word → field tokenization, on the same scaffolding PR
-// #11415 used for the searchable half.
+// TestRecoveryConvergence_FilterableRetokenize_Baseline drives a
+// filterable bucket from word to field tokenization.
 func TestRecoveryConvergence_FilterableRetokenize_Baseline(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25

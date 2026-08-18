@@ -26,11 +26,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Recovery-convergence baseline for EnableSearchable — the from-scratch
-// searchable-bucket migration. Pre-migration the bucket doesn't exist
-// (property has IndexSearchable=false); PreReindexHook creates it as
-// StrategyInverted and the backfill populates via the AnalyzerOverlay-
-// forced tokenization.
+// EnableSearchable backfills a from-scratch searchable bucket that
+// PreReindexHook creates as StrategyInverted, via forced tokenization.
 
 // newEnableSearchableTestClass builds a class with IndexSearchable=false
 // (so PreReindexHook actually creates the bucket).
@@ -125,11 +122,8 @@ func (s *testEnableSearchableStrategyWrapper) OnMigrationComplete(_ context.Cont
 	return nil
 }
 
-// TestRecoveryConvergence_EnableSearchable_Baseline establishes that
-// the production EnableSearchable migration code path drives a class
-// from "no searchable bucket" → "blockmax searchable bucket populated
-// from objects" on the same scaffolding PR #11415 used for the
-// retokenize halves.
+// TestRecoveryConvergence_EnableSearchable_Baseline drives a class from
+// no searchable bucket to a fully populated blockmax searchable bucket.
 func TestRecoveryConvergence_EnableSearchable_Baseline(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25

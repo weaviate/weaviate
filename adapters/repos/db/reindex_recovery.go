@@ -298,13 +298,10 @@ func buildRecoveryTasks(
 	return raw, nil
 }
 
-// NewShardReindexerV3FromRecovered wires the recovered tasks into a
-// fresh recovery-only [ShardReindexerV3]. The reindexer only fires
-// [OnAfterLsmInit] — the iteration loop ([OnAfterLsmInitAsync]) is the
-// DTM provider's job. The swap is left entirely to the DTM's
-// OnGroupCompleted, so there is a single source of truth for it. This
-// keeps recovery's responsibility narrow: re-install the double-write
-// callbacks before any writes arrive.
+// NewShardReindexerV3FromRecovered wires recovered tasks into a
+// recovery-only [ShardReindexerV3] that only fires [OnAfterLsmInit];
+// the DTM's OnGroupCompleted owns the swap step, keeping recovery's
+// job narrow: re-install double-write callbacks before writes arrive.
 func NewShardReindexerV3FromRecovered(
 	recovered []RecoveredReindex,
 	logger logrus.FieldLogger,

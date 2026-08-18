@@ -25,11 +25,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Recovery-convergence baseline for EnableFilterable — the from-scratch
-// filterable-bucket migration. Class starts at IndexFilterable=false;
-// PreReindexHook creates the bucket and the analyzer overlay
-// (ForceFilterable=true) drives the backfill despite the live schema
-// flag still being false.
+// EnableFilterable backfills a from-scratch filterable bucket while
+// IndexFilterable is still false; ForceFilterable drives it.
 
 // newEnableFilterableTask wraps EnableFilterableStrategy. Selection is
 // mandatory: the strategy can't discover targets via the schema-flag
@@ -92,10 +89,8 @@ func newEnableFilterableTestClass(className, propName string) *models.Class {
 	return class
 }
 
-// TestRecoveryConvergence_EnableFilterable_Baseline establishes that the
-// production enable-filterable migration code path drives a class from
-// no filterable bucket to a fully-populated RoaringSet bucket, against
-// the same scaffolding PR #11415 used for the searchable half.
+// TestRecoveryConvergence_EnableFilterable_Baseline drives a class from
+// no filterable bucket to a fully-populated RoaringSet bucket.
 func TestRecoveryConvergence_EnableFilterable_Baseline(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25
