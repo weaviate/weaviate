@@ -12,6 +12,8 @@
 package db
 
 import (
+	"fmt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
@@ -39,19 +41,57 @@ func resolveDoubleWriteBucket(shard *Shard, sidecarName, swapFallbackName string
 // resolveScopedDoubleWriteBucket is the shared prologue for every strategy's
 // double-write callback: scope-filters the property, then resolves the bucket
 // via [resolveDoubleWriteBucket] (forTargetStrategy arms the swap fallback).
-// skip=true means the callback must no-op.
+//
+// bucket == nil is the caller's stop signal: err == nil is a benign no-op,
+// err != nil means the target phase found no bucket and must fail loudly.
 func resolveScopedDoubleWriteBucket(shard *Shard, property *inverted.Property,
 	propsByName map[string]struct{}, bucketNamer, sourceBucketName func(string) string,
 	forTargetStrategy bool,
-) (bucket *lsmkv.Bucket, bucketName string, skip bool) {
+) (bucket *lsmkv.Bucket, bucketName string, err error) {
 	if _, ok := propsByName[property.Name]; !ok {
-		return nil, "", true
+		return nil, "", nil
 	}
 	bucketName = bucketNamer(property.Name)
 	var swapFallback string
 	if forTargetStrategy {
 		swapFallback = sourceBucketName(property.Name)
 	}
-	bucket = resolveDoubleWriteBucket(shard, bucketName, swapFallback)
-	return bucket, bucketName, bucket == nil
+	if bucket = resolveDoubleWriteBucket(shard, bucketName, swapFallback); bucket != nil {
+		return bucket, bucketName, nil
+	}
+	// Backup phase: a gone sidecar is expected post-swap teardown, so no-op.
+	if !forTargetStrategy {
+		return nil, bucketName, nil
+	}
+	// Target phase: this state is unreachable through a healthy swap, so
+	// error loudly instead of silently dropping the write. Name the class and
+	// shard: on CL<ALL the absorbed error is the operator's only locator (the
+	// shard name doubles as the tenant in multi-tenant collections).
+	return nil, bucketName, fmt.Errorf(
+		"double-write target resolved no bucket for property %q on class %q shard %q: neither ingest sidecar %q nor canonical fallback %q exists",
+		property.Name, shard.index.ID(), shard.name, bucketName, swapFallback)
+}
+
+// withRetokenizeDoubleWrite is the shared body of the four retokenize
+// add/delete callbacks; only the per-item op in apply differs between them.
+// analyzer may be nil — it's dereferenced only when forTargetStrategy and
+// property.RawValues are both set.
+func withRetokenizeDoubleWrite(shard *Shard, property *inverted.Property, hasIndex bool,
+	propsByName map[string]struct{}, bucketNamer, sourceBucketName func(string) string,
+	forTargetStrategy bool, analyzer *inverted.Analyzer, targetTokenization string,
+	apply func(bucket *lsmkv.Bucket, bucketName string, items []inverted.Countable) error,
+) error {
+	if !hasIndex {
+		return nil
+	}
+	bucket, bucketName, err := resolveScopedDoubleWriteBucket(shard, property,
+		propsByName, bucketNamer, sourceBucketName, forTargetStrategy)
+	if bucket == nil {
+		return err
+	}
+	items := property.Items
+	if forTargetStrategy && len(property.RawValues) > 0 {
+		items = analyzer.TextArray(targetTokenization, property.RawValues, property.Name, nil)
+	}
+	return apply(bucket, bucketName, items)
 }
