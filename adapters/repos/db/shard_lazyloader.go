@@ -946,11 +946,6 @@ func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint6
 	return l.shard.addToPropertySetBucket(bucket, docID, key)
 }
 
-func (l *LazyLoadShard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	l.mustLoad()
-	return l.shard.addToPropertyRangeBucket(bucket, docID, key)
-}
-
 func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
 	l.mustLoad()
 	return l.shard.addToPropertyMapBucket(bucket, pair, key)
@@ -971,11 +966,6 @@ func (l *LazyLoadShard) addJobToQueue(job job) {
 	l.shard.addJobToQueue(job)
 }
 
-func (l *LazyLoadShard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
-	l.mustLoad()
-	return l.shard.uuidFromDocID(docID)
-}
-
 func (l *LazyLoadShard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
 	if err := l.Load(ctx); err != nil {
 		return err
@@ -988,29 +978,9 @@ func (l *LazyLoadShard) putObjectLSM(ctx context.Context, object *storobj.Object
 	return l.shard.putObjectLSM(ctx, object, idBytes)
 }
 
-func (l *LazyLoadShard) mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error {
-	l.mustLoad()
-	return l.shard.mayUpsertObjectHashTree(object, idBytes, status)
-}
-
 func (l *LazyLoadShard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
 	l.mustLoad()
 	return l.shard.mutableMergeObjectLSM(ctx, merge, idBytes)
-}
-
-func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	l.mustLoad()
-	return l.shard.deleteFromPropertySetBucket(bucket, docID, key)
-}
-
-func (l *LazyLoadShard) deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	l.mustLoad()
-	return l.shard.deleteFromPropertyRangeBucket(bucket, docID, key)
-}
-
-func (l *LazyLoadShard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error {
-	l.mustLoad()
-	return l.shard.batchExtendInvertedIndexItemsLSMNoFrequency(b, item)
 }
 
 func (l *LazyLoadShard) updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error {

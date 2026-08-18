@@ -77,10 +77,6 @@ type MigrationStrategy interface {
 	WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket, docID uint64,
 		prop inverted.Property) error
 
-	// ShouldProcessProperty returns true if this property should be handled
-	// by the double-write callbacks.
-	ShouldProcessProperty(property *inverted.Property) bool
-
 	// MakeAddCallback creates a double-write callback for property additions.
 	// forTargetStrategy=true during ingest phase, false during backup phase.
 	MakeAddCallback(bucketNamer func(string) string, propsByName map[string]struct{},
@@ -256,17 +252,11 @@ func applyPerPropertySchemaUpdate(
 // reindexTaskConfig holds the configuration for a ShardReindexTaskGeneric.
 // Renamed from mapToBlockmaxConfig to be strategy-agnostic.
 type reindexTaskConfig struct {
-	swapBuckets                   bool
-	unswapBuckets                 bool
-	tidyBuckets                   bool
-	rollback                      bool
-	conditionalStart              bool
 	concurrency                   int
 	memtableOptFactor             int
 	backupMemtableOptFactor       int
 	processingDuration            time.Duration
 	pauseDuration                 time.Duration
-	perObjectDelay                time.Duration
 	checkProcessingEveryNoObjects int
 	selectionEnabled              bool
 	selectedPropsByCollection     map[string]map[string]struct{}

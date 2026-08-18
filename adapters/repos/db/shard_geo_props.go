@@ -28,6 +28,16 @@ import (
 )
 
 func (s *Shard) initGeoProp(prop *models.Property) error {
+	// Building one index at a time keeps a prop's commit log directory to a
+	// single writer. A second index there prunes the empty raw file the first
+	// one holds open, so the surviving index appends to an unlinked inode and
+	// loses everything it logs, and a startup scan running at the same time
+	// fails on the file that just vanished. The check below cannot prevent
+	// this: it only sees indexes that are already registered, not the ones
+	// other callers are still building.
+	s.geoInitLock.Lock()
+	defer s.geoInitLock.Unlock()
+
 	// replacing a live index would leave its commit logger and queue registered,
 	// putting two writers on the same files
 	if s.hasGeoIndexForProp(prop.Name) {
@@ -61,12 +71,6 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	}
 
 	s.propertyIndicesLock.Lock()
-	if _, ok := s.propertyIndices[prop.Name]; ok {
-		s.propertyIndicesLock.Unlock()
-		// another caller claimed the prop while this index was built; unregister
-		// the cycle callbacks its constructor added
-		return idx.Shutdown(s.shutCtx)
-	}
 	s.propertyIndices[prop.Name] = propertyspecific.Index{
 		Type:     schema.DataTypeGeoCoordinates,
 		GeoIndex: idx,

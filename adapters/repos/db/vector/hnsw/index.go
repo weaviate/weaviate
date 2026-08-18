@@ -772,14 +772,7 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 		return errors.Wrap(err, "hnsw drop")
 	}
 
-	if err := h.releaseVectors(); err != nil {
-		return err
-	}
-
-	// cancel commit logger last, as the tombstone cleanup cycle might still
-	// write while it's still running
-	err := h.commitLog.Drop(ctx, keepFiles)
-	if err != nil {
+	if err := h.commitLog.Drop(ctx, keepFiles); err != nil {
 		return errors.Wrap(err, "commit log drop")
 	}
 

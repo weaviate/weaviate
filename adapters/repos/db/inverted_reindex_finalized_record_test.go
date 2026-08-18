@@ -467,8 +467,7 @@ func TestAllMigrationDirPrefixesCoversEveryStrategy(t *testing.T) {
 func TestMigrationSentinelVocabularyIsEnumerated(t *testing.T) {
 	known := []string{
 		"started.mig", "tidied.mig", "merged.mig", "swapped.mig", "reindexed.mig",
-		"prepended.mig", "progress.mig", "paused.mig", "reset.mig", "rollback.mig",
-		"start.mig", "properties.mig", "payload.mig", "overrides.mig",
+		"prepended.mig", "progress.mig", "properties.mig", "payload.mig",
 		"audit_quarantined.mig", finalizedSentinel,
 	}
 

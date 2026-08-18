@@ -242,3 +242,92 @@ func TestEnableIndexSurvivesRepeatedLoadsBeforeSchemaFlip(t *testing.T) {
 		})
 	}
 }
+
+// computeEnableFilterableBaseline runs a clean enable-filterable migration on
+// a throw-away shard and returns the resulting bucket's fingerprint, the
+// content the shard under test must still serve after the loads.
+func computeEnableFilterableBaseline(t *testing.T, propName string, numObjects int) map[string][]uint64 {
+	t.Helper()
+	ctx := testCtx()
+	className := "EnableFilterableBaselineRef_" + uuid.NewString()[:8]
+	class := newEnableFilterableTestClass(className, propName)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newEnableFilterableTask(t, idx, className, propName)
+
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+	require.NoError(t, task.RunSwapOnShard(ctx, shard))
+
+	return fingerprintRoaringSetBucket(t,
+		shard.store.Bucket(helpers.BucketFromPropNameLSM(propName)))
+}
+
+// computeEnableSearchableBaseline is [computeEnableFilterableBaseline] for the
+// searchable index.
+func computeEnableSearchableBaseline(t *testing.T, propName string, numObjects int) map[string][]uint64 {
+	t.Helper()
+	ctx := testCtx()
+	className := "EnableSearchableBaselineRef_" + uuid.NewString()[:8]
+	class := newEnableSearchableTestClass(className, []string{propName})
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newEnableSearchableTask(t, idx, className, propName,
+		models.PropertyTokenizationWord)
+
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+	require.NoError(t, task.RunSwapOnShard(ctx, shard))
+
+	return fingerprintInvertedBucket(t,
+		shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))
+}
+
+// computeFilterableToRangeableBaseline is [computeEnableFilterableBaseline]
+// for the rangeable index, which migrates inline at shard init rather than
+// through the task trio.
+func computeFilterableToRangeableBaseline(t *testing.T, propName string, numObjects int) map[uint64][]uint64 {
+	t.Helper()
+	ctx := testCtx()
+	className := "FilterToRangeBaselineRef_" + uuid.NewString()[:8]
+	class := newFilterableToRangeableTestClass(className)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+
+	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	for {
+		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		require.NoError(t, err)
+		if rerunAt.IsZero() {
+			break
+		}
+	}
+
+	return filterableToRangeableFingerprint(t,
+		shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName)))
+}

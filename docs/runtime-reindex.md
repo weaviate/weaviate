@@ -625,7 +625,7 @@ Key types & contracts:
 |---|---|
 | `IsTerminal()` | `FINISHED`, `FAILED`, `CANCELLED` |
 | `IsActive()` | everything else (defined as the exact negation of `IsTerminal()`) |
-| `IsCoordinationPhase()` | `PREPARING`, `SWAPPING` |
+| `IsCompleted()` | `SWAPPING`, `FINISHED` — every unit succeeded |
 | `IsRecognized()` | any status this build declares |
 | `IsCancellable()` | `STARTED`, and nothing else |
 
@@ -1629,7 +1629,7 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 **DTM**
 
 - [`cluster/distributedtask/doc.go`](../cluster/distributedtask/doc.go) — package-level architecture + the four "journey" shapes.
-- [`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go) — `Task`, `Unit`, `UnitSpec`, `TaskStatusPreparing`, `TaskStatusSwapping`, `NeedsPreparationBarrier`, the `TaskStatus.IsTerminal()` / `IsActive()` / `IsCoordinationPhase()` / `IsRecognized()` classification helpers, and `IsCancellable()` (§4.2).
+- [`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go) — `Task`, `Unit`, `UnitSpec`, `TaskStatusPreparing`, `TaskStatusSwapping`, `NeedsPreparationBarrier`, the `TaskStatus.IsTerminal()` / `IsActive()` / `IsCompleted()` / `IsRecognized()` classification helpers, and `IsCancellable()` (§4.2).
 - [`cluster/distributedtask/manager.go`](../cluster/distributedtask/manager.go) — FSM. `RecordPostCompletionAck`, `MarkTaskFinalized` godocs are essential reading.
 - [`cluster/distributedtask/scheduler.go`](../cluster/distributedtask/scheduler.go) — per-node loop, callback dispatch.
 - [`cluster/distributedtask/errors.go`](../cluster/distributedtask/errors.go) — permanent-rejection sentinels + gRPC wire encoding.
@@ -1751,7 +1751,7 @@ test packages.
 ## 17. Deferred simplifications
 
 [`docs/proposals/deferred_reindex_simplifications.md`](./proposals/deferred_reindex_simplifications.md)
-catalogues three refactors that the scout pass identified as
+catalogues two refactors that the scout pass identified as
 worthwhile but that were deliberately not applied autonomously,
 because each touches either a crash-safety path or the hottest write
 hook. Re-evaluated for the v1.38 Preview merge and kept deferred.

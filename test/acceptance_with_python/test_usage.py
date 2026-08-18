@@ -657,10 +657,7 @@ def analyze_tenant(
             if isinstance(vec_index_config.quantizer, _BQConfigCreate):
                 assert named_vector.compression == _BQConfigCreate.quantizer_name()
                 if is_active:
-                    if vec_index_config.vector_index_type() == "flat":
-                        assert named_vector.vector_compression_ratio == 1  # not set for flat
-                    else:
-                        assert named_vector.vector_compression_ratio == 32
+                    assert named_vector.vector_compression_ratio == 32
             elif isinstance(vec_index_config.quantizer, _SQConfigCreate):
                 assert named_vector.compression == _SQConfigCreate.quantizer_name()
                 # SQ compression is only enabled for async indexing after training

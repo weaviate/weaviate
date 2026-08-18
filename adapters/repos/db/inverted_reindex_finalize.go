@@ -58,20 +58,6 @@ func nextMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string
 	return maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix) + 1
 }
 
-// MaxMigrationGenerationForDebug is an exported wrapper around
-// [maxMigrationGeneration] for the REST debug handlers. Production code
-// should use [maxMigrationGeneration] / [nextMigrationGeneration]
-// directly.
-func MaxMigrationGenerationForDebug(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
-	return maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix)
-}
-
-// GenSuffixForDebug is an exported wrapper around [genSuffix] for the
-// REST debug handlers. Production code should use [genSuffix] directly.
-func GenSuffixForDebug(generation int) string {
-	return genSuffix(generation)
-}
-
 // maxMigrationGeneration returns the highest existing generation on disk
 // for the (prefix, propNamesSuffix) tuple, or 0 if none exists.
 //

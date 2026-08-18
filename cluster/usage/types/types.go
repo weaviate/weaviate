@@ -13,7 +13,7 @@ package types
 
 // UsageDiskVersion invalidates usage already stored on disk. Bump it when reported
 // sizes change meaning, or shards that stay cold keep serving the old numbers.
-const UsageDiskVersion int = 1
+const UsageDiskVersion int = 2
 
 // UsageDisk defines format of saved pre-computed shard usage data
 type UsageDisk struct {

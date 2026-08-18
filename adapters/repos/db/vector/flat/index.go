@@ -1323,8 +1323,12 @@ func (index *flat) Type() common.IndexType {
 }
 
 func (index *flat) CompressionStats() compressionhelpers.CompressionStats {
-	// Flat index doesn't have detailed compression stats, return uncompressed stats
-	return compressionhelpers.UncompressedStats{}
+	// the quantizer is published before the compressed flag, so a set flag makes
+	// this lock-free read safe
+	if !index.Compressed() {
+		return compressionhelpers.UncompressedStats{}
+	}
+	return index.quantizer.Stats()
 }
 
 func (h *flat) ShouldUpgrade() (bool, int) {
