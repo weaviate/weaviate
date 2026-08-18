@@ -371,9 +371,11 @@ type UnitAwareProvider interface {
 	// retried up to a bounded count before failing. Errors on terminal-status
 	// invocations are best-effort and must not reopen the task (return nil).
 	//
-	// A schema flag flipped from here must land before the task reaches
-	// FINISHED: GET /v1/schema/{class}/indexes reads tasks and the class from
-	// one node's FSM and treats FINISHED as proof the flip applied.
+	// A per-property index flag flipped from here must land before the task
+	// reaches FINISHED: GET /v1/schema/{class}/indexes reads both from one
+	// node's FSM, and a FINISHED task beside an off flag drops that index from
+	// the response. Not the class-wide blockmax flip, which change-algorithm
+	// defers past FINISHED; algorithm resolves through the per-property stamp.
 	OnTaskCompleted(task *Task) error
 }
 

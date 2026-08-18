@@ -245,11 +245,16 @@ answers from the flags alone, in one of two shapes:
   the entry emits as `ready` with the pre-migration tokenization, reporting
   the property done and unchanged.
 
-The window is bounded by one log entry of catch-up, not by an unbounded
-amount of state, and the entry does not flap. It is left open deliberately:
+For a client pinned to one node the window is bounded by that node's
+replication lag, and the entry does not flap. It is left open deliberately:
 closing it means blocking a mutation on a local apply, which turns a `202`
 into a latency-bound call that can hang on a partitioned follower, to remove
 a transient polling artifact.
+
+A client that round-robins across nodes does see it flap. Nodes that have
+applied the add-task entry and nodes that have not answer differently, so the
+pill alternates between `indexing` and no entry at all, and `algorithm`
+between `blockmax` and `wand` for a property whose stamp only one of them has.
 
 This endpoint is node-local while `GET /v1/cluster/distributed-tasks` is
 leader-routed, so a UI polling both against a lagging follower can render the

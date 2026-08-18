@@ -132,9 +132,8 @@ type classReader interface {
 }
 
 // readClassAndTasks reads the task list before the class, so the class can
-// never be the older of the two. A nil class means the collection does not
-// exist. A nil lister means there is no cluster service, and the caller gets
-// the class with no tasks. schemaReader must be non-nil.
+// never be the older of the two. A nil lister means no cluster service: the
+// caller gets the class with no tasks. schemaReader must be non-nil.
 //
 // ClassInfo runs ahead of the task read purely to spare a collection that
 // does not exist the cost of one: it answers from a small value struct, so
@@ -789,10 +788,11 @@ type parsedReindexTask struct {
 // the same as no task.
 //
 // FINISHED tasks are kept: [indexesHandlers.getIndexes] crosses them against
-// [db.ReindexBucketEffect] to build finishedBlockmaxProps, which is how a
-// searchable index reports algorithm=blockmax for a property whose migration
-// completed before the class-wide flag flipped. Dropping FINISHED tasks here
-// silently downgrades that report to wand.
+// [db.ReindexBucketEffect] to build finishedBlockmaxProps, the last tier of
+// [db.SearchablePropertyIsBlockmaxParsed]. Only a property carrying no durable
+// SearchableBlockmax stamp reaches that tier: one migrated by a build older
+// than the stamp, or one whose blockmax evidence is a rebuild-searchable task,
+// which never stamps. Dropping FINISHED tasks reports those as wand.
 //
 // [mergeReindexStatus] needs them for a second, independent reason: a
 // completed migration must outrank an older FAILED attempt on the same
@@ -1001,10 +1001,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	}
 }
 
-// taskStatusPriority returns 2 for an in-flight task and 1 for a terminal
-// one, so the merge loop prefers in-flight when several tasks match the same
-// (collection, prop, indexType). FINISHED ranks with FAILED and CANCELLED;
-// see [parseReindexTasks] for why.
+// taskStatusPriority ranks FINISHED with FAILED and CANCELLED rather than
+// above them: an in-flight retry has to outrank a completed earlier attempt,
+// so a FINISHED task can only win on recency. See [parseReindexTasks].
 func taskStatusPriority(task *distributedtask.Task) int {
 	if task.Status.IsActive() {
 		return 2
