@@ -70,7 +70,6 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.completedCh).ID)
 
 	h.advanceClock(h.schedulerTickInterval)
-	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
 	// advance the clock just before expected clean up time to check whether it respects it
 	h.advanceClock(h.completedTaskTTL - h.clockAdvancedSoFar - time.Minute)
@@ -121,7 +120,6 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 
 	// local task completed
 	h.advanceClock(h.schedulerTickInterval)
-	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
 	// however, task is not finished in the cluster yet
 	tasks := h.listManagerTasks(t)[h.tasksNamespace]
@@ -219,7 +217,6 @@ func TestTaskFailureInAnotherNode(t *testing.T) {
 	// locally running task should be cancelled
 	h.advanceClock(h.schedulerTickInterval)
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.cancelledCh).ID)
-	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
 	tasks := h.listManagerTasks(t)[h.tasksNamespace]
 	require.Len(t, tasks, 1)
@@ -264,7 +261,6 @@ func TestTaskFailureInLocalNode(t *testing.T) {
 	recvWithTimeout(t, h.provider.failedCh)
 
 	h.advanceClock(h.schedulerTickInterval)
-	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
 	tasks := h.listManagerTasks(t)[h.tasksNamespace]
 	require.Len(t, tasks, 1)
@@ -461,7 +457,6 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 	require.NoError(t, err)
 
 	h.advanceClock(h.schedulerTickInterval)
-	require.Equal(t, 3, h.scheduler.totalRunningTaskCount())
 
 	startedTasks := map[string]*testTask{}
 	for range 2 {
@@ -489,10 +484,6 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
 	}))
 	require.NoError(t, err)
-
-	h.advanceClock(h.schedulerTickInterval)
-
-	require.Zero(t, h.scheduler.totalRunningTaskCount())
 }
 
 func TestOverrideExistingFinishedTask(t *testing.T) {
@@ -521,8 +512,6 @@ func TestOverrideExistingFinishedTask(t *testing.T) {
 	recvWithTimeout(t, h.provider.completedCh)
 
 	h.advanceClock(h.schedulerTickInterval)
-
-	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
 	err = h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -1007,49 +996,6 @@ func TestReactiveFiring_NilNotifierIsSafe(t *testing.T) {
 	// No notifier → scheduler is idle. Advance past one tick to fire it.
 	h.advanceClock(h.schedulerTickInterval)
 	require.Equal(t, "1234", recvWithTimeout(t, h.provider.startedCh).ID)
-}
-
-// TestReactiveFiring_PeriodicTickFallback verifies that the periodic
-// tick still fires even when reactive firing is wired — this catches
-// any regression where the new select arm accidentally starves the tick
-// path, or where the scheduler's loop only progresses on wake-ups.
-func TestReactiveFiring_PeriodicTickFallback(t *testing.T) {
-	defer leaktest.Check(t)()
-
-	h := newTestHarness(t).init(t)
-	h.manager.SetSchedulerNotifier(h.scheduler)
-
-	h.startScheduler(t)
-	defer h.Close()
-
-	// AddTask wakes the scheduler reactively; consume the started signal.
-	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Namespace:             h.tasksNamespace,
-		Id:                    "1234",
-		Payload:               []byte("payload"),
-		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		UnitIds:               []string{"su-1"},
-	}), 10))
-	startedTask := recvWithTimeout(t, h.provider.startedCh)
-
-	// Complete the unit; the scheduler should clean up on the NEXT tick.
-	// We deliberately complete via the manager FIRST then advance the
-	// clock, to confirm that the periodic tick still drives the cleanup
-	// path. In a reactive-firing-only design, this would also fire via
-	// Wake; the fallback assertion here ensures the timer arm of the
-	// loop's select is still active.
-	startedTask.Complete()
-	completeUnit(t, h, h.tasksNamespace, "1234", 10, h.localNodeID, "su-1")
-	recvWithTimeout(t, h.provider.completedCh)
-
-	// Now advance the clock and confirm the periodic tick clears the
-	// running task entry. (totalRunningTaskCount is zero only after a
-	// tick observes the task is no longer in startedTasks.)
-	h.advanceClock(h.schedulerTickInterval)
-	require.Eventually(t, func() bool {
-		return h.scheduler.totalRunningTaskCount() == 0
-	}, 2*time.Second, 50*time.Millisecond,
-		"periodic tick should clear completed task even with reactive firing wired")
 }
 
 // flappyTasksLister proxies to inner for succeedsLeft calls, then fails

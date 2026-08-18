@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -224,6 +225,47 @@ func getDynamicCompression(config dynamicent.UserConfig, dynamicUpgraded bool) D
 		return getHNSWCompression(config.HnswUC)
 	} else {
 		return getFlatCompression(config.FlatUC)
+	}
+}
+
+// compressionRatio reports how many times smaller a compressed vector is than
+// its float32 form, by asking the quantizer the configuration selects. Each
+// quantizer derives the ratio from the dimensions alone, so an unloaded shard
+// can report it without its index.
+//
+// quantizedVectorsExist says whether the shard's quantized vectors bucket holds
+// anything, which the configuration does not settle: PQ and SQ wait for their
+// training limit before compressing anything, and until then the vectors on disk
+// are float32. hfresh is exempt — it keeps its codes in its own postings.
+func (di DimensionInfo) compressionRatio(dimensions int, quantizedVectorsExist bool) float64 {
+	// with nothing tracked there is nothing to compress, and PQ's optimal
+	// segment count would collapse to zero and divide by it
+	if dimensions <= 0 {
+		return compressionhelpers.UncompressedStats{}.CompressionRatio(dimensions)
+	}
+
+	if !quantizedVectorsExist && di.category != DimensionCategoryAuto {
+		return compressionhelpers.UncompressedStats{}.CompressionRatio(dimensions)
+	}
+
+	switch di.category {
+	case DimensionCategoryPQ:
+		return compressionhelpers.PQStats{M: correctEmptySegments(di.segments, dimensions)}.CompressionRatio(dimensions)
+	case DimensionCategoryBQ:
+		return compressionhelpers.BQStats{}.CompressionRatio(dimensions)
+	case DimensionCategorySQ:
+		return compressionhelpers.SQStats{}.CompressionRatio(dimensions)
+	case DimensionCategoryRQ:
+		if di.bits == 1 {
+			return compressionhelpers.BinaryRQStats{}.CompressionRatio(dimensions)
+		}
+		return compressionhelpers.RQStats{Bits: uint32(di.bits)}.CompressionRatio(dimensions)
+	case DimensionCategoryAuto:
+		// hfresh quantizes with RQ on 1 bit; its config validation rejects
+		// disabling it or asking for another bit count
+		return compressionhelpers.BinaryRQStats{}.CompressionRatio(dimensions)
+	default:
+		return compressionhelpers.UncompressedStats{}.CompressionRatio(dimensions)
 	}
 }
 

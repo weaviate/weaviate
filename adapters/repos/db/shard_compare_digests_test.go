@@ -167,20 +167,6 @@ func TestShardCompareDigestsCursorMergeJoin(t *testing.T) {
 
 	const ts int64 = 1_000
 
-	// orderedUUIDs returns n UUIDs in strict lex order (00000000-..., 00000001-..., …).
-	orderedUUIDs := func(n int) []strfmt.UUID {
-		out := make([]strfmt.UUID, n)
-		for i := range n {
-			var u uuid.UUID
-			u[15] = byte(i + 1) // last byte
-			u[14] = byte((i + 1) >> 8)
-			out[i] = strfmt.UUID(u.String())
-		}
-		// defensive sort in case of carry boundaries
-		sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
-		return out
-	}
-
 	t.Run("PartialOverlap_MissingReportedAsZero", func(t *testing.T) {
 		// Local has [A, B, C]; source sends [B, D]. B matches via cursor; D
 		// (which sorts after C) is not in the cursor and is emitted as missing.
@@ -286,6 +272,89 @@ func TestShardCompareDigestsCursorMergeJoin(t *testing.T) {
 			assert.Equal(t, tsLocal, r.UpdateTime)
 			assert.False(t, r.Deleted)
 		}
+	})
+}
+
+// orderedUUIDs returns n UUIDs in strict lex order (00000000-..., 00000001-..., …).
+func orderedUUIDs(n int) []strfmt.UUID {
+	out := make([]strfmt.UUID, n)
+	for i := range n {
+		var u uuid.UUID
+		u[15] = byte(i + 1)
+		u[14] = byte((i + 1) >> 8)
+		out[i] = strfmt.UUID(u.String())
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// TestShardCompareDigestsMemtableBounds pins the bounded-memtable-snapshot behavior: unflushed keys outside the source span are invisible, keys inside are joined, and the added last-UUID parse rejects bad input.
+func TestShardCompareDigestsMemtableBounds(t *testing.T) {
+	ctx := context.Background()
+	const class = "CompareDigestsMemtableBoundsTest"
+	const (
+		tsLocal  int64 = 100
+		tsSource int64 = 200
+	)
+
+	t.Run("MemtableOutsideSpan_Ignored", func(t *testing.T) {
+		ids := orderedUUIDs(5)
+		sl, _ := testShard(t, ctx, class)
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, ids[0], tsLocal)))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, ids[2], tsLocal)))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, ids[4], tsLocal)))
+
+		s := concreteShard(t, sl)
+		out, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
+			{ID: string(ids[1]), UpdateTime: tsSource},
+			{ID: string(ids[2]), UpdateTime: tsSource},
+			{ID: string(ids[3]), UpdateTime: tsSource},
+		})
+		require.NoError(t, err)
+		require.Len(t, out, 3)
+		assert.Equal(t, string(ids[1]), out[0].ID)
+		assert.Equal(t, int64(0), out[0].UpdateTime)
+		assert.Equal(t, string(ids[2]), out[1].ID)
+		assert.Equal(t, tsLocal, out[1].UpdateTime)
+		assert.Equal(t, string(ids[3]), out[2].ID)
+		assert.Equal(t, int64(0), out[2].UpdateTime)
+	})
+
+	t.Run("MemtableBetweenDigests_Skipped", func(t *testing.T) {
+		ids := orderedUUIDs(3)
+		sl, _ := testShard(t, ctx, class)
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, ids[0], tsLocal)))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, ids[1], tsLocal)))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, ids[2], tsLocal)))
+
+		s := concreteShard(t, sl)
+		out, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
+			{ID: string(ids[0]), UpdateTime: tsLocal},
+			{ID: string(ids[2]), UpdateTime: tsSource},
+		})
+		require.NoError(t, err)
+		require.Len(t, out, 1)
+		assert.Equal(t, string(ids[2]), out[0].ID)
+		assert.Equal(t, tsLocal, out[0].UpdateTime)
+	})
+
+	t.Run("InvalidLastUUID_Rejected", func(t *testing.T) {
+		ids := orderedUUIDs(1)
+		sl, _ := testShard(t, ctx, class)
+		s := concreteShard(t, sl)
+
+		_, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
+			{ID: string(ids[0]), UpdateTime: tsSource},
+			{ID: "not-a-uuid", UpdateTime: tsSource},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parse source uuid")
+
+		_, err = s.CompareDigests(ctx, []routerTypes.RepairResponse{
+			{ID: "not-a-uuid", UpdateTime: tsSource},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parse source uuid")
 	})
 }
 

@@ -28,11 +28,15 @@ import (
 )
 
 func (s *Shard) initGeoProp(prop *models.Property) error {
-	// concurrent callers must not build an index each: every constructor opens
-	// the same commit log directory and registers a condensor on it, so one
-	// caller's cycle deletes the file another is still replaying
-	s.geoPropInitLock.Lock()
-	defer s.geoPropInitLock.Unlock()
+	// Building one index at a time keeps a prop's commit log directory to a
+	// single writer. A second index there prunes the empty raw file the first
+	// one holds open, so the surviving index appends to an unlinked inode and
+	// loses everything it logs, and a startup scan running at the same time
+	// fails on the file that just vanished. The check below cannot prevent
+	// this: it only sees indexes that are already registered, not the ones
+	// other callers are still building.
+	s.geoInitLock.Lock()
+	defer s.geoInitLock.Unlock()
 
 	// replacing a live index would leave its commit logger and queue registered,
 	// putting two writers on the same files
