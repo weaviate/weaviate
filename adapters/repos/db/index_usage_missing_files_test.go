@@ -39,6 +39,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -105,7 +106,7 @@ func TestIndex_UsageForCollection_MissingShardFiles(t *testing.T) {
 			ctx := context.Background()
 			tenantName := "test-tenant"
 
-			index := setupPopulatedLazyIndex(ctx, t)
+			index, _ := setupPopulatedLazyIndex(ctx, t, usageIndexParams{})
 			t.Cleanup(func() { _ = index.Shutdown(ctx) })
 
 			if tt.loadAndDelete {
@@ -138,11 +139,37 @@ func TestIndex_UsageForCollection_MissingShardFiles(t *testing.T) {
 	}
 }
 
+// dimensionTracking says which phases of setupPopulatedLazyIndex run with
+// TRACK_VECTOR_DIMENSIONS on.
+type dimensionTracking int
+
+const (
+	trackingOn dimensionTracking = iota
+	trackingOff
+	// trackingStoppedAfterImport tracks the imported objects and then returns an
+	// index that no longer tracks, leaving dimensions on disk that no bucket in
+	// memory covers.
+	trackingStoppedAfterImport
+)
+
+// usageIndexParams parametrizes setupPopulatedLazyIndex.
+type usageIndexParams struct {
+	// namedVectors go on the class alongside the legacy vector. An entry with a nil
+	// VectorIndexConfig is left out of the index's parsed configs, matching a
+	// dropped vector, whose config the schema parser leaves nil.
+	namedVectors map[string]models.VectorConfig
+	// vectorDimensions, when positive, stores a vector of that many dimensions
+	// for every object under every configured named vector.
+	vectorDimensions  int
+	dimensionTracking dimensionTracking
+}
+
 // setupPopulatedLazyIndex creates an index for a multi-tenant class, populates
 // one tenant with objects, flushes it to disk, then returns a fresh index with
 // lazy loading enabled so the populated tenant is a registered-but-unloaded
-// lazy shard reading from disk.
-func setupPopulatedLazyIndex(ctx context.Context, t *testing.T) *Index {
+// lazy shard reading from disk. The returned map is what the schema would hand
+// to the usage report for this index, legacy vector included.
+func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageIndexParams) (*Index, map[string]models.VectorConfig) {
 	t.Helper()
 
 	dirName := t.TempDir()
@@ -177,6 +204,22 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T) *Index {
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: shardState.PartitioningEnabled,
 		},
+		VectorConfig: params.namedVectors,
+	}
+
+	legacyVectorConfig := enthnsw.UserConfig{VectorCacheMaxObjects: 1000}
+	namedVectorConfigs := make(map[string]schemaConfig.VectorIndexConfig, len(params.namedVectors))
+	reportedVectorConfigs := map[string]models.VectorConfig{
+		"": {VectorIndexType: legacyVectorConfig.IndexType(), VectorIndexConfig: legacyVectorConfig},
+	}
+	for targetVector, vectorConfig := range params.namedVectors {
+		reportedVectorConfigs[targetVector] = vectorConfig
+		if vectorConfig.VectorIndexConfig == nil {
+			continue
+		}
+		parsed, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		require.True(t, ok, "named vector %q needs a parsed config", targetVector)
+		namedVectorConfigs[targetVector] = parsed
 	}
 
 	fakeSchema := schema.Schema{
@@ -214,17 +257,17 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T) *Index {
 		}, nil).Maybe()
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 
-	newIndexFn := func(lazy bool, vectorConfigs map[string]schemaConfig.VectorIndexConfig) *Index {
+	newIndexFn := func(lazy, trackDimensions bool) *Index {
 		idx, err := NewIndex(ctx, IndexConfig{
 			RootPath:              dirName,
 			ClassName:             schema.ClassName(className),
 			ReplicationFactor:     1,
 			ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-			TrackVectorDimensions: true,
+			TrackVectorDimensions: trackDimensions,
 			EnableLazyLoadShards:  lazy,
 		}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-			enthnsw.UserConfig{VectorCacheMaxObjects: 1000},
-			vectorConfigs,
+			legacyVectorConfig,
+			namedVectorConfigs,
 			mockRouter,
 			shardResolver,
 			mockSchema,
@@ -240,7 +283,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T) *Index {
 			nil,
 			scheduler,
 			nil,
-			nil,
+			memwatch.NewDummyMonitor(),
 			NewShardReindexerV3Noop(),
 			roaringset.NewBitmapBufPoolNoop(),
 			false,
@@ -251,7 +294,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T) *Index {
 	}
 
 	// Phase 1: eagerly-loaded index, populate and flush to disk.
-	index := newIndexFn(false, nil)
+	index := newIndexFn(false, params.dimensionTracking != trackingOff)
 	for _, prop := range class.Properties {
 		require.NoError(t, index.addProperty(ctx, prop))
 	}
@@ -264,7 +307,18 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T) *Index {
 				"name": fmt.Sprintf("test-object-%d", i),
 			},
 		}
-		require.NoError(t, index.putObject(ctx, storobj.FromObject(obj, nil, nil, nil), nil, tenantName, 0))
+		var vectors map[string][]float32
+		if params.vectorDimensions > 0 {
+			vector := make([]float32, params.vectorDimensions)
+			for dim := range vector {
+				vector[dim] = float32(i*params.vectorDimensions + dim)
+			}
+			vectors = make(map[string][]float32, len(namedVectorConfigs))
+			for targetVector := range namedVectorConfigs {
+				vectors[targetVector] = vector
+			}
+		}
+		require.NoError(t, index.putObject(ctx, storobj.FromObject(obj, nil, vectors, nil), nil, tenantName, 0))
 	}
 
 	shard, release, err := index.GetShard(ctx, tenantName)
@@ -277,9 +331,8 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T) *Index {
 	require.NoError(t, shard.Store().FlushMemtables(ctx))
 	release()
 
-	vectorConfigs := index.GetVectorIndexConfigs()
 	require.NoError(t, index.Shutdown(ctx))
 
 	// Phase 2: fresh lazy index reading the populated tenant from disk.
-	return newIndexFn(true, vectorConfigs)
+	return newIndexFn(true, params.dimensionTracking == trackingOn), reportedVectorConfigs
 }

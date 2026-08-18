@@ -59,7 +59,7 @@ func TestUnloadedShardUsageSavedToDisk(t *testing.T) {
 			ctx := context.Background()
 			tenantName := "test-tenant"
 
-			index := setupPopulatedLazyIndex(ctx, t)
+			index, _ := setupPopulatedLazyIndex(ctx, t, usageIndexParams{})
 			t.Cleanup(func() { _ = index.Shutdown(ctx) })
 
 			writeSavedShardUsage(t, index.path(), tenantName, tt.savedVersion,

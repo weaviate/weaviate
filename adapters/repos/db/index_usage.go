@@ -354,13 +354,17 @@ func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities
 	vectorConfigs := i.GetVectorIndexConfigs()
 	var usages types.VectorsUsage
 	if err := shard.ForEachVectorIndex(func(targetVector string, vectorIndex VectorIndex) error {
-		var vectorIndexConfig schemaConfig.VectorIndexConfig
-		if vecCfg, exists := vectorConfigs[targetVector]; exists {
-			vectorIndexConfig = vecCfg
-		} else if vecCfg, exists := vectorConfigs[""]; exists {
-			vectorIndexConfig = vecCfg
-		} else {
-			return fmt.Errorf("vector index %s not found in config", targetVector)
+		vectorIndexConfig, exists := vectorConfigs[targetVector]
+		if !exists {
+			// dropVectorIndex deletes the config before it drops the index from every
+			// shard, so a report that runs in between finds an index it cannot
+			// describe. Routine enough for Debug: the next shard init drops the index.
+			i.logger.WithFields(logrus.Fields{
+				"class":         i.Config.ClassName.String(),
+				"shard":         shard.Name(),
+				"target_vector": targetVector,
+			}).Debug("leaving vector index without a config out of the usage report")
+			return nil
 		}
 		indexType := vectorIndexConfig.IndexType()
 
@@ -386,33 +390,32 @@ func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities
 			dimensionality = scan.Reported
 		}
 
-		compressionRatio := vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions)
-
-		vectorUsage := &types.VectorUsage{
+		usages = append(usages, &types.VectorUsage{
 			Name:                   targetVector,
 			Compression:            dimInfo.category.String(),
 			VectorIndexType:        indexType,
 			IsDynamic:              isDynamic,
-			VectorCompressionRatio: compressionRatio,
+			VectorCompressionRatio: vectorCompressionRatio(vectorIndex.CompressionStats(), dimensionality.Dimensions),
 			Bits:                   dimInfo.bits,
 			MultiVectorConfig:      multiVectorConfigFromConfig(vectorIndexConfig),
-		}
-
-		// Only add dimensionalities if there's valid data
-		if dimensionality.Count > 0 || dimensionality.Dimensions > 0 {
-			vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
-				Dimensions: dimensionality.Dimensions,
-				Count:      dimensionality.Count,
-			})
-		}
-
-		usages = append(usages, vectorUsage)
+			Dimensionalities:       trackedDimensionalities(dimensionality),
+		})
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	sort.Sort(usages)
 	return usages, nil
+}
+
+// trackedDimensionalities wraps one target vector's dimensionality for the report,
+// and returns nothing when nothing was tracked. A configured vector holding no data
+// has no dimensionality to bill, rather than one of zero.
+func trackedDimensionalities(dimensionality types.Dimensionality) []*types.Dimensionality {
+	if dimensionality.Count <= 0 && dimensionality.Dimensions <= 0 {
+		return nil
+	}
+	return []*types.Dimensionality{&dimensionality}
 }
 
 // unloadedVectorState is what a shard's files say about one target vector that
@@ -466,7 +469,7 @@ func unloadedVectorUsage(targetVector string, vectorConfig models.VectorConfig,
 		VectorCompressionRatio: dimInfo.compressionRatio(dimensionality.Dimensions, state.quantizedVectorsExist),
 		VectorIndexType:        vectorIndexConfig.IndexType(),
 		IsDynamic:              vectorConfig.VectorIndexType == common.IndexTypeDynamic,
-		Dimensionalities:       []*types.Dimensionality{&dimensionality},
+		Dimensionalities:       trackedDimensionalities(dimensionality),
 		MultiVectorConfig:      multiVectorConfigFromConfig(vectorIndexConfig),
 	}
 	if vectorUsage.IsDynamic {
