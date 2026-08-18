@@ -491,23 +491,6 @@ func (t TaskStatus) IsCompleted() bool {
 	return t == TaskStatusSwapping || t == TaskStatusFinished
 }
 
-// IsCoordinationPhase is true for the post-units, pre-terminal phases
-// (PREPARING, SWAPPING) — the scheduler-driven callback states.
-//
-// A status this build does not recognize answers false here and true from
-// [TaskStatus.IsActive]: this asks which phase a task is in, IsActive
-// whether to assume it is still running.
-func (t TaskStatus) IsCoordinationPhase() bool {
-	switch t {
-	case TaskStatusPreparing, TaskStatusSwapping:
-		return true
-	case TaskStatusStarted, TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
-		return false
-	}
-	// A status this build never declared cannot be placed in a phase.
-	return false
-}
-
 // IsRecognized is false for a status this build never declared — what a
 // node sees when a newer release introduces one mid rolling-upgrade.
 func (t TaskStatus) IsRecognized() bool {
@@ -667,17 +650,6 @@ func (t *Task) AnyUnitFailed() bool {
 	return false
 }
 
-// LocalUnitIDs returns the IDs of units assigned to the given node.
-func (t *Task) LocalUnitIDs(nodeID string) []string {
-	var ids []string
-	for id, u := range t.Units {
-		if u.NodeID == nodeID {
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}
-
 // Groups returns the distinct GroupIDs across all units (includes "" for ungrouped).
 func (t *Task) Groups() []string {
 	seen := map[string]bool{}
@@ -772,20 +744,6 @@ func (t *Task) MissingPostCompletionAckNodes() []string {
 		}
 	}
 	return missing
-}
-
-// AnyPostCompletionAckFailed returns true iff any node has recorded a
-// post-completion ack with [PostCompletionAck.Success]==false. The
-// FSM uses this on the apply path to flip the task to FAILED — once
-// any node reports failure, the schema flip must be skipped and the
-// task must not progress to FINISHED.
-func (t *Task) AnyPostCompletionAckFailed() bool {
-	for _, ack := range t.PostCompletionAcks {
-		if !ack.Success {
-			return true
-		}
-	}
-	return false
 }
 
 type ListDistributedTasksResponse struct {

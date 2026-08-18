@@ -202,7 +202,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	_ = s.reindexer.RunAfterLsmInit(ctx, s)
-	_ = s.reindexer.RunAfterLsmInitAsync(ctx, s)
 	return s, nil
 }
 

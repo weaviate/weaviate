@@ -32,7 +32,7 @@ var unknownFutureStatus = TaskStatus("UNKNOWN_FUTURE_STATE")
 // fixtureTask builds a Task with a controlled unit assignment for the
 // table tests below. Two groups (g1, g2), three nodes (n-1, n-2, n-3),
 // one unit on n-3 that is "unassigned" (empty NodeID) to exercise the
-// edge in NodesWithLocalUnits / LocalUnitIDs.
+// edge in NodesWithLocalUnits / LocalGroupUnitIDs.
 func fixtureTask() *Task {
 	return &Task{
 		Status: TaskStatusStarted,
@@ -132,65 +132,6 @@ func TestTaskStatus_IsRecognized(t *testing.T) {
 	}
 }
 
-// TestTaskStatus_IsCoordinationPhase pins the PREPARING/SWAPPING
-// classification — the phase question the docs' predicate table
-// answers. The method's switch has no default arm, so a newly declared
-// status fails the build until someone places it; this table pins where
-// each one landed.
-func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
-	cases := []struct {
-		status       TaskStatus
-		coordination bool
-	}{
-		{TaskStatusStarted, false},
-		{TaskStatusPreparing, true},
-		{TaskStatusSwapping, true},
-		{TaskStatusFinished, false},
-		{TaskStatusFailed, false},
-		{TaskStatusCancelled, false},
-		{unknownFutureStatus, false},
-		{TaskStatus(""), false},
-	}
-	for _, tc := range cases {
-		t.Run(string(tc.status), func(t *testing.T) {
-			assert.Equal(t, tc.coordination, tc.status.IsCoordinationPhase(),
-				"%q.IsCoordinationPhase() should be %v", tc.status, tc.coordination)
-		})
-	}
-}
-
-// TestTask_LocalUnitIDs pins per-node ownership. Production callers that
-// rely on the empty-NodeID skip include `NodesWithLocalUnits` (and
-// therefore `MissingPostCompletionAckNodes`). A regression that started
-// returning unassigned units under any specific node would corrupt the
-// ack-barrier predicate.
-func TestTask_LocalUnitIDs(t *testing.T) {
-	task := fixtureTask()
-	cases := []struct {
-		node string
-		want []string // sorted
-	}{
-		{"n-1", []string{"u-1-g1-n1-done", "u-3-g2-n1-pending"}},
-		{"n-2", []string{"u-2-g1-n2-failed", "u-4-g2-n2-prog"}},
-		{"n-3", []string{"u-5-noGroup-n3"}},
-		{"n-doesnotexist", nil},
-		// Empty NodeID literally matches units with empty NodeID — the
-		// load-bearing difference from NodesWithLocalUnits (which skips
-		// the unassigned unit, since it can't have a node-side ack).
-		// Production callers of LocalUnitIDs always pass a real node ID,
-		// but the literal-equality semantics are pinned here so a future
-		// "skip empty" refactor doesn't silently change the contract.
-		{"", []string{"u-6-g1-unassigned"}},
-	}
-	for _, tc := range cases {
-		t.Run("node="+tc.node, func(t *testing.T) {
-			got := task.LocalUnitIDs(tc.node)
-			sort.Strings(got)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
 // TestTask_LocalGroupUnitIDs pins per-(group,node) ownership — the
 // predicate used by [ReindexProvider.OnGroupCompleted] to pick which
 // shards' swap to fire on a given node. Empty-NodeID skip matters here
@@ -208,7 +149,7 @@ func TestTask_LocalGroupUnitIDs(t *testing.T) {
 		{"g2", "n-2", []string{"u-4-g2-n2-prog"}},
 		{"", "n-3", []string{"u-5-noGroup-n3"}}, // ungrouped on n-3
 		// Empty NodeID matches the unassigned unit when the group also
-		// matches — literal-equality semantics, same as LocalUnitIDs.
+		// matches — literal-equality semantics.
 		{"g1", "", []string{"u-6-g1-unassigned"}},
 		{"unknownGroup", "n-1", nil},
 	}
@@ -283,24 +224,6 @@ func TestTask_MissingPostCompletionAckNodes(t *testing.T) {
 	sort.Strings(got)
 	assert.Equal(t, []string{"n-1", "n-3"}, got,
 		"extraneous acks (from nodes not in NodesWithLocalUnits) must be ignored")
-}
-
-// TestTask_AnyPostCompletionAckFailed pins the failure-detector: once
-// ANY node records Success=false, the FSM must transition to FAILED.
-func TestTask_AnyPostCompletionAckFailed(t *testing.T) {
-	task := &Task{
-		PostCompletionAcks: map[string]PostCompletionAck{
-			"n-1": {Success: true},
-			"n-2": {Success: true},
-		},
-	}
-	assert.False(t, task.AnyPostCompletionAckFailed())
-
-	task.PostCompletionAcks["n-3"] = PostCompletionAck{Success: false, Error: "swap failed"}
-	assert.True(t, task.AnyPostCompletionAckFailed())
-
-	// Edge: nil map.
-	assert.False(t, (&Task{}).AnyPostCompletionAckFailed())
 }
 
 // TestTask_AllUnitsTerminal and TestTask_AnyUnitFailed pin the two
