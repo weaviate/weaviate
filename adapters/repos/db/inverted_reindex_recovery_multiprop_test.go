@@ -535,7 +535,7 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 				break
 			}
 		}
-		rt := newFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+		rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 		require.True(t, rt.IsReindexed())
 		require.False(t, rt.IsTidied())
 	case crashAtSwapped:
