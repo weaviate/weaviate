@@ -619,11 +619,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
 
-				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector, 0)
 				require.NoError(t, err)
 
-				assert.Equal(t, tt.expectedCount, dimensionality.Count)
-				assert.Equal(t, tt.expectedDims, dimensionality.Dimensions)
+				assert.Equal(t, tt.expectedCount, dimensionality.Raw.Count)
+				assert.Equal(t, tt.expectedDims, dimensionality.Raw.Dimensions)
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -650,11 +650,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
 
-				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector, 0)
 				require.NoError(t, err)
 
-				assert.Equal(t, tt.expectedCount, dimensionality.Count)
-				assert.Equal(t, tt.expectedDims, dimensionality.Dimensions)
+				assert.Equal(t, tt.expectedCount, dimensionality.Raw.Count)
+				assert.Equal(t, tt.expectedDims, dimensionality.Raw.Dimensions)
 
 				// Release the shard (this will flush all data to disk)
 				release()

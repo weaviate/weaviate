@@ -65,9 +65,13 @@ func (c DimensionCategory) String() string {
 	}
 }
 
-// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types.Dimensionality, error) {
-	return s.calcTargetVectorDimensions(ctx, targetVector)
+// DimensionsUsage scans the dimensions bucket for a given vector, see shardusage.ScanTargetVectorDimensions
+func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string, encodedDimensions int) (shardusage.DimensionsScan, error) {
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return shardusage.DimensionsScan{}, errors.Errorf("dimensionsUsage: no bucket dimensions")
+	}
+	return shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, encodedDimensions)
 }
 
 // Dimensions returns the total number of dimensions for a given vector
@@ -89,11 +93,11 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 
 func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string,
 ) (types.Dimensionality, error) {
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return types.Dimensionality{}, errors.Errorf("calcTargetVectorDimensions: no bucket dimensions")
+	scan, err := s.DimensionsUsage(ctx, targetVector, 0)
+	if err != nil {
+		return types.Dimensionality{}, err
 	}
-	return shardusage.CalculateTargetVectorDimensionsFromBucket(ctx, b, targetVector)
+	return scan.Raw, nil
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.
