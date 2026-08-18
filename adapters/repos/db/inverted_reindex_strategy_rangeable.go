@@ -103,12 +103,9 @@ func (s *FilterableToRangeableStrategy) WriteToReindexBucket(shard ShardLike, bu
 	return nil
 }
 
-// ShouldProcessProperty always returns true. Scope is driven by the
-// reindexTaskConfig.selectedPropsByCollection set in the task constructor,
-// not by the live schema flag — during this migration IndexRangeFilters
-// is still false on every targeted property, and IndexFilterable may also
-// be false (the data is rebuilt from the objects bucket, not from
-// filterable).
+// ShouldProcessProperty always returns true: scope comes from
+// selectedPropsByCollection, not the schema flags (IndexRangeFilters and
+// possibly IndexFilterable are still false mid-migration).
 func (s *FilterableToRangeableStrategy) ShouldProcessProperty(property *inverted.Property) bool {
 	return true
 }

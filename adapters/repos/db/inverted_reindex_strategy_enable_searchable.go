@@ -75,10 +75,9 @@ func (s *EnableSearchableStrategy) WriteToReindexBucket(shard ShardLike, bucket 
 	return writeBlockmaxSearchablePostings(shard, bucket, docID, prop)
 }
 
-// ShouldProcessProperty always returns true — scope is driven by
-// selectedPropsByCollection (see NewRuntimeEnableSearchableTask). The
-// HasSearchableIndex schema flag is still false on targeted properties
-// until OnMigrationComplete flips it.
+// ShouldProcessProperty always returns true: scope comes from
+// selectedPropsByCollection, not HasSearchableIndex (still false until
+// OnMigrationComplete flips it).
 func (s *EnableSearchableStrategy) ShouldProcessProperty(property *inverted.Property) bool {
 	return true
 }

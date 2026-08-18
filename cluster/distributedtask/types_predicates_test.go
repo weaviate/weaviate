@@ -133,10 +133,7 @@ func TestTaskStatus_IsRecognized(t *testing.T) {
 }
 
 // TestTaskStatus_IsCoordinationPhase pins the PREPARING/SWAPPING
-// classification — the phase question the docs' predicate table
-// answers. The method's switch has no default arm, so a newly declared
-// status fails the build until someone places it; this table pins where
-// each one landed.
+// classification, including the unrecognized-status default.
 func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
 	cases := []struct {
 		status       TaskStatus
@@ -159,11 +156,8 @@ func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
 	}
 }
 
-// TestTask_LocalUnitIDs pins per-node ownership. Production callers that
-// rely on the empty-NodeID skip include `NodesWithLocalUnits` (and
-// therefore `MissingPostCompletionAckNodes`). A regression that started
-// returning unassigned units under any specific node would corrupt the
-// ack-barrier predicate.
+// TestTask_LocalUnitIDs pins per-node ownership, including the
+// literal-equality empty-NodeID case relied on by NodesWithLocalUnits.
 func TestTask_LocalUnitIDs(t *testing.T) {
 	task := fixtureTask()
 	cases := []struct {
@@ -174,12 +168,8 @@ func TestTask_LocalUnitIDs(t *testing.T) {
 		{"n-2", []string{"u-2-g1-n2-failed", "u-4-g2-n2-prog"}},
 		{"n-3", []string{"u-5-noGroup-n3"}},
 		{"n-doesnotexist", nil},
-		// Empty NodeID literally matches units with empty NodeID — the
-		// load-bearing difference from NodesWithLocalUnits (which skips
-		// the unassigned unit, since it can't have a node-side ack).
-		// Production callers of LocalUnitIDs always pass a real node ID,
-		// but the literal-equality semantics are pinned here so a future
-		// "skip empty" refactor doesn't silently change the contract.
+		// Empty NodeID matches literally, unlike NodesWithLocalUnits
+		// (which skips the unassigned unit).
 		{"", []string{"u-6-g1-unassigned"}},
 	}
 	for _, tc := range cases {

@@ -487,12 +487,9 @@ func (t TaskStatus) IsCompleted() bool {
 	return t == TaskStatusSwapping || t == TaskStatusFinished
 }
 
-// IsCoordinationPhase is true for the post-units, pre-terminal phases
-// (PREPARING, SWAPPING) — the scheduler-driven callback states.
-//
-// A status this build does not recognize answers false here and true from
-// [TaskStatus.IsActive]: this asks which phase a task is in, IsActive
-// whether to assume it is still running.
+// IsCoordinationPhase is true for the scheduler-driven callback phases
+// (PREPARING, SWAPPING); unlike [TaskStatus.IsActive], an unrecognized
+// status answers false here.
 func (t TaskStatus) IsCoordinationPhase() bool {
 	switch t {
 	case TaskStatusPreparing, TaskStatusSwapping:
@@ -770,11 +767,9 @@ func (t *Task) MissingPostCompletionAckNodes() []string {
 	return missing
 }
 
-// AnyPostCompletionAckFailed returns true iff any node has recorded a
-// post-completion ack with [PostCompletionAck.Success]==false. The
-// FSM uses this on the apply path to flip the task to FAILED — once
-// any node reports failure, the schema flip must be skipped and the
-// task must not progress to FINISHED.
+// AnyPostCompletionAckFailed reports whether any node recorded a failed
+// post-completion ack. The FSM apply path uses this to flip the task to
+// FAILED instead of letting it reach FINISHED.
 func (t *Task) AnyPostCompletionAckFailed() bool {
 	for _, ack := range t.PostCompletionAcks {
 		if !ack.Success {

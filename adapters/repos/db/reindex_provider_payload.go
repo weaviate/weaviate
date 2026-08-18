@@ -17,11 +17,8 @@ import "encoding/json"
 const ReindexNamespace = "reindex"
 
 // ExtractReindexTaskCollection decodes the class name a reindex task is
-// bound to. Registered on startup via
-// [Raft.RegisterDistributedTaskCollectionExtractor] so that DELETE_CLASS
-// cascades into reindex task GC (weaviate/0-weaviate-issues#231). Lives
-// next to [ReindexTaskPayload] so the payload format and its
-// scoping-decoder evolve together.
+// bound to, feeding the DELETE_CLASS cascade via
+// [Raft.RegisterDistributedTaskCollectionExtractor] (weaviate/0-weaviate-issues#231).
 func ExtractReindexTaskCollection(payload []byte) (string, bool) {
 	var p ReindexTaskPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
