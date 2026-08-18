@@ -376,7 +376,7 @@ func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 
 func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.NoError(t, err)
 
 	className := t.Name() + "Class"
@@ -481,11 +481,12 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
 		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx))
 
-	// Verify all named vectors appear in usage
-	colUsageBefore, err := GetDebugUsageForCollection(className)
-	require.NoError(t, err)
-	require.Len(t, colUsageBefore.Shards, 1)
-	shard := colUsageBefore.Shards[0]
+	// Verify all named vectors appear in usage. The baseline waits for the
+	// reactivated shard to stop growing: reloading it makes every HNSW index
+	// snapshot its commit log, and one snapshot is a whole 4 MiB block whatever it
+	// holds. Sampling before those land measures a shard that is still only on
+	// disk against one that has reloaded, and the drop below then reads as growth.
+	shard := settledShardUsage(t, c, className, tenantName)
 	require.Equal(t, int64(numObjects), shard.ObjectsCount)
 	require.Equal(t, expected, namedVectorDimensionalities(t, shard))
 
@@ -732,6 +733,42 @@ func namedVectors(t require.TestingT, shard *usagetypes.ShardUsage, want ...stri
 		require.Contains(t, vectors, name)
 	}
 	return vectors
+}
+
+// settledShardUsage loads a tenant's shard and reports its usage once the shard has
+// stopped growing, so a caller's baseline is measured in the state the reports it is
+// compared against are measured in. A reload lets the HNSW commit-log maintenance
+// cycle run, which writes files a shard sitting on disk does not have; the cycle
+// backs off to 10s between runs, so the shard has to hold still for longer than that
+// before it counts as settled.
+func settledShardUsage(t *testing.T, c *client.Client, className, tenantName string) *usagetypes.ShardUsage {
+	t.Helper()
+
+	// reading the tenant materializes its lazily loaded shard before the wait starts
+	_, err := c.Data().ObjectsGetter().WithClassName(className).
+		WithTenant(tenantName).WithLimit(1).Do(context.Background())
+	require.NoError(t, err)
+
+	const settleFor = 15 * time.Second
+	var settled *usagetypes.ShardUsage
+	var unchangedSince time.Time
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		colUsage, err := GetDebugUsageForCollection(className)
+		require.NoError(ct, err)
+		require.Len(ct, colUsage.Shards, 1)
+		current := colUsage.Shards[0]
+
+		if settled == nil || current.FullShardStorageBytes != settled.FullShardStorageBytes ||
+			current.VectorStorageBytes != settled.VectorStorageBytes {
+			settled, unchangedSince = current, time.Now()
+		}
+		if held := time.Since(unchangedSince); held < settleFor {
+			ct.Errorf("shard %q still growing: %d full / %d vector bytes, unchanged for %s",
+				current.Name, current.FullShardStorageBytes, current.VectorStorageBytes, held)
+		}
+	}, 90*time.Second, 500*time.Millisecond)
+
+	return settled
 }
 
 // namedVectorDimensionalities maps every named vector of a shard usage report to the
