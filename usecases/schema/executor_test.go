@@ -223,16 +223,23 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("GetShardsStatus", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		status := map[string]string{"A": "B"}
-		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, nil)
+		status := map[string]map[string]string{"A": {"B": "C"}}
+		legacy := map[string]string{"A": "C"}
+		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, legacy, nil)
 		x := newMockExecutor(migrator, store)
-		_, err := x.GetShardsStatus("A", "")
-		assert.Nil(t, err)
+		statusList, err := x.GetShardsStatus("A", "")
+		assert.NoError(t, err)
+		assert.Len(t, statusList, 1, "number of shards in the status list")
+		statusList0 := statusList[0]
+		assert.Equal(t, statusList0.Name, "A", "shard name")
+		assert.Equal(t, statusList0.Status, "C", "shard legacy status") //nolint:staticcheck
+		assert.Equal(t, statusList0.PerNodeStatus, map[string]string{"B": "C"})
 	})
 	t.Run("GetShardsStatusError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		status := map[string]string{"A": "B"}
-		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, ErrAny)
+		status := map[string]map[string]string{"A": {"B": "C"}}
+		legacy := map[string]string{"A": "C"}
+		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, legacy, ErrAny)
 		x := newMockExecutor(migrator, store)
 		_, err := x.GetShardsStatus("A", "")
 		assert.ErrorIs(t, err, ErrAny)

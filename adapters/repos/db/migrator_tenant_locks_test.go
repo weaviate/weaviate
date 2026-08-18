@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -60,7 +61,27 @@ func newLockTestMigrator(t *testing.T, reachIndex bool) *Migrator {
 		func(_ string, _ bool, read func(*models.Class, *sharding.State) error) error {
 			return read(nil, state)
 		}).Maybe()
+	reader.EXPECT().ShardReplicas(lockTestClass, mock.Anything).
+		Return([]string{lockTestNode}, nil).Maybe()
 	idx.schemaReader = reader
+
+	shardStatus := make(map[string]map[string]string, len(shards))
+	for _, shard := range shards {
+		shardStatus[shard] = map[string]string{
+			lockTestNode: "READY",
+		}
+	}
+
+	nodeResolver := cluster.NewMockNodeResolver(t)
+	nodeResolver.EXPECT().
+		NodeHostname(mock.Anything).
+		RunAndReturn(func(s string) (string, bool) { return s, true }).Maybe()
+	idx.remote = sharding.NewRemoteIndex(
+		lockTestClass,
+		idx.getSchema,
+		nodeResolver,
+		&FakeRemoteClient{shardStatus: shardStatus},
+	)
 
 	return newDropTestMigrator(idx, lockTestClass, nil)
 }
@@ -85,7 +106,7 @@ func migratorOpsWithoutClassLock(reachIndex bool) map[string]func(*Migrator) err
 			return m.DeleteTenants(ctx, lockTestClass, nil)
 		},
 		"GetShardsStatus": func(m *Migrator) error {
-			_, err := m.GetShardsStatus(ctx, lockTestClass, "")
+			_, _, err := m.GetShardsStatus(ctx, lockTestClass, "")
 			return err
 		},
 		"GetShardsQueueSize": func(m *Migrator) error {

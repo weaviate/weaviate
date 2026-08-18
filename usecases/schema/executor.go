@@ -365,17 +365,17 @@ func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 
 func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	ctx := context.Background()
-	shardsStatus, err := e.migrator.GetShardsStatus(ctx, class, tenant)
+	shardsStatus, legacyStatus, err := e.migrator.GetShardsStatus(ctx, class, tenant)
 	if err != nil {
 		return nil, err
 	}
 
-	resp := models.ShardStatusList{}
-
-	for name, status := range shardsStatus {
+	resp := make(models.ShardStatusList, 0, len(shardsStatus))
+	for shardName, status := range shardsStatus {
 		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:   name,
-			Status: status,
+			Name:          shardName,
+			Status:        legacyStatus[shardName],
+			PerNodeStatus: status,
 		})
 	}
 

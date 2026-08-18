@@ -415,7 +415,7 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 		})
 		require.Len(t, shards, 1)
 		for _, s := range shards {
-			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
+			assert.NotEmpty(t, s.PerNodeStatus, "shard %q should have a populated status", s.Name)
 		}
 	})
 
@@ -431,7 +431,7 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 		})
 		require.Len(t, shards, 1)
 		for _, s := range shards {
-			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
+			assert.NotEmpty(t, s.PerNodeStatus, "shard %q should have a populated status", s.Name)
 		}
 	})
 
@@ -452,7 +452,7 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 		})
 		require.Len(t, shards, 1)
 		for _, s := range shards {
-			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
+			assert.NotEmpty(t, s.PerNodeStatus, "shard %q should have a populated status", s.Name)
 		}
 	})
 }
@@ -521,7 +521,9 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 			}
 			for _, s := range after {
 				if s.Name == shardName {
-					assert.Equal(c, want, s.Status)
+					for nodeName, shardStatus := range s.PerNodeStatus {
+						assert.Equal(c, want, shardStatus, "%s status on node %s", shardName, nodeName)
+					}
 					return
 				}
 			}
@@ -579,7 +581,7 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		})
 		require.Len(t, shards, 1)
 		shardName := shards[0].Name
-		initialStatus := shards[0].Status
+		initialStatus := shards[0].PerNodeStatus
 
 		// Wait for the alias entry to be visible on the node handling the
 		// request before asserting that UpdateShardStatus rejects it. On a
@@ -598,7 +600,7 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		after, err := getShards(t, ns1+":Concerts", adminKey)
 		require.NoError(t, err)
 		require.Len(t, after, 1)
-		assert.Equal(t, initialStatus, after[0].Status, "underlying shard status must be unchanged")
+		assert.Equal(t, initialStatus, after[0].PerNodeStatus, "underlying shard status must be unchanged")
 	})
 
 	t.Run("each namespace updates only its own class", func(t *testing.T) {
@@ -628,7 +630,13 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		after1, err := getShards(t, ns1+":Books", adminKey)
 		require.NoError(t, err)
 		require.Len(t, after1, 1)
-		assert.NotEqual(t, "READONLY", after1[0].Status, "ns1:Books must be untouched by user2's update")
+		for nodeName, shardStatus := range after1[0].PerNodeStatus {
+			assert.NotEqual(t,
+				"READONLY", shardStatus,
+				"ns1:Books must be untouched by user2's update (shard=%s node=%s)",
+				shardName, nodeName,
+			)
+		}
 	})
 }
 

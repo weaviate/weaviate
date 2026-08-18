@@ -11526,12 +11526,19 @@ func init() {
           "description": "Name of the shard",
           "type": "string"
         },
+        "per_node_status": {
+          "description": "Status of the shard on each of its replicas",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "status": {
-          "description": "Status of the shard",
+          "description": "Deprecated: value is not consistent in replicated clusters.",
           "type": "string"
         },
         "vectorQueueSize": {
-          "description": "Size of the vector queue of the shard",
+          "description": "Deprecated: value is not consistent in replicated clusters.",
           "type": "integer",
           "x-omitempty": false
         }
@@ -24219,12 +24226,19 @@ func init() {
           "description": "Name of the shard",
           "type": "string"
         },
+        "per_node_status": {
+          "description": "Status of the shard on each of its replicas",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "status": {
-          "description": "Status of the shard",
+          "description": "Deprecated: value is not consistent in replicated clusters.",
           "type": "string"
         },
         "vectorQueueSize": {
-          "description": "Size of the vector queue of the shard",
+          "description": "Deprecated: value is not consistent in replicated clusters.",
           "type": "integer",
           "x-omitempty": false
         }

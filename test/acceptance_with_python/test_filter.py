@@ -1,38 +1,25 @@
 from typing import List
 
 import pytest
-from weaviate.collections.classes.config import Configure, Property, DataType
+
+from weaviate.collections.classes.config import Configure, DataType, Property
 from weaviate.collections.classes.filters import Filter, _FilterValue
 
 from .conftest import CollectionFactory
 
 
-# bug in client + not supported in weaviate for filter by empty list
 @pytest.mark.parametrize(
-    "weaviate_filter,results,skip",
+    "weaviate_filter,results",
     [
-        (
-            Filter.by_property("textArray").equal([]),
-            [1],
-            True,
-        ),
-        (Filter.by_property("textArray", length=True).equal(0), [1], False),
-        (
-            Filter.by_property("textArray").not_equal([]),
-            [0],
-            True,
-        ),
-        (Filter.by_property("textArray", length=True).not_equal(0), [0], False),
+        (Filter.by_property("textArray", length=True).equal(0), [1]),
+        (Filter.by_property("textArray", length=True).not_equal(0), [0]),
     ],
 )
 def test_empty_list_filter(
     collection_factory: CollectionFactory,
     weaviate_filter: _FilterValue,
     results: List[int],
-    skip: bool,
 ) -> None:
-    if skip:
-        pytest.skip("Not supported in this version")
     collection = collection_factory(
         vectorizer_config=Configure.Vectorizer.none(),
         properties=[Property(name="textArray", data_type=DataType.TEXT_ARRAY)],

@@ -29,7 +29,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/assert"
+	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -38,10 +39,13 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestIndex_aggregateCount(t *testing.T) {
@@ -262,6 +266,130 @@ func (f *fakeRouter) GetWriteReplicasLocation(collection, tenant, shard string) 
 func (f *fakeRouter) NodeHostname(nodeName string) (string, bool) {
 	host, ok := f.hostnames[nodeName]
 	return host, ok
+}
+
+func TestIndex_getShardsStatus(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	clusterNodes := []string{"node-0", "node-1", "node-2"}
+	targetNode := clusterNodes[0]
+	shardReplicas := map[string][]string{
+		"shard_local":          clusterNodes,
+		"shard_not_local":      clusterNodes[1:],
+		"remote_not_reachable": clusterNodes,
+	}
+	shardStatus := map[string]map[string]string{
+		"shard_local": {
+			"node-0": storagestate.StatusReady.String(),
+			"node-1": storagestate.StatusLazyLoading.String(),
+			"node-2": storagestate.StatusIndexing.String(),
+		},
+		"shard_not_local": {
+			"node-1": storagestate.StatusIndexing.String(),
+			"node-2": storagestate.StatusIndexing.String(),
+		},
+		"remote_not_reachable": {
+			"node-0": storagestate.StatusReady.String(),
+			"node-1": storagestate.StatusReady.String(),
+			"node-2": NodeUnresponsive, // Remote replica failed to report status.
+		},
+	}
+
+	// NodeUnresponsive should not be in the final response.
+	want := maps.Clone(shardStatus)
+	want["remote_not_reachable"] = maps.Clone(want["remote_not_reachable"])
+	delete(want["remote_not_reachable"], "node-2")
+
+	wantLegacy := map[string]string{
+		"shard_local":          storagestate.StatusReady.String(),
+		"shard_not_local":      storagestate.StatusIndexing.String(),
+		"remote_not_reachable": storagestate.StatusReady.String(),
+	}
+
+	var replicas []types.Replica
+	for shard, nodes := range shardReplicas {
+		for _, node := range nodes {
+			replicas = append(replicas, types.Replica{
+				ShardName: shard,
+				NodeName:  node,
+				HostAddr:  node,
+			})
+		}
+	}
+
+	router := &fakeRouter{
+		readSet: types.ReadReplicaSet{
+			Replicas: replicas,
+		},
+	}
+
+	replicator := &replica.Replicator{
+		Finder: replica.NewFinder(
+			"Songs", nil, nil,
+			targetNode, nil, nil,
+			logger, nil,
+		),
+	}
+
+	// Arrange
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().
+		Shards("Songs").
+		RunAndReturn(func(collectionName string) (shards []string, _ error) {
+			for s := range shardReplicas {
+				shards = append(shards, s)
+			}
+			return
+		}).Maybe()
+	schemaReader.EXPECT().
+		ShardReplicas("Songs", mock.Anything).
+		RunAndReturn(func(collectionName, shardName string) ([]string, error) {
+			assert.Contains(t, shardReplicas, shardName)
+			return shardReplicas[shardName], nil
+		}).Maybe()
+
+	nodeResolver := cluster.NewMockNodeResolver(t)
+	nodeResolver.EXPECT().
+		NodeHostname(mock.Anything).
+		RunAndReturn(func(s string) (string, bool) { return s, true }).Maybe()
+
+	index := Index{
+		Config:           IndexConfig{ClassName: schema.ClassName("Songs")},
+		getSchema:        &fakeSchemaGetter{nodeName: targetNode},
+		schemaReader:     schemaReader,
+		shardCreateLocks: esync.NewKeyRWLocker(),
+		router:           router,
+		replicator:       replicator,
+		logger:           logger,
+	}
+
+	index.remote = sharding.NewRemoteIndex(
+		"Songs",
+		index.getSchema,
+		nodeResolver,
+		&FakeRemoteClient{shardStatus: shardStatus},
+	)
+
+	for shardName, statusByNode := range shardStatus {
+		mockShard := NewMockShardLike(t)
+		mockShard.EXPECT().
+			preventShutdown().
+			Return(func() {}, nil).Maybe()
+		mockShard.EXPECT().
+			Name().
+			Return(shardName).Maybe()
+		mockShard.EXPECT().
+			GetStatus().
+			Return(storagestate.Status(statusByNode[targetNode])).Maybe()
+		index.shards.Store(shardName, mockShard)
+	}
+
+	// Act
+	got, gotLegacy, err := index.getShardsStatus(t.Context(), "")
+
+	// Assert
+	assert.NoError(t, err)
+	require.Equal(t, want, got, "shard statuses")
+	require.Equal(t, wantLegacy, gotLegacy, "legacy statuses")
 }
 
 // TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement pins the

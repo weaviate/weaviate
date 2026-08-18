@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -40,6 +41,7 @@ import (
 )
 
 type fakeSchemaGetter struct {
+	nodeName   string
 	schema     schema.Schema
 	shardState *sharding.State
 }
@@ -109,7 +111,10 @@ func (f *fakeSchemaGetter) Nodes() []string {
 }
 
 func (f *fakeSchemaGetter) NodeName() string {
-	return "node1"
+	if f.nodeName == "" {
+		return "node1"
+	}
+	return f.nodeName
 }
 
 func (f *fakeSchemaGetter) ClusterHealthScore() int {
@@ -305,7 +310,9 @@ func fixedMultiShardState() *sharding.State {
 	return s
 }
 
-type FakeRemoteClient struct{}
+type FakeRemoteClient struct {
+	shardStatus map[string]map[string]string
+}
 
 func (f *FakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties, schemaVersion uint64) []error {
 	return nil
@@ -387,10 +394,21 @@ func (f *FakeRemoteClient) GetShardQueueSize(ctx context.Context,
 	return 0, nil
 }
 
+// NodeUnresponsive is a sentinel status that causes
+// [FakeRemoteClient.GetShardStatus] to return an error.
+const NodeUnresponsive = "[node unresponsive]"
+
 func (f *FakeRemoteClient) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {
-	return "", nil
+	if f.shardStatus == nil || f.shardStatus[shardName] == nil {
+		return "", nil
+	}
+	status := f.shardStatus[shardName][hostName]
+	if status == NodeUnresponsive {
+		return "", errors.New(NodeUnresponsive)
+	}
+	return status, nil
 }
 
 func (f *FakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,

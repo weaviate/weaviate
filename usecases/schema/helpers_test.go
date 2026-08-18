@@ -351,9 +351,9 @@ func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants 
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
+func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]map[string]string, map[string]string, error) {
 	args := f.Called(ctx, className, tenant)
-	return args.Get(0).(map[string]string), args.Error(1)
+	return args.Get(0).(map[string]map[string]string), args.Get(1).(map[string]string), args.Error(2)
 }
 
 func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
