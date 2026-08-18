@@ -114,14 +114,17 @@ func TestUpdateShardStatusViaFollowerWhileTenantCold(t *testing.T) {
 		}
 		require.NotEmpty(t, leaderName, "no leader in cluster/statistics; got: %+v", stats.Statistics)
 
-		// docker/compose.go sets CLUSTER_HOSTNAME=nodeN.
+		// docker/compose.go sets CLUSTER_HOSTNAME=weaviate-<n>, and
+		// /v1/cluster/statistics reports that as Statistics.Name. GetWeaviateNode
+		// counts from 1, so its node i is container weaviate-<i-1>.
 		for i := 1; i <= 3; i++ {
-			if fmt.Sprintf("node%d", i) != leaderName {
+			if fmt.Sprintf("weaviate-%d", i-1) != leaderName {
 				followerClient = newNodeClient(compose.GetWeaviateNode(i).URI())
 				break
 			}
 		}
 		require.NotNil(t, followerClient, "could not identify a follower")
+		t.Logf("leader is %s; issuing the update via a different node", leaderName)
 	})
 
 	t.Run("update shard status via follower returns without error", func(t *testing.T) {
