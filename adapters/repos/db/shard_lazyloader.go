@@ -552,7 +552,7 @@ func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors
 	if l.isLoaded() {
 		l.shard.updatePropertyBuckets(ctx, eg, property, payloadReads)
 	} else {
-		// The unloaded path removes bucket dirs by name and reads no payloads.
+		// The unloaded path removes bucket dirs by name; its payload reads go uncounted.
 		l.updateUnloadedPropertyBuckets(ctx, eg, property)
 	}
 }
@@ -567,17 +567,20 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 		// removes the main bucket dir by name and nothing else, so a cold
 		// tenant's migration and sidecar dirs outlive the property delete.
 		// That is a gap, not a property of unloaded shards.
+		//
+		// One memo for the whole loop, as on the loaded path: one tracker, two types.
+		props := &taskPropsCache{}
 		for _, indexType := range disabledIndexTypes(prop) {
 			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
 			if !ok {
 				return fmt.Errorf("cannot remove unloaded %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
 			// The one exception to the by-name-only rule above: a completed
-			// migration's tracker would otherwise survive the delete and have
-			// the tenant's next load re-open the bucket just removed. Retired
-			// first, so a crash leaves a bucket with no tracker, not the reverse.
+			// migration's tracker would otherwise survive the delete and have the
+			// tenant's next load re-open the bucket just removed. Retired first, so
+			// a crash leaves a bucket with no tracker, not the reverse.
 			retireFinalizedMigrationDirs(
-				migrationDirsOf(l.pathLSM(), nil, prop.Name, indexType),
+				migrationDirsOf(l.pathLSM(), nil, prop.Name, indexType).cachingProps(props),
 				prop.Name, indexType, l.shardOpts.index.logger)
 			if err := l.shard.removeDirIfExists(l.pathLSM(), mainBucket); err != nil {
 				return fmt.Errorf("cannot remove unloaded %s index for %s property: %w", indexType, prop.Name, err)
