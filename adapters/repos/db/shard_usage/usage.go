@@ -12,6 +12,7 @@
 package shardusage
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -149,15 +150,20 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 	}
 	defer bucket.Shutdown(ctx)
 
-	return CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+	scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, 0)
+	if err != nil {
+		return types.Dimensionality{}, err
+	}
+	return scan.Raw, nil
 }
 
 // CalculateUnloadedDimensionsUsageAll calculates dimensions and object count for all target
 // vectors of an unloaded shard without loading it into memory. The dimensions bucket is opened
 // once and shared by all target vector calculations, instead of once per target vector.
+// targetVectors maps each vector name to its MUVERA-encoded dimensionality, or 0 if not MUVERA.
 func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
-	logger logrus.FieldLogger, path, tenantName string, targetVectors []string,
-) (map[string]types.Dimensionality, error) {
+	logger logrus.FieldLogger, path, tenantName string, targetVectors map[string]int,
+) (map[string]DimensionsScan, error) {
 	if len(targetVectors) == 0 {
 		return nil, nil
 	}
@@ -174,15 +180,15 @@ func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
 	}
 	defer bucket.Shutdown(ctx)
 
-	dimensionalities := make(map[string]types.Dimensionality, len(targetVectors))
-	for _, targetVector := range targetVectors {
-		dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+	scans := make(map[string]DimensionsScan, len(targetVectors))
+	for targetVector, encodedDimensions := range targetVectors {
+		scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, encodedDimensions)
 		if err != nil {
 			return nil, err
 		}
-		dimensionalities[targetVector] = dimensionality
+		scans[targetVector] = scan
 	}
-	return dimensionalities, nil
+	return scans, nil
 }
 
 // VectorsMetrics is what a single walk over a shard's vector buckets yields: their
@@ -392,17 +398,56 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 	return vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, nil
 }
 
-// CalculateTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
-func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string,
-) (types.Dimensionality, error) {
-	dimensionality := types.Dimensionality{}
+type DimensionsScan struct {
+	Raw      types.Dimensionality
+	Reported types.Dimensionality
+}
+
+const contextCheckInterval = 1024
+
+// ScanTargetVectorDimensions calculates dimensions and object count for a target vector from an
+// LSMKV bucket. A non-zero encodedDimensions reports that fixed dimensionality against the object
+// count summed across all rows, which costs a scan of the whole prefix instead of stopping at the
+// first complete row.
+func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVector string,
+	encodedDimensions int,
+) (DimensionsScan, error) {
+	scan := DimensionsScan{}
 
 	if err := lsmkv.CheckExpectedStrategy(b.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyRoaringSet); err != nil {
-		return dimensionality, fmt.Errorf("calcTargetVectorDimensionsFromBucket: %w", err)
+		return scan, fmt.Errorf("scanTargetVectorDimensions: %w", err)
 	}
 
+	prefix := []byte(targetVector)
 	nameLen := len(targetVector)
 	expectedKeyLen := nameLen + 4 // vector name + uint32
+	totalCount := 0
+	rows := 0
+	addRow := func(k []byte, count int) (done bool) {
+		// a full-prefix scan is long enough to need cancelling; the error is picked up after the loop
+		if rows++; rows%contextCheckInterval == 0 && ctx.Err() != nil {
+			return true
+		}
+		// a longer name sharing this prefix can sort before the target's own keys
+		if len(k) != expectedKeyLen {
+			return false
+		}
+		dimLength := binary.LittleEndian.Uint32(k[nameLen:])
+		if dimLength == 0 {
+			return false
+		}
+		if scan.Raw.Dimensions == 0 || scan.Raw.Count == 0 {
+			scan.Raw.Dimensions = int(dimLength)
+			scan.Raw.Count = count
+		}
+		if encodedDimensions > 0 {
+			totalCount += count
+			return false
+		}
+		// remaining keys cannot change a complete result, and an empty name
+		// matches every key so the prefix break above never fires
+		return scan.Raw.Dimensions != 0 && scan.Raw.Count != 0
+	}
 	var k []byte
 
 	switch b.Strategy() {
@@ -412,7 +457,7 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 
 		c, err := b.MapCursor()
 		if err != nil {
-			return dimensionality, fmt.Errorf("create cursor: %w", err)
+			return scan, fmt.Errorf("create cursor: %w", err)
 		}
 		defer c.Close()
 
@@ -420,25 +465,10 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 		if nameLen == 0 {
 			k, v = c.First(ctx)
 		} else {
-			k, v = c.Seek(ctx, []byte(targetVector))
+			k, v = c.Seek(ctx, prefix)
 		}
-		for ; k != nil; k, v = c.Next(ctx) {
-			if !strings.HasPrefix(string(k), targetVector) {
-				break
-			}
-			// a longer name sharing this prefix can sort before the target's own keys
-			if len(k) != expectedKeyLen {
-				continue
-			}
-
-			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
-			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
-				dimensionality.Dimensions = int(dimLength)
-				dimensionality.Count = len(v)
-			}
-			// remaining keys cannot change a complete result, and an empty name
-			// matches every key so the prefix break above never fires
-			if dimensionality.Dimensions != 0 && dimensionality.Count != 0 {
+		for ; k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next(ctx) {
+			if addRow(k, len(v)) {
 				break
 			}
 		}
@@ -450,32 +480,22 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 		if nameLen == 0 {
 			k, v = c.First()
 		} else {
-			k, v = c.Seek([]byte(targetVector))
+			k, v = c.Seek(prefix)
 		}
-		for ; k != nil; k, v = c.Next() {
-			if !strings.HasPrefix(string(k), targetVector) {
-				break
-			}
-			// a longer name sharing this prefix can sort before the target's own keys
-			if len(k) != expectedKeyLen {
-				continue
-			}
-
-			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
-			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
-				dimensionality.Dimensions = int(dimLength)
-				dimensionality.Count = v.GetCardinality()
-			}
-			// remaining keys cannot change a complete result, and an empty name
-			// matches every key so the prefix break above never fires
-			if dimensionality.Dimensions != 0 && dimensionality.Count != 0 {
+		for ; k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+			if addRow(k, v.GetCardinality()) {
 				break
 			}
 		}
 	}
 
 	if err := ctx.Err(); err != nil {
-		return dimensionality, err
+		return scan, err
 	}
-	return dimensionality, nil
+
+	scan.Reported = scan.Raw
+	if encodedDimensions > 0 && totalCount > 0 {
+		scan.Reported = types.Dimensionality{Dimensions: encodedDimensions, Count: totalCount}
+	}
+	return scan, nil
 }
