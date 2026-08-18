@@ -49,10 +49,13 @@ QPS at interpolated recall (pre-registered decision metric):
 
 | cell | @0.90: pathseer vs best-other | @0.95 | what "best-other" actually ran |
 | --- | --- | --- | --- |
-| pos10 | 1364 vs 1387 (**−1.7%**) | −1.7% | acorn (188 acorn / 812 rre) |
-| pos40 | 1401 vs 1203 (**+16.5%**) | +16.5% | "acorn" arm ran **sweeping** (ratio gate: 0.43 > 0.4) |
-| neg10 | 104 vs 527 (**−80.3%**) | 321 vs 290 → −64.2% | acorn (969 acorn / 31 rre), with seeding |
-| neg40 | 323 vs 88 (**+266%**) | +264% | "acorn" arm ran **sweeping** (ratio gate) |
+| pos10 | 1362 vs 1321 (**+3.1%**) | +3.1% | acorn (188 acorn / 812 rre) |
+| pos40 | 1402 vs 1199 (**+16.9%**) | +16.9% | "acorn" arm ran **sweeping** (ratio gate: 0.43 > 0.4) |
+| neg10 | 114 vs 532 (**−78.6%**) | −61.4% | acorn (969 acorn / 31 rre), with seeding |
+| neg40 | 362 vs 89 (**+304.8%**) | +300.4% | "acorn" arm ran **sweeping** (ratio gate) |
+
+(Timing from the clean rerun, `-trackburned=false`; the earlier tracked run
+gave the same structure with pathseer ~9% slower on NEG cells.)
 
 **Seeding decomposition (labeled ours, `pathseer-seeded`):** grafting
 ACORN's 10 allowlist entry-point seeds onto PathSeer makes it *worse* on
@@ -69,6 +72,30 @@ distance computations (ef64: 1,973 vs 8,059). Where selectivity exceeds
 `acornFilterRatio` and Weaviate would run sweeping today (the 0.4 cells),
 PathSeer is a large genuine win in NEG (+266%) and a modest one in POS
 (+16.5%). The PR's averaged claim mixes these regimes.
+
+## Stage 3 — the quantizer axis (BEIR 500k, rq1 vs float32)
+
+Same corpus/filters/protocol as Stage 1, plain rq1 (bits=1, default rescore).
+QPS-at-recall gains for pathseer vs best(sweeping, acorn), f32 → rq1:
+
+| cell | @0.90 | @0.95 |
+| --- | --- | --- |
+| pos10 | +3.1% → +21.3% | same |
+| pos40 | +16.9% → +8.5% | same |
+| neg10 | −78.6% → −68.5% | −61.4% → −54.7% |
+| neg40 | **+304.8% → +206.5%** | **+300.4% → +122.0%** |
+
+Cost model measured directly: `O_filter` (sroar Contains on the real 52.7k
+bitmap) = **16.9 ns**; `O_dist` (f32 dot, 1024 dims, SIMD) = **109.7 ns** →
+`R_p = 0.154`. Under rq1 the per-distance traversal cost drops to 0.45× (
+matched sweeping-slope ratio across all 16 family×ef cells), giving an
+estimated pure `O_dist(rq1) ≈ 49 ns` and `R_p(rq1) ≈ 0.34` — a 2.2× shift
+toward the filter-dominated side of the paper's axis. The measured effect is
+exactly the predicted direction: PathSeer's headline NEG-vs-sweeping edge
+shrinks by a third at 0.90 recall and by ~60% at 0.95 when the quantizer we
+actually ship is enabled. (pos10's small gain grew — in that cell acorn
+mostly routes to RRE and rescore costs dominate; the NEG cells are the ones
+the PR's claim rests on.)
 
 ## Hypotheses
 
