@@ -132,7 +132,14 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 }
 
 func TestManager_AddTask_Failures(t *testing.T) {
-	t.Run("add duplicate task", func(t *testing.T) {
+	t.Run("duplicate submit of a running task is an idempotent no-op (RAFT retry)", func(t *testing.T) {
+		// A RAFT Execute retry across a leadership change can re-append the
+		// same AddTask command at a higher log index (raft.Apply may report
+		// ErrLeadershipLost after the entry has already committed via quorum).
+		// The re-apply must be a no-op, not a spurious "already running" error
+		// that surfaces as a 500 to the still-waiting submitter. Regression for
+		// the soak hit on
+		// TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency.
 		var (
 			h = newTestHarness(t).init(t)
 			c = toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -141,14 +148,18 @@ func TestManager_AddTask_Failures(t *testing.T) {
 				SubmittedAtUnixMillis: time.Now().UnixMilli(),
 				UnitIds:               []string{"su-1"},
 			})
-			version uint64 = 100
 		)
 
-		err := h.manager.AddTask(c, version)
-		require.NoError(t, err)
+		require.NoError(t, h.manager.AddTask(c, 5))
+		// The retry re-applies the identical command at a later log index.
+		require.NoError(t, h.manager.AddTask(c, 7))
 
-		err = h.manager.AddTask(c, version)
-		require.ErrorContains(t, err, "already running")
+		// Task unchanged: still Started at the original version, exactly one.
+		tasks, err := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		require.Len(t, tasks["test"], 1)
+		require.Equal(t, uint64(5), tasks["test"][0].Version)
+		require.Equal(t, TaskStatusStarted, tasks["test"][0].Status)
 	})
 
 	t.Run("add task with the same version as already finished one", func(t *testing.T) {
