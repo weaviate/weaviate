@@ -280,7 +280,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 		indexName = "rangeFilters"
 	}
 
-	_, err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, indexName)
+	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, indexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
