@@ -103,13 +103,6 @@ func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask
 	return s.store.LocalUnrecognizedDistributedTasks()
 }
 
-// RegisterDistributedTaskCollectionExtractor opts a task namespace into
-// the DELETE_CLASS cascade. See [distributedtask.CollectionExtractor]
-// and weaviate/0-weaviate-issues#231.
-func (s *Raft) RegisterDistributedTaskCollectionExtractor(namespace string, extractor distributedtask.CollectionExtractor) {
-	s.store.RegisterDistributedTaskCollectionExtractor(namespace, extractor)
-}
-
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }

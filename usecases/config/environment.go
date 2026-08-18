@@ -16,7 +16,6 @@ import (
 	"math"
 	"os"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -698,10 +697,6 @@ func FromEnv(config *Config) error {
 			config.Persistence.DataPath = DefaultPersistenceDataPath
 		}
 	}
-
-	parsePositiveFloat("REINDEXER_GOROUTINES_FACTOR",
-		func(val float64) { config.ReindexerGoroutinesFactor = val },
-		DefaultReindexerGoroutinesFactor)
 
 	if err := config.parseMemtableConfig(); err != nil {
 		return err
@@ -2116,16 +2111,6 @@ func parseClusterConfig() (cluster.Config, error) {
 	}
 
 	return cfg, nil
-}
-
-func enabledForHost(envName string, localHostname string) bool {
-	if v := os.Getenv(envName); v != "" {
-		if entcfg.Enabled(v) {
-			return true
-		}
-		return slices.Contains(strings.Split(v, ","), localHostname)
-	}
-	return false
 }
 
 /*

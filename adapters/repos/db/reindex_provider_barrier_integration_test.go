@@ -285,7 +285,7 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 		shard, []*ShardReindexTaskGeneric{task}, &selectedPropsFailures{}))
 
 	// Sanity: payload.mig is on disk in the migration dir.
-	migDir := filepath.Join(shard.pathLSM(), ".migrations", task.MigrationDirName())
+	migDir := task.migrationPath(shard.pathLSM())
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
 	rawPayload, err := os.ReadFile(payloadPath)
 	require.NoError(t, err, "payload.mig must exist after persistRecoveryRecord")
