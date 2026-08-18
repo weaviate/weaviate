@@ -379,11 +379,13 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger log
 
 // finalizeEffectiveGen promotes the effective generation's ingest dirs to
 // their canonical names and reports whether its tracker dir may now be
-// removed. Three outcomes keep the record honest:
+// removed. Four outcomes keep the record honest:
 //
 //   - Promotion failed for a property: tracker stays UNMARKED so the next
 //     start retries it; `tidied.mig` keeps the promoted buckets shielded
 //     meanwhile.
+//   - Nothing was promoted (no canonical, ingest or backup dir left): the
+//     tracker is removed, since the index a record would revive is gone.
 //   - Promotion succeeded, schema already advertises the index: tracker is
 //     removed by the caller.
 //   - Promotion succeeded, schema still advertises it disabled: tracker is
@@ -398,11 +400,16 @@ func finalizeEffectiveGen(lsmPath, migDir, migName string, class *models.Class,
 	if fileExistsInDir(migDir, finalizedSentinel) {
 		return !migrationAwaitsSchemaFlip(migDir, migName, class)
 	}
-	if err := finalizeMigrationDir(lsmPath, migDir, migName, logger); err != nil {
+	promoted, err := finalizeMigrationDir(lsmPath, migDir, migName, logger)
+	if err != nil {
 		logger.WithField("migration", migName).
 			Errorf("reindex finalize: promotion did not complete for every property; "+
 				"keeping the tracker unmarked so the next start retries it: %v", err)
 		return false
+	}
+	if !promoted {
+		logger.WithField("migration", migName).Warnf("reindex finalize: %s left no index dir behind; removing its tracker", migName)
+		return true
 	}
 	if !migrationAwaitsSchemaFlip(migDir, migName, class) {
 		return true
@@ -688,28 +695,29 @@ func reindexSuffixForFinalize(namespace string) string {
 // finalizeMigrationDir renames every property's ingest dir to its canonical
 // name and removes the backup dir it replaced.
 //
-// A non-nil error means at least one property is NOT promoted; the caller
-// must not mark the tracker finalized on that answer, or a later start will
-// trust the record instead of retrying. Idempotent by construction: after a
-// successful run neither the ingest nor the backup dir exists, so a re-run
-// (crash between promotion and record) is a no-op.
-func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) error {
+// The bool reports whether any property ended with its canonical dir on disk —
+// the only evidence a record may rest on, since absent ingest and backup dirs
+// are ambiguous between "promoted earlier" and "destroyed in between". A
+// non-nil error means at least one property is NOT promoted; the caller must
+// not mark the tracker finalized on that answer, or a later start will trust
+// the record instead of retrying.
+func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) (bool, error) {
 	// A missing sentinel means a tracker nothing can promote from — callers
 	// reach here at the effective generation, where both are already present.
 	if !fileExists(filepath.Join(migDir, "swapped.mig")) {
-		return fmt.Errorf("tracker has no swapped.mig")
+		return false, fmt.Errorf("tracker has no swapped.mig")
 	}
 	if !fileExists(filepath.Join(migDir, "tidied.mig")) {
-		return fmt.Errorf("tracker has no tidied.mig")
+		return false, fmt.Errorf("tracker has no tidied.mig")
 	}
 
 	// Read properties from the migration.
 	props, err := readMigrationProps(migDir)
 	if err != nil {
-		return fmt.Errorf("read properties.mig: %w", err)
+		return false, fmt.Errorf("read properties.mig: %w", err)
 	}
 	if len(props) == 0 {
-		return fmt.Errorf("properties.mig names no property")
+		return false, fmt.Errorf("properties.mig names no property")
 	}
 
 	// Determine bucket naming from migration dir name. The migration dir
@@ -719,12 +727,12 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	// to find the matching on-disk sidecar dirs.
 	suffixes := migrationSuffixes(migName)
 	if suffixes == nil {
-		return fmt.Errorf("no bucket naming scheme for this migration")
+		return false, fmt.Errorf("no bucket naming scheme for this migration")
 	}
 	_, gen, ok := parseMigrationDirName(migName)
 	if !ok {
 		// Defensive — every dir on disk should carry the gen suffix.
-		return fmt.Errorf("tracker name carries no generation suffix")
+		return false, fmt.Errorf("tracker name carries no generation suffix")
 	}
 	genTail := "_" + strconv.Itoa(gen)
 
@@ -733,6 +741,7 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	// One property failing must not skip the rest: every one of them is a
 	// separate index the shard would otherwise come up without.
 	var failures []error
+	promoted := false
 	for _, propName := range props {
 		mainName := suffixes.sourceBucketName(propName)
 		ingestDir := filepath.Join(lsmPath, mainName+suffixes.ingestSuffix+genTail)
@@ -765,8 +774,9 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 			logger.WithField("from", ingestDir).WithField("to", mainDir).
 				Debug("finalize: renamed ingest dir to main")
 		}
+		promoted = promoted || fileExists(mainDir)
 	}
-	return errors.Join(failures...)
+	return promoted, errors.Join(failures...)
 }
 
 func readMigrationProps(migDir string) ([]string, error) {
