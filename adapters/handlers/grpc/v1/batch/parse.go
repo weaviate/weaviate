@@ -55,9 +55,8 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 		// The name stays local: the worker re-sends these same objects on retry,
 		// and a rewritten collection fails the namespace-prefix check on the
 		// second pass.
-		collectionName := resolved
 		if class != nil {
-			collectionName = class.Class
+			resolved = class.Class
 		}
 
 		if obj.Properties != nil {
@@ -127,7 +126,7 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 
 		objOriginalIndex[insertCounter] = i
 		objs = append(objs, &models.Object{
-			Class:      collectionName,
+			Class:      resolved,
 			Tenant:     obj.Tenant,
 			Vector:     vector,
 			Properties: props,

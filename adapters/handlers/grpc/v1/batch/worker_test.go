@@ -413,11 +413,11 @@ func TestWorkerLoop(t *testing.T) {
 		require.Len(t, report.Errors, 10, "Expected 10 errors to be returned")
 		// the sub-batches complete in any order, so the errors are a set: one per
 		// sub-batch, each for that sub-batch's second object
-		expectedErrored := make([]string, 0, 10)
+		expectedfailed := make([]string, 0, 10)
 		for i := 0; i < 10; i++ {
-			expectedErrored = append(expectedErrored, objs[i*10+1].GetUuid())
+			expectedfailed = append(expectedfailed, objs[i*10+1].GetUuid())
 		}
-		require.ElementsMatch(t, expectedErrored, errorUuids(report))
+		require.ElementsMatch(t, expectedfailed, errorUuids(report))
 		require.NotNil(t, report.Stats, "Expected stats to be returned")
 		require.Len(t, report.Successes, 90, "Expected 90 successes to be returned")
 		require.Empty(t, rq, "Expected reporting queue to be empty after reading all messages")
@@ -650,7 +650,7 @@ func TestConsumeFanoutReplies(t *testing.T) {
 		outerIdxs     []int // nil means the collection owns the whole batch, in order
 		replies       []replySpec
 		wantErrors    []errorSpec
-		wantErrored   []int
+		wantfailed    []int
 		wantRetriable []int
 	}{
 		{
@@ -661,8 +661,8 @@ func TestConsumeFanoutReplies(t *testing.T) {
 				{offset: 2, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 1, Error: "e1"}}},
 				{offset: 4, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 1, Error: "e2"}}},
 			},
-			wantErrors:  []errorSpec{{0, "e0"}, {3, "e1"}, {5, "e2"}},
-			wantErrored: []int{0, 3, 5},
+			wantErrors: []errorSpec{{0, "e0"}, {3, "e1"}, {5, "e2"}},
+			wantfailed: []int{0, 3, 5},
 		},
 		{
 			name:     "replies in reverse order",
@@ -672,8 +672,8 @@ func TestConsumeFanoutReplies(t *testing.T) {
 				{offset: 2, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 1, Error: "e1"}}},
 				{offset: 0, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 0, Error: "e0"}}},
 			},
-			wantErrors:  []errorSpec{{0, "e0"}, {3, "e1"}, {5, "e2"}},
-			wantErrored: []int{0, 3, 5},
+			wantErrors: []errorSpec{{0, "e0"}, {3, "e1"}, {5, "e2"}},
+			wantfailed: []int{0, 3, 5},
 		},
 		{
 			// a batch that is not a multiple of the fanout ends in a short sub-batch
@@ -684,8 +684,8 @@ func TestConsumeFanoutReplies(t *testing.T) {
 				{offset: 0, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 1, Error: "e0"}}},
 				{offset: 2, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 0, Error: "e1"}}},
 			},
-			wantErrors:  []errorSpec{{1, "e0"}, {2, "e1"}, {4, "e2"}},
-			wantErrored: []int{1, 2, 4},
+			wantErrors: []errorSpec{{1, "e0"}, {2, "e1"}, {4, "e2"}},
+			wantfailed: []int{1, 2, 4},
 		},
 		{
 			name:     "nil entry in the reply's error list",
@@ -693,8 +693,8 @@ func TestConsumeFanoutReplies(t *testing.T) {
 			replies: []replySpec{
 				{offset: 0, length: 2, errors: []*pb.BatchObjectsReply_BatchError{nil, {Index: 1, Error: "e1"}}},
 			},
-			wantErrors:  []errorSpec{{1, "e1"}},
-			wantErrored: []int{1},
+			wantErrors: []errorSpec{{1, "e1"}},
+			wantfailed: []int{1},
 		},
 		{
 			name:     "reply error index outside the sub-batch",
@@ -702,8 +702,8 @@ func TestConsumeFanoutReplies(t *testing.T) {
 			replies: []replySpec{
 				{offset: 0, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 2, Error: "beyond"}, {Index: -1, Error: "negative"}}},
 			},
-			wantErrors:  nil,
-			wantErrored: nil,
+			wantErrors: nil,
+			wantfailed: nil,
 		},
 		{
 			name:     "whole sub-batch fails in transport",
@@ -712,8 +712,8 @@ func TestConsumeFanoutReplies(t *testing.T) {
 				{offset: 0, length: 2, err: errors.New("transport blew up")},
 				{offset: 2, length: 2},
 			},
-			wantErrors:  []errorSpec{{0, "transport blew up"}, {1, "transport blew up"}},
-			wantErrored: []int{0, 1},
+			wantErrors: []errorSpec{{0, "transport blew up"}, {1, "transport blew up"}},
+			wantfailed: []int{0, 1},
 		},
 		{
 			name:      "objects interleaved with another collection",
@@ -722,8 +722,8 @@ func TestConsumeFanoutReplies(t *testing.T) {
 			replies: []replySpec{
 				{offset: 0, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 1, Error: "e1"}}},
 			},
-			wantErrors:  []errorSpec{{1, "e1"}},
-			wantErrored: []int{1},
+			wantErrors: []errorSpec{{1, "e1"}},
+			wantfailed: []int{1},
 		},
 		{
 			name:     "transient replication error is retried, not reported",
@@ -733,7 +733,7 @@ func TestConsumeFanoutReplies(t *testing.T) {
 				{offset: 2, length: 2, errors: []*pb.BatchObjectsReply_BatchError{{Index: 0, Error: "e2"}}},
 			},
 			wantErrors:    []errorSpec{{2, "e2"}},
-			wantErrored:   []int{1, 2},
+			wantfailed:    []int{1, 2},
 			wantRetriable: []int{1},
 		},
 	}
@@ -769,8 +769,8 @@ func TestConsumeFanoutReplies(t *testing.T) {
 			close(replies)
 
 			w := &worker{logger: logrus.New()}
-			errored := make(map[int]struct{})
-			errs, retriable := w.consumeFanoutReplies(StreamId, replies, objs, outerIdxs, 0, errored)
+			failed := make(map[int]struct{})
+			errs, retriable := w.consumeFanoutReplies(StreamId, replies, objs, outerIdxs, 0, failed)
 
 			wantErrors := make([]string, 0, len(tc.wantErrors))
 			for _, want := range tc.wantErrors {
@@ -782,11 +782,11 @@ func TestConsumeFanoutReplies(t *testing.T) {
 			}
 			require.ElementsMatch(t, wantErrors, gotErrors, "each error must name the object its reply was for")
 
-			gotErrored := make([]int, 0, len(errored))
-			for i := range errored {
-				gotErrored = append(gotErrored, i)
+			gotfailed := make([]int, 0, len(failed))
+			for i := range failed {
+				gotfailed = append(gotfailed, i)
 			}
-			require.ElementsMatch(t, tc.wantErrored, gotErrored, "the errored set decides which objects are reported successful")
+			require.ElementsMatch(t, tc.wantfailed, gotfailed, "the failed set decides which objects are reported successful")
 
 			wantRetriable := make([]string, 0, len(tc.wantRetriable))
 			for _, i := range tc.wantRetriable {

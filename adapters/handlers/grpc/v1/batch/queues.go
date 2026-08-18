@@ -48,8 +48,7 @@ func newBatchResultsMessage(successes []*pb.BatchStreamReply_Results_Success, er
 	}
 }
 
-// newBatchResultsErrorMessage reports one error per uuid and per beacon, for a batch
-// that failed as a whole before any of it reached a worker.
+// newBatchResultsErrorMessage reports one error per uuid and per beacon.
 func newBatchResultsErrorMessage(uuids, beacons []string, msg string) *pb.BatchStreamReply {
 	errs := make([]*pb.BatchStreamReply_Results_Error, 0, len(uuids)+len(beacons))
 	for _, uuid := range uuids {

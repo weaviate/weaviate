@@ -185,7 +185,7 @@ func (w *worker) sendObjects(
 	// Assumption is all successes, so preallocate success slice
 	successes := make([]*pb.BatchStreamReply_Results_Success, 0, len(objs))
 	// keyed by index into objs, the same indexing the success loop below uses
-	errored := make(map[int]struct{})
+	failed := make(map[int]struct{})
 	// Keep track of retriable errors to send again
 	retriable := make([]*pb.BatchObject, 0)
 
@@ -204,7 +204,7 @@ func (w *worker) sendObjects(
 			collectionObjs = append(collectionObjs, objs[i])
 		}
 		replies := w.fanoutObjects(ctx, collectionObjs, cl, fanoutAmount)
-		errorsInner, retriableInner := w.consumeFanoutReplies(streamId, replies, objs, outerIdxs, retries, errored)
+		errorsInner, retriableInner := w.consumeFanoutReplies(streamId, replies, objs, outerIdxs, retries, failed)
 		errors = append(errors, errorsInner...)
 		retriable = append(retriable, retriableInner...)
 	}
@@ -221,7 +221,7 @@ func (w *worker) sendObjects(
 	}
 	// Handle successes
 	for i, obj := range objs {
-		if _, ok := errored[i]; ok {
+		if _, ok := failed[i]; ok {
 			continue
 		}
 		successes = append(successes, &pb.BatchStreamReply_Results_Success{
@@ -231,9 +231,9 @@ func (w *worker) sendObjects(
 	return successes, errors
 }
 
-// consumeFanoutReplies drains one collection's fanout replies and pins every
+// consumeFanoutReplies drains one collection's fanout replies and records every
 // reply error on the object it belongs to. outerIdxs[j] gives the position of
-// the collection's j-th object in the full batch; errored is keyed by that
+// the collection's j-th object in the full batch; failed is keyed by that
 // position and mutated in place. A reply's error indices only mean something
 // inside its own sub-batch, so an out-of-range index is dropped rather than
 // blamed on whichever object happens to sit at that position.
@@ -243,7 +243,7 @@ func (w *worker) consumeFanoutReplies(
 	objs []*pb.BatchObject,
 	outerIdxs []int,
 	retries int,
-	errored map[int]struct{},
+	failed map[int]struct{},
 ) (errs []*pb.BatchStreamReply_Results_Error, retriable []*pb.BatchObject) {
 	log := w.logger.WithField("streamId", streamId)
 	for resp := range replies {
@@ -251,7 +251,7 @@ func (w *worker) consumeFanoutReplies(
 			log.Errorf("failed to batch objects: %s", resp.err)
 			for k := range resp.subBatch {
 				outer := outerIdxs[resp.offset+k]
-				errored[outer] = struct{}{}
+				failed[outer] = struct{}{}
 				errs = append(errs, &pb.BatchStreamReply_Results_Error{
 					Error:  resp.err.Error(),
 					Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: objs[outer].Uuid},
@@ -269,7 +269,7 @@ func (w *worker) consumeFanoutReplies(
 			}
 			outer := outerIdxs[resp.offset+int(err.Index)]
 			obj := objs[outer]
-			errored[outer] = struct{}{}
+			failed[outer] = struct{}{}
 			if w.isTransientReplicationError(err.Error) && retries < MAX_RETRIES {
 				log.Infof("transient replication error for object %s: %s", obj.Uuid, err.Error)
 				retriable = append(retriable, obj)
@@ -320,7 +320,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 	// Assumption is all successes, so preallocate success slice
 	successes := make([]*pb.BatchStreamReply_Results_Success, 0, len(refs))
 	// Handle errors
-	errored := make(map[int32]struct{})
+	failed := make(map[int32]struct{})
 	if len(reply.GetErrors()) > 0 {
 		retriable := make([]*pb.BatchReference, 0)
 		for _, err := range reply.GetErrors() {
@@ -333,7 +333,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 				w.logger.WithField("streamId", streamId).Errorf("dropping reference reply error with index %d outside the request of %d references: %s", err.Index, len(refs), err.Error)
 				continue
 			}
-			errored[err.Index] = struct{}{}
+			failed[err.Index] = struct{}{}
 			if w.isTransientReplicationError(err.Error) && retries < MAX_RETRIES {
 				w.logger.WithField("streamId", streamId).Infof("transient replication error for reference %s: %s", toBeacon(refs[err.Index]), err.Error)
 				retriable = append(retriable, refs[err.Index])
@@ -358,7 +358,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 	}
 	// Handle successes
 	for i, ref := range refs {
-		if _, ok := errored[int32(i)]; ok {
+		if _, ok := failed[int32(i)]; ok {
 			continue
 		}
 		successes = append(successes, &pb.BatchStreamReply_Results_Success{
