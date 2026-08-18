@@ -200,11 +200,30 @@ func (s *ReplicationService) DigestObjectsInRange(ctx context.Context, req *pb.D
 		return nil, replicationErrorToGRPC(err)
 	}
 
+	if req.GetAcceptEncoding() == replica.RepairDigestsEncodingPacked {
+		return &pb.DigestObjectsInRangeResponse{
+			DigestsPacked: replica.RepairDigestsToBinary(results),
+			Encoding:      replica.RepairDigestsEncodingPacked,
+		}, nil
+	}
+
+	// Proto records: older callers never set accept_encoding.
 	return &pb.DigestObjectsInRangeResponse{Digests: repairDigestsToProto(results)}, nil
 }
 
 func (s *ReplicationService) CompareDigests(ctx context.Context, req *pb.CompareDigestsRequest) (*pb.CompareDigestsResponse, error) {
-	digests, err := repairDigestsFromProto(req.GetDigests())
+	var digests []types.RepairDigest
+	var err error
+	switch req.GetEncoding() {
+	case replica.RepairDigestsEncodingPacked:
+		if len(req.GetDigestsPacked()) > replica.CompareDigestsMaxBodyBytes {
+			return nil, status.Errorf(codes.InvalidArgument, "packed digests payload of %d bytes exceeds %d",
+				len(req.GetDigestsPacked()), replica.CompareDigestsMaxBodyBytes)
+		}
+		digests, err = replica.RepairDigestsFromBinary(req.GetDigestsPacked())
+	default:
+		digests, err = repairDigestsFromProto(req.GetDigests())
+	}
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "decode digests: %v", err)
 	}
@@ -214,6 +233,14 @@ func (s *ReplicationService) CompareDigests(ctx context.Context, req *pb.Compare
 		return nil, replicationErrorToGRPC(err)
 	}
 
+	if req.GetAcceptEncoding() == replica.RepairDigestsEncodingPacked {
+		return &pb.CompareDigestsResponse{
+			DigestsPacked: replica.RepairDigestsToBinary(results),
+			Encoding:      replica.RepairDigestsEncodingPacked,
+		}, nil
+	}
+
+	// Proto records: older callers never set accept_encoding.
 	return &pb.CompareDigestsResponse{Digests: repairDigestsToProto(results)}, nil
 }
 

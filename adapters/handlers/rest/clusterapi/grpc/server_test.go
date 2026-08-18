@@ -143,6 +143,20 @@ func Test_ServerReplicationService(t *testing.T) {
 				require.Equal(t, int64(2), resp[1].UpdateTime)
 			})
 
+			t.Run("CompareDigests", func(t *testing.T) {
+				c := "C"
+				s := "S"
+				source := []routerTypes.RepairDigest{
+					{ID: uuid.MustParse("00000000-0000-0000-0000-000000000001"), UpdateTime: 1},
+					{ID: uuid.MustParse("00000000-0000-0000-0000-000000000002"), UpdateTime: 2, Deleted: true},
+				}
+				mockReplicator.EXPECT().CompareDigests(mock.Anything, c, s, source).Return(source[1:], nil)
+				resp, err := client.CompareDigests(context.Background(), host, c, s, source)
+				require.NoError(t, err)
+				require.Len(t, resp, 1)
+				require.Equal(t, source[1], resp[0])
+			})
+
 			t.Run("FindUUIDs", func(t *testing.T) {
 				c := "C"
 				s := "S"

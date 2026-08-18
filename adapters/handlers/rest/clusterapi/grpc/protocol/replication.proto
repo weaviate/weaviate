@@ -206,10 +206,13 @@ message DigestObjectsInRangeRequest {
   string initial_uuid = 3;
   string final_uuid = 4;
   int32 limit = 5;
+  uint32 accept_encoding = 6; // response encoding the sender accepts; servers only emit 1 when asked
 }
 
 message DigestObjectsInRangeResponse {
   repeated RepairResponse digests = 1;
+  bytes digests_packed = 2; // replica.RepairDigestsToBinary output
+  uint32 encoding = 3; // 0 (older responders) = digests; 1 = digests_packed
 }
 
 // CompareDigests sends source digests to the target and returns those that need repair.
@@ -217,10 +220,15 @@ message CompareDigestsRequest {
   string index = 1;
   string shard = 2;
   repeated RepairResponse digests = 3;
+  bytes digests_packed = 4; // replica.RepairDigestsToBinary output
+  uint32 encoding = 5; // 0 (older senders) = digests; 1 = digests_packed
+  uint32 accept_encoding = 6; // response encoding the sender accepts; servers only emit 1 when asked
 }
 
 message CompareDigestsResponse {
   repeated RepairResponse digests = 1;
+  bytes digests_packed = 2; // replica.RepairDigestsToBinary output
+  uint32 encoding = 3; // 0 (older responders) = digests; 1 = digests_packed
 }
 
 // OverwriteObjects conditionally updates existing objects

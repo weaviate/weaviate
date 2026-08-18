@@ -223,17 +223,7 @@ func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64, maxRecords
 func (c *replicationClient) CompareDigests(ctx context.Context,
 	host, index, shard string, digests []types.RepairDigest,
 ) ([]types.RepairDigest, error) {
-	body := make([]byte, 0, len(digests)*replica.CompareDigestsRecordLength)
-	var buf [replica.CompareDigestsRecordLength]byte
-	for _, d := range digests {
-		copy(buf[:16], d.ID[:])
-		binary.BigEndian.PutUint64(buf[16:], uint64(d.UpdateTime))
-		buf[24] = 0
-		if d.Deleted {
-			buf[24] = replica.CompareDigestsFlagDeleted
-		}
-		body = append(body, buf[:]...)
-	}
+	body := replica.RepairDigestsToBinary(digests)
 
 	// No internal timeout: the async-replication scheduler manages the
 	// per-cycle deadline on the incoming context.
