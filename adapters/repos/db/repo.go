@@ -65,6 +65,7 @@ type DB struct {
 	promMetrics               *monitoring.PrometheusMetrics
 	indexCheckpoints          *indexcheckpoint.Checkpoints
 	shutdown                  chan struct{}
+	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
 	resourceScanState         *resourceScanState
@@ -593,14 +594,18 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {
-	db.shutdown <- struct{}{}
+	// Close, never send: the sole receiver is the resource-scan loop, and a recovered panic there would leave an unbuffered send hanging the whole shutdown until SIGKILL.
+	db.shutdownOnce.Do(func() { close(db.shutdown) })
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {
 		// shut down the workers that add objects to
 		for i := 0; i < db.maxNumberGoroutines; i++ {
-			db.jobQueueCh <- job{
-				index: -1,
+			select {
+			case db.jobQueueCh <- job{index: -1}:
+			case <-time.After(30 * time.Second):
+				// Skipping is safe (worker Done is deferred); blocking here would wedge the shutdown.
+				db.logger.Warnf("batch worker poison pill %d/%d not accepted after 30s; continuing shutdown", i+1, db.maxNumberGoroutines)
 			}
 		}
 	}
@@ -642,11 +647,12 @@ type job struct {
 }
 
 func (db *DB) batchWorker(first bool) {
+	// Unconditional: a recovered panic must not leak the count and pin DB.Shutdown forever.
+	defer db.shutDownWg.Done()
 	objectCounter := 0
 	checkTime := time.Now().Add(time.Second)
 	for jobToAdd := range db.jobQueueCh {
 		if jobToAdd.index < 0 {
-			db.shutDownWg.Done()
 			return
 		}
 		func() {

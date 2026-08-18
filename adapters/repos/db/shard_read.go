@@ -230,7 +230,8 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	}
 
 	// Digest mode: only the header is read below, so skip the full value copy.
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).
+		CursorReplaceDigestReusableRange(storobj.MarshallerV1HeaderLen, initialUUID16[:], finalUUID16[:])
 	defer cursor.Close()
 
 	return collectObjectDigests(ctx, cursor, initialUUID16[:], finalUUID16[:], limit)
@@ -277,8 +278,8 @@ func collectObjectDigests(ctx context.Context, cursor *lsmkv.CursorReplace,
 // tombstones), so the source resolves any tombstone collision later via the
 // post-Overwrite resolveObjectConflict path.
 //
-// sourceDigests must be in strict lex UUID order; out-of-order input is rejected
-// rather than silently mis-joined.
+// sourceDigests must be in strict lex order of the parsed UUID bytes;
+// enforced mid-join, not up front.
 func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
 	if len(sourceDigests) == 0 {
 		return nil, nil
@@ -286,14 +287,21 @@ func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.Repair
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	// Digest mode: only the header is read below (localTime), skip the full value.
-	cursor := bucket.CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
-	defer cursor.Close()
-
 	firstUUID, err := uuid.Parse(sourceDigests[0].ID)
 	if err != nil {
 		return nil, fmt.Errorf("parse source uuid %q: %w", sourceDigests[0].ID, err)
 	}
+	lastUUID, err := uuid.Parse(sourceDigests[len(sourceDigests)-1].ID)
+	if err != nil {
+		return nil, fmt.Errorf("parse source uuid %q: %w", sourceDigests[len(sourceDigests)-1].ID, err)
+	}
+
+	// Digest mode: only the header is read below (localTime), skip the full
+	// value. The join only inspects keys within the source digest span, so the
+	// memtable snapshot is bounded to it (input is in strict lex order).
+	cursor := bucket.CursorReplaceDigestReusableRange(storobj.MarshallerV1HeaderLen, firstUUID[:], lastUUID[:])
+	defer cursor.Close()
+
 	cursorKey, cursorVal := cursor.Seek(firstUUID[:])
 
 	result := make([]types.RepairResponse, 0, len(sourceDigests))
@@ -425,7 +433,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 	}
 
 	container.Buff = newBuff
-	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, targetVector)
 	if err != nil {
 		var eTV storobj.ErrTargetVectorNotFound
 		if stderrors.As(err, &eTV) {
@@ -492,7 +500,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 	}
 
 	container.Buff = newBuff
-	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, targetVector)
 	if err != nil {
 		var eTV storobj.ErrTargetVectorNotFound
 		if stderrors.As(err, &eTV) {

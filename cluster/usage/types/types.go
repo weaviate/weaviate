@@ -13,7 +13,9 @@ package types
 
 // UsageDiskVersion invalidates usage already stored on disk. Bump it when reported
 // sizes change meaning, or shards that stay cold keep serving the old numbers.
-const UsageDiskVersion int = 1
+// VectorConfigsFingerprint invalidates the same file on its own, for the numbers
+// that depend on the collection's vector configs rather than on this format.
+const UsageDiskVersion int = 2
 
 // UsageDisk defines format of saved pre-computed shard usage data
 type UsageDisk struct {
@@ -21,6 +23,10 @@ type UsageDisk struct {
 	Version int `json:"version"`
 	// ShardUsage
 	ShardUsage *ShardUsage `json:"shardUsage"`
+	// VectorConfigsFingerprint identifies the vector configs the usage was computed
+	// from. Serving it under different ones would bill a vector index that has since
+	// been dropped, or leave out one that was added, until the shard is loaded again.
+	VectorConfigsFingerprint string `json:"vectorConfigsFingerprint,omitempty"`
 }
 
 // Report represents the usage metrics report from the metrics endpoint

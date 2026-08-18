@@ -65,8 +65,16 @@ func (b *BatchManager) DeleteObjectsFromGRPCAfterAuth(ctx context.Context, princ
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
+	ctx = classcache.ContextWithClassCache(ctx)
+	className := string(params.ClassName)
+	fetchedClasses, err := b.schemaManager.GetCachedClassNoAuth(ctx, className)
+	if err != nil {
+		return BatchDeleteResult{}, fmt.Errorf("could not get class %s: %w", className, err)
+	}
+	schemaVersion := fetchedClasses[className].Version
+
 	deletionTime := time.UnixMilli(b.timeSource.Now())
-	return b.vectorRepo.BatchDeleteObjects(ctx, params, deletionTime, repl, tenant, 0)
+	return b.vectorRepo.BatchDeleteObjects(ctx, params, deletionTime, repl, tenant, schemaVersion)
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
