@@ -294,6 +294,9 @@ func retireFinalizedMigrationDirs(scope migrationDirScope, propName, indexType s
 	migrationsRoot := filepath.Join(scope.lsmPath, ".migrations")
 	names, err := scope.dirs.list(migrationsRoot)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			logger.WithField("path", migrationsRoot).Errorf("index DELETE could not read the migrations dir: %v; a completed migration's tracker may survive it and have the next load re-open the removed bucket", err)
+		}
 		return
 	}
 	for _, name := range names {
