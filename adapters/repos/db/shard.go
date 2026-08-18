@@ -379,6 +379,9 @@ type Shard struct {
 	status              ShardStatus
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
+	// geoInitLock serializes initGeoProp so a prop never has two indexes under
+	// construction at once, see initGeoProp.
+	geoInitLock sync.Mutex
 
 	centralJobQueue chan job // reference to queue used by all shards
 
