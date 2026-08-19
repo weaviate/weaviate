@@ -471,7 +471,7 @@ func NewIndex(
 		stopwords:               sd,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		AsyncIndexingEnabled:    asyncIndexingEnabled,
-		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
+		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient, cfg.QueryHedgedTimeout, logger),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
 		backupLock:              esync.NewKeyRWLocker(),
@@ -1229,6 +1229,7 @@ type IndexConfig struct {
 	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
+	QueryHedgedTimeout          *configRuntime.DynamicValue[time.Duration]
 	QueryBatchedContainsEnabled *configRuntime.DynamicValue[bool]
 	LazyPropertyLengthsEnabled  *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
