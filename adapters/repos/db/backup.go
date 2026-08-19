@@ -49,6 +49,16 @@ const (
 	tmpExt        = ".tmp"
 )
 
+// Subdirectories listInactiveShardFiles skips when it walks a shard for vector
+// index files. lsm/ was already listed by listInactiveLSMFiles. hashtree_uuid/
+// and changelog/ belong in no backup: Shard.ListBackupFiles omits them too, and
+// a shard rebuilds its hashtree and sweeps orphaned change logs when it loads.
+var nonVectorShardDirs = map[string]struct{}{
+	lsmDir:           {},
+	hashTreeDirName:  {},
+	changelogDirName: {},
+}
+
 // Backupable returns whether all given class can be backed up.
 // Refuses if any shard has an in-flight runtime-reindex; this runs in
 // the coordinator's canCommit phase so no staging dir is created on
@@ -840,15 +850,18 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 		files = append(files, relPath)
 	}
 
-	// List vector index files (all non-lsm subdirectories of the shard).
-	// Expected directories: <id>.hnsw.commitlog.d/, <id>.hnsw.snapshot.d/,
-	// <id>.queue.d/ and <id>.hfresh.d/ for a vector index id, plus hashtree_uuid/.
-	// Flat and dynamic state is not a directory; the loop above lists it.
-	// An indiscriminate walk is safe here because INACTIVE shards are fully
+	// List vector index files, walking every shard subdirectory outside
+	// nonVectorShardDirs. Expected: <id>.hnsw.commitlog.d/, <id>.hnsw.snapshot.d/,
+	// <id>.queue.d/ and <id>.hfresh.d/ for a vector index id. Flat and dynamic
+	// state is not a directory; the loop above lists it.
+	// Walking whatever remains is safe here because INACTIVE shards are fully
 	// quiesced — Shutdown has flushed and closed all stores, so there are no
 	// active commit logs or transient files to exclude.
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == lsmDir {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, skip := nonVectorShardDirs[entry.Name()]; skip {
 			continue
 		}
 		vectorDir := filepath.Join(shardDir, entry.Name())

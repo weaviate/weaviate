@@ -189,10 +189,12 @@ func TestListInactiveShardFiles(t *testing.T) {
 	shardName := "tenant1"
 
 	// rootFiles are written as regular files at the shard root, where the vector
-	// indexes keep their state.
+	// indexes keep their state. extraDirs maps a shard subdirectory to the files
+	// created inside it.
 	tests := []struct {
 		name          string
 		rootFiles     []string
+		extraDirs     map[string][]string
 		extraExpected []string
 	}{
 		{
@@ -229,6 +231,13 @@ func TestListInactiveShardFiles(t *testing.T) {
 			name:      "unrelated root files are left out",
 			rootFiles: []string{"metadata.db", "usage.json.tmp"},
 		},
+		{
+			name: "hashtree and change-capture logs are left out",
+			extraDirs: map[string][]string{
+				hashTreeDirName:  {"hashtree-1a2b3c.ht"},
+				changelogDirName: {"op-1.log"},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -248,6 +257,13 @@ func TestListInactiveShardFiles(t *testing.T) {
 
 			for _, name := range test.rootFiles {
 				require.NoError(t, os.WriteFile(filepath.Join(shardDir, name), []byte("bolt"), 0o644))
+			}
+
+			for dir, names := range test.extraDirs {
+				require.NoError(t, os.MkdirAll(filepath.Join(shardDir, dir), 0o755))
+				for _, name := range names {
+					require.NoError(t, os.WriteFile(filepath.Join(shardDir, dir, name), []byte("data"), 0o644))
+				}
 			}
 
 			// LSM bucket with segment and WAL
