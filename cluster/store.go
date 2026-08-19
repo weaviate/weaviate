@@ -905,20 +905,25 @@ func wipedJoinerBarrierReached(reloaded bool, barrier, appliedIndex uint64) bool
 	return !reloaded && barrier != 0 && appliedIndex >= barrier
 }
 
-// commit>0 guards the t=0 race where applied==commit==0 before joining/forming.
-func wipedJoinerFreshClusterReady(joined, hasLeader bool, commit, applied uint64) bool {
-	return !joined && hasLeader && commit > 0 && applied >= commit
+// Only a LOCAL leader is trivially caught up; a follower's commit view lags the
+// leader's mid-stream, so followers must obtain a real join barrier instead.
+func wipedJoinerSelfLeaderReady(isLeader bool, commit, applied uint64) bool {
+	return isLeader && commit > 0 && applied >= commit
 }
 
 // SetJoinBarrier records the leader's committed index at join as a wiped joiner's
 // catch-up barrier. No-op unless this node is an un-reloaded candidate; a 0 index
-// falls back to watchWipedJoiner's no-progress path.
+// falls back to watchWipedJoiner's timeout paths.
 func (st *Store) SetJoinBarrier(leaderCommitIndex uint64) {
 	if !st.wipedJoinerCandidate.Load() || st.wipedJoinerReloaded.Load() {
 		return
 	}
-	// Mark joined-existing-cluster even without a barrier, so the watcher doesn't
-	// mistake us for a fresh-cluster node and load before we catch up.
+	// Self-leader "join" (barrier 0): the watcher's leader path reloads.
+	if leaderCommitIndex == 0 && st.IsLeader() {
+		return
+	}
+	// Mark joined even without a barrier (pre-barrier leader), so the watcher
+	// arms the bounded zero-barrier deadline instead of waiting forever.
 	st.wipedJoinerJoined.Store(true)
 	if leaderCommitIndex == 0 {
 		return
@@ -926,6 +931,13 @@ func (st *Store) SetJoinBarrier(leaderCommitIndex uint64) {
 	st.joinBarrier.Store(leaderCommitIndex)
 	st.log.WithField("join_barrier", leaderCommitIndex).
 		Info("wiped joiner: catch-up barrier set; deferring DB load until caught up")
+}
+
+// NeedsJoinBarrier reports that this wiped joiner still needs a successful join
+// RPC to obtain its catch-up barrier; the bootstrapper keeps joining while true.
+func (st *Store) NeedsJoinBarrier() bool {
+	return st.wipedJoinerCandidate.Load() && !st.wipedJoinerReloaded.Load() &&
+		!st.wipedJoinerJoined.Load() && st.joinBarrier.Load() == 0
 }
 
 // finishWipedJoinerReload runs the self-recovery DB-load pass exactly once.
@@ -949,9 +961,10 @@ func (st *Store) wipedJoinerBarrierTimeout() time.Duration {
 	return wipedJoinerNoProgressTimeout
 }
 
-// watchWipedJoiner covers cases the Apply-deferred barrier path can't: a
-// fresh-cluster node (nothing to recover) and a joiner making no apply progress
-// toward its barrier before the timeout. Exits once reloaded or on Close.
+// watchWipedJoiner covers cases the Apply-deferred barrier path can't: a local
+// leader (trivially caught up), a joined node whose leader supplied no barrier
+// (bounded deadline), and a joiner making no apply progress toward its barrier
+// before the timeout. Exits once reloaded or on Close.
 func (st *Store) watchWipedJoiner() {
 	t := time.NewTicker(500 * time.Millisecond)
 	defer t.Stop()
@@ -959,6 +972,7 @@ func (st *Store) watchWipedJoiner() {
 	timeout := st.wipedJoinerBarrierTimeout()
 	var lastApplied uint64
 	var stableSince time.Time
+	var zeroBarrierSince time.Time
 	// Treat open=false as shutdown only after seeing it true, so an early tick
 	// mid-Open() can't exit and disable the fallbacks below.
 	opened := false
@@ -979,20 +993,35 @@ func (st *Store) watchWipedJoiner() {
 		}
 		hasLeader := st.Leader() != ""
 		joined := st.wipedJoinerJoined.Load()
+		barrier := st.joinBarrier.Load()
 
 		// Barrier reached but the Apply-thread trigger didn't fire (entry at the
 		// barrier was a config/noop, not a LogCommand); catch it here.
-		if wipedJoinerBarrierReached(st.wipedJoinerReloaded.Load(), st.joinBarrier.Load(), applied) {
+		if wipedJoinerBarrierReached(st.wipedJoinerReloaded.Load(), barrier, applied) {
 			st.log.WithField("applied_index", applied).
 				Info("wiped joiner: applied up to join barrier (watcher); running self-recovery reload")
 			st.finishWipedJoinerReload()
 			return
 		}
 
-		if wipedJoinerFreshClusterReady(joined, hasLeader, commit, applied) {
-			st.log.Info("wiped joiner: caught up on a fresh cluster (nothing to recover); loading")
+		if wipedJoinerSelfLeaderReady(st.IsLeader(), commit, applied) {
+			st.log.Info("wiped joiner: this node is the leader (nothing to catch up); loading")
 			st.finishWipedJoinerReload()
 			return
+		}
+
+		// Joined a pre-barrier leader: no barrier will ever arrive; bounded wait.
+		if joined && barrier == 0 {
+			if zeroBarrierSince.IsZero() {
+				zeroBarrierSince = time.Now()
+			}
+			if time.Since(zeroBarrierSince) >= timeout {
+				st.log.WithField("applied_index", applied).
+					Warn("wiped joiner: leader supplied no catch-up barrier; proceeding with eager load (some shards may start empty and rely on async replication / manual recovery)")
+				st.finishWipedJoinerReload()
+				return
+			}
+			continue
 		}
 
 		// Don't arm the no-progress timer until catching up (joined, or a leader
