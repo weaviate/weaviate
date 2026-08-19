@@ -731,17 +731,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		Enabled:                appState.ServerConfig.Config.Replication.SelfRecoveryEnabled,
 		Concurrency:            appState.ServerConfig.Config.Replication.SelfRecoveryConcurrency,
 		MaintenanceModeEnabled: appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		OnRecoveryComplete: func(ctx context.Context, collection, shard string) error {
-			idx := appState.DB.GetIndex(entschema.ClassName(collection))
-			if idx == nil {
-				return fmt.Errorf("self-recovery promote: index %q not found", collection)
-			}
-			return idx.LoadLocalShard(ctx, shard, false)
-		},
-		Logger: appState.Logger,
+		OnRecoveryComplete:     appState.DB.LoadLocalShard,
+		Logger:                 appState.Logger,
 	})
 	appState.DB.SetSelfRecoveryOrchestrator(selfRecoveryOrch)
-	// Expose debug endpoints (incl. test-only force-snapshot) only when the feature is on.
+	// Expose debug endpoints only when the feature is on.
 	if appState.ServerConfig.Config.Replication.SelfRecoveryEnabled {
 		setupSelfRecoveryHandlers(appState, selfRecoveryOrch)
 		setupRaftDebugHandlers(appState, appState.ClusterService.Raft)

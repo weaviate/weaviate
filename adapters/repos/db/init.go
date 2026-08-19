@@ -215,6 +215,7 @@ func (db *DB) init(ctx context.Context) error {
 				DisableDimensionMetrics:      db.config.DisableDimensionMetrics,
 				SelfRecoveryOrchestrator:     db.selfRecoveryOrchestrator,
 				RaftBootstrapComplete:        db.RaftBootstrapComplete,
+				ReplicationFSM:               db.replicationFSM,
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),

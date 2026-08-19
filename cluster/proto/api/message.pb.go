@@ -553,12 +553,7 @@ func (x *JoinPeerRequest) GetVoter() bool {
 type JoinPeerResponse struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Leader string                 `protobuf:"bytes,1,opt,name=leader,proto3" json:"leader,omitempty"`
-	// leader_commit_index is the leader's committed RAFT index at the moment
-	// it accepted this join. A wiped joiner uses it as the catch-up barrier:
-	// every pre-existing class's ADD_CLASS has index <= this value, so the
-	// joiner defers its DB load until it has applied up to here, then runs the
-	// self-recovery startup pass instead of materialising empty shards. 0 from
-	// an older leader => joiner falls back to the legacy eager load.
+	// Leader's committed index at join; a wiped joiner's catch-up barrier (0 from an older leader = legacy eager load).
 	LeaderCommitIndex uint64 `protobuf:"varint,2,opt,name=leader_commit_index,json=leaderCommitIndex,proto3" json:"leader_commit_index,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache

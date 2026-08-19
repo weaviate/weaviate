@@ -169,11 +169,9 @@ type SelfRecoveryOrchestrator interface {
 	// Enabled reports whether SELF_RECOVERY is on; must be checked before
 	// installing a wrapper, else it blocks load forever.
 	Enabled() bool
-	// HasInflightReplicationOp reports whether a non-terminal op already
-	// targets (collection, shard) here. Skip recovery on error (conservative).
-	HasInflightReplicationOp(ctx context.Context, collection, shard string) (bool, error)
-	// HasInflightSelfRecoveryOp is HasInflightReplicationOp narrowed to
-	// SELF_RECOVERY — the resume case that must install a wrapper, not skip.
+	// HasInflightSelfRecoveryOp reports a non-terminal SELF_RECOVERY op
+	// targeting (collection, shard) here — the resume case that must install
+	// a wrapper, not skip.
 	HasInflightSelfRecoveryOp(ctx context.Context, collection, shard string) (bool, error)
 	// SubmitRecovery is non-blocking. Returns false when not queued; the caller
 	// MUST then fall back to normal init, else the wrapper stays load-blocked.
@@ -195,6 +193,15 @@ func (db *DB) ShardPath(collection, shard string) string {
 		path.Join(db.config.RootPath, indexID(schema.ClassName(collection))),
 		shard,
 	)
+}
+
+// LoadLocalShard force-loads a local shard; the self-recovery promote callback.
+func (db *DB) LoadLocalShard(ctx context.Context, collection, shard string) error {
+	idx := db.GetIndex(schema.ClassName(collection))
+	if idx == nil {
+		return fmt.Errorf("load local shard: index %q not found", collection)
+	}
+	return idx.LoadLocalShard(ctx, shard, false)
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {

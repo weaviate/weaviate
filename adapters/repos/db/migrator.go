@@ -237,6 +237,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 			SelfRecoveryOrchestrator:     m.db.selfRecoveryOrchestrator,
 			RaftBootstrapComplete:        m.db.RaftBootstrapComplete,
+			ReplicationFSM:               m.db.replicationFSM,
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
