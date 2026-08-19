@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -251,9 +252,13 @@ type Store struct {
 	// candidate: set at Open for a node with no local raft state; while it holds
 	// (and not reloaded) Apply forces schemaOnly and dbLoaded is deferred.
 	wipedJoinerCandidate atomic.Bool
-	// latches once the self-recovery pass has run; stops forced schemaOnly and
-	// guards against a double reload.
+	// latches once a reload pass is claimed; guards against a double reload.
+	wipedJoinerReloadClaim atomic.Bool
+	// set once the self-recovery pass COMPLETED; only then does forced
+	// schemaOnly stop, so applies can't mutate the DB mid-reload.
 	wipedJoinerReloaded atomic.Bool
+	// serializes the watcher's off-FSM-thread reload against FSM mutations.
+	wipedJoinerApplyMu sync.RWMutex
 	// set once this node joined an EXISTING cluster; distinguishes a real wiped
 	// joiner from a node forming a fresh cluster (nothing to recover).
 	wipedJoinerJoined atomic.Bool
@@ -942,16 +947,30 @@ func (st *Store) NeedsJoinBarrier() bool {
 
 // finishWipedJoinerReload runs the self-recovery DB-load pass exactly once.
 // Idempotent across its callers (Apply barrier, snapshot Restore, watcher).
+// wipedJoinerReloaded latches only AFTER the reload, so applies stay
+// schemaOnly for its whole duration; candidate clears so later snapshot
+// restores fall back to the normal DB reload path.
 func (st *Store) finishWipedJoinerReload() {
-	if st.claimWipedJoinerReload() {
-		st.reloadDBFromSchema()
+	if !st.claimWipedJoinerReload() {
+		return
 	}
+	st.reloadDBFromSchema()
+	st.wipedJoinerReloaded.Store(true)
+	st.wipedJoinerCandidate.Store(false)
 }
 
-// claimWipedJoinerReload atomically latches wipedJoinerReloaded, returning true
+// claimWipedJoinerReload atomically latches the reload claim, returning true
 // to exactly one concurrent caller.
 func (st *Store) claimWipedJoinerReload() bool {
-	return !st.wipedJoinerReloaded.Swap(true)
+	return !st.wipedJoinerReloadClaim.Swap(true)
+}
+
+// finishWipedJoinerReloadExclusive is the watcher-side reload: it excludes FSM
+// mutations (Apply/Restore) for the reload's duration.
+func (st *Store) finishWipedJoinerReloadExclusive() {
+	st.wipedJoinerApplyMu.Lock()
+	defer st.wipedJoinerApplyMu.Unlock()
+	st.finishWipedJoinerReload()
 }
 
 func (st *Store) wipedJoinerBarrierTimeout() time.Duration {
@@ -1000,13 +1019,13 @@ func (st *Store) watchWipedJoiner() {
 		if wipedJoinerBarrierReached(st.wipedJoinerReloaded.Load(), barrier, applied) {
 			st.log.WithField("applied_index", applied).
 				Info("wiped joiner: applied up to join barrier (watcher); running self-recovery reload")
-			st.finishWipedJoinerReload()
+			st.finishWipedJoinerReloadExclusive()
 			return
 		}
 
 		if wipedJoinerSelfLeaderReady(st.IsLeader(), commit, applied) {
 			st.log.Info("wiped joiner: this node is the leader (nothing to catch up); loading")
-			st.finishWipedJoinerReload()
+			st.finishWipedJoinerReloadExclusive()
 			return
 		}
 
@@ -1018,7 +1037,7 @@ func (st *Store) watchWipedJoiner() {
 			if time.Since(zeroBarrierSince) >= timeout {
 				st.log.WithField("applied_index", applied).
 					Warn("wiped joiner: leader supplied no catch-up barrier; proceeding with eager load (some shards may start empty and rely on async replication / manual recovery)")
-				st.finishWipedJoinerReload()
+				st.finishWipedJoinerReloadExclusive()
 				return
 			}
 			continue
@@ -1043,7 +1062,7 @@ func (st *Store) watchWipedJoiner() {
 		if time.Since(stableSince) >= timeout {
 			st.log.WithField("applied_index", applied).
 				Warn("wiped joiner: catch-up barrier not reached before timeout; proceeding with eager load (some shards may start empty and rely on async replication / manual recovery)")
-			st.finishWipedJoinerReload()
+			st.finishWipedJoinerReloadExclusive()
 			return
 		}
 	}

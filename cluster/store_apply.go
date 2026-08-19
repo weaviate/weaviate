@@ -108,6 +108,12 @@ func (st *Store) Apply(l *raft.Log) any {
 		panic("error proto un-marshalling log data")
 	}
 
+	// Exclude the watcher's off-thread reload for this entry's whole apply; uncontended outside the wiped-joiner window.
+	if st.wipedJoinerCandidate.Load() {
+		st.wipedJoinerApplyMu.RLock()
+		defer st.wipedJoinerApplyMu.RUnlock()
+	}
+
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
