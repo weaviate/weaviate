@@ -169,10 +169,6 @@ type SelfRecoveryOrchestrator interface {
 	// Enabled reports whether SELF_RECOVERY is on; must be checked before
 	// installing a wrapper, else it blocks load forever.
 	Enabled() bool
-	// HasInflightSelfRecoveryOp reports a non-terminal SELF_RECOVERY op
-	// targeting (collection, shard) here — the resume case that must install
-	// a wrapper, not skip.
-	HasInflightSelfRecoveryOp(ctx context.Context, collection, shard string) (bool, error)
 	// SubmitRecovery is non-blocking. Returns false when not queued; the caller
 	// MUST then fall back to normal init, else the wrapper stays load-blocked.
 	// fromBootstrap quiets empty-fallback logging during the RAFT bootstrap window.
