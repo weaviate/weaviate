@@ -156,46 +156,6 @@ func TestClose_SurfacesDeadlineWhenWorkerStuck(t *testing.T) {
 		"Close must surface the caller's deadline when workers don't drain in time")
 }
 
-func TestHasInflightSelfRecoveryOp(t *testing.T) {
-	op := func(target, transfer string, state api.ShardReplicationState) api.ReplicationDetailsResponse {
-		return api.ReplicationDetailsResponse{
-			Uuid:         strfmt.UUID("00000000-0000-0000-0000-000000000001"),
-			Collection:   "C",
-			ShardId:      "S",
-			TargetNodeId: target,
-			TransferType: transfer,
-			Status:       api.ReplicationDetailsState{State: string(state)},
-		}
-	}
-	cases := []struct {
-		name string
-		ops  []api.ReplicationDetailsResponse
-		want bool
-	}{
-		{"no ops", nil, false},
-		{"self-recovery on this node, hydrating", []api.ReplicationDetailsResponse{op("self", api.SELF_RECOVERY.String(), api.HYDRATING)}, true},
-		{"self-recovery on this node, terminal", []api.ReplicationDetailsResponse{op("self", api.SELF_RECOVERY.String(), api.READY)}, false},
-		{"self-recovery on other node", []api.ReplicationDetailsResponse{op("other", api.SELF_RECOVERY.String(), api.HYDRATING)}, false},
-		{"copy on this node is not self-recovery", []api.ReplicationDetailsResponse{op("self", api.COPY.String(), api.HYDRATING)}, false},
-		{"mixed: terminal + non-terminal self-recovery on this node", []api.ReplicationDetailsResponse{
-			op("self", api.SELF_RECOVERY.String(), api.READY),
-			op("self", api.SELF_RECOVERY.String(), api.FINALIZING),
-		}, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			raft := &stubRaft{}
-			if tc.ops != nil {
-				raft.opsByCollShard = map[string][]api.ReplicationDetailsResponse{"C/S": tc.ops}
-			}
-			o := newOrchestratorForTest(t, raft, stubSchema{}, &stubNodeSelector{}, nil, stubPathResolver{root: t.TempDir()})
-			got, err := o.HasInflightSelfRecoveryOp(context.Background(), "C", "S")
-			require.NoError(t, err)
-			require.Equal(t, tc.want, got)
-		})
-	}
-}
-
 func TestRunOne_GiveUpAfterMaxAttempts(t *testing.T) {
 	ns := &stubNodeSelector{
 		addrs: map[string]string{"peer1": "10.0.0.1"},
