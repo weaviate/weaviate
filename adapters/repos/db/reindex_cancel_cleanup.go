@@ -191,7 +191,7 @@ func (i *Index) cleanStalePartialReindexState(
 		}
 		shard, ok := shardLike.(*Shard)
 		if !ok {
-			lazy, isLazy := shardLike.(*LazyLoadShard)
+			lazy, isLazy := asLazyLoadShard(shardLike)
 			if !isLazy {
 				// Unreachable in production (only two implementations exist).
 				shardErrs.Add(fmt.Errorf(
