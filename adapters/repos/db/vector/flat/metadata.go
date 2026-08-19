@@ -15,7 +15,6 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -23,12 +22,11 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	bolt "go.etcd.io/bbolt"
 )
 
 const (
-	metadataPrefix       = "meta"
-	metadataExt          = ".db"
 	vectorMetadataBucket = "vector"
 	quantizationKey      = "quantization"
 
@@ -68,24 +66,7 @@ type RQ8Data struct {
 }
 
 func (index *flat) getMetadataFile() string {
-	if index.targetVector != "" {
-		// This may be redundant as target vector is already validated in the schema
-		cleanTarget := filepath.Clean(index.targetVector)
-		cleanTarget = filepath.Base(cleanTarget)
-		return metadataPrefix + "_" + cleanTarget + metadataExt
-	}
-	return metadataPrefix + metadataExt
-}
-
-// IsMetadataFile reports whether name is a flat index metadata file. The index
-// writes it directly into its configured root, so a caller enumerating that
-// directory needs this to pick it out. name may be a base name or a path.
-func IsMetadataFile(name string) bool {
-	stem, ok := strings.CutSuffix(filepath.Base(name), metadataExt)
-	if !ok {
-		return false
-	}
-	return stem == metadataPrefix || strings.HasPrefix(stem, metadataPrefix+"_")
+	return flatent.MetadataFileName(index.targetVector)
 }
 
 func (index *flat) removeMetadataFile(keepFiles bool) error {

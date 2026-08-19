@@ -318,7 +318,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 
 func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
 	if s.dynamicVectorIndexDB == nil {
-		path := filepath.Join(s.path(), dynamic.StateDBFileName)
+		path := filepath.Join(s.path(), dynamicent.StateDBFileName)
 
 		db, err := bbolt.Open(path, 0o600, nil)
 		if err != nil {

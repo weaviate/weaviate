@@ -26,11 +26,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -202,8 +202,8 @@ func TestListInactiveShardFiles(t *testing.T) {
 		},
 		{
 			name:          "dynamic index state db",
-			rootFiles:     []string{dynamic.StateDBFileName},
-			extraExpected: []string{filepath.Join(indexID, shardName, dynamic.StateDBFileName)},
+			rootFiles:     []string{dynamicent.StateDBFileName},
+			extraExpected: []string{filepath.Join(indexID, shardName, dynamicent.StateDBFileName)},
 		},
 		{
 			name:          "flat index metadata of the unnamed vector",
@@ -220,9 +220,9 @@ func TestListInactiveShardFiles(t *testing.T) {
 		},
 		{
 			name:      "dynamic and flat state side by side",
-			rootFiles: []string{dynamic.StateDBFileName, "meta.db", "meta_first.db"},
+			rootFiles: []string{dynamicent.StateDBFileName, "meta.db", "meta_first.db"},
 			extraExpected: []string{
-				filepath.Join(indexID, shardName, dynamic.StateDBFileName),
+				filepath.Join(indexID, shardName, dynamicent.StateDBFileName),
 				filepath.Join(indexID, shardName, "meta.db"),
 				filepath.Join(indexID, shardName, "meta_first.db"),
 			},
@@ -338,7 +338,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "segment-123.wal"), walContent, 0o644))
 
 	// Dynamic index state DB at the shard root (mutable).
-	require.NoError(t, os.WriteFile(filepath.Join(shardDir, dynamic.StateDBFileName), []byte("bolt-data"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, dynamicent.StateDBFileName), []byte("bolt-data"), 0o644))
 
 	// Flat vector index metadata (mutable), at the shard root where flat.New writes it.
 	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "meta.db"), []byte("boltdb-data"), 0o644))
@@ -384,8 +384,8 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	clDst := filepath.Join(stagingRoot, indexID, shardName, "main.hnsw.commitlog.d", "1709203456")
 	assert.NotEqual(t, getIno(clSrc), getIno(clDst), "non-condensed commitlog should be copied, not hard-linked")
 
-	stateDBSrc := filepath.Join(shardDir, dynamic.StateDBFileName)
-	stateDBDst := filepath.Join(stagingRoot, indexID, shardName, dynamic.StateDBFileName)
+	stateDBSrc := filepath.Join(shardDir, dynamicent.StateDBFileName)
+	stateDBDst := filepath.Join(stagingRoot, indexID, shardName, dynamicent.StateDBFileName)
 	assert.NotEqual(t, getIno(stateDBSrc), getIno(stateDBDst), "index.db should be copied, not hard-linked")
 
 	// Immutable files: same inodes (hard-linked).

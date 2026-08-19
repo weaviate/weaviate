@@ -535,38 +535,3 @@ func TestSnapshotMutableFiles(t *testing.T) {
 		require.Nil(t, relPaths)
 	})
 }
-
-func TestIsMetadataFile(t *testing.T) {
-	tests := []struct {
-		name string
-		file string
-		want bool
-	}{
-		{name: "unnamed vector", file: "meta.db", want: true},
-		{name: "named vector", file: "meta_foo.db", want: true},
-		{name: "named vector containing an underscore", file: "meta_foo_bar.db", want: true},
-		{name: "dynamic index state db", file: "index.db", want: false},
-		{name: "prefix without the target vector separator", file: "metadata.db", want: false},
-		{name: "lsm segment", file: "segment-0001.db", want: false},
-		{name: "no extension", file: "meta", want: false},
-		{name: "staged copy still being written", file: "meta.db.tmp", want: false},
-		{name: "empty", file: "", want: false},
-		{name: "relative path", file: "myclass/tenant1/meta.db", want: true},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			require.Equal(t, test.want, IsMetadataFile(test.file))
-		})
-	}
-
-	// pins the predicate to the writer: a rename on either side breaks here
-	// rather than silently dropping the file from a backup.
-	t.Run("recognizes every name the index writes", func(t *testing.T) {
-		for _, targetVector := range []string{"", "foo", "foo_bar"} {
-			index := &flat{targetVector: targetVector}
-			require.True(t, IsMetadataFile(index.getMetadataFile()),
-				"target vector %q", targetVector)
-		}
-	})
-}

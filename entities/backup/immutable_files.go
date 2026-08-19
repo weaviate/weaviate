@@ -13,7 +13,9 @@ package backup
 
 import (
 	"path/filepath"
-	"strings"
+
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
 const (
@@ -36,8 +38,9 @@ func IsImmutableFile(relPath string) bool {
 	ext := filepath.Ext(base)
 
 	// LSM segment data files — written once during flush/compaction, never modified.
-	// Excludes meta*.db (flat index BoltDB, mmap writes) and index.db (dynamic index BoltDB).
-	if ext == dbExt && !strings.HasPrefix(base, "meta") && base != "index.db" {
+	// flatent.IsMetadataFile and dynamicent.StateDBFileName exclude the flat and dynamic
+	// index bolt files (meta*.db, index.db), which share the extension but are rewritten in place.
+	if ext == dbExt && !flatent.IsMetadataFile(base) && base != dynamicent.StateDBFileName {
 		return true
 	}
 	// LSM segment companion files — written once during segment init, never modified.

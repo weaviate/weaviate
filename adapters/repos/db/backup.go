@@ -21,9 +21,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/entities/models"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
@@ -834,7 +834,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 			continue
 		}
 		name := entry.Name()
-		if name != dynamic.StateDBFileName && !flat.IsMetadataFile(name) {
+		if name != dynamicent.StateDBFileName && !flatent.IsMetadataFile(name) {
 			continue
 		}
 		relPath, err := filepath.Rel(rootPath, filepath.Join(shardDir, name))
