@@ -64,7 +64,7 @@ func asLazyLoadShard(s ShardLike) (*LazyLoadShard, bool) {
 // Promote clears the recovery block and loads; only valid once the copy was renamed into the live dir.
 func (r *RecoveringShard) Promote(ctx context.Context) error {
 	r.clearLoadBlock()
-	return r.LazyLoadShard.Load(ctx)
+	return r.Load(ctx)
 }
 
 func (r *RecoveringShard) IsRecovering() bool {
