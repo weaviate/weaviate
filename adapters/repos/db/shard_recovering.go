@@ -49,6 +49,18 @@ func NewRecoveringShard(ctx context.Context, promMetrics *monitoring.PrometheusM
 	return &RecoveringShard{LazyLoadShard: inner}
 }
 
+// asLazyLoadShard unwraps both deferred-load wrappers; concrete *LazyLoadShard
+// assertions would misclassify a *RecoveringShard as a loaded shard.
+func asLazyLoadShard(s ShardLike) (*LazyLoadShard, bool) {
+	switch v := s.(type) {
+	case *LazyLoadShard:
+		return v, true
+	case *RecoveringShard:
+		return v.LazyLoadShard, true
+	}
+	return nil, false
+}
+
 // Promote clears the recovery block and loads; only valid once the copy was renamed into the live dir.
 func (r *RecoveringShard) Promote(ctx context.Context) error {
 	r.clearLoadBlock()
