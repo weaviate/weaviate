@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -186,7 +187,7 @@ func newService(t *testing.T, indices map[string]*fakeIndex) *FileReplicationSer
 
 func newServiceWithSchema(t *testing.T, indices map[string]*fakeIndex, sc sharding.RemoteIncomingSchema) *FileReplicationService {
 	t.Helper()
-	return NewFileReplicationService(&fakeRepo{indices: indices}, sc, 64*1024)
+	return NewFileReplicationService(&fakeRepo{indices: indices}, sc, 64*1024, 0)
 }
 
 func TestStartChangeCapture_HappyPath(t *testing.T) {
@@ -581,4 +582,32 @@ func TestGetReplicaSnapshotFile_CompressionUnsupported(t *testing.T) {
 	}, &noopStreamServer[pb.FileChunk]{ctx: context.Background()})
 	require.Error(t, err)
 	require.Equal(t, codes.Unimplemented, status.Code(err))
+}
+
+func TestAcquireTransferSlotBounds(t *testing.T) {
+	fps := NewFileReplicationService(nil, nil, 1024, 2)
+
+	rel1, err := fps.acquireTransferSlot(context.Background())
+	require.NoError(t, err)
+	rel2, err := fps.acquireTransferSlot(context.Background())
+	require.NoError(t, err)
+
+	blockedCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err = fps.acquireTransferSlot(blockedCtx)
+	require.Error(t, err, "third acquire must block until a slot frees")
+
+	rel1()
+	rel3, err := fps.acquireTransferSlot(context.Background())
+	require.NoError(t, err)
+	rel3()
+	rel2()
+}
+
+func TestAcquireTransferSlotUnbounded(t *testing.T) {
+	fps := NewFileReplicationService(nil, nil, 1024, 0)
+	for i := 0; i < 100; i++ {
+		_, err := fps.acquireTransferSlot(context.Background())
+		require.NoError(t, err)
+	}
 }

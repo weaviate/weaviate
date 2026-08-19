@@ -118,7 +118,7 @@ func newBufconnFixture(t *testing.T) *bufconnFixture {
 	require.NoError(t, err)
 
 	fakeIdx := &bufconnFakeIndex{log: log}
-	svc := grpchandlers.NewFileReplicationService(&bufconnFakeRepo{idx: fakeIdx}, bufconnFakeSchema{}, 64*1024)
+	svc := grpchandlers.NewFileReplicationService(&bufconnFakeRepo{idx: fakeIdx}, bufconnFakeSchema{}, 64*1024, 0)
 
 	lis := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
