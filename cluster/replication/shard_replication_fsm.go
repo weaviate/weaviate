@@ -292,6 +292,29 @@ func (s *ShardReplicationFSM) HasActiveTargetReplicationForShard(collection, sha
 	return false
 }
 
+// HasActiveSelfRecoveryTargetingShard reports a non-terminal SELF_RECOVERY op
+// targeting (collection, shard, targetNode); local FSM read, no leader RPC.
+func (s *ShardReplicationFSM) HasActiveSelfRecoveryTargetingShard(collection, shard, targetNode string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	for _, op := range s.opsByCollectionAndShard[collection][shard] {
+		if op.TargetShard.NodeId != targetNode || op.TransferType != api.SELF_RECOVERY {
+			continue
+		}
+		status, ok := s.statusById[op.ID]
+		if !ok {
+			continue
+		}
+		switch status.GetCurrentState() {
+		case api.READY, api.CANCELLED:
+		default:
+			return true
+		}
+	}
+	return false
+}
+
 func (s *ShardReplicationFSM) getOpsWithStatus(ops []ShardReplicationOp) []ShardReplicationOpAndStatus {
 	opsWithStatus := make([]ShardReplicationOpAndStatus, 0, len(ops))
 	for _, op := range ops {
