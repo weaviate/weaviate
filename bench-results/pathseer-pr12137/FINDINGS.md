@@ -1,7 +1,7 @@
 # PathSeer (PR #12137) — findings
 
-Status: DRAFT — Stage 1 complete; follow-ups (A/A, reorder, seeded, rq1) and
-Stage 2 (wiki-dpr 10M) in flight. Numbers below are final for Stage 1.
+Status: FINAL (2026-08-19). All stages complete. Plots in `plots/`, raw data
+in `data/`, protocol in `PREREGISTERED.md` (committed before the first run).
 
 Protocol: `PREREGISTERED.md` (committed before the first run). Raw data in
 `data/`. PR head `1c144e4c73` on main @ `e6e3aa9e89`; evaluated as submitted.
@@ -110,14 +110,33 @@ second-order edges per pop: measured `two_hop_examined / secondorder_allocs ≈
 edge list** before the budget is gone. The PR text's "expansion phase" is, in
 implementation, a 2–3-pop accident of ef and M with a one-neighbor budget.
 
-### H2 — dispersed-regime convergence to sweeping: Stage 1 says REFUTED at 10%, Stage 2 (0.1–1%) pending
+### H2 — dispersed-regime convergence to sweeping: **REFUTED**
 
-At neg10 (10% selectivity) pathseer does 8.1k dist comps at ef64 vs sweeping
-46k and acorn 2.0k — it converges to *neither*; the prefilter does engage
-(results fill at median pop ~242) and cuts ~5.7× vs sweeping. The truly
-dispersed regime (0.1–1% on 10M) is what the hypothesis is about — pending.
+PathSeer converges to *neither* strategy (fig2). At ef128 on 10M its distance
+count is 7–11% of sweeping's across the whole 10k–500k dispersed band
+(random_10k: 130k vs 1.56M) while sitting 10–675× above ACORN's. The
+mechanism the hypothesis assumed ("a passing candidate still computes all its
+neighbours, so the prefilter rarely bites") is outweighed by the fact that in
+a dispersed filter almost every *popped* candidate fails the filter, so the
+DOS branch fires on nearly every expansion once results fill. Above ~1M
+members the three curves converge (at 5M the acorn arm *is* sweeping via the
+ratio gate, and pathseer does ~0.5–0.7× its distances).
 
-### H3 — allowlist smaller than ef: pending (subef_32 / subef_300 filters in Stage 2)
+### H3 — allowlist smaller than ef: **CONFIRMED, degenerate**
+
+`data/stage2-subef.csv`: with 32 members, `prefilter_skips = 0` at every ef,
+and with 300 members at ef=512 — the activation condition
+`results.Len() >= ef` is unsatisfiable when `|filter| < ef`. PathSeer then
+degenerates to a full-graph sweep: **9,999,704 distance computations,
+~19.5 s per query** on the 10M index (sweeping shows the identical pathology;
+its early-exit is also conditioned on a full result heap). Production is
+protected only by `flatSearchCutoff` (40k default) routing such filters to
+flat search. The heuristic is conditioned on the wrong variable — it should
+key on `min(ef, |allowlist|)` or on selectivity, not on `results.Len() >= ef`
+alone. Cost forced a bounded protocol here (20 queries, ef {64,512}, 1 timed
+pass): at 20 s/query the pre-registered 1000-query grid was infeasible; the
+sweeping ef64 cell from the main run (200 queries × 4 passes, ~4.3 h) is in
+`stage2-wikidpr10m.csv` as corroboration.
 
 ### H4 — visited-before-prefilter burn: **CONFIRMED as frequent; recall cost real but small**
 
@@ -135,9 +154,94 @@ Also: the burned-map instrumentation itself cost ~6% latency on NEG cells
 (in-process A/A, `stage1-aa.csv`), so Stage-2/3 timing runs disable it
 (`-trackburned=false`); plain counters are within the pre-registered 2%.
 
-### H5 — gap structure: pending (gapscan on the 10M layer-0 dump)
+### H5 — gap structure: **CONFIRMED — ACORN's low-selectivity failure is navigability, not disconnection**
 
-### H6 — routing threshold: pending (Stage 2)
+BFS over the dumped 10M layer-0 graph, 900 GT co-member pairs per filter
+(`data/gapscan-*.txt`), classified by the longest allowed run of consecutive
+excluded nodes:
+
+| filter (sel) | induced subgraph (run 0) | run ≤ 1 (PathSeer's cut) | run ≤ 2 (ACORN's two-hop) |
+| --- | --- | --- | --- |
+| topical_10k (0.1%) | 0.264 | 0.948 | **1.000** |
+| topical_40k (0.4%) | 0.662 | 0.963 | **1.000** |
+| topical_100k (1%) | 0.569 | 0.946 | **1.000** |
+| topical_400k (4%) | 0.797 | 0.998 | **1.000** |
+| topical_1m (10%) | 0.781 | 1.000 | **1.000** |
+
+Two-excluded-hop bridging connects **100% of pairs at every selectivity** —
+so ACORN's measured recall collapse on 10M (0.06–0.56 at ≤55k) is
+*navigability* (the greedy member-only frontier cannot find the paths), not
+disconnection. Effective member degree at 0.1%: 2.2 direct, 13.2 via one
+excluded bridge, 203.6 via two. PathSeer's `pass→fail→fail→pass` cut costs
+only ~4–5% of pairs below 100k and ~0 above — its graph restriction is mild;
+its recall advantage over ACORN comes from keeping non-members in the
+navigable frontier (and paying distances for them). This also settles the
+brief's 62k question: at that scale the structure percolates; the deficit is
+search, not graph.
+
+### H6 — routing threshold: **CONFIRMED — PathSeer is the best graph strategy at every cardinality on 10M, and the crossover must be re-derived**
+
+At target recall@10 = 0.90 (ef-interpolated, `scripts/20_stage2_analysis.py`),
+**pathseer is the cheapest graph strategy on 27 of 27 global filters**. ACORN
+never reaches 0.90 below 175k members and, where it does, is 2–6× slower than
+pathseer (e.g. 2M: 9.7–13.8 ms vs 2.1–3.6 ms). Highlights (mean ms to 0.90):
+55k: sweeping 369 / acorn — / pathseer 115; 238k: 67 / — / 15; 531k: 36 / — /
+10; 1M: 6–21 / 15–27 / 2.9–7.1; 5M: ~1.4–2.3 all (gate routes acorn to
+sweeping). Anticorr (9.9M members, NEG): pathseer ~2× cheaper at matched
+recall at τ=0.01, ~3.7× cheaper at matched regret at τ=0 (judged by regret,
+pre-registered), neutral at τ=0.03.
+
+Consequences for the scan routing threshold: (1) the graph-side arm of the
+crossover should be PathSeer, not ACORN, on this workload class; (2)
+quality-first routing is unchanged — the scan's 0.99+ recall at 3–30 ms below
+~600k is out of reach of every graph strategy measured here; (3)
+throughput-first routing at a 0.90 target moves the crossover down: pathseer
+reaches 0.90 at 15 ms @ 238k and 10 ms @ 531k, competitive with the scan's
+~15–30 ms in that band, so the threshold needs re-deriving with pathseer as
+the third arm (it was pre-registered that we would say this regardless of
+which way it landed).
+
+### Retroactive correction to our own benchmark history
+
+The `strategy_used` instrumentation exposed that in-process harnesses must
+set `hnsw.Config.AcornFilterRatio` explicitly (the 0.4 default lives in env
+config, not in the struct); with the zero value `acornEnabled` is always
+false. The crossover round's `cmd/filteredscan` (commit `4c96b5ae4e`) did not
+set it, so the "acorn" arm of `bench-results/filtered-scan/wikidpr-10m-acorn.csv`
+**actually measured sweeping**. The server-mode pressure round is unaffected
+(real ACORN — hence 0.806@62k there vs "0.979" in-process). That CSV should
+be re-labeled, and any conclusion drawn specifically about in-process ACORN
+re-checked; this round supersedes it for graph-strategy comparisons.
+
+## Bottom line for the PR review
+
+1. **The claim reproduces only against sweeping.** Where ACORN actually
+   engages (NEG, ≤ acornFilterRatio selectivity, navigable band), PathSeer is
+   60–80% slower at matched recall. Where the ratio gate routes to sweeping
+   (selectivity > 0.4) or where ACORN's recall collapses (dispersed filters
+   on 10M), PathSeer is a real and sometimes large win (+300% at neg40;
+   best-of-graph on 27/27 filters at 0.90 recall on wiki-dpr 10M).
+2. **On our 10M workload PathSeer dominates ACORN outright**, because
+   ACORN's member-only frontier fails navigability at low selectivity (H5)
+   — this is the strongest argument *for* the PR, and it was not the PR's
+   own argument.
+3. **Required changes before merge:** (a) H4 visited-before-prefilter
+   reorder (removes order-dependence; ~frontier-neutral); (b) a selectivity /
+   `min(ef, |allowlist|)` gate so PathSeer cannot degenerate into a 19.5 s
+   full-graph sweep (H3) — production's flat-search cutoff happens to mask
+   it, but `forbidFlat` callers and future config changes would not;
+   (c) `SearchByVectorDistance` should either honor pathseer or the config
+   docs should say it doesn't; (d) positive `pathseer` case in
+   `config_test.go` + deterministic traversal tests; (e) the per-pop
+   `secondOrderBuf` allocation (Copilot's point) — pool it; (f) single
+   atomic for the strategy enum instead of two booleans; (g) nil-entrypoint
+   RRE fallback parity.
+4. **The "two-hop expansion" as implemented is nearly vestigial** (H1): a
+   2–3-pop window with a one-neighbour budget. Either document it as a
+   cheap entry-boost or make it a real, tunable phase; its description in
+   the PR text does not match the code's behavior.
+5. Under our production quantizer (rq1) the sweeping-relative gains shrink
+   (Stage 3, R_p 0.154 → ~0.34) but the qualitative picture holds.
 
 ## Protocol deviations (all pre-run or forced, none data-driven)
 
@@ -152,3 +256,10 @@ Also: the burned-map instrumentation itself cost ~6% latency on NEG cells
    `-trackburned=false`. The originals are kept as `*-tracked.csv`; counter
    values (which the map does not affect) remain valid from the tracked
    runs. No runs dropped.
+3. The sub-ef filters were cut from the main Stage-2 sweep after the first
+   cell measured 19.3 s/query (the pre-registered 1000-query grid would have
+   taken weeks) and rerun with a bounded budget (20 queries, ef {64,512},
+   1 timed pass, `stage2-subef.csv`). The H3 metric (`prefilter_skips == 0`)
+   is exact regardless of query count; the completed 200-query sweeping cell
+   from the main run corroborates the timing. All 327 other filters
+   completed the full pre-registered grid.

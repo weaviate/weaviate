@@ -1,0 +1,9 @@
+pairs (top1 -> top2..10 over 100 queries):
+  maxRun=0       reachable   717/  900 (0.797)  mean depth 6.69
+  maxRun=1       reachable   898/  900 (0.998)  mean depth 3.92
+  maxRun=2       reachable   900/  900 (1.000)  mean depth 3.29
+  unconstrained  reachable   900/  900 (1.000)  mean depth 3.15
+members in graph range: 400020
+effective member degree via <=0 excluded bridge hops: 8.7 (n=1000)
+effective member degree via <=1 excluded bridge hops: 104.1 (n=1000)
+effective member degree via <=2 excluded bridge hops: 1701.8 (n=1000)

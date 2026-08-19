@@ -1,0 +1,9 @@
+dataset,filter,family,size,strategy,ef,pass,queries,recall_at_10,perfect_frac,sim_regret,p50_ms,p95_ms,p99_ms,mean_ms,mean_dist_comps,mean_seed_dist_comps,mean_filter_checks,mean_nodes_popped,median_pop_idx_cand_full,median_pop_idx_results_full,mean_twohop_examined,mean_twohop_appended,mean_prefilter_skips,mean_secondorder_allocs,mean_reencountered_burned,strategy_used
+wikidpr10m-rq1,subef_32,subef,32,acorn,64,1,20,0.4000,0.0000,0.02619,0.780,0.846,0.857,0.784,10.0,10.0,15133.8,11.0,0.0,0.0,0.0,0.0,0.0,0.0,0.00,acorn:20
+wikidpr10m-rq1,subef_32,subef,32,acorn,512,1,20,0.4000,0.0000,0.02619,0.781,0.891,0.942,0.793,10.0,10.0,15133.8,11.0,0.0,0.0,0.0,0.0,0.0,0.0,0.00,acorn:20
+wikidpr10m-rq1,subef_32,subef,32,pathseer,64,1,20,1.0000,1.0000,0.00000,19487.560,20272.258,20321.188,19632.357,9999704.0,0.0,19999525.2,9999705.0,3.0,0.0,118.4,0.0,0.0,1.9,0.00,pathseer:20
+wikidpr10m-rq1,subef_32,subef,32,pathseer,512,1,20,1.0000,1.0000,0.00000,19468.171,19920.579,19921.931,19561.725,9999704.0,0.0,20000371.6,9999705.0,16.0,0.0,998.4,0.0,0.0,15.6,0.00,pathseer:20
+wikidpr10m-rq1,subef_300,subef,300,acorn,64,1,20,0.0350,0.0000,0.06511,1.238,1.281,1.326,1.231,10.0,10.0,17953.0,11.0,0.0,0.0,0.0,0.0,0.0,0.0,0.00,acorn:20
+wikidpr10m-rq1,subef_300,subef,300,acorn,512,1,20,0.0350,0.0000,0.06511,1.229,1.301,1.310,1.235,10.0,10.0,17953.0,11.0,0.0,0.0,0.0,0.0,0.0,0.0,0.00,acorn:20
+wikidpr10m-rq1,subef_300,subef,300,pathseer,64,1,20,0.9650,0.6500,0.00024,3738.463,4185.873,4486.516,3789.300,2147914.0,0.0,7713976.3,1292803.6,3.0,180473.0,118.4,0.0,4273351.2,1.9,672.95,pathseer:20
+wikidpr10m-rq1,subef_300,subef,300,pathseer,512,1,20,1.0000,1.0000,0.00000,20073.046,20377.580,20456.359,20059.162,9999704.0,0.0,20000371.6,9999705.0,16.0,0.0,998.4,0.1,0.0,15.6,0.00,pathseer:20
