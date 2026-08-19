@@ -158,7 +158,7 @@ func (s *switchReplicationClient) DigestObjects(ctx context.Context, host, index
 
 func (s *switchReplicationClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]types.RepairResponse, error) {
+) ([]types.RepairDigest, error) {
 	if s.useGRPC() {
 		return s.grpcClient.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
 	}
@@ -193,8 +193,8 @@ func (s *switchReplicationClient) HashTreeLevel(ctx context.Context, host, index
 }
 
 func (s *switchReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
-	digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	if s.useGRPC() {
 		return s.grpcClient.CompareDigests(ctx, host, index, shard, digests)
 	}

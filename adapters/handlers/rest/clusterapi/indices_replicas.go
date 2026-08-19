@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/klauspost/compress/zstd"
 	"github.com/sirupsen/logrus"
 
@@ -578,9 +577,14 @@ func (i *replicatedIndices) postCompareHashTreeRoots() http.Handler {
 // binary form) followed by 8 bytes UpdateTime (int64 big-endian). The Err and
 // Deleted fields are intentionally omitted — ObjectDigestsInRange never
 // populates them.
-func writeDigestsInRangeResponse(w http.ResponseWriter, r *http.Request, results []types.RepairResponse) {
+func writeDigestsInRangeResponse(w http.ResponseWriter, r *http.Request, results []types.RepairDigest) {
 	if r.Header.Get("X-Accept-Response-Encoding") != "binary" {
-		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{Digests: results})
+		// Legacy JSON shape keeps string IDs; conversion happens only on this fallback.
+		responses := make([]types.RepairResponse, len(results))
+		for i, d := range results {
+			responses[i] = types.RepairResponse{ID: d.ID.String(), UpdateTime: d.UpdateTime, Deleted: d.Deleted}
+		}
+		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{Digests: responses})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -589,18 +593,10 @@ func writeDigestsInRangeResponse(w http.ResponseWriter, r *http.Request, results
 		return
 	}
 
-	// Encode all records before writing any headers so that errors don't
-	// produce an http.Error response with a stale Content-Length already set.
 	body := make([]byte, 0, len(results)*replica.DigestObjectsInRangeRecordLength)
 	var buf [replica.DigestObjectsInRangeRecordLength]byte
 	for _, d := range results {
-		uuidParsed, err := uuid.Parse(d.ID)
-		if err != nil {
-			// Should never happen — IDs come directly from the LSM store.
-			http.Error(w, "parse uuid: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		copy(buf[:16], uuidParsed[:])
+		copy(buf[:16], d.ID[:])
 		binary.BigEndian.PutUint64(buf[16:], uint64(d.UpdateTime))
 		body = append(body, buf[:]...)
 	}
@@ -767,28 +763,10 @@ func (i *replicatedIndices) postCompareDigests() http.Handler {
 			return
 		}
 
-		var sourceDigests []types.RepairResponse
-		if len(body) > 0 {
-			if len(body)%replica.CompareDigestsRecordLength != 0 {
-				http.Error(w, "invalid binary payload length", http.StatusBadRequest)
-				return
-			}
-			n := len(body) / replica.CompareDigestsRecordLength
-			sourceDigests = make([]types.RepairResponse, n)
-			for j := 0; j < n; j++ {
-				off := j * replica.CompareDigestsRecordLength
-				rec := body[off : off+replica.CompareDigestsRecordLength]
-				id, err := uuid.FromBytes(rec[:16])
-				if err != nil {
-					http.Error(w, "parse uuid from binary: "+err.Error(), http.StatusBadRequest)
-					return
-				}
-				sourceDigests[j] = types.RepairResponse{
-					ID:         id.String(),
-					UpdateTime: int64(binary.BigEndian.Uint64(rec[16:24])),
-					Deleted:    rec[24]&replica.CompareDigestsFlagDeleted != 0,
-				}
-			}
+		sourceDigests, err := replica.RepairDigestsFromBinary(body)
+		if err != nil {
+			http.Error(w, "decode packed digests: "+err.Error(), http.StatusBadRequest)
+			return
 		}
 
 		stale, err := i.replicator.CompareDigests(r.Context(), index, shard, sourceDigests)
@@ -797,24 +775,7 @@ func (i *replicatedIndices) postCompareDigests() http.Handler {
 			return
 		}
 
-		// Encode all records before writing headers so that a UUID parse error
-		// doesn't produce an http.Error after headers have been sent.
-		out := make([]byte, 0, len(stale)*replica.CompareDigestsRecordLength)
-		var obuf [replica.CompareDigestsRecordLength]byte
-		for _, d := range stale {
-			id, err := uuid.Parse(d.ID)
-			if err != nil {
-				http.Error(w, "parse uuid: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			copy(obuf[:16], id[:])
-			binary.BigEndian.PutUint64(obuf[16:24], uint64(d.UpdateTime))
-			obuf[24] = 0
-			if d.Deleted {
-				obuf[24] = replica.CompareDigestsFlagDeleted
-			}
-			out = append(out, obuf[:]...)
-		}
+		out := replica.RepairDigestsToBinary(stale)
 
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Length", strconv.Itoa(len(out)))
