@@ -75,6 +75,12 @@ func TestSelfRecoveryEndToEnd(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
+	t.Run("verify all 3 nodes report shard loaded", func(t *testing.T) {
+		// Ingesting before every shard is loaded races the founders' join-barrier reload.
+		waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
+		waitShardsLoaded(t, paragraphClass.Class, 1)
+	})
+
 	t.Run("ingest objects", func(t *testing.T) {
 		batch := make([]*models.Object, objCount)
 		for i := 0; i < objCount; i++ {
@@ -84,13 +90,6 @@ func TestSelfRecoveryEndToEnd(t *testing.T) {
 				Object()
 		}
 		submitBatch(t, batch, "")
-	})
-
-	t.Run("verify all 3 nodes report shard loaded", func(t *testing.T) {
-		// A peer that crash-restarted during formation may still be recovering;
-		// settle and require every shard loaded so the wipe leaves enough replicas.
-		waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
-		waitShardsLoaded(t, paragraphClass.Class, 1)
 	})
 
 	t.Run("force a RAFT snapshot before wipe", func(t *testing.T) {
@@ -143,6 +142,10 @@ func TestSelfRecoveryReadsContinueAtConsistencyONE(t *testing.T) {
 	waitClusterHealthy(t)
 	helper.CreateClass(t, paragraphClass)
 
+	// Ingesting before every shard is loaded races the founders' join-barrier reload.
+	waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
+	waitShardsLoaded(t, paragraphClass.Class, 1)
+
 	ids := make([]strfmt.UUID, objCount)
 	batch := make([]*models.Object, objCount)
 	for i := 0; i < objCount; i++ {
@@ -150,11 +153,6 @@ func TestSelfRecoveryReadsContinueAtConsistencyONE(t *testing.T) {
 		batch[i] = articles.NewParagraph().WithID(ids[i]).WithContents(fmt.Sprintf("p#%d", i)).Object()
 	}
 	common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
-
-	// A peer that crash-restarted during formation may still be recovering; wiping
-	// node-2 on top of that would leave too few replicas to serve the CL=ONE probe.
-	waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
-	waitShardsLoaded(t, paragraphClass.Class, 1)
 
 	for i := 0; i < 3; i++ {
 		forceRaftSnapshot(ctx, t, compose, i)
