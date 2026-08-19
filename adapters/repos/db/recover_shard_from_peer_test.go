@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -27,8 +28,6 @@ import (
 
 type fakeSelfRecoveryOrch struct {
 	enabled                 bool
-	inflightOp              bool
-	inflightErr             error
 	inflightSelfRecoveryOp  bool
 	inflightSelfRecoveryErr error
 	submitOK                bool
@@ -39,10 +38,6 @@ type fakeSelfRecoveryOrch struct {
 }
 
 func (f *fakeSelfRecoveryOrch) Enabled() bool { return f.enabled }
-
-func (f *fakeSelfRecoveryOrch) HasInflightReplicationOp(_ context.Context, _, _ string) (bool, error) {
-	return f.inflightOp, f.inflightErr
-}
 
 func (f *fakeSelfRecoveryOrch) HasInflightSelfRecoveryOp(_ context.Context, _, _ string) (bool, error) {
 	return f.inflightSelfRecoveryOp, f.inflightSelfRecoveryErr
@@ -143,19 +138,33 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 	})
 
 	t.Run("non-self-recovery in-flight op → false, no install, no submit", func(t *testing.T) {
-		orch := &fakeSelfRecoveryOrch{enabled: true, inflightOp: true}
+		orch := &fakeSelfRecoveryOrch{enabled: true}
 		idx := newTestIndexForRecovery(t, orch, nil)
+		idx.getSchema = &fakeSchemaGetter{}
+		fsm := replicationTypes.NewMockReplicationFSMReader(t)
+		fsm.EXPECT().HasActiveTargetReplicationForShard("C", "S", "node1").Return(true)
+		idx.SetReplicationFSMReader(fsm)
 		require.False(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
 		require.Zero(t, orch.submitCalls)
 		require.Nil(t, idx.shards.Load("S"))
 	})
 
-	t.Run("replication check errors → false, no install, no submit", func(t *testing.T) {
-		orch := &fakeSelfRecoveryOrch{enabled: true, inflightErr: errors.New("fsm unavailable")}
+	t.Run("in-flight op elsewhere → recovery proceeds", func(t *testing.T) {
+		orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
 		idx := newTestIndexForRecovery(t, orch, nil)
-		require.False(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
-		require.Zero(t, orch.submitCalls)
-		require.Nil(t, idx.shards.Load("S"))
+		idx.getSchema = &fakeSchemaGetter{}
+		fsm := replicationTypes.NewMockReplicationFSMReader(t)
+		fsm.EXPECT().HasActiveTargetReplicationForShard("C", "S", "node1").Return(false)
+		idx.SetReplicationFSMReader(fsm)
+		require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
+		require.Equal(t, 1, orch.submitCalls)
+	})
+
+	t.Run("nil FSM reader counts as no in-flight op", func(t *testing.T) {
+		orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
+		idx := newTestIndexForRecovery(t, orch, nil)
+		require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
+		require.Equal(t, 1, orch.submitCalls)
 	})
 
 	t.Run("happy path → true, wrapper installed, submitted once", func(t *testing.T) {

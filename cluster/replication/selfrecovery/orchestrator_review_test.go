@@ -68,7 +68,10 @@ func TestSubmit_NeverDropsAllSubmissionsProcessed(t *testing.T) {
 		stubPathResolver{root: t.TempDir()})
 	o.enabled = true
 	o.concurrency = 4
-	o.emptyFallbackHook = func(ref ShardRef) { processed <- ref }
+	o.onRecoveryComplete = func(_ context.Context, collection, shard string) error {
+		processed <- ShardRef{Collection: collection, Shard: shard}
+		return nil
+	}
 
 	for i := 0; i < n; i++ {
 		require.True(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: fmt.Sprintf("S%d", i)}, false),
@@ -151,47 +154,6 @@ func TestClose_SurfacesDeadlineWhenWorkerStuck(t *testing.T) {
 	err := o.Close(closeCtx)
 	require.ErrorIs(t, err, context.DeadlineExceeded,
 		"Close must surface the caller's deadline when workers don't drain in time")
-}
-
-func TestHasInflightReplicationOp(t *testing.T) {
-	op := func(target, transfer string, state api.ShardReplicationState) api.ReplicationDetailsResponse {
-		return api.ReplicationDetailsResponse{
-			Uuid:         strfmt.UUID("00000000-0000-0000-0000-000000000001"),
-			Collection:   "C",
-			ShardId:      "S",
-			TargetNodeId: target,
-			TransferType: transfer,
-			Status:       api.ReplicationDetailsState{State: string(state)},
-		}
-	}
-	cases := []struct {
-		name string
-		ops  []api.ReplicationDetailsResponse
-		want bool
-	}{
-		{"no ops", nil, false},
-		{"COPY on this node, hydrating", []api.ReplicationDetailsResponse{op("self", api.COPY.String(), api.HYDRATING)}, true},
-		{"COPY on other node", []api.ReplicationDetailsResponse{op("other", api.COPY.String(), api.HYDRATING)}, false},
-		{"terminal SELF_RECOVERY on this node", []api.ReplicationDetailsResponse{op("self", api.SELF_RECOVERY.String(), api.READY)}, false},
-		{"non-terminal SELF_RECOVERY on this node", []api.ReplicationDetailsResponse{op("self", api.SELF_RECOVERY.String(), api.FINALIZING)}, true},
-		{"mixed: other-node + this-node terminal + this-node non-terminal", []api.ReplicationDetailsResponse{
-			op("other", api.MOVE.String(), api.HYDRATING),
-			op("self", api.SELF_RECOVERY.String(), api.CANCELLED),
-			op("self", api.COPY.String(), api.REGISTERED),
-		}, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			raft := &stubRaft{}
-			if tc.ops != nil {
-				raft.opsByCollShard = map[string][]api.ReplicationDetailsResponse{"C/S": tc.ops}
-			}
-			o := newOrchestratorForTest(t, raft, stubSchema{}, &stubNodeSelector{}, nil, stubPathResolver{root: t.TempDir()})
-			got, err := o.HasInflightReplicationOp(context.Background(), "C", "S")
-			require.NoError(t, err)
-			require.Equal(t, tc.want, got)
-		})
-	}
 }
 
 func TestHasInflightSelfRecoveryOp(t *testing.T) {
