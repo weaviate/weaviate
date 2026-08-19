@@ -14,6 +14,7 @@ package cron
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -29,26 +30,75 @@ import (
 
 type configGetter func() config.Config
 
+// registrant is one cron job Crons owns.
+type registrant interface {
+	// jobName is the cron entry name, unique across registrants.
+	jobName() string
+	// hookKey prefix-matches runtime-config Go field names, so it must
+	// prefix the field whose changes RuntimeConfigHook reacts to.
+	hookKey() string
+	RuntimeConfigHook() error
+}
+
 type Crons struct {
 	objectsttl       *cronsObjectsTTL
 	namespaceCleanup *cronsNamespaceCleanup
+
+	registrations []registrant
 
 	logger            logrus.FieldLogger
 	gocronLogger      gocron.Logger
 	serverShutdownCtx context.Context
 }
 
-func NewCrons(serverShutdownCtx context.Context, logger logrus.FieldLogger, configGetter configGetter) *Crons {
+func NewCrons(serverShutdownCtx context.Context, logger logrus.FieldLogger, configGetter configGetter) (*Crons, error) {
 	logger = logger.WithField("action", "cron")
 	gocronLogger := cron.NewGoCronLogger(logger, logrus.DebugLevel)
 
-	return &Crons{
+	c := &Crons{
 		objectsttl:        newCronsObjectsTTL(serverShutdownCtx, logger, gocronLogger, configGetter),
 		namespaceCleanup:  newCronsNamespaceCleanup(serverShutdownCtx, logger, gocronLogger, configGetter),
 		logger:            logger,
 		gocronLogger:      gocronLogger,
 		serverShutdownCtx: serverShutdownCtx,
 	}
+
+	// Registering here rather than in Init is what makes RuntimeConfigHooks
+	// complete: startup collects the hook map before the goroutine running
+	// Init exists, so a slice filled in Init would hand it no keys at all.
+	for _, r := range []registrant{c.objectsttl, c.namespaceCleanup} {
+		if err := c.add(r); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
+}
+
+// add appends a registrant, refusing a job name that is empty or already
+// taken. Each registration loop removes the entry by name before adding it,
+// so two registrants sharing a name would take over each other's entry on
+// every reload, each seeing a successful registration.
+func (c *Crons) add(r registrant) error {
+	name := r.jobName()
+	if name == "" {
+		return fmt.Errorf("cron registrant has an empty job name")
+	}
+	if slices.ContainsFunc(c.registrations, func(other registrant) bool {
+		return other.jobName() == name
+	}) {
+		return fmt.Errorf("cron job %q is already registered", name)
+	}
+	// RuntimeConfigHooks keeps one hook per key, so a second job holding a
+	// key would replace the first and leave it reading a value nobody pushes
+	// to it. Two jobs paced by one config field need that map to call every
+	// job holding the key; this guard goes when it does.
+	if key := r.hookKey(); slices.ContainsFunc(c.registrations, func(other registrant) bool {
+		return other.hookKey() == key
+	}) {
+		return fmt.Errorf("cron job %q shares runtime config hook key %q with another job", name, key)
+	}
+	c.registrations = append(c.registrations, r)
+	return nil
 }
 
 // blocking
@@ -75,13 +125,16 @@ func (c *Crons) Init(clusterService *cluster.Service, ttlCoordinator *objectttl.
 }
 
 func (c *Crons) RuntimeConfigHooks() map[string]func() error {
-	return map[string]func() error{
-		"ObjectsTTL":       c.objectsttl.RuntimeConfigHook,
-		"NamespaceCleanup": c.namespaceCleanup.RuntimeConfigHook,
+	hooks := make(map[string]func() error, len(c.registrations))
+	for _, r := range c.registrations {
+		hooks[r.hookKey()] = r.RuntimeConfigHook
 	}
+	return hooks
 }
 
 // ----------------------------------------------------------------------------
+
+const objectsTTLJobName = "trigger_objects_ttl_deletion"
 
 type cronsObjectsTTL struct {
 	lock            *sync.Mutex
@@ -120,8 +173,7 @@ func (c *cronsObjectsTTL) Init(cr *gocron.Cron, clusterService *cluster.Service,
 		return fmt.Errorf("objects ttl coordinator is nil")
 	}
 	errors.GoWrapper(func() {
-		jobName := "trigger_objects_ttl_deletion"
-		jobLogger := c.logger.WithField("job", jobName)
+		jobLogger := c.logger.WithField("job", objectsTTLJobName)
 		var jobCtx context.Context
 		var cancel context.CancelFunc = func() {} // noop
 		wgRunning := new(sync.WaitGroup)
@@ -130,7 +182,7 @@ func (c *cronsObjectsTTL) Init(cr *gocron.Cron, clusterService *cluster.Service,
 			select {
 			case schedule := <-c.scheduleCh:
 				cancel()
-				if cr.RemoveByName(jobName) {
+				if cr.RemoveByName(objectsTTLJobName) {
 					jobLogger.Info("cron job removed")
 				}
 
@@ -152,7 +204,7 @@ func (c *cronsObjectsTTL) Init(cr *gocron.Cron, clusterService *cluster.Service,
 				jobCtx, cancel = context.WithCancel(c.serverShutdownCtx)
 				job := c.createJob(jobCtx, jobLogger, c.gocronLogger, clusterService, coordinator, wgRunning)
 
-				entryId, err := cr.AddJob(schedule, job, gocron.WithName(jobName))
+				entryId, err := cr.AddJob(schedule, job, gocron.WithName(objectsTTLJobName))
 				if err != nil {
 					jobLogger.WithError(err).Error("cron job not added")
 					continue
@@ -203,6 +255,10 @@ func (c *cronsObjectsTTL) createJob(ctx context.Context, jobLogger logrus.FieldL
 		err = coordinator.Start(ctx, false, started, started)
 	}))
 }
+
+func (c *cronsObjectsTTL) jobName() string { return objectsTTLJobName }
+
+func (c *cronsObjectsTTL) hookKey() string { return "ObjectsTTL" }
 
 func (c *cronsObjectsTTL) RuntimeConfigHook() error {
 	newSchedule := c.configGetter().ObjectsTTLDeleteSchedule.Get()
