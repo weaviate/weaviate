@@ -188,19 +188,46 @@ func TestListInactiveShardFiles(t *testing.T) {
 	indexID := "myclass"
 	shardName := "tenant1"
 
+	// rootFiles are written as regular files at the shard root, where the vector
+	// indexes keep their state.
 	tests := []struct {
 		name          string
-		writeStateDB  bool
+		rootFiles     []string
 		extraExpected []string
 	}{
 		{
-			name:         "no dynamic index",
-			writeStateDB: false,
+			name: "no vector index state",
 		},
 		{
-			name:          "dynamic index state db at the shard root",
-			writeStateDB:  true,
+			name:          "dynamic index state db",
+			rootFiles:     []string{dynamic.StateDBFileName},
 			extraExpected: []string{filepath.Join(indexID, shardName, dynamic.StateDBFileName)},
+		},
+		{
+			name:          "flat index metadata of the unnamed vector",
+			rootFiles:     []string{"meta.db"},
+			extraExpected: []string{filepath.Join(indexID, shardName, "meta.db")},
+		},
+		{
+			name:      "flat index metadata of every named vector",
+			rootFiles: []string{"meta_first.db", "meta_second.db"},
+			extraExpected: []string{
+				filepath.Join(indexID, shardName, "meta_first.db"),
+				filepath.Join(indexID, shardName, "meta_second.db"),
+			},
+		},
+		{
+			name:      "dynamic and flat state side by side",
+			rootFiles: []string{dynamic.StateDBFileName, "meta.db", "meta_first.db"},
+			extraExpected: []string{
+				filepath.Join(indexID, shardName, dynamic.StateDBFileName),
+				filepath.Join(indexID, shardName, "meta.db"),
+				filepath.Join(indexID, shardName, "meta_first.db"),
+			},
+		},
+		{
+			name:      "unrelated root files are left out",
+			rootFiles: []string{"metadata.db", "usage.json.tmp"},
 		},
 	}
 
@@ -219,8 +246,8 @@ func TestListInactiveShardFiles(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(shardDir, "proplengths"), []byte(`{"len":1}`), 0o644))
 			require.NoError(t, os.WriteFile(filepath.Join(shardDir, "version"), []byte("2"), 0o644))
 
-			if test.writeStateDB {
-				require.NoError(t, os.WriteFile(filepath.Join(shardDir, dynamic.StateDBFileName), []byte("bolt"), 0o644))
+			for _, name := range test.rootFiles {
+				require.NoError(t, os.WriteFile(filepath.Join(shardDir, name), []byte("bolt"), 0o644))
 			}
 
 			// LSM bucket with segment and WAL
@@ -297,10 +324,8 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	// Dynamic index state DB at the shard root (mutable).
 	require.NoError(t, os.WriteFile(filepath.Join(shardDir, dynamic.StateDBFileName), []byte("bolt-data"), 0o644))
 
-	// Flat vector index metadata (mutable).
-	vecDir := filepath.Join(shardDir, "main")
-	require.NoError(t, os.MkdirAll(vecDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(vecDir, "meta.db"), []byte("boltdb-data"), 0o644))
+	// Flat vector index metadata (mutable), at the shard root where flat.New writes it.
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "meta.db"), []byte("boltdb-data"), 0o644))
 
 	// HNSW commitlog directory with condensed (immutable) and non-condensed (mutable).
 	clDir := filepath.Join(shardDir, "main.hnsw.commitlog.d")
@@ -335,8 +360,8 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	walDst := filepath.Join(stagingRoot, indexID, shardName, "lsm", "objects", "segment-123.wal")
 	assert.NotEqual(t, getIno(walSrc), getIno(walDst), "WAL should be copied, not hard-linked")
 
-	metaSrc := filepath.Join(vecDir, "meta.db")
-	metaDst := filepath.Join(stagingRoot, indexID, shardName, "main", "meta.db")
+	metaSrc := filepath.Join(shardDir, "meta.db")
+	metaDst := filepath.Join(stagingRoot, indexID, shardName, "meta.db")
 	assert.NotEqual(t, getIno(metaSrc), getIno(metaDst), "meta.db should be copied, not hard-linked")
 
 	clSrc := filepath.Join(clDir, "1709203456")

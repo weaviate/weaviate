@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -811,26 +812,6 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	}
 	files = append(files, lsmFiles...)
 
-	// The dynamic index state DB is a regular file at the shard root, so the walk
-	// below does not reach it. A restore without it reads no upgrade key, concludes
-	// the index never upgraded, and deletes the HNSW graph holding the only vectors.
-	stateDBPath := filepath.Join(shardDir, dynamic.StateDBFileName)
-	if _, err := os.Stat(stateDBPath); err == nil {
-		relPath, err := filepath.Rel(rootPath, stateDBPath)
-		if err != nil {
-			return nil, fmt.Errorf("%s rel path: %w", dynamic.StateDBFileName, err)
-		}
-		files = append(files, relPath)
-	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("stat %s: %w", dynamic.StateDBFileName, err)
-	}
-
-	// List vector index files (all non-lsm subdirectories of the shard).
-	// Expected directories: <target>.hnsw.commitlog.d/, <target>.hnsw.snapshot.d/,
-	// <target>.queue.d/, <target>/ (flat/dynamic index), hashtree_<target>/.
-	// An indiscriminate walk is safe here because INACTIVE shards are fully
-	// quiesced — Shutdown has flushed and closed all stores, so there are no
-	// active commit logs or transient files to exclude.
 	// Note: this reads shardDir, not lsmPath — the two ReadDir calls in this
 	// function and listInactiveLSMFiles operate on different directories with
 	// different traversal semantics.
@@ -838,6 +819,34 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	if err != nil {
 		return nil, fmt.Errorf("read shard dir: %w", err)
 	}
+
+	// The vector indexes keep state as regular files at the shard root, which the
+	// walk below does not reach: the dynamic index's upgrade state and one flat
+	// metadata file per target vector. A restore missing the upgrade state
+	// concludes the index never upgraded and deletes the HNSW graph holding the
+	// only vectors.
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if name != dynamic.StateDBFileName && !flat.IsMetadataFile(name) {
+			continue
+		}
+		relPath, err := filepath.Rel(rootPath, filepath.Join(shardDir, name))
+		if err != nil {
+			return nil, fmt.Errorf("%s rel path: %w", name, err)
+		}
+		files = append(files, relPath)
+	}
+
+	// List vector index files (all non-lsm subdirectories of the shard).
+	// Expected directories: <id>.hnsw.commitlog.d/, <id>.hnsw.snapshot.d/,
+	// <id>.queue.d/ and <id>.hfresh.d/ for a vector index id, plus hashtree_uuid/.
+	// Flat and dynamic state is not a directory; the loop above lists it.
+	// An indiscriminate walk is safe here because INACTIVE shards are fully
+	// quiesced — Shutdown has flushed and closed all stores, so there are no
+	// active commit logs or transient files to exclude.
 	for _, entry := range entries {
 		if !entry.IsDir() || entry.Name() == lsmDir {
 			continue

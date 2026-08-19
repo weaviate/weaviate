@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -720,6 +721,27 @@ func (s *BackupTestSuite) VerifyDynamicIndexUpgraded(t *testing.T) {
 	}, 3*time.Minute, time.Second)
 }
 
+// weaviateDataDir is PERSISTENCE_DATA_PATH inside the weaviate container, which
+// runs from the image's root working directory.
+const weaviateDataDir = "/data"
+
+// VerifyInactiveShardsHaveFlatMetadata requires every deactivated tenant's shard to
+// hold the flat index metadata file. The file sits at the shard root rather than in
+// a vector index subdirectory. An inactive shard is read straight off disk, so after
+// a restore the file is only there if the cold backup path listed it. The tenant
+// stays unloaded, and nothing else recreates it.
+func (s *BackupTestSuite) VerifyInactiveShardsHaveFlatMetadata(t *testing.T) {
+	t.Helper()
+
+	container := s.compose.GetWeaviate().Container()
+	for _, tenant := range s.GetInactiveTenants(t) {
+		metaPath := path.Join(weaviateDataDir, strings.ToLower(s.config.ClassName), tenant, "meta.db")
+		code, _, err := container.Exec(context.Background(), []string{"test", "-f", metaPath})
+		require.NoError(t, err, "probe %s in the weaviate container", metaPath)
+		require.Zero(t, code, "tenant %q has no flat index metadata at %s", tenant, metaPath)
+	}
+}
+
 // VerifyObjectsDoNotExist checks that objects no longer exist (after class deletion).
 // Uses class existence check since the class should be deleted.
 func (s *BackupTestSuite) VerifyObjectsDoNotExist(t *testing.T) {
@@ -1061,6 +1083,14 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 		})
 	}
 
+	// establishes that the deactivated shards hold their flat metadata before the
+	// backup, so the same check after the restore can only fail on what it carried
+	if s.config.VectorIndexType == "flat" && s.config.ClusterSize == 1 {
+		t.Run("verify inactive shards have flat metadata", func(t *testing.T) {
+			s.VerifyInactiveShardsHaveFlatMetadata(t)
+		})
+	}
+
 	t.Run("create backup", func(t *testing.T) {
 		s.CreateBackup(t, backupID, "")
 	})
@@ -1085,6 +1115,13 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 	if s.config.MultiTenant.Enabled && !s.config.MultiTenant.WithMidBackupActivations {
 		t.Run("verify tenant activities restored", func(t *testing.T) {
 			s.VerifyTenantActivitiesRestored(t)
+		})
+	}
+
+	// before any query below can load a restored tenant and recreate the file
+	if s.config.VectorIndexType == "flat" && s.config.ClusterSize == 1 {
+		t.Run("verify inactive shards have flat metadata restored", func(t *testing.T) {
+			s.VerifyInactiveShardsHaveFlatMetadata(t)
 		})
 	}
 
@@ -1373,6 +1410,20 @@ func MultiTenantWithDynamicIndexTestCase() BackupTestCase {
 		ObjectsPerTenant:  30,
 		VectorIndexType:   "dynamic",
 		VectorIndexConfig: map[string]any{"threshold": 10},
+	}
+}
+
+// MultiTenantWithFlatIndexTestCase returns a test case whose tenants use the flat
+// index, which keeps its metadata at the shard root. The tenants deactivated before
+// the backup are read straight off disk, so the file only survives the restore if
+// the cold path lists it.
+func MultiTenantWithFlatIndexTestCase() BackupTestCase {
+	return BackupTestCase{
+		Name:             "multi_tenant_flat_index",
+		MultiTenant:      true,
+		NumTenants:       5,
+		ObjectsPerTenant: 10,
+		VectorIndexType:  "flat",
 	}
 }
 

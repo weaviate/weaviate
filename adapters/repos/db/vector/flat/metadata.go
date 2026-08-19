@@ -13,9 +13,9 @@ package flat
 
 import (
 	"encoding/binary"
-	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -28,6 +28,7 @@ import (
 
 const (
 	metadataPrefix       = "meta"
+	metadataExt          = ".db"
 	vectorMetadataBucket = "vector"
 	quantizationKey      = "quantization"
 
@@ -71,9 +72,20 @@ func (index *flat) getMetadataFile() string {
 		// This may be redundant as target vector is already validated in the schema
 		cleanTarget := filepath.Clean(index.targetVector)
 		cleanTarget = filepath.Base(cleanTarget)
-		return fmt.Sprintf("%s_%s.db", metadataPrefix, cleanTarget)
+		return metadataPrefix + "_" + cleanTarget + metadataExt
 	}
-	return fmt.Sprintf("%s.db", metadataPrefix)
+	return metadataPrefix + metadataExt
+}
+
+// IsMetadataFile reports whether name is a flat index metadata file. The index
+// writes it directly into its configured root, so a caller enumerating that
+// directory needs this to pick it out. name may be a base name or a path.
+func IsMetadataFile(name string) bool {
+	stem, ok := strings.CutSuffix(filepath.Base(name), metadataExt)
+	if !ok {
+		return false
+	}
+	return stem == metadataPrefix || strings.HasPrefix(stem, metadataPrefix+"_")
 }
 
 func (index *flat) removeMetadataFile(keepFiles bool) error {
