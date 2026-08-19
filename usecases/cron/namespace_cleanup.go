@@ -159,6 +159,10 @@ func (c *cronsNamespaceCleanup) createJob(jobLogger logrus.FieldLogger,
 	}))
 }
 
+func (c *cronsNamespaceCleanup) jobName() string { return namespaceCleanupJobName }
+
+func (c *cronsNamespaceCleanup) hookKey() string { return "NamespaceCleanup" }
+
 // RuntimeConfigHook re-reads the interval from config and, on change,
 // pushes the new value to the registration loop. The whole read-compare-
 // store-and-push runs under mu so concurrent callers can't interleave and

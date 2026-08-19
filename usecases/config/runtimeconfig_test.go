@@ -276,6 +276,30 @@ func TestDisableDimensionMetricsRuntimeOverride(t *testing.T) {
 	})
 }
 
+func TestHookKeyMatchesAnyField(t *testing.T) {
+	tests := []struct {
+		name    string
+		hookKey string
+		want    bool
+	}{
+		{name: "a whole field name", hookKey: "DisableGraphQL", want: true},
+		{name: "a prefix of a field name", hookKey: "OIDC", want: true},
+		{
+			// NamespaceCleanupInterval is the field. The rule is a prefix
+			// match, so naming its tail names nothing.
+			name:    "a substring that is not a prefix",
+			hookKey: "CleanupInterval",
+		},
+		{name: "a name no field carries", hookKey: "NoSuchKnob"},
+		{name: "the empty key, which names every field", hookKey: "", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, HookKeyMatchesAnyField(tt.hookKey))
+		})
+	}
+}
+
 func TestUpdateRuntimeConfig(t *testing.T) {
 	log := logrus.New()
 	log.SetOutput(io.Discard)
