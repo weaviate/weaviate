@@ -411,3 +411,29 @@ func TestRestart_TimeoutLeavesRecoveryDir(t *testing.T) {
 	_, statErr := os.Stat(recoveryPath)
 	require.NoError(t, statErr, "recovery dir must be left intact on timeout so the next attempt resumes")
 }
+
+// Pins the dequeue guard: a live dir appearing while queued means another flow owns the shard.
+func TestRunOne_SkipsWhenLiveDirAppearedWhileQueued(t *testing.T) {
+	root := t.TempDir()
+	clientFactory := func(_ context.Context, _ string) (copier.FileReplicationServiceClient, error) {
+		t.Error("no peer must be probed for a shard whose live dir exists")
+		return nil, errors.New("unexpected probe")
+	}
+	o := newOrchestratorForTest(t, &stubRaft{},
+		stubSchema{replicas: []string{"self", "peer1"}}, &stubNodeSelector{}, clientFactory, stubPathResolver{root: root})
+
+	require.NoError(t, os.MkdirAll(stubPathResolver{root: root}.ShardPath("C", "S"), 0o755))
+
+	before := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("skipped"))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runOne did not return for a shard with a live dir")
+	}
+	require.InDelta(t, before+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("skipped")), 0.001)
+}
