@@ -507,6 +507,9 @@ func NewIndex(
 	}
 	index.closeRequestedCtx, index.signalCloseRequested = context.WithCancelCause(context.Background())
 	index.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
+	if cfg.ReplicationFSM != nil {
+		index.SetReplicationFSMReader(cfg.ReplicationFSM)
+	}
 
 	getDeletionStrategy := func() string {
 		return index.DeletionStrategy()
@@ -779,12 +782,11 @@ func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.
 		return true
 	}
 
-	// A different in-flight op (e.g. scale-out COPY) owns the dir; leave it to that op.
-	if inflight, err := orch.HasInflightReplicationOp(ctx, collection, shardName); err != nil {
-		i.logger.WithError(err).WithFields(logFields).
-			Warn("self-recovery: could not check for in-flight replication op; falling back to normal shard init")
-		return false
-	} else if inflight {
+	// A different in-flight op (e.g. scale-out COPY) owns the dir; leave it to
+	// that op. Nil reader (tests only) counts as none; the FSM admission checks
+	// at RegisterSelfRecovery are the backstop.
+	if fsm := i.getReplicationFSMReader(); fsm != nil && i.getSchema != nil &&
+		fsm.HasActiveTargetReplicationForShard(collection, shardName, i.getSchema.NodeName()) {
 		i.logger.WithFields(logFields).
 			Info("self-recovery: a non-self-recovery in-flight op already targets this shard; leaving it to that op")
 		return false
@@ -1374,6 +1376,8 @@ type IndexConfig struct {
 	// an all-peers-empty result during the bootstrap window as a likely
 	// class-added-during-downtime rather than a wipe. Nil ⇒ post-bootstrap.
 	RaftBootstrapComplete func() bool
+	// Seeded before initAndStoreShards so the startup recovery check can read it.
+	ReplicationFSM replicationTypes.ReplicationFSMReader
 
 	HFreshEnabled bool
 
