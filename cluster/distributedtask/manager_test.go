@@ -1239,7 +1239,6 @@ func TestManager_RecordPostCompletionAck_Success(t *testing.T) {
 		require.False(t, ack.AckedAt.IsZero(), "AckedAt must be set on apply")
 	}
 	require.Empty(t, task.MissingPostCompletionAckNodes())
-	require.False(t, task.AnyPostCompletionAckFailed())
 }
 
 // TestManager_RecordPostCompletionAck_FailureTransitionsToFailed
@@ -1295,7 +1294,7 @@ func TestManager_RecordPostCompletionAck_FailureTransitionsToFailed(t *testing.T
 		"any failure ack must transition the task to FAILED")
 	require.Contains(t, task.Error, "post-completion swap failed on node node-2")
 	require.Contains(t, task.Error, "synthetic swap failure")
-	require.True(t, task.AnyPostCompletionAckFailed())
+	require.False(t, task.PostCompletionAcks["node-2"].Success)
 }
 
 // TestManager_RecordPostCompletionAck_Idempotent pins the duplicate-ack

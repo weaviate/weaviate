@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -45,6 +46,11 @@ const (
 	composerUpgradedKey = "upgraded"
 	batchSize           = 500
 	StateDBFileName     = "index.db"
+
+	// stateDBOpenTimeout bounds the wait for the state DB's file lock. Only a
+	// loaded shard holds it, and [UpgradedOnDisk] reads unloaded ones, so waiting
+	// is a sign the caller raced a load rather than something to sit out.
+	stateDBOpenTimeout = time.Second
 )
 
 var dynamicBucket = []byte("dynamic")
@@ -274,17 +280,62 @@ func (dynamic *dynamic) Type() common.IndexType {
 }
 
 func (dynamic *dynamic) dbKey() []byte {
-	var key []byte
-	if dynamic.targetVector != "" {
-		key = make([]byte, 0, len(composerUpgradedKey)+len(dynamic.targetVector)+1)
-		key = append(key, composerUpgradedKey...)
-		key = append(key, '_')
-		key = append(key, dynamic.targetVector...)
-	} else {
-		key = []byte(composerUpgradedKey)
+	return dbKey(dynamic.targetVector)
+}
+
+func dbKey(targetVector string) []byte {
+	if targetVector == "" {
+		return []byte(composerUpgradedKey)
 	}
 
+	key := make([]byte, 0, len(composerUpgradedKey)+len(targetVector)+1)
+	key = append(key, composerUpgradedKey...)
+	key = append(key, '_')
+	key = append(key, targetVector...)
 	return key
+}
+
+// UpgradedOnDisk reports whether the dynamic index of an unloaded shard already
+// switched to hnsw, reading the same state the shard's own load reads: the
+// shared state DB, falling back for a named vector to the hnsw commit log
+// directory. An unnamed vector gets no such fallback, because its load reads a
+// missing key as not upgraded and then deletes that directory.
+//
+// State that could not be read returns false along with the error, so a caller
+// can tell that answer apart from a shard positively known to be flat.
+func UpgradedOnDisk(rootPath, id, targetVector string) (bool, error) {
+	upgradedWithoutStateKey := false
+	if targetVector != "" {
+		_, err := os.Stat(hnswCommitLogDirectory(rootPath, id))
+		upgradedWithoutStateKey = err == nil
+	}
+
+	db, err := bbolt.Open(filepath.Join(rootPath, StateDBFileName), 0o600,
+		&bbolt.Options{ReadOnly: true, Timeout: stateDBOpenTimeout})
+	if err != nil {
+		// only a shard that never wrote state may fall back to the directory; a
+		// locked or damaged DB is state we failed to read
+		if os.IsNotExist(err) {
+			return upgradedWithoutStateKey, nil
+		}
+		return false, fmt.Errorf("open dynamic state db: %w", err)
+	}
+	defer db.Close()
+
+	upgraded := upgradedWithoutStateKey
+	if err := db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		if b == nil {
+			return nil
+		}
+		if v := b.Get(dbKey(targetVector)); len(v) > 0 {
+			upgraded = v[0] != 0
+		}
+		return nil
+	}); err != nil {
+		return false, fmt.Errorf("read dynamic state db: %w", err)
+	}
+	return upgraded, nil
 }
 
 func (dynamic *dynamic) getBucketName() string {
@@ -312,8 +363,10 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		}
 
 		if cfg.TargetVector == "" {
+			// a stored empty value reads back non-nil, so length is what says
+			// whether a state was recorded
 			v := b.Get(dbKey)
-			if v == nil {
+			if len(v) == 0 {
 				return nil
 			}
 
@@ -327,7 +380,7 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 
 		// first, check if there's an entry for this specific target vector
 		v := b.Get(dbKey)
-		if v != nil {
+		if len(v) > 0 {
 			upgraded = v[0] != 0
 			return nil
 		}
@@ -855,16 +908,19 @@ func (dynamic *dynamic) Stats() (*hnsw.HnswStats, error) {
 	return h.Stats()
 }
 
+type compressionStatsReporter interface {
+	CompressionStats() compressionhelpers.CompressionStats
+}
+
 func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 
-	// Delegate to the underlying index (flat or hnsw)
-	if vectorIndex, ok := dynamic.index.(compressionhelpers.CompressionStats); ok {
-		return vectorIndex
+	// the stats belong to whichever index is active, flat or hnsw
+	if index, ok := dynamic.index.(compressionStatsReporter); ok {
+		return index.CompressionStats()
 	}
 
-	// Fallback: return uncompressed stats if the underlying index doesn't support CompressionStats
 	return compressionhelpers.UncompressedStats{}
 }
 

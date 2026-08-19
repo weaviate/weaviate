@@ -72,6 +72,13 @@ func TestHasUntidiedTracker(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "tracker whose promotion is already recorded → completed, no recovery",
+			trackers: map[string][]string{
+				"searchable_retokenize_text_1": recordedSentinels,
+			},
+			want: false,
+		},
+		{
 			name: "tracker with merged.mig only → recovery-eligible, NO recovery (will be promoted by finalize)",
 			trackers: map[string][]string{
 				"searchable_retokenize_text_2": {"started.mig", "merged.mig"},

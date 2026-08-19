@@ -139,17 +139,17 @@ func TestCompletedMigrationGens(t *testing.T) {
 	}
 }
 
-// TestCleanStaleMigrationDirsAt_PreservesCompletedGens pins the
-// end-to-end behavior of the cleanup helper: tracker dirs with
-// tidied.mig (or merged.mig) survive; tracker dirs with only started.mig
-// are removed.
+// TestCleanStaleMigrationDirsAtRetiresWhatTheDeleteRemoves pins the end-to-end
+// behavior of the helper an index DELETE sweeps with: it removes the trackers of
+// the bucket the DELETE just dropped, whatever stage they reached, and touches
+// nothing outside that bucket. A completed tracker outliving its bucket is what
+// has the next load re-open a deleted index.
 //
-// This is the R2/R2b regression: before the fix, the pre-submit
-// CleanStalePartialReindexState wiped tracker_1 (which had tidied.mig)
-// out from under the in-memory ingest bucket pointer → next migration
-// picked gen=1 again → previous data overwritten → silent #10675-shape
-// loss on the controller node.
-func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
+// The opposite contract — a completed tracker survives the sweep, since its
+// ingest dir is what the in-memory bucket pointer is on (#10675) — belongs to
+// the submit and cancel path, [Shard.CleanStalePartialReindexState], which does
+// not retire.
+func TestCleanStaleMigrationDirsAtRetiresWhatTheDeleteRemoves(t *testing.T) {
 	tests := []struct {
 		name     string
 		propName string
@@ -160,25 +160,28 @@ func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 		wantSurvivors []string
 	}{
 		{
-			name:     "tidied tracker survives, started-only tracker removed",
+			name:     "every generation of the removed bucket goes, completed or not",
 			propName: "text",
 			idxType:  "searchable",
 			trackers: map[string][]string{
-				// Completed migration (T1) — must survive.
 				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
-				// Cancelled / partial migration (T2 cancelled mid-flight) — wipe.
-				"searchable_retokenize_text_2": {"started.mig"},
+				// The recovery shape: the swap died between merging and tidying.
+				"searchable_retokenize_text_2": {"started.mig", "merged.mig"},
+				"searchable_retokenize_text_3": {"started.mig"},
 			},
-			wantSurvivors: []string{"searchable_retokenize_text_1"},
+			wantSurvivors: []string{},
 		},
 		{
-			name:     "untidied-merged tracker survives (recovery path)",
+			// The rangeable strategy is in the filterable sweep's scope, but the
+			// bucket it promotes is not the one this DELETE removes.
+			name:     "a completed tracker of a neighbouring index's bucket survives",
 			propName: "text",
-			idxType:  "searchable",
+			idxType:  "filterable",
 			trackers: map[string][]string{
-				"searchable_retokenize_text_3": {"started.mig", "merged.mig"},
+				"filterable_to_rangeable_text_1": {"started.mig", "tidied.mig"},
+				"enable_filterable_text_1":       {"started.mig", "tidied.mig"},
 			},
-			wantSurvivors: []string{"searchable_retokenize_text_3"},
+			wantSurvivors: []string{"filterable_to_rangeable_text_1"},
 		},
 		{
 			name:     "non-matching prop survives (different propName)",
@@ -212,19 +215,6 @@ func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 				"searchable_retokenize_text_2": {"started.mig"},
 			},
 			wantSurvivors: []string{},
-		},
-		{
-			name:     "R2 repro: T1 tidied at gen 1, T2 tidied at gen 2 → both survive",
-			propName: "text",
-			idxType:  "searchable",
-			trackers: map[string][]string{
-				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
-				"searchable_retokenize_text_2": {"started.mig", "tidied.mig"},
-			},
-			wantSurvivors: []string{
-				"searchable_retokenize_text_1",
-				"searchable_retokenize_text_2",
-			},
 		},
 	}
 

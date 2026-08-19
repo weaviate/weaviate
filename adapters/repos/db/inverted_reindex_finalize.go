@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -56,20 +57,6 @@ const finalizedSentinel = "finalized.mig"
 // on-disk implementation detail of the deferred-finalize design.
 func nextMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
 	return maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix) + 1
-}
-
-// MaxMigrationGenerationForDebug is an exported wrapper around
-// [maxMigrationGeneration] for the REST debug handlers. Production code
-// should use [maxMigrationGeneration] / [nextMigrationGeneration]
-// directly.
-func MaxMigrationGenerationForDebug(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
-	return maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix)
-}
-
-// GenSuffixForDebug is an exported wrapper around [genSuffix] for the
-// REST debug handlers. Production code should use [genSuffix] directly.
-func GenSuffixForDebug(generation int) string {
-	return genSuffix(generation)
 }
 
 // maxMigrationGeneration returns the highest existing generation on disk
@@ -393,11 +380,13 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger log
 
 // finalizeEffectiveGen promotes the effective generation's ingest dirs to
 // their canonical names and reports whether its tracker dir may now be
-// removed. Three outcomes keep the record honest:
+// removed. Four outcomes keep the record honest:
 //
 //   - Promotion failed for a property: tracker stays UNMARKED so the next
 //     start retries it; `tidied.mig` keeps the promoted buckets shielded
 //     meanwhile.
+//   - Nothing was promoted and no dir is left to promote from: the tracker is
+//     removed, since the index a record would revive is gone from disk.
 //   - Promotion succeeded, schema already advertises the index: tracker is
 //     removed by the caller.
 //   - Promotion succeeded, schema still advertises it disabled: tracker is
@@ -412,11 +401,19 @@ func finalizeEffectiveGen(lsmPath, migDir, migName string, class *models.Class,
 	if fileExistsInDir(migDir, finalizedSentinel) {
 		return !migrationAwaitsSchemaFlip(migDir, migName, class)
 	}
-	if err := finalizeMigrationDir(lsmPath, migDir, migName, logger); err != nil {
+	promoted, err := finalizeMigrationDir(lsmPath, migDir, migName, logger)
+	switch {
+	case errors.Is(err, errUnfinalizableTracker):
+		logger.WithField("migration", migName).Warnf("reindex finalize: %v; the promoted state is deliberately retained", err)
+		return false
+	case err != nil:
 		logger.WithField("migration", migName).
 			Errorf("reindex finalize: promotion did not complete for every property; "+
 				"keeping the tracker unmarked so the next start retries it: %v", err)
 		return false
+	case !promoted:
+		logger.WithField("migration", migName).Warn("reindex finalize: promotion left no index dir behind; removing the tracker")
+		return true
 	}
 	if !migrationAwaitsSchemaFlip(migDir, migName, class) {
 		return true
@@ -434,7 +431,7 @@ func finalizeEffectiveGen(lsmPath, migDir, migName string, class *models.Class,
 }
 
 // writeFinalizedMarker records a completed promotion. Exclusive create: a
-// marker that already exists belongs to an earlier start, and
+// marker that already exists belongs to an earlier load, and
 // [finalizeEffectiveGen] never reaches here in that case.
 func writeFinalizedMarker(migDir string) error {
 	f, err := os.OpenFile(filepath.Join(migDir, finalizedSentinel),
@@ -442,8 +439,9 @@ func writeFinalizedMarker(migDir string) error {
 	if err != nil {
 		return fmt.Errorf("create %s: %w", finalizedSentinel, err)
 	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("close %s: %w", finalizedSentinel, err)
+	_, werr := f.WriteString(time.Now().UTC().Format(time.RFC3339Nano))
+	if err := errors.Join(werr, f.Close()); err != nil {
+		return fmt.Errorf("finish %s: %w", finalizedSentinel, err)
 	}
 	return nil
 }
@@ -586,7 +584,9 @@ func readFinalizedMigrations(lsmPath string) finalizedMigrations {
 			continue
 		}
 		migDir := filepath.Join(migrationsDir, entry.Name())
-		if !fileExistsInDir(migDir, finalizedSentinel) {
+		// A record without the completion the shield reads would open a bucket nothing protects.
+		if !fileExistsInDir(migDir, finalizedSentinel) ||
+			(!fileExistsInDir(migDir, "tidied.mig") && !fileExistsInDir(migDir, "merged.mig")) {
 			continue
 		}
 		props, err := readMigrationProps(migDir)
@@ -762,31 +762,34 @@ func reindexSuffixForFinalize(namespace string) string {
 	return ""
 }
 
+var errUnfinalizableTracker = errors.New("no start can finalize this tracker")
+
 // finalizeMigrationDir renames every property's ingest dir to its canonical
 // name and removes the backup dir it replaced.
 //
-// A non-nil error means at least one property is NOT promoted; the caller
-// must not mark the tracker finalized on that answer, or a later start will
-// trust the record instead of retrying. Idempotent by construction: after a
-// successful run neither the ingest nor the backup dir exists, so a re-run
-// (crash between promotion and record) is a no-op.
-func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) error {
+// The bool reports whether any property ended with its canonical dir on disk —
+// the only evidence a record may rest on, since absent ingest and backup dirs
+// are ambiguous between "promoted earlier" and "destroyed in between". A
+// non-nil error means at least one property is NOT promoted; the caller must
+// not mark the tracker finalized on that answer, or a later start will trust
+// the record instead of retrying.
+func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) (bool, error) {
 	// A missing sentinel means a tracker nothing can promote from — callers
 	// reach here at the effective generation, where both are already present.
 	if !fileExists(filepath.Join(migDir, "swapped.mig")) {
-		return fmt.Errorf("tracker has no swapped.mig")
+		return false, fmt.Errorf("tracker has no swapped.mig")
 	}
 	if !fileExists(filepath.Join(migDir, "tidied.mig")) {
-		return fmt.Errorf("tracker has no tidied.mig")
+		return false, fmt.Errorf("tracker has no tidied.mig")
 	}
 
 	// Read properties from the migration.
 	props, err := readMigrationProps(migDir)
 	if err != nil {
-		return fmt.Errorf("read properties.mig: %w", err)
+		return false, fmt.Errorf("%w: read properties.mig: %w", errUnfinalizableTracker, err)
 	}
 	if len(props) == 0 {
-		return fmt.Errorf("properties.mig names no property")
+		return false, fmt.Errorf("%w: properties.mig names no property", errUnfinalizableTracker)
 	}
 
 	// Determine bucket naming from migration dir name. The migration dir
@@ -796,12 +799,12 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	// to find the matching on-disk sidecar dirs.
 	suffixes := migrationSuffixes(migName)
 	if suffixes == nil {
-		return fmt.Errorf("no bucket naming scheme for this migration")
+		return false, fmt.Errorf("no bucket naming scheme for this migration")
 	}
 	_, gen, ok := parseMigrationDirName(migName)
 	if !ok {
 		// Defensive — every dir on disk should carry the gen suffix.
-		return fmt.Errorf("tracker name carries no generation suffix")
+		return false, fmt.Errorf("tracker name carries no generation suffix")
 	}
 	genTail := "_" + strconv.Itoa(gen)
 
@@ -810,6 +813,7 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	// One property failing must not skip the rest: every one of them is a
 	// separate index the shard would otherwise come up without.
 	var failures []error
+	promoted := false
 	for _, propName := range props {
 		mainName := suffixes.sourceBucketName(propName)
 		ingestDir := filepath.Join(lsmPath, mainName+suffixes.ingestSuffix+genTail)
@@ -842,8 +846,9 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 			logger.WithField("from", ingestDir).WithField("to", mainDir).
 				Debug("finalize: renamed ingest dir to main")
 		}
+		promoted = promoted || fileExists(mainDir)
 	}
-	return errors.Join(failures...)
+	return promoted, errors.Join(failures...)
 }
 
 func readMigrationProps(migDir string) ([]string, error) {

@@ -86,7 +86,7 @@ func barrierIntegrationDrivenToReindexed(
 	}
 	// Sanity: iteration must have halted at the barrier (markReindexed
 	// written, runtimePrepare NOT called).
-	rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	require.True(t, rt.IsReindexed(),
 		"helper precondition: iteration must reach IsReindexed under skipSwapOnFinish=true")
 	require.False(t, rt.IsMerged(),
@@ -131,7 +131,7 @@ func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 	task, _ := barrierIntegrationDrivenToReindexed(t, ctx, shard, idx.logger)
 
 	// Pre-PREP invariants: reindexed yes, merged no.
-	rtPre := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+	rtPre := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	require.True(t, rtPre.IsReindexed(), "pre-PREP: must be reindexed")
 	require.False(t, rtPre.IsMerged(), "pre-PREP: must NOT be merged")
 
@@ -149,7 +149,7 @@ func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 	// between the per-prop PrependSegmentsFromBucket loop and
 	// markMerged — its presence pins that runtimePrepare ran to
 	// completion.
-	rtPost := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+	rtPost := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	assert.True(t, rtPost.IsReindexed(), "post-PREP: reindexed sentinel preserved")
 	assert.True(t, rtPost.IsPrepended(), "post-PREP: prepended sentinel written by runtimePrepare")
 	assert.True(t, rtPost.IsMerged(), "post-PREP: merged sentinel — RunPrepareOnShard advanced from IsReindexed to IsMerged")
@@ -190,7 +190,7 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 		[]*ShardReindexTaskGeneric{task}, false, p.logger)
 	require.True(t, ok, "PREP setup must succeed: %v", prepRes.Errs)
 
-	rtMid := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+	rtMid := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	require.True(t, rtMid.IsMerged(), "mid: must be merged before SWAP")
 	require.False(t, rtMid.IsSwapped(), "mid: must NOT be swapped before SWAP")
 
@@ -212,7 +212,7 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 	// per-prop swap → markSwapped → tidy sequence is atomic (Phase 2a
 	// pins this contract — see TestRuntimeSwap_Phase2a_AtomicTightLoop)
 	// so both sentinels appear together once swap+tidy returns clean.
-	rtFinal := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+	rtFinal := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	assert.True(t, rtFinal.IsSwapped(), "post-SWAP: swapped sentinel — runShardSwapPhase flipped the bucket pointer")
 	assert.True(t, rtFinal.IsTidied(), "post-SWAP: tidied sentinel — runShardSwapPhase tidied backup buckets")
 	assert.True(t, strategy.migrationCompleted,
@@ -285,7 +285,7 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 		shard, []*ShardReindexTaskGeneric{task}, &selectedPropsFailures{}))
 
 	// Sanity: payload.mig is on disk in the migration dir.
-	migDir := filepath.Join(shard.pathLSM(), ".migrations", task.MigrationDirName())
+	migDir := task.migrationPath(shard.pathLSM())
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
 	rawPayload, err := os.ReadFile(payloadPath)
 	require.NoError(t, err, "payload.mig must exist after persistRecoveryRecord")
@@ -410,7 +410,7 @@ func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *tes
 	// the barrier persisted, AND the recovery path sees it as
 	// IsReindexed (which is the dispatch key for
 	// RunSwapOnShard's resumeFromReindexed branch).
-	rtRecovered := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+	rtRecovered := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	assert.True(t, rtRecovered.IsReindexed(),
 		"recovered tracker must report IsReindexed=true (durability barrier ⇒ marker survives)")
 	assert.False(t, rtRecovered.IsMerged(),

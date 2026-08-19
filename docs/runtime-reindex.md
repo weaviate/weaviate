@@ -625,7 +625,7 @@ Key types & contracts:
 |---|---|
 | `IsTerminal()` | `FINISHED`, `FAILED`, `CANCELLED` |
 | `IsActive()` | everything else (defined as the exact negation of `IsTerminal()`) |
-| `IsCoordinationPhase()` | `PREPARING`, `SWAPPING` |
+| `IsCompleted()` | `SWAPPING`, `FINISHED` — every unit succeeded |
 | `IsRecognized()` | any status this build declares |
 | `IsCancellable()` | `STARTED`, and nothing else |
 
@@ -1318,22 +1318,38 @@ Per namespace (strategy-prefix + props-suffix):
 7. Leave gens > effective alone (in-flight; `DiscoverInFlightReindexTasks`
    handles them).
 
+### 9.6 Hard rules
+
+- **Do not** call `Store.FinalizeBucketSwap` at runtime. Single
+  biggest landmine in the reindex code path; every previous attempt
+  to "clean up the cosmetic naming" has produced a Sev 1.
+- **Do not** rename the live main bucket's physical directory while
+  loaded, by any means. The mmap'd segments survive `os.RemoveAll`
+  (POSIX unlink-while-open) and can serve reads from cached pages,
+  but new segment writes will land in a missing dir and silently
+  lose data. weaviate/weaviate#10675 is exactly this failure mode.
+- **Do not** put the gen in the RAFT payload. The whole point of the
+  deferred-finalize design is that each node's on-disk state is its
+  own — forcing cluster-wide agreement on a per-node implementation
+  detail would re-introduce the collisions the per-node gen was
+  created to avoid.
+
 ### 9.7 The completed-migration record
 
 `enable-filterable`, `enable-searchable` and `enable-rangeable` flip a
-schema flag at the end. The flip is cluster-wide and lands only after every
-replica has swapped, so on each node there is a window where the bucket is a
-finished index and the schema still says the index is disabled. The startup
-sweep in `ensureBucketsAreRemovedForNonExistentPropertyIndexes` deletes a
-bucket on exactly that signature, so before this record existed a second
-restart inside the window destroyed the rebuilt index.
+schema flag once the index is built, and the flag lands after the bucket
+does. So on each node there is a window where the bucket is a finished
+index and the schema still says the index is disabled. The startup sweep
+in `ensureBucketsAreRemovedForNonExistentPropertyIndexes` deletes a bucket
+on exactly that signature, and the record is what stops it.
 
 Finalize keeps the tracker in that window and marks it `finalized.mig`. The
-kept dir still carries `tidied.mig`, so every path that already preserves
-completed-migration state keeps working unchanged. Three readers get a new
-arm: the startup sweep skips a bucket the record names, the cold-tenant gate
-treats a record as settled rather than as work, and the index DELETE paths
-retire the record along with the bucket it names.
+kept dir still carries `tidied.mig`, so every path that preserves a completed
+migration's state reads it as one. Five readers get an arm for the record: the
+startup sweep skips a bucket it names, shard load opens that bucket despite
+the schema flag, the cold-tenant gate reads it as settled rather than as work,
+the end-of-swap trim leaves an older generation's record for the next start,
+and a property-update apply retires the records of the indexes it removes.
 
 Who retires a record:
 
@@ -1341,11 +1357,16 @@ Who retires a record:
 |---|---|
 | The schema flip | At the first shard load *after* the flip lands, not at the flip itself. |
 | A re-submit | The newer generation supersedes it through the `gen < effective` arm above. |
-| An index DELETE | In the same apply, on a loaded and on a cold tenant alike. |
-| A sibling flip on the same property | Its apply arrives with the failed migration's index still disabled, which is the DELETE path. |
+| Any property update | Its apply removes every index the property still advertises as disabled and retires their records, on a loaded and on a cold tenant alike. |
+| A class drop | Takes the whole shard directory, record included. |
+| An index DELETE | Not the index the record is waiting on: the schema already advertises that index as disabled, so `DeleteClassPropertyIndex` returns without a RAFT write and no apply runs. The promoted bucket stays on disk, invisible to queries, until one of the routes above retires it. |
 
-Residue that no route retires promptly, all of it protected rather than
-lost:
+The apply removes without consulting the record, on purpose: a flag-false
+property apply cannot tell a sibling update inside the window from a DELETE
+after the flip, and declining it would keep a bucket the user dropped. The
+active-task guard in `CheckPropertyUpdate` covers the window instead.
+
+Residue that no route retires promptly, all of it protected rather than lost:
 
 - A task that ends **FAILED or CANCELLED** after this node finalized keeps
   the record, the bucket and `payload.mig`. Same contract the terminal
@@ -1353,16 +1374,21 @@ lost:
 - **enable-rangeable** commits its flag from inside `RunSwapOnShard` rather
   than from the cluster-wide task completion, so a crash between
   `markTidied` and that commit leaves a record with no flip event to retire
-  it at all. A re-submit, an index DELETE or a class drop does it instead.
-- A tenant **deactivated across the whole window** that is then reactivated
-  after the user dropped the index sees a record it cannot distinguish from
-  one awaiting a flip (both read flag-false), so the sweep keeps a bucket
-  the user dropped. Invisible to queries, bounded disk, retired by any
-  re-submit or DELETE.
+  it at all. A re-submit, a property update or a class drop does it instead.
 
-`finalized.mig` ships in backups like every other tracker file. An older
-binary restoring such a backup ignores the marker and reverts to the
-pre-record behavior.
+`finalized.mig` ships in backups like every other tracker file, so a backup
+taken inside the window restores with the index promoted, hidden by the schema
+and protected by the record; re-submit the index to surface it.
+
+**Downgrade:** an older binary does not read the record, so its first load in
+the window deletes the promoted bucket, the way the startup sweep deletes any
+bucket the schema advertises as disabled. No other data is affected, and a
+re-submit rebuilds the index.
+
+**Upgrade:** an older binary's finalize removes the tracker instead of marking
+it, so a shard whose promotion ran there has no record left and its index is
+gone before a newer binary starts. One such load is enough, and under
+multi-tenancy a tenant activation is one, with no restart. Re-submit the index.
 
 A change-tokenization migration flips no index flag, so the sweep never
 reaches its bucket and none of the above applies to it. What it does leave
@@ -1393,7 +1419,8 @@ two moments the promotion becomes true:
 
 Disarmed by the schema catching up (explicitly in the flip's apply, and
 self-clearing on the next write for any shard the apply did not reach), and
-by an index DELETE, which removes the very bucket the writes were going to.
+by the same property-update apply that retires the record, which removes the
+very bucket the writes were going to.
 
 One consequence worth naming: a property whose every index flag is off is
 dropped by the analyzer wholesale, so the migration that builds its first
@@ -1403,22 +1430,6 @@ write path, which are gated differently than the value arm — the null arm
 has no data-type gate at all, and the length arm is gated on a value rather
 than a type. Arming therefore creates those two buckets first, exactly as
 shard init creates them for a property whose flag is already on.
-
-### 9.6 Hard rules
-
-- **Do not** call `Store.FinalizeBucketSwap` at runtime. Single
-  biggest landmine in the reindex code path; every previous attempt
-  to "clean up the cosmetic naming" has produced a Sev 1.
-- **Do not** rename the live main bucket's physical directory while
-  loaded, by any means. The mmap'd segments survive `os.RemoveAll`
-  (POSIX unlink-while-open) and can serve reads from cached pages,
-  but new segment writes will land in a missing dir and silently
-  lose data. weaviate/weaviate#10675 is exactly this failure mode.
-- **Do not** put the gen in the RAFT payload. The whole point of the
-  deferred-finalize design is that each node's on-disk state is its
-  own — forcing cluster-wide agreement on a per-node implementation
-  detail would re-introduce the collisions the per-node gen was
-  created to avoid.
 
 ## 10. Per-shard tokenization overlay
 
@@ -1665,7 +1676,7 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 **DTM**
 
 - [`cluster/distributedtask/doc.go`](../cluster/distributedtask/doc.go) — package-level architecture + the four "journey" shapes.
-- [`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go) — `Task`, `Unit`, `UnitSpec`, `TaskStatusPreparing`, `TaskStatusSwapping`, `NeedsPreparationBarrier`, the `TaskStatus.IsTerminal()` / `IsActive()` / `IsCoordinationPhase()` / `IsRecognized()` classification helpers, and `IsCancellable()` (§4.2).
+- [`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go) — `Task`, `Unit`, `UnitSpec`, `TaskStatusPreparing`, `TaskStatusSwapping`, `NeedsPreparationBarrier`, the `TaskStatus.IsTerminal()` / `IsActive()` / `IsCompleted()` / `IsRecognized()` classification helpers, and `IsCancellable()` (§4.2).
 - [`cluster/distributedtask/manager.go`](../cluster/distributedtask/manager.go) — FSM. `RecordPostCompletionAck`, `MarkTaskFinalized` godocs are essential reading.
 - [`cluster/distributedtask/scheduler.go`](../cluster/distributedtask/scheduler.go) — per-node loop, callback dispatch.
 - [`cluster/distributedtask/errors.go`](../cluster/distributedtask/errors.go) — permanent-rejection sentinels + gRPC wire encoding.
@@ -1787,7 +1798,7 @@ test packages.
 ## 17. Deferred simplifications
 
 [`docs/proposals/deferred_reindex_simplifications.md`](./proposals/deferred_reindex_simplifications.md)
-catalogues three refactors that the scout pass identified as
+catalogues two refactors that the scout pass identified as
 worthwhile but that were deliberately not applied autonomously,
 because each touches either a crash-safety path or the hottest write
 hook. Re-evaluated for the v1.38 Preview merge and kept deferred.

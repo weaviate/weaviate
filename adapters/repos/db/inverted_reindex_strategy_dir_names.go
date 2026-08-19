@@ -89,7 +89,7 @@ const (
 // It is the completeness argument for the readers that decide per strategy —
 // [awaitingFlipIndexType], [reindexSuffixForFinalize], [migrationSuffixes] —
 // tested against this list so a strategy added without a verdict everywhere
-// fails the build rather than falling through silently.
+// fails the test suite rather than falling through silently.
 var allMigrationDirPrefixes = []string{
 	MigrationDirSearchableMapToBlockmax,
 	MigrationDirFilterableRoaringsetRefresh,

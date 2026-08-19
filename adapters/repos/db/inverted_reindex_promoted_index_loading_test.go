@@ -59,37 +59,39 @@ func TestClassWithPromotedIndexesForcesOnlyTheRecordedFlags(t *testing.T) {
 }
 
 // readFinalizedMigrations reads only records, never the trackers of a
-// migration still in flight, and it tells the two kinds of record apart: one
-// names an index the schema has yet to advertise, the other the tokenization
-// the property's keys are stored under.
+// migration still in flight, one whose strategy flips no flag, or one whose
+// completion the shield can no longer read. It also tells the two kinds of
+// record apart: one names an index the schema has yet to advertise, the other
+// the tokenization the property's keys are stored under.
 func TestReadFinalizedMigrationsReadsOnlyRecords(t *testing.T) {
 	lsmPath := t.TempDir()
-	mkTrackerDir(t, lsmPath, "enable_filterable_alpha_beta_1", finalizedSentinel)
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, ".migrations", "enable_filterable_alpha_beta_1", "properties.mig"),
-		[]byte("alpha,beta"), 0o644))
-	mkTrackerDir(t, lsmPath, "filterable_to_rangeable_alpha_1", finalizedSentinel)
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, ".migrations", "filterable_to_rangeable_alpha_1", "properties.mig"),
-		[]byte("alpha"), 0o644))
+	plant := func(migName, props string, sentinels ...string) {
+		mkTrackerDir(t, lsmPath, migName, sentinels...)
+		require.NoError(t, os.WriteFile(
+			filepath.Join(lsmPath, ".migrations", migName, "properties.mig"),
+			[]byte(props), 0o644))
+	}
+
+	plant("enable_filterable_alpha_beta_1", "alpha,beta", recordedSentinels...)
+	plant("filterable_to_rangeable_alpha_1", "alpha", recordedSentinels...)
 	// In flight: no record, so nothing is promoted for it yet.
-	mkTrackerDir(t, lsmPath, "enable_searchable_gamma_1", "started.mig")
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, ".migrations", "enable_searchable_gamma_1", "properties.mig"),
-		[]byte("gamma"), 0o644))
+	plant("enable_searchable_gamma_1", "gamma", "started.mig")
 	// A strategy that flips no flag never gets a record; one planted by hand
 	// still names no index to force on.
-	mkTrackerDir(t, lsmPath, "rebuild_searchable_delta_1", finalizedSentinel)
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, ".migrations", "rebuild_searchable_delta_1", "properties.mig"),
-		[]byte("delta"), 0o644))
+	plant("rebuild_searchable_delta_1", "delta", recordedSentinels...)
 	// Retokenize records carry a tokenization, not an index flag.
-	mkTrackerDir(t, lsmPath, "searchable_retokenize_epsilon_1", finalizedSentinel)
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, ".migrations", "searchable_retokenize_epsilon_1", "properties.mig"),
-		[]byte("epsilon"), 0o644))
+	plant("searchable_retokenize_epsilon_1", "epsilon", recordedSentinels...)
 	writeRecoveryPayload(t, lsmPath, "searchable_retokenize_epsilon_1",
 		[]string{"epsilon"}, models.PropertyTokenizationField)
+	// A tracker dir removal that stopped partway can leave the marker without
+	// the completion the shield reads, so forcing this flag on would open a
+	// bucket the next sweep is free to delete.
+	plant("enable_filterable_zeta_1", "zeta", finalizedSentinel)
+	// The same torn tracker on the other kind of record arms no tokenization
+	// either, for the same reason.
+	plant("searchable_retokenize_eta_1", "eta", finalizedSentinel)
+	writeRecoveryPayload(t, lsmPath, "searchable_retokenize_eta_1",
+		[]string{"eta"}, models.PropertyTokenizationField)
 
 	finalized := readFinalizedMigrations(lsmPath)
 

@@ -188,10 +188,12 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			// that is no longer there fails the whole PUT, so the routing has
 			// to stop first.
 			s.disarmPromotedIndex(prop.Name, indexType)
+			// Tracker dirs first: the reverse order resurrects the index. Sidecars
+			// stay behind removeBucket, which closes them.
+			s.cleanStaleMigrationDirs(ctx, prop.Name, indexType, props)
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
-			s.cleanStaleMigrationDirs(ctx, prop.Name, indexType, props)
 			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		return nil
@@ -261,8 +263,8 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 	logger logrus.FieldLogger, props *taskPropsCache,
 ) {
 	scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props)
-	// Only DELETE retires a completed migration's record — its bucket is
-	// being removed on purpose, and an outliving record would have the next
+	// Only DELETE retires a completed migration's tracker — its bucket is
+	// being removed on purpose, and an outliving tracker would have the next
 	// load re-open a dropped index. Other sweeps sharing this helper must
 	// preserve it instead.
 	retireFinalizedMigrationDirs(scope, propName, indexType, logger)
@@ -279,8 +281,10 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 	}
 }
 
-// retireFinalizedMigrationDirs removes the records of completed migrations
-// whose promoted bucket is the one an index DELETE just removed.
+// retireFinalizedMigrationDirs removes the trackers of migrations completed on
+// this shard whose promoted bucket is the one an index DELETE just removed.
+// Completion is spelled `tidied.mig` / `merged.mig`, exactly as the shield
+// spells it: one signal honoured and the other ignored keeps a deleted index.
 //
 // Scoped by the promoted bucket, not by the deleted index type's tracker
 // scope — that scope can name strategies promoting a different index's
@@ -296,6 +300,9 @@ func retireFinalizedMigrationDirs(scope migrationDirScope, propName, indexType s
 	migrationsRoot := filepath.Join(scope.lsmPath, ".migrations")
 	names, err := scope.dirs.list(migrationsRoot)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			logger.WithField("path", migrationsRoot).Errorf("index DELETE could not read the migrations dir: %v; a completed migration's tracker may survive it and have the next load re-open the removed bucket", err)
+		}
 		return
 	}
 	for _, name := range names {
@@ -303,9 +310,11 @@ func retireFinalizedMigrationDirs(scope migrationDirScope, propName, indexType s
 			continue
 		}
 		dirPath := filepath.Join(migrationsRoot, name)
-		if !fileExistsInDir(dirPath, finalizedSentinel) {
+		if !fileExistsInDir(dirPath, "tidied.mig") && !fileExistsInDir(dirPath, "merged.mig") {
 			continue
 		}
+		// One property per tracker today (submitReindexTask sends a one-element
+		// list), so the whole dir belongs to the index this DELETE removes.
 		suffixes := migrationSuffixes(name)
 		if suffixes == nil || suffixes.sourceBucketName(propName) != mainBucket {
 			continue
@@ -518,8 +527,8 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // cleanStaleSidecarDirs removes leftover __reindex / __ingest / __backup
 // sidecar directories that share the just-removed bucket's name as their
 // prefix. A successful migration moves the new data into the main bucket
-// dir at runtime but defers the actual filesystem renames (old-main ->
-// __backup, ingest-dir cleanup) to OnBeforeLsmInit on the next restart.
+// dir at runtime but leaves the ingest dir under its own name;
+// FinalizeCompletedMigrations renames it at the next startup.
 // Between completion and restart these sidecars live on disk; a DELETE
 // then re-enable in the same process lifetime would otherwise hit
 // "rename: file exists" the next time RunSwapOnShard tries to move the
@@ -533,8 +542,8 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // dir's entry from [lsmkv.GlobalBucketRegistry]. Background: a successful
 // runtime swap moves the in-memory bucket pointer from the ingest name to
 // the main name (Store.SwapBucketPointer), but leaves the on-disk dir
-// under the ingest name (the dir is renamed by OnBeforeLsmInit on the next
-// restart) AND leaves the registry entry under the ingest dir path
+// under the ingest name (FinalizeCompletedMigrations renames it at the
+// next startup) AND leaves the registry entry under the ingest dir path
 // (Bucket.Shutdown is never called on the live ingest bucket — it just
 // becomes the main bucket). When a follow-up migration tries to load a
 // fresh ingest bucket at the same path, NewBucket's TryAdd fails with

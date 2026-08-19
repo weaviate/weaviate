@@ -25,8 +25,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
@@ -96,6 +98,13 @@ func TestMultiTenant_ReindexSuite(t *testing.T) {
 
 	t.Run("TenantScopedRebuildCancel", func(t *testing.T) {
 		testTenantScopedRebuildCancel(t, restURI)
+	})
+
+	// Crashes its node and needs forced-lazy loading, so it runs on its own
+	// compose and restores the suite's client afterward.
+	t.Run("TwoLoadsBeforeTheSchemaFlip", func(t *testing.T) {
+		testTwoLoadsBeforeTheSchemaFlip(ctx, t)
+		helper.SetupClient(restURI)
 	})
 
 	// Restart for deferred finalization.
@@ -459,6 +468,216 @@ func testValidation(t *testing.T, restURI string) {
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"non-existent tenant should reject as 400: %s", got.Body)
 	})
+}
+
+// =============================================================================
+// Test 6: Two shard loads between a completed migration and the schema flip
+// =============================================================================
+
+// A migration builds its index under a migration-scoped directory and only
+// renames it to the canonical name at the next shard load. The schema flag the
+// index is served from flips separately and cluster-wide, after the last shard
+// is done. A node that dies in between comes back with the two disagreeing,
+// and each load then sees a different half of it: the first promotes the
+// rebuilt directory to the canonical name, and the second reads a canonical
+// directory for a property whose flag still says the index does not exist, and
+// deletes it.
+//
+// That deletion is what this test pins, because it is as far as the defect
+// reaches end to end. Its consequence — an index that stays empty and still
+// reports itself ready — needs a load with no migration left behind it to
+// rebuild what was deleted, and a migration still running is the only thing
+// that holds this window open in the first place. So the assertion below is
+// that the promoted directory survives the second load, identified by inode so
+// that one deleted and rebuilt under the same name reads as what it is. The
+// per-tenant counts at the end guard against collateral damage and pass either
+// way.
+//
+// The window to crash into is the preparation phase, which each shard spends
+// prepending its rebuilt index into place. That costs the size of the index,
+// so the ballast below buys the phase its width — a handful of tenants is
+// enough, where widening the swap phase instead would take upwards of a
+// thousand.
+const (
+	crashWindowClass = "MTCrashWindow"
+	crashWindowProp  = "score"
+	// Half of each tenant's objects sit below this pivot, so a bucket that
+	// lost its contents answers zero where a complete one answers half.
+	crashWindowPivot   = 50
+	crashWindowTenants = 6
+	crashWindowObjects = 1000
+	// Values per object, all above the pivot and distinct across the corpus:
+	// the filter never returns them, so every tenant answers the same count
+	// however many there are, but the migration has to index every one.
+	crashWindowBallast = 300
+)
+
+func testTwoLoadsBeforeTheSchemaFlip(ctx context.Context, t *testing.T) {
+	// Forced-lazy loading, so the two shard loads this test turns on are its
+	// own to place. Left to auto-detection the node hydrates every shard on the
+	// way up and spends the first load before the test can look, and the
+	// threshold that switches auto-detection over is 1000 shards — a tenant
+	// count that costs minutes per run. The rest of the suite needs its own
+	// eager-loaded coverage, so this cannot share the suite's container.
+	compose, err := reindexhelpers.SingleNodeCompose().
+		WithWeaviateEnv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "0").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate crash-window test containers: %s", err.Error())
+		}
+	}()
+	restURI := compose.GetWeaviate().URI()
+	helper.SetupClient(restURI)
+
+	off := false
+	createMTClass(t, crashWindowClass, []*models.Property{
+		{Name: "name", DataType: []string{"text"}, Tokenization: "word"},
+		{Name: crashWindowProp, DataType: []string{"int[]"}, IndexFilterable: &off, IndexRangeFilters: &off},
+	})
+	names := make([]string, 0, crashWindowTenants)
+	for i := 0; i < crashWindowTenants; i++ {
+		names = append(names, fmt.Sprintf("crash%02d", i))
+	}
+	addTenants(t, crashWindowClass, names)
+	for _, name := range names {
+		importCorpus(t, crashWindowClass, crashWindowProp, name, crashWindowObjects, crashWindowBallast)
+	}
+
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, crashWindowClass, crashWindowProp, "filterable", `{}`)
+	t.Logf("enable-filterable to crash mid-preparation: task %s", taskID)
+
+	// Crash once a shard has its rebuilt index prepended into place, so the
+	// node comes back holding one the next load will promote and a schema that
+	// still denies it. SIGKILL, not a graceful stop: a shutdown that drains
+	// would let the task finish and close the window.
+	awaitPreparedShard(ctx, t, compose.GetWeaviate().Container())
+	container := crashAndRestart(ctx, t, compose)
+
+	victim := preparedTenant(ctx, t, container)
+	require.NotEmpty(t, bm25QueryTenant(t, crashWindowClass, "name", "corpus", victim),
+		"tenant %q must serve its objects after the crash", victim)
+	promoted := canonicalBucketID(ctx, t, container, victim)
+	require.NotEmpty(t, promoted,
+		"tenant %q had its rebuilt index prepended into place before the crash, so its first load "+
+			"after it must promote that directory to %q; with nothing promoted the second load has "+
+			"nothing to destroy and this run proves nothing", victim, canonicalBucket)
+	require.False(t, crashWindowIndexEnabled(t),
+		"the schema flipped before the first load landed, so the crash came too late; raise "+
+			"crashWindowBallast to widen the preparation phase")
+
+	// The second load is the destructive one: a canonical directory now exists
+	// for a property whose flag still denies the index.
+	container = crashAndRestart(ctx, t, compose)
+	restURI = compose.GetWeaviate().URI()
+	require.NotEmpty(t, bm25QueryTenant(t, crashWindowClass, "name", "corpus", victim),
+		"tenant %q must serve its objects after the second crash", victim)
+	require.False(t, crashWindowIndexEnabled(t),
+		"the schema flipped before the second load landed; both loads have to land while the "+
+			"property still reads disabled for this run to prove anything")
+	require.Equal(t, promoted, canonicalBucketID(ctx, t, container, victim),
+		"the second load deleted tenant %q's rebuilt index. The schema still says this property has "+
+			"no filterable index, and the load read that as license to remove the directory the "+
+			"first load had just promoted", victim)
+
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(300*time.Second))
+	require.Eventually(t, func() bool { return crashWindowIndexEnabled(t) },
+		120*time.Second, 200*time.Millisecond,
+		"the filterable index must read enabled in the schema once the task finishes")
+
+	for _, name := range names {
+		hits := rangeHits(t, crashWindowClass, crashWindowProp, name, crashWindowPivot, crashWindowObjects*2)
+		assert.Len(t, hits, crashWindowObjects/2,
+			"tenant %q came out of two crashes answering the filter with %d of the %d objects the "+
+				"migration indexed for it", name, len(hits), crashWindowObjects/2)
+	}
+}
+
+// canonicalBucket is the directory a promoted filterable index ends up in, and
+// the one the startup sweep deletes for a property the schema says has no such
+// index.
+var canonicalBucket = "property_" + crashWindowProp
+
+// preparedSentinel marks a shard that has finished prepending its rebuilt
+// index. It is the earliest point a crash leaves something behind that the
+// next load promotes.
+const preparedSentinel = "/.migrations/*/merged.mig"
+
+// awaitPreparedShard blocks until some shard reaches that point, which is when
+// the window opens. Waited out inside the container, because the phase lasts
+// under a second and a look from here costs a docker exec. The task reaching
+// SWAPPING is not the same signal — the status changes before any shard has
+// got that far, and a crash there leaves nothing behind.
+func awaitPreparedShard(ctx context.Context, t *testing.T, c testcontainers.Container) {
+	t.Helper()
+	execInContainer(ctx, t, c, fmt.Sprintf(
+		"i=0; until ls /data/%s/*/lsm%s >/dev/null 2>&1; do i=$((i+1)); "+
+			"[ $i -gt 15000 ] && exit 1; sleep 0.02; done",
+		strings.ToLower(crashWindowClass), preparedSentinel))
+}
+
+// crashAndRestart SIGKILLs the node and waits for it to serve again, returning
+// the container it comes back as.
+func crashAndRestart(ctx context.Context, t *testing.T, compose *docker.DockerCompose) testcontainers.Container {
+	t.Helper()
+	zero := time.Duration(0)
+	require.NoError(t, compose.RestartAt(ctx, 0, &zero), "crash and restart the node")
+	helper.SetupClient(compose.GetWeaviate().URI())
+	return compose.GetWeaviate().Container()
+}
+
+// preparedTenant names a tenant that got that far before the crash. Read from
+// disk, because the task's status is collection-wide and says nothing about
+// which tenants did.
+func preparedTenant(ctx context.Context, t *testing.T, c testcontainers.Container) string {
+	t.Helper()
+	tenant := firstTenantWith(ctx, t, c, preparedSentinel)
+	require.NotEmpty(t, tenant,
+		"no shard had its rebuilt index prepended into place when the node died, so the crash "+
+			"landed ahead of the preparation phase; raise crashWindowBallast to widen it")
+	t.Logf("tenant %q had its rebuilt index prepared before the crash", tenant)
+	return tenant
+}
+
+// canonicalBucketID identifies a tenant's canonical index directory, or "" if
+// it has none. An inode rather than a bare existence check, so a directory
+// deleted and rebuilt under the same name reads as what it is: a different
+// directory.
+func canonicalBucketID(ctx context.Context, t *testing.T, c testcontainers.Container, tenant string) string {
+	t.Helper()
+	return delimited(execInContainer(ctx, t, c, fmt.Sprintf(
+		"stat -c '<%%i>' /data/%s/%s/lsm/%s 2>/dev/null; true",
+		strings.ToLower(crashWindowClass), tenant, canonicalBucket)))
+}
+
+// firstTenantWith names the first tenant of the collection carrying a path
+// that matches suffix, or "" if none does.
+func firstTenantWith(ctx context.Context, t *testing.T, c testcontainers.Container, suffix string) string {
+	t.Helper()
+	return delimited(execInContainer(ctx, t, c, fmt.Sprintf(
+		"for f in /data/%s/*/lsm%s; do [ -e \"$f\" ] && printf '<%%s>' \"$(echo $f | cut -d/ -f4)\" && break; done; true",
+		strings.ToLower(crashWindowClass), suffix)))
+}
+
+// delimited returns what an in-container probe wrapped in angle brackets, so
+// docker's exec stream framing cannot be read as part of the value.
+func delimited(out string) string {
+	i, j := strings.Index(out, "<"), strings.Index(out, ">")
+	if i < 0 || j <= i+1 {
+		return ""
+	}
+	return out[i+1 : j]
+}
+
+func crashWindowIndexEnabled(t *testing.T) bool {
+	t.Helper()
+	for _, prop := range helper.GetClass(t, crashWindowClass).Properties {
+		if prop.Name == crashWindowProp {
+			return prop.IndexFilterable != nil && *prop.IndexFilterable
+		}
+	}
+	return false
 }
 
 // =============================================================================
