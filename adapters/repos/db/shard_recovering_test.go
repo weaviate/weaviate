@@ -21,6 +21,21 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
+func TestAsLazyLoadShard(t *testing.T) {
+	lazy := &LazyLoadShard{}
+	got, ok := asLazyLoadShard(lazy)
+	require.True(t, ok)
+	require.Same(t, lazy, got)
+
+	rec := &RecoveringShard{LazyLoadShard: &LazyLoadShard{}}
+	got, ok = asLazyLoadShard(rec)
+	require.True(t, ok)
+	require.Same(t, rec.LazyLoadShard, got)
+
+	_, ok = asLazyLoadShard(&Shard{})
+	require.False(t, ok)
+}
+
 func TestRecoveringShardLoadKeepsBlock(t *testing.T) {
 	r := &RecoveringShard{LazyLoadShard: &LazyLoadShard{}}
 	r.blockLoad(enterrors.ErrShardRecovering)
