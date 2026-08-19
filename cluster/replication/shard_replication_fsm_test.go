@@ -433,6 +433,71 @@ func TestShardReplicationFSM_HasActiveTargetReplicationForShard(t *testing.T) {
 	}
 }
 
+func TestShardReplicationFSM_HasActiveSelfRecoveryTargetingShard(t *testing.T) {
+	const (
+		coll  = "TestClass"
+		shard = "shard1"
+	)
+
+	cases := []struct {
+		name     string
+		seed     func(t *testing.T, fsm *replication.ShardReplicationFSM)
+		replica  string
+		expected bool
+	}{
+		{name: "empty fsm", seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {}, replica: "node2", expected: false},
+		{
+			name: "self-recovery targeting this node, non-terminal",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.SELF_RECOVERY)
+				driveToState(t, fsm, 1, api.HYDRATING)
+			},
+			replica: "node2", expected: true,
+		},
+		{
+			name: "self-recovery targeting this node, READY",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.SELF_RECOVERY)
+				driveToState(t, fsm, 1, api.READY)
+			},
+			replica: "node2", expected: false,
+		},
+		{
+			name: "self-recovery targeting another node",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node3", coll, shard, api.SELF_RECOVERY)
+			},
+			replica: "node2", expected: false,
+		},
+		{
+			name: "COPY targeting this node is not self-recovery",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.HYDRATING)
+			},
+			replica: "node2", expected: false,
+		},
+		{
+			name: "non-terminal beside terminal self-recovery",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.SELF_RECOVERY)
+				driveToCancelled(t, fsm, 1)
+				seedOpFull(t, fsm, 2, "node1", "node2", coll, shard, api.SELF_RECOVERY)
+				driveToState(t, fsm, 2, api.FINALIZING)
+			},
+			replica: "node2", expected: true,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			tt.seed(t, fsm)
+			assert.Equal(t, tt.expected, fsm.HasActiveSelfRecoveryTargetingShard(coll, shard, tt.replica))
+		})
+	}
+}
+
 func TestShardReplicationFSM_HasActiveTargetReplicationForShardDoesNotAllocate(t *testing.T) {
 	const (
 		coll   = "TestClass"
