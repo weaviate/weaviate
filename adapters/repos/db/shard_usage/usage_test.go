@@ -216,44 +216,6 @@ func getFileTypeCount(t *testing.T, path string) map[string]int {
 	return fileTypes
 }
 
-// Nothing deletes the pre-calculated usage of a shard that stays cold, so the
-// version check is the only guard against serving outdated sizes.
-func TestLoadComputedUsageDataVersion(t *testing.T) {
-	tests := []struct {
-		name      string
-		version   int
-		wantError bool
-	}{
-		{name: "current version is served", version: types.UsageDiskVersion},
-		{name: "older version is rejected", version: types.UsageDiskVersion - 1, wantError: true},
-		{name: "newer version is rejected", version: types.UsageDiskVersion + 1, wantError: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dirName := t.TempDir()
-			require.NoError(t, os.MkdirAll(filepath.Join(dirName, "shard1"), 0o777))
-
-			stored := &types.UsageDisk{
-				Version:    tt.version,
-				ShardUsage: &types.ShardUsage{Name: "shard1", IndexStorageBytes: 42},
-			}
-			data, err := json.Marshal(stored)
-			require.NoError(t, err)
-			require.NoError(t, os.WriteFile(usageTmpFilePath(dirName, "shard1"), data, 0o600))
-
-			usage, err := LoadComputedUsageData(dirName, "shard1")
-			if tt.wantError {
-				require.ErrorIs(t, err, ErrUsageVersionMismatch,
-					"callers tell a stale version from an unreadable file by this error")
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, uint64(42), usage.IndexStorageBytes)
-		})
-	}
-}
-
 func TestStorageCalculation(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -502,6 +464,12 @@ func TestCalculateNonLSMStorage_NestedHFreshDirectories(t *testing.T) {
 	otherTopLevelFile := filepath.Join(otherTopLevel, "file8")
 	require.NoError(t, os.WriteFile(otherTopLevelFile, make([]byte, 8000), 0o644))
 
+	topLevelFile := filepath.Join(shardPath, "file9")
+	require.NoError(t, os.WriteFile(topLevelFile, make([]byte, 9000), 0o644))
+
+	// the shard's own saved usage sits next to it and must not be billed as shard data
+	require.NoError(t, os.WriteFile(usageTmpFilePath(dirName, "shard1"), make([]byte, 500), 0o644))
+
 	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
 	require.NoError(t, err)
 
@@ -517,7 +485,8 @@ func TestCalculateNonLSMStorage_NestedHFreshDirectories(t *testing.T) {
 	// - otherDir: 6000
 	// - hfreshFile: 7000
 	// - otherTopLevel: 8000
-	expectedOtherSize := uint64(6000 + 7000 + 8000)
+	// - topLevelFile: 9000
+	expectedOtherSize := uint64(6000 + 7000 + 8000 + 9000)
 
 	assert.Equal(t, expectedCommitLogSize, vectorCommitLogsStorageSize, "commitlog/snapshot/queue storage should match")
 	assert.Equal(t, expectedOtherSize, otherNonLSMFoldersStorageSize, "other storage should match")
@@ -828,20 +797,43 @@ func TestScanTargetVectorDimensions(t *testing.T) {
 	})
 }
 
-// Only the current format version is served; any other is rejected so the caller recomputes.
+// Only a record of the current format version that holds usage is served; anything
+// else is rejected so the caller recomputes. Nothing deletes the record of a shard
+// that stays cold, so this and the fingerprint the caller compares are the only
+// guards against serving outdated sizes.
 func TestLoadComputedUsageData(t *testing.T) {
+	stored := &types.ShardUsage{Name: "shard", ObjectsCount: 7, ObjectsStorageBytes: 1234}
+
 	tests := []struct {
-		name    string
-		version int
-		wantErr bool
+		name      string
+		version   int
+		usage     *types.ShardUsage
+		wantErr   bool
+		wantErrIs error
 	}{
 		{
 			name:    "current version",
 			version: types.UsageDiskVersion,
+			usage:   stored,
 		},
 		{
-			name:    "version from a newer release",
-			version: types.UsageDiskVersion + 1,
+			name:      "version from an older release",
+			version:   types.UsageDiskVersion - 1,
+			usage:     stored,
+			wantErr:   true,
+			wantErrIs: ErrUsageVersionMismatch,
+		},
+		{
+			name:      "version from a newer release",
+			version:   types.UsageDiskVersion + 1,
+			usage:     stored,
+			wantErr:   true,
+			wantErrIs: ErrUsageVersionMismatch,
+		},
+		{
+			// serving this would drop the shard from the report instead of billing it
+			name:    "no usage in the record",
+			version: types.UsageDiskVersion,
 			wantErr: true,
 		},
 	}
@@ -852,18 +844,26 @@ func TestLoadComputedUsageData(t *testing.T) {
 			shardName := "shard"
 			require.NoError(t, os.MkdirAll(filepath.Join(indexPath, shardName), 0o755))
 
-			stored := &types.ShardUsage{Name: shardName, ObjectsCount: 7, ObjectsStorageBytes: 1234}
-			data, err := json.Marshal(&types.UsageDisk{Version: tt.version, ShardUsage: stored})
+			data, err := json.Marshal(&types.UsageDisk{
+				Version:                  tt.version,
+				ShardUsage:               tt.usage,
+				VectorConfigsFingerprint: "fingerprint",
+			})
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(usageTmpFilePath(indexPath, shardName), data, 0o600))
 
 			loaded, err := LoadComputedUsageData(indexPath, shardName)
 			if tt.wantErr {
 				require.Error(t, err)
+				if tt.wantErrIs != nil {
+					require.ErrorIs(t, err, tt.wantErrIs,
+						"callers tell a stale version from an unreadable file by this error")
+				}
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, stored, loaded)
+			assert.Equal(t, tt.usage, loaded.ShardUsage)
+			assert.Equal(t, "fingerprint", loaded.VectorConfigsFingerprint)
 		})
 	}
 }
