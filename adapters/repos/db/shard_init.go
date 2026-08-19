@@ -96,7 +96,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		lazySegmentLoadingEnabled:       lazyLoadSegments,
 	}
 
-	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
+	s.setCountedStatus(storagestate.StatusLoading.String())
 
 	defer func() {
 		p := recover()
@@ -212,6 +212,11 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 	if err := s.Shutdown(ctx); err != nil {
 		log.WithError(err).Error("failed to shutdown store")
 	}
+
+	// A shard that never finished initializing is still counted from the
+	// LOADING registration above, and a Shutdown that failed may not have
+	// reached the release. Idempotent, so the common path double-calls for free.
+	s.setCountedStatus("")
 
 	log.Debug("successfully cleaned up partially initialized shard")
 }

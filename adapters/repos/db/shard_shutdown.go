@@ -101,6 +101,25 @@ func shardStillAlive(s ShardLike) bool {
 	}
 }
 
+// releaseShardLifecycleMetrics gives back the shard-lifecycle count of a shard
+// that has left the shard map for good. Shutting a shard down only moves it from
+// the loaded to the unloaded bucket — that is the right bookkeeping for a shard
+// still on this node, but a shard evicted from the map is on it no longer, and
+// nothing downstream would ever take it back out of unloaded.
+//
+// Call it only once the shard is known to have stayed out of the map: a failed
+// shutdown puts live and torn shards back (see restoreShardIfStillAlive), and
+// those are still counted. Idempotent for both shard kinds, so a later drop of
+// the same instance does not double-decrement.
+func releaseShardLifecycleMetrics(s ShardLike) {
+	switch sh := s.(type) {
+	case *Shard:
+		sh.releaseShardMetrics()
+	case *LazyLoadShard:
+		sh.releaseShardMetrics()
+	}
+}
+
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	s.shutdownRequested.Store(true)
 	var lastAttemptErr error
@@ -143,12 +162,32 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 // leaving a live instance out of the map lets a later (re)load double-open
 // the directory. Callers hold the shard's create lock and classify
 // errAlreadyShutdown themselves (terminal, not a failure).
+//
+// It is also where a shard that stays evicted gives back its shard-lifecycle
+// count, because this is the only place that knows which way that went. Doing it
+// here rather than in each caller is deliberate: the eviction sites are spread
+// across tenant deactivation, replica teardown and index reconciliation, and
+// every one of them that forgot would leak a shard in shards_unloaded until the
+// process restarted.
 func shutdownOrRestoreShard(ctx context.Context, shards *shardMap, name string, shard ShardLike, logger logrus.FieldLogger) error {
+	// Deferred rather than called on each outcome so a panic in Shutdown is
+	// covered too: the caller has already removed the shard from the map, and a
+	// panic means the restore below never ran, so the shard is evicted for good.
+	// Callers run inside error-group wrappers that recover, so the process
+	// carries on and the stranded count would outlive the shard.
+	restored := false
+	defer func() {
+		if !restored {
+			releaseShardLifecycleMetrics(shard)
+		}
+	}()
+
 	err := shard.Shutdown(ctx)
 	if err == nil || errors.Is(err, errAlreadyShutdown) {
 		return err
 	}
 	if restoreShardIfStillAlive(shards, name, shard) {
+		restored = true
 		if terr := shardTeardownError(shard); terr != nil {
 			logger.WithField("action", "shard_shutdown").
 				WithField("shard", name).
@@ -247,7 +286,34 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	// during partial initialization cleanup)
 	if s.metricsRegistered.Load() {
 		s.metrics.baseMetrics.StartUnloadingShard()
+		// Deferred, not tail-called: the teardown below routes its failures into
+		// an error compounder rather than returning, but a panic in any of the
+		// closes would unwind past a plain statement and pin shards_unloading at
+		// +1 with shards_loaded already decremented.
+		defer func() {
+			s.metrics.baseMetrics.FinishUnloadingShard()
+			// The shard now sits in the unloaded bucket, so a drop that follows
+			// must release that one rather than decrementing loaded a second time.
+			s.metricsUnloaded.Store(true)
+		}()
 	}
+
+	// Release the per-status gauge from here on out, not at the end: everything
+	// below reports through the error compounder rather than returning, but a
+	// teardown that panics or grows an early return later must still not strand
+	// this shard's bucket. Deferred after the point of no return, so the
+	// still-in-use rejection above (which leaves the shard live) never reaches it.
+	//
+	// This releases on shutdown rather than on eviction, so a shard that is
+	// restored to the map by shutdownOrRestoreShard — a torn one holding its
+	// leaked handles, or one whose deferred ref-drain completed it in place —
+	// stops being counted while it is technically still in the map. That is
+	// deliberate: the gauge counts shards this node can serve, and a shut shard
+	// serves nothing but errAlreadyShutdown / errTeardownFailed. Tying the
+	// release to eviction instead would mean repeating it at every site that
+	// evicts a known-shut entry (both re-init paths, each drop path), which is
+	// the scattered bookkeeping that leaked in the first place.
+	defer s.setCountedStatus("")
 
 	start := time.Now()
 	defer func() {
@@ -347,11 +413,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	if s.dynamicVectorIndexDB != nil {
 		err = s.dynamicVectorIndexDB.Close()
 		ec.AddWrapf(err, "stop dynamic vector index db")
-	}
-
-	// Track shard unloaded: unloading -> unloaded
-	if s.metricsRegistered.Load() {
-		s.metrics.baseMetrics.FinishUnloadingShard()
 	}
 
 	return ec.ToError()

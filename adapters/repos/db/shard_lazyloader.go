@@ -57,13 +57,50 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts        *deferredShardOpts
-	shard            *Shard
-	loaded           bool
+	shardOpts *deferredShardOpts
+	shard     *Shard
+	loaded    bool
+	// metricsReleased records that the unloaded count NewLazyLoadShard
+	// registered has already been given back, so the two paths that can release
+	// it (drop and leaving the shard map) cannot both decrement. Guarded by mutex.
+	metricsReleased  bool
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter *loadlimiter.LoadLimiter
 	lazyLoadSegments bool
+}
+
+// releaseShardMetrics removes this shard from the lifecycle gauges once it has
+// left the shard map for good.
+//
+// A wrapper that never loaded still holds the unloaded count NewLazyLoadShard
+// registered, and nothing else releases it: LazyLoadShard.Shutdown is a no-op
+// while !loaded, so a deactivated cold tenant would keep its +1 in
+// shards_unloaded for the life of the process. A wrapper that did load hands off
+// to the inner shard, which tracks whether it currently sits in the loaded or
+// the unloaded bucket. Idempotent.
+func (l *LazyLoadShard) releaseShardMetrics() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	l.releaseShardMetricsLocked()
+}
+
+// releaseShardMetricsLocked is releaseShardMetrics for callers already holding
+// mutex.
+func (l *LazyLoadShard) releaseShardMetricsLocked() {
+	// Not `loaded`: Shutdown clears that flag but leaves the inner shard, which
+	// keeps owning the accounting once StartLoadingShard consumed the wrapper's
+	// unloaded count.
+	if l.shard != nil {
+		l.shard.releaseShardMetrics()
+		return
+	}
+
+	if !l.metricsReleased {
+		l.metricsReleased = true
+		l.shardOpts.promMetrics.DeleteUnloadedShard()
+	}
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -487,6 +524,12 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
 
+		// Release up front, on every exit, mirroring Shard.drop: the steps below
+		// early-return on failure, and the caller removed this wrapper from the
+		// shard map before calling, so a failed drop would strand its unloaded
+		// count until the process restarts.
+		defer l.releaseShardMetricsLocked()
+
 		// cleanup metrics
 		metrics, err := NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName)
 		if err != nil {
@@ -522,9 +565,6 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 				spawnAsyncDelete(deleted, idx.logger)
 			}
 		}
-
-		// decrement unloaded shard count since this shard is being deleted
-		l.shardOpts.promMetrics.DeleteUnloadedShard()
 
 		return nil
 	}

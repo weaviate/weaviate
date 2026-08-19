@@ -358,7 +358,15 @@ type Shard struct {
 	haltForTransferCount     atomic.Int64
 	haltForTransferCtxCancel context.CancelFunc
 
-	status              ShardStatus
+	status ShardStatus
+	// countedStatus is the label this shard is currently counted under in the
+	// per-status shard gauge, or "" once it has been released. It is deliberately
+	// NOT derived from status on the fly: GetStatus recomputes READY/INDEXING from
+	// the vector queues and writes it back without touching the gauge, so the two
+	// drift apart in normal operation. Decrementing the bucket a drifted status
+	// names would corrupt a bucket this shard was never counted in, so every gauge
+	// mutation reads and writes this field instead. Guarded by statusLock.
+	countedStatus       string
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
 	// geoInitLock serializes initGeoProp so a prop never has two indexes under
@@ -513,6 +521,11 @@ type Shard struct {
 	// (e.g., NewLoadedShard or FinishLoadingShard was called). This prevents double-counting
 	// or incorrect metric updates during partial initialization cleanup.
 	metricsRegistered atomic.Bool
+
+	// metricsUnloaded records that performShutdown already moved this shard from
+	// the loaded to the unloaded bucket of the shard-lifecycle gauges. A drop
+	// that follows must then release the unloaded bucket, not the loaded one.
+	metricsUnloaded atomic.Bool
 
 	// tornStoreReported keeps reportTornStoreAccess to one line per shard
 	tornStoreReported atomic.Bool

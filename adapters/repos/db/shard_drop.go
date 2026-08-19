@@ -46,6 +46,12 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 
+	// Release both shard gauges up front, on every exit. The teardown below
+	// early-returns on a dozen different failures, and a shard that failed to
+	// drop is still gone from the shard map, so accounting for it only on the
+	// happy path strands its count until the process restarts.
+	defer s.releaseShardMetrics()
+
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.replicationMap.clear()
 
@@ -177,11 +183,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		}
 	}
 
-	// Only update metrics if the shard was properly registered
-	if s.metricsRegistered.Load() {
-		s.metrics.baseMetrics.DeleteLoadedShard()
-	}
-
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",
 		"class":  s.class.Class,
@@ -189,4 +190,25 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	}).Debug("shard successfully dropped")
 
 	return nil
+}
+
+// releaseShardMetrics removes this shard from every gauge that counts live
+// shards: the lifecycle pair (shards_loaded / shards_unloaded) and the
+// per-status gauge. It runs exactly once — metricsRegistered is swapped rather
+// than read, and setCountedStatus is idempotent — so a drop that follows a
+// completed shutdown does not decrement a second time.
+//
+// Which lifecycle bucket to release depends on whether a shutdown already moved
+// the shard: unregistered shards were never counted at all (partial init), and
+// a shut-down shard sits in unloaded, not loaded.
+func (s *Shard) releaseShardMetrics() {
+	if s.metricsRegistered.CompareAndSwap(true, false) {
+		if s.metricsUnloaded.Load() {
+			s.metrics.baseMetrics.DeleteUnloadedShard()
+		} else {
+			s.metrics.baseMetrics.DeleteLoadedShard()
+		}
+	}
+
+	s.setCountedStatus("")
 }
