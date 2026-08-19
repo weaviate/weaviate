@@ -51,35 +51,21 @@ func TestPromoteRecoveryFolder(t *testing.T) {
 		require.NoError(t, os.RemoveAll(livePath))
 	})
 
-	t.Run("erases_stale_recovery_dir_when_live_dir_already_exists", func(t *testing.T) {
-		require.NoError(t, os.MkdirAll(recoveryPath, 0o755))
-		require.NoError(t, os.MkdirAll(livePath, 0o755))
-		require.NoError(t, os.WriteFile(path.Join(livePath, "live-marker"), []byte("live"), 0o644))
-
-		require.NoError(t, c.PromoteRecoveryFolder(collection, shard))
-
-		_, statErr := os.Stat(recoveryPath)
-		require.True(t, errors.Is(statErr, fs.ErrNotExist), "stale recovery dir should be erased, got %v", statErr)
-		_, err := os.Stat(path.Join(livePath, "live-marker"))
-		require.NoError(t, err, "live dir contents must not be touched")
-
-		require.NoError(t, os.RemoveAll(livePath))
-	})
-
-	t.Run("erases_populated_recovery_when_live_exists_which_the_startup_gate_must_prevent", func(t *testing.T) {
+	t.Run("errors_and_preserves_copy_when_live_dir_already_exists", func(t *testing.T) {
 		require.NoError(t, os.MkdirAll(recoveryPath, 0o755))
 		require.NoError(t, os.WriteFile(path.Join(recoveryPath, "recovered-data"), []byte("data"), 0o644))
 		require.NoError(t, os.MkdirAll(livePath, 0o755))
+		require.NoError(t, os.WriteFile(path.Join(livePath, "live-marker"), []byte("live"), 0o644))
 
-		require.NoError(t, c.PromoteRecoveryFolder(collection, shard))
+		require.Error(t, c.PromoteRecoveryFolder(collection, shard))
 
-		_, statErr := os.Stat(recoveryPath)
-		require.True(t, errors.Is(statErr, fs.ErrNotExist),
-			"an existing live dir is treated as canonical and the recovery is erased — so the startup gate MUST NOT plant an empty live dir")
-		_, err := os.Stat(path.Join(livePath, "recovered-data"))
-		require.True(t, errors.Is(err, fs.ErrNotExist), "recovered data is not moved into a pre-existing live dir")
+		_, err := os.Stat(path.Join(recoveryPath, "recovered-data"))
+		require.NoError(t, err, "the copy must never be discarded")
+		_, err = os.Stat(path.Join(livePath, "live-marker"))
+		require.NoError(t, err, "live dir contents must not be touched")
 
 		require.NoError(t, os.RemoveAll(livePath))
+		require.NoError(t, os.RemoveAll(recoveryPath))
 	})
 
 	t.Run("idempotent_when_live_exists_and_recovery_missing", func(t *testing.T) {

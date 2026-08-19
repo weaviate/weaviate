@@ -25,7 +25,7 @@ import (
 )
 
 // RecoveringShard wraps a LazyLoadShard for SELF_RECOVERY. Until promoted via
-// Load, inner Load is blocked with ErrShardRecovering so a lazy load can't
+// Promote, Load is blocked with ErrShardRecovering so a lazy load can't
 // MkdirAll an empty shard before the copy-and-rename completes, and GetStatus
 // reports RECOVERING.
 //
@@ -49,8 +49,8 @@ func NewRecoveringShard(ctx context.Context, promMetrics *monitoring.PrometheusM
 	return &RecoveringShard{LazyLoadShard: inner}
 }
 
-// Load clears the recovery block, then loads.
-func (r *RecoveringShard) Load(ctx context.Context) error {
+// Promote clears the recovery block and loads; only valid once the copy was renamed into the live dir.
+func (r *RecoveringShard) Promote(ctx context.Context) error {
 	r.clearLoadBlock()
 	return r.LazyLoadShard.Load(ctx)
 }

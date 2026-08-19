@@ -451,10 +451,8 @@ func (c *Copier) DropLocalShard(ctx context.Context, collectionName, shardName s
 	return idx.DropLocalShard(shardName)
 }
 
-// PromoteRecoveryFolder atomically renames "<shard>.recovering/" to "<shard>/".
-// The startup gate keeps the live dir absent while recovery is in flight, so
-// this renames the copy into place; an existing live dir means a prior promote
-// already won, so a leftover recovery dir is stale and removed.
+// PromoteRecoveryFolder atomically renames "<shard>.recovering/" to "<shard>/";
+// both dirs existing at once is a routing bug and fails rather than discard the copy.
 func (c *Copier) PromoteRecoveryFolder(collectionName, shardName string) error {
 	recoveryPath := c.shardPath(collectionName, api.RecoveryFolderName(shardName))
 	livePath := c.shardPath(collectionName, shardName)
@@ -470,10 +468,7 @@ func (c *Copier) PromoteRecoveryFolder(collectionName, shardName string) error {
 
 	switch {
 	case liveExists && recoveryExists:
-		if err := os.RemoveAll(recoveryPath); err != nil {
-			return fmt.Errorf("promote recovery folder: live dir already exists, but failed to remove stale %q: %w", recoveryPath, err)
-		}
-		return nil
+		return fmt.Errorf("promote recovery folder: live dir %q appeared while recovery %q is in flight; refusing to discard the copy", livePath, recoveryPath)
 	case liveExists:
 		return nil
 	case !recoveryExists:
