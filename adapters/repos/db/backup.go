@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -809,6 +810,20 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 		return nil, fmt.Errorf("list lsm files: %w", err)
 	}
 	files = append(files, lsmFiles...)
+
+	// The dynamic index state DB is a regular file at the shard root, so the walk
+	// below does not reach it. A restore without it reads no upgrade key, concludes
+	// the index never upgraded, and deletes the HNSW graph holding the only vectors.
+	stateDBPath := filepath.Join(shardDir, dynamic.StateDBFileName)
+	if _, err := os.Stat(stateDBPath); err == nil {
+		relPath, err := filepath.Rel(rootPath, stateDBPath)
+		if err != nil {
+			return nil, fmt.Errorf("%s rel path: %w", dynamic.StateDBFileName, err)
+		}
+		files = append(files, relPath)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("stat %s: %w", dynamic.StateDBFileName, err)
+	}
 
 	// List vector index files (all non-lsm subdirectories of the shard).
 	// Expected directories: <target>.hnsw.commitlog.d/, <target>.hnsw.snapshot.d/,

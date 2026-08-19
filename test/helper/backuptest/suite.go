@@ -89,6 +89,15 @@ type BackupTestSuiteConfig struct {
 	// WithVectorizer enables text2vec-contextionary vectorizer
 	WithVectorizer bool
 
+	// VectorIndexType selects the vector index. Empty means the server default (hnsw).
+	// "dynamic" additionally requires ASYNC_INDEXING and a debug port on the compose,
+	// because the suite asserts the flat→hnsw upgrade before it backs the class up.
+	VectorIndexType string
+
+	// VectorIndexConfig is the index config for VectorIndexType, e.g. the dynamic
+	// index's upgrade threshold.
+	VectorIndexConfig map[string]any
+
 	// TestTimeout is the overall test timeout
 	TestTimeout time.Duration
 
@@ -200,11 +209,13 @@ func NewBackupTestSuite(config *BackupTestSuiteConfig) *BackupTestSuite {
 	}
 
 	dataGen := NewTestDataGenerator(&TestDataConfig{
-		ClassName:        config.ClassName,
-		MultiTenant:      config.MultiTenant.Enabled,
-		NumTenants:       config.MultiTenant.NumTenants,
-		ObjectsPerTenant: config.MultiTenant.ObjectsPerTenant,
-		UseVectorizer:    vectorizer,
+		ClassName:         config.ClassName,
+		MultiTenant:       config.MultiTenant.Enabled,
+		NumTenants:        config.MultiTenant.NumTenants,
+		ObjectsPerTenant:  config.MultiTenant.ObjectsPerTenant,
+		UseVectorizer:     vectorizer,
+		VectorIndexType:   config.VectorIndexType,
+		VectorIndexConfig: config.VectorIndexConfig,
 	})
 
 	return &BackupTestSuite{
@@ -374,6 +385,16 @@ func (s *BackupTestSuite) CreateTestTenants(t *testing.T) {
 	helper.CreateTenants(t, s.config.ClassName, tenants)
 }
 
+// inactiveTenantCount is where GetInactiveTenants and GetActiveTenants split the
+// tenant list. Ten is the group size the multi-tenant cases are written around;
+// a case with fewer tenants than that still gets both groups filled.
+func inactiveTenantCount(total int) int {
+	if total < 2 {
+		return total
+	}
+	return min(10, total/2)
+}
+
 // GetInactiveTenants returns the list of tenants that should be deactivated for testing.
 func (s *BackupTestSuite) GetInactiveTenants(t *testing.T) []string {
 	t.Helper()
@@ -381,7 +402,7 @@ func (s *BackupTestSuite) GetInactiveTenants(t *testing.T) []string {
 		return nil
 	}
 	tenants := s.dataGen.GenerateTenants()
-	return tenants[:10] // Return first 10 tenants as inactive
+	return tenants[:inactiveTenantCount(len(tenants))]
 }
 
 // GetActiveTenants returns the list of active tenants (those not deactivated) for multi-tenant tests.
@@ -391,7 +412,7 @@ func (s *BackupTestSuite) GetActiveTenants(t *testing.T) []string {
 		return nil
 	}
 	tenants := s.dataGen.GenerateTenants()
-	return tenants[10:] // Return tenants after the first 10 as active
+	return tenants[inactiveTenantCount(len(tenants)):]
 }
 
 // DeactivateTestTenants deactivates tenants to test backup/restore with inactive tenants.
@@ -602,33 +623,101 @@ func (s *BackupTestSuite) VerifyGeoSearch(t *testing.T) {
 		require.NotEmpty(t, want, "tenant %q has no object inside the geo range", tenant)
 		require.NotZero(t, outside, "tenant %q has no object outside the geo range", tenant)
 
-		resp, err := client.Search(context.Background(), &pb.SearchRequest{
-			Collection: s.config.ClassName,
-			Tenant:     tenant,
-			Limit:      uint32(len(objects)),
-			Metadata:   &pb.MetadataRequest{Uuid: true},
-			Filters: &pb.Filters{
-				Operator: pb.Filters_OPERATOR_WITHIN_GEO_RANGE,
-				Target: &pb.FilterTarget{
-					Target: &pb.FilterTarget_Property{Property: geoPropName},
-				},
-				TestValue: &pb.Filters_ValueGeo{ValueGeo: &pb.GeoCoordinatesFilter{
-					Latitude:  *geoInRange.Latitude,
-					Longitude: *geoInRange.Longitude,
-					Distance:  geoRangeDistance,
-				}},
-			},
-		})
-		require.NoError(t, err, "geo range search on tenant %q", tenant)
+		requireSearchReturns(t, want,
+			fmt.Sprintf("the geo range search on tenant %q did not return the objects inside the range", tenant),
+			func() (*pb.SearchReply, error) {
+				return client.Search(context.Background(), &pb.SearchRequest{
+					Collection: s.config.ClassName,
+					Tenant:     tenant,
+					Limit:      uint32(len(objects)),
+					Metadata:   &pb.MetadataRequest{Uuid: true},
+					Filters: &pb.Filters{
+						Operator: pb.Filters_OPERATOR_WITHIN_GEO_RANGE,
+						Target: &pb.FilterTarget{
+							Target: &pb.FilterTarget_Property{Property: geoPropName},
+						},
+						TestValue: &pb.Filters_ValueGeo{ValueGeo: &pb.GeoCoordinatesFilter{
+							Latitude:  *geoInRange.Latitude,
+							Longitude: *geoInRange.Longitude,
+							Distance:  geoRangeDistance,
+						}},
+					},
+				})
+			})
+	}
+}
+
+// requireSearchReturns retries search until its hits are exactly want. Under
+// ASYNC_INDEXING an index answers a write only once the queue behind it drains,
+// so a search issued right after a write can still come back short.
+func requireSearchReturns(t *testing.T, want []string, failure string, search func() (*pb.SearchReply, error)) {
+	t.Helper()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := search()
+		require.NoError(ct, err, failure)
 
 		got := make([]string, len(resp.Results))
 		for i, result := range resp.Results {
 			got[i] = result.Metadata.Id
 		}
 
-		require.ElementsMatch(t, want, got,
-			"the geo range search on tenant %q did not return the objects inside the range", tenant)
+		require.ElementsMatch(ct, want, got, failure)
+	}, time.Minute, time.Second)
+}
+
+// VerifyVectorSearch runs a nearObject search per tenant and requires every one of
+// the tenant's objects back. A search reaches the vector index, so it is the only
+// check here that fails when a backup carries the objects but not the vectors.
+func (s *BackupTestSuite) VerifyVectorSearch(t *testing.T) {
+	t.Helper()
+
+	helper.SetupGRPCClient(t, s.compose.GetWeaviate().GrpcURI())
+	client := helper.ClientGRPC(t)
+
+	for tenant, objects := range s.dataGen.ObjectsByTenant(s.objects) {
+		want := make([]string, len(objects))
+		for i, obj := range objects {
+			want[i] = obj.ID.String()
+		}
+
+		requireSearchReturns(t, want,
+			fmt.Sprintf("the vector search on tenant %q did not return the tenant's objects", tenant),
+			func() (*pb.SearchReply, error) {
+				return client.Search(context.Background(), &pb.SearchRequest{
+					Collection: s.config.ClassName,
+					Tenant:     tenant,
+					Limit:      uint32(len(objects)),
+					Metadata:   &pb.MetadataRequest{Uuid: true},
+					NearObject: &pb.NearObject{Id: want[0]},
+				})
+			})
 	}
+}
+
+// VerifyDynamicIndexUpgraded requires every shard's dynamic index to have upgraded to
+// hnsw. Only an upgraded index reproduces the failure the backup has to survive: the
+// upgrade drops the flat vectors, leaving the hnsw graph as the shard's only copy.
+func (s *BackupTestSuite) VerifyDynamicIndexUpgraded(t *testing.T) {
+	t.Helper()
+
+	debugURI := s.compose.GetWeaviate().DebugURI()
+
+	// The upgrade runs on its own goroutine once the object count crosses the
+	// threshold, so it is not done when the last insert returns.
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		collection, err := helper.DebugUsageForCollection(debugURI, s.config.ClassName)
+		require.NoError(ct, err)
+		require.Len(ct, collection.Shards, len(s.dataGen.ObjectsByTenant(s.objects)))
+		for _, shard := range collection.Shards {
+			require.NotEmpty(ct, shard.NamedVectors, "shard %q reports no vector index", shard.Name)
+			for _, vector := range shard.NamedVectors {
+				require.True(ct, vector.IsDynamic, "shard %q vector %q is not dynamic", shard.Name, vector.Name)
+				require.Equal(ct, "hnsw", vector.VectorIndexType,
+					"shard %q vector %q has not upgraded", shard.Name, vector.Name)
+			}
+		}
+	}, 3*time.Minute, time.Second)
 }
 
 // VerifyObjectsDoNotExist checks that objects no longer exist (after class deletion).
@@ -952,6 +1041,20 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 		s.VerifyGeoSearch(t)
 	})
 
+	// a compression rebuild is still in flight at this point and its recall is
+	// approximate, so the exact result set below is only asserted without one
+	if s.config.WithCompression == CompressionNone {
+		t.Run("verify vector search", func(t *testing.T) {
+			s.VerifyVectorSearch(t)
+		})
+	}
+
+	if s.config.VectorIndexType == "dynamic" {
+		t.Run("verify dynamic index upgraded", func(t *testing.T) {
+			s.VerifyDynamicIndexUpgraded(t)
+		})
+	}
+
 	if s.config.MultiTenant.Enabled {
 		t.Run("deactivate some tenants", func(t *testing.T) {
 			s.DeactivateTestTenants(t)
@@ -996,6 +1099,12 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 	t.Run("verify geo search restored", func(t *testing.T) {
 		s.VerifyGeoSearch(t)
 	})
+
+	if s.config.WithCompression == CompressionNone {
+		t.Run("verify vector search restored", func(t *testing.T) {
+			s.VerifyVectorSearch(t)
+		})
+	}
 
 	// For compressed backups, verify vectors are restored correctly
 	if s.config.WithCompression != CompressionNone {
@@ -1209,6 +1318,13 @@ type BackupTestCase struct {
 	// WithCompression specifies the compression algorithm to enable (CompressionPQ or CompressionRQ)
 	WithCompression CompressionType
 
+	// VectorIndexType selects the vector index. Empty means the server default (hnsw).
+	VectorIndexType string
+
+	// VectorIndexConfig is the index config for VectorIndexType, e.g. the dynamic
+	// index's upgrade threshold.
+	VectorIndexConfig map[string]any
+
 	// TestCancellation tests backup cancellation instead of full backup/restore
 	TestCancellation bool
 
@@ -1242,6 +1358,21 @@ func MultiTenantTestCase() BackupTestCase {
 		MultiTenant:      true,
 		NumTenants:       50,
 		ObjectsPerTenant: 10,
+	}
+}
+
+// MultiTenantWithDynamicIndexTestCase returns a test case whose tenants each hold
+// more objects than the dynamic index's upgrade threshold, so every tenant is backed
+// up while its index is hnsw rather than flat. Requires a compose with ASYNC_INDEXING
+// enabled and a debug port exposed.
+func MultiTenantWithDynamicIndexTestCase() BackupTestCase {
+	return BackupTestCase{
+		Name:              "multi_tenant_dynamic_index",
+		MultiTenant:       true,
+		NumTenants:        5,
+		ObjectsPerTenant:  30,
+		VectorIndexType:   "dynamic",
+		VectorIndexConfig: map[string]any{"threshold": 10},
 	}
 }
 
@@ -1374,16 +1505,18 @@ func NewSuiteConfigFromTestCase(sharedConfig SharedComposeConfig, testCase Backu
 			ObjectsPerTenant:         objectsPerTenant,
 			WithMidBackupActivations: testCase.WithMidBackupActivations,
 		},
-		ClusterSize:      clusterSize,
-		WithVectorizer:   true,
-		TestTimeout:      5 * time.Minute,
-		BackupTimeout:    2 * time.Minute,
-		RestoreTimeout:   2 * time.Minute,
-		ExternalCompose:  sharedConfig.Compose,
-		MinioEndpoint:    sharedConfig.MinioEndpoint,
-		WithCompression:  testCase.WithCompression,
-		TestCancellation: testCase.TestCancellation,
-		TestIncremental:  testCase.TestIncremental,
+		ClusterSize:       clusterSize,
+		WithVectorizer:    true,
+		TestTimeout:       5 * time.Minute,
+		BackupTimeout:     2 * time.Minute,
+		RestoreTimeout:    2 * time.Minute,
+		ExternalCompose:   sharedConfig.Compose,
+		MinioEndpoint:     sharedConfig.MinioEndpoint,
+		WithCompression:   testCase.WithCompression,
+		VectorIndexType:   testCase.VectorIndexType,
+		VectorIndexConfig: testCase.VectorIndexConfig,
+		TestCancellation:  testCase.TestCancellation,
+		TestIncremental:   testCase.TestIncremental,
 	}
 }
 

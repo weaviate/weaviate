@@ -12,13 +12,11 @@
 package usage
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 // CollectionUsage is a type alias for backward compatibility with external callers.
@@ -30,44 +28,11 @@ func getDebugUsage() (*usagetypes.Report, error) {
 
 // Get the debug usage report from the endpoint
 func getDebugUsageWithPort(host string, shardConcurrency ...int) (*usagetypes.Report, error) {
-	url := fmt.Sprintf("http://%s/debug/usage?exactObjectCount=true", host)
-	if len(shardConcurrency) > 0 {
-		url += fmt.Sprintf("&shardConcurrency=%d", shardConcurrency[0])
-	}
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to call endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected status code: %d, error: %s", resp.StatusCode, string(body))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var report usagetypes.Report
-	if err := json.Unmarshal(body, &report); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %w", err)
-	}
-	return &report, nil
+	return helper.DebugUsageReport(host, shardConcurrency...)
 }
 
 func getDebugUsageWithPortAndCollection(host, collection string) (usagetypes.CollectionUsage, error) {
-	report, err := getDebugUsageWithPort(host)
-	if err != nil {
-		return usagetypes.CollectionUsage{}, err
-	}
-	for _, col := range report.Collections {
-		if col != nil && col.Name == collection {
-			return *col, nil
-		}
-	}
-	return usagetypes.CollectionUsage{}, fmt.Errorf("collection %s not found in debug usage report", collection)
+	return helper.DebugUsageForCollection(host, collection)
 }
 
 // Get a specific collection by name
