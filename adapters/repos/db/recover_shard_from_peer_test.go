@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -233,6 +234,30 @@ func TestLoadLocalShardLeavesRecoveringShardUntouched(t *testing.T) {
 	require.True(t, rec.isLoadBlocked())
 	_, stillRecovering := idx.shards.Load("S").(*RecoveringShard)
 	require.True(t, stillRecovering)
+}
+
+// Pins R2: a recovering shard yields nil (remote fallback) on the direct-local
+// path and a 422-mappable, sentinel-preserving error on the GetShard path.
+func TestRecoveringShardReadPaths(t *testing.T) {
+	class := &models.Class{Class: "C"}
+	promMetrics := monitoring.GetMetrics()
+	orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
+	idx := newTestIndexForRecovery(t, orch, nil)
+	idx.closingCtx = context.Background()
+	idx.shardCreateLocks = esync.NewKeyRWLocker()
+
+	require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
+
+	shard, release, err := idx.getShardForDirectLocalOperation(context.Background(), "", "S", localShardOperationRead, 0)
+	defer release()
+	require.NoError(t, err)
+	require.Nil(t, shard, "direct local operation must fall back to a remote replica")
+
+	_, release2, err := idx.GetShard(context.Background(), "S")
+	defer release2()
+	var unprocessable enterrors.ErrUnprocessable
+	require.True(t, errors.As(err, &unprocessable), "got %T: %v", err, err)
+	require.True(t, enterrors.IsShardRecovering(err))
 }
 
 func TestForEachShardSkipRecovering(t *testing.T) {
