@@ -352,7 +352,7 @@ func rq4LowerCode(lower, step float32) int8 {
 		return 0
 	}
 	q := (lower/step + rq4LowerAnchor) * rq4LowerScale
-	if q != q {
+	if math.IsNaN(float64(q)) {
 		return 0
 	}
 	if q >= 0 {
@@ -415,7 +415,7 @@ func rq4OutlierDelta(v, rec, step float32) int8 {
 		return 0
 	}
 	q := (v - rec) / (rq4OutlierAlpha * step)
-	if q != q {
+	if math.IsNaN(float64(q)) {
 		return 0
 	}
 	if q >= 0 {
@@ -562,7 +562,7 @@ func centerInto(dst, x, mean []float32) ([]float32, float32) {
 			dst[i] -= m
 		}
 	}
-	return dst, f32.DotProduct(dst, mean)
+	return dst, dotProduct(dst, mean)
 }
 
 // rq4Correlation quantizes xs over [lower, lower + 15*step] with clamping and

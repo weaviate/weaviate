@@ -944,6 +944,7 @@ func NewRQCompressor(
 	return rqVectorsCompressor, nil
 }
 
+// MeanVector does not use simd but with default training limit tasks approx 6.3ms and accumulates in float64
 func MeanVector(vectors [][]float32, dim int) []float32 {
 	mean := make([]float32, dim)
 	if len(vectors) == 0 {
