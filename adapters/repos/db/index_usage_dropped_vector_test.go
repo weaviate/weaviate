@@ -90,7 +90,7 @@ func TestIndex_UsageForCollection_DroppedNamedVector(t *testing.T) {
 				ctx := context.Background()
 				tenantName := "test-tenant"
 
-				index := setupPopulatedLazyIndex(ctx, t)
+				index, _ := setupPopulatedLazyIndex(ctx, t, usageIndexParams{namedVectors: tt.vectorConfig})
 				t.Cleanup(func() { _ = index.Shutdown(ctx) })
 
 				if state.loadAndDelete {
@@ -109,5 +109,61 @@ func TestIndex_UsageForCollection_DroppedNamedVector(t *testing.T) {
 				assert.Equal(t, tt.wantVectors, gotVectors)
 			})
 		}
+	}
+}
+
+// TestIndex_UsageForCollection_VectorIndexWithoutConfig is the loaded-shard half:
+// an index the schema no longer configures is left out of the report instead of
+// failing it. A drop that failed halfway leaves this shape behind for good.
+func TestIndex_UsageForCollection_VectorIndexWithoutConfig(t *testing.T) {
+	liveConfig := models.VectorConfig{
+		VectorIndexType:   "hnsw",
+		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+	}
+
+	tests := []struct {
+		name string
+		// dropped is the named vector whose config is removed while the shard keeps
+		// its index.
+		dropped     string
+		wantVectors []string
+	}{
+		{name: "one of two vectors dropped", dropped: "two", wantVectors: []string{"", "one"}},
+		{name: "the legacy vector dropped", dropped: "", wantVectors: []string{"one", "two"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			tenantName := "test-tenant"
+
+			index, vectorConfigs := setupPopulatedLazyIndex(ctx, t, usageIndexParams{
+				namedVectors: map[string]models.VectorConfig{"one": liveConfig, "two": liveConfig},
+			})
+			t.Cleanup(func() { _ = index.Shutdown(ctx) })
+
+			_, release, err := index.GetShard(ctx, tenantName)
+			require.NoError(t, err)
+			defer release()
+
+			index.vectorIndexUserConfigLock.Lock()
+			if tt.dropped == "" {
+				index.vectorIndexUserConfig = nil
+			} else {
+				delete(index.vectorIndexUserConfigs, tt.dropped)
+			}
+			index.vectorIndexUserConfigLock.Unlock()
+			delete(vectorConfigs, tt.dropped)
+
+			usage, err := index.usageForCollection(ctx, semaphore.NewWeighted(4), true, vectorConfigs)
+			require.NoError(t, err, "an index without a config must not fail the report")
+			require.Len(t, usage.Shards, 1)
+
+			var gotVectors []string
+			for _, namedVector := range usage.Shards[0].NamedVectors {
+				gotVectors = append(gotVectors, namedVector.Name)
+			}
+			assert.Equal(t, tt.wantVectors, gotVectors)
+		})
 	}
 }

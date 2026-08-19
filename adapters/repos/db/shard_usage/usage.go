@@ -14,7 +14,9 @@ package shardusage
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/models"
 	entsync "github.com/weaviate/weaviate/entities/sync"
 )
 
@@ -47,8 +50,11 @@ func shardPathDimensionsLSM(indexPath, shardName string) string {
 	return path.Join(shardPathLSM(indexPath, shardName), helpers.DimensionsBucketLSM)
 }
 
+// usageTmpFileName names the file holding a shard's saved usage, in the shard's own directory.
+const usageTmpFileName = "usage.json.tmp"
+
 func usageTmpFilePath(indexPath, shardName string) string {
-	return path.Join(indexPath, shardName, "usage.json.tmp")
+	return path.Join(indexPath, shardName, usageTmpFileName)
 }
 
 // ComputedUsageDataExists checks if pre-calculated shard usage data file exists
@@ -68,9 +74,14 @@ func RemoveComputedUsageDataForUnloadedShard(indexPath, shardName string) error 
 	return nil
 }
 
-// SaveComputedUsageData saves pre-calculated shard usage data to disk
-func SaveComputedUsageData(indexPath, shardName string, shardUsage *types.ShardUsage) error {
-	data, err := json.Marshal(usageDisk(shardUsage))
+// SaveComputedUsageData saves pre-calculated shard usage data to disk, stamped with
+// the fingerprint of the vector configs it was computed from.
+func SaveComputedUsageData(indexPath, shardName string, shardUsage *types.ShardUsage, vectorConfigsFingerprint string) error {
+	data, err := json.Marshal(&types.UsageDisk{
+		Version:                  types.UsageDiskVersion,
+		ShardUsage:               shardUsage,
+		VectorConfigsFingerprint: vectorConfigsFingerprint,
+	})
 	if err != nil {
 		return fmt.Errorf("marshal pre-calculated usage for disk: %w", err)
 	}
@@ -80,13 +91,32 @@ func SaveComputedUsageData(indexPath, shardName string, shardUsage *types.ShardU
 	return nil
 }
 
+// VectorConfigsFingerprint identifies a collection's vector configs, so that a shard
+// staying cold across a vector index being added, dropped, or reconfigured recomputes
+// its usage instead of serving what the previous configs produced.
+func VectorConfigsFingerprint(vectorConfigs map[string]models.VectorConfig) (string, error) {
+	if vectorConfigs == nil {
+		// an absent and an empty map describe the same collection
+		vectorConfigs = map[string]models.VectorConfig{}
+	}
+	// json.Marshal sorts map keys, so the same configs always hash the same
+	data, err := json.Marshal(vectorConfigs)
+	if err != nil {
+		return "", fmt.Errorf("marshal vector configs: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 // ErrUsageVersionMismatch reports usage written by another version of the format.
 // Every caller recomputes, so it is the expected outcome of a version bump for
 // each shard that stayed cold across it — routine, unlike an unreadable file.
 var ErrUsageVersionMismatch = errors.New("usage data saved to disk version mismatch")
 
-// LoadComputedUsageData loads pre-calculated shard usage data, checks version of saved data before returning
-func LoadComputedUsageData(indexPath, shardName string) (*types.ShardUsage, error) {
+// LoadComputedUsageData loads the pre-calculated usage record of a shard, rejecting a
+// version this build does not know. Callers that depend on the vector configs must also
+// compare its fingerprint against [VectorConfigsFingerprint] of their current ones.
+func LoadComputedUsageData(indexPath, shardName string) (*types.UsageDisk, error) {
 	// usage has been pre-calculated and can be read from disk
 	usage, err := os.ReadFile(usageTmpFilePath(indexPath, shardName))
 	if err != nil {
@@ -100,11 +130,10 @@ func LoadComputedUsageData(indexPath, shardName string) (*types.ShardUsage, erro
 		return nil, fmt.Errorf("%w, currently supported version is %d but got %d",
 			ErrUsageVersionMismatch, types.UsageDiskVersion, usageDisk.Version)
 	}
-	return usageDisk.ShardUsage, nil
-}
-
-func usageDisk(shardUsage *types.ShardUsage) *types.UsageDisk {
-	return &types.UsageDisk{Version: types.UsageDiskVersion, ShardUsage: shardUsage}
+	if usageDisk.ShardUsage == nil {
+		return nil, errors.New("pre-calculated usage from disk holds no shard usage")
+	}
+	return usageDisk, nil
 }
 
 // unloadedDimensionsBucketLocks serializes access to the same unloaded dimensions bucket.
@@ -346,7 +375,13 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 	}
 
 	// Add sizes of all files in the shard root directory
-	for _, size := range files {
+	for file, size := range files {
+		if file == usageTmpFileName {
+			// a shard must not grow by the size of its own saved usage: the file only
+			// exists while the shard is cold, so counting it would also make a cold
+			// shard report more than the same shard loaded
+			continue
+		}
 		otherNonLSMFoldersStorageSize += uint64(size)
 	}
 	for _, dir := range dirs {
