@@ -109,6 +109,12 @@ func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
 // state before restoring the snapshot.
 func (st *Store) Restore(rc io.ReadCloser) error {
 	f := func() error {
+		// Exclude the watcher's off-thread reload while the snapshot mutates FSM state.
+		if st.wipedJoinerCandidate.Load() {
+			st.wipedJoinerApplyMu.RLock()
+			defer st.wipedJoinerApplyMu.RUnlock()
+		}
+
 		st.log.Info("restoring schema from snapshot")
 		defer func() {
 			if err := rc.Close(); err != nil {
@@ -192,9 +198,8 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 
 		snapIndex := lastSnapshotIndex(st.snapshotStore)
 		if st.wipedJoinerCandidate.Load() {
-			// Wiped joiner caught up via InstallSnapshot; route through
-			// finishWipedJoinerReload so it latches wipedJoinerReloaded (watcher
-			// exits, catch-up suppression stops).
+			// Wiped joiner caught up via InstallSnapshot; candidate clears on
+			// completion, so LATER snapshots reload through the branch below.
 			st.finishWipedJoinerReload()
 		} else if st.lastAppliedIndexToDB.Load() <= snapIndex {
 			// db shall reload after snapshot applied to schema
