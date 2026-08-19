@@ -379,8 +379,6 @@ func Test_UserConfig(t *testing.T) {
 	}
 }
 
-// Centering is rejected by validate() too, so a config assembled as a struct
-// rather than parsed from a map can't smuggle it in either.
 func Test_UserConfigValidateCentering(t *testing.T) {
 	uc := NewDefaultUserConfig()
 	require.NoError(t, uc.validate())
