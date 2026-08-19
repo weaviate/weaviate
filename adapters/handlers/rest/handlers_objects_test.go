@@ -1099,6 +1099,37 @@ func TestParseIncludeParam_VectorIncludesTargetVectors(t *testing.T) {
 	require.False(t, out.IncludeAllTargetVectors)
 }
 
+func TestExtendProperties(t *testing.T) {
+	t.Run("API links don't mutate input", func(t *testing.T) {
+		h := &objectHandlers{config: config.Config{Origin: "http://host"}}
+
+		origRef := &models.SingleRef{
+			Beacon: strfmt.URI("weaviate://localhost/SomeClass/85f78e29-5937-4390-a121-5379f262b4e5"),
+		}
+		origRefs := models.MultipleRef{origRef}
+
+		input := map[string]interface{}{
+			"ref":  origRefs,
+			"name": "x",
+		}
+
+		out := h.extendPropertiesWithAPILinks(input)
+
+		assert.Empty(t, origRef.Href, "input SingleRef.Href must not be mutated")
+
+		inputRefs, ok := input["ref"].(models.MultipleRef)
+		require.True(t, ok)
+		assert.Len(t, inputRefs, 1)
+		assert.Same(t, origRef, inputRefs[0], "input slice element must point to original SingleRef")
+
+		outRefs, ok := out["ref"].(models.MultipleRef)
+		require.True(t, ok)
+		require.Len(t, outRefs, 1)
+		assert.NotEmpty(t, outRefs[0].Href, "output SingleRef.Href must be set")
+		assert.Contains(t, string(outRefs[0].Href), "85f78e29-5937-4390-a121-5379f262b4e5")
+	})
+}
+
 type fakeManager struct {
 	getObjectReturn *models.Object
 	getObjectErr    error

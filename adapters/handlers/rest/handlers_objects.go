@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	middleware "github.com/go-openapi/runtime/middleware"
@@ -828,34 +829,41 @@ func (h *objectHandlers) deleteObjectReferenceDeprecated(params objects.ObjectsR
 	return h.deleteObjectReference(req, principal)
 }
 
+// extendPropertiesWithAPILinks returns schema with Href set on every
+// SingleRef. The input map and its ref values are never written.
 func (h *objectHandlers) extendPropertiesWithAPILinks(schema map[string]interface{}) map[string]interface{} {
 	if schema == nil {
 		return schema
 	}
 
+	var out map[string]interface{}
 	for key, value := range schema {
 		asMultiRef, ok := value.(models.MultipleRef)
 		if !ok {
 			continue
 		}
-
-		schema[key] = h.extendReferencesWithAPILinks(asMultiRef)
+		if out == nil {
+			out = maps.Clone(schema)
+		}
+		out[key] = h.extendReferencesWithAPILinks(asMultiRef)
 	}
-	return schema
+	if out == nil {
+		return schema
+	}
+	return out
 }
 
 func (h *objectHandlers) extendReferencesWithAPILinks(refs models.MultipleRef) models.MultipleRef {
+	out := make(models.MultipleRef, len(refs))
 	for i, ref := range refs {
-		refs[i] = h.extendReferenceWithAPILink(ref)
+		out[i] = h.extendReferenceWithAPILink(ref)
 	}
-
-	return refs
+	return out
 }
 
 func (h *objectHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models.SingleRef {
 	parsed, err := crossref.Parse(ref.Beacon.String())
 	if err != nil {
-		// ignore return unchanged
 		return ref
 	}
 	// Defensive: beacons are written short, but strip here so a stray qualified
@@ -865,8 +873,9 @@ func (h *objectHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *mode
 	if parsed.Class == "" {
 		href = fmt.Sprintf("%s/v1/objects/%s", h.config.Origin, parsed.TargetID)
 	}
-	ref.Href = strfmt.URI(href)
-	return ref
+	cp := *ref
+	cp.Href = strfmt.URI(href)
+	return &cp
 }
 
 func (h *objectHandlers) shouldIncludeGetObjectsModuleParams() bool {
