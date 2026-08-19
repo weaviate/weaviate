@@ -332,35 +332,6 @@ func (o *Orchestrator) cancelInflightSelfRecoveryOps(ctx context.Context, ref Sh
 	return cancelled, nil
 }
 
-// HasInflightSelfRecoveryOp reports a non-terminal SELF_RECOVERY op targeting
-// this shard on this node — the crash-restart resume case (live dir stays missing).
-func (o *Orchestrator) HasInflightSelfRecoveryOp(ctx context.Context, collection, shard string) (bool, error) {
-	if o.raft == nil {
-		return false, nil
-	}
-	ops, err := o.raft.GetReplicationDetailsByCollectionAndShard(ctx, collection, shard)
-	if err != nil {
-		if errors.Is(err, replicationtypes.ErrReplicationOperationNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	for _, op := range ops {
-		if op.TransferType != api.SELF_RECOVERY.String() {
-			continue
-		}
-		if op.TargetNodeId != o.nodeName {
-			continue
-		}
-		switch api.ShardReplicationState(op.Status.State) {
-		case api.READY, api.CANCELLED:
-		default:
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 // waitForOpTerminal polls the FSM until the op reaches READY or CANCELLED.
 // A vanished op is terminal, but with a grace sleep so a still-running
 // consumer goroutine can observe the cancellation.

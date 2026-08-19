@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"errors"
 	"os"
 	"testing"
 
@@ -28,10 +27,8 @@ import (
 )
 
 type fakeSelfRecoveryOrch struct {
-	enabled                 bool
-	inflightSelfRecoveryOp  bool
-	inflightSelfRecoveryErr error
-	submitOK                bool
+	enabled  bool
+	submitOK bool
 
 	submitCalls      int
 	gotFromBootstrap bool
@@ -39,10 +36,6 @@ type fakeSelfRecoveryOrch struct {
 }
 
 func (f *fakeSelfRecoveryOrch) Enabled() bool { return f.enabled }
-
-func (f *fakeSelfRecoveryOrch) HasInflightSelfRecoveryOp(_ context.Context, _, _ string) (bool, error) {
-	return f.inflightSelfRecoveryOp, f.inflightSelfRecoveryErr
-}
 
 func (f *fakeSelfRecoveryOrch) SubmitRecovery(_ context.Context, _, _ string, fromBootstrap bool) bool {
 	f.submitCalls++
@@ -121,8 +114,12 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 	})
 
 	t.Run("resuming self-recovery → wrapper installed, NOT submitted, no empty dir", func(t *testing.T) {
-		orch := &fakeSelfRecoveryOrch{enabled: true, inflightSelfRecoveryOp: true}
+		orch := &fakeSelfRecoveryOrch{enabled: true}
 		idx := newTestIndexForRecovery(t, orch, nil)
+		idx.getSchema = &fakeSchemaGetter{}
+		fsm := replicationTypes.NewMockReplicationFSMReader(t)
+		fsm.EXPECT().HasActiveSelfRecoveryTargetingShard("C", "S", "node1").Return(true)
+		idx.SetReplicationFSMReader(fsm)
 		require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
 		require.Zero(t, orch.submitCalls, "a resuming op must not be re-submitted")
 		_, isRecovering := idx.shards.Load("S").(*RecoveringShard)
@@ -130,19 +127,12 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 		require.NoDirExists(t, shardPath(idx.path(), "S"), "no empty live dir may be planted for the resuming op")
 	})
 
-	t.Run("self-recovery check errors → false, no install, no submit", func(t *testing.T) {
-		orch := &fakeSelfRecoveryOrch{enabled: true, inflightSelfRecoveryErr: errors.New("fsm unavailable")}
-		idx := newTestIndexForRecovery(t, orch, nil)
-		require.False(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
-		require.Zero(t, orch.submitCalls)
-		require.Nil(t, idx.shards.Load("S"))
-	})
-
 	t.Run("non-self-recovery in-flight op → false, no install, no submit", func(t *testing.T) {
 		orch := &fakeSelfRecoveryOrch{enabled: true}
 		idx := newTestIndexForRecovery(t, orch, nil)
 		idx.getSchema = &fakeSchemaGetter{}
 		fsm := replicationTypes.NewMockReplicationFSMReader(t)
+		fsm.EXPECT().HasActiveSelfRecoveryTargetingShard("C", "S", "node1").Return(false)
 		fsm.EXPECT().HasActiveTargetReplicationForShard("C", "S", "node1").Return(true)
 		idx.SetReplicationFSMReader(fsm)
 		require.False(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
@@ -155,6 +145,7 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 		idx := newTestIndexForRecovery(t, orch, nil)
 		idx.getSchema = &fakeSchemaGetter{}
 		fsm := replicationTypes.NewMockReplicationFSMReader(t)
+		fsm.EXPECT().HasActiveSelfRecoveryTargetingShard("C", "S", "node1").Return(false)
 		fsm.EXPECT().HasActiveTargetReplicationForShard("C", "S", "node1").Return(false)
 		idx.SetReplicationFSMReader(fsm)
 		require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
