@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,27 +67,62 @@ func TestWipedJoinerBarrierReached(t *testing.T) {
 	}
 }
 
-func TestWipedJoinerFreshClusterReady(t *testing.T) {
+// A follower's commit view lags the leader mid-stream, so only a LOCAL leader may load without a barrier.
+func TestWipedJoinerSelfLeaderReady(t *testing.T) {
 	tests := []struct {
-		name      string
-		joined    bool
-		hasLeader bool
-		commit    uint64
-		applied   uint64
-		want      bool
+		name     string
+		isLeader bool
+		commit   uint64
+		applied  uint64
+		want     bool
 	}{
-		{name: "fresh, caught up -> ready", hasLeader: true, commit: 3, applied: 3, want: true},
-		{name: "joined existing cluster excluded", joined: true, hasLeader: true, commit: 3, applied: 3, want: false},
-		{name: "no leader yet -> wait", hasLeader: false, commit: 3, applied: 3, want: false},
-		{name: "commit==0 (t=0 race) -> wait", hasLeader: true, commit: 0, applied: 0, want: false},
-		{name: "not yet caught up -> wait", hasLeader: true, commit: 5, applied: 2, want: false},
+		{name: "local leader, caught up -> ready", isLeader: true, commit: 3, applied: 3, want: true},
+		{name: "follower excluded even when views match", isLeader: false, commit: 3, applied: 3, want: false},
+		{name: "commit==0 (t=0 race) -> wait", isLeader: true, commit: 0, applied: 0, want: false},
+		{name: "leader not yet caught up -> wait", isLeader: true, commit: 5, applied: 2, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want,
-				wipedJoinerFreshClusterReady(tt.joined, tt.hasLeader, tt.commit, tt.applied))
+				wipedJoinerSelfLeaderReady(tt.isLeader, tt.commit, tt.applied))
 		})
 	}
+}
+
+func TestNeedsJoinBarrier(t *testing.T) {
+	t.Run("un-joined candidate needs it", func(t *testing.T) {
+		st := &Store{}
+		st.wipedJoinerCandidate.Store(true)
+		assert.True(t, st.NeedsJoinBarrier())
+	})
+
+	t.Run("satisfied once a barrier is set", func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		st := &Store{log: logger}
+		st.wipedJoinerCandidate.Store(true)
+		st.SetJoinBarrier(99)
+		assert.False(t, st.NeedsJoinBarrier())
+	})
+
+	t.Run("satisfied by a joined pre-barrier leader", func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		st := &Store{log: logger}
+		st.wipedJoinerCandidate.Store(true)
+		st.SetJoinBarrier(0)
+		assert.False(t, st.NeedsJoinBarrier())
+	})
+
+	t.Run("non-candidate never needs it", func(t *testing.T) {
+		st := &Store{}
+		assert.False(t, st.NeedsJoinBarrier())
+	})
+
+	t.Run("reloaded never needs it", func(t *testing.T) {
+		st := &Store{}
+		st.wipedJoinerCandidate.Store(true)
+		st.wipedJoinerReloaded.Store(true)
+		assert.False(t, st.NeedsJoinBarrier())
+	})
 }
 
 func TestSetJoinBarrier(t *testing.T) {
@@ -168,6 +204,30 @@ func TestWipedJoinerBarrierTimeout(t *testing.T) {
 		st := &Store{cfg: Config{WipedJoinerBarrierTimeout: 90 * time.Second}}
 		assert.Equal(t, 90*time.Second, st.wipedJoinerBarrierTimeout())
 	})
+}
+
+// Pins X2b: a joined candidate with no barrier must load after a bounded deadline, never wedge.
+func TestWatchWipedJoinerZeroBarrierDeadline(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	st := &Store{
+		log:     logger,
+		cfg:     Config{MetadataOnlyVoters: true, WipedJoinerBarrierTimeout: 100 * time.Millisecond},
+		metrics: newStoreMetrics("n1", prometheus.NewPedanticRegistry()),
+	}
+	st.wipedJoinerCandidate.Store(true)
+	st.wipedJoinerJoined.Store(true)
+	st.open.Store(true)
+
+	done := make(chan struct{})
+	go func() { st.watchWipedJoiner(); close(done) }()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("watcher did not load within the zero-barrier deadline")
+	}
+	require.True(t, st.wipedJoinerReloaded.Load())
+	require.True(t, st.dbLoaded.Load())
 }
 
 func TestNonCandidateNotSuppressed(t *testing.T) {

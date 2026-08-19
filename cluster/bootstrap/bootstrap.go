@@ -47,23 +47,28 @@ type Bootstrapper struct {
 	// catch-up barrier) on a successful join; 0 if the leader supplied none.
 	onJoin func(leaderCommitIndex uint64)
 
+	// needsJoinBarrier, if set and true, keeps joining even when the store
+	// reports ready: a wiped joiner is "ready" before it ever joined, and
+	// exiting early would lose the catch-up barrier.
+	needsJoinBarrier func() bool
+
 	retryPeriod time.Duration
 	jitter      time.Duration
 }
 
-// NewBootstrapper constructs a new bootstrapper. onJoin may be nil; when set it
-// receives the leader's committed index on a successful join.
-func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, voter bool, r resolver.ClusterStateReader, isStoreReady func() bool, onJoin func(leaderCommitIndex uint64)) *Bootstrapper {
+// NewBootstrapper constructs a new bootstrapper. onJoin and needsJoinBarrier may be nil.
+func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, voter bool, r resolver.ClusterStateReader, isStoreReady func() bool, onJoin func(leaderCommitIndex uint64), needsJoinBarrier func() bool) *Bootstrapper {
 	return &Bootstrapper{
-		peerJoiner:    peerJoiner,
-		addrResolver:  r,
-		retryPeriod:   time.Second,
-		jitter:        time.Second,
-		localNodeID:   raftID,
-		localRaftAddr: raftAddr,
-		isStoreReady:  isStoreReady,
-		voter:         voter,
-		onJoin:        onJoin,
+		peerJoiner:       peerJoiner,
+		addrResolver:     r,
+		retryPeriod:      time.Second,
+		jitter:           time.Second,
+		localNodeID:      raftID,
+		localRaftAddr:    raftAddr,
+		isStoreReady:     isStoreReady,
+		voter:            voter,
+		onJoin:           onJoin,
+		needsJoinBarrier: needsJoinBarrier,
 	}
 }
 
@@ -86,7 +91,7 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if b.isStoreReady() {
+			if b.isStoreReady() && (b.needsJoinBarrier == nil || !b.needsJoinBarrier()) {
 				lg.WithField("action", "bootstrap").Info("node reporting ready, exiting bootstrap process")
 				return nil
 			}
