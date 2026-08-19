@@ -455,14 +455,8 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", name, relPath, err)
 		}
-		if backup.IsImmutableFile(relPath) {
-			if err := os.Link(src, dst); err != nil {
-				return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
-			}
-		} else {
-			if err := file.CopyFile(src, dst); err != nil {
-				return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
-			}
+		if err := file.CopyFile(src, dst); err != nil {
+			return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
 		}
 	}
 	if err := file.HardlinkFiles(hardlinks); err != nil {
