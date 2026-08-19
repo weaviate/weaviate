@@ -2501,5 +2501,9 @@ func lookupShardByName(idx *Index, shardName string) (ShardLike, error) {
 	if found == nil {
 		return nil, fmt.Errorf("shard %q not found", shardName)
 	}
+	// Callers hit mustLoad-backed methods, which panic on a recovering shard.
+	if rec, ok := found.(*RecoveringShard); ok && rec.IsRecovering() {
+		return nil, fmt.Errorf("shard %q is recovering from a peer", shardName)
+	}
 	return found, nil
 }
