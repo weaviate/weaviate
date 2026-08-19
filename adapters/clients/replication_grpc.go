@@ -416,11 +416,7 @@ func (c *grpcReplicationClient) CompareDigests(ctx context.Context, host, index,
 		return nil, fmt.Errorf("gRPC CompareDigests: %w", err)
 	}
 
-	// A packed-aware server always echoes the packed encoding when asked, so a
-	// proto-encoded reply proves an older peer that ignored the packed field and
-	// compared an empty digest list. Its reply is meaningless — resend once in
-	// the proto dialect it understands so repair keeps working during rolling
-	// upgrades (mirrors the REST legacy JSON fallback).
+	// A proto reply means an old peer that ignored digests_packed and compared nothing — resend in the proto dialect it understands.
 	if resp.GetEncoding() == replica.RepairDigestsEncodingProto {
 		resp, err = client.CompareDigests(ctx, &protocol.CompareDigestsRequest{
 			Index:          index,
