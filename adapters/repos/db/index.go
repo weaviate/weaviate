@@ -1559,6 +1559,11 @@ func (i *Index) getShardForDirectLocalOperation(
 	operation localShardOperation,
 	schemaVersion uint64,
 ) (ShardLike, func(), error) {
+	// A recovering shard can't serve; nil shard sends the caller to a remote replica.
+	if rec, ok := i.shards.Load(shardName).(*RecoveringShard); ok && rec.IsRecovering() {
+		return nil, func() {}, nil
+	}
+
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, release, err
@@ -3348,7 +3353,12 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	// will call Load() internally
 	release, err = shard.preventShutdown()
 	if err != nil {
-		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
+		err = fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
+		// 422 (retriable on a replica), not a 500: the shard is mid-recovery.
+		if enterrors.IsShardRecovering(err) {
+			err = enterrors.NewErrUnprocessable(err)
+		}
+		return nil, func() {}, err
 	}
 
 	return shard, release, nil
