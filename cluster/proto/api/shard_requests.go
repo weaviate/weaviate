@@ -45,9 +45,8 @@ func (s ShardReplicationTransferType) String() string {
 }
 
 const (
-	COPY ShardReplicationTransferType = "COPY"
-	MOVE ShardReplicationTransferType = "MOVE"
-	// SELF_RECOVERY re-hydrates a shard whose target is already a replica.
+	COPY          ShardReplicationTransferType = "COPY"
+	MOVE          ShardReplicationTransferType = "MOVE"
 	SELF_RECOVERY ShardReplicationTransferType = "SELF_RECOVERY"
 )
 
