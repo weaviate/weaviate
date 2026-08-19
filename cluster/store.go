@@ -1284,9 +1284,10 @@ func (st *Store) FSMHasCaughtUp() bool {
 }
 
 // shouldLogSlowApply reports whether slow RAFT apply diagnostics should be
-// emitted: current leader, store ready, and past startup FSM catch-up.
+// emitted: store ready and past startup FSM catch-up. Followers log too — a
+// recovering follower's stalled apply loop is exactly what operators must see.
 func (st *Store) shouldLogSlowApply() bool {
-	return st.IsLeader() && st.Ready() && st.FSMHasCaughtUp()
+	return st.Ready() && st.FSMHasCaughtUp()
 }
 
 type Response struct {

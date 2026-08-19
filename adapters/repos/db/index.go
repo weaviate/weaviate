@@ -768,13 +768,16 @@ func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.
 	logFields := logrus.Fields{"collection": collection, "shard": shardName}
 	orch := i.Config.SelfRecoveryOrchestrator
 
+	// Local FSM reads only — this runs per shard on the RAFT apply path, where a leader RPC would freeze the FSM.
+	fsm := i.getReplicationFSMReader()
+	nodeName := ""
+	if i.getSchema != nil {
+		nodeName = i.getSchema.NodeName()
+	}
+
 	// Resuming SELF_RECOVERY op: block normal init (an empty live dir makes the
 	// consumer's promote erase the copy); don't re-submit — the op self-resumes.
-	if resuming, err := orch.HasInflightSelfRecoveryOp(ctx, collection, shardName); err != nil {
-		i.logger.WithError(err).WithFields(logFields).
-			Warn("self-recovery: could not check for in-flight self-recovery op; falling back to normal shard init")
-		return false
-	} else if resuming {
+	if fsm != nil && nodeName != "" && fsm.HasActiveSelfRecoveryTargetingShard(collection, shardName, nodeName) {
 		i.installRecoveringShard(ctx, class, shardName, promMetrics)
 		i.logger.WithFields(logFields).
 			WithField("action", "self_recovery_resumed").
@@ -785,8 +788,8 @@ func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.
 	// A different in-flight op (e.g. scale-out COPY) owns the dir; leave it to
 	// that op. Nil reader (tests only) counts as none; the FSM admission checks
 	// at RegisterSelfRecovery are the backstop.
-	if fsm := i.getReplicationFSMReader(); fsm != nil && i.getSchema != nil &&
-		fsm.HasActiveTargetReplicationForShard(collection, shardName, i.getSchema.NodeName()) {
+	if fsm != nil && nodeName != "" &&
+		fsm.HasActiveTargetReplicationForShard(collection, shardName, nodeName) {
 		i.logger.WithFields(logFields).
 			Info("self-recovery: a non-self-recovery in-flight op already targets this shard; leaving it to that op")
 		return false
