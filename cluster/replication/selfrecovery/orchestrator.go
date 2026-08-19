@@ -469,6 +469,15 @@ func (o *Orchestrator) AcceptEmpty(ctx context.Context, ref ShardRef) (string, e
 func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, fromBootstrap bool) {
 	unlock := o.lockShard(ref)
 	defer unlock()
+	// The shard may have been torn down or re-created while queued.
+	if o.pathResolver != nil {
+		if _, err := os.Stat(o.pathResolver.ShardPath(ref.Collection, ref.Shard)); err == nil {
+			o.logger.WithFields(logrus.Fields{"collection": ref.Collection, "shard": ref.Shard}).
+				Info("self-recovery: live shard dir present at dequeue; skipping")
+			o.recordOutcome("skipped", time.Now())
+			return
+		}
+	}
 	// bind per-op ctx to shutdownCtx so probes/polls bail when Close fires
 	ctx, cancel := mergedCtx(ctx, o.shutdownCtx)
 	defer cancel()
