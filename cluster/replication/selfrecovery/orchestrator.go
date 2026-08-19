@@ -96,7 +96,6 @@ type Orchestrator struct {
 	probeBackoffMax        time.Duration
 	restartTimeout         time.Duration
 	vanishedGracePeriod    time.Duration
-	emptyFallbackHook      func(ShardRef) // nil unless overridden in tests
 	metrics                *Metrics
 
 	// Worker pool draining an unbounded pending queue (never dropped). Close
@@ -333,34 +332,6 @@ func (o *Orchestrator) cancelInflightSelfRecoveryOps(ctx context.Context, ref Sh
 	return cancelled, nil
 }
 
-// HasInflightReplicationOp reports whether any non-terminal replication op
-// targets the shard on this node. The startup hook checks it first so a
-// node restarting mid scale-out COPY doesn't register a duplicate
-// SELF_RECOVERY op and clobber the resumed COPY. Treat errors as "skip".
-func (o *Orchestrator) HasInflightReplicationOp(ctx context.Context, collection, shard string) (bool, error) {
-	if o.raft == nil {
-		return false, nil
-	}
-	ops, err := o.raft.GetReplicationDetailsByCollectionAndShard(ctx, collection, shard)
-	if err != nil {
-		if errors.Is(err, replicationtypes.ErrReplicationOperationNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	for _, op := range ops {
-		if op.TargetNodeId != o.nodeName {
-			continue
-		}
-		switch api.ShardReplicationState(op.Status.State) {
-		case api.READY, api.CANCELLED:
-		default:
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 // HasInflightSelfRecoveryOp reports a non-terminal SELF_RECOVERY op targeting
 // this shard on this node — the crash-restart resume case (live dir stays missing).
 func (o *Orchestrator) HasInflightSelfRecoveryOp(ctx context.Context, collection, shard string) (bool, error) {
@@ -568,7 +539,7 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, fromBootstrap b
 			if o.metrics != nil {
 				o.metrics.GiveupTotal.Inc()
 			}
-			o.recordOutcome("failure", "failure", startedAt)
+			o.recordOutcome("failure", startedAt)
 			return
 		}
 
@@ -603,12 +574,12 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, fromBootstrap b
 }
 
 // recordOutcome ticks completed_total and duration_seconds. Nil-safe.
-func (o *Orchestrator) recordOutcome(completedResult, durationResult string, startedAt time.Time) {
+func (o *Orchestrator) recordOutcome(result string, startedAt time.Time) {
 	if o.metrics == nil {
 		return
 	}
-	o.metrics.CompletedTotal.WithLabelValues(completedResult).Inc()
-	o.metrics.DurationSeconds.WithLabelValues(durationResult).Observe(time.Since(startedAt).Seconds())
+	o.metrics.CompletedTotal.WithLabelValues(result).Inc()
+	o.metrics.DurationSeconds.WithLabelValues(result).Observe(time.Since(startedAt).Seconds())
 }
 
 // handleRegisterDecision registers a SELF_RECOVERY op and polls it to
@@ -622,7 +593,7 @@ func (o *Orchestrator) handleRegisterDecision(ctx context.Context, ref ShardRef,
 	}
 	err := o.registerAndPoll(ctx, ref, decision.sourceNode)
 	if err == nil {
-		o.recordOutcome("success", "success", startedAt)
+		o.recordOutcome("success", startedAt)
 		logger.WithFields(logrus.Fields{
 			"event":       "self_recovery.completed",
 			"source_node": decision.sourceNode,
@@ -636,12 +607,12 @@ func (o *Orchestrator) handleRegisterDecision(ctx context.Context, ref ShardRef,
 	case errors.Is(err, replicationtypes.ErrReplicationOperationNotFound):
 		logger.WithError(err).WithField("source_node", decision.sourceNode).
 			Info("self-recovery op was force-deleted; abandoning")
-		o.recordOutcome("cancelled", "cancelled", startedAt)
+		o.recordOutcome("cancelled", startedAt)
 		return true, false
 	case errors.Is(err, ErrSelfRecoveryCancelled):
 		logger.WithError(err).WithField("source_node", decision.sourceNode).
 			Info("self-recovery op cancelled; abandoning")
-		o.recordOutcome("cancelled", "cancelled", startedAt)
+		o.recordOutcome("cancelled", startedAt)
 		return true, false
 	default:
 		logger.WithError(err).WithField("source_node", decision.sourceNode).
@@ -659,7 +630,7 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 ) {
 	if err := o.emptyFallback(ref); err != nil {
 		logger.WithError(err).Error("self-recovery empty-fallback failed")
-		o.recordOutcome("failure", "failure", startedAt)
+		o.recordOutcome("failure", startedAt)
 		return
 	}
 	// a failed promote would strand the shard in RECOVERING; record
@@ -667,7 +638,7 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 	if o.onRecoveryComplete != nil {
 		if err := o.onRecoveryComplete(ctx, ref.Collection, ref.Shard); err != nil {
 			logger.WithError(err).Error("self-recovery: promote after empty-fallback failed")
-			o.recordOutcome("failure", "failure", startedAt)
+			o.recordOutcome("failure", startedAt)
 			return
 		}
 	}
@@ -678,7 +649,7 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 			o.metrics.NoDataEmptyTotal.Inc()
 		}
 	}
-	o.recordOutcome("empty_fallback", "empty_fallback", startedAt)
+	o.recordOutcome("empty_fallback", startedAt)
 
 	fallbackFields := logrus.Fields{
 		"event":        "self_recovery.empty_fallback",
@@ -696,9 +667,6 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 		fallbackFields["operator_note"] = "if data is recoverable from backup, restore now"
 		logger.WithFields(fallbackFields).
 			Warn("no peer has data for shard; created empty shard")
-	}
-	if o.emptyFallbackHook != nil {
-		o.emptyFallbackHook(ref)
 	}
 }
 
@@ -745,7 +713,6 @@ func (o *Orchestrator) probeAndDecide(ctx context.Context, ref ShardRef) (probeD
 	results := make([]probeResult, len(peers))
 	var wg sync.WaitGroup
 	for i, peer := range peers {
-		i, peer := i, peer
 		wg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
@@ -869,8 +836,6 @@ func isShardAbsentErr(err error) bool {
 	}
 	msg := err.Error()
 	switch {
-	case strings.Contains(msg, "incoming list files get shard is nil"):
-		return true
 	case strings.Contains(msg, "shard is nil"):
 		return true
 	case strings.Contains(msg, "shard not found"):
