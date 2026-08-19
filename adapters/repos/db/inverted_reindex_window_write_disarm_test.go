@@ -30,8 +30,9 @@ import (
 )
 
 // The routing sends writes into a bucket the schema does not name, so the two
-// events that make that bucket the wrong destination each have to stop it: the
-// user dropping the index, and the cluster flipping the flag on.
+// events that make that bucket the wrong destination each have to stop it: a
+// property update whose apply removes the index, and the cluster flipping the
+// flag on.
 //
 // Both are asserted the same way — a write afterwards behaves as the schema
 // says it should — because that is what a caller notices. A write into a
@@ -87,7 +88,7 @@ func TestTheRoutingStopsWhenTheBucketOrTheSchemaChanges(t *testing.T) {
 		})
 	}
 
-	t.Run("an index DELETE removes the bucket the routing points at", func(t *testing.T) {
+	t.Run("a property update removes the bucket the routing points at", func(t *testing.T) {
 		ctx := testCtx()
 		shard, class, className := newArmedShard(t)
 

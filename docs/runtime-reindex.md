@@ -1345,11 +1345,12 @@ on exactly that signature, and the record is what stops it.
 
 Finalize keeps the tracker in that window and marks it `finalized.mig`. The
 kept dir still carries `tidied.mig`, so every path that preserves a completed
-migration's state reads it as one. Five readers get an arm for the record: the
+migration's state reads it as one. Six readers get an arm for the record: the
 startup sweep skips a bucket it names, shard load opens that bucket despite
-the schema flag, the cold-tenant gate reads it as settled rather than as work,
-the end-of-swap trim leaves an older generation's record for the next start,
-and a property-update apply retires the records of the indexes it removes.
+the schema flag, shard load also routes writes into it (§9.7.1), the
+cold-tenant gate reads it as settled rather than as work, the end-of-swap trim
+leaves an older generation's record for the next start, and a property-update
+apply retires the records of the indexes it removes.
 
 Who retires a record:
 
