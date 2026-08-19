@@ -55,7 +55,6 @@ packages:
     interfaces:
       OpProducer:
       OpConsumer:
-      Timer:
   github.com/weaviate/weaviate/cluster/replication/types:
     interfaces:
       ReplicationFSMReader:

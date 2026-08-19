@@ -14,9 +14,12 @@ package types
 import "errors"
 
 var (
-	ErrInvalidRequest               = errors.New("invalid request")
-	ErrCancellationImpossible       = errors.New("cancellation impossible")
-	ErrDeletionImpossible           = errors.New("deletion impossible")
+	ErrInvalidRequest         = errors.New("invalid request")
+	ErrCancellationImpossible = errors.New("cancellation impossible")
+	ErrDeletionImpossible     = errors.New("deletion impossible")
+	// ErrOpCancellationInFlight: registration refused because a cancel was
+	// accepted first; see ShardReplicationFSM.SetUnCancellable.
+	ErrOpCancellationInFlight       = errors.New("op cancellation in flight")
 	ErrReplicationOperationNotFound = errors.New("replication operation not found")
 	// ErrNotFound is a custom error that is used to indicate that a resource was not found.
 	// We use it to return a specific error code from the RPC layer to ensure we don't retry an operation
