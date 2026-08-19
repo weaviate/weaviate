@@ -27,6 +27,10 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+// nodeReadinessTimeout replaces the testcontainers default of 60s, which a node
+// replaying a large commit log routinely exceeds.
+const nodeReadinessTimeout = 120 * time.Second
+
 type DockerCompose struct {
 	network    *testcontainers.DockerNetwork
 	netOctet   int // second octet of this cluster's subnet (10.<netOctet>.0.0/16)
@@ -241,7 +245,8 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 	c.endpoints = endPoints
 
 	if e, ok := endPoints[HTTP]; ok {
-		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port)).
+			WithStartupTimeout(nodeReadinessTimeout)
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
 			return fmt.Errorf("StartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
 				c.name, err)
@@ -295,7 +300,8 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 	c.endpoints = endPoints
 
 	if e, ok := endPoints[HTTP]; ok {
-		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port)).
+			WithStartupTimeout(nodeReadinessTimeout)
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
 			return fmt.Errorf("RestartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
 				c.name, err)
