@@ -615,7 +615,8 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 	// The schema version ensures schema consistency across nodes during replication.
 	// For non-multi-tenant collections, op.Status.SchemaVersion remains at its initial value (typically 0),
 	// which is acceptable as schema version synchronization is not required.
-	if c.schemaReader.MultiTenancy(op.Op.TargetShard.CollectionId).Enabled {
+	// SELF_RECOVERY restores files on an existing replica; it must never (re)activate the tenant.
+	if op.Op.TransferType != api.SELF_RECOVERY && c.schemaReader.MultiTenancy(op.Op.TargetShard.CollectionId).Enabled {
 		schemaVersion, err := c.leaderClient.UpdateTenants(ctx, op.Op.TargetShard.CollectionId, &api.UpdateTenantsRequest{
 			Tenants: []*api.Tenant{
 				{
