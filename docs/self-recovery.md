@@ -46,7 +46,6 @@ transfer type and reject it). Same caveat as `REPLICA_MOVEMENT_ENABLED`.
 | `weaviate_self_recovery_unreachable_peer_total` | counter | `peer` | peer reachability problems |
 | `weaviate_self_recovery_giveup_total` | counter | — | retries exhausted |
 | `weaviate_self_recovery_accept_empty_total` | counter | — | operator escape-hatch invocations |
-| `weaviate_self_recovery_submit_dropped_total` | counter | — | submissions dropped because the in-process worker queue was full (will retry on next restart) |
 
 Per-(collection, shard) drill-down is available via `/replication/replicate/list`
 and the structured logs.
@@ -103,12 +102,10 @@ the shard is left in `RECOVERING`; use `restart` to try again from
 scratch, or `accept-empty` to accept the loss. (Recoveries are also
 retried automatically on the next node restart.)
 
-When the in-process worker queue overflows (a node missing thousands of
-shards at once — `weaviate_self_recovery_submit_dropped_total` ticks),
-the affected shard falls back to the pre-existing behavior — an empty dir
-created at startup, backfilled object-by-object by async replication —
-rather than being stranded in `RECOVERING`. The dropped recovery is
-re-attempted on the next restart.
+The in-process submission queue is unbounded and never drops: a node
+missing thousands of shards queues them all, and `SELF_RECOVERY_CONCURRENCY`
+workers drain the queue. Shards still queued at shutdown are re-submitted
+on the next restart (their live dir is still missing).
 
 ## Runbook: `no_data_empty_total > 0` after a restart
 
@@ -160,16 +157,19 @@ materialising empty shards. This covers the log-replay rejoin path **without** a
 operator-forced snapshot; the `POST /debug/raft/snapshot` step is now only a test
 convenience for forcing the InstallSnapshot path deterministically.
 
-`Store.watchWipedJoiner` handles the cases the barrier doesn't: a node that
-**formed a fresh cluster** (no barrier — nothing to recover) clears the
-schema-only suppression once it has caught up to the tiny committed index, and a
-joiner that can't reach its barrier (an older leader that supplied no index, or an
-unreachable cluster) falls back to an eager load after a no-progress timeout. A
-node with intact data, a feature-off node, and a metadata-only voter keep the
-legacy eager-ready behaviour. The whole
-mechanism is gated on `SELF_RECOVERY_ENABLED`; off ⇒ startup is unchanged. An
-older leader (pre-`leader_commit_index`) returns 0, so a new joiner falls back to
-the legacy path — recovery on log-replay rejoin engages once both ends are upgraded.
+Because a wiped joiner reports ready before it ever joined, the bootstrapper
+keeps attempting the (idempotent) join while `Store.NeedsJoinBarrier` holds, so
+the barrier cannot be lost to the ready early-return. `Store.watchWipedJoiner`
+handles the cases the barrier doesn't: a **local leader** (fresh single-node
+cluster, or elected leader of a fresh formation — trivially caught up) loads
+once its commit index is applied; a joiner whose leader supplied no barrier
+(pre-`leader_commit_index` leader returns 0) loads eagerly after a bounded
+deadline; and a joiner making no apply progress toward its barrier falls back
+to an eager load after the no-progress timeout. A follower never loads off its
+own commit view — mid-stream it lags the leader's, which is why the barrier
+comes from the join response. A node with intact data, a feature-off node, and
+a metadata-only voter keep the legacy eager-ready behaviour. The whole
+mechanism is gated on `SELF_RECOVERY_ENABLED`; off ⇒ startup is unchanged.
 
 Runtime collection/tenant creation is **not** part of the load pass: a
 genuinely new shard has its folder created at creation time, so it is
@@ -196,16 +196,14 @@ behavior.
 
 **A `RecoveringShard` panics if a non-routed code path touches it.**
 While a shard is `RECOVERING`, an in-memory `RecoveringShard` wrapper
-sits in the index's shard map with its load blocked. The replication FSM
-read filter excludes it from cluster reads/writes for all consistency
-levels, and the "loaded" shard accessors skip it — but any maintenance
-loop or admin operation that iterates *all* shards and calls a data-path
-method (e.g. `Store()`, `addProperty`/`updateProperty` via `ForEachShard`)
-will hit `mustLoad` and **panic the node** with a "shard is recovering
-from a peer; this code path must not touch a recovering shard" message
-rather than failing gracefully. Avoid such operations while a shard on
-the node is recovering. (Hardening every such call site is deferred; the
-panic message is intentionally explicit so the crash is unambiguous.)
+sits in the index's shard map with its load blocked. Direct local
+reads/writes fall back to a remote replica (nil shard) or surface a
+422-mappable `ErrShardRecovering`; iterating maintenance loops, backups,
+exports, usage reports, and reindex paths skip or fail cleanly on the
+wrapper. Any *remaining* unrouted call site that reaches a `mustLoad`-backed
+method still **panics the node** with an explicit "shard is recovering
+from a peer" message — deliberate, so an unhardened path is unambiguous
+rather than silently loading an empty shard mid-copy.
 
 ## Maintenance mode
 
