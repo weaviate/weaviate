@@ -85,8 +85,18 @@ func HFreshSharedBucketName(indexID string) string {
 	return fmt.Sprintf("hfresh_shared_%s", indexID)
 }
 
+// FlatMetadataFileName is the flat index's quantisation metadata, under the
+// shard directory (see flat.getMetadataFile).
+func FlatMetadataFileName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("meta_%s.db", targetVector)
+	}
+	return "meta.db"
+}
+
 // VectorIndexArtifacts is everything a named vector's index owns on disk:
-// LSMBuckets are directories under <shard>/lsm, ShardDirs under <shard>.
+// LSMBuckets are directories under <shard>/lsm; ShardDirs are entries under
+// <shard> — directories, plus the flat metadata file. Both go via os.RemoveAll.
 type VectorIndexArtifacts struct {
 	LSMBuckets []string
 	ShardDirs  []string
@@ -128,6 +138,9 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 			// chunks into a re-created index of the same name, so this is wrong
 			// vectors and dimension errors, not just disk cost.
 			indexID + ".queue.d",
+			// flat.Drop removes this on the live path only; the files-only
+			// paths leave it, same gap as the queue directory above.
+			FlatMetadataFileName(targetVector),
 		},
 	}
 }

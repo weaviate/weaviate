@@ -41,6 +41,32 @@ func TestDropVectorIndex_Cluster(t *testing.T) {
 	t.Run("replicated cold tenant", testReplicatedColdTenant(compose))
 }
 
+// TestDropVectorIndex_AsyncIndexing runs the cluster journeys with
+// ASYNC_INDEXING on. That gives every index a vectors_<name>.queue.d the
+// synchronous path never creates, so the disk assertions — unchanged, they read
+// helpers.VectorIndexArtifactsFor — cover an artifact the cluster job cannot.
+func TestDropVectorIndex_AsyncIndexing(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1").
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		// Flush partial queue chunks promptly, or the drain sits idle.
+		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "500ms").
+		WithWeaviateEnv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", "5").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		dumpLogsOnFailure(ctx, t, compose)
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	runSuite(t, compose)
+	t.Run("replicated drop", testReplicatedDrop(compose))
+	t.Run("replicated cold tenant", testReplicatedColdTenant(compose))
+}
+
 func TestDropVectorIndex_Restart_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
@@ -107,4 +133,5 @@ func runSuite(t *testing.T, compose *docker.DockerCompose) {
 	t.Run("multi vector", testMultiVector())
 	t.Run("multi vector drop leaves no files on disk", testMultiVectorLeavesNoFilesOnDisk(compose))
 	t.Run("hfresh drop leaves no files on disk", testHFreshLeavesNoFilesOnDisk(compose))
+	t.Run("flat drop leaves no files on disk", testFlatLeavesNoFilesOnDisk(compose))
 }
