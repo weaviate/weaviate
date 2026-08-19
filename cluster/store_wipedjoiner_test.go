@@ -190,8 +190,38 @@ func TestClaimWipedJoinerReload(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, int64(1), wins, "exactly one concurrent caller runs the reload")
-	assert.True(t, st.wipedJoinerReloaded.Load(), "latch stays set")
 	assert.False(t, st.claimWipedJoinerReload(), "a later caller never wins again")
+}
+
+// Pins X3: schemaOnly suppression must hold while a claimed reload is still in flight.
+func TestForceSchemaOnlyHeldDuringInflightReload(t *testing.T) {
+	st := &Store{}
+	st.wipedJoinerCandidate.Store(true)
+
+	require.True(t, st.claimWipedJoinerReload())
+
+	forceSchemaOnly := st.wipedJoinerCandidate.Load() && !st.wipedJoinerReloaded.Load()
+	require.True(t, forceSchemaOnly, "applies must stay schemaOnly until the reload COMPLETES")
+}
+
+// The completed reload releases suppression and re-enables snapshot-driven reloads.
+func TestFinishWipedJoinerReloadCompletion(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	st := &Store{
+		log:     logger,
+		cfg:     Config{MetadataOnlyVoters: true},
+		metrics: newStoreMetrics("n1", prometheus.NewPedanticRegistry()),
+	}
+	st.wipedJoinerCandidate.Store(true)
+
+	st.finishWipedJoinerReload()
+
+	require.True(t, st.wipedJoinerReloaded.Load())
+	require.False(t, st.wipedJoinerCandidate.Load(), "candidate must clear so later snapshot restores reload the DB")
+	require.True(t, st.dbLoaded.Load())
+
+	st.finishWipedJoinerReload()
+	require.True(t, st.wipedJoinerReloaded.Load())
 }
 
 func TestWipedJoinerBarrierTimeout(t *testing.T) {
