@@ -235,7 +235,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 	case models.TenantActivityStatusACTIVE, models.TenantActivityStatusHOT:
 		// active tenants can be either fully loaded or lazy loaded. Lazy shards should _not_ be loaded just for
 		// usage calculation and are treated like inactive shards
-		lazyShard, isLazy := shard.(*LazyLoadShard)
+		lazyShard, isLazy := asLazyLoadShard(shard)
 		if isLazy {
 			// distinguish between loaded and unloaded lazy shards - make sure that the shard is not loaded
 			// while we calculate usage for the unloaded case by blocking loading
