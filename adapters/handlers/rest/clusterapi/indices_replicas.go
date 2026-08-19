@@ -625,15 +625,11 @@ func writeHashTreeLevelResponse(w http.ResponseWriter, r *http.Request, results 
 		return
 	}
 
+	body := hashtree.DigestsToBinary(results)
 	w.Header().Set("X-Response-Encoding", "binary")
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.FormatInt(int64(len(results))*int64(hashtree.DigestLength), 10))
-	var buf [hashtree.DigestLength]byte
-	for _, d := range results {
-		binary.BigEndian.PutUint64(buf[:8], d[0])
-		binary.BigEndian.PutUint64(buf[8:], d[1])
-		w.Write(buf[:]) //nolint:errcheck
-	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.Write(body) //nolint:errcheck
 }
 
 func readRequestBodyWithOptionalCompression(

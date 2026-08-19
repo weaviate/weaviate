@@ -1933,13 +1933,17 @@ func (x *FindUUIDsResponse) GetUuids() []string {
 
 // HashTreeLevel fetches hash tree level digests.
 type HashTreeLevelRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
-	Level         int32                  `protobuf:"varint,3,opt,name=level,proto3" json:"level,omitempty"`
-	Discriminant  []byte                 `protobuf:"bytes,4,opt,name=discriminant,proto3" json:"discriminant,omitempty"` // hashtree.Bitset.Marshal() output
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Index        string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shard        string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	Level        int32                  `protobuf:"varint,3,opt,name=level,proto3" json:"level,omitempty"`
+	Discriminant []byte                 `protobuf:"bytes,4,opt,name=discriminant,proto3" json:"discriminant,omitempty"` // hashtree.Bitset.Marshal() output
+	// Encoding the sender accepts for digests_data. 0 (default, used by older
+	// senders) = JSON; 1 = fixed 16-byte big-endian records. Servers only emit
+	// 1 when asked, so rolling upgrades stay JSON until both sides are new.
+	AcceptEncoding uint32 `protobuf:"varint,5,opt,name=accept_encoding,json=acceptEncoding,proto3" json:"accept_encoding,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *HashTreeLevelRequest) Reset() {
@@ -2000,10 +2004,20 @@ func (x *HashTreeLevelRequest) GetDiscriminant() []byte {
 	return nil
 }
 
-// HashTreeLevelResponse carries digests as opaque binary (JSON-encoded []hashtree.Digest).
+func (x *HashTreeLevelRequest) GetAcceptEncoding() uint32 {
+	if x != nil {
+		return x.AcceptEncoding
+	}
+	return 0
+}
+
+// HashTreeLevelResponse carries level digests; encoding declares their format.
 type HashTreeLevelResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	DigestsData   []byte                 `protobuf:"bytes,1,opt,name=digests_data,json=digestsData,proto3" json:"digests_data,omitempty"` // JSON-encoded []hashtree.Digest
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	DigestsData []byte                 `protobuf:"bytes,1,opt,name=digests_data,json=digestsData,proto3" json:"digests_data,omitempty"` // []hashtree.Digest, encoded per `encoding`
+	// 0 (default, emitted by older servers) = JSON; 1 = fixed 16-byte
+	// big-endian records (hashtree.DigestsToBinary).
+	Encoding      uint32 `protobuf:"varint,2,opt,name=encoding,proto3" json:"encoding,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2043,6 +2057,13 @@ func (x *HashTreeLevelResponse) GetDigestsData() []byte {
 		return x.DigestsData
 	}
 	return nil
+}
+
+func (x *HashTreeLevelResponse) GetEncoding() uint32 {
+	if x != nil {
+		return x.Encoding
+	}
+	return 0
 }
 
 // CompareHashTreeRoots pre-filters shards by bulk-comparing hashtree roots: the
@@ -2794,14 +2815,16 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"filterJson\x12\x14\n" +
 	"\x05limit\x18\x04 \x01(\x05R\x05limit\")\n" +
 	"\x11FindUUIDsResponse\x12\x14\n" +
-	"\x05uuids\x18\x01 \x03(\tR\x05uuids\"|\n" +
+	"\x05uuids\x18\x01 \x03(\tR\x05uuids\"\xa5\x01\n" +
 	"\x14HashTreeLevelRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12\x14\n" +
 	"\x05level\x18\x03 \x01(\x05R\x05level\x12\"\n" +
-	"\fdiscriminant\x18\x04 \x01(\fR\fdiscriminant\":\n" +
+	"\fdiscriminant\x18\x04 \x01(\fR\fdiscriminant\x12'\n" +
+	"\x0faccept_encoding\x18\x05 \x01(\rR\x0eacceptEncoding\"V\n" +
 	"\x15HashTreeLevelResponse\x12!\n" +
-	"\fdigests_data\x18\x01 \x01(\fR\vdigestsData\"q\n" +
+	"\fdigests_data\x18\x01 \x01(\fR\vdigestsData\x12\x1a\n" +
+	"\bencoding\x18\x02 \x01(\rR\bencoding\"q\n" +
 	"\x0fShardRootDigest\x12\x14\n" +
 	"\x05shard\x18\x01 \x01(\tR\x05shard\x12$\n" +
 	"\x0eroot_hash_high\x18\x02 \x01(\x06R\frootHashHigh\x12\"\n" +

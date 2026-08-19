@@ -574,10 +574,11 @@ func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 	defer cancel()
 
 	resp, err := client.HashTreeLevel(ctx, &protocol.HashTreeLevelRequest{
-		Index:        index,
-		Shard:        shard,
-		Level:        int32(level),
-		Discriminant: discData,
+		Index:          index,
+		Shard:          shard,
+		Level:          int32(level),
+		Discriminant:   discData,
+		AcceptEncoding: replica.DigestsEncodingBinary,
 	})
 	if err != nil {
 		if nrErr := asyncNotReadyGRPCError(err); nrErr != nil {
@@ -586,6 +587,21 @@ func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 		return nil, fmt.Errorf("gRPC HashTreeLevel: %w", err)
 	}
 
+	if resp.GetEncoding() == replica.DigestsEncodingBinary {
+		// A compliant server returns at most one digest per set discriminant bit;
+		// reject larger payloads before decoding, like the REST reader's pre-size clamp.
+		if maxLen := discriminant.SetCount() * hashtree.DigestLength; len(resp.GetDigestsData()) > maxLen {
+			return nil, fmt.Errorf("binary digests payload of %d bytes exceeds the %d bytes for the %d requested digests",
+				len(resp.GetDigestsData()), maxLen, discriminant.SetCount())
+		}
+		digests, err := hashtree.DigestsFromBinary(resp.GetDigestsData())
+		if err != nil {
+			return nil, fmt.Errorf("decode binary digests: %w", err)
+		}
+		return digests, nil
+	}
+
+	// JSON fallback: older servers ignore accept_encoding and reply encoding=0.
 	var digests []hashtree.Digest
 	if err := json.Unmarshal(resp.GetDigestsData(), &digests); err != nil {
 		return nil, fmt.Errorf("unmarshal digests: %w", err)

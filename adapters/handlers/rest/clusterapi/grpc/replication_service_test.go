@@ -13,6 +13,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -88,6 +89,82 @@ func TestLocalIndexNotReady(t *testing.T) {
 			},
 		}
 		assert.True(t, shared.LocalIndexNotReady(resp))
+	})
+}
+
+func TestHashTreeLevelEncodingNegotiation(t *testing.T) {
+	const index = "MyClass"
+	digests := []hashtree.Digest{{1, 2}, {3, 4}, {^uint64(0), 5}}
+
+	discriminant := hashtree.NewBitset(hashtree.LeavesCount(2))
+	discriminant.Set(0)
+	discData, err := discriminant.Marshal()
+	require.NoError(t, err)
+
+	t.Run("binary when requested", func(t *testing.T) {
+		mockReplicator := replicaTypes.NewMockReplicator(t)
+		svc := &ReplicationService{server: mockReplicator}
+
+		mockReplicator.EXPECT().
+			HashTreeLevel(mock.Anything, index, "S1", 2, mock.Anything).
+			Return(digests, nil)
+
+		resp, err := svc.HashTreeLevel(context.Background(), &pb.HashTreeLevelRequest{
+			Index:          index,
+			Shard:          "S1",
+			Level:          2,
+			Discriminant:   discData,
+			AcceptEncoding: replica.DigestsEncodingBinary,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, replica.DigestsEncodingBinary, resp.GetEncoding())
+		assert.Equal(t, hashtree.DigestsToBinary(digests), resp.GetDigestsData())
+
+		decoded, err := hashtree.DigestsFromBinary(resp.GetDigestsData())
+		require.NoError(t, err)
+		assert.Equal(t, digests, decoded)
+	})
+
+	t.Run("JSON when accept_encoding unset (old client)", func(t *testing.T) {
+		mockReplicator := replicaTypes.NewMockReplicator(t)
+		svc := &ReplicationService{server: mockReplicator}
+
+		mockReplicator.EXPECT().
+			HashTreeLevel(mock.Anything, index, "S1", 2, mock.Anything).
+			Return(digests, nil)
+
+		resp, err := svc.HashTreeLevel(context.Background(), &pb.HashTreeLevelRequest{
+			Index:        index,
+			Shard:        "S1",
+			Level:        2,
+			Discriminant: discData,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, replica.DigestsEncodingJSON, resp.GetEncoding())
+
+		var decoded []hashtree.Digest
+		require.NoError(t, json.Unmarshal(resp.GetDigestsData(), &decoded))
+		assert.Equal(t, digests, decoded)
+	})
+
+	t.Run("binary with empty result", func(t *testing.T) {
+		mockReplicator := replicaTypes.NewMockReplicator(t)
+		svc := &ReplicationService{server: mockReplicator}
+
+		mockReplicator.EXPECT().
+			HashTreeLevel(mock.Anything, index, "S1", 2, mock.Anything).
+			Return(nil, nil)
+
+		resp, err := svc.HashTreeLevel(context.Background(), &pb.HashTreeLevelRequest{
+			Index:          index,
+			Shard:          "S1",
+			Level:          2,
+			Discriminant:   discData,
+			AcceptEncoding: replica.DigestsEncodingBinary,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, replica.DigestsEncodingBinary, resp.GetEncoding())
+		assert.Empty(t, resp.GetDigestsData())
 	})
 }
 
