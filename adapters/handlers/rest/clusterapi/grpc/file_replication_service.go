@@ -33,13 +33,34 @@ type FileReplicationService struct {
 	schema sharding.RemoteIncomingSchema
 
 	fileChunkSize int
+	// Bounds concurrent whole-file work (CRC reads + streams) this donor serves;
+	// excess requests queue ctx-aware instead of saturating the disk. nil = unbounded.
+	transferSem chan struct{}
 }
 
-func NewFileReplicationService(repo sharding.RemoteIncomingRepo, schema sharding.RemoteIncomingSchema, fileChunkSize int) *FileReplicationService {
+func NewFileReplicationService(repo sharding.RemoteIncomingRepo, schema sharding.RemoteIncomingSchema, fileChunkSize, transferConcurrency int) *FileReplicationService {
+	var sem chan struct{}
+	if transferConcurrency > 0 {
+		sem = make(chan struct{}, transferConcurrency)
+	}
 	return &FileReplicationService{
 		repo:          repo,
 		schema:        schema,
 		fileChunkSize: fileChunkSize,
+		transferSem:   sem,
+	}
+}
+
+// acquireTransferSlot blocks until a transfer slot frees or ctx ends.
+func (fps *FileReplicationService) acquireTransferSlot(ctx context.Context) (release func(), err error) {
+	if fps.transferSem == nil {
+		return func() {}, nil
+	}
+	select {
+	case fps.transferSem <- struct{}{}:
+		return func() { <-fps.transferSem }, nil
+	case <-ctx.Done():
+		return func() {}, status.FromContextError(ctx.Err()).Err()
 	}
 }
 
@@ -143,6 +164,13 @@ func (fps *FileReplicationService) GetReplicaSnapshotFileMetadata(ctx context.Co
 		return nil, status.Errorf(codes.Internal, "local index %q not found", indexName)
 	}
 
+	// CRC reads the whole file; bound it like a stream.
+	release, err := fps.acquireTransferSlot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	md, err := index.IncomingGetReplicaSnapshotFileMetadata(ctx, opID, fileName)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to get file metadata for %q in op %q: %v", fileName, opID, err)
@@ -169,6 +197,12 @@ func (fps *FileReplicationService) GetReplicaSnapshotFile(req *pb.GetReplicaSnap
 	if index == nil {
 		return status.Errorf(codes.Internal, "local index %q not found", indexName)
 	}
+
+	release, err := fps.acquireTransferSlot(stream.Context())
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	reader, err := index.IncomingGetReplicaSnapshotFile(stream.Context(), opID, fileName)
 	if err != nil {
