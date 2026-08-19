@@ -3176,6 +3176,16 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Load(shardName); shard != nil {
 		if mustLoad {
+			// Promote only after the rename; loading earlier plants an empty live dir that erases the copy.
+			if rec, ok := shard.(*RecoveringShard); ok && rec.IsRecovering() {
+				if _, err := os.Stat(shardPath(i.path(), shardName)); err != nil {
+					if errors.Is(err, fs.ErrNotExist) {
+						return nil
+					}
+					return fmt.Errorf("load local shard %q: %w", shardName, err)
+				}
+				return rec.Promote(ctx)
+			}
 			if l, ok := shard.(loadableShard); ok {
 				return l.Load(ctx)
 			}

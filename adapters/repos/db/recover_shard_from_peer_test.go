@@ -23,6 +23,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -220,6 +221,27 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 			})
 		}
 	})
+}
+
+// Pins X1: a forced load mid-copy must not clear the block nor plant an empty live dir.
+func TestLoadLocalShardLeavesRecoveringShardUntouched(t *testing.T) {
+	class := &models.Class{Class: "C"}
+	promMetrics := monitoring.GetMetrics()
+	orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
+	idx := newTestIndexForRecovery(t, orch, nil)
+	idx.closingCtx = context.Background()
+	idx.shardCreateLocks = esync.NewKeyRWLocker()
+	idx.getSchema = &fakeSchemaGetter{}
+
+	require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
+	rec, ok := idx.shards.Load("S").(*RecoveringShard)
+	require.True(t, ok)
+
+	require.NoError(t, idx.LoadLocalShard(context.Background(), "S", false))
+	require.NoDirExists(t, shardPath(idx.path(), "S"))
+	require.True(t, rec.isLoadBlocked())
+	_, stillRecovering := idx.shards.Load("S").(*RecoveringShard)
+	require.True(t, stillRecovering)
 }
 
 func TestForEachShardSkipRecovering(t *testing.T) {
