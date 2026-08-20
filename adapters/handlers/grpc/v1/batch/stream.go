@@ -220,12 +220,12 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr err
 				panic(r)
 			}
 		}()
-		if err := h.receiver(ctx, streamId, principal, startReq.ConsistencyLevel, sendStream); err != nil {
+		if err := h.receiver(ctx, streamId, principal, startReq.ConsistencyLevel, syncStream); err != nil {
 			recvErrCh <- err
 		}
 	}, h.logger)
 	// Start the send loop in this goroutine, it will exit when the stream is closed or an error occurs (including shutdowns)
-	return h.sender(ctx, streamId, sendStream, recvErrCh)
+	return h.sender(ctx, streamId, syncStream, recvErrCh)
 }
 
 func (h *StreamHandler) drainReportingQueue(queue reportingQueue, batchResults *batchResults, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) {
