@@ -1,0 +1,8 @@
+package pkg
+
+// Known-bad: bare go statement instead of the entities/errors wrapper.
+func Violation() {
+	go doWork()
+}
+
+func doWork() {}
