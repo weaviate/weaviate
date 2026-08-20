@@ -33,7 +33,13 @@ ARG EXTRA_BUILD_ARGS=""
 ARG CGO_ENABLED=1
 ENV CGO_ENABLED=$CGO_ENABLED
 COPY . .
-RUN GOOS=linux GOARCH=${TARGETARCH} \
+# The Go build cache lives in a mount rather than in a layer. Any source change
+# invalidates this step, so without the mount every image rebuild recompiles the
+# entire dependency graph from scratch. The mount is keyed per target arch so
+# cross-platform builds do not evict each other, and locked so that concurrent
+# builds of the same arch serialize. This does not change the produced binary.
+RUN --mount=type=cache,target=/root/.cache/go-build,id=weaviate-gobuild-${TARGETARCH},sharing=locked \
+    GOOS=linux GOARCH="${TARGETARCH}" \
     go build $EXTRA_BUILD_ARGS -trimpath \
       -ldflags="-s -w -extldflags '-static' \
         -X github.com/weaviate/weaviate/usecases/build.Branch=${GIT_BRANCH} \
