@@ -629,7 +629,7 @@ func TestSendReferencesReplyIndexGuards(t *testing.T) {
 // This test drives the reply consumer directly, so reply order is a test input
 // rather than a race. Errors must be attributed through the sub-batch, never
 // through arrival order.
-func TestConsumeFanoutReplies(t *testing.T) {
+func TestFanInReplies(t *testing.T) {
 	type replySpec struct {
 		offset int
 		length int
@@ -769,7 +769,7 @@ func TestConsumeFanoutReplies(t *testing.T) {
 
 			w := &worker{logger: logrus.New()}
 			failed := make(map[int]struct{})
-			errs, retriable := w.consumeFanoutReplies(StreamId, replies, objs, outerIdxs, 0, failed)
+			errs, retriable := w.fanInReplies(StreamId, replies, objs, outerIdxs, 0, failed)
 
 			wantErrors := make([]string, 0, len(tc.wantErrors))
 			for _, want := range tc.wantErrors {
