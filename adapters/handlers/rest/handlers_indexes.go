@@ -40,7 +40,7 @@ import (
 )
 
 func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
-	h := &indexesHandlers{appState: appState}
+	h := &indexesHandlers{appState: appState, taskSource: resolveTaskSource(appState)}
 	api.SchemaSchemaObjectsIndexesGetHandler = schema.SchemaObjectsIndexesGetHandlerFunc(h.getIndexes)
 	api.SchemaSchemaObjectsIndexUpsertHandler = schema.SchemaObjectsIndexUpsertHandlerFunc(h.upsertIndex)
 	api.SchemaSchemaObjectsIndexRebuildHandler = schema.SchemaObjectsIndexRebuildHandlerFunc(h.rebuildIndex)
@@ -97,6 +97,20 @@ func canonicalIndexType(internalToken string) string {
 
 type indexesHandlers struct {
 	appState *state.State
+	// taskSource is the status read's only route to the task list, resolved
+	// once at wiring. Reaching for appState.ClusterService inside getIndexes
+	// would put the leader-routed methods back within reach.
+	taskSource localTaskLister
+}
+
+// resolveTaskSource keeps a nil ClusterService out of the interface: boxed,
+// the interface value is non-nil and LocalDistributedTasks nil-derefs on the
+// *cluster.Service receiver.
+func resolveTaskSource(appState *state.State) localTaskLister {
+	if appState.ClusterService == nil {
+		return nil
+	}
+	return appState.ClusterService
 }
 
 // submitLock returns the per-(collection, property) mutex for the
@@ -118,14 +132,17 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 }
 
 // localTaskLister is *cluster.Service narrowed to the local-only method.
-// A status read answers from this node's FSM, where the task list and the
-// class share an applied index. Reads that decide a mutation stay on the
+// A status read answers from this node's FSM, where both the task list and
+// the class advance from the same log, so a class read taken after a task
+// read is never the older of the two. Swapping that order is the one edit
+// this cannot take. A task read that decides a mutation stays on the
 // leader-routed ListDistributedTasks, which this interface omits.
 type localTaskLister interface {
 	LocalDistributedTasks() map[string][]*distributedtask.Task
 }
 
-// classReader reads a class from this node's schema. *schema.Manager satisfies it.
+// classReader reads a class from this node's schema. appState.SchemaManager,
+// a *usecases/schema.Manager, satisfies it.
 type classReader interface {
 	ClassInfo(name string) clusterSchema.ClassInfo
 	ReadOnlyClass(name string) *models.Class
@@ -133,22 +150,23 @@ type classReader interface {
 
 // readClassAndTasks reads the task list before the class, so the class can
 // never be the older of the two. A nil lister means no cluster service: the
-// caller gets the class with no tasks. schemaReader must be non-nil.
+// caller gets the class with no tasks. classes must be non-nil.
 //
-// ClassInfo runs ahead of the task read purely to spare a collection that
-// does not exist the cost of one: it answers from a small value struct, so
-// it neither copies the class nor its properties. It is not the existence
-// check the response is built on — that stays on ReadOnlyClass below, after
-// the task read, so the order above holds for every class this returns.
-func readClassAndTasks(collection string, taskSource localTaskLister, schemaReader classReader) (*models.Class, []parsedReindexTask) {
-	if !schemaReader.ClassInfo(collection).Exists {
+// ClassInfo runs ahead of the task read so a collection that does not exist
+// skips it: the task read clones and sorts every task in every namespace.
+// It is not the existence check the response is built on — that stays on
+// ReadOnlyClass below, after the task read, so the order above holds for
+// every class this returns. A collection deleted between the two reads
+// leaves ReadOnlyClass answering nil against an Exists that was true.
+func readClassAndTasks(collection string, taskSource localTaskLister, classes classReader) (*models.Class, []parsedReindexTask) {
+	if !classes.ClassInfo(collection).Exists {
 		return nil, nil
 	}
 	var byNamespace map[string][]*distributedtask.Task
 	if taskSource != nil {
 		byNamespace = taskSource.LocalDistributedTasks()
 	}
-	class := schemaReader.ReadOnlyClass(collection)
+	class := classes.ReadOnlyClass(collection)
 	if class == nil {
 		return nil, nil
 	}
@@ -174,13 +192,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		return schema.NewSchemaObjectsIndexesGetInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
-	// A nil ClusterService must not be assigned into the interface: the boxed
-	// nil panics on the first call.
-	var taskSource localTaskLister
-	if h.appState.ClusterService != nil {
-		taskSource = h.appState.ClusterService
-	}
-	class, parsedTasks := readClassAndTasks(collection, taskSource, h.appState.SchemaManager)
+	class, parsedTasks := readClassAndTasks(collection, h.taskSource, h.appState.SchemaManager)
 	if class == nil {
 		return schema.NewSchemaObjectsIndexesGetNotFound()
 	}
@@ -787,10 +799,10 @@ type parsedReindexTask struct {
 // checkReindexConflict at submit time; for the read-side merge they're
 // the same as no task.
 //
-// FINISHED tasks are kept: [indexesHandlers.getIndexes] crosses them against
-// [db.ReindexBucketEffect] to build finishedBlockmaxProps, the last tier of
+// FINISHED tasks are kept: [indexesHandlers.getIndexes] matches them against
+// [db.ReindexBucketEffect] to build finishedBlockmaxProps, the last check in
 // [db.SearchablePropertyIsBlockmaxParsed]. Only a property carrying no durable
-// SearchableBlockmax stamp reaches that tier: one migrated by a build older
+// SearchableBlockmax stamp reaches that check: one migrated by a build older
 // than the stamp, or one whose blockmax evidence is a rebuild-searchable task,
 // which never stamps. Dropping FINISHED tasks reports those as wand.
 //
@@ -853,7 +865,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
 	// deliberately do NOT block fresh submits; see checkReindexConflict).
-	// Pick the most useful one to surface rather than first-in-map-order:
+	// Pick the most useful one to surface rather than the first in the list:
 	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
 	//   newer StartedAt > older StartedAt          (within the same priority)
 	// FINISHED tasks stay in the loop for the tiebreak below; see
@@ -955,7 +967,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		idx.Progress = 1.0
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusFinished:
-		// No synthetic entry: the schema flag alone decides.
+		// No synthetic entry: the schema flag alone decides whether the
+		// caller emits one.
 	}
 
 	if !best.Status.IsRecognized() {
@@ -966,7 +979,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		surfaceSyntheticFields = true
 	}
 
-	// Only paint the in-flight side-effect fields when the switch surfaced an
+	// Only set the in-flight side-effect fields when the switch surfaced an
 	// in-flight signal. A "ready" entry is already fully described by the
 	// schema-derived fields above.
 	if !surfaceSyntheticFields {

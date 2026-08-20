@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -67,7 +68,7 @@ func (f *advancingFSM) ReadOnlyClass(string) *models.Class {
 
 // ClassInfo answers the cheap existence pre-check. It does not advance the
 // applied index: the pre-check is not one of the two ordered reads, and
-// letting it consume the window would leave that order unpinned.
+// letting it advance the step would leave that order unpinned.
 func (f *advancingFSM) ClassInfo(string) clusterSchema.ClassInfo {
 	return clusterSchema.ClassInfo{Exists: f.steps[f.step].class != nil}
 }
@@ -109,16 +110,23 @@ func newAdvancingFSM(t *testing.T) *advancingFSM {
 // collection that does not exist is answered before the task read, which is
 // the one thing that read is too expensive to do for nothing: it copies every
 // task in every namespace, unit by unit.
+//
+// The pre-check is not the existence check the response is built on. A
+// DELETE /v1/schema/{class} applying between the two reads leaves ClassInfo
+// answering Exists against a ReadOnlyClass that is already nil, and the
+// second check is what turns that into a 404 rather than a collection with
+// no properties.
 func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 	tests := []struct {
-		name          string
-		advance       bool
-		noLister      bool
-		noClass       bool
-		wantNoTasks   bool
-		wantListCalls int
-		wantStatus    distributedtask.TaskStatus
-		wantFlagOn    bool
+		name           string
+		advance        bool
+		noLister       bool
+		noClass        bool
+		deletedBetween bool
+		wantNoTasks    bool
+		wantListCalls  int
+		wantStatus     distributedtask.TaskStatus
+		wantFlagOn     bool
 	}{
 		{
 			name:          "the class is never the older of the two reads",
@@ -135,8 +143,15 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 		{
 			name:          "no such collection, so no task read",
 			noClass:       true,
-			wantNoTasks:   true,
 			wantListCalls: 0,
+		},
+		{
+			// The pre-check saw the collection, the task read let the DELETE
+			// through, and the class read came back empty-handed.
+			name:           "the collection is deleted between the two reads",
+			advance:        true,
+			deletedBetween: true,
+			wantListCalls:  1,
 		},
 	}
 
@@ -149,6 +164,9 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 					fsm.steps[i].class = nil
 				}
 			}
+			if tt.deletedBetween {
+				fsm.steps[1].class = nil
+			}
 
 			var lister localTaskLister
 			if !tt.noLister {
@@ -157,8 +175,9 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 
 			class, parsed := readClassAndTasks("C", lister, fsm)
 			require.Equal(t, tt.wantListCalls, fsm.listCalls)
-			if tt.noClass {
-				require.Nil(t, class)
+			if tt.noClass || tt.deletedBetween {
+				require.Nil(t, class,
+					"a class the second read cannot find must not be answered with an empty one")
 				require.Empty(t, parsed)
 				return
 			}
@@ -177,6 +196,9 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 // A nil ClusterService must stay out of the localTaskLister interface: boxed,
 // its first call nil-derefs on the promoted method.
 func TestGetIndexes_NilClusterService_AnswersSchemaOnly(t *testing.T) {
+	require.Nil(t, resolveTaskSource(&state.State{}),
+		"a nil ClusterService must produce a nil interface, not a boxed nil")
+
 	reader := schemaUC.NewMockSchemaReader(t)
 	reader.EXPECT().ResolveAlias("C").Return("")
 	reader.EXPECT().ClassInfo("C").Return(clusterSchema.ClassInfo{Exists: true})
@@ -201,4 +223,110 @@ func TestGetIndexes_NilClusterService_AnswersSchemaOnly(t *testing.T) {
 	resp.WriteResponse(rec, runtime.JSONProducer())
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), `"name":"p"`)
+}
+
+// staticTasks answers every task read with the same map.
+type staticTasks map[string][]*distributedtask.Task
+
+func (s staticTasks) LocalDistributedTasks() map[string][]*distributedtask.Task {
+	return s
+}
+
+// The task read is cluster-wide: it hands the handler every reindex task this
+// node has applied, whatever collection each one names. Which of them the
+// response may speak for is decided further down, and both places that decide
+// it are here — the entry a running task drives, and the algorithm a completed
+// one resolves.
+func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
+	const taskID = "X:change-algorithm:p:0001"
+
+	for _, tt := range []struct {
+		name           string
+		taskCollection string
+		taskStatus     distributedtask.TaskStatus
+		wantStatus     string
+		wantTaskID     string
+		wantAlgorithm  string
+	}{
+		{
+			name: "a running migration on this collection drives the entry", taskCollection: "C",
+			taskStatus: distributedtask.TaskStatusStarted,
+			wantStatus: "indexing", wantTaskID: taskID, wantAlgorithm: models.IndexStatusAlgorithmWand,
+		},
+		{
+			name: "a running migration on another collection does not", taskCollection: "D",
+			taskStatus: distributedtask.TaskStatusStarted,
+			wantStatus: "ready", wantTaskID: "", wantAlgorithm: models.IndexStatusAlgorithmWand,
+		},
+		{
+			name: "a completed migration on this collection resolves the algorithm", taskCollection: "C",
+			taskStatus: distributedtask.TaskStatusFinished,
+			wantStatus: "ready", wantTaskID: "", wantAlgorithm: models.IndexStatusAlgorithmBlockmax,
+		},
+		{
+			name: "a completed migration on another collection does not", taskCollection: "D",
+			taskStatus: distributedtask.TaskStatusFinished,
+			wantStatus: "ready", wantTaskID: "", wantAlgorithm: models.IndexStatusAlgorithmWand,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			flagOn := true
+			reader := schemaUC.NewMockSchemaReader(t)
+			reader.EXPECT().ResolveAlias("C").Return("")
+			reader.EXPECT().ClassInfo("C").Return(clusterSchema.ClassInfo{Exists: true})
+			reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{
+				Class: "C",
+				Properties: []*models.Property{
+					{Name: "p", DataType: []string{"text"}, IndexSearchable: &flagOn},
+				},
+			})
+
+			task := buildTask(t, taskID, tt.taskStatus,
+				db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeChangeAlgorithm,
+					Collection:    tt.taskCollection,
+					Properties:    []string{"p"},
+				},
+				map[string]*distributedtask.Unit{
+					"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.5},
+				},
+			)
+
+			h := &indexesHandlers{
+				appState: &state.State{
+					Authorizer:    &authorization.DummyAuthorizer{},
+					SchemaManager: &schemaUC.Manager{SchemaReader: reader},
+					ServerConfig:  &config.WeaviateConfig{},
+					Logger:        logrus.New(),
+				},
+				taskSource: staticTasks{db.ReindexNamespace: {task}},
+			}
+
+			resp := h.getIndexes(schema.SchemaObjectsIndexesGetParams{
+				HTTPRequest: httptest.NewRequest(http.MethodGet, "/", nil),
+				ClassName:   "C",
+			}, &models.Principal{Username: "u"})
+
+			rec := httptest.NewRecorder()
+			resp.WriteResponse(rec, runtime.JSONProducer())
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var body models.IndexStatusResponse
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.Len(t, body.Properties, 1)
+
+			var searchable *models.IndexStatus
+			for _, idx := range body.Properties[0].Indexes {
+				if idx.Type == "searchable" {
+					searchable = idx
+				}
+			}
+			require.NotNil(t, searchable)
+			require.Equal(t, tt.wantStatus, searchable.Status)
+			require.Equal(t, tt.wantTaskID, searchable.TaskID,
+				"only a task naming this collection may put its id on the entry")
+			require.Equal(t, tt.wantAlgorithm, searchable.Algorithm,
+				"only a completed migration on this collection may resolve the algorithm")
+		})
+	}
 }
