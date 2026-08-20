@@ -34,6 +34,24 @@ func TestRoaringSetStrategy(t *testing.T) {
 				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			},
 		},
+		{
+			name: "roaringsetInsertAndSetAdd in memory",
+			f:    roaringsetInsertAndSetAdd,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+				WithKeepMergedSegmentsInMemory(true),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+			},
+		},
+		{
+			name: "roaringsetReopenInMemory",
+			f:    roaringsetReopenInMemory,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+				WithKeepMergedSegmentsInMemory(true),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+			},
+		},
 	}
 	tests.run(ctx, t)
 }
@@ -208,6 +226,127 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			for _, testVal := range []uint64{5} { // no longer contained
 				assert.False(t, res.Contains(testVal))
 			}
+		})
+	})
+}
+
+// roaringsetReopenInMemory pins the startup build of the merged in-memory
+// segment from real on-disk segments: three flush rounds cover an add, delete
+// and re-add of the same id across segments, and reads after shutdown/reopen
+// must reflect the exact merged state without a memtable in this instance.
+func roaringsetReopenInMemory(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+
+	key1 := []byte("test-reopen-key-1")
+	key2 := []byte("test-reopen-key-2")
+	key3 := []byte("test-reopen-key-3")
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.Nil(t, err)
+
+	// so big it effectively never triggers as part of this test
+	b.SetMemtableThreshold(1e9)
+
+	t.Run("first round of additions and deletions", func(t *testing.T) {
+		err = b.RoaringSetAddList(key1, []uint64{1, 2, 3})
+		require.Nil(t, err)
+		err = b.RoaringSetAddList(key2, []uint64{10, 11})
+		require.Nil(t, err)
+		err = b.RoaringSetAddList(key3, []uint64{20, 21})
+		require.Nil(t, err)
+		err = b.RoaringSetRemoveOne(key3, 20)
+		require.Nil(t, err)
+	})
+
+	t.Run("flush to disk", func(t *testing.T) {
+		require.Nil(t, b.FlushAndSwitch())
+	})
+
+	t.Run("second round adds and deletes previously flushed ids", func(t *testing.T) {
+		err = b.RoaringSetAddList(key1, []uint64{4})
+		require.Nil(t, err)
+		err = b.RoaringSetRemoveOne(key1, 1) // deletes an id flushed in round one
+		require.Nil(t, err)
+		err = b.RoaringSetRemoveOne(key2, 10) // deletes every id of key2
+		require.Nil(t, err)
+		err = b.RoaringSetRemoveOne(key2, 11)
+		require.Nil(t, err)
+		err = b.RoaringSetAddList(key3, []uint64{22})
+		require.Nil(t, err)
+	})
+
+	t.Run("flush to disk again", func(t *testing.T) {
+		require.Nil(t, b.FlushAndSwitch())
+	})
+
+	t.Run("third round re-adds and deletes ids from earlier rounds", func(t *testing.T) {
+		err = b.RoaringSetAddOne(key1, 1) // re-adds an id added in round one, deleted in round two
+		require.Nil(t, err)
+		err = b.RoaringSetRemoveOne(key1, 2) // deletes an id added in round one
+		require.Nil(t, err)
+		err = b.RoaringSetAddOne(key2, 10) // revives an id deleted to empty in round two
+		require.Nil(t, err)
+	})
+
+	t.Run("flush to disk a third time", func(t *testing.T) {
+		require.Nil(t, b.FlushAndSwitch())
+	})
+
+	require.Nil(t, b.Shutdown(ctx))
+
+	t.Run("reopen and verify merged state built from disk segments", func(t *testing.T) {
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
+
+		// so big it effectively never triggers as part of this test
+		b.SetMemtableThreshold(1e9)
+
+		// positive control: segments were flushed before shutdown, so the
+		// startup build must have engaged and produced a non-empty merged
+		// structure — otherwise the assertions below would also pass on the
+		// plain disk read path and prove nothing about the in-memory one
+		require.NotNil(t, b.disk.roaringSetSegmentInMemory)
+		require.Positive(t, b.disk.roaringSetSegmentInMemory.Size())
+
+		res, release, err := b.RoaringSetGet(context.Background(), key1)
+		require.NoError(t, err)
+		assert.Equal(t, []uint64{1, 3, 4}, res.ToArray()) // 1 re-added in round three, 2 deleted there, 4 added in round two
+		release()
+
+		res, release, err = b.RoaringSetGet(context.Background(), key2)
+		require.NoError(t, err)
+		assert.Equal(t, []uint64{10}, res.ToArray()) // deleted to empty in round two, 10 revived in round three
+		release()
+
+		res, release, err = b.RoaringSetGet(context.Background(), key3)
+		require.NoError(t, err)
+		assert.Equal(t, []uint64{21, 22}, res.ToArray()) // 20 deleted in round one, 22 added in round two
+		release()
+
+		t.Run("fresh writes layer the active memtable on the built structure", func(t *testing.T) {
+			err = b.RoaringSetAddList(key1, []uint64{100})
+			require.Nil(t, err)
+			err = b.RoaringSetAddList(key2, []uint64{200}) // extends the revived key
+			require.Nil(t, err)
+
+			// same control after fresh writes: they layer on the active
+			// memtable, the merged structure must stay engaged
+			require.NotNil(t, b.disk.roaringSetSegmentInMemory)
+			require.Positive(t, b.disk.roaringSetSegmentInMemory.Size())
+
+			res, release, err := b.RoaringSetGet(context.Background(), key1)
+			require.NoError(t, err)
+			defer release()
+			assert.Equal(t, []uint64{1, 3, 4, 100}, res.ToArray())
+
+			res, release, err = b.RoaringSetGet(context.Background(), key2)
+			require.NoError(t, err)
+			defer release()
+			assert.Equal(t, []uint64{10, 200}, res.ToArray())
 		})
 	})
 }
