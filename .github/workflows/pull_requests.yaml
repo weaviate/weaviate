@@ -680,6 +680,8 @@ jobs:
             test: "--acceptance-go-client-only-fast-group-2"
           - name: "go-client-group-3"
             test: "--acceptance-go-client-only-fast-group-3"
+          - name: "go-v6-client"
+            test: "--acceptance-go-client-v6"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
