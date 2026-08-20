@@ -41,6 +41,7 @@ const (
 	SWEEPING FilterStrategy = iota
 	ACORN
 	RRE
+	PATHSEER
 )
 
 func (h *hnsw) searchTimeEF(k int) int {
@@ -298,6 +299,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		connectionsReusable = make([]uint64, h.maximumConnectionsLayerZero)
 	}
 
+	candidateHeapWasFull := false
 	for candidates.Len() > 0 {
 		if err := ctx.Err(); err != nil {
 			h.pools.visitedLists.Return(visited)
@@ -307,6 +309,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			return nil, err
 		}
 		var dist float32
+		candidateHeapWasFull = candidateHeapWasFull || candidates.Len() >= ef
 		candidate := candidates.Pop()
 		dist = candidate.Dist
 
@@ -468,10 +471,86 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 		candidateNode.Unlock()
 
+		// PathSeer skips distance computation for a one-hop neighbor when neither the neighbor nor the candidate satisfies the predicate, improving performance on negatively correlated workloads.
+		candidatePasses := true
+		if strategy == PATHSEER && level == 0 {
+			if isMultivec {
+				var docID uint64
+				if compressed {
+					docID, _ = h.compressor.GetKeys(candidate.ID)
+				} else {
+					docID, _ = h.cache.GetKeys(candidate.ID)
+				}
+				candidatePasses = allowList.Contains(docID)
+			} else {
+				candidatePasses = allowList.Contains(candidate.ID)
+			}
+		}
+
+		// PathSeer uses two-hop neighbors as expansion-zone neighbors, avoiding changes to the HNSW index.
+		extStart := len(connectionsReusable)
+		maxSecondOrder := h.maximumConnectionsLayerZero
+		if !candidateHeapWasFull && strategy == PATHSEER && level == 0 {
+			secondOrderBuf := make([]uint64, 0, h.maximumConnectionsLayerZero)
+			secondOrderCount := 0
+			for _, firstOrderID := range connectionsReusable {
+				if secondOrderCount >= maxSecondOrder {
+					break
+				}
+				h.shardedNodeLocks.RLock(firstOrderID)
+				firstOrderNode := h.nodes[firstOrderID]
+				h.shardedNodeLocks.RUnlock(firstOrderID)
+				if firstOrderNode == nil {
+					continue
+				}
+				firstOrderNode.Lock()
+				secondOrderBuf = firstOrderNode.connections.CopyLayer(secondOrderBuf[:0], 0)
+				firstOrderNode.Unlock()
+				for _, secID := range secondOrderBuf {
+					if secondOrderCount >= maxSecondOrder {
+						break
+					}
+					secondOrderCount++
+					if visited.Visited(secID) {
+						continue
+					}
+					if isMultivec {
+						var docID uint64
+						if compressed {
+							docID, _ = h.compressor.GetKeys(secID)
+						} else {
+							docID, _ = h.cache.GetKeys(secID)
+						}
+						if !allowList.Contains(docID) {
+							continue
+						}
+					} else if !allowList.Contains(secID) {
+						continue
+					}
+					connectionsReusable = append(connectionsReusable, secID)
+				}
+			}
+		}
+
 		unvisited := connectionsReusable[:0]
-		for _, neighborID := range connectionsReusable {
+		for idx, neighborID := range connectionsReusable {
 			if visited.CheckAndVisit(neighborID) {
 				continue
+			}
+			if strategy == PATHSEER && level == 0 && !candidatePasses && idx < extStart && results.Len() >= ef {
+				if isMultivec {
+					var docID uint64
+					if compressed {
+						docID, _ = h.compressor.GetKeys(neighborID)
+					} else {
+						docID, _ = h.cache.GetKeys(neighborID)
+					}
+					if !allowList.Contains(docID) {
+						continue
+					}
+				} else if !allowList.Contains(neighborID) {
+					continue
+				}
 			}
 			if strategy == RRE && level == 0 {
 				if isMultivec {
@@ -518,7 +597,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 			if distance < worstResultDistance || results.Len() < ef {
 				candidates.Insert(neighborID, distance)
-				if strategy == SWEEPING && level == 0 && allowList != nil {
+				if (strategy == SWEEPING || strategy == PATHSEER) && level == 0 && allowList != nil {
 					// we are on the lowest level containing the actual candidates and we
 					// have an allow list (i.e. the user has probably set some sort of a
 					// filter restricting this search further. As a result we have to
@@ -939,8 +1018,11 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	entryPointNode := h.nodes[entryPointID]
 	h.shardedNodeLocks.RUnlock(entryPointID)
 	useAcorn := h.acornEnabled(allowList)
+	usePathseer := allowList != nil && h.pathseerSearch.Load()
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
-	if useAcorn {
+	if usePathseer {
+		strategy = PATHSEER
+	} else if useAcorn {
 		if entryPointNode == nil {
 			strategy = RRE
 		} else {
