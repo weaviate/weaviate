@@ -31,6 +31,7 @@ func (sc *ShardCombiner) Do(results []*aggregation.Result) *aggregation.Result {
 		if res == nil || len(res.Groups) < 1 {
 			continue
 		}
+		sc.restoreSerializedAggregators(res)
 		allResultsAreNil = false
 		firstNonNilRes = i
 	}
@@ -84,6 +85,33 @@ func (sc *ShardCombiner) combineGrouped(results []*aggregation.Result) *aggregat
 		return combined.Groups[a].Count > combined.Groups[b].Count
 	})
 	return &combined
+}
+
+// restoreSerializedAggregators converts shard results that were fetched from
+// another node back into their in-memory form: the JSON round trip over the
+// cluster-internal REST API turns the raw aggregators (needed to merge
+// mean/median/mode) into generic maps and date counts into float64.
+func (sc *ShardCombiner) restoreSerializedAggregators(res *aggregation.Result) {
+	for gi := range res.Groups {
+		for name, prop := range res.Groups[gi].Properties {
+			switch prop.Type {
+			case aggregation.PropertyTypeNumerical:
+				if raw, ok := prop.NumericalAggregations["_numericalAggregator"].(map[string]interface{}); ok {
+					prop.NumericalAggregations["_numericalAggregator"] = numericalAggregatorFromJSON(raw)
+				}
+			case aggregation.PropertyTypeDate:
+				if raw, ok := prop.DateAggregations["_dateAggregator"].(map[string]interface{}); ok {
+					prop.DateAggregations["_dateAggregator"] = dateAggregatorFromJSON(raw)
+				}
+				if count, ok := prop.DateAggregations["count"].(float64); ok {
+					prop.DateAggregations["count"] = int64(count)
+				}
+			default:
+				continue
+			}
+			res.Groups[gi].Properties[name] = prop
+		}
+	}
 }
 
 func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregation.Group,
@@ -143,9 +171,7 @@ func (sc *ShardCombiner) mergeDateProp(first, second map[string]interface{}) {
 			if dateAggCombined, ok := first[propType]; ok {
 				dateAggCombinedTyped := dateAggCombined.(*dateAggregator)
 				for _, pair := range dateAggSource.pairs {
-					for i := uint64(0); i < pair.count; i++ {
-						dateAggCombinedTyped.AddTimestamp(pair.value.rfc3339)
-					}
+					dateAggCombinedTyped.addRow(pair.value, pair.count)
 				}
 				dateAggCombinedTyped.buildPairsFromCounts()
 				first[propType] = dateAggCombinedTyped
@@ -213,9 +239,7 @@ func (sc *ShardCombiner) mergeNumericalProp(first, second map[string]interface{}
 			if numAggFirst, ok := first[propType]; ok {
 				numAggFirstTyped := numAggFirst.(*numericalAggregator)
 				for _, pair := range numAggSecondTyped.pairs {
-					for i := uint64(0); i < pair.count; i++ {
-						numAggFirstTyped.AddFloat64(pair.value)
-					}
+					numAggFirstTyped.AddNumberRow(pair.value, pair.count)
 				}
 				numAggFirstTyped.buildPairsFromCounts()
 				first[propType] = numAggFirstTyped

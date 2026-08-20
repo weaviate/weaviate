@@ -12,6 +12,7 @@
 package aggregator
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -108,6 +109,54 @@ func newTimestamp(epochNano int64) timestamp {
 type timestampCountPair struct {
 	value timestamp
 	count uint64
+}
+
+type datePairJSON struct {
+	Value string `json:"value"`
+	Count uint64 `json:"count"`
+}
+
+// MarshalJSON ships the raw timestamp counts across the cluster-internal REST
+// API so the coordinating node can merge mode/median. Without it the
+// unexported fields would serialize as {} and the shard's data would be lost.
+func (a *dateAggregator) MarshalJSON() ([]byte, error) {
+	a.Lock()
+	defer a.Unlock()
+
+	pairs := make([]datePairJSON, 0, len(a.valueCounter))
+	for ts, count := range a.valueCounter {
+		pairs = append(pairs, datePairJSON{Value: ts.rfc3339, Count: count})
+	}
+	sort.Slice(pairs, func(x, y int) bool {
+		return pairs[x].Value < pairs[y].Value
+	})
+	return json.Marshal(struct {
+		Pairs []datePairJSON `json:"pairs"`
+	}{Pairs: pairs})
+}
+
+// dateAggregatorFromJSON rebuilds an aggregator from the generic map that
+// unmarshalling a remote shard result produces (DateAggregations is a
+// map[string]interface{}, so the concrete type is not recoverable by
+// json.Unmarshal itself).
+func dateAggregatorFromJSON(raw map[string]interface{}) *dateAggregator {
+	agg := newDateAggregator()
+	pairs, _ := raw["pairs"].([]interface{})
+	for _, pair := range pairs {
+		pairMap, ok := pair.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		value, _ := pairMap["value"].(string)
+		count, _ := pairMap["count"].(float64)
+		t, err := time.Parse(time.RFC3339Nano, value)
+		if err != nil {
+			continue
+		}
+		agg.addRow(timestamp{epochNano: t.UnixNano(), rfc3339: value}, uint64(count))
+	}
+	agg.buildPairsFromCounts()
+	return agg
 }
 
 func (a *dateAggregator) AddTimestamp(rfc3339 string) error {
