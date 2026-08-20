@@ -31,9 +31,9 @@ const (
 	BACKOFF_RETRY_TIME  = 100 * time.Millisecond
 )
 
-// batcher implementations must not mutate the objects or references in the request:
-// the retry round re-sends the same pointers, so any rewrite makes the retry a
-// different request from the first attempt.
+// batcher implementations must not mutate the objects or references in the request.
+// The retry re-sends the same pointers, so any rewrite makes the retry a different
+// request from the first attempt.
 type batcher interface {
 	BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error)
 	BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error)
@@ -111,8 +111,8 @@ func (w *worker) isTransientReplicationError(err string) bool {
 }
 
 // fanoutReply carries the sub-batch it answers, because replies arrive in
-// whatever order the concurrent calls finish. subBatch says which error indices
-// are valid; offset says where the sub-batch starts in the collection's object
+// whatever order the concurrent calls finish. subBatch gives the range of valid
+// error indices. offset is where the sub-batch starts in the collection's object
 // list. Together they trace every error index back to its object.
 type fanoutReply struct {
 	reply    *pb.BatchObjectsReply
@@ -232,9 +232,9 @@ func (w *worker) sendObjects(
 }
 
 // consumeFanoutReplies drains one collection's fanout replies and records every
-// reply error on the object it belongs to. outerIdxs[j] gives the position of
-// the collection's j-th object in the full batch; failed is keyed by that
-// position and mutated in place. A reply's error indices only mean something
+// reply error on the object it belongs to. outerIdxs[j] is the position of the
+// collection's j-th object in the full batch. failed is keyed by that position
+// and is mutated in place. A reply's error indices only mean something
 // inside its own sub-batch, so an out-of-range index is dropped rather than
 // blamed on whichever object happens to sit at that position.
 func (w *worker) consumeFanoutReplies(
@@ -327,7 +327,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 			if err == nil {
 				continue
 			}
-			// an index outside the request names no reference, so it is dropped
+			// an index outside the request points at no reference, so it is dropped
 			// rather than applied to whichever reference happens to sit there
 			if err.Index < 0 || int(err.Index) >= len(refs) {
 				w.logger.WithField("streamId", streamId).Errorf("dropping reference reply error with index %d outside the request of %d references: %s", err.Index, len(refs), err.Error)

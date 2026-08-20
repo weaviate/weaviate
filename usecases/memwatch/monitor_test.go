@@ -395,7 +395,7 @@ func BenchmarkCurrentMappingsLinuxComparison(b *testing.B) {
 	})
 }
 
-// An object can carry several vector sources at once; the gate must count all of them.
+// An object can carry several vector sources at once, and the estimate must count all of them.
 func TestEstimateBatchObjectMemory(t *testing.T) {
 	namedVectors := func(sizes ...int) []*protocol.Vectors {
 		out := make([]*protocol.Vectors, 0, len(sizes))
@@ -446,8 +446,8 @@ func TestEstimateBatchObjectMemory(t *testing.T) {
 			expected: 10*4 + 40 + 220 + 30,
 		},
 		{
-			// pinned, not endorsed: an object with no vector is currently free of
-			// charge at the gate
+			// this pins current behavior without endorsing it: an object with no
+			// vector costs nothing at the memory check
 			name:     "no vector at all",
 			object:   &protocol.BatchObject{},
 			expected: 0,

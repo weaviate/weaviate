@@ -52,9 +52,9 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 		}
 		// resolved is namespace-qualified even before the class exists, so an
 		// auto-schema create and the object write agree on the qualified name.
-		// The name stays local: the worker re-sends these same objects on retry,
-		// and a rewritten collection fails the namespace-prefix check on the
-		// second pass.
+		// resolved is not written back to obj.Collection. The worker re-sends these
+		// same request objects on retry, and a collection name that already carries
+		// the namespace prefix fails the namespace check on the second pass.
 		if class != nil {
 			resolved = class.Class
 		}

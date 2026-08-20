@@ -334,10 +334,10 @@ func EstimateStorObjectMemory(object *storobj.Object) int64 {
 	return int64(len(object.Vector)*4 + 46)
 }
 
-// EstimateBatchObjectMemory sums every vector source the object carries: an object
-// may hold the legacy vector, the byte vector and named or multi vectors at once, and
-// the admission gate must account for all of them. The 30 B overhead is per object,
-// as in the sibling estimators.
+// EstimateBatchObjectMemory sums every vector source the object carries. An object
+// may hold the legacy vector, the byte vector, and named or multi vectors at once,
+// and the memory check must count all of them. The 30 byte overhead is per object,
+// as in the other estimators in this file.
 func EstimateBatchObjectMemory(object *protocol.BatchObject) int64 {
 	size := len(object.GetVector())*4 + len(object.GetVectorBytes())
 	for _, vec := range object.GetVectors() {

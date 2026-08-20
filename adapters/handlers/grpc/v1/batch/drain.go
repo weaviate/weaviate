@@ -38,8 +38,8 @@ import (
 // can move onto switching off the HTTP handlers and shutting itself down completely.
 func drain(stopAccepting func(), recvWg *sync.WaitGroup, processingQueue processingQueue, workersWg *sync.WaitGroup, sendWg *sync.WaitGroup, logger logrus.FieldLogger) {
 	log := logger.WithField("action", "shutdown_drain")
-	// stop handlers first; stopAccepting also shuts the registration window, so every
-	// stream is either registered with the wait groups below or rejected outright
+	// stop handlers first. stopAccepting also refuses new stream registrations, so
+	// every stream is either already counted in the wait groups below or was rejected.
 	stopAccepting()
 	log.Info("waiting for all receivers to finish")
 	// wait for all currently open h.recv goroutines to complete thereby ensuring the processing queue is no longer being written to

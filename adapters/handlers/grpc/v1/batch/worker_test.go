@@ -411,8 +411,8 @@ func TestWorkerLoop(t *testing.T) {
 		report := <-rq
 		require.NotNil(t, report.Successes, "Expected successes to be returned")
 		require.Len(t, report.Errors, 10, "Expected 10 errors to be returned")
-		// the sub-batches complete in any order, so the errors are a set: one per
-		// sub-batch, each for that sub-batch's second object
+		// the sub-batches complete in any order, so the errors are compared as a
+		// set: one per sub-batch, each for that sub-batch's second object
 		expectedfailed := make([]string, 0, 10)
 		for i := 0; i < 10; i++ {
 			expectedfailed = append(expectedfailed, objs[i*10+1].GetUuid())
@@ -515,8 +515,6 @@ func newObjs(collection string, howMany int) []*pb.BatchObject {
 	return objs
 }
 
-// Only the failed sub-batch's objects come back as errors, and none of them is
-// also a success.
 func TestSendObjectsSubBatchTransportErrorScope(t *testing.T) {
 	collection := "TestCollection"
 	objs := newObjs(collection, 20)
@@ -539,8 +537,8 @@ func TestSendObjectsSubBatchTransportErrorScope(t *testing.T) {
 		"every other object succeeds, and no failed object is also reported successful")
 }
 
-// Reply errors are keyed within one collection's slice while successes span the
-// whole batch; mixing collections must not cross the two up.
+// Reply errors are indexed within one collection's slice, while successes are
+// indexed across the whole batch. Mixing collections must not cross the two up.
 func TestSendObjectsMultiCollectionPartition(t *testing.T) {
 	collectionA := "CollectionA"
 	collectionB := "CollectionB"
@@ -566,8 +564,8 @@ func TestSendObjectsMultiCollectionPartition(t *testing.T) {
 	require.ElementsMatch(t, uuidsOf(objs, 0, 1, 3), successUuids(rep))
 }
 
-// An unattributable reply entry is dropped: never blamed on the wrong beacon,
-// never fatal to the worker.
+// A reply error that points at no reference is dropped. It is never blamed on
+// the wrong beacon and never crashes the worker.
 func TestSendReferencesReplyIndexGuards(t *testing.T) {
 	refs := []*pb.BatchReference{
 		{FromCollection: "Class", FromUuid: uuid.New().String(), ToUuid: uuid.New().String(), Name: "ref"},
@@ -628,8 +626,9 @@ func TestSendReferencesReplyIndexGuards(t *testing.T) {
 	}
 }
 
-// Drives the reply consumer directly, so reply order is a test input rather than
-// a race. Errors must be attributed through the sub-batch, never arrival order.
+// This test drives the reply consumer directly, so reply order is a test input
+// rather than a race. Errors must be attributed through the sub-batch, never
+// through arrival order.
 func TestConsumeFanoutReplies(t *testing.T) {
 	type replySpec struct {
 		offset int

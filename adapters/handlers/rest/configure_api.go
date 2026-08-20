@@ -2601,8 +2601,8 @@ func limitResources(appState *state.State) {
 			"To limit resources, set LIMIT_RESOURCES=true")
 	}
 
-	// math.MaxInt64 is the runtime's "no soft memory limit" value, which makes every
-	// memory-pressure check in the process compare against an unreachable limit.
+	// The runtime reports math.MaxInt64 when no soft memory limit is set. Every
+	// memory check in the process then compares against a limit it can never reach.
 	if debug.SetMemoryLimit(-1) == math.MaxInt64 {
 		appState.Logger.Warn("GOMEMLIMIT is not set: the soft memory limit is unlimited, " +
 			"so every memory-pressure check in this process (batch admission, compaction, " +

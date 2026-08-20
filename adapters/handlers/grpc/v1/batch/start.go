@@ -30,7 +30,8 @@ type options struct {
 
 type Option func(*options)
 
-// WithAllocChecker replaces the allocation checker guarding batch admission.
+// WithAllocChecker replaces the allocation checker that decides whether a batch
+// message is accepted.
 func WithAllocChecker(c memwatch.AllocChecker) Option {
 	return func(o *options) {
 		o.allocChecker = c
@@ -58,9 +59,9 @@ func Start(
 	opts ...Option,
 ) (*StreamHandler, Drain) {
 	o := &options{
-		// The batch stream gets its own memory monitor with a lower trip point
-		// than the global one (0.9 vs 0.97 of GOMEMLIMIT): imports should slow
-		// down before the rest of the process feels pressure, since admitted
+		// The batch stream gets its own memory monitor with a lower threshold than
+		// the global one (0.9 vs 0.97 of GOMEMLIMIT). Imports should slow down
+		// before the rest of the process runs short of memory, because accepted
 		// batches sit in memory until the workers drain them.
 		allocChecker: memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.9),
 	}

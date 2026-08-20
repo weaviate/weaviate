@@ -468,7 +468,8 @@ type mockBatchStream struct {
 	inFlight atomic.Int32
 }
 
-// t.Errorf, not t.Fatal: the handler sends from goroutines other than the test's.
+// t.Errorf rather than t.Fatal, because the handler sends from goroutines other
+// than the test's.
 func (s *mockBatchStream) Send(msg *pb.BatchStreamReply) error {
 	if n := s.inFlight.Add(1); n > 1 {
 		s.t.Errorf("concurrent Send on a single stream: %d goroutines in flight", n)
@@ -588,7 +589,8 @@ func TestStreamHandlerCollectionResolution(t *testing.T) {
 	}
 }
 
-// The client must learn which objects a pre-queue rejection dropped.
+// The client must learn which objects were dropped when a message is rejected
+// before it reaches the queue.
 func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 	logger := logrus.New()
 
@@ -606,8 +608,8 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 			collection:        "customer2:TestClass",
 		},
 		{
-			// the schema error names the qualified class, which a confined principal
-			// must never see
+			// the schema error names the namespace-qualified class, which a
+			// namespaced principal must never see
 			name:              "class fetch failure",
 			namespacesEnabled: true,
 			principal:         &models.Principal{Namespace: "customer1"},
@@ -696,8 +698,9 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 	}
 }
 
-// A stream parked inside its first Recv while drain completes is invisible to
-// drain's waits. It must be rejected, or it would push onto the closed queue.
+// A stream blocked in its first Recv while drain completes is invisible to
+// drain's wait groups. It must be rejected, or it would push onto the closed
+// queue.
 func TestHandleRejectsStreamsThatStartDuringDrain(t *testing.T) {
 	logger := logrus.New()
 
@@ -724,8 +727,8 @@ func TestHandleRejectsStreamsThatStartDuringDrain(t *testing.T) {
 	recvEntered := make(chan struct{})
 	drained := make(chan struct{})
 	recvCount := 0
-	// All expectations are Maybe(): once the stream is rejected, no further message
-	// is ever read.
+	// All expectations are Maybe() because once the stream is rejected, no further
+	// message is ever read.
 	mockStream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
 		recvCount++
 		switch recvCount {
@@ -823,10 +826,11 @@ func TestReceiverPanicEndsStreamWithError(t *testing.T) {
 	}
 }
 
-// Each row makes the receiver bail out while the recv goroutine holds a decoded
-// request; unguarded, both goroutine and request leak for the process lifetime.
-// The two grace-period exits are not rows: they cancel() before returning, the
-// same release these rows exercise.
+// Each row makes the receiver exit early while the recv goroutine holds a decoded
+// request. Without the ctx check on recv's channel sends, both the goroutine and
+// the request leak for the process lifetime. The two grace-period exits are not
+// rows because they call cancel() before returning, which is the same release
+// these rows exercise.
 func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 	logger := logrus.New()
 
@@ -847,8 +851,9 @@ func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 			checkAllocErr: enterrors.ErrNotEnoughMemory,
 		},
 		{
-			// a namespaced principal may not qualify a class name itself, so
-			// namespacing.Resolve rejects this before the schema manager is touched
+			// a namespaced principal is not allowed to prefix a class name with a
+			// namespace itself, so namespacing.Resolve rejects this before the schema
+			// manager is touched
 			name:              "schema resolve failure",
 			namespacesEnabled: true,
 			principal:         &models.Principal{Namespace: "customer1"},
@@ -936,8 +941,8 @@ func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 			mockStream.EXPECT().Send(mock.Anything).Return(nil).Maybe()
 
 			handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, tc.namespacesEnabled, batch.WithAllocChecker(mockAllocChecker))
-			// LIFO: drain retires the workers first, then the leak check runs and only
-			// the stream's own goroutines are left to account for.
+			// Defers run last-in first-out: drain retires the workers first, then the
+			// leak check runs with only the stream's own goroutines left to account for.
 			defer leaktest.Check(t)()
 			defer drain()
 
@@ -946,8 +951,8 @@ func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 	}
 }
 
-// One client stalling its side of the wire must not hold up other streams: Send
-// blocks while a client's window is full, so a send lock shared across streams
+// One stalled client must not hold up other streams. Send blocks while that
+// client's flow-control window is full, so a send lock shared across streams
 // would freeze every stream's acks and receive loops.
 func TestSendNotSerialisedAcrossStreams(t *testing.T) {
 	logger := logrus.New()
@@ -974,7 +979,8 @@ func TestSendNotSerialisedAcrossStreams(t *testing.T) {
 	finish := make(chan struct{})
 	release := sync.OnceFunc(func() { close(releaseStalled) })
 	stop := sync.OnceFunc(func() { close(finish) })
-	// LIFO: unblock the stalled Send first, then let both clients hang up.
+	// Defers run last-in first-out: unblock the stalled Send first, then let both
+	// clients hang up.
 	defer stop()
 	defer release()
 
@@ -1001,7 +1007,7 @@ func TestSendNotSerialisedAcrossStreams(t *testing.T) {
 	}
 
 	// The stalled client blocks on its very first reply, so it holds whatever lock
-	// Send takes for the whole assertion window.
+	// Send takes for the whole time the assertion runs.
 	stalledStream := newMockStream(t)
 	stalledStream.EXPECT().Context().Return(ctx).Maybe()
 	stalledStream.EXPECT().Recv().RunAndReturn(recvSequence()).Maybe()
@@ -1025,8 +1031,8 @@ func TestSendNotSerialisedAcrossStreams(t *testing.T) {
 		return nil
 	}).Maybe()
 
-	// more workers than streams: a worker parked on the stalled stream's
-	// undeliverable report must not starve the healthy stream
+	// more workers than streams, so that a worker stuck on the stalled stream's
+	// undeliverable report does not starve the healthy stream
 	handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 4, logger, false)
 
 	stalledHandled := make(chan error, 1)

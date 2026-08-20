@@ -38,10 +38,11 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
 
-	// Only check memory here if async indexing is disabled. With async indexing, for
-	// single-vector HNSW indexes, hnsw.AddBatch checks the allocation when the queue
-	// worker inserts the batch, so enqueuing is not blocked by the index's memory
-	// demand. Everything else this call allocates is unchecked on that path.
+	// Only check memory here if async indexing is disabled. With async indexing,
+	// hnsw.AddBatch checks the allocation for single-vector HNSW indexes when the
+	// queue worker inserts the batch. Enqueuing is therefore not blocked by the
+	// index's memory demand. Everything else this call allocates is unchecked on
+	// that path.
 	if !db.AsyncIndexingEnabled {
 		if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
 			db.logger.Errorf("memory pressure: cannot process batch: %v", err)
