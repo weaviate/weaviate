@@ -584,7 +584,7 @@ func FromEnv(config *Config) error {
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_SIZE_PERCENTAGE",
 	} {
 		if _, set := os.LookupEnv(envVar); set {
-			logrus.Warnf("%s is set but is a no-op as of 1.38.0: HNSW snapshots are always created and managed automatically; this variable has no effect and will be removed in a future version", envVar)
+			logrus.Warnf("%s is set but is a no-op as of 1.39.0: HNSW snapshots are always created and managed automatically; this variable has no effect and will be removed in a future version", envVar)
 		}
 	}
 	// ---- HNSW snapshots ----
