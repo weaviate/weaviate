@@ -238,7 +238,8 @@ type Store struct {
 	dbLoaded atomic.Bool
 
 	// raft implementation from external library
-	raft          *raft.Raft
+	// raft is atomically published: Open assigns it while concurrently-served RPCs (JoinPeer/Leader) read it.
+	raft          atomic.Pointer[raft.Raft]
 	raftResolver  types.RaftResolver
 	raftTransport *raft.NetworkTransport
 
@@ -463,8 +464,8 @@ func (st *Store) RegisterDistributedTaskCollectionExtractor(namespace string, ex
 // this method work as a protection from applying anything was applied to the db
 // by checking either raft or max(snapshot, log store) instead the db will catchup
 func (st *Store) lastIndex() uint64 {
-	if st.raft != nil {
-		return st.raft.AppliedIndex()
+	if r := st.raft.Load(); r != nil {
+		return r.AppliedIndex()
 	}
 
 	l, err := st.LastAppliedCommand()
@@ -498,10 +499,11 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		"name":                 st.cfg.NodeID,
 		"metadata_only_voters": st.cfg.MetadataOnlyVoters,
 	}).Info("construct a new raft node")
-	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
+	rn, err := raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
+	st.raft.Store(rn)
 
 	// Only if node recovery is enabled will we check if we are either forcing it or automating the detection of a one
 	// node cluster
@@ -517,11 +519,11 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		st.dbLoaded.Store(true)
 	}
 
-	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
+	st.lastAppliedIndex.Store(rn.AppliedIndex())
 
 	st.log.WithFields(logrus.Fields{
-		"raft_applied_index":                st.raft.AppliedIndex(),
-		"raft_last_index":                   st.raft.LastIndex(),
+		"raft_applied_index":                rn.AppliedIndex(),
+		"raft_last_index":                   rn.LastIndex(),
 		"last_store_applied_index_on_start": st.lastAppliedIndexToDB.Load(),
 		"last_snapshot_index":               snapIndex,
 	}).Info("raft node constructed")
@@ -614,9 +616,10 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 			if err != nil {
 				return fmt.Errorf("create snapshot: %w", err)
 			}
-			b.Index = st.raft.LastIndex()
+			rn := st.raft.Load()
+			b.Index = rn.LastIndex()
 			b.Term = 1
-			if err := st.raft.Restore(b, c, timeout); err != nil {
+			if err := rn.Restore(b, c, timeout); err != nil {
 				return fmt.Errorf("raft restore: %w", err)
 			}
 			return nil
@@ -646,9 +649,9 @@ func (st *Store) Close(ctx context.Context) error {
 
 	// transfer leadership: it stops accepting client requests, ensures
 	// the target server is up to date and initiates the transfer
-	if st.IsLeader() && len(st.raft.GetConfiguration().Configuration().Servers) > 1 {
+	if rn := st.raft.Load(); st.IsLeader() && len(rn.GetConfiguration().Configuration().Servers) > 1 {
 		st.log.Info("transferring leadership to another server")
-		if err := st.raft.LeadershipTransfer().Error(); err != nil {
+		if err := rn.LeadershipTransfer().Error(); err != nil {
 			st.log.WithError(err).Error("transferring leadership")
 		} else {
 			st.log.Info("successfully transferred leadership to another server")
@@ -669,7 +672,7 @@ func (st *Store) Close(ctx context.Context) error {
 
 	// shutdown raft after transport is closed to ensure clean termination
 	st.log.Info("shutting down raft ...")
-	if err := st.raft.Shutdown().Error(); err != nil {
+	if err := st.raft.Load().Shutdown().Error(); err != nil {
 		st.log.WithError(err).Warn("raft shutdown failed")
 	}
 
@@ -817,7 +820,8 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 
 // IsLeader returns whether this node is the leader of the cluster
 func (st *Store) IsLeader() bool {
-	return st.raft != nil && st.raft.State() == raft.Leader
+	r := st.raft.Load()
+	return r != nil && r.State() == raft.Leader
 }
 
 // SchemaReader returns a SchemaReader from the underlying schema manager using a wait function that will make it wait
@@ -880,11 +884,11 @@ func (st *Store) Stats() map[string]any {
 	stats["db_loaded"] = st.dbLoaded.Load()
 
 	// If the raft stats exist, add them as a nested map
-	if st.raft != nil {
-		stats["raft"] = st.raft.Stats()
+	if rn := st.raft.Load(); rn != nil {
+		stats["raft"] = rn.Stats()
 		// add the servers information
 		var servers []map[string]any
-		if cf := st.raft.GetConfiguration(); cf.Error() == nil {
+		if cf := rn.GetConfiguration(); cf.Error() == nil {
 			servers = make([]map[string]any, len(cf.Configuration().Servers))
 			for i, server := range cf.Configuration().Servers {
 				servers[i] = map[string]any{
@@ -903,18 +907,20 @@ func (st *Store) Stats() map[string]any {
 // Leader is used to return the current leader address.
 // It may return empty strings if there is no current leader or the leader is unknown.
 func (st *Store) Leader() string {
-	if st.raft == nil {
+	rn := st.raft.Load()
+	if rn == nil {
 		return ""
 	}
-	add, _ := st.raft.LeaderWithID()
+	add, _ := rn.LeaderWithID()
 	return string(add)
 }
 
 func (st *Store) LeaderWithID() (raft.ServerAddress, raft.ServerID) {
-	if st.raft == nil {
+	rn := st.raft.Load()
+	if rn == nil {
 		return "", ""
 	}
-	return st.raft.LeaderWithID()
+	return rn.LeaderWithID()
 }
 
 func (st *Store) assertFuture(fut raft.IndexFuture) error {
@@ -1015,7 +1021,7 @@ func (st *Store) reloadDBFromSchema() {
 
 	// in this path it means it was called from Apply()
 	// or forced Restore()
-	if st.raft != nil {
+	if st.raft.Load() != nil {
 		// we don't update lastAppliedIndexToDB if not a restore
 		return
 	}
@@ -1071,7 +1077,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 		return fmt.Errorf("bootstrap expect %v, candidates %v, "+
 			"can't perform auto recovery in multi node cluster", st.cfg.BootstrapExpect, st.candidates)
 	}
-	servers := st.raft.GetConfiguration().Configuration().Servers
+	servers := st.raft.Load().GetConfiguration().Configuration().Servers
 	// nothing to do here, wasn't a single node
 	if !force && len(servers) != 1 {
 		st.log.WithFields(logrus.Fields{
@@ -1099,7 +1105,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 		"new_single_cluster_node":     newNode,
 	}).Info("perform cluster recovery")
 
-	fut := st.raft.Shutdown()
+	fut := st.raft.Load().Shutdown()
 	if err := fut.Error(); err != nil {
 		return err
 	}
@@ -1122,11 +1128,11 @@ func (st *Store) recoverSingleNode(force bool) error {
 		return err
 	}
 
-	var err error
-	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
+	rn, err := raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
+	st.raft.Store(rn)
 
 	if exNode.ID == newNode.ID {
 		// no node name change needed in the state

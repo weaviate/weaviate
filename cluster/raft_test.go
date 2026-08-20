@@ -322,8 +322,8 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Equal(t, m.store.cfg.NodeID, leaderID)
 
 	// create snapshot
-	assert.Nil(t, srv.store.raft.Barrier(2*time.Second).Error())
-	assert.Nil(t, srv.store.raft.Snapshot().Error())
+	assert.Nil(t, srv.store.raft.Load().Barrier(2*time.Second).Error())
+	assert.Nil(t, srv.store.raft.Load().Snapshot().Error())
 
 	// restore from snapshot
 	assert.Nil(t, srv.Close(ctx))

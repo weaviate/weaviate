@@ -73,8 +73,8 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	assert.Equal(t, "S0", getTenantStatus(t, schemaReader, cls.Class, "T0"))
 
 	// Create a snapshot here with the class and the tenant existing
-	assert.Nil(t, srv.store.raft.Barrier(2*time.Second).Error())
-	assert.Nil(t, srv.store.raft.Snapshot().Error())
+	assert.Nil(t, srv.store.raft.Load().Barrier(2*time.Second).Error())
+	assert.Nil(t, srv.store.raft.Load().Snapshot().Error())
 
 	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
 	m.replicationFSM.On("DeleteReplicationsByTenants", Anything, Anything).Return(nil)
@@ -150,8 +150,8 @@ func TestSnapshotRestoreReloadsDBBeforeWaitToRestoreDB(t *testing.T) {
 	_, err := srv.AddClass(ctx, cls, ss)
 	require.NoError(t, err)
 
-	require.NoError(t, srv.store.raft.Barrier(2*time.Second).Error())
-	require.NoError(t, srv.store.raft.Snapshot().Error())
+	require.NoError(t, srv.store.raft.Load().Barrier(2*time.Second).Error())
+	require.NoError(t, srv.store.raft.Load().Snapshot().Error())
 
 	m.indexer.On("Close", Anything).Return(nil)
 	require.NoError(t, srv.Close(ctx))
