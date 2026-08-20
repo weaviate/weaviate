@@ -444,6 +444,49 @@ func TestMultivectorPersistence(t *testing.T) {
 	}
 }
 
+// The uncompressed non-MUVERA rescore must read token vectors from the
+// in-memory vector cache, never through the per-candidate LSM view thunk
+// (the thunk costs an object-store read plus deserialization per candidate —
+// a ~40% QPS regression on plain multivector search).
+func TestMultiVectorRescoreUsesCacheNotViewThunk(t *testing.T) {
+	ctx := context.Background()
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "rescore-data-source",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewDotProductProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return []float32{0}, errors.New("can not use VectorForIDThunk with multivector")
+		},
+		MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+			return multiVectors[id], nil
+		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		AllocChecker:      memwatch.NewDummyMonitor(),
+		GetViewThunk:      func() common.BucketView { return &multivectorNoopBucketView{} },
+		TempMultiVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([][]float32, error) {
+			return nil, errors.New("uncompressed non-muvera rescore must not read through the view thunk")
+		},
+	}, ent.UserConfig{
+		VectorCacheMaxObjects: 1e12,
+		MaxConnections:        8,
+		EFConstruction:        64,
+		EF:                    64,
+		Multivector:           ent.MultivectorConfig{Enabled: true},
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+
+	for i, vec := range multiVectors {
+		require.Nil(t, index.AddMulti(ctx, uint64(i), vec))
+	}
+
+	for i, query := range multiQueries {
+		ids, _, err := index.SearchByMultiVector(ctx, query, 10, nil)
+		require.Nil(t, err)
+		require.Equal(t, expectedResults[i], ids)
+	}
+}
+
 func TestMuveraHnsw(t *testing.T) {
 	var vectorIndex *hnsw
 	ctx := context.Background()

@@ -1021,9 +1021,18 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 		ids = append(ids, docID)
 	}
 
+	// The uncompressed non-MUVERA rescore must read token vectors from the
+	// in-memory vector cache: fetching them through the LSM view thunk costs
+	// an object-store read plus a full multi-vector deserialization per
+	// candidate, which regressed plain multivector QPS by ~40% at low ef.
+	useCache := !h.compressed.Load() && !h.muvera.Load()
+
 	// Acquire a single consistent view for all disk reads to avoid per-candidate flushLock acquisitions.
-	view := h.GetViewThunk()
-	defer view.ReleaseView()
+	var view common.BucketView
+	if !useCache {
+		view = h.GetViewThunk()
+		defer view.ReleaseView()
+	}
 
 	resultsQueue := priorityqueue.NewMax[any](k)
 	mu := sync.Mutex{}
@@ -1046,15 +1055,24 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 	for workerID := 0; workerID < workers; workerID++ {
 		workerID := workerID
 		eg.Go(func() error {
-			slice := h.pools.tempVectors.Get(int(h.dims.Load()))
-			defer h.pools.tempVectors.Put(slice)
+			var slice *common.VectorSlice
+			if !useCache {
+				slice = h.pools.tempVectors.Get(int(h.dims.Load()))
+				defer h.pools.tempVectors.Put(slice)
+			}
 
 			for idPos := workerID; idPos < len(ids); idPos += workers {
 				if err := ctx.Err(); err != nil {
 					return fmt.Errorf("computeLateInteraction: %w", err)
 				}
 				docID := ids[idPos]
-				sim, err := h.computeScoreWithView(ctx, queryVectors, docID, slice, view)
+				var sim float32
+				var err error
+				if useCache {
+					sim, err = h.computeScore(queryVectors, docID)
+				} else {
+					sim, err = h.computeScoreWithView(ctx, queryVectors, docID, slice, view)
+				}
 				if err != nil {
 					h.logger.
 						WithField("action", "computeLateInteraction").
