@@ -175,6 +175,39 @@ func TestBackupMaxIndividualFilesRuntimeOverride(t *testing.T) {
 	})
 }
 
+func TestDisableDimensionMetricsRuntimeOverride(t *testing.T) {
+	// ParseRuntimeConfig ignores unknown keys, so only an explicit assertion catches a
+	// renamed or misspelled yaml tag.
+	t.Run("yaml key is parsed", func(t *testing.T) {
+		cfg, err := ParseRuntimeConfig([]byte(`disable_dimension_metrics: true`))
+		require.NoError(t, err)
+		assert.Equal(t, true, cfg.DisableDimensionMetrics.Get())
+	})
+
+	t.Run("override applies to the env-registered value and removal restores it", func(t *testing.T) {
+		log := logrus.New()
+		log.SetOutput(io.Discard)
+
+		t.Setenv("DIMENSION_METRICS_DISABLED", "true")
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		require.Equal(t, true, conf.DisableDimensionMetrics.Get())
+
+		reg := &WeaviateRuntimeConfig{DisableDimensionMetrics: conf.DisableDimensionMetrics}
+
+		parsed, err := ParseRuntimeConfig([]byte(`disable_dimension_metrics: false`))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
+		assert.Equal(t, false, conf.DisableDimensionMetrics.Get())
+
+		// Removing the key from the overrides file restores the env-supplied value.
+		parsed, err = ParseRuntimeConfig(nil)
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
+		assert.Equal(t, true, conf.DisableDimensionMetrics.Get())
+	})
+}
+
 func TestUpdateRuntimeConfig(t *testing.T) {
 	log := logrus.New()
 	log.SetOutput(io.Discard)
