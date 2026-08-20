@@ -55,9 +55,14 @@ func NewCrons(serverShutdownCtx context.Context, logger logrus.FieldLogger, conf
 	logger = logger.WithField("action", "cron")
 	gocronLogger := cron.NewGoCronLogger(logger, logrus.DebugLevel)
 
+	namespaceCleanup, err := newCronsNamespaceCleanup(serverShutdownCtx, logger, gocronLogger, configGetter)
+	if err != nil {
+		return nil, err
+	}
+
 	c := &Crons{
 		objectsttl:        newCronsObjectsTTL(serverShutdownCtx, logger, gocronLogger, configGetter),
-		namespaceCleanup:  newCronsNamespaceCleanup(serverShutdownCtx, logger, gocronLogger, configGetter),
+		namespaceCleanup:  namespaceCleanup,
 		logger:            logger,
 		gocronLogger:      gocronLogger,
 		serverShutdownCtx: serverShutdownCtx,
@@ -75,9 +80,9 @@ func NewCrons(serverShutdownCtx context.Context, logger logrus.FieldLogger, conf
 }
 
 // add appends a registrant, refusing a job name that is empty or already
-// taken. Each registration loop removes the entry by name before adding it,
-// so two registrants sharing a name would take over each other's entry on
-// every reload, each seeing a successful registration.
+// taken. Two registrants sharing a name would take over each other's entry on
+// every reload, each seeing a successful registration, because
+// DrainAndUpsertJob never reports a duplicate name.
 func (c *Crons) add(r registrant) error {
 	name := r.jobName()
 	if name == "" {
@@ -107,12 +112,8 @@ func (c *Crons) Init(clusterService *cluster.Service, ttlCoordinator *objectttl.
 ) error {
 	cr := initGoCron(c.serverShutdownCtx, c.gocronLogger)
 
-	if err := c.objectsttl.Init(cr, clusterService, ttlCoordinator); err != nil {
-		return fmt.Errorf("init objects ttl cron: %w", err)
-	}
-
-	if err := c.namespaceCleanup.Init(cr, clusterService, nsCleanupCoordinator); err != nil {
-		return fmt.Errorf("init namespace cleanup cron: %w", err)
+	if err := c.initJobs(cr, clusterService, ttlCoordinator, nsCleanupCoordinator); err != nil {
+		return err
 	}
 
 	cr.Start()
@@ -121,6 +122,23 @@ func (c *Crons) Init(clusterService *cluster.Service, ttlCoordinator *objectttl.
 	// Await the namespace-cleanup registration goroutine before returning.
 	c.namespaceCleanup.wait()
 
+	return nil
+}
+
+// initJobs starts each job's registration loop on cr, handing namespace
+// cleanup clusterService.IsLeader so only the leader ticks it. Each loop adds
+// its entry on its own goroutine, and a job its config disables adds none.
+// Init blocks on serverShutdownCtx straight after this call, so everything
+// Init does before cr.Start() goes here.
+func (c *Crons) initJobs(cr *gocron.Cron, clusterService *cluster.Service,
+	ttlCoordinator *objectttl.Coordinator, nsCleanupCoordinator *namespacecleanup.Coordinator,
+) error {
+	if err := c.objectsttl.Init(cr, clusterService, ttlCoordinator); err != nil {
+		return fmt.Errorf("init objects ttl cron: %w", err)
+	}
+	if err := c.namespaceCleanup.Init(cr, clusterService.IsLeader, nsCleanupCoordinator); err != nil {
+		return fmt.Errorf("init namespace cleanup cron: %w", err)
+	}
 	return nil
 }
 
