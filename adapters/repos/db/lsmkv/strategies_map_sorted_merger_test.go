@@ -371,6 +371,12 @@ func Test_SortedMapMerger_KeepTombstones(t *testing.T) {
 	})
 }
 
+// mpKV and mpTomb build one-line MapPair table entries for
+// Test_SortedMapMerger_TwoInputFastPath below (prefixed to avoid colliding
+// with the existing `kv` struct used by other tests in this package).
+func mpKV(k, v string) MapPair { return MapPair{Key: []byte(k), Value: []byte(v)} }
+func mpTomb(k string) MapPair  { return MapPair{Key: []byte(k), Tombstone: true} }
+
 // Test_SortedMapMerger_TwoInputFastPath pins doKeepTombstones's len==2 fast
 // path (mergeSortedPairs) against an independently computed expected result
 // and against doKeepTombstonesReusable on the same two segments.
@@ -382,86 +388,40 @@ func Test_SortedMapMerger_TwoInputFastPath(t *testing.T) {
 		expected []MapPair
 	}{
 		{
-			name: "disjoint keys",
-			left: []MapPair{
-				{Key: []byte("a"), Value: []byte("a1")},
-				{Key: []byte("c"), Value: []byte("c1")},
-			},
-			right: []MapPair{
-				{Key: []byte("b"), Value: []byte("b1")},
-				{Key: []byte("d"), Value: []byte("d1")},
-			},
-			expected: []MapPair{
-				{Key: []byte("a"), Value: []byte("a1")},
-				{Key: []byte("b"), Value: []byte("b1")},
-				{Key: []byte("c"), Value: []byte("c1")},
-				{Key: []byte("d"), Value: []byte("d1")},
-			},
+			name:     "disjoint keys",
+			left:     []MapPair{mpKV("a", "a1"), mpKV("c", "c1")},
+			right:    []MapPair{mpKV("b", "b1"), mpKV("d", "d1")},
+			expected: []MapPair{mpKV("a", "a1"), mpKV("b", "b1"), mpKV("c", "c1"), mpKV("d", "d1")},
 		},
 		{
-			name: "overlapping keys, right-hand precedence",
-			left: []MapPair{
-				{Key: []byte("a"), Value: []byte("a1")},
-				{Key: []byte("b"), Value: []byte("b1")},
-				{Key: []byte("c"), Value: []byte("c1")},
-			},
-			right: []MapPair{
-				{Key: []byte("b"), Value: []byte("b2")},
-				{Key: []byte("c"), Value: []byte("c2")},
-			},
-			expected: []MapPair{
-				{Key: []byte("a"), Value: []byte("a1")},
-				{Key: []byte("b"), Value: []byte("b2")},
-				{Key: []byte("c"), Value: []byte("c2")},
-			},
+			name:     "overlapping keys, right-hand precedence",
+			left:     []MapPair{mpKV("a", "a1"), mpKV("b", "b1"), mpKV("c", "c1")},
+			right:    []MapPair{mpKV("b", "b2"), mpKV("c", "c2")},
+			expected: []MapPair{mpKV("a", "a1"), mpKV("b", "b2"), mpKV("c", "c2")},
 		},
 		{
-			name: "tombstone on the left, overwritten on the right",
-			left: []MapPair{
-				{Key: []byte("a"), Tombstone: true},
-				{Key: []byte("b"), Value: []byte("b1")},
-			},
-			right: []MapPair{
-				{Key: []byte("a"), Value: []byte("a2")},
-			},
-			expected: []MapPair{
-				{Key: []byte("a"), Value: []byte("a2")},
-				{Key: []byte("b"), Value: []byte("b1")},
-			},
+			name:     "tombstone on the left, overwritten on the right",
+			left:     []MapPair{mpTomb("a"), mpKV("b", "b1")},
+			right:    []MapPair{mpKV("a", "a2")},
+			expected: []MapPair{mpKV("a", "a2"), mpKV("b", "b1")},
 		},
 		{
-			name: "tombstone on the right, shadows the left",
-			left: []MapPair{
-				{Key: []byte("a"), Value: []byte("a1")},
-			},
-			right: []MapPair{
-				{Key: []byte("a"), Tombstone: true},
-				{Key: []byte("b"), Value: []byte("b2")},
-			},
-			expected: []MapPair{
-				{Key: []byte("a"), Tombstone: true},
-				{Key: []byte("b"), Value: []byte("b2")},
-			},
+			name:     "tombstone on the right, shadows the left",
+			left:     []MapPair{mpKV("a", "a1")},
+			right:    []MapPair{mpTomb("a"), mpKV("b", "b2")},
+			expected: []MapPair{mpTomb("a"), mpKV("b", "b2")},
 		},
 		{
-			name: "empty left side",
-			left: nil,
-			right: []MapPair{
-				{Key: []byte("a"), Value: []byte("a1")},
-			},
-			expected: []MapPair{
-				{Key: []byte("a"), Value: []byte("a1")},
-			},
+			name:     "empty left side",
+			left:     nil,
+			right:    []MapPair{mpKV("a", "a1")},
+			expected: []MapPair{mpKV("a", "a1")},
 		},
 		{
-			name: "empty right side",
-			left: []MapPair{
-				{Key: []byte("a"), Value: []byte("a1")},
-			},
-			right: nil,
-			expected: []MapPair{
-				{Key: []byte("a"), Value: []byte("a1")},
-			},
+			name:     "empty right side",
+			left:     []MapPair{mpKV("a", "a1")},
+			right:    nil,
+			expected: []MapPair{mpKV("a", "a1")},
 		},
 	}
 
