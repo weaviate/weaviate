@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
 )
 

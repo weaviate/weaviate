@@ -1,4 +1,4 @@
-#!/usr/bin/env bash 
+#!/usr/bin/env bash
 
 set -euo pipefail
 
@@ -25,6 +25,7 @@ tools/gen-code-from-swagger.sh
 git commit -a -m "prepare release v$VERSION"
 
 git tag -a "v$VERSION" -m "release v$VERSION - $MSG"
+git tag -a "pkg/pb/v$VERSION" -m "release pkg/pb v$VERSION"
 
 echo "You can use the following template for the release notes, copy/paste below the line"
 echo "----------------------------"

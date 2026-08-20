@@ -2,7 +2,10 @@ module acceptance_tests_with_client
 
 go 1.26
 
-replace github.com/weaviate/weaviate => ../..
+replace (
+	github.com/weaviate/weaviate => ../..
+	github.com/weaviate/weaviate/pkg/pb => ../../pkg/pb
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
@@ -198,6 +201,7 @@ require (
 	github.com/weaviate/s5cmd/v2 v2.0.1 // indirect
 	github.com/weaviate/sroar v0.0.16 // indirect
 	github.com/weaviate/tiktoken-go v0.0.3 // indirect
+	github.com/weaviate/weaviate/pkg/pb v0.0.0 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect

@@ -27,7 +27,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 

@@ -18,7 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"

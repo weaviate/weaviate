@@ -10,7 +10,7 @@ packages:
       Parser:
       replicationFSM:
   github.com/weaviate/weaviate/usecases/replica:
-   interfaces:
+    interfaces:
       RClient:
       WClient:
   github.com/weaviate/weaviate/usecases/replica/types:
@@ -115,11 +115,11 @@ packages:
           dir: "adapters/handlers/grpc/v1/batch/mocks"
           outpkg: "mocks"
           inpackage: false
-  github.com/weaviate/weaviate/grpc/generated/protocol/v1:
+  github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1:
     interfaces:
       Weaviate_BatchStreamServer:
         config:
           dir: "adapters/handlers/grpc/v1/batch/mocks"
           outpkg: "mocks"
           inpackage: false
-  
+

@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 )
 
 func TestGRPCTenantsGet(t *testing.T) {

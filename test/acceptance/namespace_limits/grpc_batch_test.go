@@ -27,7 +27,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/weaviate/weaviate/entities/models"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )

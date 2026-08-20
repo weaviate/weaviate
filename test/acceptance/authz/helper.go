@@ -23,7 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	gql "github.com/weaviate/weaviate/client/graphql"
-	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"

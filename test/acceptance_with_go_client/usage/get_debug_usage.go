@@ -12,12 +12,13 @@
 package usage
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+
+	"acceptance_tests_with_client/internal/wvhost"
 
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 )

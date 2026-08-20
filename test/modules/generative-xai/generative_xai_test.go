@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
 	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"

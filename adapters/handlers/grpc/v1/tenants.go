@@ -16,7 +16,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 )
 
 func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, req *pb.TenantsGetRequest) ([]*pb.Tenant, error) {

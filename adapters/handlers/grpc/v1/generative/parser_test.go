@@ -16,7 +16,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	anthropic "github.com/weaviate/weaviate/modules/generative-anthropic/parameters"
 	anyscale "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 	aws "github.com/weaviate/weaviate/modules/generative-aws/parameters"
@@ -31,6 +30,7 @@ import (
 	ollama "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openai "github.com/weaviate/weaviate/modules/generative-openai/parameters"
 	xai "github.com/weaviate/weaviate/modules/generative-xai/parameters"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 )
 
