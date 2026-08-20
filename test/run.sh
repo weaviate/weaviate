@@ -1223,6 +1223,12 @@ function run_acceptance_go_client_v6() {
   # tests with go client are in a separate module with its own dependencies to isolate them
   cd 'test/acceptance_with_go_v6_client'
 
+  # The v6 client ships its own copy of the Weaviate gRPC descriptors, under the
+  # same proto file paths as the weaviate module's grpc/generated/protocol/v1.
+  # Any test binary that links both -- anything using test/docker -- panics
+  # during package init unless the conflict is downgraded to a warning.
+  export GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
+
   local testFailed=0
   for pkg in $(go list ./...); do
     echo_green "Running $pkg"
