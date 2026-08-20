@@ -15,7 +15,6 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/tailor-platform/graphql v0.6.0
 	github.com/weaviate/weaviate v1.36.0
-	github.com/weaviate/weaviate/pkg/pb v0.0.0
 	github.com/weaviate/weaviate-go-client/v5 v5.7.3-0.20260413120914-0d665cebe735
 	golang.org/x/sync v0.21.0
 	google.golang.org/grpc v1.82.1
@@ -202,6 +201,7 @@ require (
 	github.com/weaviate/s5cmd/v2 v2.0.1 // indirect
 	github.com/weaviate/sroar v0.0.16 // indirect
 	github.com/weaviate/tiktoken-go v0.0.3 // indirect
+	github.com/weaviate/weaviate/pkg/pb v0.0.0 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
