@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,7 +48,7 @@ func TestInitRuntimeOverrides_DisableDimensionMetrics(t *testing.T) {
 	appState.ServerConfig.Config.RuntimeOverrides.Path = overrides
 	appState.ServerConfig.Config.RuntimeOverrides.LoadInterval = time.Hour
 
-	cm := initRuntimeOverrides(appState)
+	cm := initRuntimeOverrides(appState, prometheus.NewRegistry())
 	require.NotNil(t, cm)
 
 	assert.True(t, appState.ServerConfig.Config.DisableDimensionMetrics.Get())
