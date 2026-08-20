@@ -3028,7 +3028,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 		results[j] = res
 	}
 
-	return aggregator.NewShardCombiner().Do(results), nil
+	return aggregator.NewShardCombiner().Do(results)
 }
 
 func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregation.Result, error) {

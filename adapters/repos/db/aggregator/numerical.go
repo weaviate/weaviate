@@ -44,12 +44,13 @@ func addNumericalAggregations(prop *aggregation.Property,
 
 	// when combining the results from different shards, we need the raw numbers to recompute the mode, mean and median.
 	// Therefore we add a reference later which needs to be cleared out before returning the results to a user
-loop:
 	for _, aProp := range aggs {
 		switch aProp {
-		case aggregation.ModeAggregator, aggregation.MedianAggregator, aggregation.MeanAggregator:
+		case aggregation.ModeAggregator, aggregation.MedianAggregator:
+			agg.serializePairs = true
 			prop.NumericalAggregations["_numericalAggregator"] = agg
-			break loop
+		case aggregation.MeanAggregator:
+			prop.NumericalAggregations["_numericalAggregator"] = agg
 		}
 	}
 
@@ -94,6 +95,9 @@ type numericalAggregator struct {
 	mode         float64
 	pairs        []floatCountPair   // for row-based median calculation
 	valueCounter map[float64]uint64 // for individual median calculation
+
+	// mode/median need the full distribution on the wire; mean only count and sum
+	serializePairs bool
 }
 
 type floatCountPair struct {
@@ -106,43 +110,77 @@ type numericalPairJSON struct {
 	Count uint64  `json:"count"`
 }
 
-// MarshalJSON ships the raw value counts across the cluster-internal REST API
-// so the coordinating node can merge mean/median/mode. Without it the
-// unexported fields would serialize as {} and the shard's data would be lost.
+type numericalAggregatorJSON struct {
+	Count uint64              `json:"count"`
+	Sum   float64             `json:"sum"`
+	Pairs []numericalPairJSON `json:"pairs,omitempty"`
+}
+
+// MarshalJSON is the cluster-internal wire form of the merge state.
 func (a *numericalAggregator) MarshalJSON() ([]byte, error) {
 	a.Lock()
 	defer a.Unlock()
 
-	pairs := make([]numericalPairJSON, 0, len(a.valueCounter))
-	for value, count := range a.valueCounter {
-		pairs = append(pairs, numericalPairJSON{Value: value, Count: count})
+	out := numericalAggregatorJSON{Count: a.count, Sum: a.sum}
+	if a.serializePairs {
+		out.Pairs = make([]numericalPairJSON, 0, len(a.valueCounter))
+		for value, count := range a.valueCounter {
+			out.Pairs = append(out.Pairs, numericalPairJSON{Value: value, Count: count})
+		}
+		sort.Slice(out.Pairs, func(x, y int) bool {
+			return out.Pairs[x].Value < out.Pairs[y].Value
+		})
 	}
-	sort.Slice(pairs, func(x, y int) bool {
-		return pairs[x].Value < pairs[y].Value
-	})
-	return json.Marshal(struct {
-		Pairs []numericalPairJSON `json:"pairs"`
-	}{Pairs: pairs})
+	return json.Marshal(out)
 }
 
-// numericalAggregatorFromJSON rebuilds an aggregator from the generic map that
-// unmarshalling a remote shard result produces (NumericalAggregations is a
-// map[string]interface{}, so the concrete type is not recoverable by
-// json.Unmarshal itself).
-func numericalAggregatorFromJSON(raw map[string]interface{}) *numericalAggregator {
+// numericalAggregatorFromJSON rebuilds the wire form from the generic map
+// json.Unmarshal produces for an interface{} target.
+func numericalAggregatorFromJSON(raw map[string]interface{}) (*numericalAggregator, error) {
+	count, okCount := raw["count"].(float64)
+	sum, okSum := raw["sum"].(float64)
+	if !okCount || !okSum {
+		return nil, errors.New("numerical aggregator state missing from remote shard result, " +
+			"the remote node likely runs an older version")
+	}
+
 	agg := newNumericalAggregator()
-	pairs, _ := raw["pairs"].([]interface{})
+	pairs, hasPairs := raw["pairs"].([]interface{})
+	if !hasPairs {
+		agg.count = uint64(count)
+		agg.sum = sum
+		return agg, nil
+	}
+
+	agg.serializePairs = true
 	for _, pair := range pairs {
 		pairMap, ok := pair.(map[string]interface{})
 		if !ok {
-			continue
+			return nil, errors.New("malformed numerical aggregator pair in remote shard result")
 		}
-		value, _ := pairMap["value"].(float64)
-		count, _ := pairMap["count"].(float64)
-		agg.AddNumberRow(value, uint64(count))
+		value, okValue := pairMap["value"].(float64)
+		pairCount, okPairCount := pairMap["count"].(float64)
+		if !okValue || !okPairCount {
+			return nil, errors.New("malformed numerical aggregator pair in remote shard result")
+		}
+		agg.AddNumberRow(value, uint64(pairCount))
 	}
 	agg.buildPairsFromCounts()
-	return agg
+	return agg, nil
+}
+
+// absorb adds other's distribution; an aggregator restored from a mean-only
+// wire payload carries just count and sum.
+func (a *numericalAggregator) absorb(other *numericalAggregator) {
+	if len(other.valueCounter) == 0 && len(other.pairs) == 0 {
+		a.count += other.count
+		a.sum += other.sum
+		return
+	}
+	for _, pair := range other.pairs {
+		a.AddNumberRow(pair.value, pair.count)
+	}
+	a.buildPairsFromCounts()
 }
 
 func (a *numericalAggregator) AddFloat64(value float64) error {

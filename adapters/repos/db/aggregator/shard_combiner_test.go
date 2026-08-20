@@ -204,7 +204,8 @@ func TestShardCombinerMergeNil(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			combinedResults := NewShardCombiner().Do(tt.results)
+			combinedResults, err := NewShardCombiner().Do(tt.results)
+			require.NoError(t, err)
 			assert.Equal(t, len(combinedResults.Groups), tt.totalResults)
 		})
 	}
@@ -229,6 +230,11 @@ func testNumbers(t *testing.T, numbers1, numbers2 []float64, testMode bool) {
 }
 
 func createNumericalAgg(numbers []float64) map[string]interface{} {
+	return createNumericalAggWith(numbers,
+		[]aggregation.Aggregator{aggregation.MedianAggregator, aggregation.MeanAggregator, aggregation.ModeAggregator, aggregation.CountAggregator})
+}
+
+func createNumericalAggWith(numbers []float64, aggs []aggregation.Aggregator) map[string]interface{} {
 	agg := newNumericalAggregator()
 	for _, num := range numbers {
 		agg.AddFloat64(num)
@@ -236,14 +242,11 @@ func createNumericalAgg(numbers []float64) map[string]interface{} {
 	agg.buildPairsFromCounts() // needed to populate all required info
 
 	prop := aggregation.Property{}
-	aggs := []aggregation.Aggregator{aggregation.MedianAggregator, aggregation.MeanAggregator, aggregation.ModeAggregator, aggregation.CountAggregator}
 	addNumericalAggregations(&prop, aggs, agg)
 	return prop.NumericalAggregations
 }
 
-// TestShardCombinerRemoteShardResults covers shard results fetched from
-// another node: those cross the cluster-internal REST API as plain JSON, which
-// turns the raw aggregators into generic maps and date counts into float64
+// Remote shard results cross the cluster-internal REST API as plain JSON
 // (https://github.com/weaviate/weaviate/issues/11687).
 func TestShardCombinerRemoteShardResults(t *testing.T) {
 	roundTrip := func(t *testing.T, res *aggregation.Result) *aggregation.Result {
@@ -318,7 +321,9 @@ func TestShardCombinerRemoteShardResults(t *testing.T) {
 			if tt.remote2 {
 				res2 = roundTrip(t, res2)
 			}
-			assertCombined(t, NewShardCombiner().Do([]*aggregation.Result{res1, res2}))
+			combined, err := NewShardCombiner().Do([]*aggregation.Result{res1, res2})
+			require.NoError(t, err)
+			assertCombined(t, combined)
 		})
 	}
 
@@ -328,7 +333,70 @@ func TestShardCombinerRemoteShardResults(t *testing.T) {
 		}
 		res1 := roundTrip(t, makeResult(numbers1, dates1, groupedBy()))
 		res2 := makeResult(numbers2, dates2, groupedBy())
-		assertCombined(t, NewShardCombiner().Do([]*aggregation.Result{res1, res2}))
+		combined, err := NewShardCombiner().Do([]*aggregation.Result{res1, res2})
+		require.NoError(t, err)
+		assertCombined(t, combined)
+	})
+
+	t.Run("mean-only query ships count and sum instead of pairs", func(t *testing.T) {
+		meanOnly := func(numbers []float64) *aggregation.Result {
+			return &aggregation.Result{
+				Groups: []aggregation.Group{{
+					Count: len(numbers),
+					Properties: map[string]aggregation.Property{
+						"number": {
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: createNumericalAggWith(numbers,
+								[]aggregation.Aggregator{aggregation.MeanAggregator, aggregation.CountAggregator}),
+						},
+					},
+				}},
+			}
+		}
+
+		res2 := roundTrip(t, meanOnly(numbers2))
+		marker, ok := res2.Groups[0].Properties["number"].NumericalAggregations["_numericalAggregator"].(map[string]interface{})
+		require.True(t, ok)
+		assert.NotContains(t, marker, "pairs")
+
+		combined, err := NewShardCombiner().Do([]*aggregation.Result{meanOnly(numbers1), res2})
+		require.NoError(t, err)
+		require.Len(t, combined.Groups, 1)
+
+		all := append(append([]float64{}, numbers1...), numbers2...)
+		var sum float64
+		for _, v := range all {
+			sum += v
+		}
+		num := combined.Groups[0].Properties["number"].NumericalAggregations
+		assert.InDelta(t, sum/float64(len(all)), num["mean"], 0.0001)
+		assert.Equal(t, float64(len(all)), num["count"])
+	})
+
+	t.Run("payload from an older node is rejected, not merged wrong", func(t *testing.T) {
+		for _, propName := range []string{"number", "date"} {
+			res1 := makeResult(numbers1, dates1, nil)
+			res2 := roundTrip(t, makeResult(numbers2, dates2, nil))
+			// an older node serializes the aggregator's unexported fields as {}
+			props := res2.Groups[0].Properties[propName]
+			switch propName {
+			case "number":
+				props.NumericalAggregations["_numericalAggregator"] = map[string]interface{}{}
+			case "date":
+				props.DateAggregations["_dateAggregator"] = map[string]interface{}{}
+			}
+			_, err := NewShardCombiner().Do([]*aggregation.Result{res1, res2})
+			require.ErrorContains(t, err, "older version")
+		}
+	})
+
+	t.Run("malformed pairs are rejected", func(t *testing.T) {
+		res2 := roundTrip(t, makeResult(numbers2, dates2, nil))
+		res2.Groups[0].Properties["number"].NumericalAggregations["_numericalAggregator"] = map[string]interface{}{
+			"count": float64(1), "sum": float64(1), "pairs": []interface{}{"garbage"},
+		}
+		_, err := NewShardCombiner().Do([]*aggregation.Result{makeResult(numbers1, dates1, nil), res2})
+		require.ErrorContains(t, err, "malformed")
 	})
 }
 

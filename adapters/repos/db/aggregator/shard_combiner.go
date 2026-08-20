@@ -12,6 +12,7 @@
 package aggregator
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -24,27 +25,29 @@ func NewShardCombiner() *ShardCombiner {
 	return &ShardCombiner{}
 }
 
-func (sc *ShardCombiner) Do(results []*aggregation.Result) *aggregation.Result {
+func (sc *ShardCombiner) Do(results []*aggregation.Result) (*aggregation.Result, error) {
 	allResultsAreNil := true
 	firstNonNilRes := 0
 	for i, res := range results {
 		if res == nil || len(res.Groups) < 1 {
 			continue
 		}
-		sc.restoreSerializedAggregators(res)
+		if err := sc.restoreSerializedAggregators(res); err != nil {
+			return nil, err
+		}
 		allResultsAreNil = false
 		firstNonNilRes = i
 	}
 
 	if allResultsAreNil {
-		return &aggregation.Result{}
+		return &aggregation.Result{}, nil
 	}
 
 	if results[firstNonNilRes].Groups[0].GroupedBy == nil {
-		return sc.combineUngrouped(results)
+		return sc.combineUngrouped(results), nil
 	}
 
-	return sc.combineGrouped(results)
+	return sc.combineGrouped(results), nil
 }
 
 func (sc *ShardCombiner) combineUngrouped(results []*aggregation.Result) *aggregation.Result {
@@ -87,21 +90,27 @@ func (sc *ShardCombiner) combineGrouped(results []*aggregation.Result) *aggregat
 	return &combined
 }
 
-// restoreSerializedAggregators converts shard results that were fetched from
-// another node back into their in-memory form: the JSON round trip over the
-// cluster-internal REST API turns the raw aggregators (needed to merge
-// mean/median/mode) into generic maps and date counts into float64.
-func (sc *ShardCombiner) restoreSerializedAggregators(res *aggregation.Result) {
+// restoreSerializedAggregators converts aggregator merge state that crossed
+// the cluster-internal JSON boundary back into its concrete in-memory types.
+func (sc *ShardCombiner) restoreSerializedAggregators(res *aggregation.Result) error {
 	for gi := range res.Groups {
 		for name, prop := range res.Groups[gi].Properties {
 			switch prop.Type {
 			case aggregation.PropertyTypeNumerical:
 				if raw, ok := prop.NumericalAggregations["_numericalAggregator"].(map[string]interface{}); ok {
-					prop.NumericalAggregations["_numericalAggregator"] = numericalAggregatorFromJSON(raw)
+					agg, err := numericalAggregatorFromJSON(raw)
+					if err != nil {
+						return fmt.Errorf("prop %q: %w", name, err)
+					}
+					prop.NumericalAggregations["_numericalAggregator"] = agg
 				}
 			case aggregation.PropertyTypeDate:
 				if raw, ok := prop.DateAggregations["_dateAggregator"].(map[string]interface{}); ok {
-					prop.DateAggregations["_dateAggregator"] = dateAggregatorFromJSON(raw)
+					agg, err := dateAggregatorFromJSON(raw)
+					if err != nil {
+						return fmt.Errorf("prop %q: %w", name, err)
+					}
+					prop.DateAggregations["_dateAggregator"] = agg
 				}
 				if count, ok := prop.DateAggregations["count"].(float64); ok {
 					prop.DateAggregations["count"] = int64(count)
@@ -112,6 +121,7 @@ func (sc *ShardCombiner) restoreSerializedAggregators(res *aggregation.Result) {
 			res.Groups[gi].Properties[name] = prop
 		}
 	}
+	return nil
 }
 
 func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregation.Group,
@@ -237,14 +247,9 @@ func (sc *ShardCombiner) mergeNumericalProp(first, second map[string]interface{}
 		case "_numericalAggregator":
 			numAggSecondTyped := second[propType].(*numericalAggregator)
 			if numAggFirst, ok := first[propType]; ok {
-				numAggFirstTyped := numAggFirst.(*numericalAggregator)
-				for _, pair := range numAggSecondTyped.pairs {
-					numAggFirstTyped.AddNumberRow(pair.value, pair.count)
-				}
-				numAggFirstTyped.buildPairsFromCounts()
-				first[propType] = numAggFirstTyped
+				numAggFirst.(*numericalAggregator).absorb(numAggSecondTyped)
 			} else {
-				first[propType] = second[propType]
+				first[propType] = numAggSecondTyped
 			}
 		}
 	}

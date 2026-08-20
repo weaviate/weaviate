@@ -116,9 +116,7 @@ type datePairJSON struct {
 	Count uint64 `json:"count"`
 }
 
-// MarshalJSON ships the raw timestamp counts across the cluster-internal REST
-// API so the coordinating node can merge mode/median. Without it the
-// unexported fields would serialize as {} and the shard's data would be lost.
+// MarshalJSON is the cluster-internal wire form of the merge state.
 func (a *dateAggregator) MarshalJSON() ([]byte, error) {
 	a.Lock()
 	defer a.Unlock()
@@ -135,28 +133,34 @@ func (a *dateAggregator) MarshalJSON() ([]byte, error) {
 	}{Pairs: pairs})
 }
 
-// dateAggregatorFromJSON rebuilds an aggregator from the generic map that
-// unmarshalling a remote shard result produces (DateAggregations is a
-// map[string]interface{}, so the concrete type is not recoverable by
-// json.Unmarshal itself).
-func dateAggregatorFromJSON(raw map[string]interface{}) *dateAggregator {
+// dateAggregatorFromJSON rebuilds the wire form from the generic map
+// json.Unmarshal produces for an interface{} target.
+func dateAggregatorFromJSON(raw map[string]interface{}) (*dateAggregator, error) {
+	pairs, ok := raw["pairs"].([]interface{})
+	if !ok {
+		return nil, errors.New("date aggregator state missing from remote shard result, " +
+			"the remote node likely runs an older version")
+	}
+
 	agg := newDateAggregator()
-	pairs, _ := raw["pairs"].([]interface{})
 	for _, pair := range pairs {
 		pairMap, ok := pair.(map[string]interface{})
 		if !ok {
-			continue
+			return nil, errors.New("malformed date aggregator pair in remote shard result")
 		}
-		value, _ := pairMap["value"].(string)
-		count, _ := pairMap["count"].(float64)
+		value, okValue := pairMap["value"].(string)
+		count, okCount := pairMap["count"].(float64)
+		if !okValue || !okCount {
+			return nil, errors.New("malformed date aggregator pair in remote shard result")
+		}
 		t, err := time.Parse(time.RFC3339Nano, value)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("malformed date aggregator pair in remote shard result: %w", err)
 		}
 		agg.addRow(timestamp{epochNano: t.UnixNano(), rfc3339: value}, uint64(count))
 	}
 	agg.buildPairsFromCounts()
-	return agg
+	return agg, nil
 }
 
 func (a *dateAggregator) AddTimestamp(rfc3339 string) error {

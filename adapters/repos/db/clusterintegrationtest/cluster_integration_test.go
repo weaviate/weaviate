@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -382,6 +383,98 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		}
 
 		assert.Equal(t, expectedResult, res)
+	})
+
+	// regression test for https://github.com/weaviate/weaviate/issues/11687:
+	// mean/median/mode require merging raw aggregator state from remote shards
+	t.Run("aggregate numerical and date props across shards", func(t *testing.T) {
+		values := make([]float64, len(data))
+		for i, obj := range data {
+			values[i] = float64(obj.Properties.(map[string]interface{})["int_property"].(int))
+		}
+		var sum float64
+		counts := map[float64]int{}
+		for _, v := range values {
+			sum += v
+			counts[v]++
+		}
+		expectedMean := sum / float64(len(values))
+		var expectedMode float64
+		best := 0
+		for v, c := range counts {
+			if c > best || (c == best && v < expectedMode) {
+				best, expectedMode = c, v
+			}
+		}
+		sorted := append([]float64{}, values...)
+		sort.Float64s(sorted)
+		expectedMedian := (sorted[len(sorted)/2-1] + sorted[len(sorted)/2]) / 2
+
+		params := aggregation.Params{
+			ClassName: schema.ClassName(distributedClass),
+			Properties: []aggregation.ParamProperty{
+				{
+					Name: "int_property",
+					Aggregators: []aggregation.Aggregator{
+						aggregation.MeanAggregator, aggregation.MedianAggregator,
+						aggregation.ModeAggregator, aggregation.CountAggregator,
+					},
+				},
+				{
+					Name: "date_property",
+					Aggregators: []aggregation.Aggregator{
+						aggregation.MedianAggregator, aggregation.MinimumAggregator,
+						aggregation.MaximumAggregator, aggregation.CountAggregator,
+					},
+				},
+			},
+		}
+
+		logger, _ := test.NewNullLogger()
+		node := nodes[rnd.Intn(len(nodes))]
+		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger, config.Config{}))
+		require.Nil(t, err)
+		require.Len(t, res.Groups, 1)
+
+		num := res.Groups[0].Properties["int_property"].NumericalAggregations
+		assert.Equal(t, float64(len(data)), num["count"])
+		assert.InDelta(t, expectedMean, num["mean"], 0.0001)
+		assert.InDelta(t, expectedMedian, num["median"], 0.0001)
+		assert.Equal(t, expectedMode, num["mode"])
+
+		// date_property values are unique hourly timestamps starting at epoch
+		date := res.Groups[0].Properties["date_property"].DateAggregations
+		assert.Equal(t, int64(len(data)), date["count"])
+		assert.Equal(t, time.Unix(0, 0).UTC().Format(time.RFC3339Nano), date["minimum"])
+		assert.Equal(t, time.Unix(0, 0).Add(time.Duration(len(data)-1)*time.Hour).UTC().Format(time.RFC3339Nano),
+			date["maximum"])
+		assert.Equal(t, time.Unix(0, 0).Add(time.Duration(len(data)/2-1)*time.Hour+30*time.Minute).UTC().Format(time.RFC3339Nano),
+			date["median"])
+	})
+
+	t.Run("aggregate mean only across shards", func(t *testing.T) {
+		var sum float64
+		for _, obj := range data {
+			sum += float64(obj.Properties.(map[string]interface{})["int_property"].(int))
+		}
+
+		params := aggregation.Params{
+			ClassName: schema.ClassName(distributedClass),
+			Properties: []aggregation.ParamProperty{
+				{
+					Name:        "int_property",
+					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
+				},
+			},
+		}
+
+		logger, _ := test.NewNullLogger()
+		node := nodes[rnd.Intn(len(nodes))]
+		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger, config.Config{}))
+		require.Nil(t, err)
+		require.Len(t, res.Groups, 1)
+		assert.InDelta(t, sum/float64(len(data)),
+			res.Groups[0].Properties["int_property"].NumericalAggregations["mean"], 0.0001)
 	})
 
 	t.Run("modify an object using patch", func(t *testing.T) {
