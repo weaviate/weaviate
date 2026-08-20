@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -1862,6 +1863,157 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 	require.ElementsMatch(t, []MapPair{
 		{Key: []byte("ak1"), Value: []byte("av1")},
 	}, v)
+}
+
+// TestBucketMapListLegacyManualSorting covers the legacyRequireManualSorting
+// path in mapListFromConsistentView, which had no dedicated coverage: the
+// sort-unsorted-disk-segments block was moved (see bucket.go) to run right
+// after the disk-segment loop, before memtable results are appended to
+// entriesPerSegment, specifically so it never sorts a memtable's returned
+// slice in place. That slice is a shared, immutable cache snapshot
+// (binarySearchNodeMap.sortedCache) that concurrent readers hold pointers
+// into; sorting it in place would both corrupt the cache and race with other
+// readers/the incremental-merge writer.
+func TestBucketMapListLegacyManualSorting(t *testing.T) {
+	t.Run("sorts unsorted disk segments", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		diskSegments := &SegmentGroup{
+			segments: []Segment{
+				newFakeMapSegment(map[string][]MapPair{
+					// deliberately unsorted, >=3 keys, one ("k3") overlaps
+					// with the active memtable and must lose to it
+					"row": {
+						{Key: []byte("k5"), Value: []byte("dv5")},
+						{Key: []byte("k1"), Value: []byte("dv1")},
+						{Key: []byte("k3"), Value: []byte("dv3-old")},
+					},
+					// disk-only row, also unsorted, pins the plain
+					// disk-only case
+					"diskonly": {
+						{Key: []byte("d3"), Value: []byte("v3")},
+						{Key: []byte("d1"), Value: []byte("v1")},
+						{Key: []byte("d2"), Value: []byte("v2")},
+					},
+				}),
+			},
+		}
+
+		active := newTestMemtableMap(map[string][]MapPair{
+			"row": {
+				{Key: []byte("k3"), Value: []byte("dv3-new")},
+				{Key: []byte("k2"), Value: []byte("mv2")},
+			},
+		})
+
+		b := Bucket{
+			active:   active,
+			disk:     diskSegments,
+			strategy: StrategyMapCollection,
+			logger:   nullLogger(),
+		}
+
+		got, err := b.MapList(ctx, []byte("row"), MapListLegacySortingRequired())
+		require.NoError(t, err)
+		require.Equal(t, []MapPair{
+			{Key: []byte("k1"), Value: []byte("dv1")},
+			{Key: []byte("k2"), Value: []byte("mv2")},
+			{Key: []byte("k3"), Value: []byte("dv3-new")}, // active wins over disk
+			{Key: []byte("k5"), Value: []byte("dv5")},
+		}, got)
+
+		got, err = b.MapList(ctx, []byte("diskonly"), MapListLegacySortingRequired())
+		require.NoError(t, err)
+		require.Equal(t, []MapPair{
+			{Key: []byte("d1"), Value: []byte("v1")},
+			{Key: []byte("d2"), Value: []byte("v2")},
+			{Key: []byte("d3"), Value: []byte("v3")},
+		}, got)
+	})
+
+	t.Run("does not touch memtable snapshots under concurrency", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		row := []byte("row")
+
+		// A regressed in-place sort of the shared snapshot is not directly
+		// visible to -race: sort.Slice performs zero writes on already-sorted
+		// input (pdqsort bails on sorted runs), and memtable snapshots are
+		// always sorted. This subtest instead pins correctness while
+		// legacy-sorting reads race with appends that incrementally re-merge
+		// the shared cache snapshot.
+		const numInitial = 60
+		initial := make([]MapPair, numInitial)
+		for i := range initial {
+			key := make([]byte, 8)
+			binary.BigEndian.PutUint64(key, uint64(i))
+			initial[i] = MapPair{Key: key, Value: []byte(fmt.Sprintf("v%03d", i))}
+		}
+
+		active := newTestMemtableMap(map[string][]MapPair{"row": initial})
+
+		b := Bucket{
+			active:   active,
+			disk:     &SegmentGroup{},
+			strategy: StrategyMapCollection,
+			logger:   nullLogger(),
+		}
+
+		// warm the sortedValues() cache before the concurrent phase
+		_, err := b.MapList(ctx, row, MapListLegacySortingRequired())
+		require.NoError(t, err)
+
+		var refMu sync.Mutex
+		allRaw := append([]MapPair(nil), initial...)
+
+		var wg sync.WaitGroup
+
+		const numReaders = 2
+		const readerIters = 50
+		wg.Add(numReaders)
+		for r := 0; r < numReaders; r++ {
+			go func() {
+				defer wg.Done()
+				for i := 0; i < readerIters; i++ {
+					got, err := b.MapList(ctx, row, MapListLegacySortingRequired())
+					require.NoError(t, err)
+					for _, p := range got {
+						_ = p.Key[0]
+						if len(p.Value) > 0 {
+							_ = p.Value[0]
+						}
+					}
+				}
+			}()
+		}
+
+		const writerIters = 50
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < writerIters; i++ {
+				// unique keys beyond the initial range, so every write is a
+				// genuinely new map key forcing an incremental cache merge
+				key := make([]byte, 8)
+				binary.BigEndian.PutUint64(key, uint64(numInitial+1000+i))
+				pair := MapPair{Key: key, Value: []byte(fmt.Sprintf("new%03d", i))}
+
+				require.NoError(t, b.active.appendMapSorted(row, pair))
+
+				refMu.Lock()
+				allRaw = append(allRaw, pair)
+				refMu.Unlock()
+			}
+		}()
+
+		wg.Wait()
+
+		want := sortAndDedupValues(allRaw)
+		got, err := b.MapList(ctx, row)
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+	})
 }
 
 func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {

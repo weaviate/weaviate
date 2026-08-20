@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"sort"
+	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -55,6 +56,15 @@ func (t *binarySearchTreeMap) flattenInOrder() []*binarySearchNodeMap {
 	return t.root.flattenInOrder()
 }
 
+// mapRowSorted is an immutable snapshot of a row's postings sorted by Key and
+// deduped (last insert wins), covering the first upTo entries of the node's
+// append-only values slice. Never mutated after publish, so concurrent
+// readers share it without copying.
+type mapRowSorted struct {
+	upTo   int
+	sorted []MapPair
+}
+
 type binarySearchNodeMap struct {
 	key         []byte
 	values      []MapPair
@@ -62,6 +72,7 @@ type binarySearchNodeMap struct {
 	right       *binarySearchNodeMap
 	parent      *binarySearchNodeMap
 	colourIsRed bool
+	sortedCache atomic.Pointer[mapRowSorted]
 }
 
 func (n *binarySearchNodeMap) Parent() rbtree.Node {
@@ -178,7 +189,7 @@ func (n *binarySearchNodeMap) insert(key []byte, pair MapPair) *binarySearchNode
 
 func (n *binarySearchNodeMap) get(key []byte) ([]MapPair, error) {
 	if bytes.Equal(n.key, key) {
-		return sortAndDedupValues(n.values), nil
+		return n.sortedValues(), nil
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
@@ -262,6 +273,53 @@ func sortAndDedupValues(in []MapPair) []MapPair {
 	return out[:outIndex]
 }
 
+// sortedValues returns the row's postings sorted by Key, deduped (last insert
+// wins). The result is a shared immutable snapshot — callers must not modify
+// it. values is append-only, so a stale snapshot is still a valid sorted
+// prefix: only entries appended since it was taken are sorted and merged in.
+// Callers hold at least the memtable read lock; concurrent readers may race
+// to publish equivalent snapshots, which is benign.
+func (n *binarySearchNodeMap) sortedValues() []MapPair {
+	total := len(n.values)
+	c := n.sortedCache.Load()
+	if c != nil && c.upTo == total {
+		return c.sorted
+	}
+	var sorted []MapPair
+	if c == nil || c.upTo == 0 {
+		sorted = sortAndDedupValues(n.values[:total])
+	} else {
+		fresh := sortAndDedupValues(n.values[c.upTo:total])
+		sorted = mergeSortedPairs(c.sorted, fresh)
+	}
+	n.sortedCache.Store(&mapRowSorted{upTo: total, sorted: sorted})
+	return sorted
+}
+
+// mergeSortedPairs merges two sorted, deduped slices into a new slice. On
+// equal keys the pair from fresh wins (it was inserted later).
+func mergeSortedPairs(old, fresh []MapPair) []MapPair {
+	out := make([]MapPair, 0, len(old)+len(fresh))
+	i, j := 0, 0
+	for i < len(old) && j < len(fresh) {
+		cmp := bytes.Compare(old[i].Key, fresh[j].Key)
+		switch {
+		case cmp < 0:
+			out = append(out, old[i])
+			i++
+		case cmp > 0:
+			out = append(out, fresh[j])
+			j++
+		default:
+			out = append(out, fresh[j])
+			i++
+			j++
+		}
+	}
+	out = append(out, old[i:]...)
+	return append(out, fresh[j:]...)
+}
+
 func binarySearchNodeMapFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMap) {
 	if rbNode == nil {
 		bsNode = nil
@@ -272,9 +330,14 @@ func binarySearchNodeMapFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMap)
 }
 
 func (n *binarySearchNodeMap) shallowCopy() *binarySearchNodeMap {
+	// private copy: flatten consumers (cursors) may sort values in place,
+	// and the cache snapshot is shared with concurrent get callers
+	sorted := n.sortedValues()
+	values := make([]MapPair, len(sorted))
+	copy(values, sorted)
 	return &binarySearchNodeMap{
 		key:         n.key,
-		values:      sortAndDedupValues(n.values),
+		values:      values,
 		colourIsRed: n.colourIsRed,
 	}
 }
