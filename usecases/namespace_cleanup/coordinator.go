@@ -85,9 +85,10 @@ type RBACLister interface {
 	GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error)
 }
 
-// Coordinator runs one cleanup pass per Tick on the leader. isLeader is
-// re-checked before every RAFT write so the old leader stops issuing
-// writes once leadership moves.
+// Coordinator runs one cleanup pass per Tick on the leader. Tick re-checks
+// isLeader itself, so it holds under any caller, and re-checks it again before
+// every RAFT write, so a leader demoted mid-pass stops issuing them. A
+// partitioned leader still reads true; its writes fail to reach a quorum.
 type Coordinator struct {
 	namespaces namespaceLister
 	schema     schemaLister

@@ -17,6 +17,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// RunOnEveryNode is the tick gate for a cron job every node runs, rather than
+// only the leader.
+func RunOnEveryNode() bool { return true }
+
 func NewGoCronLogger(logger logrus.FieldLogger, infoLevel logrus.Level) *GoCronLogger {
 	return &GoCronLogger{logger: logger, infoLevel: infoLevel}
 }
