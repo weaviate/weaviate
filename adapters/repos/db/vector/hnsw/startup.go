@@ -541,7 +541,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 	// limit is read only by the serial prefiller, which runs under the same
 	// !h.compressed.Load() a compressed index never reaches. h.cache is nil there, so
 	// nothing below may touch it either.
-	nodes, limit := h.nodeCount(), 0
+	liveNodes, limit := h.liveNodeCount(), 0
 	if !h.compressed.Load() {
 		maxSize := h.cache.CopyMaxSize()
 
@@ -549,13 +549,13 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		// first query on an uncached node takes the count to maxSize and replaceIfFull
 		// drops the lot. Filling it anyway costs a whole pass, one random seek per
 		// vector on the serial path, for a cache that is empty again on first use.
-		if !cacheHoldsEveryNode(maxSize, nodes) {
+		if !cacheHoldsEveryNode(maxSize, liveNodes) {
 			h.cachePrefilled.Store(true)
 			h.logger.WithFields(logrus.Fields{
 				"action":     "hnsw_vector_cache_prefill",
 				"index_id":   h.id,
 				"cache_size": maxSize,
-				"nodes":      nodes,
+				"nodes":      liveNodes,
 			}).Info("skipping vector cache prefill: cache too small to hold every node")
 			return
 		}
@@ -592,7 +592,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 	// without the total it is a fraction of.
 	entry := h.logger.WithFields(logrus.Fields{
 		"index_id": h.id,
-		"nodes":    nodes,
+		"nodes":    liveNodes,
 	})
 	if h.waitForCachePrefill {
 		entry.WithFields(logrus.Fields{

@@ -127,6 +127,42 @@ func TestTargetedScanCountsTheWholeValueFallback(t *testing.T) {
 	assert.EqualValues(t, n, whole)
 }
 
+// TestTailReadsFireMajorityBoundary pins the strict majority the probe applies. A
+// bucket that is half legacy-shaped is not one the targeted path can serve, so 8 of 16
+// must be rejected and 9 of 16 admitted; with every existing case all-fire or no-fire,
+// turning <= into < would move routing silently.
+func TestTailReadsFireMajorityBoundary(t *testing.T) {
+	// a legacy vector this wide pushes the schema length past the peek, so those rows
+	// cannot resolve a tail; the rest can
+	legacy := make([]float32, 200)
+
+	for _, tc := range []struct {
+		name   string
+		firing int
+		want   bool
+	}{
+		{"8 of 16 is not a majority", 8, false},
+		{"9 of 16 is", 9, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newTestObjectsStore(t)
+			bucket := store.Bucket(helpers.ObjectsBucketLSM)
+			for i := 0; i < prefillTailProbeRows; i++ {
+				var vec []float32
+				if i >= tc.firing {
+					vec = legacy
+				}
+				putTargetedObject(t, bucket, uint64(i), uint64(i), targetedGatePayload, vec,
+					map[string][]float32{"custom": {1, 2}})
+			}
+			require.NoError(t, bucket.FlushAndSwitch())
+
+			h := newTargetedTestIndex(store, nil, "vectors_custom", nil, 0)
+			require.Equal(t, tc.want, h.tailReadsFire(context.Background(), bucket))
+		})
+	}
+}
+
 // prefillTargeted runs the targeted scan directly, bypassing the avg-entry-size
 // routing gate so both the tail path and the small-schema fallback get exercised.
 func prefillTargeted(t *testing.T, h *hnsw, target string) error {
@@ -223,7 +259,7 @@ func TestPrefillTargetedMatchesCursorScan(t *testing.T) {
 			}
 
 			viaCursor := collect(func(h *hnsw) error {
-				require.False(t, h.useTargetedPrefillScan(bucket),
+				require.False(t, h.useTargetedPrefillScan(context.Background(), bucket),
 					"baseline must take the cursor scan or the comparison is vacuous")
 				return h.prefillCacheParallel(context.Background())
 			})
@@ -357,7 +393,7 @@ func TestPrefillCacheParallelRoutesToTargetedScan(t *testing.T) {
 			h := newTargetedTestIndex(store, c, "vectors_custom", live, nodesLen)
 			h.tombstones[tombstonedID] = struct{}{}
 
-			require.Equal(t, tc.targeted, h.useTargetedPrefillScan(bucket),
+			require.Equal(t, tc.targeted, h.useTargetedPrefillScan(context.Background(), bucket),
 				"bucket does not put prefillCacheParallel on the expected path")
 			require.NoError(t, h.prefillCacheParallel(context.Background()))
 
@@ -386,11 +422,11 @@ func TestUseTargetedPrefillScanGate(t *testing.T) {
 	h := newTargetedTestIndex(nil, nil, "vectors_custom", nil, 0)
 
 	t.Setenv(prefillTargetedReadsEnv, "true")
-	require.False(t, h.useTargetedPrefillScan(small))
-	require.True(t, h.useTargetedPrefillScan(large))
+	require.False(t, h.useTargetedPrefillScan(context.Background(), small))
+	require.True(t, h.useTargetedPrefillScan(context.Background(), large))
 
 	t.Setenv(prefillTargetedReadsEnv, "false")
-	require.False(t, h.useTargetedPrefillScan(large))
+	require.False(t, h.useTargetedPrefillScan(context.Background(), large))
 }
 
 func TestPrefillStoppedByShutdown(t *testing.T) {
@@ -443,7 +479,7 @@ func TestTargetedGateAdmitsOnlyBucketsThatTakeTailReads(t *testing.T) {
 			require.NoError(t, bucket.FlushAndSwitch())
 
 			h := newTargetedTestIndex(store, nil, "vectors_custom", nil, 0)
-			if !h.useTargetedPrefillScan(bucket) {
+			if !h.useTargetedPrefillScan(context.Background(), bucket) {
 				return // not admitted: the cursor scan handles it, nothing to prove
 			}
 			admitted++
@@ -488,12 +524,12 @@ func TestTargetedGateRejectsUnreachableTail(t *testing.T) {
 	}
 
 	h := newTargetedTestIndex(nil, nil, "vectors_custom", nil, 0)
-	require.True(t, h.useTargetedPrefillScan(build(0)),
+	require.True(t, h.useTargetedPrefillScan(context.Background(), build(0)),
 		"named vectors with no legacy vector resolve a tail and should be admitted")
-	require.False(t, h.useTargetedPrefillScan(build(200)),
+	require.False(t, h.useTargetedPrefillScan(context.Background(), build(200)),
 		"a 200-dim legacy vector puts the schema length past the peek; no row can take the tail read")
 
 	// the legacy target itself is unaffected: it reads a bounded front prefix, never a tail
 	legacyIdx := newTargetedTestIndex(nil, nil, "main", nil, 0)
-	require.True(t, legacyIdx.useTargetedPrefillScan(build(200)))
+	require.True(t, legacyIdx.useTargetedPrefillScan(context.Background(), build(200)))
 }

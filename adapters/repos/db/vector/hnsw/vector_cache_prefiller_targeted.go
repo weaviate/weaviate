@@ -34,19 +34,16 @@ const (
 	// prefillTargetedMinSchemaLen gates the two-read path: below it, skipping the
 	// properties schema saves too little to justify a second read.
 	prefillTargetedMinSchemaLen = 8 << 10
-	// prefillTargetedMinAvgEntrySize is where the targeted scan starts paying on a
-	// network volume. Measured cold on gp3 under pread: the cursor scan is
-	// throughput-bound at ~130 MB/s whatever the row size, while the targeted scan
-	// costs two reads per row and is IOPS-bound, so it loses 2.9x at 16KB rows,
-	// breaks even near 40KB and wins 5.4x at 128KB. The crossover tracks the volume's
-	// throughput-to-IOPS ratio rather than anything about the data, so this sits well
-	// above the measured point: admitting too early costs a multiple, admitting too
-	// late only leaves a win unclaimed. Necessarily at or above the per-row schema
-	// gate, since a schema cannot exceed the row holding it.
+	// prefillTargetedMinAvgEntrySize is deliberately well above the crossover measured
+	// on gp3 (~40KB): below it the two reads per row cost more than the bytes they
+	// save, and admitting too early costs a multiple where admitting too late only
+	// leaves a win unclaimed. See the PR for the curve.
 	prefillTargetedMinAvgEntrySize = 128 << 10
 	// prefillTailProbeRows is how many rows the gate samples to check the tail read
 	// will actually fire; enough to tell a uniform collection apart from a stray row.
 	prefillTailProbeRows = 16
+	// uuidKeyLen is the objects bucket's key width: a marshalled uuid.
+	uuidKeyLen = 16
 )
 
 // prefillTargetedReadsEnv selects a read strategy for the scan. It cannot turn the scan
@@ -57,7 +54,7 @@ func prefillTargetedReadsEnabled() bool {
 	return entcfg.Enabled(os.Getenv(prefillTargetedReadsEnv))
 }
 
-func (h *hnsw) useTargetedPrefillScan(bucket *lsmkv.Bucket) bool {
+func (h *hnsw) useTargetedPrefillScan(ctx context.Context, bucket *lsmkv.Bucket) bool {
 	if !prefillTargetedReadsEnabled() ||
 		bucket.EstimatedEntrySize() < prefillTargetedMinAvgEntrySize {
 		return false
@@ -67,7 +64,7 @@ func (h *hnsw) useTargetedPrefillScan(bucket *lsmkv.Bucket) bool {
 	if h.getTargetVector() == "" {
 		return true
 	}
-	return h.tailReadsFire(bucket)
+	return h.tailReadsFire(ctx, bucket)
 }
 
 // tailReadsFire reports whether this bucket's rows will actually take the tail read.
@@ -76,12 +73,27 @@ func (h *hnsw) useTargetedPrefillScan(bucket *lsmkv.Bucket) bool {
 // 116 dimensions up. That is a property of the collection rather than of a row, which
 // is why it is a gate: see prefillTargetedMinAvgEntrySize for the cost of admitting a
 // bucket whose rows all fall back.
-func (h *hnsw) tailReadsFire(bucket *lsmkv.Bucket) bool {
+//
+// The cursor materializes whole rows before this slices them to the peek, so on a
+// bucket past the admission gate the probe reads megabytes. It therefore takes a
+// permit from the same node-wide pool as the scan it is deciding on, and polls the
+// prefill's context: routing runs before the scan does, so without both, every index
+// on a restoring node probes at once and none of them can be stopped by teardown.
+func (h *hnsw) tailReadsFire(ctx context.Context, bucket *lsmkv.Bucket) bool {
+	_, release, err := acquirePrefillWorkers(ctx, 1, h.logger)
+	if err != nil {
+		return false
+	}
+	defer release()
+
 	c := bucket.CursorReplaceReusable()
 	defer c.Close()
 
 	seen, firing := 0, 0
 	for k, v := c.First(); k != nil && seen < prefillTailProbeRows; k, v = c.Next() {
+		if ctx.Err() != nil {
+			return false
+		}
 		if len(v) == 0 {
 			continue
 		}
@@ -118,12 +130,18 @@ type targetedScanStats struct {
 	tail    atomic.Int64
 	whole   atomic.Int64
 	foreign atomic.Int64
+	// ioFailed counts rows whose bytes could not be read at all, as opposed to rows
+	// that decoded fine and simply carry no vector for this target. The two are
+	// indistinguishable in the cache that results, but only this one means the volume
+	// failed underneath the scan, and it must not be reported as a clean finish.
+	ioFailed atomic.Int64
 }
 
 func (s *targetedScanStats) fields() logrus.Fields {
 	return logrus.Fields{
 		"tail_reads":            s.tail.Load(),
 		"whole_value_fallbacks": s.whole.Load(),
+		"unreadable_rows":       s.ioFailed.Load(),
 	}
 }
 
@@ -147,7 +165,16 @@ func (h *hnsw) scanObjectVectorsTargeted(ctx context.Context, bucket *lsmkv.Buck
 
 	entry := h.logger.WithFields(stats.fields()).
 		WithFields(logrus.Fields{"action": "hnsw_vector_cache_prefill", "index_id": h.id})
-	entry.Info("targeted vector cache prefill scan finished")
+
+	// A read that failed leaves that vector to be fetched on the first query touching
+	// it, so the index still answers correctly; what it must not do is finish quietly,
+	// because cachePrefilled is set either way and nothing retries the prefill.
+	if n := stats.ioFailed.Load(); n > 0 {
+		entry.Warnf("targeted vector cache prefill scan finished with %d rows unread; "+
+			"those vectors load on demand and the prefill is not retried", n)
+	} else {
+		entry.Info("targeted vector cache prefill scan finished")
+	}
 
 	// a bucket that is not uuid-keyed would skip every row, so report the count once
 	// rather than leaving an empty cache explained only by per-row debug lines
@@ -215,6 +242,7 @@ func (h *hnsw) targetedVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector 
 	stats.tail.Add(1)
 	tail, err := e.ReadRange(tailStart, 0)
 	if err != nil {
+		stats.ioFailed.Add(1)
 		h.logSkippedRow("unreadable vector tail", err)
 		return nil, false
 	}
@@ -258,6 +286,7 @@ func (h *hnsw) legacyVectorFromEntry(e *lsmkv.TargetedScanEntry, stats *targeted
 	if uint64(len(buf)) < need {
 		buf, err = e.ReadRange(0, need)
 		if err != nil {
+			stats.ioFailed.Add(1)
 			h.logSkippedRow("unreadable vector prefix", err)
 			return nil, false
 		}
@@ -277,6 +306,7 @@ func (h *hnsw) vectorFromWholeValue(e *lsmkv.TargetedScanEntry, targetVector str
 	if uint64(len(whole)) < e.ValueSize {
 		var err error
 		if whole, err = e.ReadRange(0, 0); err != nil {
+			stats.ioFailed.Add(1)
 			h.logSkippedRow("unreadable value", err)
 			return nil, false
 		}
@@ -303,8 +333,11 @@ func (h *hnsw) decodeVectorRow(value []byte, targetVector string) ([]float32, bo
 // cached. The objects bucket is keyed by uuid and the row repeats it, so the two agree
 // unless the segment index is wrong.
 func checkObjectRowKey(key, peek []byte) error {
-	if len(key) == 0 {
-		return nil // not the objects bucket layout; nothing to check against
+	// Bucket.Put accepts any key, so an exact uuid length is part of the invariant
+	// rather than a precondition for checking it: a row stored under a short key is
+	// already not something this bucket's readers can address.
+	if len(key) != uuidKeyLen {
+		return fmt.Errorf("objects bucket key is %d bytes, not a uuid", len(key))
 	}
 	rowID, ok := storobj.UUIDFromPrefix(peek)
 	if !ok {

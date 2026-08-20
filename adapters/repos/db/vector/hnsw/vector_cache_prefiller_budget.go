@@ -24,19 +24,14 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// A scan prefill is bound by the volume it reads, not by the CPU that decodes. On a
-// gp3 volume the merged cursor reaches its sequential ceiling with four workers, and
-// every worker past that adds memory, an open cursor and a pinned segment without
-// adding throughput. Sizing per index therefore over-provisions badly: async loading
-// runs one prefill per named vector per shard, so a node restoring many tenants
-// multiplies 2xGOMAXPROCS by the number of indexes and they all queue on one device.
+// A scan prefill is bound by the volume it reads, not by the CPU that decodes, and a
+// node runs one prefill per named vector per shard. Permits are therefore node-wide:
+// width is still chosen per scan, but the total in flight across every index is capped
+// here, because past the volume's ceiling an extra worker adds an open cursor and a
+// pinned segment without adding throughput.
 //
-// The permits are node-wide for that reason. Width is still chosen per scan, but the
-// total in flight across every index is capped here.
-//
-// HNSW_PREFILL_SCAN_WORKERS overrides the cap. 0 disables scan prefill entirely and
-// falls back to the serial by-id prefiller, which is the revert path: the targeted
-// reads flag selects a read strategy, not whether the scan runs.
+// HNSW_PREFILL_SCAN_WORKERS overrides the cap; 0 disables the scan and falls back to
+// the serial by-id prefiller, which is the revert path.
 const prefillScanWorkersEnv = "HNSW_PREFILL_SCAN_WORKERS"
 
 var (
@@ -48,35 +43,63 @@ var (
 // prefillScanBudget returns the node-wide permit pool, or nil when scan prefill is
 // disabled. Resolved once: the value is a deployment-wide property and re-reading it
 // per shard would let a mid-restore change split the cap.
-func prefillScanBudget() (*semaphore.Weighted, int64) {
+func prefillScanBudget(logger logrus.FieldLogger) (*semaphore.Weighted, int64) {
 	prefillBudgetOnce.Do(func() {
 		prefillBudgetCap = defaultPrefillScanWorkers()
+
+		// A value that does not parse must not read as "use the default": this is the
+		// revert path, so a mistyped off switch failing open is the case an operator
+		// reaches for it in. Rejecting the pod instead would turn a typo into an outage
+		// on a setting that was previously ignored, so it warns and carries on.
 		if v := os.Getenv(prefillScanWorkersEnv); v != "" {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
+			n, err := strconv.ParseInt(v, 10, 64)
+			switch {
+			case err != nil || n < 0:
+				logger.WithFields(logrus.Fields{
+					"action": "hnsw_vector_cache_prefill",
+					"value":  v,
+				}).Warnf("ignoring %s: expected a non-negative integer", prefillScanWorkersEnv)
+			default:
 				prefillBudgetCap = n
 			}
 		}
+
 		if prefillBudgetCap > 0 {
 			prefillBudget = semaphore.NewWeighted(prefillBudgetCap)
 		}
+		// once per process, so a restore that behaves unexpectedly can be traced to the
+		// cap that was actually resolved rather than to the one that was configured
+		logger.WithFields(logrus.Fields{
+			"action":  "hnsw_vector_cache_prefill",
+			"workers": prefillBudgetCap,
+		}).Info("resolved the node-wide vector cache prefill scan worker cap")
 	})
 	return prefillBudget, prefillBudgetCap
 }
 
-// defaultPrefillScanWorkers keeps the previous per-index width as the node-wide total:
-// enough to saturate a network volume, and the same number a single-index node used
-// to get, so nothing gets slower for the common case of one index.
-func defaultPrefillScanWorkers() int64 {
-	n := int64(2 * runtime.GOMAXPROCS(0))
-	if n < 1 {
-		n = 1
+// prefillScanParallelism is the width one scan asks for: 2x GOMAXPROCS, so that while
+// one reader blocks on disk another keeps a core busy decoding, the IO-bound default
+// used across the vector package.
+func prefillScanParallelism() int {
+	const cursorsPerProc = 2
+	parallel := cursorsPerProc * runtime.GOMAXPROCS(0)
+	if parallel < 1 {
+		parallel = 1
 	}
-	return n
+	return parallel
+}
+
+// defaultPrefillScanWorkers makes the node-wide total the width one scan would have
+// taken on its own, so a single-index node behaves exactly as it did before the cap
+// existed and only the many-index case is bounded. Derived from prefillScanParallelism
+// rather than restating it, so the two cannot drift apart.
+func defaultPrefillScanWorkers() int64 {
+	return int64(prefillScanParallelism())
 }
 
 // scanPrefillEnabled reports whether the scan may run at all.
-func scanPrefillEnabled() bool {
-	_, cap := prefillScanBudget()
+func scanPrefillEnabled(logger logrus.FieldLogger) bool {
+	_, cap := prefillScanBudget(logger)
 	return cap > 0
 }
 
@@ -93,7 +116,7 @@ var errScanPrefillDisabled = errors.New("vector cache scan prefill is disabled")
 // width instead would serialize scans node-wide, since the default width is the whole
 // pool, and leave the last shard of a restore queued behind every earlier one.
 func acquirePrefillWorkers(ctx context.Context, want int, logger logrus.FieldLogger) (int, func(), error) {
-	sem, cap := prefillScanBudget()
+	sem, cap := prefillScanBudget(logger)
 	if sem == nil {
 		return 0, func() {}, errScanPrefillDisabled
 	}

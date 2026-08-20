@@ -16,7 +16,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -76,7 +75,7 @@ func (h *hnsw) useParallelPrefill() (bool, string) {
 	if h.hfreshMode {
 		return false, "hfresh cache is not filled from object rows"
 	}
-	if !scanPrefillEnabled() {
+	if !scanPrefillEnabled(h.logger) {
 		return false, "scan prefill disabled by " + prefillScanWorkersEnv
 	}
 	return parallelPrefillEligible(h.parallelPrefillInputs())
@@ -90,15 +89,33 @@ func (h *hnsw) parallelPrefillInputs() parallelPrefillInputs {
 		muvera:             h.muvera.Load(),
 		canPreloadIfAbsent: canPreloadIfAbsent,
 		cacheMaxSize:       h.cache.CopyMaxSize(),
-		nodeCount:          h.nodeCount(),
+		liveNodes:          h.liveNodeCount(),
 	}
 }
 
-func (h *hnsw) nodeCount() int64 {
+// liveNodeCount counts the nodes a prefill would actually load. len(h.nodes) is the
+// allocated span, which growIndexToAccomodateNode rounds up in MinimumIndexGrowthDelta
+// steps and which restore sizes from the highest surviving doc id, so on a small or
+// delete-heavy index it overstates the live count by orders of magnitude: ten live
+// nodes sit in a slice of two thousand. Admission compares against a cache size the
+// operator set for the data, so it has to count the data.
+//
+// Tombstoned nodes are counted, though prefillEligible skips them. Over-counting only
+// costs a prefill that would have fit; under-counting would admit one the first query
+// then discards.
+func (h *hnsw) liveNodeCount() int64 {
 	h.RLock()
 	defer h.RUnlock()
+	h.shardedNodeLocks.RLockAll()
+	defer h.shardedNodeLocks.RUnlockAll()
 
-	return int64(len(h.nodes))
+	var live int64
+	for _, node := range h.nodes {
+		if node != nil {
+			live++
+		}
+	}
+	return live
 }
 
 type parallelPrefillInputs struct {
@@ -106,7 +123,7 @@ type parallelPrefillInputs struct {
 	muvera             bool
 	canPreloadIfAbsent bool
 	cacheMaxSize       int64
-	nodeCount          int64
+	liveNodes          int64
 }
 
 // parallelPrefillEligible is useParallelPrefill's decision core, split out so the
@@ -124,8 +141,8 @@ func parallelPrefillEligible(in parallelPrefillInputs) (bool, string) {
 	}
 	// prefillCache screens this first, but nodes can grow between that check and the
 	// scan starting on the async path
-	if !cacheHoldsEveryNode(in.cacheMaxSize, in.nodeCount) {
-		return false, "cache is smaller than the node count"
+	if !cacheHoldsEveryNode(in.cacheMaxSize, in.liveNodes) {
+		return false, "cache is smaller than the live node count"
 	}
 	return true, ""
 }
@@ -138,8 +155,8 @@ func parallelPrefillEligible(in parallelPrefillInputs) (bool, string) {
 // Exact fit is admitted deliberately. The reserved slot leaves one node uncached, so a
 // query on that node can still trigger the wipe, but every other node stays resident
 // and that wipe is one the workload reaches on its own once it has touched them all.
-func cacheHoldsEveryNode(maxSize, nodeCount int64) bool {
-	return maxSize >= nodeCount
+func cacheHoldsEveryNode(maxSize, liveNodes int64) bool {
+	return maxSize >= liveNodes
 }
 
 // prefillCacheParallel fills the cache by scanning the objects bucket. The by-id
@@ -156,7 +173,7 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	}
 
 	targetVector := h.getTargetVector()
-	if h.useTargetedPrefillScan(bucket) {
+	if h.useTargetedPrefillScan(ctx, bucket) {
 		h.logPrefillPath(prefillPathTargetedScan, "")
 		return h.prefillFromScan(ctx, func(ctx context.Context, onVector prefillOnVector) error {
 			return h.scanObjectVectorsTargeted(ctx, bucket, targetVector, onVector)
@@ -222,6 +239,15 @@ func (s *prefillSink) accept(id uint64, vec []float32) error {
 		s.claimed.Add(-1)
 		return s.stop(errPrefillCacheFull)
 	}
+	// Probed before the vector is retained, not after. The estimate covers the batch
+	// about to be cached, so checking on the way out consults an already-rejecting
+	// checker only once a full batch is resident: at the largest supported dimension
+	// that is most of a gigabyte the node had already said it could not spare.
+	if n := s.loaded.Load(); n%prefillAllocCheckEvery == 0 && s.h.allocChecker != nil {
+		if err := s.h.allocChecker.CheckAlloc(prefillAllocCheckEvery * int64(len(vec)) * 4); err != nil {
+			return s.stop(fmt.Errorf("%w: %w", errPrefillMemoryPressure, err))
+		}
+	}
 	// cosine-dot keeps normalized vectors in the cache; the serial path gets this
 	// from the cache's normalizeOnRead wrapper, which the preload bypasses. vec is
 	// a fresh per-vector allocation, so normalizing in place is safe.
@@ -230,11 +256,7 @@ func (s *prefillSink) accept(id uint64, vec []float32) error {
 		s.claimed.Add(-1) // slot already populated; hand the reservation back
 		return nil
 	}
-	if n := s.loaded.Add(1); n%prefillAllocCheckEvery == 0 && s.h.allocChecker != nil {
-		if err := s.h.allocChecker.CheckAlloc(prefillAllocCheckEvery * int64(len(vec)) * 4); err != nil {
-			return s.stop(fmt.Errorf("%w: %w", errPrefillMemoryPressure, err))
-		}
-	}
+	s.loaded.Add(1)
 	return nil
 }
 
@@ -269,7 +291,7 @@ func (h *hnsw) logPrefillOutcome(count int64, took time.Duration, err error) err
 	switch {
 	case err == nil:
 		entry.WithFields(logrus.Fields{
-			"nodes":    h.nodeCount(),
+			"nodes":    h.liveNodeCount(),
 			"took":     took,
 			"parallel": true,
 		}).Info("prefilled vector cache")
@@ -335,17 +357,6 @@ func objectsRowDecoder(targetVector string, logger logrus.FieldLogger) prefillRo
 		}
 		return id, vec, true
 	}
-}
-
-// prefillScanParallelism is 2x GOMAXPROCS: while one reader blocks on disk another
-// keeps a core busy decoding — the IO-bound default used across the vector package.
-func prefillScanParallelism() int {
-	const cursorsPerProc = 2
-	parallel := cursorsPerProc * runtime.GOMAXPROCS(0)
-	if parallel < 1 {
-		parallel = 1
-	}
-	return parallel
 }
 
 // scanBucketVectorsParallel scans a replace-strategy bucket over disjoint key ranges,

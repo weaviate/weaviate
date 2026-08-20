@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -260,7 +261,7 @@ func TestParallelPrefillEligible(t *testing.T) {
 		muvera:             false,
 		canPreloadIfAbsent: true,
 		cacheMaxSize:       1e12,
-		nodeCount:          1000,
+		liveNodes:          1000,
 	}
 
 	tests := []struct {
@@ -274,11 +275,11 @@ func TestParallelPrefillEligible(t *testing.T) {
 		// objects bucket this scan reads — it takes the muvera scan instead.
 		{"muvera does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = true }, false},
 		{"muvera without multivector flag does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = false; in.muvera = true }, false},
-		{"bounded cache (max < nodes) keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.nodeCount = 1000 }, false},
+		{"bounded cache (max < nodes) keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.liveNodes = 1000 }, false},
 		// the scan leaves prefillReservedCacheSlots free, so an exact fit still fits
-		{"cache exactly fits nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, true},
-		{"cache one slot larger than nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1001; in.nodeCount = 1000 }, true},
-		{"empty index (0 nodes) is eligible", func(in *parallelPrefillInputs) { in.nodeCount = 0 }, true},
+		{"cache exactly fits nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.liveNodes = 1000 }, true},
+		{"cache one slot larger than nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1001; in.liveNodes = 1000 }, true},
+		{"empty index (0 nodes) is eligible", func(in *parallelPrefillInputs) { in.liveNodes = 0 }, true},
 		// the scan runs alongside live writes, so an overwriting Preload is not enough:
 		// without if-absent semantics it could clobber a newer inserted vector
 		{"cache without PreloadIfAbsent keeps serial path", func(in *parallelPrefillInputs) { in.canPreloadIfAbsent = false }, false},
@@ -516,9 +517,9 @@ func (failingAllocChecker) CheckMappingAndReserve(int64, int) error { return nil
 func (failingAllocChecker) Refresh(bool)                            {}
 
 // TestPrefillCacheParallelAbortsUnderMemoryPressure: with a failing allocChecker the
-// scan stops at the first probe and prefill degrades gracefully (nil error, partial
-// cache); the memtable-only bucket forces a single scan range, making the abort point
-// deterministic.
+// scan retains nothing and prefill degrades gracefully, returning a nil error and
+// leaving the vectors to load on demand. The probe runs before the first vector is
+// cached, so a node already out of memory does not first take on a whole batch.
 func TestPrefillCacheParallelAbortsUnderMemoryPressure(t *testing.T) {
 	const n = prefillAllocCheckEvery + 500
 	store := newTestObjectsStore(t)
@@ -534,7 +535,8 @@ func TestPrefillCacheParallelAbortsUnderMemoryPressure(t *testing.T) {
 	h := newPrefillTestIndex("main", store, c, n, distancer.NewDotProductProvider(), logger)
 	h.allocChecker = failingAllocChecker{}
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
-	require.Equal(t, int64(prefillAllocCheckEvery), c.CountVectors())
+	require.Zero(t, c.CountVectors(),
+		"a rejecting checker must be consulted before the first vector is retained")
 }
 
 // TestPrefillCacheParallelSkipsWhenAlreadyCompressed: an index that is already
@@ -816,6 +818,61 @@ func TestPrefillCacheStopsBelowMaxSize(t *testing.T) {
 					"every compression path disabled for the life of the index")
 		})
 	}
+}
+
+// TestPrefillFromScanSurfacesOrdinaryErrors: only the graceful aborts may be swallowed.
+// Memory pressure, a full cache and mid-scan compression all return nil by design, so a
+// future case folded into that switch would silently join them; the panic test does not
+// cover this because a panic arrives as a different error entirely.
+func TestPrefillFromScanSurfacesOrdinaryErrors(t *testing.T) {
+	sentinel := errors.New("segment read failed")
+
+	logger, hook := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(10)
+	h := newPrefillTestIndex("main", nil, c, 10, distancer.NewDotProductProvider(), logger)
+
+	err := h.prefillFromScan(context.Background(),
+		func(context.Context, prefillOnVector) error { return sentinel })
+	require.ErrorIs(t, err, sentinel, "an ordinary scan failure must reach the caller")
+
+	for _, e := range hook.AllEntries() {
+		require.NotEqual(t, "prefilled vector cache", e.Message,
+			"a failed prefill must not also log success")
+	}
+}
+
+// TestPrefillCacheOnASparseIndex: admission must count live nodes, not the allocated
+// span. growIndexToAccomodateNode rounds the node slice up in 2000-slot steps and
+// restore sizes it from the highest surviving doc id, so a collection of ten objects
+// sits in a slice of thousands. Measuring the span classifies a cache the operator
+// sized for the data as too small and skips a prefill that fits with room to spare —
+// the same allocated-span-for-occupancy error the serial prefiller's Len() had.
+func TestPrefillCacheOnASparseIndex(t *testing.T) {
+	const (
+		live      = 10
+		allocated = 3000 // what a restored index of this size really carries
+		maxSize   = 100  // vectorCacheMaxObjects, sized for the data
+	)
+
+	logger, _ := test.NewNullLogger()
+	vecFor := func(ctx context.Context, id uint64) ([]float32, error) {
+		return []float32{float32(id), 1}, nil
+	}
+	c := cache.NewShardedFloat32LockCache(vecFor, nil, maxSize, 1, logger, false, 0, nil)
+	c.Grow(allocated)
+
+	h := newPrefillTestIndex("main", nil, c, allocated, distancer.NewDotProductProvider(), logger)
+	for i := live; i < allocated; i++ {
+		h.nodes[i] = nil // never indexed, or deleted and not yet compacted away
+	}
+	require.EqualValues(t, live, h.liveNodeCount())
+
+	h.waitForCachePrefill = true
+	h.prefillCache(context.Background())
+
+	require.EqualValues(t, live, c.CountVectors(),
+		"every live vector fits in the cache, so all of them must be prefilled")
 }
 
 // TestPrefillFromScanSurfacesWorkerPanic: a scan worker that panics must fail the

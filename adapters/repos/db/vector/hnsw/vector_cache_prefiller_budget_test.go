@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -134,9 +135,15 @@ func TestPrefillScanWorkersDegradeRatherThanQueue(t *testing.T) {
 	defer release()
 	require.Equal(t, 3, held)
 
+	// Bounded, because this test holds the only permits that could unblock a
+	// regression: waiting for the full width would otherwise hang the package rather
+	// than fail it.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// asks for the whole pool with one permit free; must not block for the other three
-	got, release2, err := acquirePrefillWorkers(context.Background(), 4, logger)
-	require.NoError(t, err)
+	got, release2, err := acquirePrefillWorkers(ctx, 4, logger)
+	require.NoError(t, err, "a scan that cannot have its full width must degrade, not queue")
 	defer release2()
 	require.Equal(t, 1, got, "a scan that cannot have the full width must take what is free")
 }
@@ -154,11 +161,37 @@ func TestAcquirePrefillWorkersRefusesWhenDisabled(t *testing.T) {
 	require.NotNil(t, release, "callers defer the release before checking the error")
 }
 
+// TestPrefillScanWorkersRejectsInvalidValues: this is the revert path, so a value that
+// does not parse must not read as "use the default" without saying so. The resolved cap
+// stays at the default and the warning is what tells an operator their off switch was
+// ignored.
+func TestPrefillScanWorkersRejectsInvalidValues(t *testing.T) {
+	for _, v := range []string{"banana", "-1", "1e9", "9999999999999999999999", " 4"} {
+		t.Run(v, func(t *testing.T) {
+			withPrefillWorkers(t, v)
+			logger, hook := test.NewNullLogger()
+
+			_, cap := prefillScanBudget(logger)
+			require.Equal(t, defaultPrefillScanWorkers(), cap,
+				"an unparseable value must leave the default in place")
+
+			var warned bool
+			for _, e := range hook.AllEntries() {
+				if e.Level == logrus.WarnLevel {
+					warned = true
+				}
+			}
+			require.True(t, warned, "an ignored worker setting must be reported")
+		})
+	}
+}
+
 // TestPrefillScanEnabledByDefault guards the default: the bound exists to stop a node
 // over-committing, not to turn the feature off when nobody configured it.
 func TestPrefillScanEnabledByDefault(t *testing.T) {
 	withPrefillWorkers(t, "")
-	require.True(t, scanPrefillEnabled())
-	_, cap := prefillScanBudget()
+	logger, _ := test.NewNullLogger()
+	require.True(t, scanPrefillEnabled(logger))
+	_, cap := prefillScanBudget(logger)
 	require.Equal(t, defaultPrefillScanWorkers(), cap)
 }
