@@ -225,7 +225,10 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 // TestNamespaces_CustomRoleCannotReachOperatorDomains: even when an operator
 // delegates a global role granting backups/nodes/replicate to a namespaced user,
 // the user is denied those surfaces — own namespace and foreign alike — while
-// root reaches them, proving a real deny rather than a disabled endpoint.
+// root reaches them, proving a real deny rather than a disabled endpoint. The
+// one exception is the verbose per-collection nodes resource, which is
+// namespace-bearing: the delegated verbose grant works, scoped to the caller's
+// namespace, while the node-wide minimal view stays denied.
 func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 	t.Parallel()
 	ns1, ns2, u1Key, _ := twoNamespaces(t)
@@ -249,6 +252,10 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 				WithAction(authorization.ReadNodes).
 				WithVerbosity("verbose").
 				WithCollection("*").
+				Permission(),
+			helper.NewNodesPermission().
+				WithAction(authorization.ReadNodes).
+				WithVerbosity("minimal").
 				Permission(),
 			{
 				Action: authorization.String(authorization.CreateReplicate),
@@ -300,14 +307,25 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 		helper.ExpectBackupEventuallyCreated(t, backupID, s3Backend, helper.CreateAuth(adminKey))
 	})
 
-	t.Run("nodes verbose: namespaced role denied own collection, root passes authz", func(t *testing.T) {
-		// Nodes rejects a foreign name before authz, so the reachable journey is
-		// the caller's own class by short name.
+	t.Run("nodes: verbose grant scopes to own namespace, minimal stays denied, root passes authz", func(t *testing.T) {
 		verbose := "verbose"
+		minimal := "minimal"
 		var forbidden *nodes.NodesGetClassForbidden
 
+		// The verbose-collections grant is namespace-bearing: the matcher
+		// specializes it to ns1, so the caller's own class by short name is
+		// allowed. 404s until the slowest follower has the index, so retry.
+		retryOnAliasLag(t, func() error {
+			_, err := helper.Client(t).Nodes.NodesGetClass(
+				nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(&verbose),
+				helper.CreateAuth(u1Key))
+			return err
+		})
+
+		// The node-wide minimal view stays operator-only even though the role
+		// grants minimal read_nodes.
 		_, err := helper.Client(t).Nodes.NodesGetClass(
-			nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(&verbose),
+			nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(&minimal),
 			helper.CreateAuth(u1Key))
 		require.Error(t, err)
 		require.True(t, errors.As(err, &forbidden), "expected NodesGetClassForbidden, got %T: %v", err, err)

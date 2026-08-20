@@ -26,8 +26,8 @@ pip install -r requirements.txt --quiet
 
 # Mode dispatch:
 #   default      → standard python suite against docker-compose-test.yml
-#   namespaces   → only test_namespace_refs.py against the 3-node
-#                  docker-compose-namespaces-test.yml cluster (caller is
+#   namespaces   → the namespace-only files (test_namespace_*.py) against the
+#                  3-node docker-compose-namespaces-test.yml cluster (caller is
 #                  responsible for bringing the compose up beforehand; see
 #                  test/run.sh --acceptance-only-python-namespaces).
 #
@@ -39,12 +39,13 @@ MODE="${1:-default}"
 
 case "$MODE" in
   namespaces)
-    pytest -n auto --dist loadgroup test_namespace_refs.py
+    pytest -n auto --dist loadgroup test_namespace_refs.py test_namespace_nodes.py
     ;;
   default)
     pytest -n auto --dist loadgroup \
       --ignore=test_readonly_recovery.py \
       --ignore=test_namespace_refs.py \
+      --ignore=test_namespace_nodes.py \
       .
     ;;
   *)

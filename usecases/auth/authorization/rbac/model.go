@@ -342,8 +342,13 @@ func rewritePolicy(policy, prefix string, fixedNs bool) (string, bool) {
 // is denied these regardless of any role granting them. Groups are global:
 // their ids are not namespace-bearing, so a namespaced caller must never reach
 // them. roles is excluded: role resources are namespace-bearing via qualified
-// names, so a blanket prefix-deny would be wrong for them.
+// names, so a blanket prefix-deny would be wrong for them. The verbose
+// per-collection nodes resource is likewise namespace-bearing and is carved
+// out; the node-wide minimal view stays operator-only.
 func operatorOnlyResource(path string) bool {
+	if strings.HasPrefix(path, namespacing.NodesVerboseCollectionsPrefix) {
+		return false
+	}
 	return strings.HasPrefix(path, backupsPrefix) ||
 		strings.HasPrefix(path, nodesPrefix) ||
 		strings.HasPrefix(path, replicatePrefix) ||
@@ -377,6 +382,14 @@ func weaviateKeyMatch(reqObj, polObj string) bool {
 func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	// Namespaced callers have no access to operator-only domains, whatever the policy.
 	if ns != "" && operatorOnlyResource(reqObj) {
+		return false
+	}
+	// The verbose-nodes carve-out must not widen unshaped policies: a
+	// namespaced caller reaches verbose nodes only via a policy naming that
+	// shape itself. Broader patterns (root's "*", "nodes/.*") were covered by
+	// the blanket deny above and must stay denied.
+	if ns != "" && strings.HasPrefix(reqObj, namespacing.NodesVerboseCollectionsPrefix) &&
+		!strings.HasPrefix(polObj, namespacing.NodesVerboseCollectionsPrefix) {
 		return false
 	}
 
