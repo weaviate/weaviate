@@ -13,9 +13,13 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -187,4 +191,108 @@ func TestGetAsyncReplicationStats(t *testing.T) {
 			assert.Equal(t, tt.wantTargets, reported, "order of the reported targets")
 		})
 	}
+}
+
+func TestShardHashTreeLevel(t *testing.T) {
+	ctx := context.Background()
+	height := 6
+	ht, err := hashtree.NewHashTree(height)
+	require.NoError(t, err)
+	for i := uint64(0); i < uint64(hashtree.LeavesCount(height)); i++ {
+		require.NoError(t, ht.AggregateLeafWith(i, []byte{byte(i)}))
+	}
+	s := &Shard{index: &Index{}, hashtree: ht, hashtreeFullyInitialized: true}
+
+	t.Run("matches full-width reference on every level", func(t *testing.T) {
+		for level := 0; level <= height; level++ {
+			width := hashtree.LeavesCount(level)
+			sparse := hashtree.NewBitset(width)
+			for i := 0; i < width; i += 3 {
+				sparse.Set(i)
+			}
+			for _, disc := range []*hashtree.Bitset{
+				hashtree.NewBitset(width).Set(0),
+				sparse,
+				hashtree.NewBitset(width).SetAll(),
+				hashtree.NewBitset(width),
+			} {
+				want := make([]hashtree.Digest, width)
+				n, err := ht.Level(level, disc, want)
+				require.NoError(t, err)
+
+				got, err := s.HashTreeLevel(ctx, level, disc)
+				require.NoError(t, err)
+				require.Equal(t, want[:n], got)
+				require.Equal(t, disc.SetCount(), cap(got))
+			}
+		}
+	})
+
+	t.Run("rejections", func(t *testing.T) {
+		testCases := []struct {
+			name      string
+			shard     *Shard
+			level     int
+			disc      *hashtree.Bitset
+			wantErrIs error
+		}{
+			{"negative level", s, -1, hashtree.NewBitset(1).Set(0), nil},
+			{"level above maximum height", s, maxHashtreeHeight + 1, hashtree.NewBitset(1).Set(0), nil},
+			{"level above tree height", s, height + 1, hashtree.NewBitset(1).Set(0), errAsyncReplicationNotActive},
+			{"nil discriminant", s, 0, nil, nil},
+			{"wrong discriminant size", s, 2, hashtree.NewBitset(1).Set(0), nil},
+			{"nil hashtree", &Shard{index: &Index{}}, 0, hashtree.NewBitset(1).Set(0), errAsyncReplicationNotActive},
+			{"hashtree not fully initialized", &Shard{index: &Index{}, hashtree: ht}, 0, hashtree.NewBitset(1).Set(0), errAsyncReplicationNotActive},
+		}
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				_, err := tc.shard.HashTreeLevel(ctx, tc.level, tc.disc)
+				require.Error(t, err)
+				if tc.wantErrIs != nil {
+					require.ErrorIs(t, err, tc.wantErrIs)
+				} else {
+					require.NotErrorIs(t, err, errAsyncReplicationNotActive)
+				}
+			})
+		}
+	})
+}
+
+func TestLazyLoadShardHashTreeLevelUnloaded(t *testing.T) {
+	l := &LazyLoadShard{}
+	digests, err := l.HashTreeLevel(context.Background(), 0, hashtree.NewBitset(1).Set(0))
+	require.ErrorIs(t, err, errAsyncReplicationNotActive)
+	assert.Nil(t, digests)
+}
+
+func TestNoteHashbeatSkipEscalatesAfterConsecutiveRuns(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	s := &Shard{
+		class:   &models.Class{Class: "TestClass"},
+		index:   &Index{logger: logger},
+		metrics: &Metrics{},
+	}
+	skipErr := fmt.Errorf("%w: peer restarting", errAsyncReplicationNotActive)
+
+	warns := func() int {
+		n := 0
+		for _, e := range hook.AllEntries() {
+			if e.Level == logrus.WarnLevel {
+				n++
+			}
+		}
+		return n
+	}
+
+	for i := 0; i < asyncRepSkipWarnEvery-1; i++ {
+		s.noteHashbeatSkip(skipErr, time.Hour)
+	}
+	require.Zero(t, warns())
+
+	s.noteHashbeatSkip(skipErr, time.Hour)
+	require.Equal(t, 1, warns())
+
+	s.asyncRepConsecutiveSkips.Store(0)
+	s.noteHashbeatSkip(skipErr, time.Hour)
+	require.Equal(t, 1, warns())
 }

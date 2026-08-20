@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // Direct table tests for Task / TaskStatus predicates. These appear
@@ -24,10 +23,16 @@ import (
 // flip behavior without any localized test failure.
 // weaviate/0-weaviate-issues#243.
 
+// unknownFutureStatus stands in for a status a newer release introduced.
+// Keep it a string no release will ever declare, or these tests start
+// asserting facts about a real one. A var, not a const: the exhaustive
+// linter treats every TaskStatus const in the package as an enum member.
+var unknownFutureStatus = TaskStatus("UNKNOWN_FUTURE_STATE")
+
 // fixtureTask builds a Task with a controlled unit assignment for the
 // table tests below. Two groups (g1, g2), three nodes (n-1, n-2, n-3),
 // one unit on n-3 that is "unassigned" (empty NodeID) to exercise the
-// edge in NodesWithLocalUnits / LocalUnitIDs.
+// edge in NodesWithLocalUnits / LocalGroupUnitIDs.
 func fixtureTask() *Task {
 	return &Task{
 		Status: TaskStatusStarted,
@@ -56,11 +61,21 @@ func TestTaskStatus_IsActive(t *testing.T) {
 		{TaskStatusFinished, false},
 		{TaskStatusFailed, false},
 		{TaskStatusCancelled, false},
-		{TaskStatus("UNKNOWN_FUTURE_STATE"), false},
-		{TaskStatus(""), false},
+		// A status this build cannot recognize counts as in-flight:
+		// reading it as done would admit a second migration onto a
+		// property a newer node is still migrating.
+		{unknownFutureStatus, true},
+		{TaskStatus("started"), true}, // wrong case is not TaskStatusStarted
+		// The zero value: a task whose status field never got written.
+		// Unrecognized like any other, so it is read as in flight.
+		{TaskStatus(""), true},
 	}
 	for _, tc := range cases {
-		t.Run(string(tc.status), func(t *testing.T) {
+		name := string(tc.status)
+		if name == "" {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
 			assert.Equal(t, tc.active, tc.status.IsActive(),
 				"%q.IsActive() should be %v", tc.status, tc.active)
 		})
@@ -93,70 +108,26 @@ func TestTaskStatus_IsCompleted(t *testing.T) {
 	}
 }
 
-// TestTaskStatus_IsCoordinationPhase pins the PREPARING/SWAPPING
-// classification used by the scheduler's bootstrap pre-mark logic
-// (`preMarkTerminalCallbacksLocked`) — every task in a coordination
-// phase on restart must NOT have its terminal callbacks replayed
-// (because they may not have run yet). Adding a new coordination
-// phase (e.g. a future "VALIDATING") without updating this method
-// would silently regress that protection.
-func TestTaskStatus_IsCoordinationPhase(t *testing.T) {
+// Pins: IsRecognized is true for every real status and false otherwise.
+func TestTaskStatus_IsRecognized(t *testing.T) {
 	cases := []struct {
-		status         TaskStatus
-		coordination   bool
-		shouldBeActive bool // sanity cross-check with IsActive
+		status     TaskStatus
+		recognized bool
 	}{
-		{TaskStatusStarted, false, true},
-		{TaskStatusPreparing, true, true},
-		{TaskStatusSwapping, true, true},
-		{TaskStatusFinished, false, false},
-		{TaskStatusFailed, false, false},
-		{TaskStatusCancelled, false, false},
-		{TaskStatus("UNKNOWN_FUTURE_STATE"), false, false},
-		{TaskStatus(""), false, false},
+		{TaskStatusStarted, true},
+		{TaskStatusPreparing, true},
+		{TaskStatusSwapping, true},
+		{TaskStatusFinished, true},
+		{TaskStatusFailed, true},
+		{TaskStatusCancelled, true},
+		{unknownFutureStatus, false},
+		{TaskStatus(""), false},
+		{TaskStatus("started"), false}, // wrong case is not TaskStatusStarted
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.status), func(t *testing.T) {
-			assert.Equal(t, tc.coordination, tc.status.IsCoordinationPhase(),
-				"%q.IsCoordinationPhase() should be %v", tc.status, tc.coordination)
-			// Cross-invariant: a coordination phase is always active.
-			// IsCoordinationPhase ⊂ IsActive, by design.
-			if tc.coordination {
-				assert.True(t, tc.status.IsActive(),
-					"%q is a coordination phase but not active; predicates have drifted", tc.status)
-			}
-		})
-	}
-}
-
-// TestTask_LocalUnitIDs pins per-node ownership. Production callers that
-// rely on the empty-NodeID skip include `NodesWithLocalUnits` (and
-// therefore `MissingPostCompletionAckNodes`). A regression that started
-// returning unassigned units under any specific node would corrupt the
-// ack-barrier predicate.
-func TestTask_LocalUnitIDs(t *testing.T) {
-	task := fixtureTask()
-	cases := []struct {
-		node string
-		want []string // sorted
-	}{
-		{"n-1", []string{"u-1-g1-n1-done", "u-3-g2-n1-pending"}},
-		{"n-2", []string{"u-2-g1-n2-failed", "u-4-g2-n2-prog"}},
-		{"n-3", []string{"u-5-noGroup-n3"}},
-		{"n-doesnotexist", nil},
-		// Empty NodeID literally matches units with empty NodeID — the
-		// load-bearing difference from NodesWithLocalUnits (which skips
-		// the unassigned unit, since it can't have a node-side ack).
-		// Production callers of LocalUnitIDs always pass a real node ID,
-		// but the literal-equality semantics are pinned here so a future
-		// "skip empty" refactor doesn't silently change the contract.
-		{"", []string{"u-6-g1-unassigned"}},
-	}
-	for _, tc := range cases {
-		t.Run("node="+tc.node, func(t *testing.T) {
-			got := task.LocalUnitIDs(tc.node)
-			sort.Strings(got)
-			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.recognized, tc.status.IsRecognized(),
+				"%q.IsRecognized() should be %v", tc.status, tc.recognized)
 		})
 	}
 }
@@ -178,7 +149,7 @@ func TestTask_LocalGroupUnitIDs(t *testing.T) {
 		{"g2", "n-2", []string{"u-4-g2-n2-prog"}},
 		{"", "n-3", []string{"u-5-noGroup-n3"}}, // ungrouped on n-3
 		// Empty NodeID matches the unassigned unit when the group also
-		// matches — literal-equality semantics, same as LocalUnitIDs.
+		// matches — literal-equality semantics.
 		{"g1", "", []string{"u-6-g1-unassigned"}},
 		{"unknownGroup", "n-1", nil},
 	}
@@ -253,24 +224,6 @@ func TestTask_MissingPostCompletionAckNodes(t *testing.T) {
 	sort.Strings(got)
 	assert.Equal(t, []string{"n-1", "n-3"}, got,
 		"extraneous acks (from nodes not in NodesWithLocalUnits) must be ignored")
-}
-
-// TestTask_AnyPostCompletionAckFailed pins the failure-detector: once
-// ANY node records Success=false, the FSM must transition to FAILED.
-func TestTask_AnyPostCompletionAckFailed(t *testing.T) {
-	task := &Task{
-		PostCompletionAcks: map[string]PostCompletionAck{
-			"n-1": {Success: true},
-			"n-2": {Success: true},
-		},
-	}
-	assert.False(t, task.AnyPostCompletionAckFailed())
-
-	task.PostCompletionAcks["n-3"] = PostCompletionAck{Success: false, Error: "swap failed"}
-	assert.True(t, task.AnyPostCompletionAckFailed())
-
-	// Edge: nil map.
-	assert.False(t, (&Task{}).AnyPostCompletionAckFailed())
 }
 
 // TestTask_AllUnitsTerminal and TestTask_AnyUnitFailed pin the two
@@ -399,31 +352,4 @@ func TestTask_NodeHasNonTerminalUnits(t *testing.T) {
 
 func unitKey(i int) string {
 	return "u-" + string(rune('a'+i))
-}
-
-// TestTaskStatus_TerminalActiveCoordinationDisjoint is a meta-test
-// proving the three predicates form the right partition: every status
-// is either terminal, active, or both-zero (the empty/unknown
-// catch-all), and IsCoordinationPhase ⊂ IsActive. If a future status
-// breaks the partition (e.g. an active terminal status), this test
-// fires.
-func TestTaskStatus_TerminalActiveCoordinationDisjoint(t *testing.T) {
-	all := []TaskStatus{
-		TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping,
-		TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled,
-	}
-	for _, s := range all {
-		t.Run(string(s), func(t *testing.T) {
-			term := s.IsTerminal()
-			act := s.IsActive()
-			coord := s.IsCoordinationPhase()
-			// terminal XOR active for the defined statuses.
-			require.NotEqualf(t, term, act,
-				"status %q claims both terminal and active simultaneously — invalid", s)
-			// coordination implies active.
-			if coord {
-				require.Truef(t, act, "coordination %q must be active", s)
-			}
-		})
-	}
 }

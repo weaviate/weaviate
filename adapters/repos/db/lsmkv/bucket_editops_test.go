@@ -12,10 +12,12 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -165,25 +167,40 @@ func TestBucket_RegisterEditOp_CompletesInterruptedSnapshot(t *testing.T) {
 	require.Len(t, pending, 2, "resume with a descriptor but no snapshot must still snapshot the segments")
 }
 
-// TestBucket_RecoverEditOps_OnReopen_ReSnapshotsCurrentSegments proves the startup
-// recovery runs through the real newSegmentGroup wiring (not just a direct call):
-// after reopening the bucket, a live op whose only snapshot row is stale gets the
-// current on-disk segments re-queued and the stale row pruned.
-func TestBucket_RecoverEditOps_OnReopen_ReSnapshotsCurrentSegments(t *testing.T) {
+// reopenableEditOpsBucket opens (or reopens) a replace bucket on dir with the
+// class-name-wired edit-ops sidecar — the shared open step of every
+// close/reopen edit-ops test. extraOpts append to the base options.
+func reopenableEditOpsBucket(t *testing.T, ctx context.Context, dir string, extraOpts ...BucketOption) *Bucket {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	opts := append([]BucketOption{WithStrategy(StrategyReplace), WithClassName("MyClass")}, extraOpts...)
+	b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+	b.SetMemtableThreshold(1e9)
+	return b
+}
+
+// reopenWithLiveness installs the package-level liveness provider (reset on
+// cleanup, like the transformers registry) and opens the bucket — the phase
+// step of the sweep-behavior tests.
+func reopenWithLiveness(t *testing.T, ctx context.Context, dir string, live editops.LivenessProvider) *Bucket {
+	t.Helper()
+	editops.SetLivenessProvider(live)
+	t.Cleanup(func() { editops.SetLivenessProvider(nil) })
+	return reopenableEditOpsBucket(t, ctx, dir)
+}
+
+// TestBucket_RecoverEditOps_OnReopen_ResumesFromRecordedPending proves the
+// startup recovery runs through the real newSegmentGroup wiring (not just a
+// direct call): after reopening the bucket, a live op's recorded pending set
+// is kept as-is (the stripped segment is not re-pended) and a stale row for
+// an absent segment is pruned.
+func TestBucket_RecoverEditOps_OnReopen_ResumesFromRecordedPending(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	logger, _ := test.NewNullLogger()
 
-	open := func() *Bucket {
-		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace), WithClassName("MyClass"))
-		require.NoError(t, err)
-		b.SetMemtableThreshold(1e9)
-		return b
-	}
-
-	bucket := open()
+	bucket := reopenableEditOpsBucket(t, ctx, dir)
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.FlushAndSwitch())
 	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
@@ -191,20 +208,22 @@ func TestBucket_RecoverEditOps_OnReopen_ReSnapshotsCurrentSegments(t *testing.T)
 	segs := segIDsOf(bucket)
 	require.Len(t, segs, 2)
 
-	// Crash-window state: op registered, but only a now-absent segment snapshotted.
+	// Interrupted-strip state: one segment already stripped (row removed),
+	// one still pending, plus a stale row for an absent segment.
 	editOps := bucket.disk.editOps
 	require.NoError(t, editOps.RegisterOp("op1",
 		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
-	require.NoError(t, editOps.SnapshotSegments("op1", []string{"9999999999999999999"}))
+	require.NoError(t, editOps.SnapshotSegments("op1", []string{segs[1], "9999999999999999999"}))
 	require.NoError(t, bucket.Shutdown(ctx))
 
-	reopened := open()
+	reopened := reopenableEditOpsBucket(t, ctx, dir)
 	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
 
 	pending, err := reopened.EditOpPending("op1")
 	require.NoError(t, err)
-	require.ElementsMatch(t, segs, pending,
-		"reopen recovery must re-snapshot current segments and drop the stale row")
+	require.ElementsMatch(t, []string{segs[1]}, pending,
+		"recovery keeps the recorded pending set (the resume point): the stripped "+
+			"segment must NOT be re-pended and the stale row is pruned")
 }
 
 // TestBucket_RecoverEditOps_SweepsOrphanedOpOnReopen pins the multi-node data-loss
@@ -214,22 +233,8 @@ func TestBucket_RecoverEditOps_OnReopen_ReSnapshotsCurrentSegments(t *testing.T)
 func TestBucket_RecoverEditOps_SweepsOrphanedOpOnReopen(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	logger, _ := test.NewNullLogger()
 
-	// The liveness lookup is package-level (editops.SetLivenessProvider), like the
-	// transformers registry; install per phase and reset on cleanup.
-	open := func(live editops.LivenessProvider) *Bucket {
-		editops.SetLivenessProvider(live)
-		t.Cleanup(func() { editops.SetLivenessProvider(nil) })
-		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace), WithClassName("MyClass"))
-		require.NoError(t, err)
-		b.SetMemtableThreshold(1e9)
-		return b
-	}
-
-	bucket := open(nil)
+	bucket := reopenWithLiveness(t, ctx, dir, nil)
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.FlushAndSwitch())
 	require.NoError(t, bucket.disk.editOps.RegisterOp("op1",
@@ -238,7 +243,7 @@ func TestBucket_RecoverEditOps_SweepsOrphanedOpOnReopen(t *testing.T) {
 	require.NoError(t, bucket.Shutdown(ctx))
 
 	// Reopen with a liveness provider reporting NO live ops → op1 is orphaned.
-	reopened := open(func(context.Context) (map[string]struct{}, error) {
+	reopened := reopenWithLiveness(t, ctx, dir, func(context.Context) (map[string]struct{}, error) {
 		return map[string]struct{}{}, nil
 	})
 	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
@@ -256,22 +261,8 @@ func TestBucket_RecoverEditOps_SweepsOrphanedOpOnReopen(t *testing.T) {
 func TestBucket_RecoverEditOps_KeepsLiveOpOnReopen(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	logger, _ := test.NewNullLogger()
 
-	// The liveness lookup is package-level (editops.SetLivenessProvider), like the
-	// transformers registry; install per phase and reset on cleanup.
-	open := func(live editops.LivenessProvider) *Bucket {
-		editops.SetLivenessProvider(live)
-		t.Cleanup(func() { editops.SetLivenessProvider(nil) })
-		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace), WithClassName("MyClass"))
-		require.NoError(t, err)
-		b.SetMemtableThreshold(1e9)
-		return b
-	}
-
-	bucket := open(nil)
+	bucket := reopenWithLiveness(t, ctx, dir, nil)
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.FlushAndSwitch())
 	segs := segIDsOf(bucket)
@@ -280,7 +271,7 @@ func TestBucket_RecoverEditOps_KeepsLiveOpOnReopen(t *testing.T) {
 	require.NoError(t, bucket.disk.editOps.SnapshotSegments("op1", segs))
 	require.NoError(t, bucket.Shutdown(ctx))
 
-	reopened := open(func(context.Context) (map[string]struct{}, error) {
+	reopened := reopenWithLiveness(t, ctx, dir, func(context.Context) (map[string]struct{}, error) {
 		return map[string]struct{}{"op1": {}}, nil
 	})
 	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
@@ -296,22 +287,8 @@ func TestBucket_RecoverEditOps_KeepsLiveOpOnReopen(t *testing.T) {
 func TestBucket_RecoverEditOps_ProviderErrorSkipsSweep(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	logger, _ := test.NewNullLogger()
 
-	// The liveness lookup is package-level (editops.SetLivenessProvider), like the
-	// transformers registry; install per phase and reset on cleanup.
-	open := func(live editops.LivenessProvider) *Bucket {
-		editops.SetLivenessProvider(live)
-		t.Cleanup(func() { editops.SetLivenessProvider(nil) })
-		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace), WithClassName("MyClass"))
-		require.NoError(t, err)
-		b.SetMemtableThreshold(1e9)
-		return b
-	}
-
-	bucket := open(nil)
+	bucket := reopenWithLiveness(t, ctx, dir, nil)
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.FlushAndSwitch())
 	segs := segIDsOf(bucket)
@@ -320,7 +297,7 @@ func TestBucket_RecoverEditOps_ProviderErrorSkipsSweep(t *testing.T) {
 	require.NoError(t, bucket.disk.editOps.SnapshotSegments("op1", segs))
 	require.NoError(t, bucket.Shutdown(ctx))
 
-	reopened := open(func(context.Context) (map[string]struct{}, error) {
+	reopened := reopenWithLiveness(t, ctx, dir, func(context.Context) (map[string]struct{}, error) {
 		return nil, errors.New("dtm not reachable")
 	})
 	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
@@ -334,7 +311,7 @@ func TestBucket_RecoverEditOps_ProviderErrorSkipsSweep(t *testing.T) {
 // crash-window recovery: a live op that is missing a segment (the merged output
 // from a crash between switchOnDisk and RecordCompaction) gets it re-queued, and
 // a stale pending row for a now-absent segment is pruned.
-func TestSegmentGroup_RecoverEditOps_ReQueuesUnknownSegment(t *testing.T) {
+func TestSegmentGroup_RecoverEditOps_LeavesUnknownSegmentsAlone(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -357,16 +334,18 @@ func TestSegmentGroup_RecoverEditOps_ReQueuesUnknownSegment(t *testing.T) {
 	editOps := bucket.disk.editOps
 	require.NoError(t, editOps.RegisterOp("op1",
 		OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}))
-	// Crash-window state: op knows only the first segment; the second is a merged
-	// output it was never told about. Plus a stale row for an absent segment.
+	// The op knows only the first segment; the second is outside its pending
+	// set (either already stripped, or created after the arm — clean by the
+	// write-path guards). Plus a stale row for an absent segment.
 	require.NoError(t, editOps.SnapshotSegments("op1", []string{segs[0], "9999999999999999999"}))
 
 	require.NoError(t, bucket.disk.recoverEditOps(ctx))
 
 	pending, err := editOps.Pending("op1")
 	require.NoError(t, err)
-	require.ElementsMatch(t, segs, pending,
-		"recovery re-queues every current segment and prunes the stale row")
+	require.ElementsMatch(t, []string{segs[0]}, pending,
+		"recovery must not re-pend segments outside the recorded set (they are "+
+			"stripped-or-post-arm); only the stale row is pruned")
 }
 
 // TestBucket_ListFiles_ExcludesEditOpsSidecar: the sidecar is live-writable bolt
@@ -433,4 +412,259 @@ func TestBucket_EditOpQuarantined_RequiresEditOps(t *testing.T) {
 
 	_, err = bucket.EditOpQuarantined("op1")
 	require.ErrorContains(t, err, "edit ops not enabled")
+}
+
+// TestBucket_EditOps_FullyDrainedOpStaysDrainedAcrossReopen pins the terminal
+// resume state: an op whose every segment was stripped keeps its EMPTY
+// pending sub-bucket across a reopen — the sub-bucket's existence IS the
+// "already snapshotted" signal, so the next round's re-arm must skip the
+// snapshot and its poll reads empty pending as instant completion. Recovery
+// dropping the empty sub-bucket (or a row-count HasPendingSnapshot) would
+// re-snapshot and re-strip the whole shard instead.
+func TestBucket_EditOps_FullyDrainedOpStaysDrainedAcrossReopen(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	bucket := reopenableEditOpsBucket(t, ctx, dir)
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 1)
+
+	desc := OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}
+	require.NoError(t, bucket.RegisterEditOp("op1", desc))
+	require.NoError(t, bucket.disk.editOps.MarkSegmentDone("op1", segs[0]))
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	reopened := reopenableEditOpsBucket(t, ctx, dir)
+	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
+	require.NoError(t, reopened.RegisterEditOp("op1", desc))
+
+	pending, err := reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending,
+		"drained means drained: the empty pending sub-bucket must survive recovery and veto a re-snapshot")
+}
+
+// TestBucket_EditOps_MixedVersionOpsCoexist pins the rolling-upgrade shape: a
+// uuid-keyed op armed by a pre-upgrade round and the epoch-keyed op of the
+// same drop coexist on one bucket. Each keeps its own rows — draining and
+// disarming the epoch op leaves the uuid op's resume state untouched (the
+// post-marker orphan sweep collects it later), so a mixed-version window
+// costs duplicate idempotent strip work, never lost state.
+func TestBucket_EditOps_MixedVersionOpsCoexist(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 1)
+
+	const (
+		uuidOp  = "0f0c6053-8be1-4c31-8f38-cba5ee9b2e28" // pre-upgrade: one id per round
+		epochOp = "epoch-e1"                             // post-upgrade: the drop epoch
+	)
+	desc := OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}
+	require.NoError(t, bucket.RegisterEditOp(uuidOp, desc))
+	require.NoError(t, bucket.RegisterEditOp(epochOp, desc))
+
+	require.NoError(t, editOps.MarkSegmentDone(epochOp, segs[0]))
+	deleted, _, _, err := bucket.DeleteEditOpIfDrained(epochOp)
+	require.NoError(t, err)
+	require.True(t, deleted)
+
+	pending, err := bucket.EditOpPending(uuidOp)
+	require.NoError(t, err)
+	require.Equal(t, segs, pending, "the pre-upgrade op keeps its own pending rows")
+	ops, err := editOps.LoadOps()
+	require.NoError(t, err)
+	require.Len(t, ops, 1)
+	require.Equal(t, uuidOp, ops[0].ID)
+}
+
+// TestBucket_RegisterEditOp_RearmRequeuesQuarantine pins the bucket-level
+// wire-through of the fresh-budget rule: re-arming an already-snapshotted op
+// (the next round after a FAILED one) returns its quarantined segments to
+// pending instead of short-circuiting past them. Without it the drop is
+// permanently wedged: the op survives FAILED rounds as the resume point, the
+// pending snapshot skips the re-snapshot, and every subsequent round fails
+// instantly on the standing quarantine verdict.
+func TestBucket_RegisterEditOp_RearmRequeuesQuarantine(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 1)
+
+	desc := OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}
+	require.NoError(t, bucket.RegisterEditOp("op1", desc))
+	require.NoError(t, editOps.Quarantine("op1", segs[0]))
+
+	// Round N failed on the quarantine; round N+1 re-arms the same op.
+	require.NoError(t, bucket.RegisterEditOp("op1", desc))
+
+	q, err := bucket.EditOpQuarantined("op1")
+	require.NoError(t, err)
+	require.Empty(t, q, "the new round must start with a clean quarantine slate")
+	pending, err := bucket.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Equal(t, segs, pending, "the quarantined segment is pending again, awaiting its fresh retries")
+}
+
+// TestBucket_EditOps_ResumeWithConcurrentWrites_StripsAllSegments pins the
+// deactivate-mid-strip → reactivate → write-immediately scenario at the bucket
+// level: a segment left un-stripped when the tenant deactivated is still
+// stripped after reactivation EVEN WHEN new (already-clean) post-marker writes
+// land and a compaction merges the old un-stripped segment with a new one
+// before the cleanup reaches it. The merge strips the old data (compaction
+// consumes the transformer) and RecordCompaction clears the pending row so the
+// drop can finalize — while the new data is preserved verbatim. Nothing
+// dropped may survive; nothing kept may be lost.
+func TestBucket_EditOps_ResumeWithConcurrentWrites_StripsAllSegments(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	// dropSuffixTransformer models the production drop transformer faithfully:
+	// it removes a "|DROP" suffix (the "dropped vector" payload) and leaves
+	// every other byte untouched. Unlike prefixTransformer it is IDEMPOTENT —
+	// stripping an already-clean value is a no-op, exactly like stripping an
+	// absent vector — so the test can assert BOTH "dropped data removed" and
+	// "kept data preserved" regardless of how many times a value is rewritten.
+	dropSuffixTransformer := func(className string, ops []ActiveOp) func([]byte) ([]byte, error) {
+		return func(v []byte) ([]byte, error) {
+			return bytes.TrimSuffix(v, []byte("|DROP")), nil
+		}
+	}
+	transformers := map[OpType]OpTransformerFactory{OpTypeRemoveTargetVectors: dropSuffixTransformer}
+
+	open := func() *Bucket {
+		b := reopenableEditOpsBucket(t, ctx, dir, WithSegmentsCleanupInterval(time.Hour))
+		// Swap in the fake-transformer resolver over the SAME bolt state — the
+		// production resolver would try to decode the plain test values as storobj.
+		require.NoError(t, b.disk.editOps.Close())
+		b.disk.editOps = newSegmentEditOpsWithLookup(b.disk.dir, "MyClass", staticResolver(transformers))
+		return b
+	}
+
+	desc := OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}
+
+	// A drop is armed while the tenant is active: one segment carries the
+	// dropped payload and is snapshotted as pending. The tenant deactivates
+	// (clean shutdown) BEFORE cleanup strips it — the sharp resume case.
+	bucket := open()
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1|DROP")))
+	require.NoError(t, bucket.RegisterEditOp("op1", desc)) // flushes k1 into a segment + snapshots it
+	oldSegs := segIDsOf(bucket)
+	require.Len(t, oldSegs, 1)
+	pending, err := bucket.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Equal(t, oldSegs, pending, "the un-stripped segment is pending at deactivation")
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	// Reactivation: recovery keeps the pending set, the re-arm is idempotent.
+	reopened := open()
+	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
+	require.NoError(t, reopened.RegisterEditOp("op1", desc))
+	pending, err = reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Equal(t, oldSegs, pending, "the resumed op still owes the un-stripped segment")
+
+	// Immediately push new data. Post-marker writes are clean by construction
+	// (the write-path guard strips the dropped vector before storage; modeled
+	// here by the absence of the "|DROP" payload). It flushes to a NEW segment
+	// that must NOT enter the pending set.
+	require.NoError(t, reopened.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, reopened.FlushAndSwitch())
+	require.Len(t, segIDsOf(reopened), 2, "old pending segment + new clean segment coexist")
+	pending, err = reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Equal(t, oldSegs, pending, "a clean post-marker segment must never be added to the pending set")
+
+	// A compaction merges the old un-stripped segment with the new clean one
+	// BEFORE cleanup reaches it — the RecordCompaction path.
+	compacted, err := reopened.disk.compactOnce(ctx)
+	require.NoError(t, err)
+	require.True(t, compacted, "the two segments must merge")
+
+	// The merge stripped the old data and RecordCompaction cleared the row.
+	pending, err = reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending, "the merged output is covered; the drop can now finalize")
+
+	// A final cleanup pass finds nothing left to do.
+	cleaned, err := reopened.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	require.False(t, cleaned)
+
+	// Nothing dropped survived; nothing kept was lost.
+	v1, err := reopened.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v1"), v1, "the old segment's dropped payload was stripped")
+	v2, err := reopened.Get([]byte("k2"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v2"), v2, "the new post-marker write was preserved verbatim")
+}
+
+// TestBucket_EditOps_ResumeSkipsStrippedSegments_RealCleaner proves the resume
+// property with the production machinery end to end: the real cleanup pass
+// strips one of two segments, the bucket is closed and reopened (load-time
+// recovery runs), the idempotent re-arm finds the recorded pending set, and
+// the real cleaner drains only the remainder. The transformer is deliberately
+// non-idempotent (prefixes "X:"), so a restart that re-stripped the
+// already-done segment would show up as a double prefix — the assertion is on
+// work SKIPPED, not just on eventual convergence.
+func TestBucket_EditOps_ResumeSkipsStrippedSegments_RealCleaner(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	transformers := map[OpType]OpTransformerFactory{OpTypeRemoveTargetVectors: prefixTransformer}
+
+	open := func() *Bucket {
+		b := reopenableEditOpsBucket(t, ctx, dir, WithSegmentsCleanupInterval(time.Hour))
+		// Swap in the fake-transformer resolver over the SAME bolt state — the
+		// production resolver would try to decode the plain test values as
+		// storobj. Load-time recovery already ran above, on the real instance.
+		require.NoError(t, b.disk.editOps.Close())
+		b.disk.editOps = newSegmentEditOpsWithLookup(b.disk.dir, "MyClass", staticResolver(transformers))
+		return b
+	}
+
+	bucket := open()
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.Len(t, segIDsOf(bucket), 2)
+
+	desc := OpDescriptor{Type: OpTypeRemoveTargetVectors, Targets: []string{"foo"}, CreatedAt: 1}
+	require.NoError(t, bucket.RegisterEditOp("op1", desc))
+
+	// One real cleanup pass rewrites exactly one segment, then the process
+	// "dies" (deactivation → clean shutdown).
+	_, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	pending, err := bucket.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "one segment stripped, one still owed")
+	remaining := pending[0]
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	reopened := open()
+	t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
+	require.NoError(t, reopened.RegisterEditOp("op1", desc))
+	pending, err = reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Equal(t, []string{remaining}, pending,
+		"the resumed op must owe exactly what the interruption left unstripped")
+	drainEditOpsCleanup(t, reopened)
+
+	v1, err := reopened.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("X:v1"), v1, "each value must be stripped exactly once across the restart")
+	v2, err := reopened.Get([]byte("k2"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("X:v2"), v2, "each value must be stripped exactly once across the restart")
+
+	pending, err = reopened.EditOpPending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending)
 }

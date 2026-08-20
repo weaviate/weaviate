@@ -80,7 +80,7 @@ func TestShard_HaltForTransferExtendsInactivityDeadline(t *testing.T) {
 	require.True(t, deadline.After(time.Now()),
 		"an overlapping halt left the deadline in the past — the monitor will force-resume a shard two consumers still hold")
 
-	for s.haltForTransferCount > 0 {
+	for s.haltForTransferCount.Load() > 0 {
 		require.NoError(t, s.resumeMaintenanceCycles(ctx))
 	}
 }

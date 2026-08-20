@@ -71,6 +71,7 @@ type memtable interface {
 	GetPropLengths() (uint64, uint64)
 
 	newCursor() innerCursorReplace
+	newCursorWithRange(min, max []byte) innerCursorReplace
 	newBlockingCursor() (innerCursorReplace, func())
 	newCursorWithSecondaryIndex(pos int) innerCursorReplace
 	newCollectionCursor() innerCursorCollection

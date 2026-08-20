@@ -45,9 +45,10 @@ var (
 	// check with errors.Is.
 	ErrNotFound = errors.New("namespace not found")
 
-	// ErrNamespaceDeleting is returned when a create-like operation targets
-	// a namespace that exists but is currently being torn down. Distinct
-	// from ErrAlreadyExists so REST can render a different conflict message.
+	// ErrNamespaceDeleting is returned when a create-like operation, or a
+	// shard decision, targets a namespace that exists but is currently being
+	// torn down. Distinct from ErrAlreadyExists so REST can render a
+	// different conflict message.
 	ErrNamespaceDeleting = errors.New("namespace is being deleted")
 
 	// ErrNamespaceGone is returned by apply-time checks when a namespace
@@ -105,6 +106,8 @@ var reservedNames = map[string]struct{}{
 // deleting is terminal: re-entry only via RemoveEntity + fresh Create. Every
 // other state may reach deleting, so a namespace whose home node died mid-flip
 // can still be deleted.
+//
+//exhaustive:enforce
 var stateTransitions = map[cmd.NamespaceState]map[cmd.NamespaceState]struct{}{
 	cmd.NamespaceStateActive: {
 		cmd.NamespaceStateSuspended: {},
@@ -132,9 +135,10 @@ func isKnownState(s cmd.NamespaceState) bool {
 	return known
 }
 
-// Exister exposes read-only access to namespace state. Callers that need to
-// know whether a namespace is usable go through [RequireActive] rather than
-// comparing State themselves.
+// Exister exposes read-only access to namespace state. Rather than comparing
+// State themselves, callers go through [RequireActive] or
+// [AdmitDestructiveApply], or through [ShardsShouldBeOpen] /
+// [RequireShardLoadable] to decide about a shard.
 type Exister interface {
 	GetNamespace(name string) (cmd.Namespace, bool)
 }
@@ -368,26 +372,32 @@ func (c *Controller) Snapshot() ([]byte, error) {
 	return json.Marshal(c.namespaces)
 }
 
-// Restore replaces the current state with the snapshot contents. A nil or
-// empty snapshot leaves state empty (fresh bootstrap). Unknown JSON fields
+// Restore replaces the current state with the snapshot contents. A nil,
+// empty or "null" snapshot leaves state empty (fresh bootstrap). Unknown JSON fields
 // are tolerated. Entries with empty State are normalized to
 // [cmd.NamespaceStateActive]; entries with an unknown State return an
 // error so a future binary's snapshot is not silently mis-classified.
 // Entries missing the single HomeNodes entry are also rejected — there is
 // no migration path from a pre-HomeNodes snapshot.
 func (c *Controller) Restore(snapshot []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if len(snapshot) == 0 {
+		c.mu.Lock()
+		defer c.mu.Unlock()
 		c.namespaces = make(map[string]*cmd.Namespace)
 		return nil
 	}
 
+	// Decoding and validating scale with the snapshot size and touch only the
+	// local map, so they run off-lock: holding the write lock across them
+	// blocks every reader for the whole install.
 	restored := make(map[string]*cmd.Namespace)
 	if err := json.Unmarshal(snapshot, &restored); err != nil {
 		c.logger.Errorf("restoring namespaces from snapshot failed with: %v", err)
 		return err
+	}
+	// A "null" snapshot decodes to a nil map; writing into it would panic.
+	if restored == nil {
+		restored = make(map[string]*cmd.Namespace)
 	}
 	for name, ns := range restored {
 		if ns == nil {
@@ -406,7 +416,11 @@ func (c *Controller) Restore(snapshot []byte) error {
 			return fmt.Errorf("namespace %q has unknown state %q in snapshot", name, ns.State)
 		}
 	}
+
+	c.mu.Lock()
 	c.namespaces = restored
+	c.mu.Unlock()
+
 	c.logger.Info("successfully restored namespaces from snapshot")
 	return nil
 }

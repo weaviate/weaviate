@@ -93,6 +93,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("AWS_SECRET_KEY", "aws_secret_key")
 
 	compose, err := docker.New().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithApiKey().
 		WithRBAC().
 		WithUserApiKey(adminUser, adminKey).
@@ -104,6 +105,10 @@ func TestMain(m *testing.M) {
 		WithNamespaces().
 		WithMCP().
 		WithOffloadS3("offloading", "us-west-1").
+		// Bounds the upload TestNamespaces_SuspendDuringOffloadAbort fails on
+		// purpose. The 120s default would hold the apply loop for two minutes;
+		// 20s stays well clear of a healthy one-object upload.
+		WithWeaviateEnv("OFFLOAD_TIMEOUT", "20").
 		// backup-s3 + export share the MinIO sidecar; the "backups" bucket backs
 		// both. REPLICA_MOVEMENT_ENABLED ensures the Replicate handler reaches the
 		// auth check (it 501s before authz when movement is off), so the RBAC deny

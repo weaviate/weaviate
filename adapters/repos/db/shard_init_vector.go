@@ -238,7 +238,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
 		hfreshConfigID := s.vectorIndexID(targetVector)
-		rootPath := filepath.Join(s.path(), fmt.Sprintf("%s.hfresh.d", hfreshConfigID))
+		rootPath := filepath.Join(s.path(), helpers.HFreshDirName(hfreshConfigID))
 
 		hfreshConfig := &hfresh.Config{
 			Logger:            s.index.logger,
@@ -253,8 +253,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			Store: hfresh.StoreConfig{
 				MakeBucketOptions: makeBucketOptions,
 			},
-			VectorForIDThunk:   hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
-			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			VectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+			TempVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
+			TombstoneCallbacks:           s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			Centroids: hfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
 					Logger:                            s.index.logger,
@@ -436,6 +437,34 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	compressedBucket := helpers.GetCompressedBucketName(targetVector)
 	if err := s.removeBucket(ctx, compressedBucket); err != nil {
 		return fmt.Errorf("drop compressed vectors bucket for %q: %w", targetVector, err)
+	}
+
+	// A muvera-encoded multi-vector index keeps its encoded vectors in a bucket
+	// of its own, which neither of the two above covers and hnsw.Drop does not
+	// touch. Unconditional: reading the config back to decide would miss an
+	// index whose muvera setting changed, and removeBucket is a no-op when the
+	// bucket does not exist.
+	muveraBucket := helpers.GetMuveraBucketName(targetVector)
+	if err := s.removeBucket(ctx, muveraBucket); err != nil {
+		return fmt.Errorf("drop muvera vectors bucket for %q: %w", targetVector, err)
+	}
+
+	// An hfresh index keeps its state outside the two buckets above: a
+	// directory of its own under the shard, plus two dedicated LSM buckets. Its
+	// own Drop() removes none of them ("Shard::drop will take care of handling
+	// store buckets" holds when the whole shard goes, not when one named vector
+	// is dropped out from under a shard that stays), so they are named here.
+	// Unconditional: reading the type back to decide would miss an index that
+	// failed to load, and both removals are no-ops when the target is absent.
+	indexID := s.vectorIndexID(targetVector)
+	if err := s.removeBucket(ctx, helpers.HFreshPostingsBucketName(indexID)); err != nil {
+		return fmt.Errorf("drop hfresh postings bucket for %q: %w", targetVector, err)
+	}
+	if err := s.removeBucket(ctx, helpers.HFreshSharedBucketName(indexID)); err != nil {
+		return fmt.Errorf("drop hfresh shared bucket for %q: %w", targetVector, err)
+	}
+	if err := s.removeDirIfExists(s.path(), helpers.HFreshDirName(indexID)); err != nil {
+		return fmt.Errorf("drop hfresh directory for %q: %w", targetVector, err)
 	}
 
 	// Remove the index checkpoint entry for this vector.

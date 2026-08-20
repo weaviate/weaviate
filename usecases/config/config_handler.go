@@ -161,6 +161,7 @@ type RuntimeOverrides struct {
 // Config outline of the config file
 type Config struct {
 	Backup                           Backup                   `json:"backup" yaml:"backup"`
+	BackupGCS                        BackupGCS                `json:"backup_gcs" yaml:"backup_gcs"`
 	Name                             string                   `json:"name" yaml:"name"`
 	Debug                            bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                    QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
@@ -206,9 +207,6 @@ type Config struct {
 	HaltForTransferTimeout              time.Duration                  `json:"halt_for_transfer_timeout" yaml:"halt_for_transfer_timeout"`
 	RecountPropertiesAtStartup          bool                           `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
-	ReindexerGoroutinesFactor           float64                        `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
-	ReindexMapToBlockmaxAtStartup       bool                           `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
-	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig           `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
 	IndexMissingTextFilterableAtStartup bool                           `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      *runtime.DynamicValue[bool]    `json:"disable_graphql" yaml:"disable_graphql"`
 	ExperimentalRESTSearchEnabled       *runtime.DynamicValue[bool]    `json:"rest_search_enabled" yaml:"rest_search_enabled"`
@@ -244,6 +242,11 @@ type Config struct {
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 
 	ReplicaMovementEnabled bool `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
+
+	// RuntimeReindexEnabled gates runtime reindex (RUNTIME_REINDEX_ENABLED),
+	// off by default. With it off, new reindex submissions are refused and
+	// the backup path performs no reindex check.
+	RuntimeReindexEnabled bool `json:"runtime_reindex_enabled" yaml:"runtime_reindex_enabled"`
 
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ
 	// interaction with a tenant leads to a log line. However, this may
@@ -347,19 +350,6 @@ type Config struct {
 	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
 }
 
-type MapToBlockamaxConfig struct {
-	SwapBuckets                bool                     `json:"swap_buckets" yaml:"swap_buckets"`
-	UnswapBuckets              bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
-	TidyBuckets                bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
-	ReloadShards               bool                     `json:"reload_shards" yaml:"reload_shards"`
-	Rollback                   bool                     `json:"rollback" yaml:"rollback"`
-	ConditionalStart           bool                     `json:"conditional_start" yaml:"conditional_start"`
-	ProcessingDurationSeconds  int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
-	PauseDurationSeconds       int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
-	PerObjectDelayMilliseconds int                      `json:"per_object_delay_milliseconds" yaml:"per_object_delay_milliseconds"`
-	Selected                   []CollectionPropsTenants `json:"selected" yaml:"selected"`
-}
-
 type CollectionPropsTenants struct {
 	Collection string   `json:"collection" yaml:"collection"`
 	Props      []string `json:"props" yaml:"props"`
@@ -411,6 +401,10 @@ func (c *Config) Validate() error {
 	}
 
 	if err := c.Raft.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.BackupGCS.Validate(); err != nil {
 		return configErr(err)
 	}
 
@@ -877,6 +871,43 @@ type Backup struct {
 	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
 }
 
+const (
+	// DefaultBackupGCSGRPCConnPool is higher than the SDK's default of one
+	// channel, which caps throughput wherever DirectPath does not apply.
+	DefaultBackupGCSGRPCConnPool = 4
+
+	// MaxBackupGCSGRPCConnPool bounds the pool because every channel is a
+	// connection held for the process lifetime, and the GCS module builds one
+	// client for backups and one for exports.
+	MaxBackupGCSGRPCConnPool = 64
+)
+
+// BackupGCS configures which GCS API the backup-gcs module talks to. The
+// GCS_MODULE_ prefix marks it as covering both clients that module builds, the
+// backup one and the export one, unlike the backup-only BACKUP_GCS_BUCKET.
+type BackupGCS struct {
+	// UseGRPC switches from the JSON/HTTP API to the gRPC API. The throughput
+	// gRPC adds comes from DirectPath, which only applies inside GCP, and from
+	// spreading requests over GRPCConnPool channels.
+	// Env: GCS_MODULE_TRANSPORT (http or grpc).
+	UseGRPC bool `json:"use_grpc" yaml:"use_grpc"`
+
+	// GRPCConnPool is how many gRPC channels each client opens. Zero means
+	// unset and falls back to DefaultBackupGCSGRPCConnPool.
+	// Env: GCS_MODULE_GRPC_CONN_POOL.
+	GRPCConnPool int `json:"grpc_conn_pool" yaml:"grpc_conn_pool"`
+}
+
+// Validate bounds a connection pool that came from the config file. Values from
+// GCS_MODULE_GRPC_CONN_POOL are already bounded when parsed. A negative pool
+// would panic the gRPC client on its first call.
+func (b BackupGCS) Validate() error {
+	if b.GRPCConnPool == 0 {
+		return nil
+	}
+	return validateBackupGCSConnPool(b.GRPCConnPool, "backup_gcs.grpc_conn_pool")
+}
+
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
 const (
 	DefaultQueryDefaultsLimit        int64 = 10
@@ -981,10 +1012,6 @@ const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
 const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
-
-const (
-	DefaultReindexerGoroutinesFactor = 0.5
-)
 
 // MetadataServer is experimental.
 type MetadataServer struct {

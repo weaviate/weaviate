@@ -254,8 +254,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))
 	}()
 
-	s.reindexer.Stop(s, fmt.Errorf("shard shutdown"))
-
 	s.haltForTransferMux.Lock()
 	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
 	s.mayStopInactivityMonitoring()
@@ -276,7 +274,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	).Unregister(ctx)
 	ec.Add(err)
 
-	s.mayStopAsyncReplication()
+	capturedHT := s.mayStopAsyncReplication(true)
 
 	_ = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Flush(); err != nil {
@@ -324,6 +322,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		return nil
 	})
 
+	storeDurable := false
 	if s.store != nil {
 		s.UpdateStatus(storagestate.StatusShutdown.String(), statusReasonShutdown)
 
@@ -331,6 +330,18 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		// only return the store on success from s.initLSMStore()
 		err = s.store.Shutdown(ctx)
 		ec.AddWrapf(err, "stop lsmkv store")
+		storeDurable = err == nil
+	}
+
+	// Publish only after the store flushed: a crash-surviving snapshot must never over-represent the store.
+	if capturedHT != nil && storeDurable {
+		s.dumpHashTreeWithTimeout(capturedHT, hashtreeDumpTimeout)
+	} else if capturedHT != nil {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Warn("skipping hashtree snapshot: store shutdown did not complete cleanly; tree will be rebuilt on next startup")
 	}
 
 	if s.dynamicVectorIndexDB != nil {
@@ -347,6 +358,13 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 }
 
 const msgReleasedMoreThanOnce = "shard reference released more than once per acquire"
+
+// shutOrDropped reports shard teardown: drop() cancels shutCtx as its first
+// statement but never sets shut, so both signals must be checked. A nil
+// shutCtx (bare test fixtures) reads as not dropped.
+func (s *Shard) shutOrDropped() bool {
+	return s.shut.Load() || (s.shutCtx != nil && s.shutCtx.Err() != nil)
+}
 
 func (s *Shard) preventShutdown() (release func(), err error) {
 	if s.shutdownRequested.Load() {

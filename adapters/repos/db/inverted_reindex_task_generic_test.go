@@ -51,23 +51,12 @@ func (s *testMigrationStrategy) OnMigrationComplete(_ context.Context, _ ShardLi
 // testShardReindexer wraps a single task into a ShardReindexerV3 for use
 // during shard initialization. It calls task methods synchronously.
 type testShardReindexer struct {
-	task ShardReindexTaskV3
-}
-
-func (r *testShardReindexer) RunBeforeLsmInit(ctx context.Context, shard *Shard) error {
-	return r.task.OnBeforeLsmInit(ctx, shard)
+	task *ShardReindexTaskGeneric
 }
 
 func (r *testShardReindexer) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
 	return r.task.OnAfterLsmInit(ctx, shard)
 }
-
-func (r *testShardReindexer) RunAfterLsmInitAsync(ctx context.Context, shard *Shard) error {
-	_, _, err := r.task.OnAfterLsmInitAsync(ctx, shard)
-	return err
-}
-
-func (r *testShardReindexer) Stop(_ *Shard, _ error) {}
 
 func createTestObjectWithText(className, text string) *storobj.Object {
 	return &storobj.Object{
@@ -117,8 +106,6 @@ func newTestClassWithProps(className string, propNames []string) *models.Class {
 func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardReindexTaskGeneric {
 	return NewShardReindexTaskGeneric("MapToBlockmax", logger, strategy,
 		reindexTaskConfig{
-			swapBuckets:                   true,
-			tidyBuckets:                   true,
 			concurrency:                   2,
 			memtableOptFactor:             4,
 			backupMemtableOptFactor:       1,
@@ -186,7 +173,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	}
 
 	// Verify migration completed — no restart needed!
-	rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	assert.True(t, rt.IsPrepended(), "tracker should show prepended")
 	assert.True(t, rt.IsMerged(), "tracker should show merged")
 	assert.True(t, rt.IsSwapped(), "tracker should show swapped")
@@ -559,7 +546,7 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	// Sanity: assert markers landed as the contract specifies post-Phase
 	// 2c (since this is the inline path, runtimeSwap also runs 2b + 2c
 	// for the dead-bucket tidy and OnMigrationComplete + trim).
-	rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	for _, p := range propNames {
 		assert.True(t, rt.IsSwappedProp(p),
 			"prop %q should be IsSwappedProp post-runtimeSwap", p)
@@ -568,10 +555,4 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	assert.True(t, rt.IsTidied(), "aggregate tidied sentinel should be set post-runtimeSwap (inline path)")
 
 	require.NoError(t, shard.Shutdown(ctx))
-}
-
-func TestGetSegmentPathsToMove_WalkRootRemoved(t *testing.T) {
-	task := &ShardReindexTaskGeneric{}
-	_, _, err := task.getSegmentPathsToMove(filepath.Join(t.TempDir(), "does-not-exist"), t.TempDir())
-	require.ErrorIs(t, err, os.ErrNotExist)
 }

@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -642,9 +643,12 @@ const editOpsSweepTimeout = 15 * time.Second
 // in one pass would starve compaction. Returning after one segment (cleaned=true
 // re-runs the cycle promptly while work remains) lets the two interleave.
 //
-// Marking an op done is sound: every op in the pending snapshot was registered
-// before BuildCurrentTransformer read the live ops, so the transformer strips its
-// target — we never clear a row whose data wasn't actually stripped. The
+// Rows are marked done ONLY for ops the pass's transformer was built from
+// (builtOps membership, mirroring RecordCompaction): an op whose factory is
+// not registered in this binary (mixed-version cluster) contributes nothing
+// to the rewrite, so clearing its row would drain its pending set without
+// stripping — the drop would finalize with the data intact. Such rows stay
+// pending until a binary with the factory processes them. The
 // rewrite -> replaceSegment -> markRowsDone sequence is not one transaction, but
 // it is crash-safe: cleanup keeps the segment ID, so a crash after replaceSegment
 // leaves a stripped segment under the same ID with stale pending rows that the
@@ -663,9 +667,13 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 		return false, false, nil
 	}
 
-	transformer, _, err := c.sg.editOps.BuildCurrentTransformer()
+	transformer, builtOps, err := c.sg.editOps.BuildCurrentTransformer()
 	if err != nil {
 		return false, true, err
+	}
+	built := make(map[string]struct{}, len(builtOps))
+	for _, op := range builtOps {
+		built[op.ID] = struct{}{}
 	}
 	if transformer == nil {
 		// Pending rows but no transformer to apply. Not a normal path: it means
@@ -699,6 +707,21 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 
 	for _, segID := range segmentOrder {
 		rows := bySegment[segID]
+		// Only rows of ops the transformer was built from can be completed by
+		// this pass (see the godoc). A segment with NO such row is skipped
+		// outright: rewriting it would strip nothing and mark nothing done —
+		// reported as progress, that is an endless full rewrite of the same
+		// segment on every prompt re-run, starving built-op rows on later
+		// segments. warnMissingTransformers already surfaces the state.
+		var strippedRows []PendingSegment
+		for _, row := range rows {
+			if _, ok := built[row.OpID]; ok {
+				strippedRows = append(strippedRows, row)
+			}
+		}
+		if len(strippedRows) == 0 {
+			continue
+		}
 		idx, tmpPath, found, cerr := c.cleanPendingSegmentToTmp(segID, transformer, shouldAbort)
 		if cerr != nil {
 			if errors.Is(cerr, errCleanupPaused) || errors.Is(cerr, errCleanupAborted) {
@@ -710,7 +733,19 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 					Warnf("edit-ops cleanup interrupted before completing segment %q (not counted as a failed attempt): %v", segID, cerr)
 				return false, true, nil
 			}
-			if e := c.bumpOrQuarantine(rows, cerr); e != nil {
+			// The ONLY place this cause is surfaced. It is not returned (the
+			// pass reports no error, so the retry budget rather than the cycle
+			// decides what happens next) and the copy recorded on the row is
+			// reset by the next round's requeue. Without this line a drop that
+			// stalls on a quarantined segment reports which segment and never
+			// why.
+			c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
+				Warnf("edit-ops cleanup failed to rewrite segment %q (attempt %d of %d before quarantine): %v",
+					segID, strippedRows[0].Attempts+1, maxCleanupAttempts, cerr)
+			// Only the rows this pass was working for accrue the failure;
+			// factory-less rows must not drift toward quarantine over
+			// rewrites that never ran their transform.
+			if e := c.bumpOrQuarantine(strippedRows, cerr); e != nil {
 				return false, true, e
 			}
 			return false, true, nil
@@ -752,7 +787,11 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 			}
 			return false, true, fmt.Errorf("replace cleaned segment: %w", e)
 		}
-		if e := c.markRowsDone(rows); e != nil {
+		if kept := len(rows) - len(strippedRows); kept > 0 {
+			c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
+				Warnf("edit-ops cleanup: segment %q rewritten, but %d row(s) belong to ops with no registered transformer; keeping them pending", segID, kept)
+		}
+		if e := c.markRowsDone(strippedRows); e != nil {
 			return true, true, e
 		}
 		return true, true, nil
@@ -811,16 +850,27 @@ func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
 	cleaner := newSegmentCleanerReplace(file, oldSegment.newCursor(), keyExists,
 		oldSegment.getLevel(), oldSegment.getSecondaryIndexCount(),
 		c.sg.enableChecksumValidation, transformer)
+	// Every failure past this point leaves a partial .tmp on disk. The caller
+	// gets no path back, so it cannot compensate — and the biggest reason to be
+	// here is ENOSPC, where the orphan is as large as the free space that ran
+	// out and the retry needs that space back. Remove it on the way out.
+	discardPartial := func(cause error) error {
+		if rmErr := os.Remove(tmpPath); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+			c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
+				Warnf("could not remove partial cleaned segment %q after a failed rewrite: %v", tmpPath, rmErr)
+		}
+		return cause
+	}
 	if err := cleaner.do(shouldAbort); err != nil {
 		file.Close()
-		return emptyIdx, "", false, err
+		return emptyIdx, "", false, discardPartial(err)
 	}
 	if err := file.Sync(); err != nil {
 		file.Close()
-		return emptyIdx, "", false, fmt.Errorf("fsync cleaned segment file: %w", err)
+		return emptyIdx, "", false, discardPartial(fmt.Errorf("fsync cleaned segment file: %w", err))
 	}
 	if err := file.Close(); err != nil {
-		return emptyIdx, "", false, fmt.Errorf("close cleaned segment file: %w", err)
+		return emptyIdx, "", false, discardPartial(fmt.Errorf("close cleaned segment file: %w", err))
 	}
 
 	return idx, tmpPath, true, nil
@@ -882,7 +932,7 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(segments []Segment, startId
 
 	return func(key []byte) (bool, error) {
 		for i := range upperSegments {
-			if exists, err := upperSegments[i].existsKey(key); err != nil {
+			if exists, err := upperSegments[i].indexContainsKey(key); err != nil {
 				return false, err
 			} else if exists {
 				return true, nil

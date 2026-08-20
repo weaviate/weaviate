@@ -13,7 +13,7 @@ package db
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -32,6 +32,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+// errInjectedMemoryPressure is only reachable from inside LazyLoadShard.Load,
+// so a test can assert on it to tell that a shard was force-loaded.
+var errInjectedMemoryPressure = errors.New("memory pressure: injected")
+
 // failingAllocChecker fails every mapping reservation, so LazyLoadShard.Load
 // (and therefore mustLoad) fails for any shard that gets force-loaded.
 type failingAllocChecker struct{}
@@ -39,7 +43,7 @@ type failingAllocChecker struct{}
 func (failingAllocChecker) CheckAlloc(int64) error { return nil }
 
 func (failingAllocChecker) CheckMappingAndReserve(int64, int) error {
-	return fmt.Errorf("memory pressure: injected")
+	return errInjectedMemoryPressure
 }
 
 func (failingAllocChecker) Refresh(bool) {}
@@ -79,6 +83,7 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -94,7 +99,7 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil,
 	)
 	require.NoError(t, err)
 	repo.SetSchemaGetter(schemaGetter)

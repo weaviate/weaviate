@@ -221,12 +221,16 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
-	// Sub-search sizing should reflect the user's actual limit, not any
-	// boost-inflated overfetch. Boost overfetch only needs to affect how many
-	// fused results Hybrid returns (controlled by origParams.Pagination.Limit).
+	// Sub-search sizing must cover the boost re-rank depth, not just the
+	// user's limit: a candidate can only be re-ranked by boost if some leg
+	// fetched it into the fused pool, so when Boost.Depth exceeds
+	// QueryHybridMaximumResults the legs must fetch Depth-deep (capped at
+	// QueryMaximumResults, like the non-hybrid boost overfetch). Otherwise a
+	// boost.depth beyond the hybrid default is silently truncated and a
+	// high-boost candidate below the cutoff can never be promoted.
 	subSearchLimit := params.Pagination.Limit
 	if params.Boost != nil && params.Boost.OriginalLimit > 0 {
-		subSearchLimit = params.Boost.OriginalLimit
+		subSearchLimit = e.mmrFetchDepth(params.Boost, params.Boost.OriginalOffset+params.Boost.OriginalLimit)
 	}
 	// Under MMR, fetch deep enough to reach the [offset:offset+limit] window (and
 	// Boost.Depth deep when boost is active so it re-ranks that deep).
@@ -373,12 +377,22 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 								searchVectors.TargetVectors[i] = targetVector
 								searchVector, err := e.modulesProvider.MultiVectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
 								searchVectors.Vectors[i] = searchVector
-								return err
+								if err != nil {
+									// typed (message unchanged) so API handlers can classify
+									// the vectorization failure
+									return enterrors.NewErrQueryVectorization(err)
+								}
+								return nil
 							}
 							searchVectors.TargetVectors[i] = targetVector
 							searchVector, err := e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
 							searchVectors.Vectors[i] = searchVector
-							return err
+							if err != nil {
+								// typed (message unchanged) so API handlers can classify
+								// the vectorization failure
+								return enterrors.NewErrQueryVectorization(err)
+							}
+							return nil
 						})
 					}
 					if err := eg2.Wait(); err != nil {

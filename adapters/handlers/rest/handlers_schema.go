@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -316,9 +317,13 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // checkReindexConflictForPropertyMutation is the REST-handler
 // pre-flight for the mutation guard. Returns a non-empty conflict
 // reason iff a reindex migration on (className, propertyName) is in
-// any non-terminal state (STARTED, PREPARING, or SWAPPING) — same
-// epistemics as the schema FSM's MutationGuard at apply time, just
+// any non-terminal state (via [distributedtask.TaskStatus.IsActive]) —
+// same epistemics as the schema FSM's MutationGuard at apply time, just
 // earlier in the request lifecycle for operator UX.
+//
+// "Same epistemics" is meant literally: it has to reject on the same arms
+// as [db.ReindexProvider.CheckPropertyUpdate], in the same order, or the
+// caller gets told ok here and FAILED at the apply.
 //
 // Per-node, in-memory: two REST handlers on different nodes can both
 // observe "no conflict" and both forward to RAFT — that's expected,
@@ -340,14 +345,13 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		return ""
 	}
 	for _, task := range tasksByNamespace[db.ReindexNamespace] {
-		// PREPARING and SWAPPING count as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]) — see the godoc on
-		// [checkReindexConflict] for the full reasoning. Mutating the
-		// property during either phase would race the in-flight per-
-		// shard bucket-pointer flip.
 		if !task.Status.IsActive() {
 			continue
 		}
+		// Deciding the collection first looks like it would spare
+		// unrelated collections a garbage payload, but a payload of
+		// literal null decodes with no error and leaves Collection empty,
+		// so this side would allow what the apply then rejects.
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			// Unparseable payload in flight is a hard reject reason on
@@ -366,29 +370,28 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 					"refusing property mutation on %s.%s until an operator "+
 					"inspects the task store", className, propertyName)
 		}
+		if payload.Collection == "" || payload.MigrationType == "" {
+			return fmt.Sprintf(
+				"in-flight reindex task %q has empty Collection or "+
+					"MigrationType; refusing property mutation on %s.%s "+
+					"until the task is inspected", task.ID, className, propertyName)
+		}
 		if !strings.EqualFold(payload.Collection, className) {
 			continue
 		}
-		// Empty Properties means "all properties" (whole-collection
-		// rebuild, reserved); treat as a match.
-		matches := len(payload.Properties) == 0
-		for _, p := range payload.Properties {
-			if p == propertyName {
-				matches = true
-				break
-			}
-		}
-		if !matches {
+		// An empty Properties list means "all properties", the same rule
+		// the FSM guards use.
+		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
 			continue
 		}
 		return fmt.Sprintf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until "+
-				"the reindex completes or is cancelled — wait for the "+
-				"task to reach a terminal state, or cancel it via the "+
-				"reindex REST API before retrying",
+				"the reindex completes or is cancelled — %s",
 			task.ID, payload.MigrationType, payload.Collection,
-			propertyName, task.Status)
+			propertyName, task.Status,
+			db.MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
+				"cancel it via the reindex REST API before retrying"))
 	}
 	return ""
 }
@@ -490,23 +493,33 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		switch {
-		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsShardsUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrNotFound):
-			return schema.NewSchemaObjectsShardsUpdateNotFound().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
-			return schema.NewSchemaObjectsShardsUpdateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		}
+		return shardStatusErrResponder(principal, err)
 	}
 
 	payload := params.Body
 
 	s.metricRequestsTotal.logOk("")
 	return schema.NewSchemaObjectsShardsUpdateOK().WithPayload(payload)
+}
+
+// shardStatusErrResponder maps a failed shard status update to its response. A
+// namespace that refuses the change answers 422 rather than the 500 an
+// unrecognized error gets, so a suspended instance does not read as a fault.
+func shardStatusErrResponder(principal *models.Principal, err error) middleware.Responder {
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
+		return schema.NewSchemaObjectsShardsUpdateForbidden().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrNotFound):
+		return schema.NewSchemaObjectsShardsUpdateNotFound().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case cerrors.NamespaceErrRendersUnprocessable(err):
+		return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	default:
+		return schema.NewSchemaObjectsShardsUpdateInternalServerError().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
 }
 
 func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,

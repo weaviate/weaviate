@@ -37,6 +37,17 @@ type dropVectorIndexEnqueuer struct {
 	clusterService clusterDropTaskClient
 	schemaState    schemaStateQuerier
 	logger         logrus.FieldLogger // nil-safe: only used for skip warnings
+	// finalizer removes dropped VectorConfig entries directly — the escape
+	// for MT collections with ZERO tenants, where no cleanup task can ever
+	// exist to drive the finalize. Installed post-construction
+	// (SetVectorConfigFinalizer): the schema manager does not exist yet when the
+	// enqueuer is built. Nil-safe.
+	finalizer dropVectorFinalizer
+}
+
+// dropVectorFinalizer is the slice of the schema finalizer the enqueuer uses.
+type dropVectorFinalizer interface {
+	RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error
 }
 
 // clusterDropTaskClient is the slice of the cluster service the enqueuer uses.
@@ -59,6 +70,14 @@ type schemaStateQuerier interface {
 
 func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaState schemaStateQuerier, logger logrus.FieldLogger) *dropVectorIndexEnqueuer {
 	return &dropVectorIndexEnqueuer{clusterService: clusterService, schemaState: schemaState, logger: logger}
+}
+
+// SetVectorConfigFinalizer installs the direct-finalize hook (see the field
+// doc). Must be called before the drop-vector reconcile loop starts and
+// before the REST API serves — the only two paths that enqueue (restore-time
+// shard loads during ClusterService.Open use LiveOpIDs, never this).
+func (e *dropVectorIndexEnqueuer) SetVectorConfigFinalizer(f dropVectorFinalizer) {
+	e.finalizer = f
 }
 
 // logInfo logs an enqueue-path decision (nil-safe like every logger use here).
@@ -144,18 +163,58 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 	}
 	shardOwnership := activeShardOwnership(state)
 	if len(shardOwnership) == 0 {
-		// All-cold MT collection: no active shard to strip now, and the marker is
-		// already applied — a no-op success, not an error. Reconciliation re-enqueues
-		// once tenants are active. A non-MT collection always has shards, so an empty
-		// map there is a real problem.
-		if state.PartitioningEnabled {
-			e.logInfo(collection, "drop-vector enqueue: no active tenant to clean; the marker stays until a tenant is activated")
+		// A non-MT collection always has shards, so an empty map there is a
+		// real problem.
+		if !state.PartitioningEnabled {
+			return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
+		}
+		if len(state.Physical) == 0 {
+			// ZERO tenants (never created, or all deleted after the marker
+			// landed): no cleanup task can ever exist, so nothing would
+			// drive the finalize — remove the entries directly. There is no
+			// data to strip, and the FSM removal gate explicitly allows the
+			// empty-shard-set case for exactly this reason.
+			if e.finalizer == nil {
+				// An error, not a logged no-op: with no finalizer, NOTHING
+				// can ever remove this marker — a wiring regression that
+				// returned success here would hand the client a 200 for a
+				// drop that silently never completes.
+				return fmt.Errorf("drop-vector enqueue: collection %q has no tenants and no finalizer is wired; cannot remove the dropped vector entries", collection)
+			}
+			if err := e.finalizer.RemoveDroppedVectorConfig(ctx, collection, targets); err != nil {
+				return fmt.Errorf("drop-vector enqueue: finalize tenant-less collection %q: %w", collection, err)
+			}
+			e.logInfo(collection, fmt.Sprintf(
+				"drop-vector enqueue: collection has no tenants; direct removal of dropped vector entries %v applied "+
+					"(a no-op on a lagging local view — reconciliation retries then)", targets))
 			return nil
 		}
-		return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
+		// Tenants exist but none is active: the marker is already applied —
+		// a no-op success, not an error. Reconciliation re-enqueues once a
+		// tenant is activated.
+		e.logInfo(collection, "drop-vector enqueue: all tenants inactive; the marker stays until a tenant is activated")
+		return nil
 	}
 
-	epoch, cleaned := db.EpochAndInheritedCoverage(collection, targets, state, tasks, e.logger)
+	epoch, cleaned, finalizeNow := db.EpochAndInheritedCoverage(collection, targets, state, tasks, e.logger)
+	if finalizeNow {
+		// The chain covers every shard that still exists, and what it owed went
+		// away with a deleted tenant. Re-cleaning here would rewrite every
+		// segment of shards that are already stripped, so remove the entries on
+		// the recorded coverage instead. The FSM removal gate accepts the same
+		// proof (ResolvedByShardDeletion), so this cannot propose a removal the
+		// apply would refuse.
+		if e.finalizer == nil {
+			return fmt.Errorf("drop-vector enqueue: collection %q has a complete cleanup chain but no finalizer is wired; cannot remove the dropped vector entries", collection)
+		}
+		if err := e.finalizer.RemoveDroppedVectorConfig(ctx, collection, targets); err != nil {
+			return fmt.Errorf("drop-vector enqueue: finalize collection %q on recorded coverage: %w", collection, err)
+		}
+		e.logInfo(collection, fmt.Sprintf(
+			"drop-vector enqueue: every remaining shard is covered and the uncleaned ones were deleted; "+
+				"removed dropped vector entries %v without re-cleaning", targets))
+		return nil
+	}
 	shardOwnership = withoutCleanedShards(shardOwnership, cleaned)
 	shardOwnership, deferredShards := capShardOwnership(shardOwnership, maxShardsPerDropRound)
 	if deferredShards > 0 {
@@ -183,13 +242,21 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 	// json.Marshals taskPayload itself (bytes would be double-encoded into a JSON
 	// string and fail to decode in CheckConflict / the provider).
 	payload := db.DropVectorIndexTaskPayload{
-		Collection:    collection,
-		Targets:       targets,
-		OpID:          uuid.NewString(),
-		UnitToNode:    unitToNode,
-		UnitToShard:   unitToShard,
-		DropEpochID:   epoch,
-		CleanedShards: cleaned,
+		Collection: collection,
+		Targets:    targets,
+		// One op identity per drop EPOCH, not per round: every round of the
+		// same drop shares the op, so a round re-arming after an interrupted
+		// strip (deactivated tenant, failed round) finds the recorded
+		// pending set and RESUMES from it — the arm is idempotent
+		// (HasPendingSnapshot) and load-time recovery preserves progress. A
+		// fresh epoch (new drop of a re-created name, expired records) means
+		// a fresh op and a full clean.
+		OpID:           epoch,
+		UnitToNode:     unitToNode,
+		UnitToShard:    unitToShard,
+		DropEpochID:    epoch,
+		CleanedShards:  cleaned,
+		DeferredShards: deferredShardNames(state, unitToShard, cleaned),
 	}
 
 	// Fresh task ID per submission so a re-trigger after a FAILED run is a new
@@ -253,6 +320,30 @@ func capShardOwnership(ownership map[string][]string, max int) (map[string][]str
 	return capped, len(names) - max
 }
 
+// deferredShardNames lists the shards that existed at this enqueue and that this
+// round does not cover — inactive tenants, and anything past the round cap.
+// Recorded so a later round can tell "the drop still owed this shard, and the
+// shard is gone now" from "the chain owed nothing", which decides whether a
+// complete chain may finalize or must re-clean (see
+// DropVectorIndexTaskPayload.ResolvedByShardDeletion).
+func deferredShardNames(state *sharding.State, unitToShard map[string]string, cleaned []string) []string {
+	covered := make(map[string]struct{}, len(unitToShard)+len(cleaned))
+	for _, shard := range unitToShard {
+		covered[shard] = struct{}{}
+	}
+	for _, shard := range cleaned {
+		covered[shard] = struct{}{}
+	}
+	deferred := make([]string, 0, len(state.Physical))
+	for shard := range state.Physical {
+		if _, ok := covered[shard]; !ok {
+			deferred = append(deferred, shard)
+		}
+	}
+	sort.Strings(deferred) // deterministic payload
+	return deferred
+}
+
 // withoutCleanedShards strips already-cleaned shards from the ownership map,
 // removing nodes left with no shards.
 func withoutCleanedShards(ownership map[string][]string, cleaned []string) map[string][]string {
@@ -285,9 +376,14 @@ func (e *dropVectorIndexEnqueuer) stillDroppedTargets(collection string, targets
 	if err != nil {
 		return nil, err
 	}
-	class := vclasses[collection].Class
+	return droppedTargetsIn(vclasses[collection].Class, targets), nil
+}
+
+// droppedTargetsIn filters targets to those present and marked dropped in
+// class. A nil class means nothing to clean.
+func droppedTargetsIn(class *models.Class, targets []string) []string {
 	if class == nil {
-		return nil, nil
+		return nil
 	}
 	var still []string
 	for _, target := range targets {
@@ -295,7 +391,7 @@ func (e *dropVectorIndexEnqueuer) stillDroppedTargets(collection string, targets
 			still = append(still, target)
 		}
 	}
-	return still, nil
+	return still
 }
 
 // activeShardOwnership builds node -> shard-names from a sharding state, limited
@@ -327,28 +423,83 @@ func activeShardOwnership(state *sharding.State) map[string][]string {
 	return result
 }
 
-// LiveOpIDs returns the op IDs of drop-vector tasks that are still active
-// (non-terminal). Wired into the DB so a shard load can sweep an orphaned op — one
-// whose task has finished or been removed — instead of re-arming it. Returns a
-// non-nil (possibly empty) set on success; empty means "no active drop, sweep all".
+// LiveOpIDs returns the op IDs a sidecar sweep must treat as live: ops of
+// ACTIVE drop-vector tasks, plus ops of terminal tasks whose targets are still
+// marked dropped in the schema — a terminal round's recorded pending set is the
+// next round's resume point, so sweeping it would restart the strip from
+// scratch. Once the marker leaves the schema (finalize, or a finalize plus a
+// re-create that revived the name) the op has no next round and the sweep
+// collects it. Returns a non-nil (possibly empty) set on success; empty means
+// "no live drop, sweep all".
 func (e *dropVectorIndexEnqueuer) LiveOpIDs(ctx context.Context) (map[string]struct{}, error) {
 	tasks, err := e.clusterService.ListDistributedTasks(ctx)
 	if err != nil {
 		return nil, err
 	}
 	live := map[string]struct{}{}
+	classes := map[string]classLookup{}
 	for _, task := range tasks[db.DropVectorIndexNamespace] {
-		if !task.Status.IsActive() {
-			continue
-		}
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
 			warnSkippedPayload(e.logger, "live-op-ids", task.ID, err)
 			continue
 		}
-		live[p.OpID] = struct{}{}
+		if e.opStillNeeded(task, p, classes) {
+			live[p.OpID] = struct{}{}
+		}
 	}
 	return live, nil
+}
+
+// classLookup memoizes one leader class read within a single LiveOpIDs call:
+// every round of one drop shares (collection, targets) and terminal records
+// are deliberately retained while the marker is pending, so the records fan
+// in on few collections. A failed read is memoized too (readErr) —
+// QueryReadOnlyClasses is a serial RPC that ignores ctx cancellation, so a
+// per-record fan-out against a partitioned leader could hold the caller's
+// sweep far past its deadline; the memo bounds it to one RPC per collection.
+type classLookup struct {
+	class   *models.Class
+	readErr bool
+}
+
+// opStillNeeded reports whether a task's edit op must survive a sidecar sweep:
+// always for an active task; for a terminal one, while ANY of its targets is
+// still marked dropped — the marker means another round is coming, and the op's
+// pending set is that round's resume point. The ANY fold is deliberate and
+// differs from the provider's ALL-fold targetsStillDropped: that one gates
+// destructive ARMING, where a single revived target must refuse the whole op;
+// liveness protects recorded progress, which stays valuable while any target
+// still owes a round. A superseded old-epoch op alongside
+// a NEW drop's marker also stays until that marker leaves the schema too: it
+// strips the same target name, which is idempotent, and the transformer's
+// dropped-target check stops it from touching the name once it is live. Fails open on
+// a leader read error:
+// liveness feeds a destructive sweep, and "keep" is the reversible direction.
+func (e *dropVectorIndexEnqueuer) opStillNeeded(
+	task *distributedtask.Task, p *db.DropVectorIndexTaskPayload, classes map[string]classLookup,
+) bool {
+	if task.Status.IsActive() {
+		return true
+	}
+	lookup, ok := classes[p.Collection]
+	if !ok {
+		vclasses, err := e.schemaState.QueryReadOnlyClasses(p.Collection)
+		if err != nil {
+			if e.logger != nil {
+				e.logger.WithField("collection", p.Collection).
+					Warnf("drop-vector: live-op-ids: leader class read failed; keeping this collection's terminal ops (fail open): %v", err)
+			}
+			lookup = classLookup{readErr: true}
+		} else {
+			lookup = classLookup{class: vclasses[p.Collection].Class}
+		}
+		classes[p.Collection] = lookup
+	}
+	if lookup.readErr {
+		return true
+	}
+	return len(droppedTargetsIn(lookup.class, p.Targets)) > 0
 }
 
 var _ schema.DropVectorIndexEnqueuer = (*dropVectorIndexEnqueuer)(nil)

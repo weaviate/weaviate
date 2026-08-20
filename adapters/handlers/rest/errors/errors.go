@@ -42,6 +42,19 @@ func HTTPStatusForNamespaceErr(err error) (status int, ok bool) {
 	}
 }
 
+// NamespaceErrRendersUnprocessable reports whether err is a namespace-state
+// error the caller should see as a 422 rather than a 500. A resuming namespace
+// is excluded: it asks for 503, which most operations have no responder for.
+func NamespaceErrRendersUnprocessable(err error) bool {
+	// HTTPStatusForNamespaceErr reports ok=false for ErrNamespaceGone, which
+	// would otherwise fall through to a 500 instead of a 422.
+	if errors.Is(err, namespaces.ErrNamespaceGone) {
+		return true
+	}
+	status, ok := HTTPStatusForNamespaceErr(err)
+	return ok && status == http.StatusUnprocessableEntity
+}
+
 // ErrPayloadFromSingleErr builds a single-message ErrorResponse with the
 // principal's own namespace prefix stripped from err. Pass nil for global
 // callers to leave the message unchanged. A nil err is tolerated and yields

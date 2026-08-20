@@ -48,6 +48,13 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		return 0, fmt.Errorf("marshal command: %w", err)
 	}
 
+	// Namespace admission runs before the schema-shape filter so a suspended
+	// namespace answers with its own state rather than a complaint about the
+	// entity the caller named.
+	if err := st.admitPropose(req); err != nil {
+		return 0, err
+	}
+
 	// Call the filtering to avoid committing to the FSM unnecessary updates
 	if err := st.schemaManager.PreApplyFilter(req); err != nil {
 		return 0, err
@@ -71,6 +78,148 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	return resp.Version, resp.Error
 }
 
+// admitPropose refuses a command whose namespace is not in a state that admits
+// it. It runs on the leader before the entry is appended, which is the only
+// place such a refusal can live: Apply must be a pure function of the log, so a
+// check there would have an older binary carry out what an upgraded one refuses,
+// live during a rolling update and again on every replay of that entry.
+// Refusing before the append means no node ever sees a committed entry it has to
+// reject, so the set of commands checked here can grow without becoming a
+// compatibility event.
+//
+// The check reads the leader's namespace state and the entry commits shortly
+// after, so a state flip landing in between still lets an accepted command
+// through. That is deliberate, and matches the rule that a suspend does not
+// cancel work already accepted. Every node applies the entry either way, so the
+// outcome stays the same across the cluster.
+//
+// A command that materializes a shard is checked here too. The flip it can race
+// leaves the schema entry standing with its shard still to open, which is the
+// state namespaces.AppliedChangeMayOpenShard already governs for every other
+// apply whose schema half has committed. An Apply-side check would not close
+// that window either: the DB half runs after the schema half commits, so a flip
+// landing in between produces the same state.
+func (st *Store) admitPropose(req *api.ApplyRequest) error {
+	if err := st.admitDestructive(req); err != nil {
+		return err
+	}
+	if err := st.admitCreateLike(req); err != nil {
+		return err
+	}
+	return st.admitShardStatus(req)
+}
+
+// admitShardStatus refuses a manual shard status change outside the active
+// state. It writes no schema, only the status of a shard the namespace holds
+// open, which a namespace that serves no requests has nothing to set.
+func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
+	if req.Type != api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS {
+		return nil
+	}
+	// The command names its class outright, and Handler.UpdateShardStatus
+	// qualifies it before the propose.
+	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+}
+
+// admitCreateLike refuses a create-like command outside the active state. The
+// alias commands write schema and no store, and the RBAC and user commands write
+// neither, so a late one leaves nothing half-built. The class and tenant commands
+// do materialize a shard, and admitPropose says why a late one is still safe.
+func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_ADD_CLASS,
+		api.ApplyRequest_TYPE_RESTORE_CLASS,
+		api.ApplyRequest_TYPE_ADD_TENANT,
+		api.ApplyRequest_TYPE_UPDATE_TENANT:
+		// These name their class outright, so the namespace comes off the
+		// request rather than a subcommand.
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+
+	case api.ApplyRequest_TYPE_CREATE_ALIAS:
+		sub := &api.CreateAliasRequest{}
+		if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal create-alias subcommand: %w", err)
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(sub.Alias))
+
+	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
+		sub := &api.ReplaceAliasRequest{}
+		if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(sub.Alias))
+
+	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
+		// Permission-only upserts re-mint the role row too, so gate every name
+		// regardless of RoleCreation.
+		sub := &api.CreateRolesRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal upsert-roles subcommand: %w", err)
+		}
+		for name := range sub.Roles {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
+				return err
+			}
+		}
+		return nil
+
+	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
+		// While deleting, a late assignment would leave a grouping row behind
+		// after the cleanup cascade has emptied the namespace.
+		sub := &api.AddRolesForUsersRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
+		}
+		ns, err := subjectNamespace(sub.User)
+		if err != nil {
+			return fmt.Errorf("resolve namespace of subject %q: %w", sub.User, err)
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, ns)
+
+	case api.ApplyRequest_TYPE_UPSERT_USER:
+		// The request carries its namespace outright. The empty-namespace
+		// validation stays in the dynusers manager: it reads node-local config,
+		// not namespace state.
+		sub := &api.CreateUsersRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal upsert-user subcommand: %w", err)
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, sub.Namespace)
+
+	default:
+		return nil
+	}
+}
+
+// admitDestructive refuses a data-destroying command whose namespace is not in a
+// state that admits one. Unlike the create-like commands it also passes while
+// deleting, so the cleanup cascade can empty a namespace.
+func (st *Store) admitDestructive(req *api.ApplyRequest) error {
+	var name string
+	switch req.Type {
+	case api.ApplyRequest_TYPE_DELETE_CLASS:
+		// Index.drop renames the whole class directory, taking every tenant
+		// with it, loaded or not.
+		name = req.Class
+	case api.ApplyRequest_TYPE_DELETE_TENANT:
+		// Index.dropShards destroys the data on both arms: shard.drop when the
+		// shard is loaded, os.RemoveAll on its path when it is not.
+		name = req.Class
+	case api.ApplyRequest_TYPE_DELETE_ALIAS:
+		// The command carries no Class, so the namespace comes off the alias
+		// name. An alias may target a class in another namespace, and
+		// AliasesInNamespace lists by alias prefix, so that is the same key.
+		sub := &api.DeleteAliasRequest{}
+		if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal delete-alias subcommand: %w", err)
+		}
+		name = sub.Alias
+	default:
+		return nil
+	}
+	return usecasesNamespaces.AdmitDestructiveApply(st.namespaceManager, namespacing.NamespaceFromQualified(name))
+}
+
 // StoreConfiguration is invoked once a log entry containing a configuration
 // change is committed. It takes the index at which the configuration was
 // written and the configuration value.
@@ -85,6 +234,9 @@ func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
 // Apply should apply the log to the FSM. Apply must be deterministic and
 // produce the same result on all peers in the cluster.
 // The returned value is returned to the client as the ApplyFuture.Response.
+//
+// That determinism is why no arm below refuses a command for its namespace
+// state: [Store.admitPropose] does it before the entry is appended.
 func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
 
@@ -188,19 +340,11 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
@@ -242,28 +386,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		f = func() {
-			req := &api.CreateAliasRequest{}
-			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal create-alias subcommand: %w", err)
-				return
-			}
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.schemaManager.CreateAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
 		f = func() {
-			req := &api.ReplaceAliasRequest{}
-			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
-				return
-			}
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.schemaManager.ReplaceAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ALIAS:
@@ -306,20 +432,6 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD: //nolint:staticcheck // deliberate use of the deprecated tombstone type
 	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
-			// A role can't be upserted into a namespace that's gone or being
-			// deleted. Permission-only upserts re-mint the role row too, so gate
-			// every name regardless of RoleCreation.
-			req := &api.CreateRolesRequest{}
-			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal upsert-roles subcommand: %w", err)
-				return
-			}
-			for name := range req.Roles {
-				if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
-					ret.Error = err
-					return
-				}
-			}
 			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ROLES:
@@ -332,23 +444,6 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
 		f = func() {
-			// A role can't be assigned to a subject in a namespace that is not
-			// active; while deleting, a late assignment would also leave a
-			// grouping row behind after the cleanup cascade has emptied it.
-			req := &api.AddRolesForUsersRequest{}
-			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
-				return
-			}
-			subjectNS, err := subjectNamespace(req.User)
-			if err != nil {
-				ret.Error = fmt.Errorf("resolve namespace of subject %q: %w", req.User, err)
-				return
-			}
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, subjectNS); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.authZManager.AddRolesForUser(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:

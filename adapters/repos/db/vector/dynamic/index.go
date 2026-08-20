@@ -16,11 +16,11 @@ import (
 	"encoding/binary"
 	simpleErrors "errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -46,6 +46,11 @@ const (
 	composerUpgradedKey = "upgraded"
 	batchSize           = 500
 	StateDBFileName     = "index.db"
+
+	// stateDBOpenTimeout bounds the wait for the state DB's file lock. Only a
+	// loaded shard holds it, and [UpgradedOnDisk] reads unloaded ones, so waiting
+	// is a sign the caller raced a load rather than something to sit out.
+	stateDBOpenTimeout = time.Second
 )
 
 var dynamicBucket = []byte("dynamic")
@@ -183,12 +188,9 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	logger := cfg.Logger
-	if logger == nil {
-		l := logrus.New()
-		l.Out = io.Discard
-		logger = l
-	}
+	// in place rather than into a local: the flat config below passes cfg.Logger
+	// on, so a default kept beside it would not travel with the index
+	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
 
 	flatConfig := flat.Config{
 		ID:                cfg.ID,
@@ -205,7 +207,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	index := &dynamic{
 		id:                           cfg.ID,
 		targetVector:                 cfg.TargetVector,
-		logger:                       logger,
+		logger:                       cfg.Logger,
 		rootPath:                     cfg.RootPath,
 		shardName:                    cfg.ShardName,
 		className:                    cfg.ClassName,
@@ -278,17 +280,62 @@ func (dynamic *dynamic) Type() common.IndexType {
 }
 
 func (dynamic *dynamic) dbKey() []byte {
-	var key []byte
-	if dynamic.targetVector != "" {
-		key = make([]byte, 0, len(composerUpgradedKey)+len(dynamic.targetVector)+1)
-		key = append(key, composerUpgradedKey...)
-		key = append(key, '_')
-		key = append(key, dynamic.targetVector...)
-	} else {
-		key = []byte(composerUpgradedKey)
+	return dbKey(dynamic.targetVector)
+}
+
+func dbKey(targetVector string) []byte {
+	if targetVector == "" {
+		return []byte(composerUpgradedKey)
 	}
 
+	key := make([]byte, 0, len(composerUpgradedKey)+len(targetVector)+1)
+	key = append(key, composerUpgradedKey...)
+	key = append(key, '_')
+	key = append(key, targetVector...)
 	return key
+}
+
+// UpgradedOnDisk reports whether the dynamic index of an unloaded shard already
+// switched to hnsw, reading the same state the shard's own load reads: the
+// shared state DB, falling back for a named vector to the hnsw commit log
+// directory. An unnamed vector gets no such fallback, because its load reads a
+// missing key as not upgraded and then deletes that directory.
+//
+// State that could not be read returns false along with the error, so a caller
+// can tell that answer apart from a shard positively known to be flat.
+func UpgradedOnDisk(rootPath, id, targetVector string) (bool, error) {
+	upgradedWithoutStateKey := false
+	if targetVector != "" {
+		_, err := os.Stat(hnswCommitLogDirectory(rootPath, id))
+		upgradedWithoutStateKey = err == nil
+	}
+
+	db, err := bbolt.Open(filepath.Join(rootPath, StateDBFileName), 0o600,
+		&bbolt.Options{ReadOnly: true, Timeout: stateDBOpenTimeout})
+	if err != nil {
+		// only a shard that never wrote state may fall back to the directory; a
+		// locked or damaged DB is state we failed to read
+		if os.IsNotExist(err) {
+			return upgradedWithoutStateKey, nil
+		}
+		return false, fmt.Errorf("open dynamic state db: %w", err)
+	}
+	defer db.Close()
+
+	upgraded := upgradedWithoutStateKey
+	if err := db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		if b == nil {
+			return nil
+		}
+		if v := b.Get(dbKey(targetVector)); len(v) > 0 {
+			upgraded = v[0] != 0
+		}
+		return nil
+	}); err != nil {
+		return false, fmt.Errorf("read dynamic state db: %w", err)
+	}
+	return upgraded, nil
 }
 
 func (dynamic *dynamic) getBucketName() string {
@@ -316,8 +363,10 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		}
 
 		if cfg.TargetVector == "" {
+			// a stored empty value reads back non-nil, so length is what says
+			// whether a state was recorded
 			v := b.Get(dbKey)
-			if v == nil {
+			if len(v) == 0 {
 				return nil
 			}
 
@@ -331,7 +380,7 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 
 		// first, check if there's an entry for this specific target vector
 		v := b.Get(dbKey)
-		if v != nil {
+		if len(v) > 0 {
 			upgraded = v[0] != 0
 			return nil
 		}
@@ -356,11 +405,11 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		return false, errors.Wrap(err, "get dynamic state")
 	}
 
-	// If not yet upgraded, remove any stale HNSW commit log left by a
-	// previous failed upgrade attempt. The compact-v2 Loader replays the
-	// live WAL file on every hnsw.New() call, so without this cleanup each
-	// retry inherits partial state from the prior attempt, corrupting the
-	// compressor and causing vector-dimension mismatches at search time.
+	// If not yet upgraded, remove any stale HNSW commit log left by an
+	// upgrade that was aborted or crashed before completing. hnsw.New()
+	// replays every file in the commit log directory, so without this
+	// cleanup the next upgrade attempt inherits partial state from the
+	// prior one, corrupting the rebuilt index.
 	if !upgraded {
 		commitLogDir := hnswCommitLogDirectory(cfg.RootPath, cfg.ID)
 		if err := os.RemoveAll(commitLogDir); err != nil {
@@ -686,6 +735,7 @@ func (dynamic *dynamic) doUpgrade() error {
 		}
 
 		if err := dynamic.copyToVectorIndex(index); err != nil {
+			dynamic.cleanupAbortedUpgrade(index)
 			return nil, err
 		}
 
@@ -706,6 +756,7 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	if err := dynamic.ctx.Err(); err != nil {
 		// already closed
+		dynamic.cleanupAbortedUpgrade(index)
 		return errors.Wrap(err, "index was closed while upgrading")
 	}
 
@@ -714,6 +765,9 @@ func (dynamic *dynamic) doUpgrade() error {
 		return b.Put(dynamic.dbKey(), []byte{1})
 	})
 	if err != nil {
+		// the new index is never installed, so tear it down like any other
+		// aborted upgrade
+		dynamic.cleanupAbortedUpgrade(index)
 		return errors.Wrap(err, "update dynamic")
 	}
 
@@ -756,6 +810,25 @@ func (dynamic *dynamic) doUpgrade() error {
 	}
 
 	return nil
+}
+
+// cleanupAbortedUpgrade tears down a partially-built HNSW index after an
+// aborted flat->HNSW upgrade. The commit log written so far must not stay on
+// disk: the next hnsw.New() (upgrade retry or shard restart) replays every
+// file in the commit log directory, so leftover partial state would corrupt
+// the rebuilt index. Uses a fresh context because the abort is typically
+// caused by dynamic.ctx being canceled.
+func (dynamic *dynamic) cleanupAbortedUpgrade(index VectorIndex) {
+	if err := index.Drop(context.Background(), false); err != nil {
+		dynamic.logger.WithField("action", "dynamic_upgrade_abort").
+			Error(errors.Wrap(err, "drop partially-built hnsw index"))
+	}
+	// Drop removes the commit log directory, but remove it explicitly in case
+	// Drop failed partway through.
+	if err := os.RemoveAll(hnswCommitLogDirectory(dynamic.rootPath, dynamic.id)); err != nil {
+		dynamic.logger.WithField("action", "dynamic_upgrade_abort").
+			Error(errors.Wrap(err, "remove partial hnsw commit log"))
+	}
 }
 
 // Loop over the store and add each vector to the HNSW.
@@ -802,9 +875,8 @@ func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
 
 		cursor.Close()
 
-		err := index.AddBatch(dynamic.ctx, ids, vectors)
-		if err != nil {
-			dynamic.logger.WithError(err).Error("failed to add vectors")
+		if err := index.AddBatch(dynamic.ctx, ids, vectors); err != nil {
+			return errors.Wrap(err, "add vectors to upgraded index")
 		}
 
 		if k == nil {
@@ -836,16 +908,19 @@ func (dynamic *dynamic) Stats() (*hnsw.HnswStats, error) {
 	return h.Stats()
 }
 
+type compressionStatsReporter interface {
+	CompressionStats() compressionhelpers.CompressionStats
+}
+
 func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 
-	// Delegate to the underlying index (flat or hnsw)
-	if vectorIndex, ok := dynamic.index.(compressionhelpers.CompressionStats); ok {
-		return vectorIndex
+	// the stats belong to whichever index is active, flat or hnsw
+	if index, ok := dynamic.index.(compressionStatsReporter); ok {
+		return index.CompressionStats()
 	}
 
-	// Fallback: return uncompressed stats if the underlying index doesn't support CompressionStats
 	return compressionhelpers.UncompressedStats{}
 }
 

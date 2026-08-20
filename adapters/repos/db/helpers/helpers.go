@@ -14,12 +14,8 @@ package helpers
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/vectorindex/flat"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 var (
@@ -44,6 +40,40 @@ func GetVectorsBucketName(targetVector string) string {
 		return fmt.Sprintf("%s_%s", VectorsBucketLSM, targetVector)
 	}
 	return VectorsBucketLSM
+}
+
+// GetMuveraBucketName returns the bucket a muvera-encoded multi-vector index
+// keeps its encoded vectors in (see hnsw.New, which builds it as
+// "<vectorIndexID>_muvera_vectors"). It is a bucket of the index's own, held
+// outside the vectors/compressed pair, so anything tearing an index down has to
+// name it explicitly or the encoded copies survive.
+func GetMuveraBucketName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_muvera_vectors", GetVectorsBucketName(targetVector))
+	}
+	// Mirrors vectorIndexID's unnamed case, which the index uses as its ID.
+	return "main_muvera_vectors"
+}
+
+// HFresh keeps more on-disk state than the other index types: a directory of
+// its own under the shard, plus two dedicated LSM buckets. All three are keyed
+// on the index ID (vectorIndexID, i.e. "vectors_<target>" for a named vector),
+// and they live here so the index that creates them and the drop that removes
+// them cannot drift apart.
+
+// HFreshDirName is the hfresh index's own directory under the shard.
+func HFreshDirName(indexID string) string {
+	return fmt.Sprintf("%s.hfresh.d", indexID)
+}
+
+// HFreshPostingsBucketName is the LSM bucket holding hfresh's posting lists.
+func HFreshPostingsBucketName(indexID string) string {
+	return fmt.Sprintf("hfresh_postings_%s", indexID)
+}
+
+// HFreshSharedBucketName is the LSM bucket holding hfresh's shared metadata.
+func HFreshSharedBucketName(indexID string) string {
+	return fmt.Sprintf("hfresh_shared_%s", indexID)
 }
 
 func GetHNSWCommitLogDirName(targetVector string) string {
@@ -178,41 +208,4 @@ func BucketSearchableFromPropertyLSM(prop *models.Property) string {
 // a property at its currently-active generation. See [BucketFromPropertyLSM].
 func BucketRangeableFromPropertyLSM(prop *models.Property) string {
 	return BucketRangeableFromPropNameLSMAtGen(prop.Name, prop.BucketGeneration)
-}
-
-// CompressionRatioFromConfig calculates the compression ratio from vector index config
-// This is used for inactive tenants where we don't have access to the actual vector index
-func CompressionRatioFromConfig(config schemaConfig.VectorIndexConfig, dimensions int) float64 {
-	// Check for different compression types in config by type asserting
-	if hnswConfig, ok := config.(hnsw.UserConfig); ok {
-		// Check for different compression types in HNSW config
-		if hnswConfig.PQ.Enabled {
-			// PQ compression ratio depends on segments
-			segments := hnswConfig.PQ.Segments
-			if segments == 0 {
-				segments = common.CalculateOptimalSegments(dimensions)
-			}
-			return float64(dimensions*4) / float64(segments)
-		} else if hnswConfig.BQ.Enabled {
-			// BQ compression ratio is approximately 32x
-			return 32
-		} else if hnswConfig.SQ.Enabled {
-			// SQ compression ratio is approximately 4x
-			return 4
-		}
-	} else if flatConfig, ok := config.(flat.UserConfig); ok {
-		// Check for different compression types in Flat config
-		if flatConfig.BQ.Enabled {
-			// BQ compression ratio is approximately 32x
-			return 32
-		} else if flatConfig.PQ.Enabled {
-			// PQ compression ratio depends on segments (not supported in flat but handle gracefully)
-		} else if flatConfig.SQ.Enabled {
-			// SQ compression ratio is approximately 4x
-			return 4
-		}
-	}
-
-	// Default to no compression
-	return 1
 }

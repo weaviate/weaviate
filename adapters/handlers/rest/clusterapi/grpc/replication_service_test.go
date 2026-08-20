@@ -47,6 +47,15 @@ func TestReplicationErrorToGRPC(t *testing.T) {
 		assert.Contains(t, st.Message(), "shard loading")
 	})
 
+	t.Run("wrapped height mismatch returns FailedPrecondition", func(t *testing.T) {
+		err := fmt.Errorf("%w: hashtree level 9 exceeds height 8 on shard %q", replica.ErrAsyncReplicationNotActive, "t")
+		grpcErr := replicationErrorToGRPC(err)
+		require.NotNil(t, grpcErr)
+		st, ok := status.FromError(grpcErr)
+		require.True(t, ok)
+		assert.Equal(t, codes.FailedPrecondition, st.Code())
+	})
+
 	t.Run("other error returns Internal", func(t *testing.T) {
 		err := errors.New("something went wrong")
 		grpcErr := replicationErrorToGRPC(err)

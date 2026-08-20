@@ -93,6 +93,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -106,7 +107,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -231,6 +232,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+		mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 		mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 		mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 		mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -245,7 +247,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
 		}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
-			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 		require.Nil(t, err)
 		repo.SetSchemaGetter(schemaGetter)
 		require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -516,6 +518,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		}).Maybe()
 		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+		mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 		mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 		mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 		mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -530,7 +533,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
 		}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
-			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 		require.Nil(t, err)
 		repo.SetSchemaGetter(schemaGetter)
 		require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -888,6 +891,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		}).Maybe()
 		mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+		mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 		mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 		mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 		mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -902,7 +906,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
 		}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
-			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 		require.Nil(t, err)
 		repo.SetSchemaGetter(schemaGetter)
 		require.Nil(t, repo.WaitForStartup(testCtx()))

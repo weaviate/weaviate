@@ -30,6 +30,9 @@ type CreateTenantPayload struct {
 type UpdateTenantPayload struct {
 	Name   string
 	Status string
+	// PreFreezeStatus is the status the tenant held when the freeze started. An
+	// aborted freeze reports it back so the schema restores it; empty otherwise.
+	PreFreezeStatus string
 }
 
 // Migrator represents both the input and output interface of the Composer
@@ -38,7 +41,8 @@ type Migrator interface {
 	DropClass(ctx context.Context, className string, hasFrozen bool) error
 	// UpdateClass(ctx context.Context, className string,newClassName *string) error
 	GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error)
-	LoadShard(ctx context.Context, class, shard string) error
+	LoadShardForMovement(ctx context.Context, class, shard string) error
+	LoadShardForNewReplica(ctx context.Context, class, shard string) error
 	DropShard(ctx context.Context, class, shard string) error
 	ShutdownShard(ctx context.Context, class, shard string) error
 	ReconcileAsyncReplicationForShard(ctx context.Context, class, shard string) error
@@ -51,6 +55,7 @@ type Migrator interface {
 
 	NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error
 	UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload, implicitUpdate bool) error
+	UpdateTenantsForProcess(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) error
 	DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error
 
 	GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error)

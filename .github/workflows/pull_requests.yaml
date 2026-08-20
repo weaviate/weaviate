@@ -828,13 +828,14 @@ jobs:
         name: check
         env:
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           commit_message=$(git log -1 --format=%B $COMMIT_SHA)
-          if [[ "$commit_message" == *"drop-vector-index"* || "$commit_message" == "prepare release"* ]]; then
+          if [[ "$commit_message" == *"drop-vector-index"* || "$commit_message" == "prepare release"* || "$BRANCH_NAME" == merge* ]]; then
             echo "Run pipeline"
             echo "run_pipeline=true" >> $GITHUB_OUTPUT
           else
-            echo "Skip pipeline. In order to run the pipeline commit title must contain: drop-vector-index"
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: drop-vector-index, or the branch name must start with: merge"
             echo "run_pipeline=false" >> $GITHUB_OUTPUT
           fi
   Acceptance-DropVectorIndex-Tests:

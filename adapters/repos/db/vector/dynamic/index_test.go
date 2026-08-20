@@ -360,9 +360,9 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	}
 }
 
-// newUpgradeTestDynamic builds a minimal dynamic index with vectorsSize indexed
+// newUpgradeRetryTestDynamic builds a minimal dynamic index with vectorsSize indexed
 // vectors and ShouldUpgrade()==true, for exercising Upgrade's retry/re-entrancy paths.
-func newUpgradeTestDynamic(t *testing.T, vectorsSize int) *dynamic {
+func newUpgradeRetryTestDynamic(t *testing.T, vectorsSize int) *dynamic {
 	t.Helper()
 	ctx := context.Background()
 	dimensions := 4
@@ -440,7 +440,7 @@ func TestDynamicUpgradeRetriesAfterFailedAttempt(t *testing.T) {
 				// design; retry-after-panic only exists in recovery mode.
 				t.Skip("panic recovery disabled")
 			}
-			dyn := newUpgradeTestDynamic(t, 10)
+			dyn := newUpgradeRetryTestDynamic(t, 10)
 			realUpgrade := dyn.upgradeFn
 			dyn.upgradeFn = tc.hook
 
@@ -471,7 +471,7 @@ func TestDynamicUpgradeRetriesAfterFailedAttempt(t *testing.T) {
 // Regression test: a mid-upgrade Upgrade call must invoke its own callback
 // immediately instead of blocking on the in-flight attempt.
 func TestDynamicUpgradeMidFlightInvokesCallerCallbackImmediately(t *testing.T) {
-	dyn := newUpgradeTestDynamic(t, 10)
+	dyn := newUpgradeRetryTestDynamic(t, 10)
 
 	block := make(chan struct{})
 	dyn.upgradeFn = func() error {
@@ -510,7 +510,7 @@ func TestDynamicUpgradeMidFlightInvokesCallerCallbackImmediately(t *testing.T) {
 // Regression test: Upgrade after Shutdown must invoke the callback inline,
 // since no goroutine is spawned to do it later.
 func TestDynamicUpgradeAfterShutdownInvokesCallbackSynchronously(t *testing.T) {
-	dyn := newUpgradeTestDynamic(t, 10)
+	dyn := newUpgradeRetryTestDynamic(t, 10)
 
 	require.NoError(t, dyn.Shutdown(context.Background()))
 
@@ -528,6 +528,7 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 		setupFlatConfig func(*flatent.UserConfig)
 		setupHNSWConfig func(*hnswent.UserConfig, int)
 		compressed      bool
+		compressionType string
 	}{
 		{
 			name: "BQ->Uncompressed",
@@ -539,7 +540,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 			},
 			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
 			},
-			compressed: false,
+			compressed:      false,
+			compressionType: "none",
 		},
 		{
 			name: "RQ->Uncompressed",
@@ -551,7 +553,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 			},
 			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
 			},
-			compressed: false,
+			compressed:      false,
+			compressionType: "none",
 		},
 		{
 			name: "BQ->PQ",
@@ -574,7 +577,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					},
 				}
 			},
-			compressed: true,
+			compressed:      true,
+			compressionType: "pq",
 		},
 		{
 			name: "BQ->SQ",
@@ -589,7 +593,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					Enabled: true,
 				}
 			},
-			compressed: true,
+			compressed:      true,
+			compressionType: "sq",
 		},
 		{
 			name: "RQ->PQ",
@@ -613,7 +618,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					},
 				}
 			},
-			compressed: true,
+			compressed:      true,
+			compressionType: "pq",
 		},
 		{
 			name: "BQ->RQ",
@@ -629,7 +635,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					Bits:    1,
 				}
 			},
-			compressed: true,
+			compressed:      true,
+			compressionType: "rq",
 		},
 		{
 			name: "RQ->BQ",
@@ -644,7 +651,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					Enabled: true,
 				}
 			},
-			compressed: true,
+			compressed:      true,
+			compressionType: "bq",
 		},
 		{
 			name: "RQ1->RQ8",
@@ -661,7 +669,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					Bits:    8,
 				}
 			},
-			compressed: true,
+			compressed:      true,
+			compressionType: "rq",
 		},
 	}
 
@@ -786,6 +795,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 			require.NoError(t, err)
 			dynamic.PostStartup(context.Background())
 			require.Equal(t, dynamic.Compressed(), tt.compressed)
+			assert.Equal(t, tt.compressionType, dynamic.CompressionStats().CompressionType(),
+				"the usage report bills from the active index's own stats")
 			recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 			assert.Equal(t, recall, recall2)
 		})
@@ -1330,4 +1341,268 @@ func TestDynamicStaleCommitLogCleanedOnRestart(t *testing.T) {
 	require.Greater(t, recall, float32(0.7))
 
 	require.NoError(t, dyn2.Shutdown(context.Background()))
+}
+
+// newUpgradeTestDynamic builds a dynamic index for tests around the
+// flat->HNSW upgrade path. The caller controls the commit logger thunk so
+// tests can observe the on-disk HNSW commit log directory.
+func newUpgradeTestDynamic(t *testing.T, rootPath, id, targetVector string,
+	db *bbolt.DB, vectors [][]float32, thunk hnsw.MakeCommitLogger,
+) *dynamic {
+	t.Helper()
+
+	distancer := distancer.NewL2SquaredProvider()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	hnswuc := hnswent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        64,
+		EF:                    32,
+		VectorCacheMaxObjects: 1_000_000,
+	}
+
+	idx, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		RootPath:              rootPath,
+		ID:                    id,
+		TargetVector:          targetVector,
+		MakeCommitLoggerThunk: thunk,
+		DistanceProvider:      distancer,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
+	}, ent.UserConfig{
+		Threshold: uint64(len(vectors)),
+		Distance:  distancer.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
+	}, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+
+	return idx
+}
+
+// failingAddBatchIndex fails every AddBatch call, simulating an HNSW index
+// that can no longer ingest vectors (e.g. because the shard is shutting down).
+type failingAddBatchIndex struct {
+	VectorIndex
+	err error
+}
+
+func (f *failingAddBatchIndex) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+	return f.err
+}
+
+func TestDynamicCopyToVectorIndexPropagatesAddBatchError(t *testing.T) {
+	ctx := context.Background()
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	vectors, _ := testinghelpers.RandomVecs(100, 0, 8)
+	idx := newUpgradeTestDynamic(t, t.TempDir(), "copy-err-test", "", db, vectors, hnsw.MakeNoopCommitLogger)
+
+	for i := range vectors {
+		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	expectedErr := errors.New("add batch failed")
+	err = idx.copyToVectorIndex(&failingAddBatchIndex{err: expectedErr})
+	require.ErrorIs(t, err, expectedErr)
+}
+
+func TestDynamicAbortedUpgradeCleansPartialCommitLog(t *testing.T) {
+	ctx := context.Background()
+	rootPath := t.TempDir()
+	const id = "upgrade-abort-test"
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	vectors, _ := testinghelpers.RandomVecs(1_000, 0, 20)
+	idx := newUpgradeTestDynamic(t, rootPath, id, "", db, vectors, func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+		return hnsw.NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
+	})
+
+	for i := range vectors {
+		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	called := make(chan struct{})
+	require.NoError(t, idx.Upgrade(func() {
+		close(called)
+	}))
+
+	// close the index to cancel the in-flight upgrade
+	require.NoError(t, idx.Shutdown(context.Background()))
+
+	select {
+	case <-called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upgrade callback was not called")
+	}
+
+	require.False(t, idx.Upgraded(), "upgrade should have been aborted")
+
+	// the partially-written HNSW commit log must not survive the abort:
+	// on the next hnsw.New() it would be replayed, resurrecting partial state
+	_, err = os.Stat(hnswCommitLogDirectory(rootPath, id))
+	require.True(t, os.IsNotExist(err), "partial hnsw commit log should have been removed")
+}
+
+// An upgrade that builds the HNSW successfully but fails to persist the
+// upgraded state must tear the new index down like any other aborted
+// upgrade: it is never installed, so its commit log and resources would
+// otherwise be orphaned.
+func TestDynamicUpgradeStatePersistFailureCleansPartialCommitLog(t *testing.T) {
+	ctx := context.Background()
+	rootPath := t.TempDir()
+	const id = "upgrade-persist-fail-test"
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+
+	vectors, _ := testinghelpers.RandomVecs(200, 0, 8)
+	idx := newUpgradeTestDynamic(t, rootPath, id, "", db, vectors, func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+		return hnsw.NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
+	})
+	t.Cleanup(func() {
+		idx.Shutdown(context.Background())
+	})
+
+	for i := range vectors {
+		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	// close the bbolt db so persisting the upgraded state fails after the
+	// HNSW has been fully built
+	require.NoError(t, db.Close())
+
+	called := make(chan struct{})
+	require.NoError(t, idx.Upgrade(func() {
+		close(called)
+	}))
+
+	select {
+	case <-called:
+	case <-time.After(30 * time.Second):
+		t.Fatal("upgrade callback was not called")
+	}
+
+	require.False(t, idx.Upgraded(), "upgrade should have been aborted")
+
+	_, err = os.Stat(hnswCommitLogDirectory(rootPath, id))
+	require.True(t, os.IsNotExist(err), "partial hnsw commit log should have been removed")
+}
+
+// A crashed upgrade never runs the abort cleanup, so a partial HNSW commit
+// log can still be on disk at the next shard load. init() must remove it
+// unless the vector is positively marked as upgraded — otherwise the partial
+// state gets replayed into the rebuilt index.
+func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
+	const id = "stale-commitlog-test"
+
+	tests := []struct {
+		name         string
+		targetVector string
+		storedState  []byte // value stored under the vector's bbolt key, nil for no key
+		wantDirKept  bool
+	}{
+		{
+			name:        "not upgraded: stale commit log removed",
+			storedState: []byte{0},
+			wantDirKept: false,
+		},
+		{
+			name:        "upgraded: commit log kept",
+			storedState: []byte{1},
+			wantDirKept: true,
+		},
+		{
+			// migration from versions without per-target-vector keys: an
+			// existing commit log dir is assumed to be a completed upgrade
+			name:         "target vector without state key: dir kept",
+			targetVector: "vec1",
+			storedState:  nil,
+			wantDirKept:  true,
+		},
+		{
+			// the unnamed vector gets no such migration, which is why a usage
+			// report may not read its commit log dir as an upgrade either
+			name:        "unnamed vector without state key: stale commit log removed",
+			storedState: nil,
+			wantDirKept: false,
+		},
+		{
+			// a stored empty value reads back non-nil, so it has to be treated
+			// as no recorded state rather than indexed into
+			name:        "unnamed vector with an empty state value: stale commit log removed",
+			storedState: []byte{},
+			wantDirKept: false,
+		},
+		{
+			name:         "target vector with an empty state value: dir kept",
+			targetVector: "vec1",
+			storedState:  []byte{},
+			wantDirKept:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootPath := t.TempDir()
+
+			db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				db.Close()
+			})
+
+			// simulate a commit log left on disk by a previous run. An empty
+			// commit log file is valid, so the "kept" cases can load it.
+			commitLogDir := hnswCommitLogDirectory(rootPath, id)
+			require.NoError(t, os.MkdirAll(commitLogDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(commitLogDir, "1000"), nil, 0o644))
+
+			if tt.storedState != nil {
+				key := composerUpgradedKey
+				if tt.targetVector != "" {
+					key += "_" + tt.targetVector
+				}
+				err = db.Update(func(tx *bbolt.Tx) error {
+					b, err := tx.CreateBucketIfNotExists(dynamicBucket)
+					if err != nil {
+						return err
+					}
+					return b.Put([]byte(key), tt.storedState)
+				})
+				require.NoError(t, err)
+			}
+
+			vectors, _ := testinghelpers.RandomVecs(10, 0, 8)
+			idx := newUpgradeTestDynamic(t, rootPath, id, tt.targetVector, db, vectors, hnsw.MakeNoopCommitLogger)
+			t.Cleanup(func() {
+				idx.Shutdown(context.Background())
+			})
+
+			_, err = os.Stat(commitLogDir)
+			if tt.wantDirKept {
+				require.NoError(t, err, "commit log dir should have been kept")
+			} else {
+				require.True(t, os.IsNotExist(err), "stale commit log dir should have been removed")
+			}
+		})
+	}
 }

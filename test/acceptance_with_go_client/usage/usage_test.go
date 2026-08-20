@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"acceptance_tests_with_client/internal/wvhost"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -34,8 +36,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestTenantStatusChanges(t *testing.T) {
@@ -376,7 +376,7 @@ func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 
 func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.NoError(t, err)
 
 	className := t.Name() + "Class"
@@ -478,14 +478,28 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	require.Len(t, colUsageCold.Shards, 1)
 	require.Equal(t, expected, namedVectorDimensionalities(t, colUsageCold.Shards[0]))
 
+	// Drop vector2's index while the tenant stays cold. The report above saved its
+	// numbers to the shard directory and only loading the shard deletes that file,
+	// so the next report has to notice the schema changed under it.
+	require.NoError(t, c.Schema().VectorIndexDeleter().
+		WithClassName(className).WithVectorIndexName(vector2).Do(ctx))
+	delete(expected, vector2)
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		colUsageColdAfterDrop, err := GetDebugUsageForCollection(className)
+		require.NoError(ct, err)
+		require.Len(ct, colUsageColdAfterDrop.Shards, 1)
+		require.Equal(ct, expected, namedVectorDimensionalities(ct, colUsageColdAfterDrop.Shards[0]))
+	}, 30*time.Second, 500*time.Millisecond)
+
 	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
 		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx))
 
-	// Verify all named vectors appear in usage
-	colUsageBefore, err := GetDebugUsageForCollection(className)
-	require.NoError(t, err)
-	require.Len(t, colUsageBefore.Shards, 1)
-	shard := colUsageBefore.Shards[0]
+	// Verify all named vectors appear in usage. The baseline waits for the
+	// reactivated shard to stop growing: reloading it makes every HNSW index
+	// snapshot its commit log, and one snapshot is a whole 4 MiB block whatever it
+	// holds. Sampling before those land measures a shard that is still only on
+	// disk against one that has reloaded, and the drop below then reads as growth.
+	shard := settledShardUsage(t, c, className, tenantName)
 	require.Equal(t, int64(numObjects), shard.ObjectsCount)
 	require.Equal(t, expected, namedVectorDimensionalities(t, shard))
 
@@ -639,6 +653,11 @@ func TestRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, usage3)
 	assertNestedIndexStorageCounted(t, usage3, className, fromDisk)
+
+	// shares this container instead of starting its own
+	t.Run("muvera usage", func(t *testing.T) {
+		testUsageMuvera(t, c, compose.GetWeaviate().DebugURI())
+	})
 }
 
 // nestedCars keeps every leaf value distinct, so each entry adds its own keys to
@@ -696,8 +715,10 @@ func assertNestedIndexStorageCounted(t *testing.T, report *usagetypes.Report, cl
 		"every tenant with nested values must report the nested property buckets on top of the baseline")
 }
 
+// testAllObjectsIndexed waits for every shard of a class to finish indexing. A
+// class with several named vectors fills one queue per vector, and a quantizer
+// trains on top of that, so the wait is far longer than a single queue needs.
 func testAllObjectsIndexed(t *testing.T, c *client.Client, className string) {
-	// wait for all of the objects to get indexed
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := c.Cluster().NodesStatusGetter().
 			WithClass(className).
@@ -711,16 +732,65 @@ func testAllObjectsIndexed(t *testing.T, c *client.Client, className string) {
 				assert.Equal(ct, "READY", s.VectorIndexingStatus)
 			}
 		}
-	}, 30*time.Second, 500*time.Millisecond)
+	}, 2*time.Minute, 500*time.Millisecond)
+}
+
+// namedVectors maps every named vector of a shard usage report to its usage
+// entry, requiring every wanted name to be among them.
+func namedVectors(t require.TestingT, shard *usagetypes.ShardUsage, want ...string) map[string]*usagetypes.VectorUsage {
+	vectors := make(map[string]*usagetypes.VectorUsage, len(shard.NamedVectors))
+	for _, v := range shard.NamedVectors {
+		vectors[v.Name] = v
+	}
+	for _, name := range want {
+		require.Contains(t, vectors, name)
+	}
+	return vectors
+}
+
+// settledShardUsage loads a tenant's shard and reports its usage once the shard has
+// stopped growing, so a caller's baseline is measured in the state the reports it is
+// compared against are measured in. A reload lets the HNSW commit-log maintenance
+// cycle run, which writes files a shard sitting on disk does not have; the cycle
+// backs off to 10s between runs, so the shard has to hold still for longer than that
+// before it counts as settled.
+func settledShardUsage(t *testing.T, c *client.Client, className, tenantName string) *usagetypes.ShardUsage {
+	t.Helper()
+
+	// reading the tenant materializes its lazily loaded shard before the wait starts
+	_, err := c.Data().ObjectsGetter().WithClassName(className).
+		WithTenant(tenantName).WithLimit(1).Do(context.Background())
+	require.NoError(t, err)
+
+	const settleFor = 15 * time.Second
+	var settled *usagetypes.ShardUsage
+	var unchangedSince time.Time
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		colUsage, err := GetDebugUsageForCollection(className)
+		require.NoError(ct, err)
+		require.Len(ct, colUsage.Shards, 1)
+		current := colUsage.Shards[0]
+
+		if settled == nil || current.FullShardStorageBytes != settled.FullShardStorageBytes ||
+			current.VectorStorageBytes != settled.VectorStorageBytes {
+			settled, unchangedSince = current, time.Now()
+		}
+		if held := time.Since(unchangedSince); held < settleFor {
+			ct.Errorf("shard %q still growing: %d full / %d vector bytes, unchanged for %s",
+				current.Name, current.FullShardStorageBytes, current.VectorStorageBytes, held)
+		}
+	}, 90*time.Second, 500*time.Millisecond)
+
+	return settled
 }
 
 // namedVectorDimensionalities maps every named vector of a shard usage report to the
 // dimensionality it reports.
 func namedVectorDimensionalities(t require.TestingT, shard *usagetypes.ShardUsage) map[string]usagetypes.Dimensionality {
 	dimensionalities := make(map[string]usagetypes.Dimensionality, len(shard.NamedVectors))
-	for _, v := range shard.NamedVectors {
-		require.NotEmpty(t, v.Dimensionalities, "no dimensionality reported for vector %q", v.Name)
-		dimensionalities[v.Name] = *v.Dimensionalities[0]
+	for name, v := range namedVectors(t, shard) {
+		require.NotEmpty(t, v.Dimensionalities, "no dimensionality reported for vector %q", name)
+		dimensionalities[name] = *v.Dimensionalities[0]
 	}
 	return dimensionalities
 }
@@ -791,17 +861,44 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 	require.NoError(t, err)
 
 	dynamic1024 := "dynamic1024"
+	hnswBQ := "hnswbq"
+	hnswPQ := "hnswpq"
+	hnswRQ := "hnswrq"
+	hnswSQ := "hnswsq"
+	flatBQ := "flatbq"
+	flatRQ := "flatrq"
 	dimensions := 1024
+	// the quantizer vectors below only have to prove the ratio each quantizer
+	// reports, and no quantizer derives that from the width, so they stay narrow
+	// to keep their shared tenant cheap to insert and index
+	quantizerDimensions := 128
 	flat := "flat"
 	bq := "bq"
 	hnsw := "hnsw"
 	pq := "pq"
+
+	// bq stores one bit per dimension instead of 32
+	bqCompressionRatio := float64(32)
+	// sq stores one byte per dimension instead of four
+	sqCompressionRatio := float64(4)
+	// rq on 8 bits stores one byte per dimension, plus 16 bytes of metadata
+	rq8CompressionRatio := float64(dimensions*4) / float64(16+dimensions)
+	rq8QuantizerRatio := float64(quantizerDimensions*4) / float64(16+quantizerDimensions)
+	// hfresh always quantizes with rq on 1 bit: one packed byte per 8
+	// dimensions, plus 8 bytes of metadata
+	rq1CompressionRatio := float64(dimensions*4) / float64(8+dimensions/8)
 
 	objectCount1 := 1000
 	objectCount2 := 2000
 
 	targetVectorDimensions := map[string]int{
 		dynamic1024: dimensions,
+		hnswBQ:      quantizerDimensions,
+		hnswPQ:      quantizerDimensions,
+		hnswRQ:      quantizerDimensions,
+		hnswSQ:      quantizerDimensions,
+		flatBQ:      quantizerDimensions,
+		flatRQ:      quantizerDimensions,
 	}
 
 	dynamicVectorIndexConfig := map[string]any{
@@ -908,6 +1005,79 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 					VectorIndexType:   "dynamic",
 					VectorIndexConfig: dynamicVectorIndexConfig,
 				},
+				hnswBQ: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType: hnsw,
+					VectorIndexConfig: map[string]any{
+						bq: map[string]any{
+							"enabled": true,
+						},
+					},
+				},
+				hnswRQ: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType: hnsw,
+					VectorIndexConfig: map[string]any{
+						"rq": map[string]any{
+							"enabled": true,
+						},
+					},
+				},
+				// sq trains at 100k objects by default, which this tenant would
+				// never reach; the low limit lets it compress while indexing
+				hnswSQ: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType: hnsw,
+					VectorIndexConfig: map[string]any{
+						"sq": map[string]any{
+							"enabled":       true,
+							"trainingLimit": float64(100),
+						},
+					},
+				},
+				// pq trains at 100k objects, far above what this tenant holds,
+				// so its vectors stay uncompressed on disk
+				hnswPQ: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType: hnsw,
+					VectorIndexConfig: map[string]any{
+						pq: map[string]any{
+							"enabled": true,
+						},
+					},
+				},
+				// a flat index reaches its quantizer through neither the hnsw
+				// nor the dynamic config, so it has to be covered on its own
+				flatBQ: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType: flat,
+					VectorIndexConfig: map[string]any{
+						bq: map[string]any{
+							"enabled": true,
+						},
+					},
+				},
+				flatRQ: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType: flat,
+					VectorIndexConfig: map[string]any{
+						"rq": map[string]any{
+							"enabled": true,
+						},
+					},
+				},
 			},
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		}
@@ -919,8 +1089,24 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		insertObjects(t, 1000, c, className, tenantName, models.Vectors{
 			dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
+			hnswBQ:      generateRandomVector(targetVectorDimensions[hnswBQ]),
+			hnswPQ:      generateRandomVector(targetVectorDimensions[hnswPQ]),
+			hnswRQ:      generateRandomVector(targetVectorDimensions[hnswRQ]),
+			hnswSQ:      generateRandomVector(targetVectorDimensions[hnswSQ]),
+			flatBQ:      generateRandomVector(targetVectorDimensions[flatBQ]),
+			flatRQ:      generateRandomVector(targetVectorDimensions[flatRQ]),
 		}, nil)
 		testAllObjectsIndexed(t, c, className)
+
+		// sq trains off the indexing queue, so the ratio it reports lags the
+		// objects being indexed
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			colUsage, err := getDebugUsageWithPortAndCollection(debug, className)
+			require.NoError(ct, err)
+			require.Len(ct, colUsage.Shards, 1)
+			sq := namedVectors(ct, colUsage.Shards[0], hnswSQ)[hnswSQ]
+			require.Equal(ct, sqCompressionRatio, sq.VectorCompressionRatio)
+		}, 2*time.Minute, 500*time.Millisecond)
 
 		colHot, err := getDebugUsageWithPortAndCollection(debug, className)
 		require.NoError(t, err)
@@ -929,14 +1115,35 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.Len(t, colHot.Shards, 1)
 		shardHot := colHot.Shards[0]
 		require.Equal(t, int64(objectCount1), shardHot.ObjectsCount)
-		require.Len(t, shardHot.NamedVectors, 1)
-		require.Equal(t, dynamic1024, shardHot.NamedVectors[0].Name)
-		require.Equal(t, flat, shardHot.NamedVectors[0].VectorIndexType)
-		require.Equal(t, bq, shardHot.NamedVectors[0].Compression)
-		require.True(t, shardHot.NamedVectors[0].IsDynamic)
-		require.NotEmpty(t, shardHot.NamedVectors[0].Dimensionalities)
-		require.Equal(t, dimensions, shardHot.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.Equal(t, objectCount1, shardHot.NamedVectors[0].Dimensionalities[0].Count)
+		require.Len(t, shardHot.NamedVectors, 7)
+		hotVectors := namedVectors(t, shardHot, dynamic1024, hnswBQ, hnswPQ, hnswRQ, hnswSQ, flatBQ, flatRQ)
+		require.Equal(t, flat, hotVectors[dynamic1024].VectorIndexType)
+		require.Equal(t, bq, hotVectors[dynamic1024].Compression)
+		require.True(t, hotVectors[dynamic1024].IsDynamic)
+		require.Equal(t, bqCompressionRatio, hotVectors[dynamic1024].VectorCompressionRatio)
+		require.NotEmpty(t, hotVectors[dynamic1024].Dimensionalities)
+		require.Equal(t, dimensions, hotVectors[dynamic1024].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, hotVectors[dynamic1024].Dimensionalities[0].Count)
+		require.Equal(t, hnsw, hotVectors[hnswBQ].VectorIndexType)
+		require.Equal(t, bq, hotVectors[hnswBQ].Compression)
+		require.False(t, hotVectors[hnswBQ].IsDynamic)
+		require.Equal(t, bqCompressionRatio, hotVectors[hnswBQ].VectorCompressionRatio)
+		require.Equal(t, pq, hotVectors[hnswPQ].Compression)
+		require.Equal(t, float64(1), hotVectors[hnswPQ].VectorCompressionRatio,
+			"pq compresses nothing before it trains")
+		require.Equal(t, "rq", hotVectors[hnswRQ].Compression)
+		require.Equal(t, int16(8), hotVectors[hnswRQ].Bits)
+		require.InDelta(t, rq8QuantizerRatio, hotVectors[hnswRQ].VectorCompressionRatio, 0.001)
+		require.Equal(t, "sq", hotVectors[hnswSQ].Compression)
+		require.Equal(t, sqCompressionRatio, hotVectors[hnswSQ].VectorCompressionRatio)
+		require.Equal(t, flat, hotVectors[flatBQ].VectorIndexType)
+		require.Equal(t, bq, hotVectors[flatBQ].Compression)
+		require.False(t, hotVectors[flatBQ].IsDynamic)
+		require.Equal(t, bqCompressionRatio, hotVectors[flatBQ].VectorCompressionRatio)
+		require.Equal(t, flat, hotVectors[flatRQ].VectorIndexType)
+		require.Equal(t, "rq", hotVectors[flatRQ].Compression)
+		require.Equal(t, int16(8), hotVectors[flatRQ].Bits)
+		require.InDelta(t, rq8QuantizerRatio, hotVectors[flatRQ].VectorCompressionRatio, 0.001)
 
 		require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
 
@@ -946,15 +1153,174 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		require.Len(t, colCold.Shards, 1)
 		shardCold := colCold.Shards[0]
-		require.Len(t, shardCold.NamedVectors, 1)
-		require.Equal(t, dynamic1024, shardCold.NamedVectors[0].Name)
-		// cold dynamic indices cannot easily determine the index type and compression
-		require.Empty(t, shardCold.NamedVectors[0].VectorIndexType)
-		require.Empty(t, shardCold.NamedVectors[0].Compression)
-		require.True(t, shardCold.NamedVectors[0].IsDynamic)
-		require.NotEmpty(t, shardCold.NamedVectors[0].Dimensionalities)
-		require.Equal(t, dimensions, shardCold.NamedVectors[0].Dimensionalities[0].Dimensions)
-		require.Equal(t, objectCount1, shardCold.NamedVectors[0].Dimensionalities[0].Count)
+		require.Len(t, shardCold.NamedVectors, 7)
+		coldVectors := namedVectors(t, shardCold, dynamic1024, hnswBQ, hnswPQ, hnswRQ, hnswSQ, flatBQ, flatRQ)
+		// a cold tenant reports what it reported while hot: the dynamic index
+		// is read as the flat one it has not upgraded away from, and both
+		// compression ratios follow from the config plus the quantized vectors
+		// the shard actually holds
+		require.Equal(t, flat, coldVectors[dynamic1024].VectorIndexType)
+		require.Equal(t, bq, coldVectors[dynamic1024].Compression)
+		require.True(t, coldVectors[dynamic1024].IsDynamic)
+		require.Equal(t, bqCompressionRatio, coldVectors[dynamic1024].VectorCompressionRatio)
+		require.NotEmpty(t, coldVectors[dynamic1024].Dimensionalities)
+		require.Equal(t, dimensions, coldVectors[dynamic1024].Dimensionalities[0].Dimensions)
+		require.Equal(t, objectCount1, coldVectors[dynamic1024].Dimensionalities[0].Count)
+		require.Equal(t, hnsw, coldVectors[hnswBQ].VectorIndexType)
+		require.Equal(t, bq, coldVectors[hnswBQ].Compression)
+		require.False(t, coldVectors[hnswBQ].IsDynamic)
+		require.Equal(t, bqCompressionRatio, coldVectors[hnswBQ].VectorCompressionRatio)
+		require.Equal(t, pq, coldVectors[hnswPQ].Compression)
+		require.Equal(t, float64(1), coldVectors[hnswPQ].VectorCompressionRatio,
+			"the config asks for pq, but no quantized vectors exist to bill for")
+		require.Equal(t, "rq", coldVectors[hnswRQ].Compression)
+		require.Equal(t, int16(8), coldVectors[hnswRQ].Bits)
+		require.InDelta(t, rq8QuantizerRatio, coldVectors[hnswRQ].VectorCompressionRatio, 0.001)
+		// sq trained while hot, so its quantized vectors are on disk to bill for
+		require.Equal(t, "sq", coldVectors[hnswSQ].Compression)
+		require.Equal(t, sqCompressionRatio, coldVectors[hnswSQ].VectorCompressionRatio)
+		require.Equal(t, flat, coldVectors[flatBQ].VectorIndexType)
+		require.Equal(t, bq, coldVectors[flatBQ].Compression)
+		require.False(t, coldVectors[flatBQ].IsDynamic)
+		require.Equal(t, bqCompressionRatio, coldVectors[flatBQ].VectorCompressionRatio)
+		require.Equal(t, flat, coldVectors[flatRQ].VectorIndexType)
+		require.Equal(t, "rq", coldVectors[flatRQ].Compression)
+		require.Equal(t, int16(8), coldVectors[flatRQ].Bits)
+		require.InDelta(t, rq8QuantizerRatio, coldVectors[flatRQ].VectorCompressionRatio, 0.001)
+
+		// the first cold report saves itself to disk, and every later one is
+		// served from that file rather than recomputed
+		colCached, err := getDebugUsageWithPortAndCollection(debug, className)
+		require.NoError(t, err)
+		require.NoError(t, CollectionUsageDifference(colCold, colCached))
+	})
+
+	// A tenant that crossed the dynamic threshold before going cold: the report
+	// has to read the upgrade from disk, or it bills the flat side of the config
+	// for a tenant whose vectors hnsw now holds.
+	t.Run("multi tenant upgraded to hnsw", func(t *testing.T) {
+		className := sanitizeName("Class" + t.Name())
+		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+		defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+		// pq trains one centroid per cluster and needs at least as many vectors
+		// as it has centroids, 256 by default. The shared config trains on 100,
+		// too few to fit, which leaves its index uncompressed.
+		upgradingVectorIndexConfig := map[string]any{
+			"threshold": 1001,
+			hnsw: map[string]any{
+				pq: map[string]any{
+					"enabled":       true,
+					"trainingLimit": float64(512),
+				},
+			},
+			flat: map[string]any{
+				bq: map[string]any{
+					"enabled": true,
+				},
+			},
+		}
+
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				dynamic1024: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType:   "dynamic",
+					VectorIndexConfig: upgradingVectorIndexConfig,
+				},
+			},
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		}
+		require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+		tenantName := "tenant"
+		require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).
+			WithTenants(models.Tenant{Name: tenantName}).Do(ctx))
+
+		// past the threshold of 1001, so the index upgrades to hnsw and trains pq
+		insertObjects(t, objectCount2, c, className, tenantName, models.Vectors{
+			dynamic1024: generateRandomVector(targetVectorDimensions[dynamic1024]),
+		}, nil)
+		testAllObjectsIndexed(t, c, className)
+
+		var hotRatio float64
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			colHot, err := getDebugUsageWithPortAndCollection(debug, className)
+			require.NoError(ct, err)
+			require.Len(ct, colHot.Shards, 1)
+			hot := namedVectors(ct, colHot.Shards[0], dynamic1024)[dynamic1024]
+			require.Equal(ct, hnsw, hot.VectorIndexType)
+			require.Equal(ct, pq, hot.Compression)
+			// Compression comes from the config, so only a ratio above 1 says pq
+			// finished training and wrote the quantized vectors a cold read bills.
+			require.Greater(ct, hot.VectorCompressionRatio, float64(1))
+			hotRatio = hot.VectorCompressionRatio
+		}, 5*time.Minute, 500*time.Millisecond)
+
+		require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
+			WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
+
+		colCold, err := getDebugUsageWithPortAndCollection(debug, className)
+		require.NoError(t, err)
+		require.Len(t, colCold.Shards, 1)
+		cold := namedVectors(t, colCold.Shards[0], dynamic1024)[dynamic1024]
+		require.Equal(t, hnsw, cold.VectorIndexType, "reading flat here would bill the wrong side of the config")
+		require.Equal(t, pq, cold.Compression)
+		require.True(t, cold.IsDynamic)
+		// deactivating a tenant must not change the ratio it bills
+		require.Equal(t, hotRatio, cold.VectorCompressionRatio)
+	})
+
+	// hfresh quantizes with rq on 1 bit whatever its config says, so a cold
+	// tenant has to report that ratio without reading its index.
+	t.Run("multi tenant hfresh", func(t *testing.T) {
+		className := sanitizeName("Class" + t.Name())
+		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+		defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+		hfreshVector := "hfreshrq"
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				hfreshVector: {
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+					VectorIndexType: "hfresh",
+				},
+			},
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		}
+		require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+		tenantName := "tenant"
+		require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).
+			WithTenants(models.Tenant{Name: tenantName}).Do(ctx))
+
+		insertObjects(t, objectCount1, c, className, tenantName, models.Vectors{
+			hfreshVector: generateRandomVector(dimensions),
+		}, nil)
+		testAllObjectsIndexed(t, c, className)
+
+		colHot, err := getDebugUsageWithPortAndCollection(debug, className)
+		require.NoError(t, err)
+		require.Len(t, colHot.Shards, 1)
+		hot := namedVectors(t, colHot.Shards[0], hfreshVector)[hfreshVector]
+		require.Equal(t, "auto", hot.Compression)
+		require.InDelta(t, rq1CompressionRatio, hot.VectorCompressionRatio, 0.001)
+
+		require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
+			WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
+
+		colCold, err := getDebugUsageWithPortAndCollection(debug, className)
+		require.NoError(t, err)
+		require.Len(t, colCold.Shards, 1)
+		cold := namedVectors(t, colCold.Shards[0], hfreshVector)[hfreshVector]
+		require.Equal(t, "auto", cold.Compression)
+		require.InDelta(t, rq1CompressionRatio, cold.VectorCompressionRatio, 0.001)
 	})
 
 	t.Run("legacy vectorConfig", func(t *testing.T) {
@@ -1267,9 +1633,9 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 		defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
-		flatRQ := "flat_rq"
+		singleFlatRQ := "flat_rq"
 		targetVectorDimensions := map[string]int{
-			flatRQ: 1024,
+			singleFlatRQ: 1024,
 		}
 
 		class := &models.Class{
@@ -1283,7 +1649,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 				},
 			},
 			VectorConfig: map[string]models.VectorConfig{
-				flatRQ: {
+				singleFlatRQ: {
 					Vectorizer: map[string]any{
 						"none": map[string]any{},
 					},
@@ -1300,7 +1666,7 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 
 		insertObjects(t, 1000, c, className, "", models.Vectors{
-			flatRQ: generateRandomVector(targetVectorDimensions[flatRQ]),
+			singleFlatRQ: generateRandomVector(targetVectorDimensions[singleFlatRQ]),
 		}, nil)
 		testAllObjectsIndexed(t, c, className)
 
@@ -1312,11 +1678,12 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 		shard := colUsage.Shards[0]
 		require.Equal(t, int64(objectCount1), shard.ObjectsCount)
 		require.Len(t, shard.NamedVectors, 1)
-		require.Equal(t, flatRQ, shard.NamedVectors[0].Name)
+		require.Equal(t, singleFlatRQ, shard.NamedVectors[0].Name)
 		require.Equal(t, flat, shard.NamedVectors[0].VectorIndexType)
 		require.Equal(t, "rq", shard.NamedVectors[0].Compression)
 		require.NotNil(t, shard.NamedVectors[0].Bits)
 		require.Equal(t, int16(8), shard.NamedVectors[0].Bits)
+		require.InDelta(t, rq8CompressionRatio, shard.NamedVectors[0].VectorCompressionRatio, 0.001)
 		require.NotEmpty(t, shard.NamedVectors[0].Dimensionalities)
 		require.Equal(t, dimensions, shard.NamedVectors[0].Dimensionalities[0].Dimensions)
 		require.Equal(t, objectCount1, shard.NamedVectors[0].Dimensionalities[0].Count)
@@ -1326,4 +1693,158 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 func sanitizeName(name string) string {
 	name = strings.ReplaceAll(name, "/", "_")
 	return name
+}
+
+// testUsageMuvera takes an instance so it can share a testcontainer, it must expose the
+// debug port and have TRACK_VECTOR_DIMENSIONS enabled.
+func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
+	ctx := context.Background()
+
+	className := "UsageMuveraClass"
+
+	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	tenantName := "tenant"
+	muveraVec := "muvera"
+	colbertVec := "colbert"
+	regularVec := "regular"
+
+	const (
+		numObjects  = 20
+		tokenDim    = 32
+		fixedTokens = 3
+
+		ksim         = 4
+		dprojections = 16
+		repetitions  = 10
+		encodedDims  = repetitions * (1 << ksim) * dprojections
+	)
+
+	expected := map[string]usagetypes.Dimensionality{
+		muveraVec:  {Dimensions: encodedDims, Count: numObjects},
+		colbertVec: {Dimensions: fixedTokens * tokenDim, Count: numObjects},
+		regularVec: {Dimensions: tokenDim, Count: numObjects},
+	}
+
+	multivectorIndexConfig := func(muvera bool) map[string]any {
+		cfg := map[string]any{"enabled": true}
+		if muvera {
+			cfg["muvera"] = map[string]any{
+				"enabled":      true,
+				"ksim":         ksim,
+				"dprojections": dprojections,
+				"repetitions":  repetitions,
+			}
+		}
+		return map[string]any{"multivector": cfg}
+	}
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{schema.DataTypeText.String()},
+			},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			muveraVec: {
+				Vectorizer:        map[string]any{"none": map[string]any{}},
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: multivectorIndexConfig(true),
+			},
+			colbertVec: {
+				Vectorizer:        map[string]any{"none": map[string]any{}},
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: multivectorIndexConfig(false),
+			},
+			regularVec: {
+				Vectorizer:      map[string]any{"none": map[string]any{}},
+				VectorIndexType: "hnsw",
+			},
+		},
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	}
+	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).
+		WithTenants(models.Tenant{Name: tenantName}).Do(ctx))
+
+	objs := make([]*models.Object, numObjects)
+	for i := range numObjects {
+		objs[i] = &models.Object{
+			Class:  className,
+			ID:     strfmt.UUID(uuid.NewString()),
+			Tenant: tenantName,
+			Properties: map[string]any{
+				"name": fmt.Sprintf("name %d", i),
+			},
+			Vectors: models.Vectors{
+				// varying token counts spread the raw dims over several rows, so a
+				// single-row report cannot reach the full count
+				muveraVec:  generateRandomMultiVector(2+i%3, tokenDim),
+				colbertVec: generateRandomMultiVector(fixedTokens, tokenDim),
+				regularVec: generateRandomVector(tokenDim),
+			},
+		}
+	}
+	batchResp, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
+	require.NoError(t, err)
+	for _, r := range batchResp {
+		require.NotNil(t, r.Result)
+		require.NotNil(t, r.Result.Status)
+		require.Equal(t, models.ObjectsGetResponseAO2ResultStatusSUCCESS, *r.Result.Status)
+	}
+	testAllObjectsIndexed(t, c, className)
+
+	// the status pins which path served the report: active = loaded, inactive = read from disk
+	assertUsage := func(t require.TestingT, expectedStatus string) {
+		colUsage, err := getDebugUsageWithPortAndCollection(debug, className)
+		require.NoError(t, err)
+		require.Len(t, colUsage.Shards, 1)
+		shard := colUsage.Shards[0]
+		require.Equal(t, strings.ToLower(expectedStatus), shard.Status)
+		if expectedStatus == models.TenantActivityStatusACTIVE {
+			require.Equal(t, int64(numObjects), shard.ObjectsCount)
+		}
+		require.Equal(t, expected, namedVectorDimensionalities(t, shard))
+
+		for _, v := range shard.NamedVectors {
+			if v.Name != muveraVec {
+				continue
+			}
+			require.NotNil(t, v.MultiVectorConfig, "muvera vector must report its multi-vector config")
+			require.NotNil(t, v.MultiVectorConfig.MuveraConfig)
+			assert.True(t, v.MultiVectorConfig.MuveraConfig.Enabled)
+			assert.Equal(t, ksim, v.MultiVectorConfig.MuveraConfig.KSim)
+			assert.Equal(t, dprojections, v.MultiVectorConfig.MuveraConfig.DProjections)
+			assert.Equal(t, repetitions, v.MultiVectorConfig.MuveraConfig.Repetitions)
+		}
+	}
+
+	// the tenant status flips before the local shard finishes activating, so poll until converged
+	assertUsageEventually := func(expectedStatus string) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			assertUsage(ct, expectedStatus)
+		}, 30*time.Second, 500*time.Millisecond)
+	}
+
+	assertUsageEventually(models.TenantActivityStatusACTIVE)
+
+	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
+		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
+	assertUsageEventually(models.TenantActivityStatusINACTIVE)
+	assertUsage(t, models.TenantActivityStatusINACTIVE)
+
+	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
+		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx))
+	assertUsageEventually(models.TenantActivityStatusACTIVE)
+}
+
+func generateRandomMultiVector(tokens, dimensionality int) [][]float32 {
+	multiVector := make([][]float32, tokens)
+	for i := range multiVector {
+		multiVector[i] = generateRandomVector(dimensionality)
+	}
+	return multiVector
 }

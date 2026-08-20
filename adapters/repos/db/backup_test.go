@@ -135,6 +135,28 @@ func TestListInactiveLSMFiles(t *testing.T) {
 			},
 		},
 		{
+			name: "migrations tmp leftovers are excluded, checkpoints are not",
+			setup: func(t *testing.T, lsmDir string) {
+				trackerDir := filepath.Join(lsmDir, migrationsDir, "searchable_retokenize_text_1")
+				require.NoError(t, os.MkdirAll(trackerDir, 0o755))
+				for _, name := range []string{"started.mig", "properties.mig", "progress.mig.000000001"} {
+					require.NoError(t, os.WriteFile(filepath.Join(trackerDir, name), []byte("x"), 0o644))
+				}
+
+				// Same call the tracker's atomic properties.mig write makes, so
+				// the name carries the real random infix rather than one the
+				// test picked.
+				leftover, err := os.CreateTemp(trackerDir, "properties.mig.*.tmp")
+				require.NoError(t, err)
+				require.NoError(t, leftover.Close())
+			},
+			expected: []string{
+				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "progress.mig.000000001"),
+				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "properties.mig"),
+				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "started.mig"),
+			},
+		},
+		{
 			name: "multiple buckets",
 			setup: func(t *testing.T, lsmDir string) {
 				for _, name := range []string{"objects", "inverted_idx"} {
@@ -459,7 +481,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 		idx.backupProtectedShards.Store(shardName, struct{}{})
 
 		class := &models.Class{Class: className}
-		err := idx.initLocalShardWithForcedLoading(ctx, class, shardName, true, false)
+		err := idx.initLocalShardWithForcedLoading(ctx, class, shardName, true, false, callerUserRequest)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "protected for backup")
 	})
@@ -470,7 +492,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 
 		idx.backupProtectedShards.Store(shardName, struct{}{})
 
-		_, release, err := idx.getOptInitLocalShard(ctx, shardName, true)
+		_, release, err := idx.getOptInitLocalShard(ctx, shardName, true, callerUserRequest)
 		defer release()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "protected for backup")
@@ -484,7 +506,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 
 		// With ensureInit=false, the function returns nil shard without error
 		// (the protection check is never reached).
-		shard, release, err := idx.getOptInitLocalShard(ctx, shardName, false)
+		shard, release, err := idx.getOptInitLocalShard(ctx, shardName, false, callerUserRequest)
 		defer release()
 		require.NoError(t, err)
 		assert.Nil(t, shard)
