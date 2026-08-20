@@ -10,6 +10,7 @@ ENV GO111MODULE=on
 RUN apk add --no-cache bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 COPY go.mod go.sum ./
+COPY pkg/pb/go.mod pkg/pb/go.sum ./pkg/pb/
 # Retry to ride out transient proxy.golang.org flakes; http2client=0 forces HTTP/1.1,
 # which avoids the HTTP/2 "stream INTERNAL_ERROR" class seen mid-download.
 RUN for i in 1 2 3 4 5; do \
