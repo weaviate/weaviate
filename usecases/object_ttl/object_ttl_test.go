@@ -13,14 +13,140 @@ package objectttl
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/namespaces"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
+
+// fixedNodeResolver resolves every node name to the same host.
+type fixedNodeResolver string
+
+func (r fixedNodeResolver) NodeHostname(string) (string, bool) { return string(r), true }
+
+// The sweep skips a collection whose namespace is not active. Which states are
+// not active is namespaces.RequireActive's own table, so suspended stands for
+// all of them here and the rows vary what the sweep does with the verdict.
+func TestCoordinatorStartSkipsClassesWithoutActiveNamespace(t *testing.T) {
+	suspended := []cmd.NamespaceState{cmd.NamespaceStateSuspended}
+
+	type namespaceSetup struct {
+		name string
+		// steps are the state changes applied after creation, in order.
+		steps []cmd.NamespaceState
+	}
+
+	tests := []struct {
+		name       string
+		namespaces []namespaceSetup
+		classes    []string
+		wantSwept  []string
+	}{
+		{
+			name:       "active namespace is swept",
+			namespaces: []namespaceSetup{{name: "customer1"}},
+			classes:    []string{"customer1:Foo"},
+			wantSwept:  []string{"customer1:Foo"},
+		},
+		{
+			name:      "class outside any namespace is swept",
+			classes:   []string{"Foo"},
+			wantSwept: []string{"Foo"},
+		},
+		{
+			name:       "suspended namespace is skipped",
+			namespaces: []namespaceSetup{{name: "customer1", steps: suspended}},
+			classes:    []string{"customer1:Foo"},
+		},
+		{
+			name:    "namespace the node does not know is skipped",
+			classes: []string{"customer1:Foo"},
+		},
+		{
+			name: "a skipped namespace does not stop an active one",
+			namespaces: []namespaceSetup{
+				{name: "customer1", steps: suspended},
+				{name: "customer2"},
+			},
+			classes:   []string{"customer1:Foo", "customer2:Bar"},
+			wantSwept: []string{"customer2:Bar"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			logger := logrus.New()
+
+			controller := namespaces.NewController(logger)
+			raftIndex := uint64(1)
+			for _, ns := range test.namespaces {
+				require.NoError(t, controller.Create(cmd.Namespace{Name: ns.name, HomeNodes: []string{"node1"}}, raftIndex))
+				raftIndex++
+				for _, state := range ns.steps {
+					require.NoError(t, controller.ChangeState(ns.name, state, namespaces.StateChange{AppliedIndex: raftIndex}))
+					raftIndex++
+				}
+			}
+
+			var sweptLock sync.Mutex
+			var swept []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var payload []ObjectsExpiredPayload
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+
+				sweptLock.Lock()
+				defer sweptLock.Unlock()
+				for _, collection := range payload {
+					swept = append(swept, collection.Class)
+				}
+				w.WriteHeader(http.StatusAccepted)
+			}))
+			defer server.Close()
+
+			reader := schemaUC.NewMockSchemaReader(t)
+			reader.EXPECT().ReadSchema(mock.Anything).RunAndReturn(func(read func(models.Class, uint64)) error {
+				for _, class := range test.classes {
+					read(models.Class{
+						Class:           class,
+						ObjectTTLConfig: &models.ObjectTTLConfig{Enabled: true, DeleteOn: "_creationTimeUnix"},
+					}, 1)
+				}
+				return nil
+			})
+
+			// Not reached when every class is skipped, since there is nothing to dispatch.
+			getter := schemaUC.NewMockSchemaGetter(t)
+			getter.EXPECT().NodeName().Return("node1").Maybe()
+			getter.EXPECT().Nodes().Return([]string{"node1", "node2"}).Maybe()
+
+			// A nil db is safe because two nodes always route the sweep to the remote
+			// node; the local branch would use it.
+			c := NewCoordinator(reader, getter, controller, nil, logger, server.Client(),
+				fixedNodeResolver(strings.TrimPrefix(server.URL, "http://")), NewLocalStatus())
+
+			now := time.Now()
+			require.NoError(t, c.Start(context.Background(), false, now, now))
+
+			sweptLock.Lock()
+			defer sweptLock.Unlock()
+			assert.ElementsMatch(t, test.wantSwept, swept)
+		})
+	}
+}
 
 func TestLocalState(t *testing.T) {
 	t.Run("initial state is not running", func(t *testing.T) {

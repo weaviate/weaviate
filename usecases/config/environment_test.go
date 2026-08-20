@@ -2167,6 +2167,127 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 	}
 }
 
+func TestEnvironmentReplicaMovementCleanup(t *testing.T) {
+	tests := []struct {
+		name                 string
+		env                  map[string]string
+		errContains          string
+		wantEnabled          bool
+		wantMaxAge           time.Duration
+		wantInterval         time.Duration
+		wantIncludeCancelled bool
+	}{
+		{
+			name:         "defaults: off, 7 days, hourly, READY only",
+			wantEnabled:  false,
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: DefaultReplicaMovementCleanupInterval,
+		},
+		{
+			name: "explicit values are parsed",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_ENABLED":           "true",
+				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE":           "24h",
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL":          "5m",
+				"REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED": "true",
+			},
+			wantEnabled:          true,
+			wantMaxAge:           24 * time.Hour,
+			wantInterval:         5 * time.Minute,
+			wantIncludeCancelled: true,
+		},
+		{
+			// Zero passes the >= 0 validator and is the only disable sentinel.
+			// The sweeper reads it as "off", never as "delete every READY op".
+			name: "zero max age is accepted and handled downstream",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE": "0s",
+			},
+			wantMaxAge:   0,
+			wantInterval: DefaultReplicaMovementCleanupInterval,
+		},
+		{
+			name: "zero interval is accepted and handled downstream",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "0s",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: 0,
+		},
+		{
+			// A negative duration fails startup rather than coercing to zero.
+			// Both rows go red if the parse-time validators are dropped.
+			name: "negative max age fails startup, naming the variable",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE": "-1h",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_MAX_AGE",
+		},
+		{
+			name: "negative interval fails startup, naming the variable",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "-1s",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			// Below the floor a sweep hammers the leader with full-FSM scans.
+			name: "interval below the 1m floor fails startup",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "1ms",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			// Above the ceiling the sweep silently never runs; 0 is the only
+			// sanctioned way to disable it.
+			name: "interval above the 168h ceiling fails startup",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "169h",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			name: "interval bounds are inclusive",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "1m",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: time.Minute,
+		},
+		{
+			name: "interval ceiling is inclusive",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "168h",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: 168 * time.Hour,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.errContains != "" {
+				require.ErrorContains(t, err, tt.errContains,
+					"a rejected value must tell the operator which variable to fix")
+				return
+			}
+			require.NoError(t, err)
+
+			require.Equal(t, tt.wantEnabled, conf.Replication.ReplicaMovementCleanupEnabled.Get())
+			require.Equal(t, tt.wantMaxAge, conf.Replication.ReplicaMovementCleanupMaxAge.Get())
+			require.Equal(t, tt.wantInterval, conf.Replication.ReplicaMovementCleanupInterval.Get())
+			require.Equal(t, tt.wantIncludeCancelled, conf.Replication.ReplicaMovementCleanupIncludeCancelled.Get())
+		})
+	}
+}
+
 // TestEnvironmentRuntimeReindexEnabled pins the kill switch's precedence:
 // the env var wins when set, and an absent one leaves a config-file value
 // alone. Getting the absent case wrong silently forces every

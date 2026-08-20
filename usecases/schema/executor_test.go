@@ -123,6 +123,52 @@ func TestExecutor(t *testing.T) {
 		assert.Nil(t, x.AddProperty("A", req))
 	})
 
+	// The two replica-add entry points differ only in which load they drive, and
+	// the migrator fake panics on any call it has no expectation for, so driving
+	// the other one fails the row.
+	replicaAdds := []struct {
+		name       string
+		call       func(*executor) error
+		wantLoader string
+	}{
+		{
+			name:       "a plain replica add",
+			call:       func(x *executor) error { return x.AddReplicaToShard("A", "S", "N") },
+			wantLoader: "LoadShardForNewReplica",
+		},
+		{
+			name:       "a replica movement",
+			call:       func(x *executor) error { return x.AddReplicaToShardForMovement("A", "S", "N") },
+			wantLoader: "LoadShardForMovement",
+		},
+	}
+
+	for _, tc := range replicaAdds {
+		t.Run(tc.name+" drives "+tc.wantLoader, func(t *testing.T) {
+			store := &fakeSchemaManager{}
+			store.On("ShardReplicas", "A", "S").Return([]string{"N"}, nil)
+			migrator := &fakeMigrator{}
+			migrator.On(tc.wantLoader, Anything, "A", "S").Return(nil)
+
+			require.NoError(t, tc.call(newMockExecutor(migrator, store)))
+			migrator.AssertExpectations(t)
+		})
+
+		t.Run(tc.name+" loads nothing when the schema does not list the replica", func(t *testing.T) {
+			store := &fakeSchemaManager{}
+			store.On("ShardReplicas", "A", "S").Return([]string{"other"}, nil)
+
+			require.Error(t, tc.call(newMockExecutor(&fakeMigrator{}, store)))
+		})
+
+		t.Run(tc.name+" loads nothing when the replicas cannot be read", func(t *testing.T) {
+			store := &fakeSchemaManager{}
+			store.On("ShardReplicas", "A", "S").Return([]string(nil), ErrAny)
+
+			require.ErrorIs(t, tc.call(newMockExecutor(&fakeMigrator{}, store)), ErrAny)
+		})
+	}
+
 	tenants := []*api.Tenant{{Name: "T1"}, {Name: "T2"}}
 
 	t.Run("DeleteTenants", func(t *testing.T) {
@@ -191,6 +237,88 @@ func TestExecutor(t *testing.T) {
 		migrator.On("UpdateTenants", Anything, cls, Anything).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
 		assert.ErrorIs(t, x.UpdateTenants("A", req, map[string]string{}), ErrAny)
+	})
+
+	report := func(status string) *api.TenantProcessRequest {
+		return &api.TenantProcessRequest{
+			Action: api.TenantProcessRequest_ACTION_UNFREEZING,
+			TenantsProcesses: []*api.TenantsProcess{
+				{Op: api.TenantsProcess_OP_DONE, Tenant: &api.Tenant{Name: "T1", Status: status}},
+			},
+		}
+	}
+
+	// A finished offload or onload has to reach UpdateTenantsForProcess, the call
+	// whose shard load a namespace keeping its shards closed may skip. Routing it to
+	// UpdateTenants instead panics on the unexpected call.
+	//
+	// The status is copied through rather than branched on, so one report stands
+	// for every status the schema can report — and for both the offload and the
+	// onload action, which converge on the same payload here.
+	t.Run("UpdateTenantsProcess", func(t *testing.T) {
+		cases := []struct {
+			name string
+			req  *api.TenantProcessRequest
+			want []*UpdateTenantPayload
+		}{
+			{
+				name: "a reported status is carried through",
+				req:  report(models.TenantActivityStatusHOT),
+				want: []*UpdateTenantPayload{{Name: "T1", Status: models.TenantActivityStatusHOT}},
+			},
+			{
+				// An unfreeze every node aborted leaves no status behind to read
+				// back, and the empty one must reach the migrator as it stands:
+				// the shard load behind it is what decides on the namespace.
+				name: "an unfreeze with no status to report",
+				req:  report(""),
+				want: []*UpdateTenantPayload{{Name: "T1", Status: ""}},
+			},
+			{
+				name: "the entries the schema dropped for this node carry nothing",
+				req: &api.TenantProcessRequest{
+					Action: api.TenantProcessRequest_ACTION_UNFREEZING,
+					TenantsProcesses: []*api.TenantsProcess{
+						nil,
+						{Op: api.TenantsProcess_OP_DONE, Tenant: nil},
+					},
+				},
+				want: []*UpdateTenantPayload{},
+			},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				migrator := &fakeMigrator{}
+				migrator.On("UpdateTenantsForProcess", Anything, cls, tc.want).Return(nil)
+				x := newMockExecutor(migrator, store)
+
+				require.NoError(t, x.UpdateTenantsProcess("A", tc.req))
+				migrator.AssertExpectations(t)
+			})
+		}
+	})
+
+	t.Run("UpdateTenantsProcessWithoutProcesses", func(t *testing.T) {
+		x := newMockExecutor(&fakeMigrator{}, store)
+
+		require.NoError(t, x.UpdateTenantsProcess("A", &api.TenantProcessRequest{}))
+	})
+
+	t.Run("UpdateTenantsProcessClassNotFound", func(t *testing.T) {
+		store := &fakeSchemaManager{}
+		store.On("ReadOnlyClass", "A", mock.Anything).Return(nil)
+		x := newMockExecutor(&fakeMigrator{}, store)
+
+		assert.ErrorIs(t, x.UpdateTenantsProcess("A", report(models.TenantActivityStatusHOT)), ErrNotFound)
+	})
+
+	t.Run("UpdateTenantsProcessError", func(t *testing.T) {
+		migrator := &fakeMigrator{}
+		migrator.On("UpdateTenantsForProcess", Anything, cls, Anything).Return(ErrAny)
+		x := newMockExecutor(migrator, store)
+
+		assert.ErrorIs(t, x.UpdateTenantsProcess("A", report(models.TenantActivityStatusHOT)), ErrAny)
 	})
 
 	t.Run("AddTenants", func(t *testing.T) {

@@ -206,10 +206,13 @@ message DigestObjectsInRangeRequest {
   string initial_uuid = 3;
   string final_uuid = 4;
   int32 limit = 5;
+  uint32 accept_encoding = 6; // response encoding the sender accepts; servers only emit 1 when asked
 }
 
 message DigestObjectsInRangeResponse {
   repeated RepairResponse digests = 1;
+  bytes digests_packed = 2; // replica.RepairDigestsToBinary output
+  uint32 encoding = 3; // 0 (older responders) = digests; 1 = digests_packed
 }
 
 // CompareDigests sends source digests to the target and returns those that need repair.
@@ -217,10 +220,15 @@ message CompareDigestsRequest {
   string index = 1;
   string shard = 2;
   repeated RepairResponse digests = 3;
+  bytes digests_packed = 4; // replica.RepairDigestsToBinary output
+  uint32 encoding = 5; // 0 (older senders) = digests; 1 = digests_packed
+  uint32 accept_encoding = 6; // response encoding the sender accepts; servers only emit 1 when asked
 }
 
 message CompareDigestsResponse {
   repeated RepairResponse digests = 1;
+  bytes digests_packed = 2; // replica.RepairDigestsToBinary output
+  uint32 encoding = 3; // 0 (older responders) = digests; 1 = digests_packed
 }
 
 // OverwriteObjects conditionally updates existing objects
@@ -257,11 +265,18 @@ message HashTreeLevelRequest {
   string shard = 2;
   int32 level = 3;
   bytes discriminant = 4; // hashtree.Bitset.Marshal() output
+  // Encoding the sender accepts for digests_data. 0 (default, used by older
+  // senders) = JSON; 1 = fixed 16-byte big-endian records. Servers only emit
+  // 1 when asked, so rolling upgrades stay JSON until both sides are new.
+  uint32 accept_encoding = 5;
 }
 
-// HashTreeLevelResponse carries digests as opaque binary (JSON-encoded []hashtree.Digest).
+// HashTreeLevelResponse carries level digests; encoding declares their format.
 message HashTreeLevelResponse {
-  bytes digests_data = 1; // JSON-encoded []hashtree.Digest
+  bytes digests_data = 1; // []hashtree.Digest, encoded per `encoding`
+  // 0 (default, emitted by older servers) = JSON; 1 = fixed 16-byte
+  // big-endian records (hashtree.DigestsToBinary).
+  uint32 encoding = 2;
 }
 
 // CompareHashTreeRoots pre-filters shards by bulk-comparing hashtree roots: the

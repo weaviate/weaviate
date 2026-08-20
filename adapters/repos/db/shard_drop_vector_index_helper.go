@@ -50,20 +50,32 @@ func (h *vectorDropIndexHelper) ensureFilesAreRemovedForDroppedVectorIndexes(
 // removeVectorIndexFiles removes all on-disk artifacts for a named vector index:
 // - LSM bucket: vectors_{name}
 // - LSM compressed bucket: vectors_compressed_{name}
+// - LSM muvera bucket: vectors_{name}_muvera_vectors (multi-vector + muvera only)
 // - HNSW commit log directory: vectors_{name}.hnsw.commitlog.d
 // - HNSW snapshot directory: vectors_{name}.hnsw.snapshot.d
+// - HFresh directory: vectors_{name}.hfresh.d (hfresh only)
+// - HFresh LSM buckets: hfresh_postings_vectors_{name}, hfresh_shared_vectors_{name}
 func (h *vectorDropIndexHelper) removeVectorIndexFiles(indexPath, shardName, targetVector string) error {
 	lsmDir := filepath.Join(indexPath, shardName, "lsm")
 	shardDir := filepath.Join(indexPath, shardName)
 
 	vectorsBucket := helpers.GetVectorsBucketName(targetVector)
 	compressedBucket := helpers.GetCompressedBucketName(targetVector)
+	muveraBucket := helpers.GetMuveraBucketName(targetVector)
+	indexID := helpers.GetVectorsBucketName(targetVector)
+	hfreshDir := helpers.HFreshDirName(indexID)
+	hfreshPostings := helpers.HFreshPostingsBucketName(indexID)
+	hfreshShared := helpers.HFreshSharedBucketName(indexID)
 	hnswCommitLogDir := helpers.GetHNSWCommitLogDirName(targetVector)
 	hnswSnapshotDir := helpers.GetHNSWSnapshotDirName(targetVector)
 
 	vectorIndexDirectories := []string{
 		filepath.Join(lsmDir, vectorsBucket),
 		filepath.Join(lsmDir, compressedBucket),
+		filepath.Join(lsmDir, muveraBucket),
+		filepath.Join(lsmDir, hfreshPostings),
+		filepath.Join(lsmDir, hfreshShared),
+		filepath.Join(shardDir, hfreshDir),
 		filepath.Join(shardDir, hnswCommitLogDir),
 		filepath.Join(shardDir, hnswSnapshotDir),
 	}

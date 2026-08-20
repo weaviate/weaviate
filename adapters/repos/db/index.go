@@ -566,13 +566,26 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	var localShards []shardInfo
 	className := i.Config.ClassName.String()
 
-	err := i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
+	state, err := i.namespaceState()
+	if err != nil {
+		// Treating the error as a namespace that keeps no shards open would
+		// register no shards and report the class ready.
+		return err
+	}
+	if !namespaces.ShardsShouldBeOpen(state) {
+		// Nothing loads, and leaving the flag false suppresses the node-wide
+		// object count for every index on this node.
+		i.allShardsReady.Store(true)
+		return nil
+	}
+
+	err = i.schemaReader.Read(className, true, func(_ *models.Class, shardingState *sharding.State) error {
+		if shardingState == nil {
 			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
 		}
 
-		for shardName, physical := range state.Physical {
-			if state.IsLocalShard(shardName) {
+		for shardName, physical := range shardingState.Physical {
+			if shardingState.IsLocalShard(shardName) {
 				localShards = append(localShards, shardInfo{
 					name:           shardName,
 					activityStatus: physical.ActivityStatus(),
@@ -711,6 +724,23 @@ func (i *Index) unloadedShardIsEmpty(shardName string) bool {
 }
 
 func (i *Index) loadLocalShardIfActive(shardName string) error {
+	// Index.Shutdown skips a lazy shard that is not loaded yet, so a build racing
+	// its sweep leaves an open store nothing will ever close. The refcount holds
+	// the index open instead of closeLock, because a teardown queued for the write
+	// lock would park every other reader for the whole build.
+	if err := i.enterRead(); err != nil {
+		return nil // a closed index is not a load failure
+	}
+	defer i.exitRead()
+
+	// The namespace state read at boot goes stale as initLazyShardsInBackground
+	// walks its shard list, so re-read it here. A refusal returns nil because an
+	// error would end that loop for every shard behind this one.
+	state, err := i.namespaceState()
+	if err != nil || !namespaces.ShardsShouldBeOpen(state) {
+		return nil
+	}
+
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
 
@@ -726,7 +756,14 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 		if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
 			return nil
 		}
-		return lazyShard.Load(context.Background())
+
+		// The load waits for a permit from the node-wide limiter while the index
+		// is held open, so it has to give that wait up on a close request rather
+		// than leave a teardown waiting for it to finish.
+		ctx, done := i.cancelOnCloseRequested(context.Background())
+		defer done()
+
+		return lazyShard.Load(ctx)
 	}
 
 	return nil
@@ -1620,7 +1657,7 @@ func (i *Index) getShardForWrite(
 	if shard == nil {
 		// this to handle MT auto enable and RF=1 case
 		ensureInit := i.Config.AutoTenantActivation || !i.replicationEnabled()
-		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit, callerUserRequest)
 		// the reference we were handed is not returned to the caller, release it
 		release()
 		if err != nil {
@@ -1660,7 +1697,7 @@ func (i *Index) getShardForRead(
 	if shard == nil {
 		// this to handle MT auto enable and RF=1 case
 		ensureInit := i.Config.AutoTenantActivation || !i.replicationEnabled()
-		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit, callerUserRequest)
 		// the reference we were handed is not returned to the caller, release it
 		release()
 		if err != nil {
@@ -3155,13 +3192,84 @@ func (i *Index) getClass() *models.Class {
 // Method first tries to get shard from Index::shards map,
 // or inits shard and adds it to the map if shard was not found
 func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false)
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false, callerUserRequest)
 }
 
-func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
-	// TODO: implicitShardLoading needs to be double checked if needed at all
-	// consalidate mustLoad and implicitShardLoading
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading)
+// LoadLocalShardForMovement loads a shard on behalf of a replica movement.
+// Suspending or resuming the namespace mid-movement must not fail that load, so
+// it is exempt from the request-path namespace check. The exemption covers this
+// node's target shard, not the movement: a movement still reading its source is
+// refused at IncomingStartChangeCapture and waits for the namespace, while one
+// past that drains its source through getLoadedShard and finishes.
+func (i *Index) LoadLocalShardForMovement(ctx context.Context, shardName string) error {
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, false, callerMovement)
+}
+
+// LoadLocalShardForNewReplica loads a shard for the apply that records this node
+// as a replica of it, with no replica movement to keep going. Only a namespace
+// being deleted skips it, and that skip returns nil: the apply lands once and is
+// never re-sent, so erroring reports a failure nothing acts on.
+func (i *Index) LoadLocalShardForNewReplica(ctx context.Context, shardName string) error {
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, false, callerNewReplica, "replica added")
+}
+
+// LoadLocalShardForTenantAdd loads a shard for the apply that records a new HOT
+// tenant. Only a namespace being deleted skips it, and that skip returns nil: the
+// schema half has already committed, so erroring would fail an apply the schema
+// stands behind either way. mustLoad stays false to keep the lazy registration a
+// tenant create did before.
+func (i *Index) LoadLocalShardForTenantAdd(ctx context.Context, shardName string) error {
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, false, false, callerTenantAdd, "tenant added")
+}
+
+// LoadLocalShardForTenantActivation loads a shard for the apply that records a
+// tenant turning HOT. It skips and returns nil for the same reason
+// [Index.LoadLocalShardForTenantAdd] does.
+func (i *Index) LoadLocalShardForTenantActivation(ctx context.Context, shardName string,
+	implicitShardLoading bool,
+) error {
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, implicitShardLoading,
+		callerTenantActivation, "tenant activated")
+}
+
+// LoadLocalShardForTenantProcess loads a shard for the apply that records a
+// finished offload or onload. Only a namespace being deleted skips it, and that
+// skip returns nil: the report arrives once and is never re-sent, so erroring
+// reports a failure nothing acts on.
+func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName string) error {
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, false, callerTenantProcess, "tenant status applied")
+}
+
+// loadLocalShardForReload opens a shard for the reload replaying committed
+// schema. A namespace that keeps no shards open opens none and returns nil: an
+// error here would skip the tenant drops and property adds the same reload
+// owes, and nothing re-runs a reload. The skip is silent, like
+// initAndStoreShards', since a suspended namespace reaches this once per
+// tenant. mustLoad preserves the eager load each call site did before.
+func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, mustLoad bool) error {
+	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, false, callerReload)
+	if stderrors.Is(err, errShardNamespaceClosed) {
+		return nil
+	}
+	return err
+}
+
+// loadLocalShardUnlessNamespaceClosed loads a shard for an apply whose schema half
+// has already committed. A namespace whose state refuses this caller loads none
+// and returns nil rather than erroring. The schema change stands either way, and
+// the shard is materialized by whatever next loads it. A state that cannot be read
+// still errors.
+func (i *Index) loadLocalShardUnlessNamespaceClosed(ctx context.Context, shardName string,
+	mustLoad, implicitShardLoading bool, caller shardLoadCaller, change string,
+) error {
+	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading, caller)
+	if stderrors.Is(err, errShardNamespaceClosed) {
+		i.logger.WithFields(logrus.Fields{
+			"class": i.Config.ClassName.String(), "namespace": i.namespace, "shard": shardName,
+		}).Infof("%s without loading the shard: %v", change, err)
+		return nil
+	}
+	return err
 }
 
 // DropLocalShard removes a single local shard and its on-disk files. It is the
@@ -3171,11 +3279,17 @@ func (i *Index) DropLocalShard(name string) error {
 	return i.dropShards([]string{name})
 }
 
-func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
+func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool, caller shardLoadCaller) error {
 	if err := i.enterRead(); err != nil {
 		return err
 	}
 	defer i.exitRead()
+
+	// Checked before the already-in-map return below, because with mustLoad that
+	// return still loads a lazy shard.
+	if err := i.requireNamespaceAllowsShardLoad(caller); err != nil {
+		return err
+	}
 
 	// make sure same shard is not inited in parallel
 	i.shardCreateLocks.Lock(shardName)
@@ -3224,6 +3338,10 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	return nil
 }
 
+// UnloadLocalShard closes a shard and takes it out of the shard map. A shard
+// that is already gone or already shut is success — the caller wanted it not
+// loaded, and it is not. Every returned error means the shard is still loaded,
+// including the errAlreadyShutdown a closing index refuses with.
 func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	if err := i.enterRead(); err != nil {
 		return err
@@ -3239,6 +3357,14 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	}
 
 	if err := shutdownOrRestoreShard(ctx, &i.shards, shardName, shardLike, i.logger); err != nil {
+		if errors.Is(err, errAlreadyShutdown) {
+			// The shard is shut, which is the outcome this call asked for. It
+			// is worth a line: reaching it means the shutdown burned its retry
+			// backoff holding shardCreateLocks.
+			i.logger.WithField("shard", shardName).
+				Debugf("shard was already shut or dropped: %v", err)
+			return nil
+		}
 		return errors.Wrapf(err, "shutdown shard %q", shardName)
 	}
 
@@ -3248,7 +3374,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 func (i *Index) GetShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
-	return i.getOptInitLocalShard(ctx, shardName, false)
+	return i.getOptInitLocalShard(ctx, shardName, false, callerUserRequest)
 }
 
 // getOrInitShard initiates the shard locally if it doesn't exist.
@@ -3260,7 +3386,16 @@ func (i *Index) GetShard(ctx context.Context, shardName string) (
 func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
-	return i.getOptInitLocalShard(ctx, shardName, true)
+	return i.getOptInitLocalShard(ctx, shardName, true, callerUserRequest)
+}
+
+// getOrInitShardForReplication exempts a replica movement's write to its target
+// shard from the request-path namespace check, as LoadLocalShardForMovement
+// does for the load.
+func (i *Index) getOrInitShardForReplication(ctx context.Context, shardName string) (
+	shard ShardLike, release func(), err error,
+) {
+	return i.getOptInitLocalShard(ctx, shardName, true, callerMovement)
 }
 
 // getLoadedShard returns the shard only if it is already loaded, never
@@ -3314,13 +3449,24 @@ func (i *Index) withShardForWrite(ctx context.Context, shardName string, f func(
 // The returned shard may be a lazy shard instance or nil if the shard hasn't yet been initialized.
 // The returned shard cannot be closed until release is called.
 // release is never nil, including on error, so defer it immediately after the call.
-func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool) (
+func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool, caller shardLoadCaller) (
 	shard ShardLike, release func(), err error,
 ) {
 	if err := i.enterRead(); err != nil {
 		return nil, func() {}, fmt.Errorf("local shard %q: %w", shardName, err)
 	}
 	defer i.exitRead()
+
+	// Above the shard-map read, not merely above the load points. preventShutdown
+	// below loads a resident lazy shard even with ensureInit false, so a check
+	// further down would miss those reads — and sitting above the lookup also
+	// refuses a shard that is already resident and loaded, which is what makes a
+	// suspend cut reads and writes rather than only materialization. Moving it
+	// below the map read, or gating it on a shard being lazy, quietly restores
+	// both.
+	if err := i.requireNamespaceAllowsShardLoad(caller); err != nil {
+		return nil, func() {}, err
+	}
 
 	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
 	// the shard

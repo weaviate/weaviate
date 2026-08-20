@@ -13,6 +13,7 @@ package replication_test
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -1609,15 +1611,342 @@ func TestConsumerCopyIntegratingRetryAfterSeal(t *testing.T) {
 	mockReplicaCopier.AssertExpectations(t)
 }
 
-// TestConsumer_ShardBusy_DefersWithoutBurningErrorBudget pins that when
-// CopyReplicaFiles returns the wire-side "shard busy" error, the op stays
-// in HYDRATING with no RegisterError and no OnOpFailed — strict mocks +
-// failed-callback t.Error enforce all three.
-func TestConsumer_ShardBusy_DefersWithoutBurningErrorBudget(t *testing.T) {
-	logger, logHook := logrustest.NewNullLogger()
+// Each refusal reaches the consumer in one of three shapes, and only one of the
+// three carries the code that admits it. A deleting namespace is the shape that
+// makes the message check load-bearing: the leader answers it with
+// FailedPrecondition too, so the code alone would let it through and a movement
+// would wait forever on a namespace that never becomes active again.
+func TestIsReversibleRefusal(t *testing.T) {
+	// What a source node answers a refused shard call with.
+	fromSourceNode := func(cause error) error {
+		return status.Errorf(codes.FailedPrecondition, "start change capture for shard %q: %v", "shard1", cause)
+	}
+	// What the leader answers a refused apply with: the sentinel joined to the
+	// status, which only errors.As reaches.
+	fromLeader := func(code codes.Code, cause error) error {
+		return stderrors.Join(status.Errorf(code, "update tenant: %v", cause), cause)
+	}
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "no error", err: nil, want: false},
+
+		{
+			name: "a structural vector op as the sentinel",
+			err:  fmt.Errorf("halt shard: %w", enterrors.ErrShardBusyStructuralOp),
+			want: true,
+		},
+		{
+			name: "a suspended namespace as the sentinel",
+			err:  fmt.Errorf("update tenant: %w", namespaces.ErrNamespaceSuspended),
+			want: true,
+		},
+		{
+			name: "a resuming namespace as the sentinel",
+			err:  fmt.Errorf("update tenant: %w", namespaces.ErrNamespaceResuming),
+			want: true,
+		},
+		{
+			name: "a deleting namespace as the sentinel",
+			err:  fmt.Errorf("update tenant: %w", namespaces.ErrNamespaceDeleting),
+			want: false,
+		},
+
+		{
+			name: "a suspended namespace joined to a status by the leader",
+			err:  fromLeader(codes.FailedPrecondition, namespaces.ErrNamespaceSuspended),
+			want: true,
+		},
+		{
+			name: "a deleting namespace joined to a status by the leader",
+			err:  fromLeader(codes.FailedPrecondition, namespaces.ErrNamespaceDeleting),
+			want: false,
+		},
+
+		{
+			name: "a suspended namespace as a source-node status",
+			err:  fmt.Errorf("start change capture: %w", fromSourceNode(namespaces.ErrNamespaceSuspended)),
+			want: true,
+		},
+		{
+			name: "a resuming namespace as a source-node status",
+			err:  fromSourceNode(namespaces.ErrNamespaceResuming),
+			want: true,
+		},
+		{
+			name: "a deleting namespace as a source-node status",
+			err:  fromSourceNode(namespaces.ErrNamespaceDeleting),
+			want: false,
+		},
+
+		{
+			// The maintenance-mode interceptor answers with this code and names
+			// no refusal, so the message check is what keeps it out.
+			name: "a FailedPrecondition naming no refusal",
+			err:  status.Error(codes.FailedPrecondition, "server is in maintenance mode"),
+			want: false,
+		},
+		{
+			// The code check is what keeps this out: a source node that could not
+			// read the namespace at all still answers Internal.
+			name: "an Internal status naming a suspended namespace",
+			err:  status.Errorf(codes.Internal, "get shard: %v", namespaces.ErrNamespaceSuspended),
+			want: false,
+		},
+		{
+			name: "an unrelated failure",
+			err:  errors.New("boom"),
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, replication.IsReversibleRefusal(tc.err))
+		})
+	}
+}
+
+// TestConsumer_DefersWithoutBurningErrorBudget pins which refusals of a
+// HYDRATING step leave the op alone and which spend one of its 50 errors.
+// A movement re-runs the whole step on every dispatch, so a refusal that clears
+// on its own would otherwise auto-cancel a movement that only had to wait.
+// Strict mocks enforce the skipped RegisterError; the failed-op callback and the
+// deferral log enforce the rest.
+//
+// Which refusals defer is TestIsReversibleRefusal's table, so the rows below
+// vary where the refusal comes from rather than re-crossing that with the
+// states: the source node's shard calls, and the leader's tenant activation,
+// which hands back the sentinel itself.
+func TestConsumer_DefersWithoutBurningErrorBudget(t *testing.T) {
+	const (
+		opID       = uint64(42)
+		collection = "TestCollection"
+		shardName  = "shard1"
+	)
+
+	// A refused shard call reaches the consumer as a gRPC status from the source
+	// node, so the sentinel survives only as text in the message.
+	fromSourceNode := func(code codes.Code, cause error) error {
+		return status.Errorf(code, "index %q, shard %q, op %d: %v", collection, shardName, opID, cause)
+	}
+
+	// Reports that the consumer reached the refused call, which the strict-mock
+	// expectations alone would not prove ran before the assertions below.
+	signal := func(c chan<- struct{}) func(mock.Arguments) {
+		return func(mock.Arguments) {
+			select {
+			case c <- struct{}{}:
+			default:
+			}
+		}
+	}
+
+	tests := []struct {
+		name string
+		// multiTenancy makes the step activate the tenant through the leader
+		// before it reaches the source node.
+		multiTenancy bool
+		refuse       func(copier *types.MockReplicaCopier, fsm *types.MockFSMUpdater, run func(mock.Arguments))
+		deferred     bool
+	}{
+		{
+			name: "a structural vector op on the source shard",
+			refuse: func(copier *types.MockReplicaCopier, _ *types.MockFSMUpdater, run func(mock.Arguments)) {
+				copier.On("CopyReplicaFiles", mock.Anything, mock.Anything, "node1", collection, shardName, mock.Anything).
+					Run(run).
+					Return(fromSourceNode(codes.FailedPrecondition, enterrors.ErrShardBusyStructuralOp)).
+					Once()
+			},
+			deferred: true,
+		},
+		{
+			name: "a suspended namespace at the change-capture open",
+			refuse: func(copier *types.MockReplicaCopier, _ *types.MockFSMUpdater, run func(mock.Arguments)) {
+				copier.On("StartChangeCapture", mock.Anything, "node1", collection, shardName, mock.Anything, mock.Anything).
+					Run(run).
+					Return(fromSourceNode(codes.FailedPrecondition, namespaces.ErrNamespaceSuspended)).
+					Once()
+			},
+			deferred: true,
+		},
+		{
+			name: "a suspended namespace at the file copy",
+			refuse: func(copier *types.MockReplicaCopier, _ *types.MockFSMUpdater, run func(mock.Arguments)) {
+				copier.On("CopyReplicaFiles", mock.Anything, mock.Anything, "node1", collection, shardName, mock.Anything).
+					Run(run).
+					Return(fromSourceNode(codes.FailedPrecondition, namespaces.ErrNamespaceSuspended)).
+					Once()
+			},
+			deferred: true,
+		},
+		{
+			// The tenant activation is refused by the apply rather than the source
+			// node, so it arrives as the sentinel itself and never as a status.
+			name:         "a suspended namespace at the tenant activation",
+			multiTenancy: true,
+			refuse: func(_ *types.MockReplicaCopier, fsm *types.MockFSMUpdater, run func(mock.Arguments)) {
+				fsm.On("UpdateTenants", mock.Anything, collection, mock.Anything).
+					Run(run).
+					Return(uint64(0), fmt.Errorf("update tenant: %w", namespaces.ErrNamespaceSuspended)).
+					Once()
+			},
+			deferred: true,
+		},
+		{
+			// A deleting namespace never becomes active again, so waiting for it
+			// would keep the movement alive forever.
+			name: "a deleting namespace at the change-capture open",
+			refuse: func(copier *types.MockReplicaCopier, _ *types.MockFSMUpdater, run func(mock.Arguments)) {
+				copier.On("StartChangeCapture", mock.Anything, "node1", collection, shardName, mock.Anything, mock.Anything).
+					Run(run).
+					Return(fromSourceNode(codes.Internal, namespaces.ErrNamespaceDeleting)).
+					Once()
+			},
+			deferred: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, logHook := logrustest.NewNullLogger()
+			mockFSMUpdater := types.NewMockFSMUpdater(t)
+			mockReplicaCopier := types.NewMockReplicaCopier(t)
+
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaReader := schemaManager.NewSchemaReader()
+			schemaManager.AddClass(
+				buildApplyRequest(collection, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+					Class: &models.Class{
+						Class:              collection,
+						MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: tc.multiTenancy},
+					},
+					State: &sharding.State{
+						Physical: map[string]sharding.Physical{shardName: {BelongsToNodes: []string{"node1"}}},
+					},
+				}), "node1", true, false)
+
+			// Only REGISTERED → HYDRATING is wired, so an op that transitioned on
+			// past HYDRATING fails on the missing FINALIZING expectation.
+			mockFSMUpdater.EXPECT().
+				ReplicationGetReplicaOpStatus(mock.Anything, opID).
+				Return(api.REGISTERED, nil).
+				Times(1)
+			mockFSMUpdater.EXPECT().
+				ReplicationUpdateReplicaOpStatus(mock.Anything, opID, api.HYDRATING).
+				Return(nil)
+
+			refused := make(chan struct{}, 1)
+			tc.refuse(mockReplicaCopier, mockFSMUpdater, signal(refused))
+
+			registered := make(chan struct{}, 1)
+			if !tc.deferred {
+				mockFSMUpdater.EXPECT().
+					ReplicationRegisterError(mock.Anything, opID, mock.Anything).
+					Run(func(ctx context.Context, id uint64, errorToRegister string) {
+						select {
+						case registered <- struct{}{}:
+						default:
+						}
+					}).
+					Return(nil)
+			}
+			expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
+
+			failed := make(chan string, 1)
+			metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+				WithOpFailedCallback(func(node string) {
+					select {
+					case failed <- node:
+					default:
+					}
+				}).Build()
+
+			consumer := replication.NewCopyOpConsumer(
+				logger,
+				mockFSMUpdater,
+				mockReplicaCopier,
+				"node2",
+				&backoff.StopBackOff{},
+				replication.NewOpsCache(),
+				time.Second*10,
+				1,
+				metricsCallbacks,
+				schemaReader,
+			)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
+			doneChan := make(chan error, 1)
+			go func() {
+				doneChan <- consumer.Consume(ctx, opsChan)
+			}()
+
+			opsChan <- replication.NewShardReplicationOpAndStatus(
+				replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, api.COPY),
+				replication.NewShardReplicationStatus(api.REGISTERED),
+			)
+
+			select {
+			case <-refused:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the refused call was never reached — fixture broken")
+			}
+			if !tc.deferred {
+				select {
+				case <-registered:
+				case <-time.After(5 * time.Second):
+					t.Fatal("the refusal was never registered with the FSM")
+				}
+			}
+			// Grace for the error path (IsReversibleRefusal → Permanent → outer
+			// worker) to run.
+			time.Sleep(100 * time.Millisecond)
+
+			close(opsChan)
+			cancel()
+			select {
+			case <-doneChan:
+			case <-time.After(2 * time.Second):
+				t.Fatal("consumer did not shut down in time")
+			}
+
+			// The deferral log proves IsReversibleRefusal admitted the error,
+			// rather than some other path leaving the same absent calls behind.
+			logged := false
+			for _, e := range logHook.AllEntries() {
+				if e.Level == logrus.InfoLevel && strings.Contains(strings.ToLower(e.Message), "deferr") {
+					logged = true
+					break
+				}
+			}
+			require.Equal(t, tc.deferred, logged, "deferral log presence")
+			if tc.deferred {
+				require.Empty(t, failed, "the op must not be counted as failed")
+				return
+			}
+			require.NotEmpty(t, failed, "the op must be counted as failed")
+		})
+	}
+}
+
+// expectChangeCaptureMocks registers permissive (Maybe) expectations for
+// every change-capture primitive the consumer might call, plus the
+// FSM-converge-and-drain primitives that pair with it during DEHYDRATING.
+// Tests that don't reach FINALIZING (cancellation, deletion) still pass.
+// The FSM refused the add because a cancel was accepted mid-flight. The strict
+// mocks fail this test if the consumer registers an error (budget burn) or
+// advances the op to INTEGRATING instead of diverting to the cancel path.
+func TestConsumerCancelRaceDivertsToCancel(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
 	mockFSMUpdater := types.NewMockFSMUpdater(t)
 	mockReplicaCopier := types.NewMockReplicaCopier(t)
-
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
 	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
@@ -1630,39 +1959,25 @@ func TestConsumer_ShardBusy_DefersWithoutBurningErrorBudget(t *testing.T) {
 			},
 		}), "node1", true, false)
 
-	const opID = uint64(42)
-
-	// Only REGISTERED → HYDRATING is wired; the absence of FINALIZING and
-	// ReplicationRegisterError expectations is what enforces the test.
+	mockFSMUpdater.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil)
+	mockFSMUpdater.EXPECT().ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).Return(api.FINALIZING, nil)
+	mockReplicaCopier.EXPECT().LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mockReplicaCopier.EXPECT().SnapshotChangeLogLSN(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil)
+	mockReplicaCopier.EXPECT().TailAndApply(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil)
 	mockFSMUpdater.EXPECT().
-		ReplicationGetReplicaOpStatus(mock.Anything, opID).
-		Return(api.REGISTERED, nil).
-		Times(1)
-	mockFSMUpdater.EXPECT().
-		ReplicationUpdateReplicaOpStatus(mock.Anything, opID, api.HYDRATING).
-		Return(nil)
+		ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(1)).
+		Return(uint64(0), fmt.Errorf("add replica: %w", types.ErrOpCancellationInFlight))
+	// The stale, unflagged status snapshot limits this pass to stopping capture
+	// and releasing the snapshot; drop and FSM notifications follow the next poll.
+	mockReplicaCopier.EXPECT().StopChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	mockReplicaCopier.EXPECT().ReleaseReplicaSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 
-	// Built from the live sentinel so a rename keeps the test honest.
-	busyErr := status.Errorf(codes.FailedPrecondition,
-		"failed to pause file activity for index %q, shard %q: %v",
-		"TestCollection", "shard1", enterrors.ErrShardBusyStructuralOp)
-
-	copyCalled := make(chan struct{}, 1)
-	mockReplicaCopier.EXPECT().
-		CopyReplicaFiles(mock.Anything, mock.Anything, "node1", "TestCollection", "shard1", mock.Anything).
-		Run(func(ctx context.Context, opID strfmt.UUID, sourceNode, sourceCollection, sourceShard string, schemaVersion uint64) {
-			select {
-			case copyCalled <- struct{}{}:
-			default:
-			}
-		}).
-		Return(busyErr).
-		Once()
-	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
-
+	var cancelled sync.WaitGroup
+	cancelled.Add(1)
 	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
-		WithOpFailedCallback(func(node string) {
-			t.Errorf("OnOpFailed must NOT fire for a shard-busy deferral; got node=%q", node)
+		WithOpCancelledCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in cancelled op callback")
+			cancelled.Done()
 		}).Build()
 
 	consumer := replication.NewCopyOpConsumer(
@@ -1678,8 +1993,9 @@ func TestConsumer_ShardBusy_DefersWithoutBurningErrorBudget(t *testing.T) {
 		schemaReader,
 	)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+
 	opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
 	doneChan := make(chan error, 1)
 	go func() {
@@ -1687,42 +2003,27 @@ func TestConsumer_ShardBusy_DefersWithoutBurningErrorBudget(t *testing.T) {
 	}()
 
 	opsChan <- replication.NewShardReplicationOpAndStatus(
-		replication.NewShardReplicationOp(opID, "node1", "node2", "TestCollection", "shard1", api.COPY),
-		replication.NewShardReplicationStatus(api.REGISTERED),
-	)
+		replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY),
+		replication.NewShardReplicationStatus(api.FINALIZING))
 
+	waitChan := make(chan struct{})
+	go func() {
+		cancelled.Wait()
+		waitChan <- struct{}{}
+	}()
 	select {
-	case <-copyCalled:
-	case <-time.After(5 * time.Second):
-		t.Fatal("CopyReplicaFiles was never called — fixture broken")
+	case <-waitChan:
+	case <-time.After(30 * time.Second):
+		t.Fatal("timed out waiting for the cancel divert")
 	}
-	// Grace for the error path (skip-register → Permanent → outer worker) to run.
-	time.Sleep(100 * time.Millisecond)
 
 	close(opsChan)
-	cancel()
-	select {
-	case <-doneChan:
-	case <-time.After(2 * time.Second):
-		t.Fatal("consumer did not shut down in time")
-	}
+	require.NoError(t, <-doneChan, "expected consumer to stop without error")
 
-	// Belt-and-braces: the deferred-log Info must have fired (proves the new
-	// branch ran, not some other no-op path).
-	deferred := false
-	for _, e := range logHook.AllEntries() {
-		if e.Level == logrus.InfoLevel && strings.Contains(strings.ToLower(e.Message), "deferr") {
-			deferred = true
-			break
-		}
-	}
-	require.True(t, deferred, "expected an Info log signalling shard-busy deferral")
+	mockFSMUpdater.AssertExpectations(t)
+	mockReplicaCopier.AssertExpectations(t)
 }
 
-// expectChangeCaptureMocks registers permissive (Maybe) expectations for
-// every change-capture primitive the consumer might call, plus the
-// FSM-converge-and-drain primitives that pair with it during DEHYDRATING.
-// Tests that don't reach FINALIZING (cancellation, deletion) still pass.
 func expectChangeCaptureMocks(m *types.MockReplicaCopier, fsm *types.MockFSMUpdater) {
 	m.EXPECT().StartChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.EXPECT().SnapshotChangeLogLSN(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()

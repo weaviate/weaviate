@@ -320,9 +320,18 @@ func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {
 	if meta == nil {
 		return nil, 0
 	}
-	shardingState := meta.Sharding.DeepCopy()
 
-	return &shardingState, meta.version()
+	var (
+		shardingState sharding.State
+		version       uint64
+	)
+	_ = meta.RLockGuard(func(_ *models.Class, state *sharding.State) error {
+		shardingState = state.DeepCopy()
+		version = meta.version()
+		return nil
+	})
+
+	return &shardingState, version
 }
 
 func (s *schema) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {

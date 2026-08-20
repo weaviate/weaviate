@@ -463,7 +463,7 @@ func (l *LazyLoadShard) ObjectDigests(ctx context.Context, query []multi.Identif
 
 func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) (objs []types.RepairResponse, err error) {
+) (objs []types.RepairDigest, err error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
@@ -848,7 +848,7 @@ func (l *LazyLoadShard) HashTreeRoot() (root hashtree.Digest, ok bool) {
 	return l.shard.HashTreeRoot()
 }
 
-func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairDigest) ([]types.RepairDigest, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}

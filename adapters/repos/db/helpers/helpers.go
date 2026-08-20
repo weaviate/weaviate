@@ -42,6 +42,40 @@ func GetVectorsBucketName(targetVector string) string {
 	return VectorsBucketLSM
 }
 
+// GetMuveraBucketName returns the bucket a muvera-encoded multi-vector index
+// keeps its encoded vectors in (see hnsw.New, which builds it as
+// "<vectorIndexID>_muvera_vectors"). It is a bucket of the index's own, held
+// outside the vectors/compressed pair, so anything tearing an index down has to
+// name it explicitly or the encoded copies survive.
+func GetMuveraBucketName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_muvera_vectors", GetVectorsBucketName(targetVector))
+	}
+	// Mirrors vectorIndexID's unnamed case, which the index uses as its ID.
+	return "main_muvera_vectors"
+}
+
+// HFresh keeps more on-disk state than the other index types: a directory of
+// its own under the shard, plus two dedicated LSM buckets. All three are keyed
+// on the index ID (vectorIndexID, i.e. "vectors_<target>" for a named vector),
+// and they live here so the index that creates them and the drop that removes
+// them cannot drift apart.
+
+// HFreshDirName is the hfresh index's own directory under the shard.
+func HFreshDirName(indexID string) string {
+	return fmt.Sprintf("%s.hfresh.d", indexID)
+}
+
+// HFreshPostingsBucketName is the LSM bucket holding hfresh's posting lists.
+func HFreshPostingsBucketName(indexID string) string {
+	return fmt.Sprintf("hfresh_postings_%s", indexID)
+}
+
+// HFreshSharedBucketName is the LSM bucket holding hfresh's shared metadata.
+func HFreshSharedBucketName(indexID string) string {
+	return fmt.Sprintf("hfresh_shared_%s", indexID)
+}
+
 func GetHNSWCommitLogDirName(targetVector string) string {
 	if targetVector != "" {
 		return fmt.Sprintf("%s.hnsw.commitlog.d", GetVectorsBucketName(targetVector))

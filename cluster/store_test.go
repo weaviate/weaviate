@@ -658,6 +658,9 @@ func TestStoreApply(t *testing.T) {
 			resp: Response{Error: schema.ErrSchema},
 			doBefore: func(m *MockStore) {
 				doFirst(m)
+				// No cascade on a failed mutation: the tenants still exist, and
+				// flagging their ops would cancel in-flight movements. The strict
+				// mock fails this case if DeleteReplicationsByTenants is called.
 			},
 		},
 		{

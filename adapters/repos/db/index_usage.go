@@ -99,6 +99,11 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 		}
 		activeVectorConfigs[targetVector] = cfg
 	}
+	// computed once per collection: every shard's saved usage is checked against it
+	vectorConfigsFingerprint, err := shardusage.VectorConfigsFingerprint(activeVectorConfigs)
+	if err != nil {
+		return nil, fmt.Errorf("fingerprint vector configs: %w", err)
+	}
 
 	localShards := map[string]struct{}{}
 
@@ -106,7 +111,7 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 	// the entire state for the duration of the potentially long-running usage calculation. Therefore, we do this in steps:
 	// 1) lock sharding state using schemaReader.Read while we collect all local shards and their status
 	// 2) calculate usage depending on shard state below where only the given shard is locked (below)
-	err := i.schemaReader.Read(i.Config.ClassName.String(), false, func(_ *models.Class, ss *sharding.State) error {
+	err = i.schemaReader.Read(i.Config.ClassName.String(), false, func(_ *models.Class, ss *sharding.State) error {
 		for shardName := range ss.Physical {
 			isLocal := ss.IsLocalShard(shardName)
 			if !isLocal {
@@ -145,7 +150,7 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 		eg.Go(func() error {
 			defer shardReadSem.Release(1)
 
-			shardUsage, err := i.usageForShard(egCtx, shardName, exactObjectCount, activeVectorConfigs)
+			shardUsage, err := i.usageForShard(egCtx, shardName, exactObjectCount, activeVectorConfigs, vectorConfigsFingerprint)
 			if err != nil {
 				return err
 			}
@@ -197,7 +202,7 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 // in the _local_ state (i.e. loading/unloading) for the duration of the calculation. A nil
 // *ShardUsage with a nil error means the shard should be skipped (transitional states like
 // FREEZING/OFFLOADING). Safe to call concurrently for distinct shards.
-func (i *Index) usageForShard(ctx context.Context, shardName string, exactObjectCount bool, activeVectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
+func (i *Index) usageForShard(ctx context.Context, shardName string, exactObjectCount bool, activeVectorConfigs map[string]models.VectorConfig, vectorConfigsFingerprint string) (*types.ShardUsage, error) {
 	i.shardCreateLocks.RLock(shardName)
 	defer i.shardCreateLocks.RUnlock(shardName)
 
@@ -244,7 +249,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 						err2 = fmt.Errorf("loaded lazy shard %s: %w", shardName, err2)
 					}
 				} else {
-					shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, activeVectorConfigs)
+					shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, activeVectorConfigs, vectorConfigsFingerprint)
 					if err2 != nil {
 						err2 = fmt.Errorf("unloaded lazy shard %s: %w", shardName, err2)
 					}
@@ -261,7 +266,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 			}
 		}
 	case models.TenantActivityStatusINACTIVE, models.TenantActivityStatusCOLD:
-		shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, activeVectorConfigs)
+		shardUsage, err2 = i.calculateUnloadedShardUsage(ctx, shardName, activeVectorConfigs, vectorConfigsFingerprint)
 		if err2 != nil {
 			err2 = fmt.Errorf("inactive shard %s: %w", shardName, err2)
 		}
@@ -348,19 +353,23 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 }
 
 // vectorUsages builds the usage entry of every vector index of a loaded shard.
-// dimensionalities holds what [Shard.VectorStorageUsage] already read from the
-// dimensions bucket; a target vector missing from it is read on demand.
+// dimensionalities holds the raw dimensions [Shard.VectorStorageUsage] already read
+// from the dimensions bucket; whatever it cannot answer is read on demand.
 func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities map[string]types.Dimensionality) (types.VectorsUsage, error) {
 	vectorConfigs := i.GetVectorIndexConfigs()
 	var usages types.VectorsUsage
 	if err := shard.ForEachVectorIndex(func(targetVector string, vectorIndex VectorIndex) error {
-		var vectorIndexConfig schemaConfig.VectorIndexConfig
-		if vecCfg, exists := vectorConfigs[targetVector]; exists {
-			vectorIndexConfig = vecCfg
-		} else if vecCfg, exists := vectorConfigs[""]; exists {
-			vectorIndexConfig = vecCfg
-		} else {
-			return fmt.Errorf("vector index %s not found in config", targetVector)
+		vectorIndexConfig, exists := vectorConfigs[targetVector]
+		if !exists {
+			// dropVectorIndex deletes the config before it drops the index from every
+			// shard, so a report that runs in between finds an index it cannot
+			// describe. Routine enough for Debug: the next shard init drops the index.
+			i.logger.WithFields(logrus.Fields{
+				"class":         i.Config.ClassName.String(),
+				"shard":         shard.Name(),
+				"target_vector": targetVector,
+			}).Debug("leaving vector index without a config out of the usage report")
+			return nil
 		}
 		indexType := vectorIndexConfig.IndexType()
 
@@ -374,43 +383,44 @@ func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities
 		}
 		dimInfo := GetDimensionCategory(vectorIndexConfig, isDynamicUpgraded)
 
-		dimensionality, ok := dimensionalities[targetVector]
-		if !ok {
-			// a target vector added since VectorStorageUsage ran would report no dimensionality
-			var err error
-			dimensionality, err = shard.DimensionsUsage(ctx, targetVector)
+		// a target vector added since VectorStorageUsage ran is missing from the map, and
+		// MUVERA reports encoded dimensions that the raw scan does not carry
+		encodedDimensions := i.muveraEncodedDimensions(shard.Name(), targetVector, vectorIndexConfig)
+		dimensionality, cached := dimensionalities[targetVector]
+		if !cached || encodedDimensions > 0 {
+			scan, err := shard.DimensionsUsage(ctx, targetVector, encodedDimensions)
 			if err != nil {
 				return err
 			}
+			dimensionality = scan.Reported
 		}
 
-		compressionRatio := vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions)
-
-		vectorUsage := &types.VectorUsage{
+		usages = append(usages, &types.VectorUsage{
 			Name:                   targetVector,
 			Compression:            dimInfo.category.String(),
 			VectorIndexType:        indexType,
 			IsDynamic:              isDynamic,
-			VectorCompressionRatio: compressionRatio,
+			VectorCompressionRatio: vectorCompressionRatio(vectorIndex.CompressionStats(), dimensionality.Dimensions),
 			Bits:                   dimInfo.bits,
 			MultiVectorConfig:      multiVectorConfigFromConfig(vectorIndexConfig),
-		}
-
-		// Only add dimensionalities if there's valid data
-		if dimensionality.Count > 0 || dimensionality.Dimensions > 0 {
-			vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
-				Dimensions: dimensionality.Dimensions,
-				Count:      dimensionality.Count,
-			})
-		}
-
-		usages = append(usages, vectorUsage)
+			Dimensionalities:       trackedDimensionalities(dimensionality),
+		})
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	sort.Sort(usages)
 	return usages, nil
+}
+
+// trackedDimensionalities wraps one target vector's dimensionality for the report,
+// and returns nothing when nothing was tracked. A configured vector holding no data
+// has no dimensionality to bill, rather than one of zero.
+func trackedDimensionalities(dimensionality types.Dimensionality) []*types.Dimensionality {
+	if dimensionality.Count <= 0 && dimensionality.Dimensions <= 0 {
+		return nil
+	}
+	return []*types.Dimensionality{&dimensionality}
 }
 
 // unloadedVectorState is what a shard's files say about one target vector that
@@ -464,7 +474,7 @@ func unloadedVectorUsage(targetVector string, vectorConfig models.VectorConfig,
 		VectorCompressionRatio: dimInfo.compressionRatio(dimensionality.Dimensions, state.quantizedVectorsExist),
 		VectorIndexType:        vectorIndexConfig.IndexType(),
 		IsDynamic:              vectorConfig.VectorIndexType == common.IndexTypeDynamic,
-		Dimensionalities:       []*types.Dimensionality{&dimensionality},
+		Dimensionalities:       trackedDimensionalities(dimensionality),
 		MultiVectorConfig:      multiVectorConfigFromConfig(vectorIndexConfig),
 	}
 	if vectorUsage.IsDynamic {
@@ -478,21 +488,23 @@ func unloadedVectorUsage(targetVector string, vectorConfig models.VectorConfig,
 }
 
 // calculateUnloadedShardUsage computes usage for a cold shard from disk. vectorConfigs must
-// contain only active vectors — a dropped vector's entry carries a nil VectorIndexConfig.
-func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig) (*types.ShardUsage, error) {
+// contain only active vectors — a dropped vector's entry carries a nil VectorIndexConfig —
+// and vectorConfigsFingerprint must be their [shardusage.VectorConfigsFingerprint].
+func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig, vectorConfigsFingerprint string) (*types.ShardUsage, error) {
 	if shardusage.ComputedUsageDataExists(i.path(), shardName) {
 		// usage has been pre-calculated and can be read from disk
-		shardUsage, err := shardusage.LoadComputedUsageData(i.path(), shardName)
-		if err != nil {
-			// the computation below overwrites the unusable file, so a stale
-			// version is routine; anything else is worth an operator's attention
-			if errors.Is(err, shardusage.ErrUsageVersionMismatch) {
-				i.logger.Debugf("recomputing usage data for shard %s: %v", shardName, err)
-			} else {
-				i.logger.Warnf("failed to load pre-calculated usage data for shard %s: %v", shardName, err)
-			}
-		} else {
-			return shardUsage, nil
+		saved, err := shardusage.LoadComputedUsageData(i.path(), shardName)
+		// the computation below overwrites whatever cannot be served. A stale version
+		// is routine. An unreadable file is worth an operator's attention.
+		switch {
+		case errors.Is(err, shardusage.ErrUsageVersionMismatch):
+			i.logger.Debugf("recomputing usage data for shard %s: %v", shardName, err)
+		case err != nil:
+			i.logger.Warnf("failed to load pre-calculated usage data for shard %s: %v", shardName, err)
+		case saved.VectorConfigsFingerprint != vectorConfigsFingerprint:
+			i.logger.Debugf("recomputing usage data for shard %s: vector configs changed since it was saved", shardName)
+		default:
+			return saved.ShardUsage, nil
 		}
 	}
 	lsmPath := shardPathLSM(i.path(), shardName)
@@ -524,12 +536,17 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	}
 
 	// Get named vector data for cold shards from schema configuration
-	targetVectors := make([]string, 0, len(vectorConfigs))
-	for targetVector := range vectorConfigs {
-		targetVectors = append(targetVectors, targetVector)
+	encodedDimensions := make(map[string]int, len(vectorConfigs))
+	for targetVector, vectorConfig := range vectorConfigs {
+		cfg, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		if !ok {
+			return nil, fmt.Errorf("class %s, shard %s: vector index config for target vector %q has unexpected type %T",
+				i.Config.ClassName, shardName, targetVector, vectorConfig.VectorIndexConfig)
+		}
+		encodedDimensions[targetVector] = i.muveraEncodedDimensions(shardName, targetVector, cfg)
 	}
 	// open the dimensions bucket once for all target vectors
-	dimensionalitiesAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, targetVectors)
+	scansAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, encodedDimensions)
 	if err != nil {
 		return nil, err
 	}
@@ -537,11 +554,13 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	var namedVectors types.VectorsUsage
 	uncompressedVectorSize := uint64(0) // calculate total uncompressed vector size for all vectors
 	for targetVector, vectorConfig := range vectorConfigs {
-		dimensionality := dimensionalitiesAll[targetVector]
-		uncompressedVectorSize += uint64(dimensionality.Count) * uint64(dimensionality.Dimensions) * 4
+		scan := scansAll[targetVector]
+		// disk accounting keeps modelling raw dimensions, which is a single row and so
+		// under-counts multi-vectors with varying token counts
+		uncompressedVectorSize += uint64(scan.Raw.Count) * uint64(scan.Raw.Dimensions) * 4
 
 		state := i.unloadedVectorState(shardName, targetVector, vectorConfig, vectorMetrics)
-		vectorUsage, err := unloadedVectorUsage(targetVector, vectorConfig, dimensionality, state)
+		vectorUsage, err := unloadedVectorUsage(targetVector, vectorConfig, scan.Reported, state)
 		if err != nil {
 			return nil, err
 		}
@@ -563,7 +582,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorMetrics.StorageBytes),
 		NamedVectors:          namedVectors,
 	}
-	if err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage); err != nil {
+	if err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage, vectorConfigsFingerprint); err != nil {
 		return nil, fmt.Errorf("save usage to disk: %w", err)
 	}
 	return shardUsage, err
@@ -585,14 +604,36 @@ func (i *Index) splitObjectsBucketSize(shardName string, objectsBucketSize, unco
 	return objectsBucketSize - uncompressedVectorSize, uncompressedVectorSize
 }
 
+// emptyShardUsageWithNameAndActivity reports zero usage for a shard with no data on disk. Callers
+// pass the schema's upper-case activity constants, while the report spells the status in lower case
+// like the computed paths do.
 func emptyShardUsageWithNameAndActivity(shardName, activity string) *types.ShardUsage {
 	return &types.ShardUsage{
 		Name:                shardName,
-		Status:              activity,
+		Status:              strings.ToLower(activity),
 		ObjectsCount:        0,
 		ObjectsStorageBytes: 0,
 		VectorStorageBytes:  0,
 	}
+}
+
+// muveraEncodedDimensions returns the MUVERA-encoded dimensionality for HNSW configs with MUVERA enabled, 0 otherwise
+func (i *Index) muveraEncodedDimensions(shardName, targetVector string, vectorConfig schemaConfig.VectorIndexConfig) int {
+	hnswConfig, ok := vectorConfig.(enthnsw.UserConfig)
+	if !ok || !hnswConfig.Multivector.MuveraEnabled() {
+		return 0
+	}
+	encodedDimensions := hnswConfig.Multivector.MuveraConfig.EncodedDimensions()
+	if encodedDimensions == 0 {
+		i.logger.WithFields(logrus.Fields{
+			"class":         i.Config.ClassName.String(),
+			"shard":         shardName,
+			"target_vector": targetVector,
+		}).Warnf("muvera config yields no encoded dimensionality (ksim %d, repetitions %d, dprojections %d); reporting raw vector dimensions",
+			hnswConfig.Multivector.MuveraConfig.KSim, hnswConfig.Multivector.MuveraConfig.Repetitions,
+			hnswConfig.Multivector.MuveraConfig.DProjections)
+	}
+	return encodedDimensions
 }
 
 func multiVectorConfigFromConfig(vectorConfig schemaConfig.VectorIndexConfig) *types.MultiVectorConfig {
