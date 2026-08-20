@@ -411,7 +411,11 @@ func boolVal(val interface{}) (bool, error) {
 
 func dateVal(val interface{}) (time.Time, error) {
 	if dateStr, ok := val.(string); ok {
-		if date, err := time.Parse(time.RFC3339, dateStr); err == nil {
+		// time.Parse's fixed-width year field already rejects a negative or
+		// 5+ digit year, but it happily parses the literal digits "0000" as
+		// year 0. RFC 3339 (via ISO 8601 §4.3.2) requires the year to be in
+		// 0001-9999, so year 0000 must be rejected explicitly.
+		if date, err := time.Parse(time.RFC3339, dateStr); err == nil && date.Year() >= 1 {
 			return date, nil
 		}
 	}
