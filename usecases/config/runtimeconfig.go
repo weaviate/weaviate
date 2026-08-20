@@ -83,6 +83,11 @@ type WeaviateRuntimeConfig struct {
 
 	NamespaceCleanupInterval *runtime.DynamicValue[time.Duration] `json:"namespace_cleanup_interval" yaml:"namespace_cleanup_interval"`
 
+	ReplicaMovementCleanupEnabled          *runtime.DynamicValue[bool]          `json:"replica_movement_cleanup_enabled" yaml:"replica_movement_cleanup_enabled"`
+	ReplicaMovementCleanupMaxAge           *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_max_age" yaml:"replica_movement_cleanup_max_age"`
+	ReplicaMovementCleanupInterval         *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_interval" yaml:"replica_movement_cleanup_interval"`
+	ReplicaMovementCleanupIncludeCancelled *runtime.DynamicValue[bool]          `json:"replica_movement_cleanup_include_cancelled" yaml:"replica_movement_cleanup_include_cancelled"`
+
 	ObjectsTTLDeleteSchedule      *runtime.DynamicValue[string]        `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
 	ObjectsTTLBatchSize           *runtime.DynamicValue[int]           `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
 	ObjectsTTLPauseEveryNoBatches *runtime.DynamicValue[int]           `json:"objects_ttl_pause_every_no_batches" yaml:"objects_ttl_pause_every_no_batches"`
@@ -401,4 +406,90 @@ func matchUpdatedFields(match string, records []updateLogRecord) bool {
 		}
 	}
 	return false
+}
+
+// BuildRegisteredRuntimeConfig returns a WeaviateRuntimeConfig sharing cfg's
+// *DynamicValue pointers, so the reload loop's SetValue reaches every consumer.
+// It lives here rather than in the REST layer so the registration list can be
+// tested: a missing entry is otherwise silent, since Get and SetValue are both
+// nil-safe on a nil *DynamicValue.
+func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
+	// Runtimeconfig manager takes of keeping the `registered` config values upto date
+	registered := &WeaviateRuntimeConfig{}
+	registered.MaximumAllowedCollectionsCount = cfg.SchemaHandlerConfig.MaximumAllowedCollectionsCount
+	registered.MaximumAllowedObjectsCount = cfg.UsageLimits.MaxObjectsCount
+	registered.MaximumAllowedTenantsPerCollection = cfg.UsageLimits.MaxTenantsPerCollection
+	registered.MaximumAllowedShardsPerCollection = cfg.UsageLimits.MaxShardsPerCollection
+	registered.UsageLimitsErrorMessage = cfg.UsageLimits.ErrorMessage
+	registered.AsyncReplicationDisabled = cfg.Replication.AsyncReplicationDisabled
+	registered.AsyncReplicationSchedulerWorkers = cfg.Replication.AsyncReplicationSchedulerWorkers
+	registered.AsyncReplicationHashtreeInitConcurrency = cfg.Replication.AsyncReplicationHashtreeInitConcurrency
+	registered.AsyncReplicationHashtreeHeight = cfg.Replication.AsyncReplicationHashtreeHeight
+	registered.AsyncReplicationFrequency = cfg.Replication.AsyncReplicationFrequency
+	registered.AsyncReplicationFrequencyWhilePropagating = cfg.Replication.AsyncReplicationFrequencyWhilePropagating
+	registered.AsyncReplicationLoggingFrequency = cfg.Replication.AsyncReplicationLoggingFrequency
+	registered.AsyncReplicationDiffBatchSize = cfg.Replication.AsyncReplicationDiffBatchSize
+	registered.AsyncReplicationDiffPerNodeTimeout = cfg.Replication.AsyncReplicationDiffPerNodeTimeout
+	registered.AsyncReplicationPrePropagationTimeout = cfg.Replication.AsyncReplicationPrePropagationTimeout
+	registered.AsyncReplicationPropagationTimeout = cfg.Replication.AsyncReplicationPropagationTimeout
+	registered.AsyncReplicationPropagationLimit = cfg.Replication.AsyncReplicationPropagationLimit
+	registered.AsyncReplicationPropagationConcurrency = cfg.Replication.AsyncReplicationPropagationConcurrency
+	registered.AsyncReplicationPropagationBatchSize = cfg.Replication.AsyncReplicationPropagationBatchSize
+	registered.AsyncReplicationPropagationDelay = cfg.Replication.AsyncReplicationPropagationDelay
+	registered.AsyncReplicationRootPrefilterBatchSize = cfg.Replication.AsyncReplicationRootPrefilterBatchSize
+	registered.ReplicationGRPCEnabled = cfg.Replication.ReplicationGRPCEnabled
+	registered.ReplicaMovementCleanupEnabled = cfg.Replication.ReplicaMovementCleanupEnabled
+	registered.ReplicaMovementCleanupMaxAge = cfg.Replication.ReplicaMovementCleanupMaxAge
+	registered.ReplicaMovementCleanupInterval = cfg.Replication.ReplicaMovementCleanupInterval
+	registered.ReplicaMovementCleanupIncludeCancelled = cfg.Replication.ReplicaMovementCleanupIncludeCancelled
+	registered.AutoschemaEnabled = cfg.AutoSchema.Enabled
+	registered.TenantActivityReadLogLevel = cfg.TenantActivityReadLogLevel
+	registered.TenantActivityWriteLogLevel = cfg.TenantActivityWriteLogLevel
+	registered.RevectorizeCheckDisabled = cfg.RevectorizeCheckDisabled
+	registered.QuerySlowLogEnabled = cfg.QuerySlowLogEnabled
+	registered.QuerySlowLogThreshold = cfg.QuerySlowLogThreshold
+	registered.InvertedSorterDisabled = cfg.InvertedSorterDisabled
+	registered.QueryBatchedContainsEnabled = cfg.QueryBatchedContainsEnabled
+	registered.LazyPropertyLengthsEnabled = cfg.LazyPropertyLengthsEnabled
+	registered.BM25FilterTombMergeGateRatio = cfg.BM25FilterTombMergeGateRatio
+	registered.DefaultQuantization = cfg.DefaultQuantization
+	registered.DefaultVectorIndexType = cfg.DefaultVectorIndexType
+	registered.DefaultShardingCount = cfg.DefaultShardingCount
+	registered.AllowedVectorIndexTypes = cfg.Restrictions.AllowedVectorIndexTypes
+	registered.AllowedCompressionTypes = cfg.Restrictions.AllowedCompressionTypes
+	registered.RestrictionsErrorMessage = cfg.Restrictions.ErrorMessage
+	registered.RaftDrainSleep = cfg.Raft.DrainSleep
+	registered.RaftTimoutsMultiplier = cfg.Raft.TimeoutsMultiplier
+	registered.OperationalMode = cfg.OperationalMode
+	registered.NamespaceCleanupInterval = cfg.Namespaces.CleanupInterval
+	registered.ObjectsTTLDeleteSchedule = cfg.ObjectsTTLDeleteSchedule
+	registered.ObjectsTTLBatchSize = cfg.ObjectsTTLBatchSize
+	registered.ObjectsTTLPauseEveryNoBatches = cfg.ObjectsTTLPauseEveryNoBatches
+	registered.ObjectsTTLPauseDuration = cfg.ObjectsTTLPauseDuration
+	registered.ObjectsTTLConcurrencyFactor = cfg.ObjectsTTLConcurrencyFactor
+	registered.ExportEnabled = cfg.Export.Enabled
+	registered.ExportDefaultBucket = cfg.Export.DefaultBucket
+	registered.ExportDefaultPath = cfg.Export.DefaultPath
+	registered.ExportParallelism = cfg.ExportParallelism
+	registered.MCPEnabled = cfg.MCP.Enabled
+	registered.MCPWriteAccessEnabled = cfg.MCP.WriteAccessEnabled
+	registered.BackupMaxIndividualFiles = cfg.Backup.MaxIndividualFiles
+	registered.DebugEndpointsEnabled = cfg.Profiling.DebugEndpointsEnabled
+	registered.GRPCWebEnabled = cfg.GRPC.GrpcWebEnabled
+	registered.DisableGraphQL = cfg.DisableGraphQL
+	registered.ExperimentalRESTSearchEnabled = cfg.ExperimentalRESTSearchEnabled
+
+	if cfg.Authentication.OIDC.Enabled {
+		registered.OIDCIssuer = cfg.Authentication.OIDC.Issuer
+		registered.OIDCClientID = cfg.Authentication.OIDC.ClientID
+		registered.OIDCSkipClientIDCheck = cfg.Authentication.OIDC.SkipClientIDCheck
+		registered.OIDCUsernameClaim = cfg.Authentication.OIDC.UsernameClaim
+		registered.OIDCGroupsClaim = cfg.Authentication.OIDC.GroupsClaim
+		registered.OIDCScopes = cfg.Authentication.OIDC.Scopes
+		registered.OIDCCertificate = cfg.Authentication.OIDC.Certificate
+		registered.OIDCJWKSUrl = cfg.Authentication.OIDC.JWKSUrl
+		registered.OIDCSkipTLSVerify = cfg.Authentication.OIDC.SkipTLSVerify
+	}
+
+	return registered
 }
