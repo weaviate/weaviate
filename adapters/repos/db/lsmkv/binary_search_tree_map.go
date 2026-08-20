@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"sort"
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -22,6 +23,11 @@ import (
 
 type binarySearchTreeMap struct {
 	root *binarySearchNodeMap
+	// cacheSize tracks bytes retained by all rows' sortedCache MapPair arrays
+	// (Key/Value payloads are already charged to Memtable.size at append
+	// time). Included in Memtable.Size() so cache growth counts toward the
+	// flush threshold.
+	cacheSize atomic.Int64
 }
 
 func (t *binarySearchTreeMap) insert(key []byte, pair MapPair) {
@@ -45,7 +51,13 @@ func (t *binarySearchTreeMap) get(key []byte) ([]MapPair, error) {
 		return nil, lsmkv.NotFound
 	}
 
-	return t.root.get(key)
+	return t.root.get(key, &t.cacheSize)
+}
+
+// cacheSizeBytes returns the bytes currently retained by all rows' sortedCache
+// MapPair arrays.
+func (t *binarySearchTreeMap) cacheSizeBytes() int64 {
+	return t.cacheSize.Load()
 }
 
 func (t *binarySearchTreeMap) flattenInOrder() []*binarySearchNodeMap {
@@ -56,13 +68,13 @@ func (t *binarySearchTreeMap) flattenInOrder() []*binarySearchNodeMap {
 	return t.root.flattenInOrder()
 }
 
-// mapRowSorted is an immutable snapshot of a row's postings sorted by Key and
-// deduped (last insert wins), covering the first upTo entries of the node's
-// append-only values slice. Never mutated after publish, so concurrent
-// readers share it without copying.
-type mapRowSorted struct {
-	upTo   int
-	sorted []MapPair
+// mapRowSnapshot is an immutable snapshot of a row's postings sorted by Key
+// and deduped (last insert wins), covering the first valueCount entries of
+// the node's append-only values slice. Never mutated after publish, so
+// concurrent readers share it without copying.
+type mapRowSnapshot struct {
+	valueCount int
+	sorted     []MapPair
 }
 
 type binarySearchNodeMap struct {
@@ -72,7 +84,7 @@ type binarySearchNodeMap struct {
 	right       *binarySearchNodeMap
 	parent      *binarySearchNodeMap
 	colourIsRed bool
-	sortedCache atomic.Pointer[mapRowSorted]
+	sortedCache atomic.Pointer[mapRowSnapshot]
 }
 
 func (n *binarySearchNodeMap) Parent() rbtree.Node {
@@ -187,9 +199,9 @@ func (n *binarySearchNodeMap) insert(key []byte, pair MapPair) *binarySearchNode
 	}
 }
 
-func (n *binarySearchNodeMap) get(key []byte) ([]MapPair, error) {
+func (n *binarySearchNodeMap) get(key []byte, cacheSize *atomic.Int64) ([]MapPair, error) {
 	if bytes.Equal(n.key, key) {
-		return n.sortedValues(), nil
+		return n.sortedValues(cacheSize), nil
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
@@ -197,13 +209,13 @@ func (n *binarySearchNodeMap) get(key []byte) ([]MapPair, error) {
 			return nil, lsmkv.NotFound
 		}
 
-		return n.left.get(key)
+		return n.left.get(key, cacheSize)
 	} else {
 		if n.right == nil {
 			return nil, lsmkv.NotFound
 		}
 
-		return n.right.get(key)
+		return n.right.get(key, cacheSize)
 	}
 }
 
@@ -273,26 +285,39 @@ func sortAndDedupValues(in []MapPair) []MapPair {
 	return out[:outIndex]
 }
 
-// sortedValues returns the row's postings sorted by Key, deduped (last insert
-// wins). The result is a shared immutable snapshot — callers must not modify
-// it. values is append-only, so a stale snapshot is still a valid sorted
-// prefix: only entries appended since it was taken are sorted and merged in.
-// Callers hold at least the memtable read lock; concurrent readers may race
-// to publish equivalent snapshots, which is benign.
-func (n *binarySearchNodeMap) sortedValues() []MapPair {
+// computeSorted returns the row's postings sorted by Key, deduped (last
+// insert wins), reusing snapshot c as a sorted prefix when it covers part of
+// values. The result is freshly allocated and private to the caller.
+func (n *binarySearchNodeMap) computeSorted(c *mapRowSnapshot, total int) []MapPair {
+	if c == nil || c.valueCount == 0 {
+		return sortAndDedupValues(n.values[:total])
+	}
+	fresh := sortAndDedupValues(n.values[c.valueCount:total])
+	return mergeSortedPairs(c.sorted, fresh)
+}
+
+// sortedValues returns the row's postings sorted by Key, deduped (last
+// insert wins) — a shared immutable snapshot, callers must not modify it.
+// values is append-only, so a stale snapshot is a valid sorted prefix and
+// only the appended tail needs sorting and merging in. Callers hold at least
+// the memtable read lock; concurrent readers may race to publish equivalent
+// snapshots, which is benign — only the CAS winner accounts the bytes.
+func (n *binarySearchNodeMap) sortedValues(cacheSize *atomic.Int64) []MapPair {
 	total := len(n.values)
 	c := n.sortedCache.Load()
-	if c != nil && c.upTo == total {
+	if c != nil && c.valueCount == total {
 		return c.sorted
 	}
-	var sorted []MapPair
-	if c == nil || c.upTo == 0 {
-		sorted = sortAndDedupValues(n.values[:total])
-	} else {
-		fresh := sortAndDedupValues(n.values[c.upTo:total])
-		sorted = mergeSortedPairs(c.sorted, fresh)
+	sorted := n.computeSorted(c, total)
+	if n.sortedCache.CompareAndSwap(c, &mapRowSnapshot{valueCount: total, sorted: sorted}) && cacheSize != nil {
+		// merged output is always a superset of the old snapshot's keys, so
+		// delta never goes negative
+		delta := int64(len(sorted))
+		if c != nil {
+			delta -= int64(len(c.sorted))
+		}
+		cacheSize.Add(delta * int64(unsafe.Sizeof(MapPair{})))
 	}
-	n.sortedCache.Store(&mapRowSorted{upTo: total, sorted: sorted})
 	return sorted
 }
 
@@ -330,11 +355,17 @@ func binarySearchNodeMapFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMap)
 }
 
 func (n *binarySearchNodeMap) shallowCopy() *binarySearchNodeMap {
-	// private copy: flatten consumers (cursors) may sort values in place,
-	// and the cache snapshot is shared with concurrent get callers
-	sorted := n.sortedValues()
-	values := make([]MapPair, len(sorted))
-	copy(values, sorted)
+	// private slice: flatten consumers (cursors) may sort values in place.
+	// A cold row computes without publishing, so flushing an unread
+	// memtable retains no cache.
+	c := n.sortedCache.Load()
+	var values []MapPair
+	if c != nil && c.valueCount == len(n.values) {
+		values = make([]MapPair, len(c.sorted))
+		copy(values, c.sorted)
+	} else {
+		values = n.computeSorted(c, len(n.values))
+	}
 	return &binarySearchNodeMap{
 		key:         n.key,
 		values:      values,

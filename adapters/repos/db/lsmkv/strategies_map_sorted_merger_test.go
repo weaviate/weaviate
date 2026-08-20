@@ -370,3 +370,114 @@ func Test_SortedMapMerger_KeepTombstones(t *testing.T) {
 		})
 	})
 }
+
+// Test_SortedMapMerger_TwoInputFastPath pins doKeepTombstones's len==2 fast
+// path (mergeSortedPairs) against an independently computed expected result
+// and against doKeepTombstonesReusable on the same two segments.
+func Test_SortedMapMerger_TwoInputFastPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		left     []MapPair
+		right    []MapPair
+		expected []MapPair
+	}{
+		{
+			name: "disjoint keys",
+			left: []MapPair{
+				{Key: []byte("a"), Value: []byte("a1")},
+				{Key: []byte("c"), Value: []byte("c1")},
+			},
+			right: []MapPair{
+				{Key: []byte("b"), Value: []byte("b1")},
+				{Key: []byte("d"), Value: []byte("d1")},
+			},
+			expected: []MapPair{
+				{Key: []byte("a"), Value: []byte("a1")},
+				{Key: []byte("b"), Value: []byte("b1")},
+				{Key: []byte("c"), Value: []byte("c1")},
+				{Key: []byte("d"), Value: []byte("d1")},
+			},
+		},
+		{
+			name: "overlapping keys, right-hand precedence",
+			left: []MapPair{
+				{Key: []byte("a"), Value: []byte("a1")},
+				{Key: []byte("b"), Value: []byte("b1")},
+				{Key: []byte("c"), Value: []byte("c1")},
+			},
+			right: []MapPair{
+				{Key: []byte("b"), Value: []byte("b2")},
+				{Key: []byte("c"), Value: []byte("c2")},
+			},
+			expected: []MapPair{
+				{Key: []byte("a"), Value: []byte("a1")},
+				{Key: []byte("b"), Value: []byte("b2")},
+				{Key: []byte("c"), Value: []byte("c2")},
+			},
+		},
+		{
+			name: "tombstone on the left, overwritten on the right",
+			left: []MapPair{
+				{Key: []byte("a"), Tombstone: true},
+				{Key: []byte("b"), Value: []byte("b1")},
+			},
+			right: []MapPair{
+				{Key: []byte("a"), Value: []byte("a2")},
+			},
+			expected: []MapPair{
+				{Key: []byte("a"), Value: []byte("a2")},
+				{Key: []byte("b"), Value: []byte("b1")},
+			},
+		},
+		{
+			name: "tombstone on the right, shadows the left",
+			left: []MapPair{
+				{Key: []byte("a"), Value: []byte("a1")},
+			},
+			right: []MapPair{
+				{Key: []byte("a"), Tombstone: true},
+				{Key: []byte("b"), Value: []byte("b2")},
+			},
+			expected: []MapPair{
+				{Key: []byte("a"), Tombstone: true},
+				{Key: []byte("b"), Value: []byte("b2")},
+			},
+		},
+		{
+			name: "empty left side",
+			left: nil,
+			right: []MapPair{
+				{Key: []byte("a"), Value: []byte("a1")},
+			},
+			expected: []MapPair{
+				{Key: []byte("a"), Value: []byte("a1")},
+			},
+		},
+		{
+			name: "empty right side",
+			left: []MapPair{
+				{Key: []byte("a"), Value: []byte("a1")},
+			},
+			right: nil,
+			expected: []MapPair{
+				{Key: []byte("a"), Value: []byte("a1")},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			segments := [][]MapPair{tc.left, tc.right}
+
+			actual, err := newSortedMapMerger().doKeepTombstones(segments)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, actual)
+
+			reusable := newSortedMapMerger()
+			require.NoError(t, reusable.reset(segments))
+			viaReusable, err := reusable.doKeepTombstonesReusable()
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, viaReusable)
+		})
+	}
+}

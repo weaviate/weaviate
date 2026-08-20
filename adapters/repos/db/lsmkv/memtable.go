@@ -45,6 +45,7 @@ type memtable interface {
 
 	getCollection(key []byte) ([]value, error)
 	getCollectionBytes(key []byte) ([][]byte, error)
+	// getMap's result may alias shared immutable cache state; callers must not modify it.
 	getMap(key []byte) ([]MapPair, error)
 	append(key []byte, values []value) error
 	appendMapSorted(key []byte, pair MapPair) error
@@ -614,7 +615,13 @@ func (m *Memtable) Size() uint64 {
 	m.RLock()
 	defer m.RUnlock()
 
-	return m.size
+	size := m.size
+	if m.keyMap != nil {
+		// cache bytes count toward the flush threshold like any other
+		// retained memory, even though they're not tallied at append time
+		size += uint64(m.keyMap.cacheSizeBytes())
+	}
+	return size
 }
 
 func (m *Memtable) Path() string {

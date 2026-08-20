@@ -1865,15 +1865,8 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 	}, v)
 }
 
-// TestBucketMapListLegacyManualSorting covers the legacyRequireManualSorting
-// path in mapListFromConsistentView, which had no dedicated coverage: the
-// sort-unsorted-disk-segments block was moved (see bucket.go) to run right
-// after the disk-segment loop, before memtable results are appended to
-// entriesPerSegment, specifically so it never sorts a memtable's returned
-// slice in place. That slice is a shared, immutable cache snapshot
-// (binarySearchNodeMap.sortedCache) that concurrent readers hold pointers
-// into; sorting it in place would both corrupt the cache and race with other
-// readers/the incremental-merge writer.
+// TestBucketMapListLegacyManualSorting covers reads with
+// MapListLegacySortingRequired(), which must never sort a memtable's shared cache snapshot in place.
 func TestBucketMapListLegacyManualSorting(t *testing.T) {
 	t.Run("sorts unsorted disk segments", func(t *testing.T) {
 		t.Parallel()
@@ -1938,11 +1931,10 @@ func TestBucketMapListLegacyManualSorting(t *testing.T) {
 		row := []byte("row")
 
 		// A regressed in-place sort of the shared snapshot is not directly
-		// visible to -race: sort.Slice performs zero writes on already-sorted
-		// input (pdqsort bails on sorted runs), and memtable snapshots are
-		// always sorted. This subtest instead pins correctness while
-		// legacy-sorting reads race with appends that incrementally re-merge
-		// the shared cache snapshot.
+		// visible to -race here: sort.Slice performs zero writes on
+		// already-sorted input, and memtable snapshots are always sorted.
+		// This subtest instead pins correctness while reads with
+		// MapListLegacySortingRequired() race with appends.
 		const numInitial = 60
 		initial := make([]MapPair, numInitial)
 		for i := range initial {

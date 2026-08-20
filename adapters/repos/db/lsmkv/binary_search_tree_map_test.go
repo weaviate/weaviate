@@ -12,13 +12,16 @@
 package lsmkv
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	mathrand "math/rand"
 	"path"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"unsafe"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -325,11 +328,8 @@ func TestBSTMap_Flatten(t *testing.T) {
 	})
 }
 
-// TestBSTMap_SortedValuesIncremental drives one row (or two, for the
-// cross-row case) through interleaved insert/get sequences and checks every
-// get against an independently computed reference: sortAndDedupValues over
-// the raw pairs inserted so far. This exercises the sortedValues() cold-cache,
-// incremental-merge, and dedup-across-the-merge-boundary paths.
+// TestBSTMap_SortedValuesIncremental drives interleaved insert/get sequences
+// and checks every get against sortAndDedupValues over the raw pairs inserted so far.
 func TestBSTMap_SortedValuesIncremental(t *testing.T) {
 	type opKind int
 	const (
@@ -537,11 +537,132 @@ func TestBSTMap_FlattenGivesPrivateCopies(t *testing.T) {
 	}, flat2[1].values)
 }
 
-// TestBSTMap_RandomizedAgainstReference throws a large, fixed-seed sequence
-// of inserts and gets, across a handful of rows and a small map-key space
-// (forcing heavy duplication/dedup), at the tree and checks every get
-// against sortAndDedupValues over the raw insert history. It also captures
-// snapshots periodically and re-checks them at the end for in-place mutation.
+// TestBSTMap_CacheContract pins the cache contract: repeated reads share one
+// immutable snapshot (same backing array, zero allocations); an append publishes a replacement, leaving prior snapshots untouched.
+func TestBSTMap_CacheContract(t *testing.T) {
+	tree := &binarySearchTreeMap{}
+	row := []byte("row")
+
+	tree.insert(row, MapPair{Key: []byte("k1"), Value: []byte("v1")})
+	tree.insert(row, MapPair{Key: []byte("k2"), Value: []byte("v2")})
+	tree.insert(row, MapPair{Key: []byte("k3"), Value: []byte("v3")})
+
+	got1, err := tree.get(row)
+	require.NoError(t, err)
+	got2, err := tree.get(row)
+	require.NoError(t, err)
+	require.NotEmpty(t, got1)
+	require.Same(t, &got1[0], &got2[0], "two consecutive reads must share the same backing array")
+
+	allocs := testing.AllocsPerRun(100, func() {
+		if _, err := tree.get(row); err != nil {
+			t.Fatal(err)
+		}
+	})
+	require.Equal(t, float64(0), allocs, "a warm read must not allocate")
+
+	preInsertSnapshot := got2
+	preInsertCopy := make([]MapPair, len(preInsertSnapshot))
+	copy(preInsertCopy, preInsertSnapshot)
+
+	tree.insert(row, MapPair{Key: []byte("k4"), Value: []byte("v4")})
+	_, err = tree.get(row)
+	require.NoError(t, err)
+
+	require.Equal(t, len(tree.root.values), tree.root.sortedCache.Load().valueCount)
+	require.Equal(t, preInsertCopy, preInsertSnapshot, "a snapshot returned before an insert must not change after it")
+}
+
+// TestBSTMap_CacheAccounting pins cacheSizeBytes(): it charges exactly the
+// deduped MapPair count on a get, adjusts on structural changes, and is
+// never touched by flattenInOrder's private, publish-free reads.
+func TestBSTMap_CacheAccounting(t *testing.T) {
+	pairSize := int64(unsafe.Sizeof(MapPair{}))
+
+	tree := &binarySearchTreeMap{}
+	require.Zero(t, tree.cacheSizeBytes())
+
+	row := []byte("row")
+	tree.insert(row, MapPair{Key: []byte("k1"), Value: []byte("v1")})
+	tree.insert(row, MapPair{Key: []byte("k3"), Value: []byte("v3")})
+	tree.insert(row, MapPair{Key: []byte("k2"), Value: []byte("v2")})
+
+	t.Run("charges the deduped count on first get", func(t *testing.T) {
+		_, err := tree.get(row)
+		require.NoError(t, err)
+		require.Equal(t, 3*pairSize, tree.cacheSizeBytes())
+	})
+
+	t.Run("adjusts after appending a new key", func(t *testing.T) {
+		tree.insert(row, MapPair{Key: []byte("k4"), Value: []byte("v4")})
+		_, err := tree.get(row)
+		require.NoError(t, err)
+		require.Equal(t, 4*pairSize, tree.cacheSizeBytes())
+	})
+
+	t.Run("unchanged after an update to an existing key", func(t *testing.T) {
+		tree.insert(row, MapPair{Key: []byte("k2"), Value: []byte("v2-updated")})
+		_, err := tree.get(row)
+		require.NoError(t, err)
+		require.Equal(t, 4*pairSize, tree.cacheSizeBytes())
+	})
+
+	t.Run("flattenInOrder on a cold row does not publish a cache", func(t *testing.T) {
+		coldTree := &binarySearchTreeMap{}
+		coldRow := []byte("cold-row")
+		coldTree.insert(coldRow, MapPair{Key: []byte("a"), Value: []byte("1")})
+		coldTree.insert(coldRow, MapPair{Key: []byte("b"), Value: []byte("2")})
+
+		flat := coldTree.flattenInOrder()
+		require.Len(t, flat, 1)
+		require.Zero(t, coldTree.cacheSizeBytes())
+	})
+
+	t.Run("flattenInOrder on a warm row does not double-charge", func(t *testing.T) {
+		before := tree.cacheSizeBytes()
+		flat := tree.flattenInOrder()
+		require.Len(t, flat, 1)
+		require.Equal(t, before, tree.cacheSizeBytes())
+	})
+
+	t.Run("Memtable.Size() grows by the cache bytes after the first getMap", func(t *testing.T) {
+		dir := t.TempDir()
+		logger, _ := test.NewNullLogger()
+		cl, err := newCommitLogger(dir, StrategyMapCollection, 0)
+		require.NoError(t, err)
+
+		m, err := newMemtable(cl, nil, logger, nil, memtableConfig{
+			path:     path.Join(dir, "cache-accounting"),
+			strategy: StrategyMapCollection,
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			require.NoError(t, m.commitlog.close())
+		})
+
+		mRow := []byte("m-row")
+		const k = 5
+		for i := 0; i < k; i++ {
+			key := make([]byte, 8)
+			binary.BigEndian.PutUint64(key, uint64(i))
+			require.NoError(t, m.appendMapSorted(mRow, MapPair{Key: key, Value: []byte("v")}))
+		}
+
+		sizeBefore := m.Size()
+
+		_, err = m.getMap(mRow)
+		require.NoError(t, err)
+		sizeAfterFirst := m.Size()
+		require.Equal(t, sizeBefore+uint64(k*pairSize), sizeAfterFirst)
+
+		_, err = m.getMap(mRow)
+		require.NoError(t, err)
+		require.Equal(t, sizeAfterFirst, m.Size())
+	})
+}
+
+// TestBSTMap_RandomizedAgainstReference runs a large fixed-seed sequence of
+// inserts/gets against sortAndDedupValues, and re-checks captured snapshots at the end for in-place mutation.
 func TestBSTMap_RandomizedAgainstReference(t *testing.T) {
 	rng := mathrand.New(mathrand.NewSource(42))
 	tree := &binarySearchTreeMap{}
@@ -608,12 +729,8 @@ func TestBSTMap_RandomizedAgainstReference(t *testing.T) {
 	}
 }
 
-// TestMemtable_MapConcurrentReadWrite exercises the memtable-level
-// concurrency contract: writers hold the exclusive lock (appendMapSorted),
-// readers hold at least the read lock (getMap, newMapCursor). Multiple
-// concurrent readers may race to publish equivalent sortedValues() caches;
-// this must be benign and produce correct reads throughout, and be race-free
-// under -race.
+// TestMemtable_MapConcurrentReadWrite: one writer per row appends a
+// deterministic key sequence while readers validate every read is a sorted, contiguous prefix of it.
 func TestMemtable_MapConcurrentReadWrite(t *testing.T) {
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -630,36 +747,69 @@ func TestMemtable_MapConcurrentReadWrite(t *testing.T) {
 	})
 
 	rowKeys := [][]byte{[]byte("row-0"), []byte("row-1"), []byte("row-2")}
-	const numWriters = 4
-	const opsPerWriter = 500
+	const opsPerWriter = 2000
 	const numReaders = 4
 
-	var refMu sync.Mutex
-	reference := map[string][]MapPair{}
+	seqKey := func(seq uint64) []byte {
+		k := make([]byte, 8)
+		binary.BigEndian.PutUint64(k, seq)
+		return k
+	}
+	seqValue := func(seq uint64) []byte {
+		return []byte(fmt.Sprintf("v%08d", seq))
+	}
+	rowIndex := func(key []byte) int {
+		for i, row := range rowKeys {
+			if bytes.Equal(key, row) {
+				return i
+			}
+		}
+		return -1
+	}
+
+	// committed[i] counts appendMapSorted calls that have returned for
+	// rowKeys[i]; a single writer per row makes it a sound lower bound on
+	// what a concurrent read must observe.
+	committed := make([]atomic.Int64, len(rowKeys))
+
+	// validateRead pins the single-writer-per-row invariant: a read is
+	// always the sorted, unique, contiguous prefix [0, len) of that row's
+	// key sequence, at least as long as what was committed before the read.
+	validateRead := func(rowIdx int, got []MapPair, committedBefore int64) {
+		for i, p := range got {
+			if !bytes.Equal(p.Key, seqKey(uint64(i))) {
+				t.Errorf("row %d: pair %d has key %x, want seq key %d", rowIdx, i, p.Key, i)
+				return
+			}
+			if !bytes.Equal(p.Value, seqValue(uint64(i))) {
+				t.Errorf("row %d: pair %d has value %q, want %q", rowIdx, i, p.Value, seqValue(uint64(i)))
+				return
+			}
+		}
+		if int64(len(got)) < committedBefore {
+			t.Errorf("row %d: read returned %d pairs, fewer than %d committed before the read", rowIdx, len(got), committedBefore)
+		}
+	}
 
 	var writersWG sync.WaitGroup
 	var allWG sync.WaitGroup
 	done := make(chan struct{})
 
-	writersWG.Add(numWriters)
-	allWG.Add(numWriters)
-	for w := 0; w < numWriters; w++ {
-		go func(writerID int) {
+	writersWG.Add(len(rowKeys))
+	allWG.Add(len(rowKeys))
+	for rowIdx, row := range rowKeys {
+		go func(rowIdx int, row []byte) {
 			defer writersWG.Done()
 			defer allWG.Done()
-			for i := 0; i < opsPerWriter; i++ {
-				row := rowKeys[(writerID+i)%len(rowKeys)]
-				mapKey := make([]byte, 8)
-				binary.BigEndian.PutUint64(mapKey, uint64(writerID)<<32|uint64(i))
-				pair := MapPair{Key: mapKey, Value: []byte("v")}
-
-				require.NoError(t, m.appendMapSorted(row, pair))
-
-				refMu.Lock()
-				reference[string(row)] = append(reference[string(row)], pair)
-				refMu.Unlock()
+			for seq := 0; seq < opsPerWriter; seq++ {
+				pair := MapPair{Key: seqKey(uint64(seq)), Value: seqValue(uint64(seq))}
+				if err := m.appendMapSorted(row, pair); err != nil {
+					t.Errorf("appendMapSorted: %v", err)
+					return
+				}
+				committed[rowIdx].Add(1)
 			}
-		}(w)
+		}(rowIdx, row)
 	}
 
 	allWG.Add(numReaders)
@@ -671,10 +821,14 @@ func TestMemtable_MapConcurrentReadWrite(t *testing.T) {
 				case <-done:
 					return
 				default:
-					for _, row := range rowKeys {
-						if _, err := m.getMap(row); err != nil && !errors.Is(err, lsmkv.NotFound) {
+					for rowIdx, row := range rowKeys {
+						before := committed[rowIdx].Load()
+						got, err := m.getMap(row)
+						if err != nil && !errors.Is(err, lsmkv.NotFound) {
 							t.Errorf("getMap: %v", err)
+							continue
 						}
+						validateRead(rowIdx, got, before)
 					}
 				}
 			}
@@ -690,10 +844,19 @@ func TestMemtable_MapConcurrentReadWrite(t *testing.T) {
 				return
 			default:
 			}
+
+			before := make([]int64, len(rowKeys))
+			for i := range rowKeys {
+				before[i] = committed[i].Load()
+			}
+
 			cursor := m.newMapCursor()
-			_, _, err := cursor.first()
+			key, got, err := cursor.first()
 			for err == nil {
-				_, _, err = cursor.next()
+				if rowIdx := rowIndex(key); rowIdx >= 0 {
+					validateRead(rowIdx, got, before[rowIdx])
+				}
+				key, got, err = cursor.next()
 			}
 		}
 	}()
@@ -702,8 +865,12 @@ func TestMemtable_MapConcurrentReadWrite(t *testing.T) {
 	close(done)
 	allWG.Wait()
 
-	for _, row := range rowKeys {
-		want := sortAndDedupValues(reference[string(row)])
+	for rowIdx, row := range rowKeys {
+		n := committed[rowIdx].Load()
+		want := make([]MapPair, n)
+		for seq := int64(0); seq < n; seq++ {
+			want[seq] = MapPair{Key: seqKey(uint64(seq)), Value: seqValue(uint64(seq))}
+		}
 		got, err := m.getMap(row)
 		require.NoError(t, err)
 		require.Equal(t, want, got)
@@ -731,6 +898,9 @@ func BenchmarkBSTMapGet(b *testing.B) {
 			for i := 0; i < n; i++ {
 				tree.insert(row, MapPair{Key: makeKey(i), Value: []byte("v")})
 			}
+			if _, err := tree.get(row); err != nil { // warm the cache
+				b.Fatal(err)
+			}
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -740,16 +910,21 @@ func BenchmarkBSTMapGet(b *testing.B) {
 			}
 		})
 
-		b.Run(fmt.Sprintf("read-after-append/n=%d", n), func(b *testing.B) {
+		b.Run(fmt.Sprintf("read-after-update/n=%d", n), func(b *testing.B) {
 			tree := &binarySearchTreeMap{}
 			row := []byte("row")
 			for i := 0; i < n; i++ {
 				tree.insert(row, MapPair{Key: makeKey(i), Value: []byte("v")})
 			}
+			if _, err := tree.get(row); err != nil { // warm the cache
+				b.Fatal(err)
+			}
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				tree.insert(row, MapPair{Key: makeKey(n + i), Value: []byte("v")})
+				// updates an existing key, so the deduped row stays at size n
+				// and per-op cost doesn't drift across the run
+				tree.insert(row, MapPair{Key: makeKey(i % n), Value: []byte("v-updated")})
 				if _, err := tree.get(row); err != nil {
 					b.Fatal(err)
 				}
