@@ -70,6 +70,7 @@ type WeaviateRuntimeConfig struct {
 	UsageVerifyPermissions                    *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
 	ReplicationGRPCEnabled                    *runtime.DynamicValue[bool]          `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
 	OperationalMode                           *runtime.DynamicValue[string]        `json:"operational_mode" yaml:"operational_mode"`
+	DisableDimensionMetrics                   *runtime.DynamicValue[bool]          `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
 	DefaultQuantization                       *runtime.DynamicValue[string]        `yaml:"default_quantization" json:"default_quantization"`
 	DefaultVectorIndexType                    *runtime.DynamicValue[string]        `yaml:"default_vector_index" json:"default_vector_index"`
 	DefaultShardingCount                      *runtime.DynamicValue[int]           `yaml:"default_sharding_count" json:"default_sharding_count"`
@@ -461,6 +462,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.RaftDrainSleep = cfg.Raft.DrainSleep
 	registered.RaftTimoutsMultiplier = cfg.Raft.TimeoutsMultiplier
 	registered.OperationalMode = cfg.OperationalMode
+	registered.DisableDimensionMetrics = cfg.DisableDimensionMetrics
 	registered.NamespaceCleanupInterval = cfg.Namespaces.CleanupInterval
 	registered.ObjectsTTLDeleteSchedule = cfg.ObjectsTTLDeleteSchedule
 	registered.ObjectsTTLBatchSize = cfg.ObjectsTTLBatchSize
