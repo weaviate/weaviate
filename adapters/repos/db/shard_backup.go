@@ -35,11 +35,17 @@ func (s *Shard) haltedForTransfer() bool {
 // HaltForTransfer stops compaction, and flushing memtable and commit log to begin with backup or cloud offload.
 // This method could be called multiple times with different inactivity timeouts,
 // a zeroed `inactivityTimeout` implies no timeout.
-// If inactivity timeout is reached it will resume maintenance cycle independently on how many halt request has been made.
+// When the inactivity timeout expires, the watchdog clears only the holds that
+// asked for a timeout; owned holds and holds without a timeout survive and
+// keep the shard paused.
 // The preparation work (pausing compaction, flushing memtables, readying vector indexes and queues)
 // is additionally bounded by `HaltForTransferTimeout`, independent of `inactivityTimeout`;
 // a zeroed `HaltForTransferTimeout` implies no bound.
 func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) (err error) {
+	return s.haltForTransfer(ctx, offloading, inactivityTimeout, false)
+}
+
+func (s *Shard) haltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration, owned bool) (err error) {
 	innerCtx := ctx
 	if timeout := s.index.Config.HaltForTransferTimeout; timeout > 0 {
 		var cancel context.CancelFunc
@@ -64,12 +70,16 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	}
 
 	s.haltForTransferCount.Add(1)
+	if owned {
+		s.haltForTransferOwnedCount++
+	}
 
 	defer func() {
 		if err != nil {
 			return
 		}
 		if inactivityTimeout > 0 {
+			s.haltForTransferArmedCount++
 			s.mayUpdateInactivityTimeout(inactivityTimeout)
 			s.mayInitInactivityMonitoring()
 		}
@@ -84,13 +94,14 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	}
 
 	// Placed before the pause branch so it also covers count>1 callers: on error
-	// mayForceResumeMaintenanceCycles(ctx, false) decrements our own increment and
-	// only truly resumes at count==0, so a failed count>1 caller rolls back 2→1
+	// the rollback decrements our own increment (and, for an owned hold, the owned count) and
+	// only truly resumes at count==0, so a failed count>1 caller rolls back 2->1
 	// without unhalting the shard the first op still holds.
 	defer func() {
 		if err != nil {
-			// each preparation step below wraps its own error; only append
-			// the outcome of the cleanup attempt here
+			if owned {
+				s.haltForTransferOwnedCount--
+			}
 			if err2 := s.mayForceResumeMaintenanceCycles(ctx, false); err2 != nil {
 				err = fmt.Errorf("%w: resume maintenance: %w", err, err2)
 			}
@@ -173,6 +184,45 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	}
 
 	return nil
+}
+
+// haltForTransferOwned acquires an owned halt-for-transfer hold. An owned hold
+// can only be released by the returned closure; anonymous resumes
+// (resumeMaintenanceCycles) and watchdog force-resumes cannot consume it.
+// The release closure is idempotent.
+func (s *Shard) haltForTransferOwned(ctx context.Context) (release func(context.Context) error, err error) {
+	if err := s.haltForTransfer(ctx, false, 0, true); err != nil {
+		return nil, err
+	}
+
+	var released bool
+	return func(ctx context.Context) error {
+		s.haltForTransferMux.Lock()
+
+		if released {
+			s.haltForTransferMux.Unlock()
+			return nil
+		}
+		released = true
+		s.haltForTransferOwnedCount--
+		s.haltForTransferCount.Add(-1)
+
+		fullyResumed := s.haltForTransferCount.Load() == 0
+		if !fullyResumed {
+			s.haltForTransferMux.Unlock()
+			return nil
+		}
+
+		// doPhysicalResume requires the mux to be held.
+		s.mayStopInactivityMonitoring()
+		s.haltForTransferInactivityTimeout = 0
+		s.haltForTransferInactivityDeadline = time.Time{}
+		resumeErr := s.doPhysicalResume(ctx)
+		s.haltForTransferMux.Unlock()
+
+		s.reapplyAsyncReplicationAfterResume(ctx)
+		return resumeErr
+	}, nil
 }
 
 // MayResetTransferInactivityTimer counts an in-flight transfer RPC as
@@ -282,7 +332,8 @@ func (s *Shard) handleInactivityFire(ctx context.Context, timer *time.Timer) (ke
 	if err := s.mayForceResumeMaintenanceCycles(context.Background(), true); err != nil {
 		s.index.logger.Error(err)
 	}
-	forceResumed = true
+	// Reapply async replication only when the fire fully resumed the shard.
+	forceResumed = s.haltForTransferCount.Load() == 0
 	return false
 }
 
@@ -290,11 +341,20 @@ func (s *Shard) handleInactivityFire(ctx context.Context, timer *time.Timer) (ke
 // a staging directory, then immediately resumes compaction. This minimizes the
 // compaction pause to just the time needed for enumeration and hardlink creation
 // (typically 2-5s), rather than blocking for the entire upload duration.
+//
+// The halt is acquired as an owned hold so that anonymous resumes and watchdog
+// fires from other callers cannot consume it.
 func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
-	if err := s.HaltForTransfer(ctx, false, 0); err != nil {
+	release, err := s.haltForTransferOwned(ctx)
+	if err != nil {
 		return nil, fmt.Errorf("halt for snapshot: %w", err)
 	}
-	defer s.resumeMaintenanceCycles(ctx)
+	defer func() {
+		if err := release(ctx); err != nil {
+			s.index.logger.WithField("shard", s.name).
+				Warnf("releasing owned halt after snapshot: %v", err)
+		}
+	}()
 
 	files, err := s.ListBackupFiles(ctx, sd)
 	if err != nil {
@@ -461,6 +521,16 @@ func (s *Shard) reapplyAsyncReplicationAfterResume(ctx context.Context) {
 	}
 }
 
+// mayForceResumeMaintenanceCycles decrements or clears halt holds and runs the
+// physical resume steps when the count reaches zero. Caller must hold haltForTransferMux.
+//
+// forced=false (anonymous release): decrements one non-owned hold; does
+// nothing when only owned holds remain (count - owned == 0). Lowers armed if
+// it now exceeds the non-owned count.
+//
+// forced=true (watchdog fire): clears exactly the armed holds (those acquired
+// with inactivityTimeout > 0); the metric increments only when armed > 0.
+// Owned holds and holds without a timeout survive.
 func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool) error {
 	if s.haltForTransferCount.Load() == 0 {
 		// noop, maintenance cycles not halted
@@ -468,31 +538,63 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 	}
 
 	if forced {
-		s.haltForTransferCount.Store(0)
-		// Non-zero in steady state means a transfer was force-resumed
-		// mid-stream — i.e. the read-path timer reset isn't reaching us.
-		if s.promMetrics != nil && s.promMetrics.ShardHaltForTransferForceResume != nil {
+		n := s.haltForTransferArmedCount
+		s.haltForTransferCount.Add(int64(-n))
+		s.haltForTransferArmedCount = 0
+
+		if n > 0 && s.promMetrics != nil && s.promMetrics.ShardHaltForTransferForceResume != nil {
 			s.promMetrics.ShardHaltForTransferForceResume.
 				WithLabelValues().
 				Inc()
 		}
+
+		// Runs even when n == 0: an anonymous release may have already
+		// zeroed the armed count while the monitor goroutine is exiting.
+		// haltForTransferCtxCancel must end up nil, or a future armed halt
+		// cannot start a new monitor.
+		s.mayStopInactivityMonitoring()
+		s.haltForTransferInactivityTimeout = 0
+		s.haltForTransferInactivityDeadline = time.Time{}
+
+		if s.haltForTransferCount.Load() > 0 {
+			// Remaining holds (owned, or anonymous without a timeout) keep the pause.
+			return nil
+		}
 	} else {
+		nonOwned := s.haltForTransferCount.Load() - int64(s.haltForTransferOwnedCount)
+		if nonOwned <= 0 {
+			// Only owned holds remain; an anonymous release cannot consume them.
+			return nil
+		}
 		s.haltForTransferCount.Add(-1)
+
+		// An anonymous release cannot tell which hold it consumed, so lower
+		// armed if it now exceeds the non-owned count.
+		newNonOwned := s.haltForTransferCount.Load() - int64(s.haltForTransferOwnedCount)
+		if int64(s.haltForTransferArmedCount) > newNonOwned {
+			s.haltForTransferArmedCount = int(newNonOwned)
+		}
 
 		if s.haltForTransferCount.Load() > 0 {
 			// maintenance cycles are not resumed as there is at least one active halt request
 			return nil
 		}
+
+		// terminate the inactivity monitor synchronously under the mux, so a subsequent
+		// HaltForTransfer reliably starts a new monitor.
+		s.mayStopInactivityMonitoring()
+
+		// fully resumed: reset so the next halt cycle uses its own timeout, not the shortest ever seen.
+		s.haltForTransferInactivityTimeout = 0
+		s.haltForTransferInactivityDeadline = time.Time{}
 	}
 
-	// terminate the inactivity monitor synchronously under the mux, so a subsequent
-	// HaltForTransfer reliably starts a new monitor.
-	s.mayStopInactivityMonitoring()
+	return s.doPhysicalResume(ctx)
+}
 
-	// fully resumed: reset so the next halt cycle uses its own timeout, not the shortest ever seen.
-	s.haltForTransferInactivityTimeout = 0
-	s.haltForTransferInactivityDeadline = time.Time{}
-
+// doPhysicalResume runs the errgroup that re-enables compaction, cycle callbacks,
+// maintenance modes, and vector/geo indexes. Caller must hold haltForTransferMux.
+func (s *Shard) doPhysicalResume(ctx context.Context) error {
 	g := enterrors.NewErrorGroupWrapper(s.index.logger)
 
 	g.Go(func() error {

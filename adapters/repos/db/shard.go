@@ -357,6 +357,14 @@ type Shard struct {
 	// Mutations under haltForTransferMux; atomic so halt probes read lock-free.
 	haltForTransferCount     atomic.Int64
 	haltForTransferCtxCancel context.CancelFunc
+	// haltForTransferOwnedCount tracks holds acquired via haltForTransferOwned.
+	// Owned holds are immune to anonymous resumes and watchdog force-resumes.
+	// Mutated under haltForTransferMux; invariant: 0 <= owned <= count.
+	haltForTransferOwnedCount int
+	// haltForTransferArmedCount tracks holds acquired with inactivityTimeout > 0.
+	// A watchdog fire clears exactly these holds and no others.
+	// Mutated under haltForTransferMux; invariant: 0 <= armed <= count - owned.
+	haltForTransferArmedCount int
 
 	status              ShardStatus
 	statusLock          sync.RWMutex
