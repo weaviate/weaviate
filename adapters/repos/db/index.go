@@ -682,6 +682,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 						i.logger.
 							WithField("action", "load_shard").
 							WithField("shard_name", shardName).
+							WithFields(enterrors.DocsLinkFields(err)).
 							Errorf("failed to load shard: %v", err)
 						return
 					}
