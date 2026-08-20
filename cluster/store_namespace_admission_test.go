@@ -125,6 +125,7 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD: {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE:          {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID:                 {},
+	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS:                  {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:                                       {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:                                    {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED:                     {}, //nolint:staticcheck // deprecated but must stay classified for the drift check
@@ -773,6 +774,10 @@ func TestApplyGate_DestructiveTypesApplyDuringReplay(t *testing.T) {
 	ms, log := setupApplyTest(t)
 	seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateSuspended)
 	seedClass(t, &ms, "alpha:Foo")
+
+	// The cascade runs on every apply path, schemaOnly replay included, so the
+	// replication FSM must see the delete even though the store is left alone.
+	ms.replicationFSM.EXPECT().DeleteReplicationsByCollection("alpha:Foo").Return(nil).Once()
 
 	// schemaOnly, so the delete touches the schema and leaves the store alone.
 	ms.store.lastAppliedIndexToDB.Store(10)
