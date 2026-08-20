@@ -273,29 +273,6 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 		"progress recorded before cancellation is preserved")
 }
 
-// FINISHED never surfaces a synthetic entry: the schema flag alone decides.
-func TestMergeReindexStatus_FinishedTask_SurfacesNoSyntheticEntry(t *testing.T) {
-	task := buildTask(t, "C:enable-filterable:foo:abcd",
-		distributedtask.TaskStatusFinished,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		},
-		map[string]*distributedtask.Unit{
-			"unit1": {ID: "unit1", Status: distributedtask.UnitStatusCompleted, Progress: 1.0},
-		},
-	)
-
-	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
-
-	require.Equal(t, "ready", idx.Status)
-	require.Equal(t, float32(0), idx.Progress)
-	require.Empty(t, idx.TaskID,
-		"a FINISHED task must not stamp a task ID onto the base entry")
-}
-
 // Edge case 6: Two overlapping STARTED tasks targeting the same property.
 // One is enable-filterable (progress 0.2), the other is change-tokenization
 // (progress 0.9). For indexType="filterable", both match. The current
@@ -375,46 +352,64 @@ type taskAttempt struct {
 //   - an in-flight task beats a terminal one, whichever started first;
 //   - between two of equal standing, the later StartedAt wins.
 //
-// Both hold whichever way round the list arrives. Order is not stable to
-// begin with — the task list comes out of a map — so ranking on position
-// would let two polls of an unchanged cluster disagree.
+// Every row runs the list both ways round, because the merge loop must not
+// rank on slice position.
 //
-// FINISHED is in here as a winner because that is why FINISHED tasks stay in
-// the merge loop at all: drop them and an older FAILED attempt reports
-// "failed" after the retry has already rebuilt the index. What a FINISHED
-// winner surfaces is nothing — the schema flag alone decides.
+// FINISHED and CANCELLED are in here as winners because that is why terminal
+// tasks stay in the merge loop at all: drop them and an older FAILED attempt
+// reports "failed" after the retry has already rebuilt the index. What a
+// FINISHED winner surfaces is nothing — the schema flag alone decides whether
+// an entry is emitted, so its row is the one that wants an empty task ID.
+//
+// Terminal attempts carry the FinishedAt the FSM stamps on them. Without it
+// the FINISHED rows pass against a build that still paints a
+// FINISHED-but-flag-off entry as indexing@100% inside a freshness window.
 func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 	now := time.Now()
 	live := func(p float32) taskAttempt {
 		return taskAttempt{distributedtask.TaskStatusStarted, distributedtask.UnitStatusInProgress, p}
 	}
 	// A live task in a status this build cannot classify.
-	unnamed := func(p float32) taskAttempt {
+	unrecognized := func(p float32) taskAttempt {
 		return taskAttempt{unknownFutureStatus, distributedtask.UnitStatusInProgress, p}
 	}
 	failed := func(p float32) taskAttempt {
 		return taskAttempt{distributedtask.TaskStatusFailed, distributedtask.UnitStatusFailed, p}
 	}
+	cancelled := func(p float32) taskAttempt {
+		return taskAttempt{distributedtask.TaskStatusCancelled, distributedtask.UnitStatusCompleted, p}
+	}
 	done := func(p float32) taskAttempt {
 		return taskAttempt{distributedtask.TaskStatusFinished, distributedtask.UnitStatusCompleted, p}
 	}
+
+	const (
+		olderID = "C:enable-filterable:foo:0001"
+		newerID = "C:enable-filterable:foo:0002"
+	)
 
 	for _, tt := range []struct {
 		name         string
 		older, newer taskAttempt
 		wantStatus   string
 		wantProgress float32
+		// wantTaskID is the attempt the entry names, empty when it names none.
+		wantTaskID string
 	}{
-		{"a live retry beats the attempt it retries", failed(0.4), live(0.1), "indexing", 0.1},
-		{"a retry this build cannot name beats it too", failed(0.4), unnamed(0.1), "indexing", 0.1},
-		{"a live retry beats a completed migration", done(0.4), live(0.1), "indexing", 0.1},
-		{"so does one this build cannot name", done(0.4), unnamed(0.1), "indexing", 0.1},
+		{"a live retry beats the attempt it retries", failed(0.4), live(0.1), "indexing", 0.1, newerID},
+		{"a retry this build cannot name beats it too", failed(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
+		{"a live retry beats a completed migration", done(0.4), live(0.1), "indexing", 0.1, newerID},
+		{"so does one this build cannot name", done(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
 		// Standing decides, not recency: on recency alone the newer terminal
 		// task would win and report an outcome a running task has superseded.
-		{"a live task started earlier beats a newer failure", live(0.4), failed(0.7), "indexing", 0.4},
-		{"one this build cannot name beats a newer completed migration", unnamed(0.4), done(0.7), "indexing", 0.4},
-		{"the newer of two failures is the one reported", failed(0.4), failed(0.7), "failed", 0.7},
-		{"a completed migration outranks the failure before it", failed(0.4), done(0.7), "ready", 0},
+		{"a live task started earlier beats a newer failure", live(0.4), failed(0.7), "indexing", 0.4, olderID},
+		{"one this build cannot name beats a newer completed migration", unrecognized(0.4), done(0.7), "indexing", 0.4, olderID},
+		// CANCELLED shares its rank with FAILED and FINISHED, so recency is
+		// the only thing separating it from either.
+		{"the newer of two failures is the one reported", failed(0.4), failed(0.7), "failed", 0.7, newerID},
+		{"a completed migration outranks the failure before it", failed(0.4), done(0.7), "ready", 0, ""},
+		{"a completed migration outranks the cancel before it", cancelled(0.4), done(0.7), "ready", 0, ""},
+		{"the newer cancel is the one reported", done(0.4), cancelled(0.7), "cancelled", 0.7, newerID},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			build := func(id string, a taskAttempt, startedAt time.Time) *distributedtask.Task {
@@ -427,10 +422,13 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 					map[string]*distributedtask.Unit{"u": {ID: "u", Status: a.unit, Progress: a.progress}},
 				)
 				task.StartedAt = startedAt
+				if a.status.IsTerminal() {
+					task.FinishedAt = now
+				}
 				return task
 			}
-			older := build("C:enable-filterable:foo:0001", tt.older, now.Add(-2*time.Hour))
-			newer := build("C:enable-filterable:foo:0002", tt.newer, now)
+			older := build(olderID, tt.older, now.Add(-2*time.Hour))
+			newer := build(newerID, tt.newer, now)
 
 			for _, order := range [][]*distributedtask.Task{{older, newer}, {newer, older}} {
 				idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
@@ -439,6 +437,8 @@ func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 				require.Equal(t, tt.wantStatus, idx.Status, "list starting at %s", order[0].ID)
 				require.InDelta(t, tt.wantProgress, idx.Progress, 0.0001,
 					"the losing attempt's progress must not surface (list starting at %s)", order[0].ID)
+				require.Equal(t, tt.wantTaskID, idx.TaskID,
+					"the entry must name the attempt it reports, and none when it reports the schema (list starting at %s)", order[0].ID)
 			}
 		})
 	}
