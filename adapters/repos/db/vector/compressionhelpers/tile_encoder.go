@@ -13,6 +13,7 @@ package compressionhelpers
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"sync/atomic"
 
@@ -192,6 +193,19 @@ func (te *TileEncoder) centroid(b byte) []float32 {
 		res = append(res, float32(te.distribution.Quantile(mean)))
 	}
 	return res
+}
+
+func (te *TileEncoder) Valid(ks, subDim int) error {
+	if te == nil {
+		return fmt.Errorf("tile encoder is nil")
+	}
+	if te.bins <= 0 {
+		return fmt.Errorf("has %v bins", te.bins)
+	}
+	if te.distribution == nil {
+		return fmt.Errorf("has no distribution configured")
+	}
+	return nil
 }
 
 func (te *TileEncoder) Centroid(b byte) []float32 {
