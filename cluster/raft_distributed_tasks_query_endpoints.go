@@ -14,6 +14,7 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -35,4 +36,40 @@ func (s *Raft) ListDistributedTasks(ctx context.Context) (map[string][]*distribu
 	}
 
 	return response.Tasks, nil
+}
+
+// GetDistributedTask is leader-routed. Returns (nil, nil) when the task
+// does not exist.
+func (s *Raft) GetDistributedTask(ctx context.Context, namespace, taskID string) (*distributedtask.Task, error) {
+	subCommand, err := json.Marshal(&cmd.GetDistributedTaskRequest{
+		Namespace: namespace,
+		Id:        taskID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal get task request: %w", err)
+	}
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_GET,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(ctx, command)
+	if err != nil {
+		// A missing task comes back as ErrTaskDoesNotExist. On the
+		// leader the error chain preserves the sentinel. On a follower
+		// the gRPC round-trip flattens it to a string.
+		// RehydratePermanentRejection restores the sentinel from the
+		// [dtm-perm/...] text marker.
+		err = distributedtask.RehydratePermanentRejection(err)
+		if errors.Is(err, distributedtask.ErrTaskDoesNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := distributedtask.GetDistributedTaskResponse{}
+	if err = json.Unmarshal(queryResp.Payload, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+
+	return response.Task, nil
 }

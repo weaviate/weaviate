@@ -82,6 +82,13 @@ func (r *mockRecorder) RecordDistributedTaskUnitFailure(_ context.Context, _, _ 
 	return nil
 }
 
+func (r *mockRecorder) RecordDistributedTaskRetryableUnitFailure(_ context.Context, _, _ string, _ uint64, _, suID, errMsg string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.failed[suID] = errMsg
+	return nil
+}
+
 func (r *mockRecorder) getCompleted() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -65,6 +65,23 @@ type taskSchedulerState struct {
 	// the SWAPPING path; at [maxCompletedCallbackAttempts] the scheduler stops
 	// retrying and fails the task (weaviate/0-weaviate-issues#297).
 	completedCallbackAttempts int
+
+	// Stale detection records the local time each unit's state was first
+	// observed. A unit is stale when (now - firstObserved) exceeds the
+	// task's timeout. Watermarks reset on restart, which delays detection
+	// by at most one timeout (the safe direction).
+	unitWatermarks map[string]staleWatermark // key: unitID
+	ackWatermark   *time.Time                // local time the ack set was first observed unchanged
+}
+
+// staleWatermark records when a unit's state was first observed. The
+// progress/updatedAt/status fields form a fingerprint: any change resets
+// firstObserved.
+type staleWatermark struct {
+	firstObserved time.Time
+	progress      float32
+	updatedAt     time.Time
+	status        UnitStatus
 }
 
 // maxCompletedCallbackAttempts bounds transient OnTaskCompleted retries on
@@ -115,6 +132,7 @@ type Scheduler struct {
 	taskCleaner        TaskCleaner
 	taskFinalizer      TaskFinalizer
 	ackRecorder        PostCompletionAckRecorder
+	forceTerminator    ForceTerminator
 	clock              clockwork.Clock
 
 	localNode        string
@@ -195,6 +213,9 @@ type SchedulerParams struct {
 	// AckRecorder publishes per-node phase results via RAFT. nil in unit
 	// tests; production wiring in configure_api.go always sets this.
 	AckRecorder PostCompletionAckRecorder
+	// ForceTerminator proposes force-terminate via Raft.
+	// nil in unit tests; configure_api.go sets it in production.
+	ForceTerminator ForceTerminator
 	// nil in unit tests that don't exercise the unrecognized-status warn.
 	LocalTaskInspector LocalTaskInspector
 	Providers          map[string]Provider
@@ -226,6 +247,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		taskCleaner:        params.TaskCleaner,
 		taskFinalizer:      params.TaskFinalizer,
 		ackRecorder:        params.AckRecorder,
+		forceTerminator:    params.ForceTerminator,
 		localTaskInspector: params.LocalTaskInspector,
 		clock:              params.Clock,
 
@@ -384,6 +406,19 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 							WithField("taskID", desc.ID).
 							WithField("taskVersion", desc.Version).
 							Info("scheduler bootstrap: skipping pre-mark for terminal task with pending local recovery (callbacks will re-fire on next tick)")
+						continue
+					}
+				}
+			}
+			// TerminalCleanupProvider: skip the pre-mark so the next
+			// tick re-fires OnTaskCompleted for pending cleanup.
+			if task.Status == TaskStatusFailed || task.Status == TaskStatusCancelled {
+				if tcp, ok := provider.(TerminalCleanupProvider); ok {
+					if !tcp.TerminalCleanupDone(task, s.localNode) {
+						s.logger.WithField("namespace", namespace).
+							WithField("taskID", desc.ID).
+							WithField("taskVersion", desc.Version).
+							Infof("scheduler bootstrap: skipping pre-mark for %s task with pending terminal cleanup (callbacks will re-fire on next tick)", task.Status)
 						continue
 					}
 				}
@@ -786,6 +821,15 @@ func (s *Scheduler) tick() {
 			}
 		}
 	}
+
+	// Stale detection runs on the tick loop, not in a separate goroutine.
+	allTasks := make(map[TaskDescriptor]*Task)
+	for _, tasks := range tasksByNamespace {
+		for desc, task := range tasks {
+			allTasks[desc] = task
+		}
+	}
+	s.runStaleDetectionPhase(allTasks)
 }
 
 // reconcileRunningTasks owns the start/terminate decisions for a single
@@ -1220,11 +1264,25 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		return
 	}
 
-	// Only the SWAPPING cutover retries/fails; a terminal-status error is
-	// best-effort cleanup — leave the fired mark set so it doesn't re-fire.
+	// Non-SWAPPING terminal errors are best-effort cleanup. If the
+	// provider implements TerminalCleanupProvider and reports not-done,
+	// the fired mark is cleared so the next tick retries. This path
+	// never increments completedCallbackAttempts or proposes MarkFailed.
 	if effectiveStatus != TaskStatusSwapping {
-		s.loggerWithTask(namespace, desc).
-			Warnf("OnTaskCompleted returned an error on terminal status %s; ignoring (best-effort cleanup): %v", effectiveStatus, cbErr)
+		if tcp, ok := suProvider.(TerminalCleanupProvider); ok && !tcp.TerminalCleanupDone(task, s.localNode) {
+			s.loggerWithTask(namespace, desc).
+				Warnf("OnTaskCompleted returned an error on terminal status %s; TerminalCleanupProvider re-fire enabled, will retry next tick: %v", effectiveStatus, cbErr)
+			func() {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if state := s.perTaskStateLocked(desc); state != nil {
+					state.completedCallbackFired = false
+				}
+			}()
+		} else {
+			s.loggerWithTask(namespace, desc).
+				Warnf("OnTaskCompleted returned an error on terminal status %s; ignoring (best-effort cleanup): %v", effectiveStatus, cbErr)
+		}
 		return
 	}
 
@@ -1526,4 +1584,96 @@ func (s *Scheduler) perTaskStateLockedOrInit(desc TaskDescriptor) *taskScheduler
 // silently leaked any map a contributor forgot to register.
 func (s *Scheduler) deletePerTaskStateLocked(desc TaskDescriptor) {
 	delete(s.perTaskState, desc)
+}
+
+// runStaleDetectionPhase proposes force-terminate for tasks whose units
+// or acks have not changed within stale_timeout_ms. Detection is
+// proposal-side only: the FSM never reads clocks. Watermarks compare
+// local observations only, never another node's timestamps.
+//
+// No env-flag check: tasks with stale_timeout_ms > 0 can only exist
+// if an operator-controlled gate admitted them.
+func (s *Scheduler) runStaleDetectionPhase(tasks map[TaskDescriptor]*Task) {
+	if s.forceTerminator == nil {
+		return
+	}
+
+	now := s.clock.Now()
+
+	for desc, task := range tasks {
+		if task.StaleTimeoutMs <= 0 {
+			continue
+		}
+		if task.Status.IsTerminal() {
+			continue
+		}
+
+		timeout := time.Duration(task.StaleTimeoutMs) * time.Millisecond
+
+		s.mu.Lock()
+		state := s.perTaskStateLockedOrInit(desc)
+		if state.unitWatermarks == nil {
+			state.unitWatermarks = map[string]staleWatermark{}
+		}
+
+		var staleReason string
+		for unitID, u := range task.Units {
+			wm, exists := state.unitWatermarks[unitID]
+
+			// The state changed, or this is the first observation; reset the watermark.
+			if !exists || wm.progress != u.Progress || !wm.updatedAt.Equal(u.UpdatedAt) || wm.status != u.Status {
+				state.unitWatermarks[unitID] = staleWatermark{
+					firstObserved: now,
+					progress:      u.Progress,
+					updatedAt:     u.UpdatedAt,
+					status:        u.Status,
+				}
+				continue
+			}
+
+			elapsed := now.Sub(wm.firstObserved)
+			if elapsed < timeout {
+				continue
+			}
+
+			if u.Status == UnitStatusPending || u.Status == UnitStatusInProgress {
+				staleReason = fmt.Sprintf("unit %s on node %q stale for %s (status %s, progress %.2f)",
+					unitID, u.NodeID, elapsed.Round(time.Second), u.Status, u.Progress)
+				break
+			}
+		}
+
+		if staleReason == "" && task.Status == TaskStatusSwapping {
+			missing := task.MissingPostCompletionAckNodes()
+			if len(missing) > 0 {
+				if state.ackWatermark == nil {
+					t := now
+					state.ackWatermark = &t
+				} else if now.Sub(*state.ackWatermark) >= timeout {
+					staleReason = fmt.Sprintf("missing post-completion acks from nodes %v for %s",
+						missing, now.Sub(*state.ackWatermark).Round(time.Second))
+				}
+			} else {
+				state.ackWatermark = nil
+			}
+		}
+		s.mu.Unlock()
+
+		if staleReason == "" {
+			continue
+		}
+
+		reason := fmt.Sprintf("stale-node detection: %s", staleReason)
+		s.loggerWithTask(task.Namespace, desc).
+			Warnf("proposing force-terminate(FAILED) for stale task: %s", reason)
+
+		if err := s.forceTerminator.ForceTerminateDistributedTask(
+			context.Background(),
+			task.Namespace, task.ID, task.Version,
+			reason, string(TaskStatusFailed),
+		); err != nil {
+			s.loggerWithTask(task.Namespace, desc).
+				Warnf("stale-detection force-terminate proposal failed (idempotent, will retry): %v", err)
+		}
+	}
 }

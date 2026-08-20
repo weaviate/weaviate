@@ -116,6 +116,8 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_MARK_FAILED = 309;
 
     TYPE_CLUSTER_ID_SET = 400;
+
+    TYPE_DISTRIBUTED_TASK_FORCE_TERMINATE = 401;
   }
   Type type = 1;
   string class = 2;
@@ -165,6 +167,7 @@ message QueryRequest {
     TYPE_GET_REPLICATION_SCALE_PLAN = 208;
 
     TYPE_DISTRIBUTED_TASK_LIST = 300;
+    TYPE_DISTRIBUTED_TASK_GET = 301;
   }
 
   Type type = 1;
@@ -231,6 +234,10 @@ message AddDistributedTaskRequest {
   repeated string unit_ids = 6;
   repeated UnitSpec unit_specs = 7;
   bool needs_preparation_barrier = 8;
+  // Zero = disabled (today's behavior). Opt-in per task at ADD time.
+  int64 stale_timeout_ms = 9;
+  // Zero = disabled (today's fail-fast). Opt-in per task at ADD time.
+  int32 max_unit_retries = 10;
 }
 
 // Deprecated: legacy node-level tracking removed. Kept for backward compat with existing Raft logs/snapshots.
@@ -284,6 +291,7 @@ message RecordDistributedTaskUnitCompletionRequest {
   string unit_id = 5;
   string error = 6;
   int64 finished_at_unix_millis = 7;
+  bool retryable = 8;
 }
 
 message UpdateDistributedTaskUnitProgressRequest {
@@ -362,6 +370,29 @@ message RecordDistributedTaskPreparationCompleteAckRequest {
   bool success = 5;
   string error = 6;
   int64 acked_at_unix_millis = 7;
+}
+
+// ForceTerminateDistributedTaskRequest transitions a task to a terminal
+// status from the literal set {STARTED, PREPARING, SWAPPING}. Refused
+// for unrecognized statuses and when SWAPPING with all post-completion
+// acks landed successfully (finalize is imminent). Idempotent: a
+// proposal against a terminal task is dropped.
+message ForceTerminateDistributedTaskRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  string reason = 4;
+  // The requested terminal status: "CANCELLED" for operator action,
+  // "FAILED" for the stale detector.
+  string requested_terminal_status = 5;
+  int64 terminated_at_unix_millis = 6;
+}
+
+// GetDistributedTaskRequest is a leader-routed by-id query
+// (TYPE_DISTRIBUTED_TASK_GET = 301).
+message GetDistributedTaskRequest {
+  string namespace = 1;
+  string id = 2;
 }
 
 // SetClusterIDRequest carries the stable cluster identity committed once per

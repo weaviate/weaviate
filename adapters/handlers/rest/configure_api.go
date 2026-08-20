@@ -1207,6 +1207,7 @@ func initReindexAndDistributedTasks(
 		// after OnGroupCompleted, so a failed ack flips the task to FAILED
 		// before the cluster-wide schema flip can run.
 		AckRecorder:        appState.ClusterService.Raft,
+		ForceTerminator:    appState.ClusterService.Raft,
 		LocalTaskInspector: appState.ClusterService.Raft,
 		Providers:          providers,
 		Logger:             appState.Logger,
