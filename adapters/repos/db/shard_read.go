@@ -154,6 +154,10 @@ func (s *Shard) MultiObjectRawByID(ctx context.Context, ids []strfmt.UUID) ([][]
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	for i, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 		if err != nil {
 			return nil, err
@@ -181,6 +185,10 @@ func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	for i, q := range query {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		idBytes, err := uuid.MustParse(q.ID).MarshalBinary()
 		if err != nil {
 			return nil, err
@@ -408,7 +416,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 	}
 
 	container.Buff = newBuff
-	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, targetVector)
 	if err != nil {
 		var eTV storobj.ErrTargetVectorNotFound
 		if stderrors.As(err, &eTV) {
@@ -475,7 +483,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 	}
 
 	container.Buff = newBuff
-	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, targetVector)
 	if err != nil {
 		var eTV storobj.ErrTargetVectorNotFound
 		if stderrors.As(err, &eTV) {
