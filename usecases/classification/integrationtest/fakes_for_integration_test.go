@@ -638,7 +638,7 @@ func (c *fakeReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 
 func (c *fakeReplicationClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]types.RepairResponse, error) {
+) ([]types.RepairDigest, error) {
 	return nil, nil
 }
 
@@ -649,8 +649,8 @@ func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 }
 
 func (c *fakeReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
-	digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	return nil, nil
 }
 

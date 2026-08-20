@@ -49,27 +49,27 @@ func (_m *MockRClient) EXPECT() *MockRClient_Expecter {
 }
 
 // CompareDigests provides a mock function with given fields: ctx, host, index, shard, digests
-func (_m *MockRClient) CompareDigests(ctx context.Context, host string, index string, shard string, digests []types.RepairResponse) ([]types.RepairResponse, error) {
+func (_m *MockRClient) CompareDigests(ctx context.Context, host string, index string, shard string, digests []types.RepairDigest) ([]types.RepairDigest, error) {
 	ret := _m.Called(ctx, host, index, shard, digests)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CompareDigests")
 	}
 
-	var r0 []types.RepairResponse
+	var r0 []types.RepairDigest
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []types.RepairResponse) ([]types.RepairResponse, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []types.RepairDigest) ([]types.RepairDigest, error)); ok {
 		return rf(ctx, host, index, shard, digests)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []types.RepairResponse) []types.RepairResponse); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []types.RepairDigest) []types.RepairDigest); ok {
 		r0 = rf(ctx, host, index, shard, digests)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]types.RepairResponse)
+			r0 = ret.Get(0).([]types.RepairDigest)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, []types.RepairResponse) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, []types.RepairDigest) error); ok {
 		r1 = rf(ctx, host, index, shard, digests)
 	} else {
 		r1 = ret.Error(1)
@@ -88,24 +88,24 @@ type MockRClient_CompareDigests_Call struct {
 //   - host string
 //   - index string
 //   - shard string
-//   - digests []types.RepairResponse
+//   - digests []types.RepairDigest
 func (_e *MockRClient_Expecter) CompareDigests(ctx interface{}, host interface{}, index interface{}, shard interface{}, digests interface{}) *MockRClient_CompareDigests_Call {
 	return &MockRClient_CompareDigests_Call{Call: _e.mock.On("CompareDigests", ctx, host, index, shard, digests)}
 }
 
-func (_c *MockRClient_CompareDigests_Call) Run(run func(ctx context.Context, host string, index string, shard string, digests []types.RepairResponse)) *MockRClient_CompareDigests_Call {
+func (_c *MockRClient_CompareDigests_Call) Run(run func(ctx context.Context, host string, index string, shard string, digests []types.RepairDigest)) *MockRClient_CompareDigests_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].([]types.RepairResponse))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].([]types.RepairDigest))
 	})
 	return _c
 }
 
-func (_c *MockRClient_CompareDigests_Call) Return(_a0 []types.RepairResponse, _a1 error) *MockRClient_CompareDigests_Call {
+func (_c *MockRClient_CompareDigests_Call) Return(_a0 []types.RepairDigest, _a1 error) *MockRClient_CompareDigests_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockRClient_CompareDigests_Call) RunAndReturn(run func(context.Context, string, string, string, []types.RepairResponse) ([]types.RepairResponse, error)) *MockRClient_CompareDigests_Call {
+func (_c *MockRClient_CompareDigests_Call) RunAndReturn(run func(context.Context, string, string, string, []types.RepairDigest) ([]types.RepairDigest, error)) *MockRClient_CompareDigests_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -394,23 +394,23 @@ func (_c *MockRClient_DigestObjects_Call) RunAndReturn(run func(context.Context,
 }
 
 // DigestObjectsInRange provides a mock function with given fields: ctx, host, index, shard, initialUUID, finalUUID, limit
-func (_m *MockRClient) DigestObjectsInRange(ctx context.Context, host string, index string, shard string, initialUUID strfmt.UUID, finalUUID strfmt.UUID, limit int) ([]types.RepairResponse, error) {
+func (_m *MockRClient) DigestObjectsInRange(ctx context.Context, host string, index string, shard string, initialUUID strfmt.UUID, finalUUID strfmt.UUID, limit int) ([]types.RepairDigest, error) {
 	ret := _m.Called(ctx, host, index, shard, initialUUID, finalUUID, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DigestObjectsInRange")
 	}
 
-	var r0 []types.RepairResponse
+	var r0 []types.RepairDigest
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, strfmt.UUID, strfmt.UUID, int) ([]types.RepairResponse, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, strfmt.UUID, strfmt.UUID, int) ([]types.RepairDigest, error)); ok {
 		return rf(ctx, host, index, shard, initialUUID, finalUUID, limit)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, strfmt.UUID, strfmt.UUID, int) []types.RepairResponse); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, strfmt.UUID, strfmt.UUID, int) []types.RepairDigest); ok {
 		r0 = rf(ctx, host, index, shard, initialUUID, finalUUID, limit)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]types.RepairResponse)
+			r0 = ret.Get(0).([]types.RepairDigest)
 		}
 	}
 
@@ -447,12 +447,12 @@ func (_c *MockRClient_DigestObjectsInRange_Call) Run(run func(ctx context.Contex
 	return _c
 }
 
-func (_c *MockRClient_DigestObjectsInRange_Call) Return(_a0 []types.RepairResponse, _a1 error) *MockRClient_DigestObjectsInRange_Call {
+func (_c *MockRClient_DigestObjectsInRange_Call) Return(_a0 []types.RepairDigest, _a1 error) *MockRClient_DigestObjectsInRange_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockRClient_DigestObjectsInRange_Call) RunAndReturn(run func(context.Context, string, string, string, strfmt.UUID, strfmt.UUID, int) ([]types.RepairResponse, error)) *MockRClient_DigestObjectsInRange_Call {
+func (_c *MockRClient_DigestObjectsInRange_Call) RunAndReturn(run func(context.Context, string, string, string, strfmt.UUID, strfmt.UUID, int) ([]types.RepairDigest, error)) *MockRClient_DigestObjectsInRange_Call {
 	_c.Call.Return(run)
 	return _c
 }

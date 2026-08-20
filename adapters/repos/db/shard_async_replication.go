@@ -2142,14 +2142,14 @@ type objectToPropagate struct {
 
 // propagationScratch holds buffers reused across all diff ranges of a hashBeat, allocating them per-beat not per-range.
 type propagationScratch struct {
-	filteredDigests    []types.RepairResponse
+	filteredDigests    []types.RepairDigest
 	localDigestsByUUID map[uuid.UUID]int64
 	objectsToPropagate []objectToPropagate
 }
 
 func newPropagationScratch(diffBatchSize int) *propagationScratch {
 	return &propagationScratch{
-		filteredDigests:    make([]types.RepairResponse, 0, diffBatchSize),
+		filteredDigests:    make([]types.RepairDigest, 0, diffBatchSize),
 		localDigestsByUUID: make(map[uuid.UUID]int64, diffBatchSize),
 		objectsToPropagate: make([]objectToPropagate, 0, diffBatchSize),
 	}
@@ -2292,28 +2292,19 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 			break
 		}
 
-		lastLocalUUIDBytes, err := bytesFromUUID(strfmt.UUID(allLocalDigests[len(allLocalDigests)-1].ID))
-		if err != nil {
-			return localObjectsCount, objectsToPropagate, err
-		}
+		lastLocalUUID := allLocalDigests[len(allLocalDigests)-1].ID
+		lastLocalUUIDBytes := lastLocalUUID[:]
 
-		// Drop too-recent objects; index the rest by parsed UUID so the
-		// CompareDigests response can be matched back without re-parsing.
+		// Drop too-recent objects; index the rest by UUID so the CompareDigests
+		// response can be matched back directly.
 		filteredDigests = filteredDigests[:0]
 		clear(localDigestsByUUID)
 		for _, d := range allLocalDigests {
 			if d.UpdateTime > maxUpdateTime {
 				continue
 			}
-			parsed, err := uuid.Parse(d.ID)
-			if err != nil {
-				// Unparseable UUID => corrupt local data; log and skip.
-				s.index.logger.WithField("uuid", d.ID).
-					Error("async replication: skipping local digest with invalid UUID")
-				continue
-			}
 			filteredDigests = append(filteredDigests, d)
-			localDigestsByUUID[parsed] = d.UpdateTime
+			localDigestsByUUID[d.ID] = d.UpdateTime
 		}
 		localObjectsCount += len(filteredDigests)
 
@@ -2340,16 +2331,10 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 		}
 
 		for _, stale := range staleDigests {
-			key, err := uuid.Parse(stale.ID)
-			if err != nil {
-				s.index.logger.WithField("uuid", stale.ID).
-					Error("async replication: skipping stale digest with invalid UUID")
-				continue
-			}
-			localUT, ok := localDigestsByUUID[key]
+			localUT, ok := localDigestsByUUID[stale.ID]
 			if !ok {
 				// Target returned an ID we did not send — protocol/remote bug; skip.
-				s.index.logger.WithField("uuid", stale.ID).
+				s.index.logger.WithField("uuid", stale.ID.String()).
 					Error("async replication: target returned a digest not present in source batch")
 				continue
 			}
@@ -2357,7 +2342,7 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 			// Queue every returned digest (stale or missing/tombstoned); the
 			// target's Overwrite handler + resolveObjectConflict settle deletions.
 			objectsToPropagate = append(objectsToPropagate, objectToPropagate{
-				uuid:                  strfmt.UUID(stale.ID),
+				uuid:                  strfmt.UUID(stale.ID.String()),
 				lastUpdateTime:        localUT,
 				remoteStaleUpdateTime: stale.UpdateTime, // 0 when missing-or-tombstoned on target
 			})

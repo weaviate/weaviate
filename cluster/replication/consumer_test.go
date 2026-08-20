@@ -1940,6 +1940,90 @@ func TestConsumer_DefersWithoutBurningErrorBudget(t *testing.T) {
 // every change-capture primitive the consumer might call, plus the
 // FSM-converge-and-drain primitives that pair with it during DEHYDRATING.
 // Tests that don't reach FINALIZING (cancellation, deletion) still pass.
+// The FSM refused the add because a cancel was accepted mid-flight. The strict
+// mocks fail this test if the consumer registers an error (budget burn) or
+// advances the op to INTEGRATING instead of diverting to the cancel path.
+func TestConsumerCancelRaceDivertsToCancel(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	mockFSMUpdater := types.NewMockFSMUpdater(t)
+	mockReplicaCopier := types.NewMockReplicaCopier(t)
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaReader := schemaManager.NewSchemaReader()
+	schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+			},
+		}), "node1", true, false)
+
+	mockFSMUpdater.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil)
+	mockFSMUpdater.EXPECT().ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).Return(api.FINALIZING, nil)
+	mockReplicaCopier.EXPECT().LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mockReplicaCopier.EXPECT().SnapshotChangeLogLSN(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil)
+	mockReplicaCopier.EXPECT().TailAndApply(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil)
+	mockFSMUpdater.EXPECT().
+		ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(1)).
+		Return(uint64(0), fmt.Errorf("add replica: %w", types.ErrOpCancellationInFlight))
+	// The stale, unflagged status snapshot limits this pass to stopping capture
+	// and releasing the snapshot; drop and FSM notifications follow the next poll.
+	mockReplicaCopier.EXPECT().StopChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	mockReplicaCopier.EXPECT().ReleaseReplicaSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+
+	var cancelled sync.WaitGroup
+	cancelled.Add(1)
+	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+		WithOpCancelledCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in cancelled op callback")
+			cancelled.Done()
+		}).Build()
+
+	consumer := replication.NewCopyOpConsumer(
+		logger,
+		mockFSMUpdater,
+		mockReplicaCopier,
+		"node2",
+		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
+		time.Second*10,
+		1,
+		metricsCallbacks,
+		schemaReader,
+	)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
+	doneChan := make(chan error, 1)
+	go func() {
+		doneChan <- consumer.Consume(ctx, opsChan)
+	}()
+
+	opsChan <- replication.NewShardReplicationOpAndStatus(
+		replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY),
+		replication.NewShardReplicationStatus(api.FINALIZING))
+
+	waitChan := make(chan struct{})
+	go func() {
+		cancelled.Wait()
+		waitChan <- struct{}{}
+	}()
+	select {
+	case <-waitChan:
+	case <-time.After(30 * time.Second):
+		t.Fatal("timed out waiting for the cancel divert")
+	}
+
+	close(opsChan)
+	require.NoError(t, <-doneChan, "expected consumer to stop without error")
+
+	mockFSMUpdater.AssertExpectations(t)
+	mockReplicaCopier.AssertExpectations(t)
+}
+
 func expectChangeCaptureMocks(m *types.MockReplicaCopier, fsm *types.MockFSMUpdater) {
 	m.EXPECT().StartChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.EXPECT().SnapshotChangeLogLSN(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
