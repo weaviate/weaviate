@@ -160,9 +160,9 @@ type MigrationStrategy interface {
 	//     OnTaskCompleted (after every shard's OnMigrationComplete);
 	//     for non-semantic, this hook may itself drive the flip but
 	//     must not assume it has already propagated to other replicas.
-	//     A per-property index flag must land before the task reaches
-	//     FINISHED, or GET /v1/schema/{class}/indexes drops that index; the
-	//     class-wide blockmax flip is exempt and lands later by design.
+	//     A per-property index flag flipped from here must land before the
+	//     task reaches FINISHED, or GET /v1/schema/{class}/indexes drops
+	//     that index from the response.
 	OnMigrationComplete(ctx context.Context, shard ShardLike) error
 }
 

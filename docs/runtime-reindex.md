@@ -256,9 +256,9 @@ applied the add-task entry and nodes that have not answer differently, so the
 pill alternates between `indexing` and no entry at all, and `algorithm`
 between `blockmax` and `wand` for a property whose stamp only one of them has.
 
-This endpoint is node-local while `GET /v1/cluster/distributed-tasks` is
-leader-routed, so a UI polling both against a lagging follower can render the
-task FINISHED and the index pill `indexing` at the same moment.
+This endpoint is node-local while `GET /v1/tasks` is leader-routed, so a UI
+polling both against a lagging follower can render the task FINISHED and the
+index pill `indexing` at the same moment.
 
 ### RBAC
 

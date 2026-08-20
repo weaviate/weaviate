@@ -132,7 +132,8 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		// st.schemaManager.Restore first, st.distributedTasksManager.Restore
 		// second: the two take separate locks and this node answers reads
 		// between them. The other order lets a FINISHED task pair with an
-		// unflipped flag.
+		// IndexFilterable / IndexSearchable / IndexRangeFilters that still
+		// reads false.
 		if snap.Schema != nil {
 			if err := st.schemaManager.Restore(snap.Schema, st.cfg.Parser); err != nil {
 				st.log.WithError(err).Error("restoring schema from snapshot")

@@ -362,7 +362,7 @@ type taskAttempt struct {
 // an entry is emitted, so its row is the one that wants an empty task ID.
 //
 // Terminal attempts carry the FinishedAt the FSM stamps on them. Without it
-// the FINISHED rows pass against a build that still paints a
+// the FINISHED rows pass against a build that still reports a
 // FINISHED-but-flag-off entry as indexing@100% inside a freshness window.
 func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 	now := time.Now()

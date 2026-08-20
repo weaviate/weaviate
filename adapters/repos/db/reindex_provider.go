@@ -2487,6 +2487,12 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// Defer the cluster-wide class-flag flip until every local searchable
 		// bucket is blockmax — submit is per-property, so the class may still
 		// have map buckets.
+		//
+		// This is the one schema flip that may land after the task reaches
+		// FINISHED, and only when shouldDeferBlockmaxFlip says so. GET
+		// /v1/schema/{class}/indexes never reads it: it resolves
+		// models.IndexStatus.Algorithm from the per-property
+		// SearchableBlockmax stamp written above, which lands before FINISHED.
 		if defer_, err := p.shouldDeferBlockmaxFlip(ctx, payload, logger); err != nil {
 			return err
 		} else if defer_ {

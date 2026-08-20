@@ -123,9 +123,9 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	return class, version, err
 }
 
-// DeleteClassPropertyIndex deletes collection's property index. Deleting an
-// index whose flag is already off is a node-local no-op: it succeeds without
-// a RAFT write.
+// DeleteClassPropertyIndex deletes collection's property index. Whether the
+// flag is already off is read from this node's own schema, so a follower that
+// has not applied the flip yet answers success having written nothing.
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
 	className, propertyName, indexName string,
 ) error {

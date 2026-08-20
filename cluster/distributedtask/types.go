@@ -374,8 +374,10 @@ type UnitAwareProvider interface {
 	// A per-property index flag flipped from here must land before the task
 	// reaches FINISHED: GET /v1/schema/{class}/indexes reads both from one
 	// node's FSM, and a FINISHED task beside an off flag drops that index from
-	// the response. Not the class-wide blockmax flip, which change-algorithm
-	// defers past FINISHED; algorithm resolves through the per-property stamp.
+	// the response. The class-wide blockmax flip is the exception, because
+	// change-algorithm can defer it past FINISHED. That response never reads
+	// it — it resolves models.IndexStatus.Algorithm from the per-property
+	// models.Property.SearchableBlockmax stamp, which lands before FINISHED.
 	OnTaskCompleted(task *Task) error
 }
 

@@ -1035,8 +1035,10 @@ func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 	return result
 }
 
-// ListDistributedTasks is the [TaskLister] shim over
-// [Manager.LocalDistributedTasks].
+// ListDistributedTasks adds the [TaskLister] signature to
+// [Manager.LocalDistributedTasks]. No production site passes a *Manager as a
+// TaskLister — [cluster.Raft] is what the wiring hands out — but six
+// scheduler tests drive the manager directly and need it.
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
 	return m.LocalDistributedTasks(), nil
 }
