@@ -83,8 +83,6 @@ func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName stri
 	task := NewShardReindexTaskGeneric(
 		"RebuildSearchable", idx.logger, wrapped,
 		reindexTaskConfig{
-			swapBuckets:                   true,
-			tidyBuckets:                   true,
 			concurrency:                   2,
 			memtableOptFactor:             4,
 			backupMemtableOptFactor:       1,
@@ -344,8 +342,8 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 
 			// Simulated restart: graceful shutdown, fresh task, then
 			// idx.initShard re-runs FinalizeCompletedMigrations →
-			// OnBeforeLsmInit → LSM init → OnAfterLsmInit. Same restart
-			// primitive PR #11415 uses for the searchable half.
+			// LSM init → OnAfterLsmInit. Same restart primitive
+			// PR #11415 uses for the searchable half.
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 

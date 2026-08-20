@@ -214,6 +214,13 @@ type Config struct {
 	// tenant-cap rejection, matching the handler fast-path.
 	UsageLimitsErrorMessage *runtime.DynamicValue[string]
 
+	// Replica-movement cleanup knobs. The sweeper re-reads them every tick, so
+	// a change takes effect without a restart.
+	ReplicaMovementCleanupEnabled          *runtime.DynamicValue[bool]
+	ReplicaMovementCleanupMaxAge           *runtime.DynamicValue[time.Duration]
+	ReplicaMovementCleanupInterval         *runtime.DynamicValue[time.Duration]
+	ReplicaMovementCleanupIncludeCancelled *runtime.DynamicValue[bool]
+
 	// DBLoadProgress reports local shard-loading progress (loaded,
 	// total) while the DB is being restored on startup.
 	DBLoadProgress func() *db.StartupProgressSnapshot

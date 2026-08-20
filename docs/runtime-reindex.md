@@ -1698,7 +1698,7 @@ test packages.
 ## 17. Deferred simplifications
 
 [`docs/proposals/deferred_reindex_simplifications.md`](./proposals/deferred_reindex_simplifications.md)
-catalogues three refactors that the scout pass identified as
+catalogues two refactors that the scout pass identified as
 worthwhile but that were deliberately not applied autonomously,
 because each touches either a crash-safety path or the hottest write
 hook. Re-evaluated for the v1.38 Preview merge and kept deferred.

@@ -342,11 +342,14 @@ func (s *State) PhysicalShard(in []byte) string {
 	return virtual.AssignedToPhysical
 }
 
-// LocalActivePhysicalShardsCount return a count of physical shards
+// LocalActivePhysicalShardsCount return a count of physical shards.
+//
+// The status is compared raw, so a shard carrying none — every shard of a
+// non-partitioned class — is not counted. Only multi-tenant callers may use it.
 func (s *State) LocalActivePhysicalShardsCount() int {
 	count := 0
 	for _, physical := range s.Physical {
-		if s.IsLocalShard(physical.Name) && physical.Status == models.TenantActivityStatusHOT {
+		if s.IsLocalPhysical(physical) && physical.Status == models.TenantActivityStatusHOT {
 			count++
 		}
 	}
@@ -375,14 +378,12 @@ func (s *State) AllPhysicalShardsAndReplicas() map[string][]string {
 func (s *State) AllLocalPhysicalShards() []string {
 	var names []string
 	for _, physical := range s.Physical {
-		if s.IsLocalShard(physical.Name) {
+		if s.IsLocalPhysical(physical) {
 			names = append(names, physical.Name)
 		}
 	}
 
-	sort.Slice(names, func(a, b int) bool {
-		return names[a] < names[b]
-	})
+	sort.Strings(names)
 
 	return names
 }
@@ -392,13 +393,14 @@ func (s *State) SetLocalName(name string) {
 }
 
 func (s *State) IsLocalShard(name string) bool {
-	for _, node := range s.Physical[name].BelongsToNodes {
-		if node == s.localNodeName {
-			return true
-		}
-	}
+	return s.IsLocalPhysical(s.Physical[name])
+}
 
-	return false
+// IsLocalPhysical reports whether this node is a replica of p. A caller ranging
+// over Physical can use it to skip the map lookup IsLocalShard does for an entry
+// the range already yielded.
+func (s *State) IsLocalPhysical(p Physical) bool {
+	return p.IsLocalShard(s.localNodeName)
 }
 
 // initPhysical assigns shards to nodes according to the following rules:

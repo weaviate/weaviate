@@ -205,7 +205,7 @@ func (db *DB) DigestObjects(ctx context.Context, className, shardName string, id
 	return index.DigestObjects(ctx, shardName, ids)
 }
 
-func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName string, initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error) {
+func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName string, initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairDigest, err error) {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
 		return nil, pr.FirstError()
@@ -213,7 +213,7 @@ func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName str
 	return index.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
-func (db *DB) CompareDigests(ctx context.Context, className, shardName string, digests []types.RepairResponse) ([]types.RepairResponse, error) {
+func (db *DB) CompareDigests(ctx context.Context, className, shardName string, digests []types.RepairDigest) ([]types.RepairDigest, error) {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
 		return nil, pr.FirstError()
@@ -418,8 +418,12 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 	})
 }
 
+// CommitReplication runs the task a prepare left on the shard. It reads the
+// loaded shard directly, since refusing a commit the namespace already admitted
+// at prepare would leave that task behind with nothing to remove it. A nil
+// return reports the task gone, as it does for an unknown request id.
 func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) any {
-	localShard, release, err := i.GetShard(ctx, shard)
+	localShard, release, err := i.getLoadedShard(shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replicaerrors.Error{
 			{Code: replicaerrors.StatusShardNotFound, Msg: fmt.Sprintf("error getting shard %q: %v", shard, err), Err: err},
@@ -427,10 +431,9 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 	}
 	defer release()
 
+	// The task lives only in the loaded shard, so an unloaded one has lost it.
 	if localShard == nil {
-		return replica.SimpleResponse{Errors: []replicaerrors.Error{
-			{Code: replicaerrors.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
-		}}
+		return nil
 	}
 
 	i.backupLock.RLock(shard)
@@ -439,8 +442,11 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 	return localShard.commitReplication(ctx, requestID)
 }
 
+// AbortReplication drops the task a prepare left on the shard, reading the
+// loaded shard directly for the same reason as [Index.CommitReplication]. An
+// unloaded shard holds no task, so the abort is already done.
 func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) any {
-	localShard, release, err := i.GetShard(ctx, shard)
+	localShard, release, err := i.getLoadedShard(shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replicaerrors.Error{
 			{Code: replicaerrors.StatusShardNotFound, Msg: fmt.Sprintf("error getting shard %q: %v", shard, err), Err: err},
@@ -449,9 +455,7 @@ func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) a
 	defer release()
 
 	if localShard == nil {
-		return replica.SimpleResponse{Errors: []replicaerrors.Error{
-			{Code: replicaerrors.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
-		}}
+		return replica.SimpleResponse{}
 	}
 
 	return localShard.abortReplication(ctx, requestID)
@@ -960,9 +964,9 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 
 	ctx = withChangeLogReplay(ctx)
 
-	s, release, err := idx.getOrInitShard(ctx, shard)
+	s, release, err := idx.getOrInitShardForReplication(ctx, shard)
 	if err != nil {
-		return fmt.Errorf("shard %q not found locally: %w", shard, err)
+		return fmt.Errorf("get shard %q for change-log replay: %w", shard, err)
 	}
 	defer release()
 	if s == nil {
@@ -1113,7 +1117,7 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 
 func (i *Index) DigestObjectsInRange(ctx context.Context,
 	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (result []types.RepairResponse, err error) {
+) (result []types.RepairDigest, err error) {
 	// Never load from async replication; empty success for unloaded would invite full propagation.
 	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
@@ -1129,13 +1133,13 @@ func (i *Index) DigestObjectsInRange(ctx context.Context,
 
 func (i *Index) IncomingDigestObjectsInRange(ctx context.Context,
 	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (result []types.RepairResponse, err error) {
+) (result []types.RepairDigest, err error) {
 	return i.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
 func (i *Index) CompareDigests(ctx context.Context,
-	shardName string, sourceDigests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	shardName string, sourceDigests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	// Never load from async replication's propagation pre-check.
 	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {

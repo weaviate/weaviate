@@ -14,10 +14,13 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http/httptest"
 	"sync"
 	"testing"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
@@ -26,6 +29,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/namespaces"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type fakeReindexTaskLister struct {
@@ -48,6 +54,61 @@ func (r *recordingLockProvider) SubmitLockFor(collection, property string) *sync
 	defer r.mu.Unlock()
 	r.keys = append(r.keys, collection+"/"+property)
 	return &sync.Mutex{}
+}
+
+// A shard status update refused by the namespace is the caller's problem, not a
+// fault: the propose-time gate returns a lifecycle sentinel, and 500 would read
+// as a broken server and hide it from anything retrying on 4xx.
+func TestShardStatusErrResponder(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want middleware.Responder
+	}{
+		{
+			name: "suspended namespace is unprocessable",
+			err:  fmt.Errorf("propose: %w", namespaces.ErrNamespaceSuspended),
+			want: schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+		},
+		{
+			name: "deleting namespace is unprocessable",
+			err:  namespaces.ErrNamespaceDeleting,
+			want: schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+		},
+		{
+			name: "missing namespace is unprocessable",
+			err:  namespaces.ErrNamespaceGone,
+			want: schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+		},
+		// Resuming asks for 503, which this operation has no responder for, so it
+		// keeps the fallback rather than being mislabelled a client error.
+		{
+			name: "resuming namespace falls through",
+			err:  namespaces.ErrNamespaceResuming,
+			want: schema.NewSchemaObjectsShardsUpdateInternalServerError(),
+		},
+		{
+			name: "a forbidden error still maps to forbidden",
+			err:  authzerrors.Forbidden{},
+			want: schema.NewSchemaObjectsShardsUpdateForbidden(),
+		},
+		{
+			name: "an unknown shard still maps to not found",
+			err:  fmt.Errorf("shard: %w", schemaUC.ErrNotFound),
+			want: schema.NewSchemaObjectsShardsUpdateNotFound(),
+		},
+		{
+			name: "anything else stays a server error",
+			err:  errors.New("boom"),
+			want: schema.NewSchemaObjectsShardsUpdateInternalServerError(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.IsType(t, tt.want, shardStatusErrResponder(nil, tt.err))
+		})
+	}
 }
 
 // TestDeleteClassPropertyIndex_NamespaceConflictPreflight: reindex tasks are keyed by

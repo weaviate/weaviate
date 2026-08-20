@@ -27,6 +27,10 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+// nodeReadinessTimeout replaces the testcontainers default of 60s, which a node
+// replaying a large commit log routinely exceeds.
+const nodeReadinessTimeout = 120 * time.Second
+
 type DockerCompose struct {
 	network    *testcontainers.DockerNetwork
 	netOctet   int // second octet of this cluster's subnet (10.<netOctet>.0.0/16)
@@ -241,7 +245,8 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 	c.endpoints = endPoints
 
 	if e, ok := endPoints[HTTP]; ok {
-		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port)).
+			WithStartupTimeout(nodeReadinessTimeout)
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
 			return fmt.Errorf("StartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
 				c.name, err)
@@ -295,7 +300,8 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 	c.endpoints = endPoints
 
 	if e, ok := endPoints[HTTP]; ok {
-		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port)).
+			WithStartupTimeout(nodeReadinessTimeout)
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
 			return fmt.Errorf("RestartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
 				c.name, err)
@@ -375,6 +381,34 @@ func (d *DockerCompose) StopMinIO(ctx context.Context) error {
 	minio := d.getContainerByName(MinIO)
 
 	return minio.container.Stop(ctx, nil)
+}
+
+// PauseMinIO freezes MinIO's processes, so a request to it hangs until the caller's
+// own deadline rather than being refused. UnpauseMinIO reverses it, which is what
+// makes this usable on a shared compose: StopMinIO cannot be undone, because the
+// container is created with AutoRemove and a stop deletes it.
+func (d *DockerCompose) PauseMinIO(ctx context.Context) error {
+	return d.pauseMinIO(ctx, "pause")
+}
+
+// UnpauseMinIO resumes a MinIO paused by PauseMinIO, keeping its container, network
+// alias, and published port.
+func (d *DockerCompose) UnpauseMinIO(ctx context.Context) error {
+	return d.pauseMinIO(ctx, "unpause")
+}
+
+func (d *DockerCompose) pauseMinIO(ctx context.Context, action string) error {
+	minio := d.getContainerByName(MinIO)
+	if minio == nil {
+		return fmt.Errorf("container with name %s was not found", MinIO)
+	}
+
+	containerID := minio.container.GetContainerID()
+	cmd := exec.CommandContext(ctx, "docker", action, containerID)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("docker %s %s failed: %w (output: %s)", action, containerID, err, string(out))
+	}
+	return nil
 }
 
 func (d *DockerCompose) GetGCS() *DockerContainer {

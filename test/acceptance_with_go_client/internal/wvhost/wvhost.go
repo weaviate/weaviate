@@ -10,8 +10,9 @@
 //
 
 // Package wvhost resolves the Weaviate REST and gRPC endpoints for acceptance
-// tests. Defaults are localhost:8080 / localhost:50051; WV_TEST_HOST,
-// WV_TEST_REST_PORT, and WV_TEST_GRPC_PORT override host and port independently.
+// tests. Defaults are localhost:8080 / localhost:50051 / localhost:6060;
+// WV_TEST_HOST, WV_TEST_REST_PORT, WV_TEST_GRPC_PORT and WV_TEST_DEBUG_PORT
+// override host and port independently.
 package wvhost
 
 import "os"
@@ -22,6 +23,10 @@ func REST() string {
 
 func GRPC() string {
 	return host() + ":" + port("WV_TEST_GRPC_PORT", "50051")
+}
+
+func Debug() string {
+	return host() + ":" + port("WV_TEST_DEBUG_PORT", "6060")
 }
 
 func host() string {
