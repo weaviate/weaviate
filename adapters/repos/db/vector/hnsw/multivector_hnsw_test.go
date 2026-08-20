@@ -446,8 +446,6 @@ func TestMultivectorPersistence(t *testing.T) {
 
 // The uncompressed non-MUVERA rescore must read token vectors from the
 // in-memory vector cache, never through the per-candidate LSM view thunk
-// (the thunk costs an object-store read plus deserialization per candidate —
-// a ~40% QPS regression on plain multivector search).
 func TestMultiVectorRescoreUsesCacheNotViewThunk(t *testing.T) {
 	ctx := context.Background()
 	index, err := New(Config{

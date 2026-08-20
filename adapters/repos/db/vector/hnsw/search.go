@@ -1021,10 +1021,6 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 		ids = append(ids, docID)
 	}
 
-	// The uncompressed non-MUVERA rescore must read token vectors from the
-	// in-memory vector cache: fetching them through the LSM view thunk costs
-	// an object-store read plus a full multi-vector deserialization per
-	// candidate, which regressed plain multivector QPS by ~40% at low ef.
 	useCache := !h.compressed.Load() && !h.muvera.Load()
 
 	// Acquire a single consistent view for all disk reads to avoid per-candidate flushLock acquisitions.
