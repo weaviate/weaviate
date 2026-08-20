@@ -1477,14 +1477,15 @@ func (x *DigestObjectsResponse) GetDigests() []*RepairResponse {
 
 // DigestObjectsInRange fetches digests for objects in a UUID range.
 type DigestObjectsInRangeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
-	InitialUuid   string                 `protobuf:"bytes,3,opt,name=initial_uuid,json=initialUuid,proto3" json:"initial_uuid,omitempty"`
-	FinalUuid     string                 `protobuf:"bytes,4,opt,name=final_uuid,json=finalUuid,proto3" json:"final_uuid,omitempty"`
-	Limit         int32                  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Index          string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shard          string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	InitialUuid    string                 `protobuf:"bytes,3,opt,name=initial_uuid,json=initialUuid,proto3" json:"initial_uuid,omitempty"`
+	FinalUuid      string                 `protobuf:"bytes,4,opt,name=final_uuid,json=finalUuid,proto3" json:"final_uuid,omitempty"`
+	Limit          int32                  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	AcceptEncoding uint32                 `protobuf:"varint,6,opt,name=accept_encoding,json=acceptEncoding,proto3" json:"accept_encoding,omitempty"` // response encoding the sender accepts; servers only emit 1 when asked
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *DigestObjectsInRangeRequest) Reset() {
@@ -1552,9 +1553,18 @@ func (x *DigestObjectsInRangeRequest) GetLimit() int32 {
 	return 0
 }
 
+func (x *DigestObjectsInRangeRequest) GetAcceptEncoding() uint32 {
+	if x != nil {
+		return x.AcceptEncoding
+	}
+	return 0
+}
+
 type DigestObjectsInRangeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Digests       []*RepairResponse      `protobuf:"bytes,1,rep,name=digests,proto3" json:"digests,omitempty"`
+	DigestsPacked []byte                 `protobuf:"bytes,2,opt,name=digests_packed,json=digestsPacked,proto3" json:"digests_packed,omitempty"` // replica.RepairDigestsToBinary output
+	Encoding      uint32                 `protobuf:"varint,3,opt,name=encoding,proto3" json:"encoding,omitempty"`                               // 0 (older responders) = digests; 1 = digests_packed
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1596,14 +1606,31 @@ func (x *DigestObjectsInRangeResponse) GetDigests() []*RepairResponse {
 	return nil
 }
 
+func (x *DigestObjectsInRangeResponse) GetDigestsPacked() []byte {
+	if x != nil {
+		return x.DigestsPacked
+	}
+	return nil
+}
+
+func (x *DigestObjectsInRangeResponse) GetEncoding() uint32 {
+	if x != nil {
+		return x.Encoding
+	}
+	return 0
+}
+
 // CompareDigests sends source digests to the target and returns those that need repair.
 type CompareDigestsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
-	Digests       []*RepairResponse      `protobuf:"bytes,3,rep,name=digests,proto3" json:"digests,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Index          string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shard          string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	Digests        []*RepairResponse      `protobuf:"bytes,3,rep,name=digests,proto3" json:"digests,omitempty"`
+	DigestsPacked  []byte                 `protobuf:"bytes,4,opt,name=digests_packed,json=digestsPacked,proto3" json:"digests_packed,omitempty"`     // replica.RepairDigestsToBinary output
+	Encoding       uint32                 `protobuf:"varint,5,opt,name=encoding,proto3" json:"encoding,omitempty"`                                   // 0 (older senders) = digests; 1 = digests_packed
+	AcceptEncoding uint32                 `protobuf:"varint,6,opt,name=accept_encoding,json=acceptEncoding,proto3" json:"accept_encoding,omitempty"` // response encoding the sender accepts; servers only emit 1 when asked
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CompareDigestsRequest) Reset() {
@@ -1657,9 +1684,32 @@ func (x *CompareDigestsRequest) GetDigests() []*RepairResponse {
 	return nil
 }
 
+func (x *CompareDigestsRequest) GetDigestsPacked() []byte {
+	if x != nil {
+		return x.DigestsPacked
+	}
+	return nil
+}
+
+func (x *CompareDigestsRequest) GetEncoding() uint32 {
+	if x != nil {
+		return x.Encoding
+	}
+	return 0
+}
+
+func (x *CompareDigestsRequest) GetAcceptEncoding() uint32 {
+	if x != nil {
+		return x.AcceptEncoding
+	}
+	return 0
+}
+
 type CompareDigestsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Digests       []*RepairResponse      `protobuf:"bytes,1,rep,name=digests,proto3" json:"digests,omitempty"`
+	DigestsPacked []byte                 `protobuf:"bytes,2,opt,name=digests_packed,json=digestsPacked,proto3" json:"digests_packed,omitempty"` // replica.RepairDigestsToBinary output
+	Encoding      uint32                 `protobuf:"varint,3,opt,name=encoding,proto3" json:"encoding,omitempty"`                               // 0 (older responders) = digests; 1 = digests_packed
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1699,6 +1749,20 @@ func (x *CompareDigestsResponse) GetDigests() []*RepairResponse {
 		return x.Digests
 	}
 	return nil
+}
+
+func (x *CompareDigestsResponse) GetDigestsPacked() []byte {
+	if x != nil {
+		return x.DigestsPacked
+	}
+	return nil
+}
+
+func (x *CompareDigestsResponse) GetEncoding() uint32 {
+	if x != nil {
+		return x.Encoding
+	}
+	return 0
 }
 
 // OverwriteObjects conditionally updates existing objects
@@ -1933,13 +1997,17 @@ func (x *FindUUIDsResponse) GetUuids() []string {
 
 // HashTreeLevel fetches hash tree level digests.
 type HashTreeLevelRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
-	Level         int32                  `protobuf:"varint,3,opt,name=level,proto3" json:"level,omitempty"`
-	Discriminant  []byte                 `protobuf:"bytes,4,opt,name=discriminant,proto3" json:"discriminant,omitempty"` // hashtree.Bitset.Marshal() output
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Index        string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shard        string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	Level        int32                  `protobuf:"varint,3,opt,name=level,proto3" json:"level,omitempty"`
+	Discriminant []byte                 `protobuf:"bytes,4,opt,name=discriminant,proto3" json:"discriminant,omitempty"` // hashtree.Bitset.Marshal() output
+	// Encoding the sender accepts for digests_data. 0 (default, used by older
+	// senders) = JSON; 1 = fixed 16-byte big-endian records. Servers only emit
+	// 1 when asked, so rolling upgrades stay JSON until both sides are new.
+	AcceptEncoding uint32 `protobuf:"varint,5,opt,name=accept_encoding,json=acceptEncoding,proto3" json:"accept_encoding,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *HashTreeLevelRequest) Reset() {
@@ -2000,10 +2068,20 @@ func (x *HashTreeLevelRequest) GetDiscriminant() []byte {
 	return nil
 }
 
-// HashTreeLevelResponse carries digests as opaque binary (JSON-encoded []hashtree.Digest).
+func (x *HashTreeLevelRequest) GetAcceptEncoding() uint32 {
+	if x != nil {
+		return x.AcceptEncoding
+	}
+	return 0
+}
+
+// HashTreeLevelResponse carries level digests; encoding declares their format.
 type HashTreeLevelResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	DigestsData   []byte                 `protobuf:"bytes,1,opt,name=digests_data,json=digestsData,proto3" json:"digests_data,omitempty"` // JSON-encoded []hashtree.Digest
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	DigestsData []byte                 `protobuf:"bytes,1,opt,name=digests_data,json=digestsData,proto3" json:"digests_data,omitempty"` // []hashtree.Digest, encoded per `encoding`
+	// 0 (default, emitted by older servers) = JSON; 1 = fixed 16-byte
+	// big-endian records (hashtree.DigestsToBinary).
+	Encoding      uint32 `protobuf:"varint,2,opt,name=encoding,proto3" json:"encoding,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2043,6 +2121,13 @@ func (x *HashTreeLevelResponse) GetDigestsData() []byte {
 		return x.DigestsData
 	}
 	return nil
+}
+
+func (x *HashTreeLevelResponse) GetEncoding() uint32 {
+	if x != nil {
+		return x.Encoding
+	}
+	return 0
 }
 
 // CompareHashTreeRoots pre-filters shards by bulk-comparing hashtree roots: the
@@ -2764,22 +2849,30 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12\x10\n" +
 	"\x03ids\x18\x03 \x03(\tR\x03ids\"M\n" +
 	"\x15DigestObjectsResponse\x124\n" +
-	"\adigests\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\"\xa1\x01\n" +
+	"\adigests\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\"\xca\x01\n" +
 	"\x1bDigestObjectsInRangeRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12!\n" +
 	"\finitial_uuid\x18\x03 \x01(\tR\vinitialUuid\x12\x1d\n" +
 	"\n" +
 	"final_uuid\x18\x04 \x01(\tR\tfinalUuid\x12\x14\n" +
-	"\x05limit\x18\x05 \x01(\x05R\x05limit\"T\n" +
+	"\x05limit\x18\x05 \x01(\x05R\x05limit\x12'\n" +
+	"\x0faccept_encoding\x18\x06 \x01(\rR\x0eacceptEncoding\"\x97\x01\n" +
 	"\x1cDigestObjectsInRangeResponse\x124\n" +
-	"\adigests\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\"y\n" +
+	"\adigests\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\x12%\n" +
+	"\x0edigests_packed\x18\x02 \x01(\fR\rdigestsPacked\x12\x1a\n" +
+	"\bencoding\x18\x03 \x01(\rR\bencoding\"\xe5\x01\n" +
 	"\x15CompareDigestsRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x124\n" +
-	"\adigests\x18\x03 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\"N\n" +
+	"\adigests\x18\x03 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\x12%\n" +
+	"\x0edigests_packed\x18\x04 \x01(\fR\rdigestsPacked\x12\x1a\n" +
+	"\bencoding\x18\x05 \x01(\rR\bencoding\x12'\n" +
+	"\x0faccept_encoding\x18\x06 \x01(\rR\x0eacceptEncoding\"\x91\x01\n" +
 	"\x16CompareDigestsResponse\x124\n" +
-	"\adigests\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\"\x86\x01\n" +
+	"\adigests\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\x12%\n" +
+	"\x0edigests_packed\x18\x02 \x01(\fR\rdigestsPacked\x12\x1a\n" +
+	"\bencoding\x18\x03 \x01(\rR\bencoding\"\x86\x01\n" +
 	"\x17OverwriteObjectsRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12#\n" +
@@ -2794,14 +2887,16 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"filterJson\x12\x14\n" +
 	"\x05limit\x18\x04 \x01(\x05R\x05limit\")\n" +
 	"\x11FindUUIDsResponse\x12\x14\n" +
-	"\x05uuids\x18\x01 \x03(\tR\x05uuids\"|\n" +
+	"\x05uuids\x18\x01 \x03(\tR\x05uuids\"\xa5\x01\n" +
 	"\x14HashTreeLevelRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12\x14\n" +
 	"\x05level\x18\x03 \x01(\x05R\x05level\x12\"\n" +
-	"\fdiscriminant\x18\x04 \x01(\fR\fdiscriminant\":\n" +
+	"\fdiscriminant\x18\x04 \x01(\fR\fdiscriminant\x12'\n" +
+	"\x0faccept_encoding\x18\x05 \x01(\rR\x0eacceptEncoding\"V\n" +
 	"\x15HashTreeLevelResponse\x12!\n" +
-	"\fdigests_data\x18\x01 \x01(\fR\vdigestsData\"q\n" +
+	"\fdigests_data\x18\x01 \x01(\fR\vdigestsData\x12\x1a\n" +
+	"\bencoding\x18\x02 \x01(\rR\bencoding\"q\n" +
 	"\x0fShardRootDigest\x12\x14\n" +
 	"\x05shard\x18\x01 \x01(\tR\x05shard\x12$\n" +
 	"\x0eroot_hash_high\x18\x02 \x01(\x06R\frootHashHigh\x12\"\n" +

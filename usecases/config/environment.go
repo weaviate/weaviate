@@ -64,6 +64,15 @@ const (
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
 	DefaultNamespaceCleanupInterval = 30 * time.Second
+
+	DefaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
+	DefaultReplicaMovementCleanupInterval = time.Hour
+
+	// Interval bounds; 0 stays the explicit disable sentinel. Below the floor a
+	// sweep hammers the leader with full-FSM scans; above the ceiling it
+	// silently never runs. Both are misconfigurations, not preferences.
+	MinReplicaMovementCleanupInterval = time.Minute
+	MaxReplicaMovementCleanupInterval = 168 * time.Hour
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -1064,6 +1073,27 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
+
+	config.Replication.ReplicaMovementCleanupEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_ENABLED")))
+	config.Replication.ReplicaMovementCleanupIncludeCancelled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED")))
+
+	if err := parser.ParseDynamicDurationWithValidation("REPLICA_MOVEMENT_CLEANUP_MAX_AGE",
+		DefaultReplicaMovementCleanupMaxAge,
+		parser.ValidateDurationGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[time.Duration]) {
+			config.Replication.ReplicaMovementCleanupMaxAge = val
+		}); err != nil {
+		return err
+	}
+
+	if err := parser.ParseDynamicDurationWithValidation("REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		DefaultReplicaMovementCleanupInterval,
+		parser.ValidateDurationZeroOrInRange(MinReplicaMovementCleanupInterval, MaxReplicaMovementCleanupInterval),
+		func(val *configRuntime.DynamicValue[time.Duration]) {
+			config.Replication.ReplicaMovementCleanupInterval = val
+		}); err != nil {
+		return err
+	}
 
 	if err := parseIntVerify(
 		"ASYNC_REPLICATION_SCHEDULER_WORKERS",

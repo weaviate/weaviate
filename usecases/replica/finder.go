@@ -534,15 +534,15 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 func (f *Finder) DigestObjectsInRange(ctx context.Context,
 	shardName string, host string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (ds []types.RepairResponse, err error) {
+) (ds []types.RepairDigest, err error) {
 	return f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
 }
 
 // CompareDigests is a thin transport wrapper around the remote shard's
 // comparator; see RClient.CompareDigests for the contract.
 func (f *Finder) CompareDigests(ctx context.Context,
-	shardName string, host string, digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	shardName string, host string, digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	return f.client.CompareDigests(ctx, host, f.class, shardName, digests)
 }
 
