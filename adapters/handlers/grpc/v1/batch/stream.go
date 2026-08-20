@@ -186,7 +186,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr err
 	defer h.teardown(streamId)
 
 	// The receiver and sender goroutines both send on this stream.
-	sendStream := newSyncStream(stream)
+	syncStream := newSyncStream(stream)
 
 	// Ensure that internal goroutines are cancelled when the stream exits for any reason
 	ctx, cancel := context.WithCancel(streamCtx)

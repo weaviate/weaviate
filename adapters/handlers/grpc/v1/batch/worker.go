@@ -235,8 +235,7 @@ func (w *worker) sendObjects(
 // reply error on the object it belongs to. outerIdxs[j] is the position of the
 // collection's j-th object in the full batch. failed is keyed by that position
 // and is mutated in place. A reply's error indices only mean something
-// inside its own sub-batch, so an out-of-range index is dropped rather than
-// blamed on whichever object happens to sit at that position.
+// inside its own sub-batch, so an out-of-range index is ignored.
 func (w *worker) fanInReplies(
 	streamId string,
 	replies <-chan fanoutReply,
