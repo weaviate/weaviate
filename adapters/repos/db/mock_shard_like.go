@@ -5177,8 +5177,7 @@ func (_c *MockShardLike_updateVectorIndexesIgnoreDelete_Call) RunAndReturn(run f
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockShardLike {
+}) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 

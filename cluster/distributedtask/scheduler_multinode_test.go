@@ -201,6 +201,19 @@ func (r *fanoutRecorder) RecordDistributedTaskUnitFailure(_ context.Context, ns,
 	}))
 }
 
+func (r *fanoutRecorder) RecordDistributedTaskRetryableUnitFailure(_ context.Context, ns, id string, version uint64, node, unit, errMsg string) error {
+	return r.manager.RecordUnitCompletion(toCmd(r.t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace:            ns,
+		Id:                   id,
+		Version:              version,
+		NodeId:               node,
+		UnitId:               unit,
+		Error:                errMsg,
+		Retryable:            true,
+		FinishedAtUnixMillis: r.manager.clock.Now().UnixMilli(),
+	}))
+}
+
 func (r *fanoutRecorder) UpdateDistributedTaskUnitProgress(_ context.Context, ns, id string, version uint64, node, unit string, progress float32) error {
 	return r.manager.UpdateUnitProgress(toCmd(r.t, &cmd.UpdateDistributedTaskUnitProgressRequest{
 		Namespace:           ns,

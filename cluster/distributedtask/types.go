@@ -88,6 +88,18 @@ type TaskFinalizer interface {
 	MarkDistributedTaskFailed(ctx context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error
 }
 
+// ForceTerminator proposes a force-terminate transition via Raft.
+// The FSM accepts or refuses; callers are idempotent.
+type ForceTerminator interface {
+	ForceTerminateDistributedTask(
+		ctx context.Context,
+		namespace, taskID string,
+		taskVersion uint64,
+		reason string,
+		requestedTerminalStatus string,
+	) error
+}
+
 // PostCompletionAckRecorder is the RAFT-apply hook the [Scheduler] uses
 // to publish one node's OnGroupCompleted result (success or failure)
 // after its callbacks have returned for every local group in a task.
@@ -134,6 +146,10 @@ type PostCompletionAckRecorder interface {
 type TaskCompletionRecorder interface {
 	RecordDistributedTaskUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string) error
 	RecordDistributedTaskUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error
+	// RecordDistributedTaskRetryableUnitFailure reports a failure the FSM
+	// may retry. When Attempts < MaxUnitRetries the unit is re-opened on
+	// the same node; otherwise the task fails immediately.
+	RecordDistributedTaskRetryableUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error
 	UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error
 }
 
@@ -201,6 +217,39 @@ type ConflictDetector interface {
 	// to reject the new task; the error propagates back to the
 	// AddDistributedTask caller.
 	CheckConflict(newPayload []byte, existingTasks []*Task) error
+}
+
+// CrossNamespaceConflictDetector extends [ConflictDetector]. When
+// implemented, [Manager.AddTask] passes the full task map (all namespaces)
+// so the detector can reject cross-namespace conflicts.
+//
+// Same FSM-determinism contract as [ConflictDetector]:
+// CheckCrossNamespaceConflict must be a pure function of
+// (newPayload, allTasks).
+type CrossNamespaceConflictDetector interface {
+	ConflictDetector
+
+	// CheckCrossNamespaceConflict is called under [Manager.mu] with the
+	// full task map across all namespaces. Return a non-nil error to
+	// reject the new task.
+	CheckCrossNamespaceConflict(newPayload []byte, allTasks map[string]map[string]*Task) error
+}
+
+// TerminalCleanupProvider is an optional [Provider] interface. When
+// implemented, a FAILED/CANCELLED OnTaskCompleted error clears the
+// fired mark so the next tick retries. Bootstrap skips the pre-mark
+// for tasks reporting not-done.
+//
+// This re-fire path is separate from the SWAPPING escalation: it
+// never touches completedCallbackAttempts and never proposes
+// MarkTaskFailed or MarkTaskFinalized.
+type TerminalCleanupProvider interface {
+	Provider
+
+	// TerminalCleanupDone returns true when the local node's terminal
+	// cleanup for the task is durably complete. Called from the scheduler's
+	// bootstrap pre-mark and from the post-callback error path.
+	TerminalCleanupDone(task *Task, localNode string) bool
 }
 
 // SchemaMutationDetector is an optional interface providers implement so
@@ -400,6 +449,9 @@ type Unit struct {
 	Error      string     `json:"error,omitempty"`
 	UpdatedAt  time.Time  `json:"updatedAt"`
 	FinishedAt time.Time  `json:"finishedAt,omitempty"`
+	// Attempts counts retryable re-opens of this unit. The initial claim
+	// is not counted: zero means the unit has never been re-opened.
+	Attempts int32 `json:"attempts,omitempty"`
 }
 
 // UnitSpec defines a unit with an optional group assignment. Used at task creation
@@ -510,6 +562,22 @@ func (t TaskStatus) IsCancellable() bool {
 	return t == TaskStatusStarted
 }
 
+// IsForceTerminable returns true for {STARTED, PREPARING, SWAPPING}.
+// Unrecognized statuses return false. SWAPPING is further guarded by
+// the all-acks predicate in ForceTerminateTask.
+//
+// Literal comparison, not a classification: every binary replaying the
+// same log entry must reach the same verdict.
+func (t TaskStatus) IsForceTerminable() bool {
+	switch t {
+	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping:
+		return true
+	case TaskStatusFinished, TaskStatusCancelled, TaskStatusFailed:
+		return false
+	}
+	return false
+}
+
 // TaskDescriptor is a struct identifying a task execution under a certain task namespace.
 type TaskDescriptor struct {
 	// ID is the identifier of the task in the namespace.
@@ -554,6 +622,18 @@ type Task struct {
 
 	// Error is an optional field to store the error which moved the task to FAILED status.
 	Error string `json:"error,omitempty"`
+
+	// FormatVersion is set to 1 by AddTask. A reader seeing > 0 knows the
+	// writer understood the extended field set. Zero on legacy tasks.
+	FormatVersion int32 `json:"formatVersion,omitempty"`
+
+	// StaleTimeoutMs is the opt-in per-task stale-detection timeout, set
+	// at ADD time. Zero disables stale detection.
+	StaleTimeoutMs int64 `json:"staleTimeoutMs,omitempty"`
+
+	// MaxUnitRetries is the opt-in per-task retry budget for retryable
+	// unit failures, set at ADD time. Zero disables retries (fail-fast).
+	MaxUnitRetries int32 `json:"maxUnitRetries,omitempty"`
 
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
 	Units map[string]*Unit `json:"units,omitempty"`
@@ -740,6 +820,24 @@ func (t *Task) MissingPostCompletionAckNodes() []string {
 		}
 	}
 	return missing
+}
+
+// AllPostCompletionAcksSuccessful returns true when every node with
+// local units has a post-completion ack with Success=true. Used as the
+// force-terminate guard on SWAPPING: when true, finalize is imminent.
+func (t *Task) AllPostCompletionAcksSuccessful() bool {
+	for _, node := range t.NodesWithLocalUnits() {
+		ack, ok := t.PostCompletionAcks[node]
+		if !ok || !ack.Success {
+			return false
+		}
+	}
+	return true
+}
+
+// GetDistributedTaskResponse is the response for a by-id task query.
+type GetDistributedTaskResponse struct {
+	Task *Task `json:"task"`
 }
 
 type ListDistributedTasksResponse struct {

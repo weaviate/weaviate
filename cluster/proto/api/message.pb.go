@@ -93,6 +93,7 @@ const (
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK ApplyRequest_Type = 308
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED                     ApplyRequest_Type = 309
 	ApplyRequest_TYPE_CLUSTER_ID_SET                                   ApplyRequest_Type = 400
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_FORCE_TERMINATE                 ApplyRequest_Type = 401
 )
 
 // Enum value maps for ApplyRequest_Type.
@@ -161,6 +162,7 @@ var (
 		308: "TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK",
 		309: "TYPE_DISTRIBUTED_TASK_MARK_FAILED",
 		400: "TYPE_CLUSTER_ID_SET",
+		401: "TYPE_DISTRIBUTED_TASK_FORCE_TERMINATE",
 	}
 	ApplyRequest_Type_value = map[string]int32{
 		"TYPE_UNSPECIFIED":                                                0,
@@ -226,6 +228,7 @@ var (
 		"TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK":           308,
 		"TYPE_DISTRIBUTED_TASK_MARK_FAILED":                               309,
 		"TYPE_CLUSTER_ID_SET":                                             400,
+		"TYPE_DISTRIBUTED_TASK_FORCE_TERMINATE":                           401,
 	}
 )
 
@@ -288,6 +291,7 @@ const (
 	QueryRequest_TYPE_GET_REPLICATION_OPERATION_STATE                 QueryRequest_Type = 207
 	QueryRequest_TYPE_GET_REPLICATION_SCALE_PLAN                      QueryRequest_Type = 208
 	QueryRequest_TYPE_DISTRIBUTED_TASK_LIST                           QueryRequest_Type = 300
+	QueryRequest_TYPE_DISTRIBUTED_TASK_GET                            QueryRequest_Type = 301
 )
 
 // Enum value maps for QueryRequest_Type.
@@ -322,6 +326,7 @@ var (
 		207: "TYPE_GET_REPLICATION_OPERATION_STATE",
 		208: "TYPE_GET_REPLICATION_SCALE_PLAN",
 		300: "TYPE_DISTRIBUTED_TASK_LIST",
+		301: "TYPE_DISTRIBUTED_TASK_GET",
 	}
 	QueryRequest_Type_value = map[string]int32{
 		"TYPE_UNSPECIFIED":                                     0,
@@ -353,6 +358,7 @@ var (
 		"TYPE_GET_REPLICATION_OPERATION_STATE":                 207,
 		"TYPE_GET_REPLICATION_SCALE_PLAN":                      208,
 		"TYPE_DISTRIBUTED_TASK_LIST":                           300,
+		"TYPE_DISTRIBUTED_TASK_GET":                            301,
 	}
 )
 
@@ -1361,8 +1367,12 @@ type AddDistributedTaskRequest struct {
 	UnitIds                 []string               `protobuf:"bytes,6,rep,name=unit_ids,json=unitIds,proto3" json:"unit_ids,omitempty"`
 	UnitSpecs               []*UnitSpec            `protobuf:"bytes,7,rep,name=unit_specs,json=unitSpecs,proto3" json:"unit_specs,omitempty"`
 	NeedsPreparationBarrier bool                   `protobuf:"varint,8,opt,name=needs_preparation_barrier,json=needsPreparationBarrier,proto3" json:"needs_preparation_barrier,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Zero = disabled (today's behavior). Opt-in per task at ADD time.
+	StaleTimeoutMs int64 `protobuf:"varint,9,opt,name=stale_timeout_ms,json=staleTimeoutMs,proto3" json:"stale_timeout_ms,omitempty"`
+	// Zero = disabled (today's fail-fast). Opt-in per task at ADD time.
+	MaxUnitRetries int32 `protobuf:"varint,10,opt,name=max_unit_retries,json=maxUnitRetries,proto3" json:"max_unit_retries,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AddDistributedTaskRequest) Reset() {
@@ -1442,6 +1452,20 @@ func (x *AddDistributedTaskRequest) GetNeedsPreparationBarrier() bool {
 		return x.NeedsPreparationBarrier
 	}
 	return false
+}
+
+func (x *AddDistributedTaskRequest) GetStaleTimeoutMs() int64 {
+	if x != nil {
+		return x.StaleTimeoutMs
+	}
+	return 0
+}
+
+func (x *AddDistributedTaskRequest) GetMaxUnitRetries() int32 {
+	if x != nil {
+		return x.MaxUnitRetries
+	}
+	return 0
 }
 
 // Deprecated: legacy node-level tracking removed. Kept for backward compat with existing Raft logs/snapshots.
@@ -1874,6 +1898,7 @@ type RecordDistributedTaskUnitCompletionRequest struct {
 	UnitId               string                 `protobuf:"bytes,5,opt,name=unit_id,json=unitId,proto3" json:"unit_id,omitempty"`
 	Error                string                 `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
 	FinishedAtUnixMillis int64                  `protobuf:"varint,7,opt,name=finished_at_unix_millis,json=finishedAtUnixMillis,proto3" json:"finished_at_unix_millis,omitempty"`
+	Retryable            bool                   `protobuf:"varint,8,opt,name=retryable,proto3" json:"retryable,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -1955,6 +1980,13 @@ func (x *RecordDistributedTaskUnitCompletionRequest) GetFinishedAtUnixMillis() i
 		return x.FinishedAtUnixMillis
 	}
 	return 0
+}
+
+func (x *RecordDistributedTaskUnitCompletionRequest) GetRetryable() bool {
+	if x != nil {
+		return x.Retryable
+	}
+	return false
 }
 
 type UpdateDistributedTaskUnitProgressRequest struct {
@@ -2410,6 +2442,151 @@ func (x *RecordDistributedTaskPreparationCompleteAckRequest) GetAckedAtUnixMilli
 	return 0
 }
 
+// ForceTerminateDistributedTaskRequest transitions a task to a terminal
+// status from the literal set {STARTED, PREPARING, SWAPPING}. Refused
+// for unrecognized statuses and when SWAPPING with all post-completion
+// acks landed successfully (finalize is imminent). Idempotent: a
+// proposal against a terminal task is dropped.
+type ForceTerminateDistributedTaskRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Namespace string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id        string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Version   uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	Reason    string                 `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	// The requested terminal status: "CANCELLED" for operator action,
+	// "FAILED" for the stale detector.
+	RequestedTerminalStatus string `protobuf:"bytes,5,opt,name=requested_terminal_status,json=requestedTerminalStatus,proto3" json:"requested_terminal_status,omitempty"`
+	TerminatedAtUnixMillis  int64  `protobuf:"varint,6,opt,name=terminated_at_unix_millis,json=terminatedAtUnixMillis,proto3" json:"terminated_at_unix_millis,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *ForceTerminateDistributedTaskRequest) Reset() {
+	*x = ForceTerminateDistributedTaskRequest{}
+	mi := &file_api_message_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForceTerminateDistributedTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForceTerminateDistributedTaskRequest) ProtoMessage() {}
+
+func (x *ForceTerminateDistributedTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForceTerminateDistributedTaskRequest.ProtoReflect.Descriptor instead.
+func (*ForceTerminateDistributedTaskRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *ForceTerminateDistributedTaskRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *ForceTerminateDistributedTaskRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ForceTerminateDistributedTaskRequest) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ForceTerminateDistributedTaskRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *ForceTerminateDistributedTaskRequest) GetRequestedTerminalStatus() string {
+	if x != nil {
+		return x.RequestedTerminalStatus
+	}
+	return ""
+}
+
+func (x *ForceTerminateDistributedTaskRequest) GetTerminatedAtUnixMillis() int64 {
+	if x != nil {
+		return x.TerminatedAtUnixMillis
+	}
+	return 0
+}
+
+// GetDistributedTaskRequest is a leader-routed by-id query
+// (TYPE_DISTRIBUTED_TASK_GET = 301).
+type GetDistributedTaskRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDistributedTaskRequest) Reset() {
+	*x = GetDistributedTaskRequest{}
+	mi := &file_api_message_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDistributedTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDistributedTaskRequest) ProtoMessage() {}
+
+func (x *GetDistributedTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDistributedTaskRequest.ProtoReflect.Descriptor instead.
+func (*GetDistributedTaskRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *GetDistributedTaskRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *GetDistributedTaskRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
 // SetClusterIDRequest carries the stable cluster identity committed once per
 // cluster lifetime via TYPE_CLUSTER_ID_SET.
 type SetClusterIDRequest struct {
@@ -2421,7 +2598,7 @@ type SetClusterIDRequest struct {
 
 func (x *SetClusterIDRequest) Reset() {
 	*x = SetClusterIDRequest{}
-	mi := &file_api_message_proto_msgTypes[31]
+	mi := &file_api_message_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2433,7 +2610,7 @@ func (x *SetClusterIDRequest) String() string {
 func (*SetClusterIDRequest) ProtoMessage() {}
 
 func (x *SetClusterIDRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[31]
+	mi := &file_api_message_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2446,7 +2623,7 @@ func (x *SetClusterIDRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetClusterIDRequest.ProtoReflect.Descriptor instead.
 func (*SetClusterIDRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{31}
+	return file_api_message_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SetClusterIDRequest) GetClusterId() string {
@@ -2474,13 +2651,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\xa2\x13\n" +
+	"\x12NotifyPeerResponse\"\xce\x13\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\xfe\x11\n" +
+	"subCommand\"\xaa\x12\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -2545,14 +2722,15 @@ const file_api_message_proto_rawDesc = "" +
 	"0TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK\x10\xb3\x02\x12:\n" +
 	"5TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK\x10\xb4\x02\x12&\n" +
 	"!TYPE_DISTRIBUTED_TASK_MARK_FAILED\x10\xb5\x02\x12\x18\n" +
-	"\x13TYPE_CLUSTER_ID_SET\x10\x90\x03\"\x04\bc\x10c\"A\n" +
+	"\x13TYPE_CLUSTER_ID_SET\x10\x90\x03\x12*\n" +
+	"%TYPE_DISTRIBUTED_TASK_FORCE_TERMINATE\x10\x91\x03\"\x04\bc\x10c\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
-	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xaa\b\n" +
+	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xca\b\n" +
 	"\fQueryRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.QueryRequest.TypeR\x04type\x12\x1f\n" +
 	"\vsub_command\x18\x02 \x01(\fR\n" +
-	"subCommand\"\xb6\a\n" +
+	"subCommand\"\xd6\a\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10TYPE_GET_CLASSES\x10\x01\x12\x13\n" +
@@ -2582,7 +2760,8 @@ const file_api_message_proto_rawDesc = "" +
 	" TYPE_GET_ALL_REPLICATION_DETAILS\x10\xce\x01\x12)\n" +
 	"$TYPE_GET_REPLICATION_OPERATION_STATE\x10\xcf\x01\x12$\n" +
 	"\x1fTYPE_GET_REPLICATION_SCALE_PLAN\x10\xd0\x01\x12\x1f\n" +
-	"\x1aTYPE_DISTRIBUTED_TASK_LIST\x10\xac\x02\")\n" +
+	"\x1aTYPE_DISTRIBUTED_TASK_LIST\x10\xac\x02\x12\x1e\n" +
+	"\x19TYPE_DISTRIBUTED_TASK_GET\x10\xad\x02\")\n" +
 	"\rQueryResponse\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\"u\n" +
 	"\x11AddTenantsRequest\x12#\n" +
@@ -2615,7 +2794,7 @@ const file_api_message_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\"5\n" +
 	"\bUnitSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
-	"\bgroup_id\x18\x02 \x01(\tR\agroupId\"\xb7\x02\n" +
+	"\bgroup_id\x18\x02 \x01(\tR\agroupId\"\x8b\x03\n" +
 	"\x19AddDistributedTaskRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -2624,7 +2803,10 @@ const file_api_message_proto_rawDesc = "" +
 	"\bunit_ids\x18\x06 \x03(\tR\aunitIds\x12B\n" +
 	"\n" +
 	"unit_specs\x18\a \x03(\v2#.weaviate.internal.cluster.UnitSpecR\tunitSpecs\x12:\n" +
-	"\x19needs_preparation_barrier\x18\b \x01(\bR\x17needsPreparationBarrier\"\xe9\x01\n" +
+	"\x19needs_preparation_barrier\x18\b \x01(\bR\x17needsPreparationBarrier\x12(\n" +
+	"\x10stale_timeout_ms\x18\t \x01(\x03R\x0estaleTimeoutMs\x12(\n" +
+	"\x10max_unit_retries\x18\n" +
+	" \x01(\x05R\x0emaxUnitRetries\"\xe9\x01\n" +
 	"*RecordDistributedTaskNodeCompletionRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -2659,7 +2841,7 @@ const file_api_message_proto_rawDesc = "" +
 	"collection\x12\x14\n" +
 	"\x05alias\x18\x02 \x01(\tR\x05alias\"*\n" +
 	"\x12DeleteAliasRequest\x12\x14\n" +
-	"\x05alias\x18\x01 \x01(\tR\x05alias\"\xf3\x01\n" +
+	"\x05alias\x18\x01 \x01(\tR\x05alias\"\x91\x02\n" +
 	"*RecordDistributedTaskUnitCompletionRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -2667,7 +2849,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x17\n" +
 	"\aunit_id\x18\x05 \x01(\tR\x06unitId\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x125\n" +
-	"\x17finished_at_unix_millis\x18\a \x01(\x03R\x14finishedAtUnixMillis\"\xf5\x01\n" +
+	"\x17finished_at_unix_millis\x18\a \x01(\x03R\x14finishedAtUnixMillis\x12\x1c\n" +
+	"\tretryable\x18\b \x01(\bR\tretryable\"\xf5\x01\n" +
 	"(UpdateDistributedTaskUnitProgressRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -2702,7 +2885,17 @@ const file_api_message_proto_rawDesc = "" +
 	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x18\n" +
 	"\asuccess\x18\x05 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x12/\n" +
-	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\"4\n" +
+	"\x14acked_at_unix_millis\x18\a \x01(\x03R\x11ackedAtUnixMillis\"\xfd\x01\n" +
+	"$ForceTerminateDistributedTaskRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\x12:\n" +
+	"\x19requested_terminal_status\x18\x05 \x01(\tR\x17requestedTerminalStatus\x129\n" +
+	"\x19terminated_at_unix_millis\x18\x06 \x01(\x03R\x16terminatedAtUnixMillis\"I\n" +
+	"\x19GetDistributedTaskRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\"4\n" +
 	"\x13SetClusterIDRequest\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId2\x8d\x04\n" +
@@ -2729,7 +2922,7 @@ func file_api_message_proto_rawDescGZIP() []byte {
 }
 
 var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_api_message_proto_goTypes = []any{
 	(ApplyRequest_Type)(0),                                     // 0: weaviate.internal.cluster.ApplyRequest.Type
 	(QueryRequest_Type)(0),                                     // 1: weaviate.internal.cluster.QueryRequest.Type
@@ -2766,7 +2959,9 @@ var file_api_message_proto_goTypes = []any{
 	(*MarkTaskFailedRequest)(nil),                              // 32: weaviate.internal.cluster.MarkTaskFailedRequest
 	(*RecordDistributedTaskPostCompletionAckRequest)(nil),      // 33: weaviate.internal.cluster.RecordDistributedTaskPostCompletionAckRequest
 	(*RecordDistributedTaskPreparationCompleteAckRequest)(nil), // 34: weaviate.internal.cluster.RecordDistributedTaskPreparationCompleteAckRequest
-	(*SetClusterIDRequest)(nil),                                // 35: weaviate.internal.cluster.SetClusterIDRequest
+	(*ForceTerminateDistributedTaskRequest)(nil),               // 35: weaviate.internal.cluster.ForceTerminateDistributedTaskRequest
+	(*GetDistributedTaskRequest)(nil),                          // 36: weaviate.internal.cluster.GetDistributedTaskRequest
+	(*SetClusterIDRequest)(nil),                                // 37: weaviate.internal.cluster.SetClusterIDRequest
 }
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
@@ -2807,7 +3002,7 @@ func file_api_message_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_message_proto_rawDesc), len(file_api_message_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   32,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -120,14 +120,18 @@ func (s *Raft) CancelDistributedTask(ctx context.Context, namespace, taskID stri
 }
 
 func (s *Raft) RecordDistributedTaskUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string) error {
-	return s.recordDistributedTaskUnitCompletion(ctx, namespace, taskID, version, nodeID, unitID, "")
+	return s.recordDistributedTaskUnitCompletion(ctx, namespace, taskID, version, nodeID, unitID, "", false)
 }
 
 func (s *Raft) RecordDistributedTaskUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error {
-	return s.recordDistributedTaskUnitCompletion(ctx, namespace, taskID, version, nodeID, unitID, errMsg)
+	return s.recordDistributedTaskUnitCompletion(ctx, namespace, taskID, version, nodeID, unitID, errMsg, false)
 }
 
-func (s *Raft) recordDistributedTaskUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error {
+func (s *Raft) RecordDistributedTaskRetryableUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error {
+	return s.recordDistributedTaskUnitCompletion(ctx, namespace, taskID, version, nodeID, unitID, errMsg, true)
+}
+
+func (s *Raft) recordDistributedTaskUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string, retryable bool) error {
 	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED, &cmd.RecordDistributedTaskUnitCompletionRequest{
 		Namespace:            namespace,
 		Id:                   taskID,
@@ -136,6 +140,7 @@ func (s *Raft) recordDistributedTaskUnitCompletion(ctx context.Context, namespac
 		UnitId:               unitID,
 		Error:                errMsg,
 		FinishedAtUnixMillis: time.Now().UnixMilli(),
+		Retryable:            retryable,
 	})
 }
 
@@ -232,4 +237,62 @@ func (s *Raft) RecordDistributedTaskPreparationCompleteAck(
 			Error:             errMsg,
 			AckedAtUnixMillis: time.Now().UnixMilli(),
 		})
+}
+
+// ForceTerminateDistributedTask proposes a force-terminate transition.
+// The FSM accepts it only from the literal set {STARTED, PREPARING,
+// SWAPPING}, with the all-acks guard on SWAPPING. Idempotent against
+// terminal tasks.
+func (s *Raft) ForceTerminateDistributedTask(
+	ctx context.Context,
+	namespace, taskID string,
+	taskVersion uint64,
+	reason string,
+	requestedTerminalStatus string,
+) error {
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_FORCE_TERMINATE,
+		&cmd.ForceTerminateDistributedTaskRequest{
+			Namespace:               namespace,
+			Id:                      taskID,
+			Version:                 taskVersion,
+			Reason:                  reason,
+			RequestedTerminalStatus: requestedTerminalStatus,
+			TerminatedAtUnixMillis:  time.Now().UnixMilli(),
+		})
+}
+
+// AddDistributedTaskOptions carries optional fields for task creation.
+// Zero values reproduce legacy behavior.
+type AddDistributedTaskOptions struct {
+	StaleTimeoutMs int64
+	MaxUnitRetries int32
+}
+
+// AddDistributedTaskWithGroupsOptions creates a task with explicit
+// group assignments and optional per-task settings. Zero-valued
+// options reproduce legacy behavior.
+func (s *Raft) AddDistributedTaskWithGroupsOptions(
+	ctx context.Context, namespace, taskID string,
+	taskPayload any, unitSpecs []distributedtask.UnitSpec,
+	needsPreparationBarrier bool,
+	opts AddDistributedTaskOptions,
+) error {
+	payloadBytes, err := json.Marshal(taskPayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal task payload: %w", err)
+	}
+	protoSpecs := make([]*cmd.UnitSpec, len(unitSpecs))
+	for i, spec := range unitSpecs {
+		protoSpecs[i] = &cmd.UnitSpec{Id: spec.ID, GroupId: spec.GroupID}
+	}
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{
+		Namespace:               namespace,
+		Id:                      taskID,
+		Payload:                 payloadBytes,
+		SubmittedAtUnixMillis:   time.Now().UnixMilli(),
+		UnitSpecs:               protoSpecs,
+		NeedsPreparationBarrier: needsPreparationBarrier,
+		StaleTimeoutMs:          opts.StaleTimeoutMs,
+		MaxUnitRetries:          opts.MaxUnitRetries,
+	})
 }

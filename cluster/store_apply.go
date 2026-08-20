@@ -529,6 +529,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.applyClusterIDSet(&cmd)
 		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_FORCE_TERMINATE:
+		f = func() {
+			ret.Error = st.distributedTasksManager.ForceTerminateTask(&cmd)
+		}
 
 	default:
 		// A command introduced by a newer app version. Log and no-op rather than
