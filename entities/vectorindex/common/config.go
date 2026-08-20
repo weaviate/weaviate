@@ -39,6 +39,22 @@ const (
 	NoCompression = "none"
 )
 
+// ValidateBQCompatibility rejects binary quantization (BQ) combined with a
+// distance metric whose vectors it cannot represent. BQ encodes each dimension
+// by its sign (a bit is set only when the value is < 0). Hamming vectors are
+// 0/1, so every value is non-negative and all vectors collapse to the same
+// all-zero code; compressed Top-k then becomes tie/order dependent and can drop
+// the true nearest neighbour. See
+// https://github.com/weaviate/weaviate/issues/12035.
+func ValidateBQCompatibility(distance string, bqEnabled bool) error {
+	if bqEnabled && distance == DistanceHamming {
+		return errors.Errorf("binary quantization (bq) is not compatible with the %q "+
+			"distance metric: BQ encodes each dimension by its sign, but hamming vectors are "+
+			"non-negative, so all vectors would collapse to the same code", DistanceHamming)
+	}
+	return nil
+}
+
 // Tries to parse the int value from the map, if it overflows math.MaxInt64, it
 // uses math.MaxInt64 instead. This is to protect from rounding errors from
 // json marshalling where the type may be assumed as float64
