@@ -1035,10 +1035,13 @@ func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 	return result
 }
 
-// ListDistributedTasks adds the [TaskLister] signature to
-// [Manager.LocalDistributedTasks]. No production site passes a *Manager as a
-// TaskLister — [cluster.Raft] is what the wiring hands out — but six
-// scheduler tests drive the manager directly and need it.
+// This is not reached through the [TaskLister] interface in production —
+// [cluster.Raft] is the concrete TaskLister the wiring hands out. It still
+// has two direct production callers: [Manager.Snapshot], on the RAFT FSM's
+// own snapshot path, and [Manager.ListDistributedTasksPayload], on the
+// leader-routed distributed-task-list query dispatch. The TaskLister-shaped
+// signature stays because six scheduler tests drive the Manager directly and
+// need it that way.
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
 	return m.LocalDistributedTasks(), nil
 }
