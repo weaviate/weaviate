@@ -14,11 +14,9 @@ package cluster
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/cenkalti/backoff/v4"
-	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -334,11 +332,7 @@ func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, erro
 		// We are the leader, let's apply
 		if s.store.IsLeader() {
 			schemaVersion, err = s.store.Execute(req)
-			// We might fail due to leader not found as we are losing or transferring leadership, retry
-			if errors.Is(err, raft.ErrNotLeader) || errors.Is(err, raft.ErrLeadershipLost) {
-				return err
-			}
-			return backoff.Permanent(err)
+			return applyBackoff(err)
 		}
 
 		leader := s.store.Leader()
@@ -351,8 +345,7 @@ func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, erro
 		var resp *cmd.ApplyResponse
 		resp, err = s.cl.Apply(ctx, leader, req)
 		if err != nil {
-			// Don't retry if the actual apply to the leader failed, we have retry at the network layer already
-			return backoff.Permanent(err)
+			return applyBackoff(err)
 		}
 		schemaVersion = resp.Version
 		return nil

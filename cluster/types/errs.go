@@ -31,11 +31,12 @@ var (
 
 // IsNoLeader reports whether err means the operation could not reach a
 // leader. ErrNotLeader/ErrLeaderNotFound come back from a forwarded call;
-// hashicorp's two are returned raw by a leader-local apply that exhausted
+// hashicorp's three are returned raw by a leader-local apply that exhausted
 // its retries.
 func IsNoLeader(err error) bool {
 	return errors.Is(err, ErrNotLeader) ||
 		errors.Is(err, ErrLeaderNotFound) ||
 		errors.Is(err, raft.ErrNotLeader) ||
-		errors.Is(err, raft.ErrLeadershipLost)
+		errors.Is(err, raft.ErrLeadershipLost) ||
+		errors.Is(err, raft.ErrLeadershipTransferInProgress)
 }

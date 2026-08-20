@@ -13,12 +13,52 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/types"
 )
+
+func TestApplyBackoff(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		wantRetry bool
+	}{
+		{name: "success", err: nil, wantRetry: false},
+		{name: "ErrNotLeader", err: types.ErrNotLeader, wantRetry: true},
+		{name: "ErrLeaderNotFound", err: types.ErrLeaderNotFound, wantRetry: true},
+		{name: "raft.ErrNotLeader", err: raft.ErrNotLeader, wantRetry: true},
+		{name: "raft.ErrLeadershipLost", err: raft.ErrLeadershipLost, wantRetry: true},
+		{name: "raft.ErrLeadershipTransferInProgress", err: raft.ErrLeadershipTransferInProgress, wantRetry: true},
+		// What a forwarded apply sees once fromRPCError re-chains the sentinel.
+		{
+			name:      "forwarded raft.ErrLeadershipTransferInProgress",
+			err:       errors.Join(errors.New("rpc error: code = ResourceExhausted"), raft.ErrLeadershipTransferInProgress),
+			wantRetry: true,
+		},
+		{name: "ErrUnknownCommand", err: types.ErrUnknownCommand, wantRetry: false},
+		{name: "ErrBadRequest", err: schema.ErrBadRequest, wantRetry: false},
+		{name: "unrelated", err: errors.New("disk on fire"), wantRetry: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := applyBackoff(tc.err)
+			if tc.err == nil {
+				assert.NoError(t, got)
+				return
+			}
+			var permanent *backoff.PermanentError
+			assert.Equal(t, tc.wantRetry, !errors.As(got, &permanent))
+			assert.ErrorIs(t, got, tc.err)
+		})
+	}
+}
 
 func TestBackoffConfig(t *testing.T) {
 	tests := []struct {
