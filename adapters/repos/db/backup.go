@@ -485,7 +485,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 
 	shards := map[string]*backup.ShardDescriptor{}
 	for _, name := range shardNames {
-		sd, err := i.backupShardWithoutHardlinks(ctx, name, classBaseDescrs)
+		sd, err := i.backupShardWithoutHardlinks(ctx, name, classBaseDescrs, backupID)
 		if err != nil {
 			if errors.Is(err, errShardNoLocalData) {
 				i.logger.WithField("shard", name).Debug("skipping shard with no local data")
@@ -515,7 +515,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 // until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
 //
 // Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
+func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, backupID string) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 	i.backupLock.Lock(name)
@@ -539,7 +539,9 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 		if shard == nil {
 			// Not in shardMap => back up from disk if directory exists.
 			// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
-			i.backupProtectedShards.Store(name, struct{}{})
+			if err := i.recordBackupShardState(backupID, name, &i.backupProtectedShards); err != nil {
+				return err
+			}
 			unlockOnReturn = false
 			return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
 		}
@@ -551,7 +553,9 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 			defer releaseBlock()
 			if !lazyShard.loaded {
 				// Shard is in the map but not loaded; protect and keep lock held.
-				i.backupProtectedShards.Store(name, struct{}{})
+				if err := i.recordBackupShardState(backupID, name, &i.backupProtectedShards); err != nil {
+					return err
+				}
 				unlockOnReturn = false
 				return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
 			}
@@ -566,6 +570,13 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 	// backupLock.Lock is released on return (unlockOnReturn=true).
 	if err := shard.HaltForTransfer(ctx, false, 0); err != nil {
 		return nil, fmt.Errorf("halt shard %v for backup: %w", name, err)
+	}
+
+	// Record the halt under the backup owner. If recording fails because the
+	// backup was already released, resume the halt just taken and return the error.
+	if err := i.recordBackupShardState(backupID, name, &i.backupHaltedShards); err != nil {
+		_ = shard.resumeMaintenanceCycles(ctx)
+		return nil, err
 	}
 
 	files, err := shard.ListBackupFiles(ctx, &sd)
@@ -650,48 +661,97 @@ func backupStagingDir(rootPath, backupID string, className schema.ClassName) str
 	return filepath.Join(rootPath, name)
 }
 
-// ReleaseBackup marks the specified backup as inactive and restarts all
-// async background and maintenance processes. It errors if the backup does not exist
-// or is already inactive.
+// ReleaseBackup marks the specified backup as inactive and resumes maintenance
+// for any shards it halted. It releases only the holds this backup acquired;
+// holds from other callers survive.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	i.logger.WithField("backup_id", id).WithField("class", i.Config.ClassName).Info("release backup")
 
-	// Clean up staging directory (idempotent — RemoveAll on non-existent dir is no-op)
+	// Clean up staging directory (idempotent — RemoveAll on non-existent dir is no-op).
 	stagingDir := backupStagingDir(i.Config.RootPath, id, i.Config.ClassName)
 	if err := os.RemoveAll(stagingDir); err != nil {
-		i.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
+		i.logger.WithField("staging_dir", stagingDir).Warnf("failed to remove backup staging dir: %v", err)
 	}
 
-	// Release non-hardlink backup protections: clear the protection flag and
-	// release the held backupLock.Lock for each protected shard.
-	//
-	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
-	i.backupProtectedShards.Range(func(key, _ any) bool {
-		name := key.(string)
-		i.backupLock.Unlock(name)
-		i.backupProtectedShards.Delete(key)
-		return true
-	})
+	// Release backup state under backupStateMu: only the owner of this backup
+	// id may touch it.
+	var haltedNames []string
+	i.backupStateMu.Lock()
+	cur := i.lastBackup.Load()
+	if cur == nil || cur.BackupID != id {
+		// This caller does not own any backup state; skip.
+		i.backupStateMu.Unlock()
+	} else {
+		// Release the protections held for the no-hardlink path's inactive
+		// shards: unlock and remove each entry.
+		i.backupProtectedShards.Range(func(key, _ any) bool {
+			name := key.(string)
+			i.backupLock.Unlock(name)
+			i.backupProtectedShards.Delete(key)
+			return true
+		})
 
-	i.resetBackupState()
+		// Collect and clear the shard names the no-hardlink path halted; their
+		// resumes run below, after the mutex is released.
+		i.backupHaltedShards.Range(func(key, _ any) bool {
+			haltedNames = append(haltedNames, key.(string))
+			i.backupHaltedShards.Delete(key)
+			return true
+		})
 
-	// Releasing backupLock above unblocks a waiting index.drop(), which shuts the
-	// shard stores down. Resuming their cycles now would be a use-after-drop.
-	if err := i.enterRead(); err != nil {
-		return nil
+		i.lastBackup.Store(nil)
+		i.backupStateMu.Unlock()
+
+		// Releasing backupLock above unblocks a waiting index.drop(), which
+		// shuts the shard stores down. Resuming their cycles now would be a
+		// use-after-drop.
+		if err := i.enterRead(); err != nil {
+			return nil
+		}
+		defer i.exitRead()
+
+		// Resume only the shards this backup halted (no-hardlink path only).
+		// On the production hardlink path both maps are empty and this loop
+		// does nothing: CreateBackupSnapshot releases its own owned hold.
+		var lastErr error
+		for _, name := range haltedNames {
+			if shard := i.shards.Loaded(name); shard != nil {
+				if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+					lastErr = err
+					i.logger.WithField("shard", name).WithField("op", "resume_maintenance").
+						Errorf("resuming halted shard: %v", err)
+				}
+			}
+		}
+		if lastErr != nil {
+			return lastErr
+		}
 	}
-	defer i.exitRead()
 
-	// resumeMaintenanceCycles is still called for safety, but is a no-op since
-	// CreateBackupSnapshot already resumed compaction. Handles edge cases where
-	// a snapshot creation failed mid-way.
-	if err := i.resumeMaintenanceCycles(ctx); err != nil {
-		return err
-	}
 	return nil
 }
 
+// resumeMaintenanceCycles resumes maintenance on every loaded shard.
+// No production caller uses this; retained for
+// shard_lazyloader_coldshard_test.go:TestResumeMaintenanceCycles_DoesNotForceLoadColdShards.
+func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
+	// Only loaded shards have maintenance cycles to resume; a cold shard has
+	// none, so skip it rather than force-load every shard after a backup.
+	i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+			lastErr = err
+			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Errorf("resuming shard: %v", err)
+		}
+		time.Sleep(time.Millisecond * 10)
+		return nil
+	})
+	return lastErr
+}
+
 func (i *Index) initBackup(id string) error {
+	i.backupStateMu.Lock()
+	defer i.backupStateMu.Unlock()
+
 	new := &BackupState{
 		BackupID:   id,
 		InProgress: true,
@@ -710,22 +770,23 @@ func (i *Index) initBackup(id string) error {
 	return nil
 }
 
-func (i *Index) resetBackupState() {
-	i.lastBackup.Store(nil)
-}
+// recordBackupShardState records that shard `name` has been halted or protected
+// by the backup identified by `backupID`. Under backupStateMu, it verifies that
+// lastBackup is set and carries the same backupID; otherwise (the backup was
+// already released, for example after a cancellation) it returns an error so
+// the caller can undo its own side effect.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Only the no-hardlink path calls this.
+func (i *Index) recordBackupShardState(backupID, name string, m *sync.Map) error {
+	i.backupStateMu.Lock()
+	defer i.backupStateMu.Unlock()
 
-func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
-	// Only loaded shards have maintenance cycles to resume; a cold shard has
-	// none, so skip it rather than force-load every shard after a backup.
-	i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
-			lastErr = err
-			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
-		}
-		time.Sleep(time.Millisecond * 10)
-		return nil
-	})
-	return lastErr
+	cur := i.lastBackup.Load()
+	if cur == nil || cur.BackupID != backupID {
+		return fmt.Errorf("backup %q is no longer the active backup; shard %q state not recorded", backupID, name)
+	}
+	m.Store(name, struct{}{})
+	return nil
 }
 
 func (i *Index) marshalSchema() ([]byte, error) {
