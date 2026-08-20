@@ -85,7 +85,6 @@ func autoTenantActivationJourney(t *testing.T,
 		c.MultiTenancyConfig.AutoTenantActivation = true
 		err = client.Schema().ClassUpdater().WithClass(c).Do(ctx)
 		require.Nil(t, err)
-
 	})
 
 	t.Run("assert all tenants are queryable despite originally being COLD", func(t *testing.T) {
