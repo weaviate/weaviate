@@ -2,7 +2,10 @@ module acceptance_tests_with_client
 
 go 1.26
 
-replace github.com/weaviate/weaviate => ../..
+replace (
+	github.com/weaviate/weaviate => ../..
+	github.com/weaviate/weaviate/pkg/pb => ../../pkg/pb
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
@@ -12,6 +15,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/tailor-platform/graphql v0.6.0
 	github.com/weaviate/weaviate v1.36.0
+	github.com/weaviate/weaviate/pkg/pb v0.0.0
 	github.com/weaviate/weaviate-go-client/v5 v5.7.3-0.20260413120914-0d665cebe735
 	golang.org/x/sync v0.21.0
 	google.golang.org/grpc v1.82.1

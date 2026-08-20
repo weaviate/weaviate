@@ -2,13 +2,17 @@ module github.com/weaviate/weaviate/test/benchmark_bm25
 
 go 1.26
 
-replace github.com/weaviate/weaviate => ../..
+replace (
+	github.com/weaviate/weaviate => ../..
+	github.com/weaviate/weaviate/pkg/pb => ../../pkg/pb
+)
 
 require (
 	github.com/go-openapi/strfmt v0.25.0
 	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.10.2
 	github.com/weaviate/weaviate v1.29.0
+	github.com/weaviate/weaviate/pkg/pb v0.0.0
 	github.com/weaviate/weaviate-go-client/v5 v5.0.2
 	gopkg.in/yaml.v3 v3.0.1
 )
