@@ -187,6 +187,12 @@ type commitLogger struct {
 	// e.g. when recovering from an existing log, we do not want to write into a
 	// new log again
 	paused bool
+
+	// closed makes close() idempotent: a retried Memtable.flush() (after an
+	// earlier attempt failed downstream of a successful close) must be able
+	// to call close() again without re-flushing/re-syncing an already-closed
+	// file.
+	closed bool
 }
 
 // commit log entry data format
@@ -392,6 +398,10 @@ func (cl *commitLogger) sync() error {
 }
 
 func (cl *commitLogger) close() error {
+	if cl.closed {
+		return nil
+	}
+
 	if !cl.paused {
 		if err := cl.writer.Flush(); err != nil {
 			return err
@@ -402,7 +412,12 @@ func (cl *commitLogger) close() error {
 		}
 	}
 
-	return cl.file.Close()
+	if err := cl.file.Close(); err != nil {
+		return err
+	}
+	cl.closed = true
+
+	return nil
 }
 
 func (cl *commitLogger) pause() {
@@ -414,7 +429,10 @@ func (cl *commitLogger) unpause() {
 }
 
 func (cl *commitLogger) delete() error {
-	return os.Remove(cl.path)
+	if err := os.Remove(cl.path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func (cl *commitLogger) flushBuffers() error {

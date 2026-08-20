@@ -91,7 +91,17 @@ type Bucket struct {
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
-	flushLock        sync.RWMutex
+	flushLock sync.RWMutex
+
+	// flushAndSwitchMu serializes FlushAndSwitch calls, and with them the
+	// retry drain that flushRetained performs against b.flushing. Without
+	// it, two overlapping callers (the flush cycle callback and a
+	// control-plane caller such as FlushMemtable) could both observe a
+	// retained b.flushing and race to clear it, or one could switch the
+	// active memtable out from under the other's retry.
+	//
+	// Lock ordering: flushAndSwitchMu MUST be acquired BEFORE flushLock.
+	flushAndSwitchMu sync.Mutex
 	haltedFlushTimer *interval.BackoffTimer
 
 	minWalThreshold   uint64
@@ -1683,6 +1693,11 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
 	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
 	shouldSwitch := memtableTooLarge || walTooLarge || dirtyTooLong
+	// A retained b.flushing from a previously failed flush must be retried
+	// even if the current active memtable is otherwise quiet, or it would
+	// never get another chance: its own thresholds no longer drive anything
+	// once it's off the active path.
+	needsRetry := b.flushing != nil
 
 	// If true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the
@@ -1700,20 +1715,19 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 		return false
 	}
 
-	if b.shouldReuseWAL() {
+	if !needsRetry && b.shouldReuseWAL() {
 		defer b.flushLock.RUnlock()
 		return b.getAndUpdateWritesSinceLastSync()
 	}
 
 	b.flushLock.RUnlock()
-	if shouldSwitch {
+	if shouldSwitch || needsRetry {
 		b.haltedFlushTimer.Reset()
 		cycleLength := b.active.ActiveDuration()
 		if err := b.FlushAndSwitch(); err != nil {
 			b.logger.WithField("action", "lsm_memtable_flush").
 				WithField("path", b.GetDir()).
-				WithError(err).
-				Errorf("flush and switch failed")
+				Errorf("flush and switch failed: %v", err)
 			return false
 		}
 
@@ -1776,6 +1790,10 @@ func (b *Bucket) readOnlyErr() error {
 // Flushing and adding a segment can take considerable time, which is why the
 // whole process is designed to be non-blocking.
 //
+// If steps 2-4 below fail, the memtable stays in b.flushing rather than
+// being discarded, and the next FlushAndSwitch call retries it (via
+// flushRetained) before switching a new memtable in.
+//
 // To achieve a non-blocking flush, the process is split into four parts:
 //
 //  1. atomicallySwitchMemtable: A new memtable is created, the previous
@@ -1822,20 +1840,32 @@ func (b *Bucket) FlushAndSwitch() error {
 		return err
 	}
 
-	before := time.Now()
-	var err error
+	b.flushAndSwitchMu.Lock()
+	defer b.flushAndSwitchMu.Unlock()
 
+	before := time.Now()
 	bucketPath := b.GetDir()
 
 	b.logger.WithField("action", "lsm_memtable_flush_start").
 		WithField("path", bucketPath).
 		Trace("start flush and switch")
 
+	// A previous FlushAndSwitch call may have switched the active memtable
+	// into b.flushing and then failed before the flush reached disk.
+	// Switching again here would overwrite b.flushing and permanently hide
+	// its acknowledged writes from every reader until the WAL is replayed
+	// on restart, so drain it before considering a new switch.
+	if b.hasPendingFlush() {
+		if err := b.flushRetained(); err != nil {
+			return err
+		}
+	}
+
 	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
 	if err != nil {
 		b.logger.WithField("action", "lsm_memtable_flush_start").
 			WithField("path", bucketPath).
-			Error(err)
+			Errorf("switch memtable: %v", err)
 		return fmt.Errorf("flush and switch: %w", err)
 	}
 	if !switched {
@@ -1845,6 +1875,36 @@ func (b *Bucket) FlushAndSwitch() error {
 		return nil
 	}
 
+	if err := b.flushRetained(); err != nil {
+		return err
+	}
+
+	took := time.Since(before)
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", bucketPath).
+		Trace("finish flush and switch")
+
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", bucketPath).
+		WithField("took", took).
+		Debugf("flush and switch took %s\n", took)
+
+	return nil
+}
+
+// hasPendingFlush reports whether b.flushing is populated, i.e. a previous
+// FlushAndSwitch switched a memtable out of active but did not finish
+// flushing it to disk.
+func (b *Bucket) hasPendingFlush() bool {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+	return b.flushing != nil
+}
+
+// flushRetained flushes the current b.flushing memtable to disk and adds
+// the resulting segment to the segment group. Callers must hold
+// flushAndSwitchMu and must only call this when b.flushing is non-nil.
+func (b *Bucket) flushRetained() error {
 	// Before we can start the actual flush, we need to make sure that all
 	// ongoing writers have finished their write, otherwise we could lose the
 	// write.
@@ -1925,16 +1985,6 @@ func (b *Bucket) FlushAndSwitch() error {
 		}
 	}
 
-	took := time.Since(before)
-	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", bucketPath).
-		Trace("finish flush and switch")
-
-	b.logger.WithField("action", "lsm_memtable_flush_complete").
-		WithField("path", bucketPath).
-		WithField("took", took).
-		Debugf("flush and switch took %s\n", took)
-
 	return nil
 }
 
@@ -1945,6 +1995,15 @@ func (b *Bucket) FlushAndSwitch() error {
 func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (memtable, error)) (bool, error) {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
+
+	// A non-nil b.flushing still holds acknowledged, unflushed writes.
+	// Overwriting it here would drop that memtable from the read path
+	// entirely until the WAL is replayed on restart. FlushAndSwitch always
+	// drains a pending flush before switching again; reaching this with
+	// b.flushing set means a caller bypassed that drain.
+	if b.flushing != nil {
+		return false, fmt.Errorf("switch active memtable: previous flushing memtable not yet cleared")
+	}
 
 	if b.active.Size() == 0 {
 		return false, nil
