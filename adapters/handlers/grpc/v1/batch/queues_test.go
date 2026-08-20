@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 )
 
 func Test_statsUpdateBatchSize(t *testing.T) {

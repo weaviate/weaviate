@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/schema"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/weaviate/weaviate/client/objects"

@@ -41,7 +41,7 @@ syntax = "proto3";
 package weaviate.v1;
 option java_package = "io.weaviate.client.grpc.protocol.v1";
 option java_outer_classname = "WeaviateHealth";
-option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option go_package = "github.com/weaviate/weaviate/pkg/pb/generated;protocol";
 
 message WeaviateHealthCheckRequest {
   string service = 1;

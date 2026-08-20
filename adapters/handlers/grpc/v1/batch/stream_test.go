@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 )
 
 func TestStreamHandler(t *testing.T) {

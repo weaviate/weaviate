@@ -16,7 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 )
 
 // parse_search_request.go passes the operator through as pb enum.String(),

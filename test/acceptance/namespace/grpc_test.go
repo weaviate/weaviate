@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	schemaCli "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"

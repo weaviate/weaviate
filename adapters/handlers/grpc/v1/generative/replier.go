@@ -17,7 +17,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	anthropicClients "github.com/weaviate/weaviate/modules/generative-anthropic/clients"
 	anthropicParams "github.com/weaviate/weaviate/modules/generative-anthropic/parameters"
 	anyscaleParams "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
@@ -41,6 +40,7 @@ import (
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
 	xaiClients "github.com/weaviate/weaviate/modules/generative-xai/clients"
 	xaiParams "github.com/weaviate/weaviate/modules/generative-xai/parameters"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )

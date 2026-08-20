@@ -38,7 +38,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 	apiclient "github.com/weaviate/weaviate/client"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 )
 
 // Create a client that logs with t.Logf, if a *testing.T is provided.

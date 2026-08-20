@@ -259,6 +259,7 @@ require (
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	github.com/vcaesar/cedar v0.20.2 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	github.com/weaviate/weaviate/pkg/pb v0.0.0
 	github.com/willf/bitset v1.1.11 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
@@ -283,3 +284,5 @@ require (
 )
 
 go 1.26
+
+replace github.com/weaviate/weaviate/pkg/pb v0.0.0 => ./pkg/pb

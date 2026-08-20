@@ -21,7 +21,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 

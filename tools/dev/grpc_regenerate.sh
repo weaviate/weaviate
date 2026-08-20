@@ -7,7 +7,7 @@ function echo_green() {
     echo -e "${green}${*}${nc}"
 }
 
-GEN_DIR=./grpc/generated
+GEN_DIR=./pkg/pb/generated
 OUT_DIR="$GEN_DIR/protocol"
 
 echo_green "Regenerate Weaviate API, Raft, Internal cluster communication gRPC protocol stubs"
@@ -37,7 +37,7 @@ rm -fr $OUT_DIR && mkdir -p $OUT_DIR && cd $GEN_DIR && protoc \
     --go-grpc_out=paths=source_relative:protocol \
     ../proto/v1/*.proto
 
-cd - && sed -i '' '/versions:/, /source: .*/d' ./grpc/generated/protocol/**/*.go
+cd - && sed -i '' '/versions:/, /source: .*/d' ./pkg/pb/generated/protocol/**/*.go
 
 go run ./tools/license_headers/main.go
 

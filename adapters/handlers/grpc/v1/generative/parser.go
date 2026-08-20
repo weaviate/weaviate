@@ -16,7 +16,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	anthropicParams "github.com/weaviate/weaviate/modules/generative-anthropic/parameters"
 	anyscaleParams "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 	awsParams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
@@ -31,6 +30,7 @@ import (
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
 	xaiParams "github.com/weaviate/weaviate/modules/generative-xai/parameters"
+	pb "github.com/weaviate/weaviate/pkg/pb/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 )
 
