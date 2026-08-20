@@ -1483,6 +1483,8 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		return zerotime, false, nil
 	}
 
+	// Gates lifecycle ordering; the timestamp itself is no longer used to
+	// filter the scan (see uuidObjectsIteratorAsync).
 	var reindexStarted time.Time
 	if !rt.IsStarted() {
 		err = fmt.Errorf("missing reindex started")
@@ -1582,7 +1584,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	schemaOverlay := t.strategy.AnalyzerOverlay(props)
 
 	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
-		propExtraction, reindexStarted, breakCh, schemaOverlay)
+		propExtraction, breakCh, schemaOverlay)
 
 	for md := range mdCh {
 		if md == nil {
@@ -2874,11 +2876,11 @@ type migrationData struct {
 	err   error
 }
 
-type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool, schemaOverlay map[string]inverted.PropertyOverlay,
+type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, breakCh <-chan bool, schemaOverlay map[string]inverted.PropertyOverlay,
 ) (time.Time, <-chan *migrationData)
 
 func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey,
-	propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
+	propExtraction *storobj.PropertyExtraction, breakCh <-chan bool,
 	schemaOverlay map[string]inverted.PropertyOverlay,
 ) (time.Time, <-chan *migrationData) {
 	startedCh := make(chan time.Time)
@@ -2920,27 +2922,30 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 				break
 			}
 
-			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
-				// The overlay is required by from-scratch strategies whose
-				// target inverted-index flag is still false on the live
-				// schema during backfill. It is nil for retokenize / refresh
-				// strategies. See MigrationStrategy.AnalyzerOverlay.
-				props, _, err := shard.AnalyzeObjectForMigrationWithOverlay(obj, schemaOverlay)
-				if err != nil {
-					mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
-					break
-				}
-
-				if <-breakCh {
-					break
-				}
-				mdCh <- &migrationData{key: ik.Clone(), props: props, docID: obj.DocID}
-			} else {
-				if <-breakCh {
-					break
-				}
-				mdCh <- &migrationData{key: ik.Clone()}
+			// Analyzed unconditionally, including objects timestamped
+			// at/after reindexStarted: that comparison mixes a
+			// coordinator-stamped write time with a replica-captured
+			// watermark and is unsound under multi-node clock skew
+			// (weaviate/weaviate#11692). Correctness instead relies on
+			// runtimeSwap prepending reindex segments before ingest
+			// segments, so a mirror write/tombstone always shadows the
+			// scan's posting for the same key, and each strategy's writes
+			// are per-key idempotent.
+			//
+			// The overlay is required by from-scratch strategies whose
+			// target inverted-index flag is still false on the live
+			// schema during backfill. It is nil for retokenize / refresh
+			// strategies. See MigrationStrategy.AnalyzerOverlay.
+			props, _, err := shard.AnalyzeObjectForMigrationWithOverlay(obj, schemaOverlay)
+			if err != nil {
+				mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
+				break
 			}
+
+			if <-breakCh {
+				break
+			}
+			mdCh <- &migrationData{key: ik.Clone(), props: props, docID: obj.DocID}
 		}
 		if k == nil {
 			<-breakCh
