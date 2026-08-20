@@ -45,13 +45,9 @@ func RequireActive(e Exister, name string) error {
 }
 
 // RequireExisting returns nil for an empty name or a namespace that exists and
-// is not deleting. A deleting namespace counts as already gone here: deletion
-// is terminal, so rows written for it have no future. A gone namespace is
-// refused because rows written for it would outlive every cleanup path.
-// Unknown states are refused, matching [RequireActive]. Backup restore uses
-// this instead of RequireActive because restore only transfers state; a
-// suspended or resuming namespace holds its rows through the state flip, so
-// writing them is legal there.
+// is not deleting, and refuses anything else: rows written for a namespace that
+// is gone or going would outlive every cleanup path. Restore uses this rather
+// than RequireActive because a suspended namespace keeps its rows.
 func RequireExisting(e Exister, name string) error {
 	if name == "" {
 		return nil

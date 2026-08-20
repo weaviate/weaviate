@@ -21,7 +21,6 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	clusterdynusers "github.com/weaviate/weaviate/cluster/dynusers"
@@ -36,8 +35,8 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-// rolesAndUsersStores is the pair of managers the FSM handler drives, plus the raw
-// stores the assertions read.
+// rolesAndUsersStores is the pair of managers the state-machine apply drives,
+// plus the raw stores the assertions read.
 type rolesAndUsersStores struct {
 	authZManager *clusterrbac.Manager
 	dynManager   *clusterdynusers.Manager
@@ -65,12 +64,12 @@ func newRolesAndUsersStores(t *testing.T, ns usecasesNamespaces.Exister) *rolesA
 	logger, _ := test.NewNullLogger()
 
 	policyDir := t.TempDir()
-	// The lister makes snapshots carry ns1 in their Namespaces list, the shape a
-	// real namespace-enabled source produces; nothing else reads it.
+	// The lister makes snapshots carry ns1 in their Namespaces list, as a real
+	// source with namespaces on would. Nothing else reads it.
 	authZ, err := rbac.New(filepath.Join(policyDir, "policy.csv"),
 		rbacconf.Config{Enabled: true}, config.Authentication{}, true, staticLister{"ns1"}, logger)
 	require.NoError(t, err)
-	// enabled=false: the one-minute storeToFile ticker would otherwise mask a
+	// enabled is false so the one-minute storeToFile ticker cannot mask a
 	// missing persistence call.
 	dynUser, err := apikey.NewDBUser(t.TempDir(), false, logger, ns)
 	require.NoError(t, err)
@@ -124,29 +123,6 @@ func (s *rolesAndUsersStores) userIDs(t *testing.T) []string {
 	return out
 }
 
-// namespacesInState returns an Exister reporting each named namespace in the
-// given state; any other name is missing.
-func namespacesInState(t *testing.T, states map[string]api.NamespaceState) *usecasesNamespaces.MockExister {
-	t.Helper()
-	m := &usecasesNamespaces.MockExister{}
-	m.Test(t)
-	exists := func(name string) bool {
-		_, ok := states[name]
-		return ok
-	}
-	m.On("Exists", mock.AnythingOfType("string")).Return(exists).Maybe()
-	m.On("IsActive", mock.AnythingOfType("string")).Return(func(name string) bool {
-		return states[name] == api.NamespaceStateActive
-	}).Maybe()
-	m.On("GetNamespace", mock.AnythingOfType("string")).Return(
-		func(name string) api.Namespace {
-			return api.Namespace{Name: name, HomeNodes: []string{"node-1"}, State: states[name]}
-		},
-		exists,
-	).Maybe()
-	return m
-}
-
 func mustApplyRequest(t *testing.T, req api.RestoreRolesAndUsersRequest) *api.ApplyRequest {
 	t.Helper()
 	sub, err := json.Marshal(&req)
@@ -154,13 +130,14 @@ func mustApplyRequest(t *testing.T, req api.RestoreRolesAndUsersRequest) *api.Ap
 	return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_RESTORE_ROLES_AND_USERS, SubCommand: sub}
 }
 
-// TestApplyRestoreRolesAndUsersValidatesBeforeMutating: neither store is touched
-// unless both payloads pass, and on success roles land before users.
+// TestApplyRestoreRolesAndUsersValidatesBeforeMutating pins that neither store
+// is touched unless both payloads pass, and that on success roles land before
+// users.
 func TestApplyRestoreRolesAndUsersValidatesBeforeMutating(t *testing.T) {
 	activeNS := map[string]api.NamespaceState{"ns1": api.NamespaceStateActive}
 
 	// The blobs under test, taken from a source cluster.
-	source := newRolesAndUsersStores(t, namespacesInState(t, activeNS))
+	source := newRolesAndUsersStores(t, usecasesNamespaces.NewMockExisterInState(t, activeNS))
 	source.createRole(t, "restored")
 	source.createRole(t, "ns1:scoped")
 	source.createUser(t, "restored-user", "")
@@ -217,8 +194,8 @@ func TestApplyRestoreRolesAndUsersValidatesBeforeMutating(t *testing.T) {
 			wantUsers: []string{"incumbent-user"},
 		},
 		{
-			// A suspended namespace keeps its rows through the state flip, so
-			// restoring rows for it is legal and must not block the restore.
+			// A suspended namespace keeps its rows, so restoring rows for it is
+			// legal and must not block the restore.
 			name:      "suspended namespace: both stores replaced",
 			req:       api.RestoreRolesAndUsersRequest{Roles: nsRoles, Users: nsUsers},
 			states:    map[string]api.NamespaceState{"ns1": api.NamespaceStateSuspended},
@@ -237,7 +214,7 @@ func TestApplyRestoreRolesAndUsersValidatesBeforeMutating(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ns := namespacesInState(t, tt.states)
+			ns := usecasesNamespaces.NewMockExisterInState(t, tt.states)
 			target := newRolesAndUsersStores(t, ns)
 			target.createRole(t, "incumbent")
 			target.createUser(t, "incumbent-user", "")
@@ -258,7 +235,7 @@ func TestApplyRestoreRolesAndUsersValidatesBeforeMutating(t *testing.T) {
 }
 
 func TestApplyRestoreRolesAndUsersRejectsMalformedSubCommand(t *testing.T) {
-	ns := namespacesInState(t, nil)
+	ns := usecasesNamespaces.NewMockExisterInState(t, nil)
 	target := newRolesAndUsersStores(t, ns)
 	target.createRole(t, "incumbent")
 
@@ -270,10 +247,10 @@ func TestApplyRestoreRolesAndUsersRejectsMalformedSubCommand(t *testing.T) {
 }
 
 // TestApplyRestoreRolesAndUsersLeavesUsersOnRoleFailure pins the roles-then-users
-// order: the role apply is the only post-validation step that can fail, and its
-// failure must leave the user store untouched.
+// order: the role apply is the only step after validation that can fail, and
+// its failure must leave the user store untouched.
 func TestApplyRestoreRolesAndUsersLeavesUsersOnRoleFailure(t *testing.T) {
-	ns := namespacesInState(t, nil)
+	ns := usecasesNamespaces.NewMockExisterInState(t, nil)
 
 	source := newRolesAndUsersStores(t, ns)
 	source.createRole(t, "restored")

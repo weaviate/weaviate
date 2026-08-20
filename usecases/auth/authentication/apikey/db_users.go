@@ -769,6 +769,18 @@ func ReferencedNamespaces(snapshot []byte) ([]string, error) {
 	return slices.Sorted(maps.Keys(seen)), nil
 }
 
+// RequireReferencedNamespacesExist returns an error when any namespace the
+// snapshot names is missing or deleting on this cluster. See
+// [ReferencedNamespaces] for which names the snapshot carries and
+// [namespaces.RequireAllExisting] for which states pass.
+func RequireReferencedNamespacesExist(snapshot []byte, ns namespaces.Exister) error {
+	refs, err := ReferencedNamespaces(snapshot)
+	if err != nil {
+		return err
+	}
+	return namespaces.RequireAllExisting(ns, refs)
+}
+
 // stripDBUserNamespace drops the "<namespace>:" prefix from every field containing an ID;
 // non-namespace prefix or bare ids pass through. A collision between IDs after stripping
 // returns a clear error.
@@ -835,9 +847,9 @@ func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 	return out, nil
 }
 
-// Persist writes the user state to the file NewDBUser reads at boot: a cache
-// in front of RAFT state, never the source of truth. Callers must not hold the
-// lock.
+// Persist writes the user state to the file NewDBUser reads at boot. That file
+// is a cache in front of RAFT state, never the source of truth. Callers must
+// not hold the lock.
 func (c *DBUser) Persist() error {
 	c.lock.Lock()
 	defer c.lock.Unlock()

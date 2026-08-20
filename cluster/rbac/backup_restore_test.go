@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -25,9 +24,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-// listerOf reports each named namespace as existing, so a source manager built
-// with it writes those names into its snapshots' Namespaces list, the shape a
-// namespace-enabled cluster produces.
+// listerOf reports each named namespace as existing. A source manager built
+// with it writes those names into its snapshots' Namespaces list, as a cluster
+// with namespaces on would.
 type listerOf []string
 
 func (l listerOf) List() []cmd.Namespace {
@@ -58,9 +57,9 @@ func snapshotOf(t *testing.T, roles ...string) []byte {
 	return blob
 }
 
-// customRoleNames returns the manager's role names minus the built-ins, which
-// applyPredefinedRoles rebuilds from this node's own configuration on every
-// restore and so say nothing about the blob.
+// customRoleNames returns the manager's role names minus the built-ins.
+// applyPredefinedRoles rebuilds the built-ins from this node's own
+// configuration on every restore, so they say nothing about the blob.
 func customRoleNames(t *testing.T, m *Manager) []string {
 	t.Helper()
 	roles, err := m.authZ.GetRoles()
@@ -74,32 +73,9 @@ func customRoleNames(t *testing.T, m *Manager) []string {
 	return out
 }
 
-// namespacesInState returns an Exister reporting each named namespace in the
-// given state; any other name is missing.
-func namespacesInState(t *testing.T, states map[string]cmd.NamespaceState) *usecasesNamespaces.MockExister {
-	t.Helper()
-	m := &usecasesNamespaces.MockExister{}
-	m.Test(t)
-	exists := func(name string) bool {
-		_, ok := states[name]
-		return ok
-	}
-	m.On("Exists", mock.AnythingOfType("string")).Return(exists).Maybe()
-	m.On("IsActive", mock.AnythingOfType("string")).Return(func(name string) bool {
-		return states[name] == cmd.NamespaceStateActive
-	}).Maybe()
-	m.On("GetNamespace", mock.AnythingOfType("string")).Return(
-		func(name string) cmd.Namespace {
-			return cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}, State: states[name]}
-		},
-		exists,
-	).Maybe()
-	return m
-}
-
-// TestRestoreFromBackupReplacesRoleStore pins the whole-store replace: the
-// target's own roles are gone afterwards, and an empty blob is a no-op rather
-// than a wipe.
+// TestRestoreFromBackupReplacesRoleStore pins that the restore replaces the
+// whole store: the target's own roles are gone afterwards, and an empty blob is
+// a no-op rather than a wipe.
 func TestRestoreFromBackupReplacesRoleStore(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -130,9 +106,9 @@ func TestRestoreFromBackupReplacesRoleStore(t *testing.T) {
 	}
 }
 
-// TestRestoreFromBackupHonoursStripFlag pins that the flag travels: a
-// namespace-disabled target must land the role unqualified, and a
-// namespace-enabled one must keep the qualification.
+// TestRestoreFromBackupHonoursStripFlag pins that the flag travels: a target
+// with namespaces off must store the role without its namespace prefix, and a
+// target with namespaces on must keep the prefix.
 func TestRestoreFromBackupHonoursStripFlag(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -158,10 +134,10 @@ func TestRestoreFromBackupHonoursStripFlag(t *testing.T) {
 }
 
 // TestValidateBackupSnapshotNamespaceStates pins the fail-closed namespace
-// check: on a namespace-enabled target every namespace the blob references
-// must exist and not be deleting, the error names each offender, suspended and
-// resuming pass, and the strip arm skips the check because the strip drops
-// every qualification anyway.
+// check. On a target with namespaces on, every namespace the blob references
+// must exist and not be deleting, and the error names each one that fails.
+// Suspended and resuming pass. With the strip on, the check is skipped because
+// the strip drops every namespace prefix anyway.
 func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -216,7 +192,7 @@ func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 				StripNamespaces: tt.strip,
 			}
 
-			err := newTestManager(t).ValidateBackupSnapshot(req, namespacesInState(t, tt.states))
+			err := newTestManager(t).ValidateBackupSnapshot(req, usecasesNamespaces.NewMockExisterInState(t, tt.states))
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -227,13 +203,9 @@ func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 	}
 }
 
-// TestValidateBackupSnapshotNamespaceFromDBSubject covers a blob whose only
-// mention of a namespace is a role assignment: "db:ns3:bob -> viewer" names
-// ns3, while every role name and every resource path stays unqualified. The
-// source never records db subjects in the blob's Namespaces list, so the
-// check has to read the subjects themselves; this pins that. The users blob
-// would carry ns3 too, but usersOptions=noRestore turns that check off, so
-// the roles blob has to stand alone.
+// TestValidateBackupSnapshotNamespaceFromDBSubject covers a blob whose only mention
+// of a namespace is the assignment "db:ns3:bob -> viewer". The source leaves db
+// subjects out of the Namespaces list, so the check has to read them itself.
 func TestValidateBackupSnapshotNamespaceFromDBSubject(t *testing.T) {
 	source := newTestManager(t)
 	require.NoError(t, source.authZ.AddRolesForUser("db:ns3:bob", []string{authorization.Viewer}))
@@ -268,7 +240,7 @@ func TestValidateBackupSnapshotNamespaceFromDBSubject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &cmd.RestoreRolesAndUsersRequest{Roles: blob}
 
-			err := newTestManager(t).ValidateBackupSnapshot(req, namespacesInState(t, tt.states))
+			err := newTestManager(t).ValidateBackupSnapshot(req, usecasesNamespaces.NewMockExisterInState(t, tt.states))
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return

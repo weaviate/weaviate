@@ -118,9 +118,9 @@ func createRestoredRole(t *testing.T) {
 }
 
 // requireRolesAndUsersOnEveryNode authenticates against each node with the restored
-// user's key and exercises the restored role's permission. Both checks are
-// node-local; a leader-routed query would report the leader's state from any
-// node.
+// user's key and exercises the restored role's permission. Both checks run
+// against the node itself; a query routed to the leader would report the
+// leader's state from any node.
 func requireRolesAndUsersOnEveryNode(t *testing.T, compose *docker.DockerCompose, userKey string) {
 	t.Helper()
 	for n := 1; n <= nodeCount; n++ {
@@ -188,7 +188,7 @@ func restartCluster(t *testing.T, compose *docker.DockerCompose) {
 	require.NoError(t, g.Wait())
 }
 
-// Default RAFT settings: the restore entry is replayed from the log on
+// With default RAFT settings, the restore entry is replayed from the log on
 // restart. Subtests run in order and build on each other's state.
 func TestBackupRestoreRolesAndUsersPropagationAndRestart(t *testing.T) {
 	// helper.SetupClient mutates package globals; nothing here may run in parallel.

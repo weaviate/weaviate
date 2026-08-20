@@ -32,7 +32,7 @@ func TestRequireActive(t *testing.T) {
 		{name: "resuming reports resumption", seedState: cmd.NamespaceStateResuming, lookup: "customer1", wantErr: ErrNamespaceResuming},
 		{name: "deleting reports deletion", seedState: cmd.NamespaceStateDeleting, lookup: "customer1", wantErr: ErrNamespaceDeleting},
 		{name: "missing namespace reports gone", lookup: "never-existed", wantErr: ErrNamespaceGone},
-		// An entity belonging to no namespace: nothing to check.
+		// An entity that belongs to no namespace has nothing to check.
 		{name: "empty name is allowed", seedState: cmd.NamespaceStateActive, lookup: ""},
 	}
 
@@ -52,15 +52,26 @@ func TestRequireActive(t *testing.T) {
 	}
 }
 
-func TestRequireActive_UnknownStateIsRejected(t *testing.T) {
+func TestUnknownStateIsRejected(t *testing.T) {
 	// A state this binary doesn't know must not be treated as usable. Only a
 	// snapshot from a newer binary can produce one, so set the field directly.
-	c := newTestController(t)
-	require.NoError(t, c.Restore([]byte(
-		`{"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"active"}}`)))
-	c.namespaces["customer1"].State = cmd.NamespaceState("not-a-state")
+	tests := []struct {
+		name string
+		fn   func(Exister, string) error
+	}{
+		{name: "RequireActive", fn: RequireActive},
+		{name: "RequireExisting", fn: RequireExisting},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestController(t)
+			require.NoError(t, c.Restore([]byte(
+				`{"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"active"}}`)))
+			c.namespaces["customer1"].State = cmd.NamespaceState("not-a-state")
 
-	assert.ErrorIs(t, RequireActive(c, "customer1"), ErrInvalidState)
+			assert.ErrorIs(t, tt.fn(c, "customer1"), ErrInvalidState)
+		})
+	}
 }
 
 func TestRequireExisting(t *testing.T) {
@@ -75,7 +86,7 @@ func TestRequireExisting(t *testing.T) {
 		{name: "resuming is allowed", seedState: cmd.NamespaceStateResuming, lookup: "customer1"},
 		{name: "deleting reports deletion", seedState: cmd.NamespaceStateDeleting, lookup: "customer1", wantErr: ErrNamespaceDeleting},
 		{name: "missing namespace reports gone", lookup: "never-existed", wantErr: ErrNamespaceGone},
-		// An entity belonging to no namespace: nothing to check.
+		// An entity that belongs to no namespace has nothing to check.
 		{name: "empty name is allowed", seedState: cmd.NamespaceStateActive, lookup: ""},
 	}
 
@@ -93,17 +104,6 @@ func TestRequireExisting(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
-}
-
-func TestRequireExisting_UnknownStateIsRejected(t *testing.T) {
-	// A state this binary doesn't know must not be treated as usable. Only a
-	// snapshot from a newer binary can produce one, so set the field directly.
-	c := newTestController(t)
-	require.NoError(t, c.Restore([]byte(
-		`{"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"active"}}`)))
-	c.namespaces["customer1"].State = cmd.NamespaceState("not-a-state")
-
-	assert.ErrorIs(t, RequireExisting(c, "customer1"), ErrInvalidState)
 }
 
 // TestRequireAllExisting pins the operator-facing half of the contract:

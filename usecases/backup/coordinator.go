@@ -375,8 +375,7 @@ func (c *coordinator) Restore(
 		// Roles and users are applied once staging has committed, even when a
 		// class restore failed: a class that already exists is a class failure,
 		// not a roles-and-users one.
-		reachedFinalizing := c.descriptor.Status == backup.Finalizing
-		if reachedFinalizing {
+		if c.descriptor.Status == backup.Finalizing {
 			// Time schema apply phase (Raft commits for each class)
 			schemaApplyStart := time.Now()
 			c.restoreClasses(ctx, schema, req)
@@ -472,9 +471,10 @@ func (c *coordinator) restoreClasses(
 	}
 }
 
-// restoreRolesAndUsers issues the one RAFT entry. The strip flag matches the
-// one the class restore uses. Errors append to the descriptor error so a class
-// failure and a roles-and-users failure both reach the operator.
+// restoreRolesAndUsers applies both snapshots in a single RAFT entry. The strip
+// flag matches the one the class restore uses. Errors append to the descriptor
+// error so a class failure and a roles-and-users failure both reach the
+// operator.
 func (c *coordinator) restoreRolesAndUsers(ctx context.Context, blobs rolesAndUsersBlobs) {
 	if c.rolesAndUsers == nil || (len(blobs.roles) == 0 && len(blobs.users) == 0) {
 		return

@@ -23,6 +23,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 // seedUser creates one dynamic user through the manager's own apply path.
@@ -78,7 +79,7 @@ func TestRestoreFromBackupReplacesAndPersistsUsers(t *testing.T) {
 
 // TestRestoreFromBackupSurvivesUnwritablePath pins that the file write cannot
 // fail an apply the rest of the cluster completed: the RAFT log and snapshot are
-// the durable copy, the file is only a boot cache.
+// the durable copy, and the file is only a cache read at boot.
 func TestRestoreFromBackupSurvivesUnwritablePath(t *testing.T) {
 	blob := userSnapshot(t, nil, map[string]string{"restored": ""})
 
@@ -92,8 +93,8 @@ func TestRestoreFromBackupSurvivesUnwritablePath(t *testing.T) {
 	assert.Contains(t, users, "restored")
 }
 
-// TestSnapshotRestoreDoesNotWriteUserFile pins that boot-time RAFT snapshot
-// install stays independent of the user file being writable. hashicorp/raft
+// TestSnapshotRestoreDoesNotWriteUserFile pins that installing a RAFT snapshot
+// at boot does not depend on the user file being writable. hashicorp/raft
 // treats a failed FSM restore as fatal at boot, so this path must do no IO.
 func TestSnapshotRestoreDoesNotWriteUserFile(t *testing.T) {
 	blob := userSnapshot(t, nil, map[string]string{"restored": ""})
@@ -111,9 +112,9 @@ func TestSnapshotRestoreDoesNotWriteUserFile(t *testing.T) {
 }
 
 // TestValidateBackupSnapshotNamespaceStates pins the fail-closed namespace
-// check for the user blob (missing and deleting refuse; suspended and resuming
-// pass), across both places a dynamic user carries its namespace: the explicit
-// field and the "<namespace>:" prefix on its id.
+// check for the user blob: missing and deleting refuse, suspended and resuming
+// pass. It covers both places a dynamic user carries its namespace: the
+// explicit field and the "<namespace>:" prefix on its id.
 func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -183,7 +184,7 @@ func TestValidateBackupSnapshotNamespaceStates(t *testing.T) {
 			}
 
 			m, _, _ := newTestManager(t, newNamespacesMock(t))
-			err := m.ValidateBackupSnapshot(req, newNamespacesMockInState(t, tt.states))
+			err := m.ValidateBackupSnapshot(req, usecasesNamespaces.NewMockExisterInState(t, tt.states))
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return

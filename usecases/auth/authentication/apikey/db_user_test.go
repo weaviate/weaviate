@@ -1220,33 +1220,37 @@ func TestValidateNamespaceStrip(t *testing.T) {
 		require.Error(t, ValidateNamespaceStrip([]byte("{")))
 	})
 
-	t.Run("WrongVersionErrors", func(t *testing.T) {
-		snap, err := json.Marshal(DBUserSnapshot{Version: SnapshotVersion + 1})
-		require.NoError(t, err)
-		err = ValidateNamespaceStrip(snap)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid snapshot version")
-	})
-
 	// Backup restore validates both blobs before either store is mutated, and the
 	// version check is the user blob's only validation when the strip is off.
-	t.Run("WrongVersionErrorsWithoutStrip", func(t *testing.T) {
-		snap, err := json.Marshal(DBUserSnapshot{Version: SnapshotVersion + 1})
-		require.NoError(t, err)
-		err = ValidateSnapshot(snap, false)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid snapshot version")
+	t.Run("WrongVersionErrors", func(t *testing.T) {
+		versionTests := []struct {
+			name     string
+			validate func([]byte) error
+		}{
+			{name: "with strip", validate: ValidateNamespaceStrip},
+			{name: "without strip", validate: func(b []byte) error { return ValidateSnapshot(b, false) }},
+		}
+		for _, vt := range versionTests {
+			t.Run(vt.name, func(t *testing.T) {
+				snap, err := json.Marshal(DBUserSnapshot{Version: SnapshotVersion + 1})
+				require.NoError(t, err)
+				err = vt.validate(snap)
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "invalid snapshot version")
+			})
+		}
 	})
 
-	// Without the strip there is nothing to collide: the qualified ids are kept.
+	// Without the strip there is nothing to collide, because the ids keep their namespace prefix.
 	t.Run("CollidingSnapshotPassesWithoutStrip", func(t *testing.T) {
 		require.NoError(t, ValidateSnapshot(colliding, false))
 	})
 }
 
 // TestReferencedNamespaces pins which namespaces a backup's user blob is
-// checked against on a namespace-enabled target: the explicit field only. A
-// pre-field user carries its namespace on the id alone and is not read.
+// checked against on a target with namespaces on: the explicit field only. A
+// user written before the field existed carries its namespace on the id alone
+// and is not read.
 func TestReferencedNamespaces(t *testing.T) {
 	src, err := NewDBUser(t.TempDir(), false, log, activeExister{})
 	require.NoError(t, err)
@@ -1306,6 +1310,66 @@ func TestReferencedNamespaces(t *testing.T) {
 		_, err = ReferencedNamespaces(snap)
 		require.Error(t, err)
 	})
+}
+
+func TestRequireReferencedNamespacesExist(t *testing.T) {
+	src, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+	require.NoError(t, err)
+	seedUser(t, src, MakeUserKey("alice", "ns1"), "ns1")
+
+	activeBlob := func(t *testing.T) []byte {
+		t.Helper()
+		b, err := src.Snapshot(MakeUserKey("alice", "ns1"))
+		require.NoError(t, err)
+		return b
+	}
+
+	tests := []struct {
+		name    string
+		blob    []byte
+		states  map[string]cmd.NamespaceState
+		wantErr bool
+		wantMsg string
+	}{
+		{
+			name:   "all referenced namespaces active",
+			blob:   activeBlob(t),
+			states: map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateActive},
+		},
+		{
+			name:    "one deleting namespace errors",
+			blob:    activeBlob(t),
+			states:  map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateDeleting},
+			wantErr: true,
+			wantMsg: "ns1",
+		},
+		{
+			name:    "one missing namespace errors",
+			blob:    activeBlob(t),
+			states:  map[string]cmd.NamespaceState{},
+			wantErr: true,
+			wantMsg: "ns1",
+		},
+		{
+			name:    "malformed blob errors",
+			blob:    []byte("{bad"),
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ns := namespaces.NewMockExisterInState(t, tt.states)
+			err := RequireReferencedNamespacesExist(tt.blob, ns)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			if tt.wantMsg != "" {
+				assert.Contains(t, err.Error(), tt.wantMsg)
+			}
+		})
+	}
 }
 
 // TestSnapshotRestore_IncludeUsers_RestoreReplacesTarget: restoring an

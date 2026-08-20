@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/config"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -304,16 +305,16 @@ func ValidateSnapshot(blob []byte, stripNamespaces bool, staticAPIKeyUsers []str
 	return err
 }
 
-// ReferencedNamespaces returns every namespace the snapshot names: the
-// snapshot's own Namespaces list, plus the prefixes of its "db:" user
-// subjects. The list is written by the source cluster, the only side that can
-// tell a namespace prefix from a colon inside a global id such as the OIDC
-// subject "urn:foo", and it covers role names, resource paths, and OIDC
-// subjects. It leaves db subjects out (see referencedNamespaces), so they are
-// read here: a dynamic user name cannot contain a colon, so a colon there
-// always marks a namespace. The restoring cluster's static API key users are
-// the exception. A blob from before the list existed gets no checking beyond
-// its db subjects; namespaced backups predating the list are unsupported.
+// ReferencedNamespaces returns every namespace the snapshot names. Two sources
+// feed it. The first is the snapshot's own Namespaces list. The source cluster
+// writes that list, because only the source can tell a namespace prefix from a
+// colon inside a global id such as the OIDC subject "urn:foo". The list covers
+// role names, resource paths, and OIDC subjects, but not db subjects (see
+// referencedNamespaces). The second source is the "db:" user subjects, read
+// here: a dynamic user name cannot contain a colon, so a colon in one always
+// marks a namespace. The restoring cluster's static API key users are the one
+// exception to that rule. A blob from before the list existed is checked on its
+// db subjects only; namespaced backups that predate the list are unsupported.
 func ReferencedNamespaces(blob []byte, staticAPIKeyUsers []string) ([]string, error) {
 	if len(blob) == 0 {
 		return nil, nil
@@ -355,4 +356,16 @@ func ReferencedNamespaces(blob []byte, staticAPIKeyUsers []string) ([]string, er
 		}
 	}
 	return slices.Sorted(maps.Keys(seen)), nil
+}
+
+// RequireReferencedNamespacesExist returns an error when any namespace the
+// snapshot names is missing or deleting on this cluster. See
+// [ReferencedNamespaces] for which names the snapshot carries and
+// [usecasesNamespaces.RequireAllExisting] for which states pass.
+func RequireReferencedNamespacesExist(blob []byte, staticAPIKeyUsers []string, ns usecasesNamespaces.Exister) error {
+	refs, err := ReferencedNamespaces(blob, staticAPIKeyUsers)
+	if err != nil {
+		return err
+	}
+	return usecasesNamespaces.RequireAllExisting(ns, refs)
 }

@@ -17,10 +17,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 // TestReferencedNamespaces pins which namespaces a backup's RBAC blob is
-// checked against on a namespace-enabled target. db grouping subjects are read
+// checked against on a target with namespaces on. db grouping subjects are read
 // whatever the list says, because their colon always marks a namespace. Every
 // other column is covered by the blob's own list alone, since only the source
 // cluster could tell a namespace prefix from a colon inside a global id. A
@@ -77,8 +80,9 @@ func TestReferencedNamespaces(t *testing.T) {
 			name: "an empty blob yields nothing",
 		},
 		{
-			// Whatever writes Namespaces never records db subjects, so the list arm
-			// has to read them too or this grouping row installs an orphan.
+			// Whatever writes Namespaces never records db subjects, so the path that
+			// reads the list has to read db subjects too. Otherwise this grouping
+			// row is restored with no namespace to belong to.
 			name: "a db subject is read even when the list omits it",
 			in: &snapshot{
 				Namespaces: []string{"acme"},
@@ -133,4 +137,61 @@ func TestReferencedNamespaces(t *testing.T) {
 		_, err := ReferencedNamespaces([]byte("not json"), nil)
 		require.Error(t, err)
 	})
+}
+
+func TestRequireReferencedNamespacesExist(t *testing.T) {
+	blobWith := func(t *testing.T, namespaces ...string) []byte {
+		t.Helper()
+		s := snapshot{Version: 1, Namespaces: namespaces}
+		b, err := json.Marshal(s)
+		require.NoError(t, err)
+		return b
+	}
+
+	tests := []struct {
+		name    string
+		blob    []byte
+		states  map[string]cmd.NamespaceState
+		wantErr bool
+		wantMsg string
+	}{
+		{
+			name:   "all referenced namespaces active",
+			blob:   blobWith(t, "ns1", "ns2"),
+			states: map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateActive, "ns2": cmd.NamespaceStateActive},
+		},
+		{
+			name:    "one deleting namespace errors",
+			blob:    blobWith(t, "ns1"),
+			states:  map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateDeleting},
+			wantErr: true,
+			wantMsg: "ns1",
+		},
+		{
+			name:    "one missing namespace errors",
+			blob:    blobWith(t, "ns1"),
+			states:  map[string]cmd.NamespaceState{},
+			wantErr: true,
+			wantMsg: "ns1",
+		},
+		{
+			name:    "malformed blob errors",
+			blob:    []byte("{bad"),
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ns := usecasesNamespaces.NewMockExisterInState(t, tt.states)
+			err := RequireReferencedNamespacesExist(tt.blob, nil, ns)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			if tt.wantMsg != "" {
+				assert.Contains(t, err.Error(), tt.wantMsg)
+			}
+		})
+	}
 }

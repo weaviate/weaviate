@@ -19,7 +19,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -36,30 +35,7 @@ func newNamespacesMock(t *testing.T, known ...string) *usecasesNamespaces.MockEx
 	for _, n := range known {
 		states[n] = cmd.NamespaceStateActive
 	}
-	return newNamespacesMockInState(t, states)
-}
-
-// newNamespacesMockInState returns an Exister mock reporting each named
-// namespace in the given state; any other name is missing.
-func newNamespacesMockInState(t *testing.T, states map[string]cmd.NamespaceState) *usecasesNamespaces.MockExister {
-	t.Helper()
-	m := &usecasesNamespaces.MockExister{}
-	m.Test(t)
-	exists := func(name string) bool {
-		_, ok := states[name]
-		return ok
-	}
-	m.On("Exists", mock.AnythingOfType("string")).Return(exists).Maybe()
-	m.On("IsActive", mock.AnythingOfType("string")).Return(func(name string) bool {
-		return states[name] == cmd.NamespaceStateActive
-	}).Maybe()
-	m.On("GetNamespace", mock.AnythingOfType("string")).Return(
-		func(name string) cmd.Namespace {
-			return cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}, State: states[name]}
-		},
-		exists,
-	).Maybe()
-	return m
+	return usecasesNamespaces.NewMockExisterInState(t, states)
 }
 
 // newTestManager builds a manager over a fresh directory and returns that
@@ -119,7 +95,7 @@ func TestManager_CreateUser(t *testing.T) {
 			name:      "deleting namespace returns ErrNamespaceDeleting",
 			namespace: "ns1",
 			makeMock: func(t *testing.T) *usecasesNamespaces.MockExister {
-				return newNamespacesMockInState(t, map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateDeleting})
+				return usecasesNamespaces.NewMockExisterInState(t, map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateDeleting})
 			},
 			wantErrIs: usecasesNamespaces.ErrNamespaceDeleting,
 		},
@@ -127,7 +103,7 @@ func TestManager_CreateUser(t *testing.T) {
 			name:      "suspended namespace returns ErrNamespaceSuspended",
 			namespace: "ns1",
 			makeMock: func(t *testing.T) *usecasesNamespaces.MockExister {
-				return newNamespacesMockInState(t, map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateSuspended})
+				return usecasesNamespaces.NewMockExisterInState(t, map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateSuspended})
 			},
 			wantErrIs: usecasesNamespaces.ErrNamespaceSuspended,
 		},
@@ -135,7 +111,7 @@ func TestManager_CreateUser(t *testing.T) {
 			name:      "resuming namespace returns ErrNamespaceResuming",
 			namespace: "ns1",
 			makeMock: func(t *testing.T) *usecasesNamespaces.MockExister {
-				return newNamespacesMockInState(t, map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateResuming})
+				return usecasesNamespaces.NewMockExisterInState(t, map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateResuming})
 			},
 			wantErrIs: usecasesNamespaces.ErrNamespaceResuming,
 		},

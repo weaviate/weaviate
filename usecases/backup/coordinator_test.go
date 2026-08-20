@@ -629,8 +629,8 @@ type fakeCoordinator struct {
 	backend      *fakeBackend
 	log          logrus.FieldLogger
 	nodeResolver NodeResolver
-	// nil unless a test wires one, which is how a cluster with neither RBAC nor
-	// dynamic users behaves.
+	// nil unless a test sets one. A cluster with neither RBAC nor dynamic users
+	// has none.
 	rolesAndUsers rolesAndUsersRestorer
 }
 
@@ -1277,9 +1277,9 @@ func TestRestoreRoutesRolesAndUsersThroughRaft(t *testing.T) {
 	}
 }
 
-// TestRestoreRolesAndUsersGatedOnStagingNotClasses pins the gate: a committed staging
-// earns the auth apply, the class outcome does not gate it. A class that already
-// exists is a failure of class restore alone.
+// TestRestoreRolesAndUsersGatedOnStagingNotClasses pins that roles and users are
+// applied once staging has committed, whatever the class outcome. A class that
+// already exists is a failure of the class restore alone.
 func TestRestoreRolesAndUsersGatedOnStagingNotClasses(t *testing.T) {
 	blobs := rolesAndUsersBlobs{roles: []byte(`{"roles_policies":[],"version":1}`)}
 	ctx := context.Background()

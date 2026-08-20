@@ -2455,8 +2455,8 @@ func TestValidateNamespaceStripping(t *testing.T) {
 			userRestoreOption: models.RestoreConfigUsersOptionsNoRestore,
 		},
 		{
-			// The user check does not gate on userLister, unlike the role check
-			// below, so a colliding snapshot still fails fast here.
+			// The user check runs whether or not userLister is set, unlike the role
+			// check below, so a colliding snapshot still fails fast here.
 			name:          "NilUserListerStillValidates",
 			userBlob:      collidingUsers,
 			nilUserLister: true,
@@ -2690,7 +2690,7 @@ func TestFetchSchemaFailsClosed(t *testing.T) {
 	meta := backup.DistributedBackupDescriptor{
 		ID:     backupID,
 		Status: backup.Success,
-		// No Leader recorded: fetchSchema reads every node's descriptor instead of the leader's alone.
+		// No Leader is recorded, so fetchSchema reads every node's descriptor instead of the leader's alone.
 		Nodes: map[string]*backup.NodeDescriptor{
 			nodeA: {Classes: []string{"ClassA"}},
 			nodeB: {Classes: []string{"ClassB"}},
@@ -2724,65 +2724,60 @@ func TestFetchSchemaFailsClosed(t *testing.T) {
 }
 
 // TestFetchSchemaReturnsAuthSnapshots covers fetchSchema returning the leader's
-// RBAC and user snapshots, and returning none at all from the leaderless union.
-// A descriptor without a leader predates both snapshot fields, so the union can
-// never carry them; reading them there would be dead code the strip and
-// namespace validators would still have to defend against.
+// RBAC and user snapshots, and returning none at all from the union over nodes
+// that runs when no leader is recorded. A descriptor without a leader predates
+// both snapshot fields, so the union can never carry them. Reading them there
+// would be dead code the strip and namespace validators would still have to
+// defend against.
 func TestFetchSchemaReturnsAuthSnapshots(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	rbacBlob := []byte(`{"version":1,"roles_policies":[["role:ns1:editor","*","R","*"]]}`)
 	userBlob := []byte(`{"Version":0,"Data":{"Users":{"alice":{"Id":"alice"}}}}`)
 
-	t.Run("LeaderPathReturnsBothSnapshots", func(t *testing.T) {
-		backupID := "fetch-auth-leader"
-		nodeName := "Node-A"
-		meta := backup.DistributedBackupDescriptor{
-			ID: backupID, Status: backup.Success, Leader: nodeName,
-			Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"ClassA"}}},
-		}
-		nodeMeta, err := json.Marshal(backup.BackupDescriptor{
-			ID: backupID, Status: backup.Success,
-			Classes:     []backup.ClassDescriptor{{Name: "ClassA"}},
-			RbacBackups: rbacBlob,
-			UserBackups: userBlob,
+	leaderTests := []struct {
+		name     string
+		rbacBlob []byte
+		userBlob []byte
+	}{
+		{name: "LeaderPathReturnsBothSnapshots", rbacBlob: rbacBlob, userBlob: userBlob},
+		{name: "LeaderWithoutSnapshotsReturnsNone"},
+	}
+	for _, tt := range leaderTests {
+		t.Run(tt.name, func(t *testing.T) {
+			backupID := "fetch-auth-" + tt.name
+			nodeName := "Node-A"
+			meta := backup.DistributedBackupDescriptor{
+				ID: backupID, Status: backup.Success, Leader: nodeName,
+				Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"ClassA"}}},
+			}
+			nodeMeta, err := json.Marshal(backup.BackupDescriptor{
+				ID: backupID, Status: backup.Success,
+				Classes:     []backup.ClassDescriptor{{Name: "ClassA"}},
+				RbacBackups: tt.rbacBlob,
+				UserBackups: tt.userBlob,
+			})
+			require.NoError(t, err)
+
+			fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
+			fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+			fs.backend.On("GetObject", ctx, backupID+"/"+nodeName, BackupFile).Return(nodeMeta, nil)
+
+			_, gotUsers, gotRoles, err := fs.scheduler().fetchSchema(ctx, "gcs", "", "", &meta)
+			require.NoError(t, err)
+			if len(tt.rbacBlob) > 0 {
+				assert.Equal(t, tt.rbacBlob, gotRoles)
+			} else {
+				assert.Empty(t, gotRoles)
+			}
+			if len(tt.userBlob) > 0 {
+				assert.Equal(t, tt.userBlob, gotUsers)
+			} else {
+				assert.Empty(t, gotUsers)
+			}
 		})
-		require.NoError(t, err)
-
-		fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
-		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
-		fs.backend.On("GetObject", ctx, backupID+"/"+nodeName, BackupFile).Return(nodeMeta, nil)
-
-		_, gotUsers, gotRoles, err := fs.scheduler().fetchSchema(ctx, "gcs", "", "", &meta)
-		require.NoError(t, err)
-		assert.Equal(t, rbacBlob, gotRoles)
-		assert.Equal(t, userBlob, gotUsers)
-	})
-
-	t.Run("LeaderWithoutSnapshotsReturnsNone", func(t *testing.T) {
-		backupID := "fetch-auth-leader-empty"
-		nodeName := "Node-A"
-		meta := backup.DistributedBackupDescriptor{
-			ID: backupID, Status: backup.Success, Leader: nodeName,
-			Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"ClassA"}}},
-		}
-		nodeMeta, err := json.Marshal(backup.BackupDescriptor{
-			ID: backupID, Status: backup.Success,
-			Classes: []backup.ClassDescriptor{{Name: "ClassA"}},
-		})
-		require.NoError(t, err)
-
-		fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
-		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
-		fs.backend.On("GetObject", ctx, backupID+"/"+nodeName, BackupFile).Return(nodeMeta, nil)
-
-		_, gotUsers, gotRoles, err := fs.scheduler().fetchSchema(ctx, "gcs", "", "", &meta)
-		require.NoError(t, err)
-		assert.Empty(t, gotRoles)
-		assert.Empty(t, gotUsers)
-	})
+	}
 
 	t.Run("UnionUnionsClassesAndCarriesNoSnapshots", func(t *testing.T) {
 		backupID := "fetch-auth-union"
@@ -2790,7 +2785,7 @@ func TestFetchSchemaReturnsAuthSnapshots(t *testing.T) {
 		meta := backup.DistributedBackupDescriptor{
 			ID:     backupID,
 			Status: backup.Success,
-			// No Leader recorded: fetchSchema reads every node's descriptor instead of the leader's alone.
+			// No Leader is recorded, so fetchSchema reads every node's descriptor instead of the leader's alone.
 			Nodes: map[string]*backup.NodeDescriptor{
 				nodeA: {Classes: []string{"ClassA"}},
 				nodeB: {Classes: []string{"ClassB"}},
@@ -2819,33 +2814,10 @@ func TestFetchSchemaReturnsAuthSnapshots(t *testing.T) {
 	})
 }
 
-// namespacesInState returns an Exister reporting each named namespace in the
-// given state; any other name is missing.
-func namespacesInState(t *testing.T, states map[string]cmd.NamespaceState) *namespaces.MockExister {
-	t.Helper()
-	m := &namespaces.MockExister{}
-	m.Test(t)
-	exists := func(name string) bool {
-		_, ok := states[name]
-		return ok
-	}
-	m.On("Exists", mock.AnythingOfType("string")).Return(exists).Maybe()
-	m.On("IsActive", mock.AnythingOfType("string")).Return(func(name string) bool {
-		return states[name] == cmd.NamespaceStateActive
-	}).Maybe()
-	m.On("GetNamespace", mock.AnythingOfType("string")).Return(
-		func(name string) cmd.Namespace {
-			return cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}, State: states[name]}
-		},
-		exists,
-	).Maybe()
-	return m
-}
-
-// TestRestoreRejectsInactiveNamespaceRefs pins the request-time half of the
-// fail-closed namespace check: a blob naming a namespace this cluster is
-// missing or deleting is rejected before any node stages data, and the message
-// names it. Suspended and resuming namespaces pass.
+// TestRestoreRejectsInactiveNamespaceRefs pins the half of the fail-closed
+// namespace check that runs at request time: a blob naming a namespace this
+// cluster is missing or deleting is rejected before any node stages data, and
+// the message names it. Suspended and resuming namespaces pass.
 func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 	ctx := context.Background()
 	// The blob's namespaces list is how a roles blob names its namespaces.
@@ -2928,7 +2900,7 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 
 			fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
 			fs.schema.namespacesEnabled = true
-			fs.namespaces = namespacesInState(t, tt.states)
+			fs.namespaces = namespaces.NewMockExisterInState(t, tt.states)
 			fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 			fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
 			fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
@@ -3046,9 +3018,10 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 }
 
 // TestRestoreIgnoresNodeMappingForUnknownNode pins that a nodeMapping entry
-// naming a node the backup does not contain is simply unused. It used to inject
-// a nil descriptor under the new name, which canCommit dereferenced on the
-// leader-stamped shape and fetchSchema tripped over on the legacy one.
+// naming a node the backup does not contain is simply unused. If the entry were
+// applied, it would inject a nil descriptor under the new name; canCommit
+// dereferences that when the descriptor records a leader, and fetchSchema trips
+// over it when it does not.
 func TestRestoreIgnoresNodeMappingForUnknownNode(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

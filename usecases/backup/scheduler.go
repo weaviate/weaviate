@@ -70,8 +70,7 @@ type Scheduler struct {
 	// namespaced dynamic one. Build it with rbac.StaticAPIKeyUsers, so this list
 	// is the same one the nodes strip with.
 	staticAPIKeyUsers []string
-	// nil when the cluster has no namespaces controller; the state-machine
-	// validators still run the same check at apply time.
+	// The state-machine validators run the same check at apply time.
 	namespaces usecasesNamespaces.Exister
 }
 
@@ -271,8 +270,8 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	// A nil lister means the subsystem is disabled: the blob stays empty, no
-	// entry is issued, and the restore proceeds.
+	// A nil lister means that subsystem is disabled. Its blob stays empty, so
+	// nothing is applied for it, and the restore proceeds.
 	blobs := rolesAndUsersBlobs{}
 	if req.RbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
 		if s.roleLister != nil {
@@ -911,9 +910,9 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
 	}
 
-	// Base backups are only read mid-restore, once staging is under way. Resolve
-	// the chain upfront so a missing or invalid base is rejected before any side
-	// effects begin.
+	// Base backups are only read after the restore has started staging data.
+	// Resolve the chain upfront so a missing or invalid base is rejected before
+	// any side effects begin.
 	if _, err := resolveBaseBackupChain(ctx, meta.BaseBackupID, meta.StartedAt, req.Bucket, req.Path, meta.GetCompressionType(), store.MetaForBackupID); err != nil {
 		return nil, fmt.Errorf("resolve base backup chain: %w", err)
 	}
@@ -1084,12 +1083,10 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 	return fmt.Errorf("restoring into a cluster without namespaces strips namespace qualifications, which would cause name collisions: %s. Restore one namespace at a time using 'include'/'exclude', or remove the conflicting entities from the target cluster first", strings.Join(errs, "; "))
 }
 
-// validateNamespaceReferences rejects a restore whose blobs name a namespace
-// that is missing or deleting on this cluster, before any node stages data.
-// Suspended and resuming namespaces are accepted. It runs only when
-// namespaces are enabled; the strip validation covers the disabled case. The
-// same check runs again at apply time and is the one that counts; this early
-// copy exists so the caller sees the error before any node does work.
+// validateNamespaceReferences rejects a restore whose blobs name a namespace that
+// is missing or deleting on this cluster, before any node stages data. Suspended
+// and resuming are accepted. The apply-time check is the one that counts; this one
+// exists so the caller sees the error before any node does work.
 func (s *Scheduler) validateNamespaceReferences(userBlob, rbacBlob []byte, userRestoreOption, rbacRestoreOption string) error {
 	if !s.schema.NamespacesEnabled() {
 		return nil // restore strips namespaces instead of resolving them
@@ -1097,19 +1094,13 @@ func (s *Scheduler) validateNamespaceReferences(userBlob, rbacBlob []byte, userR
 
 	var errs []string
 	if s.roleLister != nil && rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
-		refs, err := rbac.ReferencedNamespaces(rbacBlob, s.staticAPIKeyUsers)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("roles: %v", err))
-		} else if err := usecasesNamespaces.RequireAllExisting(s.namespaces, refs); err != nil {
+		if err := rbac.RequireReferencedNamespacesExist(rbacBlob, s.staticAPIKeyUsers, s.namespaces); err != nil {
 			errs = append(errs, fmt.Sprintf("roles: %v", err))
 		}
 	}
 
 	if s.userLister != nil && userRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
-		refs, err := apikey.ReferencedNamespaces(userBlob)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("dynamic users: %v", err))
-		} else if err := usecasesNamespaces.RequireAllExisting(s.namespaces, refs); err != nil {
+		if err := apikey.RequireReferencedNamespacesExist(userBlob, s.namespaces); err != nil {
 			errs = append(errs, fmt.Sprintf("dynamic users: %v", err))
 		}
 	}
@@ -1118,11 +1109,11 @@ func (s *Scheduler) validateNamespaceReferences(userBlob, rbacBlob []byte, userR
 		return nil
 	}
 	slices.Sort(errs)
-	return fmt.Errorf("backup references namespaces that are missing or deleting on this cluster: %s. Create the namespaces first, or restore without 'rolesOptions'/'usersOptions'", strings.Join(slices.Compact(errs), "; "))
+	return fmt.Errorf("backup references namespaces that are missing or deleting on this cluster: %s. Create the namespaces first, or restore without 'rolesOptions'/'usersOptions'", strings.Join(errs, "; "))
 }
 
 // logSubsystemDisabled is the only signal that the restore skipped roles or
-// users the request asked for: the subsystem is off on this cluster.
+// users the request asked for because the subsystem is off on this cluster.
 func (s *Scheduler) logSubsystemDisabled(backupID, artefact, subsystem string) {
 	s.logger.WithField("action", "restore_roles_and_users").
 		WithField("backup_id", backupID).

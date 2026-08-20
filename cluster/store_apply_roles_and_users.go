@@ -21,11 +21,11 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-// applyRestoreRolesAndUsers validates both payloads before mutating either store: a
-// failure halfway would leave the backup's users running against pre-restore
-// roles. Roles apply first because after validation the user apply cannot
-// fail, while the role apply can, so a role failure leaves the user store
-// untouched.
+// applyRestoreRolesAndUsers validates both payloads before mutating either
+// store: a failure halfway would leave the backup's users paired with the roles
+// from before the restore. Roles apply first because after validation the user
+// apply cannot fail, while the role apply can, so a role failure leaves the
+// user store untouched.
 func applyRestoreRolesAndUsers(c *api.ApplyRequest, authZ *rbac.Manager, dynUsers *dynusers.Manager,
 	ns usecasesNamespaces.Exister,
 ) error {
