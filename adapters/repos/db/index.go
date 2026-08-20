@@ -390,6 +390,47 @@ func (i *Index) snapshotsPath() string {
 	return path.Join(i.path(), lsmkv.SnapshotsRootDir)
 }
 
+// orphanedShardDirs returns shard directories under the index path that keep
+// does not name — the only way to see a tenant resident on disk but unloaded.
+//
+// A directory counts as a shard only if it holds an LSM store, which shard init
+// always creates, so an index-level directory added later is never mistaken for
+// a tenant and deleted.
+func (i *Index) orphanedShardDirs(keep map[string]sharding.Physical) ([]string, error) {
+	dir, err := os.Open(i.path())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // index dir not created yet
+		}
+		return nil, fmt.Errorf("open index dir %q: %w", i.path(), err)
+	}
+	defer dir.Close()
+
+	entries, err := dir.ReadDir(-1)
+	if err != nil {
+		return nil, fmt.Errorf("read index dir %q: %w", i.path(), err)
+	}
+
+	var orphans []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() {
+			continue
+		}
+		if _, ok := keep[name]; ok {
+			continue
+		}
+		if strings.HasSuffix(name, asyncDeleteSuffix) {
+			continue // already queued for deletion
+		}
+		if info, err := os.Stat(shardPathLSM(i.path(), name)); err != nil || !info.IsDir() {
+			continue // no LSM store, so not a shard
+		}
+		orphans = append(orphans, name)
+	}
+	return orphans, nil
+}
+
 func (i *Index) debugLoggingEnabled() bool {
 	switch logger := i.logger.(type) {
 	case *logrus.Logger:

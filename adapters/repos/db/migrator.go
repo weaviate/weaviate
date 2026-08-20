@@ -95,8 +95,14 @@ func (m *Migrator) SetOffloadProvider(provider provider, moduleName string) {
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
+	_, err := m.addClass(ctx, class)
+	return err
+}
+
+// addClass returns the index it built.
+func (m *Migrator) addClass(ctx context.Context, class *models.Class) (*Index, error) {
 	if err := replica.ValidateConfig(class, m.db.config.Replication); err != nil {
-		return fmt.Errorf("replication config: %w", err)
+		return nil, fmt.Errorf("replication config: %w", err)
 	}
 
 	indexID := indexID(schema.ClassName(class.Class))
@@ -106,12 +112,12 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx != nil {
-		return fmt.Errorf("index for class %v already found locally", idx.ID())
+		return nil, fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
 	asyncConfig, err := asyncReplicationConfigFromModelOrDefaults(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig, m.logger.WithField("class", class.Class))
 	if err != nil {
-		return fmt.Errorf("async replication config: %w", err)
+		return nil, fmt.Errorf("async replication config: %w", err)
 	}
 
 	isMultiTenant := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
@@ -132,7 +138,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		// to enable lazy load shards
 		localActiveShardsCount, err = m.db.schemaReader.LocalActiveShardsCount(class.Class)
 		if err != nil {
-			return fmt.Errorf("get local shards count for class %q: %w", class.Class, err)
+			return nil, fmt.Errorf("get local shards count for class %q: %w", class.Class, err)
 		}
 		// Only calculate shard sizes if the shard-count condition alone wouldn't
 		// already trigger lazy-loading. This avoids walking all shard directories
@@ -143,7 +149,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			// to enable lazy load shards based on total size
 			localShards, err := m.db.schemaReader.LocalShards(class.Class)
 			if err != nil {
-				return fmt.Errorf("get local shard names for class %q: %w", class.Class, err)
+				return nil, fmt.Errorf("get local shard names for class %q: %w", class.Class, err)
 			}
 			sizeThresholdBytes := uint64(m.db.config.LazyLoadShardSizeThresholdGB * 1024 * 1024 * 1024)
 			totalShardSizeBytes = m.db.totalShardSizeBytes(schema.ClassName(class.Class), localShards, sizeThresholdBytes)
@@ -245,7 +251,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool, m.db.AsyncIndexingEnabled, m.db.tenantsManager)
 	if err != nil {
-		return errors.Wrap(err, "create index")
+		return nil, errors.Wrap(err, "create index")
 	}
 
 	idx.usageLimits = m.db.usageLimits
@@ -288,7 +294,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,
 		"size_threshold_gb":       m.db.config.LazyLoadShardSizeThresholdGB,
 	}).Info("lazy load shard auto-detection result")
-	return nil
+	return idx, nil
 }
 
 func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bool) error {
@@ -375,12 +381,12 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 
 	{ // add index if missing
 		if idx == nil {
-			if err := m.AddClass(ctx, incomingClass); err != nil {
+			var err error
+			if idx, err = m.addClass(ctx, incomingClass); err != nil {
 				return fmt.Errorf(
 					"add missing class %s during update index: %w",
 					incomingClass.Class, err)
 			}
-			return nil
 		}
 	}
 
@@ -445,17 +451,43 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
 	idx *Index, incomingSS *sharding.State,
 ) error {
-	var toRemove []string
+	remove := map[string]struct{}{}
 
 	idx.ForEachShard(func(name string, _ ShardLike) error {
 		if _, ok := incomingSS.Physical[name]; !ok {
-			toRemove = append(toRemove, name)
+			remove[name] = struct{}{}
 		}
 		return nil
 	})
 
-	if len(toRemove) == 0 {
+	// ForEachShard sees loaded shards only, so a delete this node missed leaves
+	// the data on disk to be served again when the name is re-created. Absence
+	// from Physical marks a directory as garbage, not being unloaded — a COLD
+	// tenant still in the schema keeps its data.
+	orphans, err := idx.orphanedShardDirs(incomingSS.Physical)
+	if err != nil {
+		return fmt.Errorf("list on-disk tenants during update index: %w", err)
+	}
+	if len(orphans) > 0 {
+		// Only reachable when this node missed a delete, so make it visible.
+		m.logger.WithFields(logrus.Fields{
+			"action": "reconcile_tenant_dirs",
+			"class":  idx.Config.ClassName.String(),
+			"count":  len(orphans),
+			"sample": orphans[:min(len(orphans), 10)],
+		}).Warn("dropping tenant directories that are on disk but absent from the schema")
+	}
+	for _, name := range orphans {
+		remove[name] = struct{}{}
+	}
+
+	if len(remove) == 0 {
 		return nil
+	}
+
+	toRemove := make([]string, 0, len(remove))
+	for name := range remove {
+		toRemove = append(toRemove, name)
 	}
 
 	// the cloud delete runs even when the local drop fails, otherwise the
