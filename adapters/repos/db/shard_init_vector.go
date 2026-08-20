@@ -384,6 +384,10 @@ func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector strin
 
 	s.vectorIndexes[targetVector] = vectorIndex
 	s.queues[targetVector] = queue
+
+	if err := s.guardAgainstLostVectorIndex(ctx, targetVector, vectorIndex); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -405,6 +409,87 @@ func (s *Shard) initLegacyVector(ctx context.Context, cfg schemaConfig.VectorInd
 	}
 	s.vectorIndex = vectorIndex
 	s.queue = queue
+
+	if err := s.guardAgainstLostVectorIndex(ctx, "", vectorIndex); err != nil {
+		return err
+	}
+	return nil
+}
+
+// guardAgainstLostVectorIndex protects against silently serving an empty vector
+// index for a shard that still holds objects for that target vector.
+//
+// When the on-disk HNSW state is lost or incomplete (e.g. a snapshot went
+// missing after compactV2 pruned the raw commit logs), the loader reconstructs
+// an empty graph. Left alone, the shard is served as a fresh, empty index and
+// every vector search returns 0 results while the objects remain on disk
+// (weaviate/0-weaviate-issues#453). This distinguishes a genuinely new/empty
+// shard from a lost index (by counting the objects that carry this vector) and:
+//   - sync indexing: returns an error so the shard fails to load loudly.
+//   - async indexing: resets the indexing checkpoint so the on-load ConvertQueue
+//     re-enqueues every object and rebuilds the index from the object store.
+func (s *Shard) guardAgainstLostVectorIndex(ctx context.Context, targetVector string, vectorIndex VectorIndex) error {
+	// Cheap emptiness probe — stops at the first indexed doc, so it is O(1) on a
+	// populated index and only the (rare) empty-index case pays for the checks
+	// below.
+	empty := true
+	vectorIndex.Iterate(func(uint64) bool {
+		empty = false
+		return false
+	})
+	if !empty {
+		return nil
+	}
+
+	logger := s.index.logger.WithField("shard", s.ID()).WithField("target_vector", targetVector)
+
+	// An empty index is legitimate for a genuinely new/empty shard. Distinguish
+	// that from a lost index by counting the objects that actually carry this
+	// target vector (authoritative when dimension tracking is enabled).
+	perTargetCount := -1
+	if dim, err := s.calcTargetVectorDimensions(ctx, targetVector); err == nil {
+		perTargetCount = dim.Count
+	}
+	if perTargetCount == 0 {
+		return nil // no objects carry this vector — genuinely empty
+	}
+
+	// perTargetCount > 0 means "lost index" with confidence; perTargetCount == -1
+	// means the per-target count is unavailable, so fall back to "does the shard
+	// hold any objects at all".
+	if perTargetCount < 0 && s.Counter().Get() == 0 {
+		return nil // brand-new empty shard
+	}
+
+	if !s.index.AsyncIndexingEnabled {
+		if perTargetCount <= 0 {
+			// Without a per-target count we can't rule out a named vector that is
+			// legitimately empty (no object carries it), so don't fail the load on
+			// the coarse shard-level signal alone.
+			logger.Warn("vector index loaded empty and the shard has objects, but the per-target " +
+				"vector count is unavailable (dimension tracking off); not failing the load")
+			return nil
+		}
+		return fmt.Errorf(
+			"vector index for target %q loaded empty but the shard has %d object(s) with this vector: "+
+				"HNSW state lost or incomplete; refusing to serve an empty index "+
+				"(restore from backup or rebuild the index)",
+			targetVector, perTargetCount,
+		)
+	}
+
+	// Async: reset the indexing checkpoint to 0 so the on-load ConvertQueue
+	// re-enqueues every object and rebuilds the index. A stale "already indexed"
+	// checkpoint is exactly what stops the rebuild today. Rebuilding is safe even
+	// if this named vector turns out to carry no vectors — FillQueue enqueues
+	// nothing in that case.
+	if s.indexCheckpoints != nil {
+		if err := s.indexCheckpoints.Update(s.ID(), targetVector, 0); err != nil {
+			return fmt.Errorf("reset indexing checkpoint for %q to rebuild lost index: %w", targetVector, err)
+		}
+	}
+	logger.WithField("objects", perTargetCount).Warn(
+		"vector index loaded empty but shard has objects; scheduling a full rebuild from the object store")
 	return nil
 }
 

@@ -765,6 +765,90 @@ func TestShard_FillQueue(t *testing.T) {
 	}
 }
 
+// TestShard_GuardAgainstLostVectorIndex covers weaviate/0-weaviate-issues#453:
+// when a shard's vector index loads empty while the shard still holds objects
+// for that vector (lost/incomplete HNSW state), Weaviate must not silently serve
+// the empty index. Async indexing must schedule a rebuild (reset the checkpoint
+// so the on-load ConvertQueue re-indexes from the object store); sync indexing
+// must fail the load loudly.
+func TestShard_GuardAgainstLostVectorIndex(t *testing.T) {
+	ctx := context.Background()
+	className := "TestClass"
+
+	// setup builds a shard, imports objects, then simulates a lost index by
+	// deleting every node so the index is empty while the objects remain.
+	setup := func(t *testing.T) (*Shard, VectorIndex, *VectorIndexQueue) {
+		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className},
+			hnsw.UserConfig{}, false, true, true /* withCheckpoints */)
+		t.Cleanup(func() { _ = os.RemoveAll(idx.Config.RootPath) })
+
+		s := shd.(*Shard)
+		// Enable per-target dimension tracking so calcTargetVectorDimensions can
+		// report the object count for the vector (needed for the sync error path).
+		s.index.Config.TrackVectorDimensions = true
+		require.NoError(t, s.createDimensionsBucket(ctx, helpers.DimensionsBucketLSM))
+
+		amount := 200
+		var objs []*storobj.Object
+		for i := 0; i < amount; i++ {
+			obj := testObject(className)
+			obj.Vector = randVector(3)
+			objs = append(objs, obj)
+		}
+		for _, err := range shd.PutObjectBatch(ctx, objs) {
+			require.Nil(t, err)
+		}
+
+		vidx, q := getVectorIndexAndQueue(t, shd, "")
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			assert.Zero(t, q.Size())
+		}, 5*time.Second, 100*time.Millisecond)
+
+		// Simulate a lost index: delete every node and clear tombstones so the
+		// index iterates empty while the objects stay in the LSM store.
+		for i := 0; i < amount; i++ {
+			require.NoError(t, vidx.Delete(uint64(i)))
+		}
+		require.NoError(t, hnswindex.AsHNSWIndex(vidx).CleanUpTombstonedNodes(func() bool { return false }))
+		empty := true
+		vidx.Iterate(func(uint64) bool { empty = false; return false })
+		require.True(t, empty, "precondition: vector index must be empty")
+
+		return s, vidx, q
+	}
+
+	t.Run("async schedules a full rebuild", func(t *testing.T) {
+		s, vidx, q := setup(t)
+		s.index.AsyncIndexingEnabled = true
+
+		require.NoError(t, s.guardAgainstLostVectorIndex(ctx, "", vidx))
+
+		// The checkpoint must be reset to 0 so the on-load ConvertQueue rebuilds.
+		cp, exists, err := s.indexCheckpoints.Get(s.ID(), "")
+		require.NoError(t, err)
+		require.True(t, exists, "checkpoint should be set so ConvertQueue rebuilds")
+		require.Equal(t, uint64(0), cp, "checkpoint should be reset to 0 for a full rebuild")
+
+		// A full rebuild from the object store must repopulate the index.
+		require.NoError(t, s.FillQueue("", 0))
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			assert.Zero(t, q.Size())
+		}, 10*time.Second, 100*time.Millisecond)
+		repopulated := false
+		vidx.Iterate(func(uint64) bool { repopulated = true; return false })
+		require.True(t, repopulated, "index should be repopulated after the rebuild")
+	})
+
+	t.Run("sync fails loudly", func(t *testing.T) {
+		s, vidx, _ := setup(t)
+		s.index.AsyncIndexingEnabled = false
+
+		err := s.guardAgainstLostVectorIndex(ctx, "", vidx)
+		require.Error(t, err, "sync indexing must fail the load, not serve an empty index")
+		require.Contains(t, err.Error(), "loaded empty")
+	})
+}
+
 func TestShard_resetDimensionsLSM(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
