@@ -27,9 +27,13 @@ import (
 )
 
 func newTestManager(t *testing.T) *Manager {
+	return newTestManagerWithNamespaces(t, nil)
+}
+
+func newTestManagerWithNamespaces(t *testing.T, namespaces rbac.NamespaceLister) *Manager {
 	t.Helper()
 	policyPath := filepath.Join(t.TempDir(), "policy.csv")
-	authZ, err := rbac.New(policyPath, rbacconf.Config{Enabled: true}, config.Authentication{}, true, nil, logrus.New())
+	authZ, err := rbac.New(policyPath, rbacconf.Config{Enabled: true}, config.Authentication{}, true, namespaces, logrus.New())
 	require.NoError(t, err)
 	return NewManager(authZ, config.Authentication{}, logrus.New())
 }

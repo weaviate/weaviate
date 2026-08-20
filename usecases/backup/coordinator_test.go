@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -456,7 +457,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
 
 		req := newReq([]string{}, backendName, "")
-		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
+		err := coordinator.Restore(ctx, store, &req, genReq(), nil, rolesAndUsersBlobs{})
 		assert.Nil(t, err)
 	})
 
@@ -480,7 +481,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		coordinator := *fc.coordinator()
 		store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
 		req := newReq([]string{}, backendName, "")
-		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
+		err := coordinator.Restore(ctx, store, &req, genReq(), nil, rolesAndUsersBlobs{})
 		assert.ErrorIs(t, err, errCannotCommit)
 		assert.Contains(t, err.Error(), nodes[1])
 	})
@@ -507,7 +508,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		coordinator := *fc.coordinator()
 		store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
 		req := newReq([]string{}, backendName, "")
-		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
+		err := coordinator.Restore(ctx, store, &req, genReq(), nil, rolesAndUsersBlobs{})
 		assert.ErrorIs(t, err, ErrAny)
 		assert.Contains(t, err.Error(), "initial")
 	})
@@ -597,7 +598,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 		descReq := genReq()
 		store := coordStore{objectStore{fc.backend, descReq.ID, "", "", ""}}
 		req := newReq([]string{}, backendName, "")
-		err := coordinator.Restore(ctx, store, &req, descReq, nil)
+		err := coordinator.Restore(ctx, store, &req, descReq, nil, rolesAndUsersBlobs{})
 		assert.Nil(t, err)
 	})
 }
@@ -628,6 +629,9 @@ type fakeCoordinator struct {
 	backend      *fakeBackend
 	log          logrus.FieldLogger
 	nodeResolver NodeResolver
+	// nil unless a test sets one. A cluster with neither RBAC nor dynamic users
+	// has none.
+	rolesAndUsers rolesAndUsersRestorer
 }
 
 func newFakeCoordinator(resolver NodeResolver) *fakeCoordinator {
@@ -691,7 +695,7 @@ func newFakeNodeResolver(nodes []string) *fakeNodeResolver {
 }
 
 func (fc *fakeCoordinator) coordinator() *coordinator {
-	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver, nil)
+	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver, nil, fc.rolesAndUsers)
 	c.timeoutNextRound = time.Millisecond * 200
 	return c
 }
@@ -1123,4 +1127,233 @@ func TestCommitAllManyFailures(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("commitAll deadlocked with more failing participants than the connection limit")
 	}
+}
+
+type rolesAndUsersCall struct {
+	roles, users []byte
+	strip        bool
+}
+
+// recordingRolesAndUsersRestorer stands in for *cluster.Raft. The coordinator calls it
+// from its own goroutine, hence the mutex.
+type recordingRolesAndUsersRestorer struct {
+	mu    sync.Mutex
+	calls []rolesAndUsersCall
+	err   error
+}
+
+func (r *recordingRolesAndUsersRestorer) RestoreRolesAndUsers(_ context.Context, roles, users []byte, strip bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, rolesAndUsersCall{roles: roles, users: users, strip: strip})
+	return r.err
+}
+
+func (r *recordingRolesAndUsersRestorer) recorded() []rolesAndUsersCall {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]rolesAndUsersCall(nil), r.calls...)
+}
+
+// restoreRolesAndUsersFixture is the outcome of one coordinated restore across two
+// nodes whose staging succeeded.
+type restoreRolesAndUsersFixture struct {
+	rolesAndUsers *recordingRolesAndUsersRestorer
+	coord         *coordinator
+}
+
+func newRestoreRolesAndUsersFixture(t *testing.T, ctx context.Context, blobs rolesAndUsersBlobs,
+	setup func(fc *fakeCoordinator),
+) *restoreRolesAndUsersFixture {
+	t.Helper()
+	const backendName = "s3"
+	const backupID = "roles-users-restore"
+	var (
+		any     = mock.Anything
+		nodes   = []string{"N1", "N2"}
+		classes = []string{"Class-A"}
+		sReq    = &StatusRequest{OpRestore, backupID, backendName, "", "", ""}
+		cresp   = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+		sresp   = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
+	)
+
+	fc := newFakeCoordinator(newFakeNodeResolver(nodes))
+	fc.rolesAndUsers = &recordingRolesAndUsersRestorer{}
+	for _, node := range nodes {
+		fc.client.On("CanCommit", any, node, any).Return(cresp, nil)
+		fc.client.On("Commit", any, node, sReq).Return(nil)
+		fc.client.On("Status", any, node, sReq).Return(sresp, nil)
+	}
+	fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+	fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+	fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil)
+	if setup != nil {
+		setup(fc)
+	}
+
+	desc := &backup.DistributedBackupDescriptor{
+		StartedAt:     time.Now().UTC(),
+		ID:            backupID,
+		Status:        backup.Success,
+		Version:       Version,
+		ServerVersion: config.ServerVersion,
+		Nodes: map[string]*backup.NodeDescriptor{
+			nodes[0]: {Classes: classes, Status: backup.Success},
+			nodes[1]: {Classes: classes, Status: backup.Success},
+		},
+	}
+
+	c := fc.coordinator()
+	store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
+	req := newReq([]string{}, backendName, "")
+	schema := []backup.ClassDescriptor{{Name: classes[0]}}
+	require.NoError(t, c.Restore(ctx, store, &req, desc, schema, blobs))
+
+	// The restore runs on its own goroutine and resets lastOp when it ends.
+	require.Eventually(t, func() bool { return c.lastOp.get().Status == "" },
+		10*time.Second, 10*time.Millisecond, "restore did not finish")
+
+	return &restoreRolesAndUsersFixture{rolesAndUsers: fc.rolesAndUsers.(*recordingRolesAndUsersRestorer), coord: c}
+}
+
+// TestRestoreRoutesRolesAndUsersThroughRaft pins that the RAFT entry carries the exact
+// blobs the scheduler selected, with the strip flag the class restore uses.
+func TestRestoreRoutesRolesAndUsersThroughRaft(t *testing.T) {
+	roles := []byte(`{"roles_policies":[],"version":1}`)
+	users := []byte(`{"Data":{},"Version":0}`)
+
+	tests := []struct {
+		name              string
+		blobs             rolesAndUsersBlobs
+		namespacesEnabled bool
+		wantCall          bool
+	}{
+		{
+			name:     "both blobs, namespaces disabled: strip",
+			blobs:    rolesAndUsersBlobs{roles: roles, users: users},
+			wantCall: true,
+		},
+		{
+			name:              "both blobs, namespaces enabled: no strip",
+			blobs:             rolesAndUsersBlobs{roles: roles, users: users},
+			namespacesEnabled: true,
+			wantCall:          true,
+		},
+		{
+			name:     "roles only",
+			blobs:    rolesAndUsersBlobs{roles: roles},
+			wantCall: true,
+		},
+		{
+			name:     "users only",
+			blobs:    rolesAndUsersBlobs{users: users},
+			wantCall: true,
+		},
+		{
+			name:     "neither: no entry is issued",
+			blobs:    rolesAndUsersBlobs{},
+			wantCall: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			f := newRestoreRolesAndUsersFixture(t, ctx, tt.blobs, func(fc *fakeCoordinator) {
+				fc.schema.namespacesEnabled = tt.namespacesEnabled
+			})
+
+			calls := f.rolesAndUsers.recorded()
+			if !tt.wantCall {
+				assert.Empty(t, calls)
+				return
+			}
+			require.Len(t, calls, 1)
+			assert.Equal(t, tt.blobs.roles, calls[0].roles)
+			assert.Equal(t, tt.blobs.users, calls[0].users)
+			assert.Equal(t, !tt.namespacesEnabled, calls[0].strip)
+			assert.Equal(t, backup.Success, f.coord.descriptor.Status)
+		})
+	}
+}
+
+// TestRestoreRolesAndUsersGatedOnStagingNotClasses pins that roles and users are
+// applied once staging has committed, whatever the class outcome. A class that
+// already exists is a failure of the class restore alone.
+func TestRestoreRolesAndUsersGatedOnStagingNotClasses(t *testing.T) {
+	blobs := rolesAndUsersBlobs{roles: []byte(`{"roles_policies":[],"version":1}`)}
+	ctx := context.Background()
+
+	t.Run("staging never committed: no entry", func(t *testing.T) {
+		const backendName = "s3"
+		const backupID = "roles-users-staging-failed"
+		var (
+			any   = mock.Anything
+			nodes = []string{"N1"}
+			sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", ""}
+			cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+		)
+
+		fc := newFakeCoordinator(newFakeNodeResolver(nodes))
+		rec := &recordingRolesAndUsersRestorer{}
+		fc.rolesAndUsers = rec
+		fc.client.On("CanCommit", any, nodes[0], any).Return(cresp, nil)
+		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
+		fc.client.On("Status", any, nodes[0], sReq).Return(
+			&StatusResponse{Status: backup.Failed, ID: backupID, Method: OpRestore, Err: "staging failed"}, nil)
+		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil)
+
+		desc := &backup.DistributedBackupDescriptor{
+			StartedAt: time.Now().UTC(), ID: backupID, Status: backup.Success,
+			Version: Version, ServerVersion: config.ServerVersion,
+			Nodes: map[string]*backup.NodeDescriptor{nodes[0]: {Classes: []string{"Class-A"}}},
+		}
+
+		c := fc.coordinator()
+		store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
+		req := newReq([]string{}, backendName, "")
+		require.NoError(t, c.Restore(ctx, store, &req, desc, nil, blobs))
+		require.Eventually(t, func() bool { return c.lastOp.get().Status == "" },
+			10*time.Second, 10*time.Millisecond, "restore did not finish")
+
+		assert.Empty(t, rec.recorded(), "a restore whose staging never committed must apply nothing")
+		assert.NotEqual(t, backup.Success, c.descriptor.Status)
+	})
+
+	t.Run("class restore failed: entry is still issued", func(t *testing.T) {
+		f := newRestoreRolesAndUsersFixture(t, ctx, blobs, func(fc *fakeCoordinator) {
+			fc.schema.errRestoreClass = ErrAny
+		})
+
+		require.Len(t, f.rolesAndUsers.recorded(), 1, "a class failure must not withhold the auth restore")
+		assert.Equal(t, backup.Failed, f.coord.descriptor.Status)
+		assert.Contains(t, f.coord.descriptor.Error, ErrAny.Error())
+	})
+
+	t.Run("auth restore failed, classes succeeded: Failed with the auth error", func(t *testing.T) {
+		authErr := errors.New("namespace \"ns1\" is gone")
+		f := newRestoreRolesAndUsersFixture(t, ctx, blobs, func(fc *fakeCoordinator) {
+			fc.rolesAndUsers.(*recordingRolesAndUsersRestorer).err = authErr
+		})
+
+		require.Len(t, f.rolesAndUsers.recorded(), 1)
+		assert.Equal(t, backup.Failed, f.coord.descriptor.Status,
+			"a restore that could not apply its roles and users has not succeeded")
+		assert.Contains(t, f.coord.descriptor.Error, authErr.Error())
+	})
+
+	t.Run("class restore and auth restore both failed: both causes survive", func(t *testing.T) {
+		authErr := errors.New("namespace \"ns1\" is gone")
+		f := newRestoreRolesAndUsersFixture(t, ctx, blobs, func(fc *fakeCoordinator) {
+			fc.schema.errRestoreClass = ErrAny
+			fc.rolesAndUsers.(*recordingRolesAndUsersRestorer).err = authErr
+		})
+
+		require.Len(t, f.rolesAndUsers.recorded(), 1)
+		assert.Equal(t, backup.Failed, f.coord.descriptor.Status)
+		assert.Contains(t, f.coord.descriptor.Error, ErrAny.Error())
+		assert.Contains(t, f.coord.descriptor.Error, authErr.Error())
+	})
 }

@@ -190,7 +190,7 @@ func Test_Authorization(t *testing.T) {
 				selector.On("ListClasses", mock.Anything).Return(test.classes).Maybe()
 				selector.On("Backupable", mock.Anything, mock.Anything).Return(nil).Maybe()
 
-				s := NewScheduler(authorizer, nil, selector, nil, nil, backupProvider, nodeResolver, &fakeSchemaManger{}, nil, logger)
+				s := NewScheduler(authorizer, nil, selector, nil, nil, backupProvider, nodeResolver, &fakeSchemaManger{}, nil, nil, nil, logger)
 				require.NotNil(t, s)
 
 				if !test.ignoreAuthZ {
