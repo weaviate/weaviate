@@ -19,19 +19,22 @@ import (
 // migrationDisplacer is the part of a flipped record that names what its flip
 // pushed aside. Only Swapped and Promoted have one.
 type migrationDisplacer interface {
-	claimsDisplacedDir(dir string) bool
+	// displacedFor names the property whose flip pushed dir aside. The
+	// property, not just the fact, because a claim lapses with that one
+	// property rather than with the whole record.
+	displacedFor(dir string) (string, bool)
 }
 
-func (f migrationFlipBlock) claimsDisplacedDir(dir string) bool {
+func (f migrationFlipBlock) displacedFor(dir string) (string, bool) {
 	if dir == "" {
-		return false
+		return "", false
 	}
-	for _, displaced := range f.displacedDirs {
+	for prop, displaced := range f.displacedDirs {
 		if displaced == dir {
-			return true
+			return prop, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // migrationPropertySuperseded is the supersession predicate. Order comes from
@@ -81,14 +84,20 @@ func migrationDirClaimedAsDisplaced(all []MigrationRecord, subject MigrationSubj
 			continue
 		}
 		displacer, ok := other.(migrationDisplacer)
-		if !ok || !displacer.claimsDisplacedDir(dir) {
+		if !ok {
 			continue
 		}
-		// A claimer that is itself fully superseded is removed by this same
-		// pass and will never run its own removal. Deferring to it would
-		// strand the directory at a name no surviving record holds, which
-		// under opaque naming makes it unattributable and unreclaimable.
-		if migrationRecordFullySuperseded(all, other) {
+		claimedFor, ok := displacer.displacedFor(dir)
+		if !ok {
+			continue
+		}
+		// The claim lapses with the claimer's own property, not with its whole
+		// record: the removal chain that would reach this directory runs per
+		// property, so a claimer superseded on that one property never runs it
+		// again even while its other properties live on. Honoring a lapsed
+		// claim strands the directory at a name no surviving record holds,
+		// which under opaque naming makes it unattributable and unreclaimable.
+		if migrationPropertySuperseded(all, other.Subject(), claimedFor) {
 			continue
 		}
 		return true

@@ -135,17 +135,41 @@ func (f *reconcileFixture) migrationDirExists(subject MigrationSubject) bool {
 	return err == nil && info.IsDir()
 }
 
-// requireMigrationDirsTrackRecords pins that the migration directory goes
-// exactly when its record does: earlier would take the recovery payload out
-// from under a live migration, later would strand a directory that nothing
-// left on disk can attribute.
+// requireMigrationDirsTrackRecords pins that no directory outlives every
+// record that can attribute it. The migration directory goes exactly when its
+// record does — earlier would take the recovery payload out from under a live
+// migration — and a bucket directory that survives must be owned or claimed as
+// displaced by a record that is still there, or nothing will ever reclaim it.
 func (f *reconcileFixture) requireMigrationDirsTrackRecords() {
 	f.t.Helper()
+	surviving := f.store.Records()
 	for _, subject := range f.planted {
 		_, hasRecord := f.store.Get(subject.Key)
 		require.Equal(f.t, hasRecord, f.migrationDirExists(subject),
 			"migration directory of %s", subject.Key)
+
+		for _, dir := range migrationOwnedDirs(subject) {
+			if !f.exists(dir) {
+				continue
+			}
+			require.True(f.t, attributedToSomeRecord(surviving, dir),
+				"directory %q survives with no record owning or claiming it", dir)
+		}
 	}
+}
+
+func attributedToSomeRecord(records []MigrationRecord, dir string) bool {
+	for _, rec := range records {
+		if rec.OwnsBucket(dir) {
+			return true
+		}
+		if displacer, ok := rec.(migrationDisplacer); ok {
+			if _, claimed := displacer.displacedFor(dir); claimed {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (f *reconcileFixture) state(key MigrationRecordKey) (MigrationState, bool) {

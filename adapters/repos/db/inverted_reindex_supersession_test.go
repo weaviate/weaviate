@@ -163,6 +163,34 @@ func TestReconcileSupersession(t *testing.T) {
 			},
 		},
 		{
+			// The claimer is not fully superseded — nobody covers its second
+			// property — but the property it claims for is, so its removal
+			// chain will never reach the directory again.
+			name: "a claim lapses with the claimer's own property, not with its whole record",
+			arrange: func(f *reconcileFixture) {
+				claimer := testMigrationSubject(20, StrategyCodeSearchableRetokenize, "title", "body")
+				f.mkdirs("m_10_title", "m_20_title", "m_20_body", "m_30_title",
+					"property_title", "property_body")
+				f.put(swappedOn(10, "title"))
+				f.put(NewMigrationRecordSwapped(claimer, []string{"title", "body"},
+					map[string]string{"title": "m_10_title"}))
+				f.put(swappedOn(30, "title"))
+			},
+			assert: func(t *testing.T, f *reconcileFixture) {
+				require.False(t, f.exists("m_10_title"),
+					"honoring a lapsed claim strands the directory at a name no surviving record holds")
+				require.False(t, f.exists("m_20_title"))
+				require.Equal(t, "m_30_title", f.contentOf("property_title"))
+				require.Equal(t, "m_20_body", f.contentOf("property_body"),
+					"the claimer's unshared property is promoted, not retired")
+
+				_, present := f.state(MigrationRecordKey{TaskVersion: 10, StrategyCode: StrategyCodeSearchableRetokenize, UnitID: "shard-1__node-0"})
+				require.False(t, present)
+				_, present = f.state(MigrationRecordKey{TaskVersion: 20, StrategyCode: StrategyCodeSearchableRetokenize, UnitID: "shard-1__node-0"})
+				require.True(t, present, "a record with an unsuperseded property still has something to answer for")
+			},
+		},
+		{
 			name: "a chain of displacements retires end to end without stranding a directory",
 			arrange: func(f *reconcileFixture) {
 				middle := testMigrationSubject(20, StrategyCodeSearchableRetokenize, "title")
