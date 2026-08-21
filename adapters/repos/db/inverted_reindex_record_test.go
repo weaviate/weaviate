@@ -46,9 +46,6 @@ func testMigrationSubject(version uint64, code MigrationStrategyCode, props ...s
 		subject.StagedDirs[prop] = fmt.Sprintf("m_%d_%s", version, prop)
 		subject.CanonicalDirs[prop] = "property_" + prop
 	}
-	subject.DisplacementLinks = map[string][]MigrationRecordKey{
-		props[0]: {{TaskVersion: version - 1, StrategyCode: code, UnitID: "shard-1__node-0"}},
-	}
 	return subject
 }
 

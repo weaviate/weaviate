@@ -135,12 +135,6 @@ type MigrationSubject struct {
 	StagedDirs    map[string]string `json:"stagedDirs,omitempty"`
 	CanonicalDirs map[string]string `json:"canonicalDirs,omitempty"`
 	SidecarDirs   []string          `json:"sidecarDirs,omitempty"`
-
-	// DisplacementLinks names, per property, every record extant when this one
-	// was first written whose property set overlapped. Bookkeeping for the
-	// retirement arithmetic only: supersession is ordered by TaskVersion, so
-	// nothing here decides which of two records is newer.
-	DisplacementLinks map[string][]MigrationRecordKey `json:"displacementLinks,omitempty"`
 }
 
 // MigrationRecord is the sealed set of five variants. Only this package can

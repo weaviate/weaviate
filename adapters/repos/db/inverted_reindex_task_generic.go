@@ -1683,35 +1683,7 @@ func (t *ShardReindexTaskGeneric) migrationSubject(shard ShardLike, props []stri
 		subject.CanonicalDirs[propName] = t.strategy.SourceBucketName(propName)
 		subject.SidecarDirs = append(subject.SidecarDirs, t.reindexBucketName(propName))
 	}
-	subject.DisplacementLinks = migrationDisplacementLinks(shard.migrationRecordStore(), subject)
 	return subject
-}
-
-// migrationDisplacementLinks names, per property, the records already on the
-// shard that this one overlaps. It is bookkeeping the retirement arithmetic
-// reads; which of two records is newer is decided by the generation alone, so
-// a link that dangles once its target retires costs nothing.
-func migrationDisplacementLinks(store *MigrationRecordStore, subject MigrationSubject) map[string][]MigrationRecordKey {
-	if store == nil {
-		return nil
-	}
-	var links map[string][]MigrationRecordKey
-	for _, other := range store.Records() {
-		otherSubject := other.Subject()
-		if otherSubject.Key == subject.Key {
-			continue
-		}
-		for _, prop := range subject.Properties {
-			if otherSubject.CanonicalDirs[prop] != subject.CanonicalDirs[prop] {
-				continue
-			}
-			if links == nil {
-				links = map[string][]MigrationRecordKey{}
-			}
-			links[prop] = append(links[prop], otherSubject.Key)
-		}
-	}
-	return links
 }
 
 func (t *ShardReindexTaskGeneric) reindexBucketName(propName string) string {
