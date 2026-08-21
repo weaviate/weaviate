@@ -260,6 +260,14 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testTornResumeReindexedNotTidied(t, compose)
 	})
 
+	// Pins that promotion runs on the directory the record names and never on
+	// one derived from a strategy prefix, a property name or a generation
+	// suffix. If RED, a completed migration's data is stranded at a name
+	// nothing can attribute while the schema reports the property ready.
+	t.Run("PromotionRunsOnRecordedHandles", func(t *testing.T) {
+		testPromotionRunsOnRecordedHandles(t, compose)
+	})
+
 	// --- Shared restart: verify all deferred finalizations ---
 	t.Run("PostRestartFinalize", func(t *testing.T) {
 		t.Log("restarting weaviate container for deferred finalize verification")

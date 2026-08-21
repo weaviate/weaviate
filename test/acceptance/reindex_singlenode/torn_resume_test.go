@@ -70,20 +70,13 @@ import (
 // written), the swap promotes an empty bucket and flips the schema flag,
 // also a silent data loss.
 //
-// To reproduce reliably without relying on iteration timing, we directly
-// craft the "reindexed but not tidied" sentinel state on disk before any
-// reindex submission. The shape we craft:
-//
-//	.migrations/<migDir>/started.mig    (RFC3339Nano timestamp)
-//	.migrations/<migDir>/reindexed.mig  (RFC3339Nano timestamp)
-//	.migrations/<migDir>/properties.mig (comma-joined property names)
-//
-// — that's the disk state a real failed run would leave behind in the
-// narrow window between markReindexed() and markPrepended(). No
-// __reindex / __ingest sidecar dirs are created; if the code (correctly)
-// rebuilds them via CreateOrLoadBucket and re-runs iteration on
-// resubmit, the migration finishes correctly. If it (incorrectly)
-// short-circuits on IsReindexed and skips iteration / swap, the test
+// To reproduce reliably without relying on iteration timing, we plant the
+// record of a run that crashed mid-rebuild before any reindex submission: a
+// migration whose task the cluster no longer knows, whose staged directories
+// are not on disk, and whose schema effect never landed. No __reindex /
+// __ingest sidecar dirs are created; if the code (correctly) reclaims that
+// state and rebuilds from scratch on resubmit, the migration finishes. If it
+// (incorrectly) resumes against it and skips iteration or swap, the test
 // catches the silent failure.
 //
 // Test variants (one per non-semantic strategy + a semantic-strategy
