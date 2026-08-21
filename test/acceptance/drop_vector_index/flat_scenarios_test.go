@@ -96,7 +96,7 @@ func testFlatLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*testing.T)
 
 		var owned []string
 		t.Run("the flat index owns state on disk", func(t *testing.T) {
-			owned = dirsOwnedBy(multiVectorDirsOnEveryNode(ctx, t, compose), dropped)
+			owned = dirsOwnedBy(vectorDirsOnEveryNode(ctx, t, compose), dropped)
 			require.NotEmpty(t, owned,
 				"precondition: the index must have on-disk state, or dropping it proves nothing")
 			t.Logf("%s owns:\n  %s", dropped, strings.Join(owned, "\n  "))
@@ -122,7 +122,7 @@ func testFlatLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*testing.T)
 		})
 
 		t.Run("no state of the dropped index survives", func(t *testing.T) {
-			left := dirsOwnedBy(multiVectorDirsOnEveryNode(ctx, t, compose), dropped)
+			left := dirsOwnedBy(vectorDirsOnEveryNode(ctx, t, compose), dropped)
 			for _, entry := range left {
 				t.Logf("SURVIVED: %s", entry)
 			}

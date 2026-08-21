@@ -157,7 +157,7 @@ func testMultiVectorLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*tes
 		// paths guessed in advance.
 		owned := map[string][]string{}
 		inventoried := t.Run("every encoding owns directories on disk", func(t *testing.T) {
-			all := multiVectorDirsOnEveryNode(ctx, t, compose)
+			all := vectorDirsOnEveryNode(ctx, t, compose)
 			for _, v := range variants {
 				owned[v.name] = dirsOwnedBy(all, v.name)
 				require.NotEmpty(t, owned[v.name],
@@ -195,7 +195,7 @@ func testMultiVectorLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*tes
 				eventuallyTargetVectorRemoved(t, className, v.name)
 				waitForNoActiveDropTask(t)
 
-				all := multiVectorDirsOnEveryNode(ctx, t, compose)
+				all := vectorDirsOnEveryNode(ctx, t, compose)
 
 				left := dirsOwnedBy(all, v.name)
 				for _, dir := range left {
@@ -266,15 +266,16 @@ func dirsNamedAfter(allDirs []string, targetVector string) []string {
 	return out
 }
 
-// multiVectorDirsOnEveryNode collects candidate directories from EVERY node.
-// The class's shard lives on whichever node the hash lands it on, so checking
-// only the node the client happens to talk to would pass on the other two by
-// looking in the wrong place.
+// vectorDirsOnEveryNode collects candidate directories from EVERY node. The
+// class's shard lives on whichever node the hash lands it on, so checking only
+// the node the client happens to talk to would pass on the other two by
+// looking in the wrong place. Single-node composes fall out of the same loop:
+// GetWeaviateNode returns nil past the first.
 //
 // Searched from / with -xdev rather than a hardcoded PERSISTENCE_DATA_PATH (so
 // /proc and /sys are skipped): a path that moved would otherwise make the
 // post-drop assertions pass vacuously by finding nothing.
-func multiVectorDirsOnEveryNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose) []string {
+func vectorDirsOnEveryNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose) []string {
 	t.Helper()
 	var dirs []string
 	for n := 1; n <= 3; n++ {

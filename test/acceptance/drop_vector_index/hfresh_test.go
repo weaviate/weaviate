@@ -100,7 +100,7 @@ func testHFreshLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*testing.
 
 		var owned []string
 		t.Run("the hfresh index owns directories on disk", func(t *testing.T) {
-			owned = dirsOwnedBy(hfreshDirsOnEveryNode(ctx, t, compose), dropped)
+			owned = dirsOwnedBy(vectorDirsOnEveryNode(ctx, t, compose), dropped)
 			require.NotEmpty(t, owned,
 				"precondition: the index must have on-disk state, or dropping it proves nothing")
 			t.Logf("%s owns:\n  %s", dropped, strings.Join(owned, "\n  "))
@@ -121,7 +121,7 @@ func testHFreshLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*testing.
 		})
 
 		t.Run("no directory of the dropped index survives", func(t *testing.T) {
-			left := dirsOwnedBy(hfreshDirsOnEveryNode(ctx, t, compose), dropped)
+			left := dirsOwnedBy(vectorDirsOnEveryNode(ctx, t, compose), dropped)
 			for _, dir := range left {
 				t.Logf("SURVIVED: %s", dir)
 			}
@@ -144,28 +144,6 @@ func hfreshArtifactNames(targetVector string) []string {
 		"hfresh_postings_" + indexID,
 		"hfresh_shared_" + indexID,
 	}
-}
-
-// hfreshDirsOnEveryNode collects candidate directories from EVERY node. The
-// class's shard lives on whichever node the hash lands it on, so checking only
-// the node the client happens to talk to would pass on the other two by
-// looking in the wrong place.
-func hfreshDirsOnEveryNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose) []string {
-	t.Helper()
-	var dirs []string
-	for n := 1; n <= 3; n++ {
-		node := compose.GetWeaviateNode(n)
-		if node == nil {
-			continue
-		}
-		out := findVectorDirs(ctx, t, node.Container())
-		for _, line := range strings.Split(out, "\n") {
-			if line = strings.TrimSpace(line); line != "" {
-				dirs = append(dirs, node.Name()+":"+line)
-			}
-		}
-	}
-	return dirs
 }
 
 func hasBase(paths []string, base string) bool {

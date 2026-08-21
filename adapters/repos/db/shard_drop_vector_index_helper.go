@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
@@ -73,6 +74,13 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 		if err := os.RemoveAll(dir); err != nil {
 			return fmt.Errorf("remove %s: %w", dir, err)
 		}
+	}
+
+	// A dynamic index records its flat-to-hnsw verdict in the shard-shared state
+	// DB, which no artifact above can reach: it is one file per shard, not per
+	// vector, so removing it would take every sibling's verdict too.
+	if err := dynamic.RemoveStateKey(shardDir, targetVector); err != nil {
+		return fmt.Errorf("remove dynamic state for %q: %w", targetVector, err)
 	}
 
 	return nil
