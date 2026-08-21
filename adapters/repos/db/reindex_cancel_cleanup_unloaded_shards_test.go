@@ -223,6 +223,10 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 		tracker   string
 		ingestDir string
 		canonical string
+		// legacyDir is a backup copy of the displaced bucket, which releases
+		// before this one left behind and no record names. Reclaiming it is
+		// this sweep's job alone.
+		legacyDir string
 	}{
 		{
 			name:      "a per-property filterable enable",
@@ -231,6 +235,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 			tracker:   "enable_filterable_category_1",
 			ingestDir: "property_category__enable_filterable_ingest_1",
 			canonical: "property_category",
+			legacyDir: "property_category__enable_filterable_backup_1",
 		},
 		// A class-level tracker is out of the deletion scope altogether, so
 		// the leftovers here are only visible through the preserved sidecar.
@@ -241,6 +246,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 			tracker:   "filterable_roaringset_refresh_2",
 			ingestDir: "property_category__roaringset_ingest_2",
 			canonical: "property_category",
+			legacyDir: "property_category__roaringset_backup_2",
 		},
 		{
 			name:      "a per-property searchable retokenize",
@@ -249,6 +255,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 			tracker:   "searchable_retokenize_descr_1",
 			ingestDir: "property_descr_searchable__retokenize_ingest_1",
 			canonical: "property_descr_searchable",
+			legacyDir: "property_descr_searchable__blockmax_map_1",
 		},
 	}
 
@@ -266,6 +273,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 			mkFlippedMigrationRecord(t, residueLSM, tc.tracker, tc.propName,
 				tc.ingestDir, tc.canonical)
 			mkBucketDir(t, residueLSM, tc.ingestDir, promoted)
+			mkBucketDir(t, residueLSM, tc.legacyDir, "superseded.marker")
 
 			// The clean tenant carries the canonical bucket a migrated tenant
 			// ends up with, so the gate has a real listing to answer from
@@ -296,6 +304,8 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 					"promoting it to the canonical name, never deleting it")
 			assert.False(t, dirExistsAt(t, residueLSM, tc.ingestDir),
 				"the data is under its canonical name now")
+			assert.False(t, dirExistsAt(t, residueLSM, tc.legacyDir),
+				"a backup copy from a release before this one is reclaimed here or never")
 
 			logger, _ := test.NewNullLogger()
 			records, frozen, _ := migrationRecordsAt(residueLSM, logger)
@@ -1472,10 +1482,11 @@ func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
 		{name: "category__reindex's own bucket, wrongly accepted", dir: main + "__reindex", want: true},
 		{name: "category__ingest_0's own bucket, wrongly accepted", dir: main + "__ingest_0", want: true},
 		{name: "a property named after a number", dir: main + "__12", want: false},
-		// A backup copy an earlier release left on disk. "map" is no longer a
-		// role word, so nothing here reclaims one any more: the sweep does not
-		// see it, and no record names it either.
-		{name: "a blockmax backup dir from an earlier release", dir: main + "__blockmax_map_3", want: false},
+		// A backup copy an earlier release left on disk. This build produces
+		// no such directory, and no record names one, so this sweep is the
+		// only thing that can ever reclaim it.
+		{name: "a blockmax backup dir from an earlier release", dir: main + "__blockmax_map_3", want: true},
+		{name: "a filterable backup dir from an earlier release", dir: main + "__enable_filterable_backup_1", want: true},
 		{name: "a property whose name extends a role word", dir: main + "__ingest_x", want: false},
 		// An empty tail is not a generation, so this is property
 		// "category__ingest_"'s own main bucket.

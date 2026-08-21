@@ -532,7 +532,12 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, commit
 // the numeric generation tail is off. Keep in lockstep with the strategies'
 // ReindexSuffix / IngestSuffix; [TestEverySidecarSuffixIsASidecar] pins that a
 // new strategy either reuses one of these or extends the list.
-var sidecarRoleWords = []string{"reindex", "ingest"}
+//
+// "backup" and "map" name no suffix this build produces — the flip removes the
+// directory it displaces instead of renaming it aside. They stay because every
+// cluster that upgrades into this build brings those directories with it, and
+// no record names them, so this sweep is the only thing that can reclaim them.
+var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
 
 // isSidecarDirOf reports whether name is a per-property sidecar of
 // mainBucketName. "__" alone isn't enough: property names may contain "__"
