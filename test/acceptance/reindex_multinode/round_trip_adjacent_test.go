@@ -196,10 +196,9 @@ func TestMultiNode_ChangeTokenization_AJ_EnableThenChange(t *testing.T) {
 
 	t.Run("EnableFilterableThenChangeTok", func(t *testing.T) {
 		// Journey 6: a property starts filterable=false. We enable
-		// filterable (which writes tidied.mig to a per-prop dir under
-		// .migrations/), then immediately change-tokenization on the
-		// same property. Does enable-filterable's residual state
-		// interfere with the change-tok migration?
+		// filterable, which leaves a completed migration's record and
+		// directories behind, then immediately change-tokenization on the
+		// same property. Does that residual state interfere?
 		testEnableFilterableThenChangeTok(t, compose)
 	})
 
@@ -671,7 +670,7 @@ func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	importObjects(t, restURI, className, testDocuments)
 	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
-	// Step 1: enable filterable. This writes a tidied.mig per-prop.
+	// Step 1: enable filterable, which leaves a completed migration's record.
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "filterable",
 		`{}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
@@ -687,8 +686,8 @@ func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 		"text.IndexFilterable should be true after enable-filterable")
 
 	// Step 2: change-tokenization word→field on the same property.
-	// Hypothesis: enable-filterable's tidied.mig poisons the new
-	// change-tok migration dir state, leaving N-1 replicas with empty
+	// Hypothesis: enable-filterable's completed record poisons the new
+	// change-tok migration's state, leaving N-1 replicas with empty
 	// post-swap buckets.
 	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
 		`{"tokenization":"field"}`)

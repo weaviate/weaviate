@@ -215,10 +215,9 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 // with a graceful shutdown sequence (testcontainers' Stop sends
 // SIGTERM first), this variant uses an ungraceful 0-second-timeout
 // Stop on a SINGLE node. That bypasses the on-shutdown flush path and
-// lets the post-restart RecoveryAwareProvider +
-// FinalizeCompletedMigrations have to handle a node whose
-// .migrations/ directory is at the half-merged stage (no tidied.mig,
-// no swapped.mig) with the local process state lost.
+// leaves the post-restart RecoveryAwareProvider and reconciliation to
+// handle a node whose migration record says Merged, with the local
+// process state lost.
 //
 // The expected behavior with the ack barrier:
 //  1. SIGKILL on the targeted node either lands before its ack was

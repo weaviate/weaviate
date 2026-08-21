@@ -416,13 +416,13 @@ func tenantLSMPath(tenant string) string {
 }
 
 // plantStaleTracker writes the on-disk shape a run that started and never
-// finished leaves behind: a tracker dir holding started.mig and nothing else.
-// No payload.mig, so the sweep resolves the dir from its own name.
+// finished leaves behind: the migration's own directory and nothing else. No
+// record, so nothing on disk claims the directory, and no payload.mig, so the
+// sweep resolves it from its own name.
 func plantStaleTracker(ctx context.Context, t *testing.T, c testcontainers.Container, tenant string) {
 	t.Helper()
 	dir := tenantLSMPath(tenant) + "/.migrations/" + coldCancelPlantedDir
-	execInContainer(ctx, t, c, fmt.Sprintf(
-		"mkdir -p %s && printf '%%s' 2026-01-01T00:00:00.000000000Z > %s/started.mig", dir, dir))
+	execInContainer(ctx, t, c, fmt.Sprintf("mkdir -p %s", dir))
 	require.True(t, containsDir(trackerDirs(ctx, t, c, tenant), coldCancelPlantedDir),
 		"planted tracker for tenant %q must be on disk before the restart", tenant)
 }

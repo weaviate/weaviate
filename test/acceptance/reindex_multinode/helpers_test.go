@@ -638,9 +638,8 @@ func filterMigrationLogLines(s string) []string {
 		"OnAfterLsmInit",
 		"OnGroupCompleted", "OnTaskCompleted",
 		"RunSwapOnShard", "RunReindexOnlyOnShard", "RunOnShard",
-		"finalize:", "FinalizeCompletedMigrations",
-		"swapped.mig", "tidied.mig", "merged.mig", "prepended.mig",
-		"recovered untidied", "swap INCOMPLETE", "swap complete",
+		"reconcile", "migration record", "promote", "supersede",
+		"swap INCOMPLETE", "swap complete",
 		"runtime swap", "trim:",
 		"distributed task", "distributedtask",
 		// raft leadership lines: correlate with the FINISHED vs
