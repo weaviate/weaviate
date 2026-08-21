@@ -12,6 +12,8 @@
 package db
 
 import (
+	"maps"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -197,6 +199,35 @@ func removeDeleteCallback(cur []deleteCallbackEntry, id uint64) []deleteCallback
 	return updated
 }
 
+// replaceAddCallback returns a fresh slice with the entry carrying id swapped
+// for cb. Replacing rather than removing is what makes one registration's
+// properties separable: a disarm that drops one property re-registers the pair
+// over the properties that are left, so the write path keeps carrying one
+// callback per migration instead of one per property.
+func replaceAddCallback(cur []addCallbackEntry, id uint64, cb onAddToPropertyValueIndex) []addCallbackEntry {
+	updated := make([]addCallbackEntry, len(cur))
+	copy(updated, cur)
+	for i := range updated {
+		if updated[i].id == id {
+			updated[i].fn = cb
+			break
+		}
+	}
+	return updated
+}
+
+func replaceDeleteCallback(cur []deleteCallbackEntry, id uint64, cb onDeleteFromPropertyValueIndex) []deleteCallbackEntry {
+	updated := make([]deleteCallbackEntry, len(cur))
+	copy(updated, cur)
+	for i := range updated {
+		if updated[i].id == id {
+			updated[i].fn = cb
+			break
+		}
+	}
+	return updated
+}
+
 // fireAddToPropertyValueIndex invokes every add callback, bypassing the
 // inline write path's scope suppression (the migration pass needs it fired).
 func (s *Shard) fireAddToPropertyValueIndex(st *propValueIndexState, docID uint64, property *inverted.Property) error {
@@ -288,7 +319,8 @@ func (s *Shard) migrationDoubleWriteDelete(st *propValueIndexState, prevObject *
 // registerDoubleWriteWithScope arms the scope and registers the add+delete
 // callbacks in ONE atomic Store, so a concurrent writer never sees callbacks
 // without the scope and leaks source-tokenized terms into the ingest bucket
-// (weaviate/0-weaviate-issues#298). Returned func disarms both.
+// (weaviate/0-weaviate-issues#298). The returned func disarms the properties
+// it is given, or all of them when given none.
 //
 // Disarm REMOVES the callbacks (by id) in the SAME atomic mutate that drops the
 // scope. Two consequences:
@@ -306,10 +338,29 @@ func (s *Shard) migrationDoubleWriteDelete(st *propValueIndexState, prevObject *
 //     writer still holding the pre-disarm snapshot fires the callback safely:
 //     resolveScopedDoubleWriteBucket lands the mirror in the surviving canonical
 //     bucket (target phase) or no-ops when the sidecar is gone (backup phase).
-func (s *Shard) registerDoubleWriteWithScope(add onAddToPropertyValueIndex, del onDeleteFromPropertyValueIndex,
-	props []string, overlay map[string]inverted.PropertyOverlay,
-) func() {
+//
+// Disarming a subset re-registers the pair over the properties that are left
+// rather than removing it, because the actor that disarms owns one property of
+// the scope — a successor's retirement takes over the properties it overlaps
+// and no others. Rebuilding the callbacks is what keeps the write path
+// carrying one pair per migration rather than one per property: every
+// registered callback fires for every analyzed property, so a pair per
+// property would cost the square of the migration's property count on every
+// write.
+//
+// makeCallbacks receives the properties still armed and must build a pair
+// scoped to exactly them. armed is only ever read and written from inside
+// mutatePropValueIndexState's critical section.
+func (s *Shard) registerDoubleWriteWithScope(props []string, overlay map[string]inverted.PropertyOverlay,
+	makeCallbacks func(scope map[string]struct{}) (onAddToPropertyValueIndex, onDeleteFromPropertyValueIndex),
+) func(disarming ...string) {
+	armed := make(map[string]struct{}, len(props))
+	for _, prop := range props {
+		armed[prop] = struct{}{}
+	}
+
 	var id uint64
+	add, del := makeCallbacks(maps.Clone(armed))
 	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
 		id = cur.nextCallbackID
 		cur.nextCallbackID++
@@ -319,11 +370,37 @@ func (s *Shard) registerDoubleWriteWithScope(add onAddToPropertyValueIndex, del 
 		return cur
 	})
 
-	return func() {
+	return func(disarming ...string) {
+		if len(disarming) == 0 {
+			disarming = props
+		}
 		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-			cur.add = removeAddCallback(cur.add, id)
-			cur.del = removeDeleteCallback(cur.del, id)
-			cur.scope = cur.scope.withDisarmed(props, overlay)
+			var dropped []string
+			droppedOverlay := make(map[string]inverted.PropertyOverlay, len(disarming))
+			for _, prop := range disarming {
+				if _, ok := armed[prop]; !ok {
+					continue
+				}
+				delete(armed, prop)
+				dropped = append(dropped, prop)
+				if o, ok := overlay[prop]; ok {
+					droppedOverlay[prop] = o
+				}
+			}
+			if len(armed) > 0 {
+				if len(dropped) == 0 {
+					return cur
+				}
+				add, del := makeCallbacks(maps.Clone(armed))
+				cur.add = replaceAddCallback(cur.add, id, add)
+				cur.del = replaceDeleteCallback(cur.del, id, del)
+			} else {
+				// Idempotent: removing an id that is already gone returns the
+				// same backing array, which a double disarm relies on.
+				cur.add = removeAddCallback(cur.add, id)
+				cur.del = removeDeleteCallback(cur.del, id)
+			}
+			cur.scope = cur.scope.withDisarmed(dropped, droppedOverlay)
 			return cur
 		})
 	}

@@ -32,15 +32,18 @@ import (
 // newEnableFilterableTask wraps EnableFilterableStrategy. Selection is
 // mandatory: the strategy can't discover targets via the schema-flag
 // scan because that flag is still false at migration time.
-func newEnableFilterableTask(t *testing.T, idx *Index, className, propName string) (*ShardReindexTaskGeneric, *testEnableFilterableStrategyWrapper) {
+func newEnableFilterableTask(t *testing.T, idx *Index, className string, propNames ...string) (*ShardReindexTaskGeneric, *testEnableFilterableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testEnableFilterableStrategyWrapper{
 		EnableFilterableStrategy: EnableFilterableStrategy{
-			propNames:  []string{propName},
+			propNames:  propNames,
 			generation: 1,
 		},
 	}
-	selectedProps := map[string]struct{}{propName: {}}
+	selectedProps := map[string]struct{}{}
+	for _, propName := range propNames {
+		selectedProps[propName] = struct{}{}
+	}
 	task := NewShardReindexTaskGeneric(
 		"EnableFilterable", idx.logger, wrapped,
 		reindexTaskConfig{
@@ -90,9 +93,11 @@ func (s *testEnableFilterableStrategyWrapper) OnMigrationComplete(_ context.Cont
 // IndexFilterable=false (so the filterable bucket genuinely does not
 // exist pre-migration). The default newTestClassWithProps leaves
 // IndexFilterable nil (defaults to true) — not what we want here.
-func newEnableFilterableTestClass(className, propName string) *models.Class {
-	class := newTestClassWithProps(className, []string{propName})
-	class.Properties[0].IndexFilterable = boolPtr(false)
+func newEnableFilterableTestClass(className string, propNames ...string) *models.Class {
+	class := newTestClassWithProps(className, propNames)
+	for _, prop := range class.Properties {
+		prop.IndexFilterable = boolPtr(false)
+	}
 	return class
 }
 

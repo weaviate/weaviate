@@ -427,11 +427,11 @@ func TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth(t *testing.T) {
 		// Each migration arms the add+delete pair AND the scope, then disarms
 		// all three in one atomic mutate.
 		for i := 0; i < numMigrations; i++ {
-			s.registerDoubleWriteWithScope(
-				func(_ *Shard, _ uint64, _ *inverted.Property) error { addInvocations.Add(1); return nil },
-				func(_ *Shard, _ uint64, _ *inverted.Property) error { delInvocations.Add(1); return nil },
-				props, nil,
-			)()
+			s.registerDoubleWriteWithScope(props, nil,
+				func(map[string]struct{}) (onAddToPropertyValueIndex, onDeleteFromPropertyValueIndex) {
+					return func(_ *Shard, _ uint64, _ *inverted.Property) error { addInvocations.Add(1); return nil },
+						func(_ *Shard, _ uint64, _ *inverted.Property) error { delInvocations.Add(1); return nil }
+				})()
 		}
 
 		st := s.loadPropValueIndexState()

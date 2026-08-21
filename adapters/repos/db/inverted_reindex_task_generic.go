@@ -120,7 +120,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -1781,55 +1780,39 @@ func dirExists(path string) bool {
 }
 
 // registerDoubleWriteCallbacks arms the strategy's add/delete mirror callbacks
-// for [disableCallbacks]. The returned func disables only this call's pair
-// (idempotent), for failure paths that must not touch other shards'
-// registrations.
+// and publishes one disarm handle per (record, property) on the shard. The
+// returned func disarms the whole record, for the failure paths that must not
+// touch other shards' registrations.
+//
+// The handles go on the shard rather than on this task instance because the
+// actor that disarms is never the actor that armed: a successor's retirement,
+// reconciliation's cancel edge, terminal cleanup. The provider also clears a
+// terminal task's instance cache outright.
+//
+// Per property because the relation that disarms is per property: a
+// successor's property set can partially overlap a committed predecessor's,
+// and one shared handle would either keep mirroring a property the successor
+// took over — writing predecessor-form rows into the successor's live bucket
+// once its staged bucket is shut down — or stop mirroring the properties the
+// successor never touched.
 func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, props []string,
 	bucketNamer func(string) string,
 ) func() {
-	propsByName := map[string]struct{}{}
-	for i := range props {
-		propsByName[props[i]] = struct{}{}
+	disarm := shard.registerDoubleWriteWithScope(props, t.strategy.AnalyzerOverlay(props),
+		func(scope map[string]struct{}) (onAddToPropertyValueIndex, onDeleteFromPropertyValueIndex) {
+			return t.strategy.MakeAddCallback(bucketNamer, scope),
+				t.strategy.MakeDeleteCallback(bucketNamer, scope)
+		})
+
+	registry := shard.migrationMirrorRegistry()
+	key := t.migrationRecordKey()
+	for _, propName := range props {
+		registry.ArmMigrationMirror(key, propName, func() { disarm(propName) })
 	}
 
-	addCb := t.strategy.MakeAddCallback(bucketNamer, propsByName)
-	delCb := t.strategy.MakeDeleteCallback(bucketNamer, propsByName)
-
-	// The scope is armed atomically with the callbacks, or a concurrent write
-	// gets source-tokenized into the ingest bucket
-	// (weaviate/0-weaviate-issues#298).
-	disable := shard.registerDoubleWriteWithScope(addCb, delCb, props, t.strategy.AnalyzerOverlay(props))
-
-	// Also publish the handle on the shard, keyed per (record, property), so
-	// an actor that did not arm the mirror can still disarm it: a successor's
-	// retirement, reconciliation's cancel edge, terminal cleanup. Handles kept
-	// only on this task instance are unreachable from all three, and the
-	// provider clears a terminal task's instance cache outright.
-	//
-	// One registration covers a scope of properties, so the published handle
-	// is shared and counted down: the underlying callbacks come off the write
-	// path only once the last property in the scope has been disarmed, never
-	// when the first one is.
-	if registry := shard.migrationMirrorRegistry(); registry != nil && len(props) > 0 {
-		key := t.migrationRecordKey()
-		var (
-			mu        sync.Mutex
-			remaining = len(props)
-		)
-		shared := func() {
-			mu.Lock()
-			defer mu.Unlock()
-			remaining--
-			if remaining == 0 {
-				disable()
-			}
-		}
-		for _, propName := range props {
-			registry.ArmMigrationMirror(key, propName, shared)
-		}
-	}
-
-	return disable
+	// Through the registry, so the published handles never outlive the
+	// callbacks they disarm.
+	return func() { registry.DisarmMigrationMirrors(key) }
 }
 
 func (t *ShardReindexTaskGeneric) bucketOptions(shard *Shard, strategy string,

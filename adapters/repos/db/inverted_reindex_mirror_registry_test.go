@@ -12,11 +12,19 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func mirrorKeyForGen(version uint64) MigrationRecordKey {
@@ -157,4 +165,65 @@ func TestMigrationMirrorRegistryConcurrentAccess(t *testing.T) {
 	wg.Wait()
 
 	require.Zero(t, registry.ArmedMigrationMirrors())
+}
+
+// TestMigrationMirrorDisarmIsPerProperty exercises the shape production arms:
+// one registration over the migration's whole property set, published as one
+// handle per property. Disarming a property has to stop exactly that
+// property's mirror. Leaving it armed would write predecessor-form rows into
+// the successor's live bucket the moment the staged one is shut down, and
+// disarming the whole scope would stop mirroring properties no successor took
+// over.
+func TestMigrationMirrorDisarmIsPerProperty(t *testing.T) {
+	const (
+		retired = "title"
+		kept    = "body"
+	)
+	ctx := testCtx()
+	className := "MirrorDisarmPerProp_" + uuid.NewString()[:8]
+	class := newEnableFilterableTestClass(className, retired, kept)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(context.Background())
+
+	task, _ := newEnableFilterableTask(t, idx, className, retired, kept)
+	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+
+	registry := shard.migrationMirrorRegistry()
+	require.Equal(t, 2, registry.ArmedMigrationMirrors(),
+		"one handle per property, or no actor can disarm just the property it took over")
+
+	registry.DisarmMigrationMirror(task.migrationRecordKey(), retired)
+	require.Equal(t, 1, registry.ArmedMigrationMirrors())
+
+	require.NoError(t, shard.PutObject(ctx, &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:                 strfmt.UUID(uuid.NewString()),
+			Class:              className,
+			Properties:         map[string]interface{}{retired: "alpha", kept: "bravo"},
+			CreationTimeUnix:   time.Now().UnixMilli(),
+			LastUpdateTimeUnix: time.Now().UnixMilli(),
+		},
+	}))
+
+	mirrored := func(propName, term string) []uint64 {
+		t.Helper()
+		bucket := shard.store.Bucket(task.ingestBucketName(propName))
+		require.NotNil(t, bucket, "staged bucket for %q", propName)
+		bm, release, err := bucket.RoaringSetGet(ctx, []byte(term))
+		require.NoError(t, err)
+		defer release()
+		if bm == nil {
+			return nil
+		}
+		return bm.ToArray()
+	}
+
+	require.Empty(t, mirrored(retired, "alpha"),
+		"a disarmed property must stop mirroring")
+	require.Len(t, mirrored(kept, "bravo"), 1,
+		"a property nobody disarmed must keep mirroring")
 }

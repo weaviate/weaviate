@@ -115,18 +115,6 @@ func (r *migrationMirrorRegistry) ArmedMigrationMirrors() int {
 // what lets reconciliation reach the handles without knowing about shards.
 var _ migrationMirrorDisarmer = (*Shard)(nil)
 
-func (s *Shard) ArmMigrationMirror(key MigrationRecordKey, prop string, disarm func()) {
-	s.migrationMirrors.ArmMigrationMirror(key, prop, disarm)
-}
-
 func (s *Shard) DisarmMigrationMirror(key MigrationRecordKey, prop string) {
 	s.migrationMirrors.DisarmMigrationMirror(key, prop)
-}
-
-func (s *Shard) DisarmMigrationMirrors(key MigrationRecordKey) {
-	s.migrationMirrors.DisarmMigrationMirrors(key)
-}
-
-func (s *Shard) ArmedMigrationMirrors() int {
-	return s.migrationMirrors.ArmedMigrationMirrors()
 }
