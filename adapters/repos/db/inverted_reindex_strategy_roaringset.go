@@ -33,6 +33,10 @@ func (s *RoaringSetRefreshStrategy) MigrationDirName() string {
 	return MigrationDirFilterableRoaringsetRefresh + genSuffix(s.generation)
 }
 
+func (s *RoaringSetRefreshStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeFilterableRoaringsetRefresh
+}
+
 func (s *RoaringSetRefreshStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketFromPropNameLSM(propName)
 }

@@ -39,6 +39,10 @@ func (s *EnableFilterableStrategy) MigrationDirName() string {
 	return migrationDirWithProps(MigrationDirPrefixEnableFilterable, s.propNames) + genSuffix(s.generation)
 }
 
+func (s *EnableFilterableStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeEnableFilterable
+}
+
 func (s *EnableFilterableStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketFromPropNameLSM(propName)
 }

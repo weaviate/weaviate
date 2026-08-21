@@ -36,6 +36,11 @@ import (
 // merge/swap/tidy, object iteration, progress tracking) lives in
 // ShardReindexTaskGeneric.
 type MigrationStrategy interface {
+	// StrategyCode identifies this strategy in a migration record's key.
+	// Unlike the directory name it is a durable on-disk value, and it stays
+	// meaningful once directory names become opaque.
+	StrategyCode() MigrationStrategyCode
+
 	// MigrationDirName returns the subdirectory name under .migrations/
 	// e.g. "searchable_map_to_blockmax"
 	MigrationDirName() string

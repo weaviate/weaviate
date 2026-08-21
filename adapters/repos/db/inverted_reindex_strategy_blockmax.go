@@ -33,6 +33,10 @@ func (s *MapToBlockmaxStrategy) MigrationDirName() string {
 	return MigrationDirSearchableMapToBlockmax + genSuffix(s.generation)
 }
 
+func (s *MapToBlockmaxStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeSearchableMapToBlockmax
+}
+
 func (s *MapToBlockmaxStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketSearchableFromPropNameLSM(propName)
 }

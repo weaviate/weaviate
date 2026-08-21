@@ -56,6 +56,10 @@ func (s *FilterableToRangeableStrategy) MigrationDirName() string {
 	return migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, s.propNames) + genSuffix(s.generation)
 }
 
+func (s *FilterableToRangeableStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeFilterableToRangeable
+}
+
 func (s *FilterableToRangeableStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketRangeableFromPropNameLSM(propName)
 }

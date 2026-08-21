@@ -37,6 +37,10 @@ func (s *EnableSearchableStrategy) MigrationDirName() string {
 	return migrationDirWithProps(MigrationDirPrefixEnableSearchable, s.propNames) + genSuffix(s.generation)
 }
 
+func (s *EnableSearchableStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeEnableSearchable
+}
+
 func (s *EnableSearchableStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketSearchableFromPropNameLSM(propName)
 }

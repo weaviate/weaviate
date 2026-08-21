@@ -36,6 +36,10 @@ func (s *FilterableRetokenizeStrategy) MigrationDirName() string {
 	return MigrationDirPrefixFilterableRetokenize + "_" + s.propName + genSuffix(s.generation)
 }
 
+func (s *FilterableRetokenizeStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeFilterableRetokenize
+}
+
 func (s *FilterableRetokenizeStrategy) SourceBucketName(_ string) string {
 	return helpers.BucketFromPropNameLSM(s.propName)
 }

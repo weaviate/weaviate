@@ -41,6 +41,10 @@ func (s *SearchableRetokenizeStrategy) MigrationDirName() string {
 	return MigrationDirPrefixSearchableRetokenize + "_" + s.propName + genSuffix(s.generation)
 }
 
+func (s *SearchableRetokenizeStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeSearchableRetokenize
+}
+
 func (s *SearchableRetokenizeStrategy) SourceBucketName(_ string) string {
 	return helpers.BucketSearchableFromPropNameLSM(s.propName)
 }
