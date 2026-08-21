@@ -19,6 +19,8 @@ import (
 	gocron "github.com/netresearch/go-cron"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/entities/cron"
+	"github.com/weaviate/weaviate/usecases/config"
 	namespacecleanup "github.com/weaviate/weaviate/usecases/namespace_cleanup"
 )
 
@@ -34,14 +36,23 @@ type cronsNamespaceCleanup struct {
 func newCronsNamespaceCleanup(serverShutdownCtx context.Context,
 	logger logrus.FieldLogger, gocronLogger gocron.Logger, configGetter configGetter,
 ) (*cronsNamespaceCleanup, error) {
+	jobLogger := logger.WithField("job", namespaceCleanupJobName)
 	registration, err := newCronsRegistration(cronsRegistrationConfig[time.Duration]{
 		name:           namespaceCleanupJobName,
 		runtimeHookKey: "NamespaceCleanup",
 
-		shouldRegister:  func() bool { return configGetter().Namespaces.Enabled },
-		configuredValue: func() time.Duration { return configGetter().Namespaces.CleanupInterval.Get() },
+		shouldRegister: func() bool { return configGetter().Namespaces.Enabled },
+		configuredValue: func() time.Duration {
+			interval := configGetter().Namespaces.CleanupInterval.Get()
+			if interval > 0 {
+				return interval
+			}
+			jobLogger.Warnf("namespace cleanup interval %s is at or below zero, applying the default %s",
+				interval, config.DefaultNamespaceCleanupInterval)
+			return config.DefaultNamespaceCleanupInterval
+		},
 		resolve: func(interval time.Duration) (string, bool) {
-			return fmt.Sprintf("@every %s", interval), interval > 0
+			return cron.EverySpec(interval), true
 		},
 
 		logger:            logger,

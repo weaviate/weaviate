@@ -14,6 +14,7 @@ package cron
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/cron"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	namespacecleanup "github.com/weaviate/weaviate/usecases/namespace_cleanup"
 )
@@ -42,15 +44,17 @@ func intervalConfig(d time.Duration) configGetter {
 	}
 }
 
-func newTestNamespaceCleanup(t *testing.T, interval time.Duration) (*cronsNamespaceCleanup, *gocron.Cron, context.CancelFunc) {
+func newTestNamespaceCleanup(t *testing.T, interval time.Duration) (
+	*cronsNamespaceCleanup, *gocron.Cron, *test.Hook, context.CancelFunc,
+) {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
+	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 	ctx, cancel := context.WithCancel(context.Background())
 	cr := initGoCron(ctx, gocron.DiscardLogger)
 	c, err := newCronsNamespaceCleanup(ctx, logger, gocron.DiscardLogger, intervalConfig(interval))
 	require.NoError(t, err)
-	return c, cr, cancel
+	return c, cr, hook, cancel
 }
 
 func nonNilCoordinator(t *testing.T, lister stubLister) *namespacecleanup.Coordinator {
@@ -98,7 +102,7 @@ func (stubLister) DeleteRoles(...string) error                { return nil }
 func (stubLister) RevokeRolesForUser(string, ...string) error { return nil }
 
 func TestCronsNamespaceCleanup_Init_NilCoordinator(t *testing.T) {
-	c, cr, cancel := newTestNamespaceCleanup(t, time.Minute)
+	c, cr, _, cancel := newTestNamespaceCleanup(t, time.Minute)
 	defer cancel()
 	require.Error(t, c.Init(cr, cron.RunOnEveryNode, nil))
 }
@@ -124,7 +128,7 @@ func TestCronsNamespaceCleanup_Init_SkipsWhenNamespacesDisabled(t *testing.T) {
 }
 
 func TestCronsNamespaceCleanup_Init_RegistersForPositiveInterval(t *testing.T) {
-	c, cr, cancel := newTestNamespaceCleanup(t, time.Minute)
+	c, cr, _, cancel := newTestNamespaceCleanup(t, time.Minute)
 	defer cancel()
 	require.NoError(t, c.Init(cr, cron.RunOnEveryNode, nonNilCoordinator(t, stubLister{})))
 	assert.Eventually(t, func() bool {
@@ -133,23 +137,60 @@ func TestCronsNamespaceCleanup_Init_RegistersForPositiveInterval(t *testing.T) {
 		"job should have been registered under the documented name")
 }
 
-func TestCronsNamespaceCleanup_Init_SkipsForNonPositiveInterval(t *testing.T) {
-	tests := []time.Duration{0, -time.Second}
-	for _, interval := range tests {
-		t.Run(interval.String(), func(t *testing.T) {
-			c, cr, cancel := newTestNamespaceCleanup(t, interval)
-			defer cancel()
-			require.NoError(t, c.Init(cr, cron.RunOnEveryNode, nonNilCoordinator(t, stubLister{})))
-			// Give the registration goroutine a moment; it must not register.
-			time.Sleep(50 * time.Millisecond)
-			assert.False(t, cr.RemoveByName(namespaceCleanupJobName),
-				"job must not be registered when interval <= 0")
-		})
-	}
+func TestCronsNamespaceCleanup_FallsBackToDefaultForNonPositiveInterval(t *testing.T) {
+	t.Run("at boot", func(t *testing.T) {
+		tests := []struct {
+			interval time.Duration
+			want     time.Duration
+			wantWarn bool
+		}{
+			{interval: 0, want: config.DefaultNamespaceCleanupInterval, wantWarn: true},
+			{interval: -time.Second, want: config.DefaultNamespaceCleanupInterval, wantWarn: true},
+			{interval: time.Minute, want: time.Minute},
+		}
+		for _, tt := range tests {
+			t.Run(tt.interval.String(), func(t *testing.T) {
+				c, cr, hook, cancel := newTestNamespaceCleanup(t, tt.interval)
+				defer cancel()
+
+				require.NoError(t, c.Init(cr, cron.RunOnEveryNode, nonNilCoordinator(t, stubLister{})))
+
+				requireRegisteredAt(t, cr, namespaceCleanupJobName, tt.want)
+				warns := messages(hook, logrus.WarnLevel)
+				if !tt.wantWarn {
+					assert.Empty(t, warns, "an interval the scheduler can run needs no warning")
+					return
+				}
+				require.Len(t, warns, 1)
+				assert.Contains(t, warns[0], "interval "+tt.interval.String(),
+					"the warning names the configured value")
+				assert.Contains(t, warns[0], config.DefaultNamespaceCleanupInterval.String(),
+					"the warning names the applied default")
+			})
+		}
+	})
+
+	t.Run("a namespaces-disabled cluster still warns", func(t *testing.T) {
+		// The substitution reads ahead of the enable gate, so an operator
+		// learns their 0 will become 30s before they turn namespaces on.
+		logger, hook := test.NewNullLogger()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		getter := func() config.Config {
+			return config.Config{Namespaces: config.Namespaces{
+				Enabled: false, CleanupInterval: configRuntime.NewDynamicValue(time.Duration(0)),
+			}}
+		}
+
+		_, err := newCronsNamespaceCleanup(ctx, logger, gocron.DiscardLogger, getter)
+
+		require.NoError(t, err)
+		assert.Len(t, messages(hook, logrus.WarnLevel), 1)
+	})
 }
 
 func TestCronsNamespaceCleanup_Wait_AwaitsRegistrationGoroutine(t *testing.T) {
-	c, cr, cancel := newTestNamespaceCleanup(t, time.Minute)
+	c, cr, _, cancel := newTestNamespaceCleanup(t, time.Minute)
 	require.NoError(t, c.Init(cr, cron.RunOnEveryNode, nonNilCoordinator(t, stubLister{})))
 
 	// While the shutdown ctx is live the registration goroutine is parked in
@@ -277,12 +318,14 @@ func TestCronsNamespaceCleanup_RuntimeConfigHook_ConcurrentCallsConsistent(t *te
 // same job two ways, which splits a job=<name> log filter down the middle.
 func TestCronsNamespaceCleanup_EveryLineNamesTheJob(t *testing.T) {
 	tests := []struct {
-		name    string
-		enabled bool
-		wantMsg string
+		name     string
+		enabled  bool
+		interval time.Duration
+		wantMsg  string
 	}{
-		{name: "the loop's registration line", enabled: true, wantMsg: "cron job added"},
-		{name: "the registrant's own skip line", wantMsg: "cron job skipped, namespaces disabled"},
+		{name: "the loop's registration line", enabled: true, interval: time.Minute, wantMsg: "cron job added"},
+		{name: "the registrant's own skip line", interval: time.Minute, wantMsg: "cron job skipped, namespaces disabled"},
+		{name: "the default-substitution warning", enabled: true, interval: 0, wantMsg: "at or below zero"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -293,7 +336,7 @@ func TestCronsNamespaceCleanup_EveryLineNamesTheJob(t *testing.T) {
 			getter := func() config.Config {
 				return config.Config{Namespaces: config.Namespaces{
 					Enabled:         tt.enabled,
-					CleanupInterval: configRuntime.NewDynamicValue(time.Minute),
+					CleanupInterval: configRuntime.NewDynamicValue(tt.interval),
 				}}
 			}
 			c, err := newCronsNamespaceCleanup(ctx, logger, gocron.DiscardLogger, getter)
@@ -303,12 +346,107 @@ func TestCronsNamespaceCleanup_EveryLineNamesTheJob(t *testing.T) {
 				cron.RunOnEveryNode, nonNilCoordinator(t, stubLister{})))
 
 			require.Eventually(t, func() bool {
-				return slices.Contains(messages(hook), tt.wantMsg)
+				return slices.ContainsFunc(messages(hook), func(msg string) bool {
+					return strings.Contains(msg, tt.wantMsg)
+				})
 			}, 2*time.Second, 10*time.Millisecond, "expected the %q line", tt.wantMsg)
 			for _, entry := range hook.AllEntries() {
 				assert.Equal(t, namespaceCleanupJobName, entry.Data["job"],
 					"every line carries the one job name, whichever side wrote it: %q", entry.Message)
 			}
+		})
+	}
+}
+
+func TestCronsNamespaceCleanup_EnvVarReachesSchedule(t *testing.T) {
+	// The hop neither half above covers: usecases/config stops at Get(), and
+	// the cron tests start from a stubbed getter.
+	tests := []struct {
+		name string
+		env  string
+		want time.Duration
+	}{
+		{
+			name: "a value at or below zero applies the default",
+			env:  "0", want: config.DefaultNamespaceCleanupInterval,
+		},
+		{
+			name: "a positive value reaches the schedule as configured",
+			env:  "45s", want: 45 * time.Second,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("NAMESPACE_CLEANUP_INTERVAL", tt.env)
+			var conf config.Config
+			require.NoError(t, config.FromEnv(&conf))
+			conf.Namespaces.Enabled = true
+
+			logger, _ := test.NewNullLogger()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			crons, err := NewCrons(ctx, logger, func() config.Config { return conf })
+			require.NoError(t, err)
+			cr := initGoCron(ctx, gocron.DiscardLogger)
+
+			require.NoError(t, crons.namespaceCleanup.Init(cr, cron.RunOnEveryNode,
+				nonNilCoordinator(t, stubLister{})))
+
+			requireRegisteredAt(t, cr, namespaceCleanupJobName, tt.want)
+		})
+	}
+}
+
+func TestCronsNamespaceCleanup_RuntimeConfigHookKeyMatchesField(t *testing.T) {
+	tests := []struct {
+		name   string
+		pushed string
+		// want is the schedule the job lands on; wantConfigured is what the knob
+		// holds. They differ where the cron layer substitutes its default.
+		want           time.Duration
+		wantConfigured time.Duration
+	}{
+		{name: "an accepted push re-registers the job", pushed: "2m", want: 2 * time.Minute, wantConfigured: 2 * time.Minute},
+		{name: "a refused push leaves the job as it was", pushed: "500ms", want: time.Minute, wantConfigured: time.Minute},
+		{name: "a zero push re-registers at the default", pushed: "0s", want: config.DefaultNamespaceCleanupInterval},
+		{name: "a negative push re-registers at the default", pushed: "-1s", want: config.DefaultNamespaceCleanupInterval, wantConfigured: -time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			current, err := configRuntime.NewDynamicValueWithValidation(
+				time.Minute, parser.ValidateCronInterval)
+			require.NoError(t, err)
+			getter := func() config.Config {
+				return config.Config{Namespaces: config.Namespaces{
+					Enabled: true, CleanupInterval: current,
+				}}
+			}
+			logger, _ := test.NewNullLogger()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			crons, err := NewCrons(ctx, logger, getter)
+			require.NoError(t, err)
+			cr := initGoCron(ctx, gocron.DiscardLogger)
+			require.NoError(t, crons.namespaceCleanup.Init(cr, cron.RunOnEveryNode,
+				nonNilCoordinator(t, stubLister{})))
+			requireRegisteredAt(t, cr, namespaceCleanupJobName, time.Minute)
+
+			// Through the field-name match rather than the method: a hook
+			// keyed on the job name would never fire at all.
+			source := &config.WeaviateRuntimeConfig{NamespaceCleanupInterval: current}
+			skipped := map[string]struct{}{}
+			parsed, err := config.NewRuntimeConfigParser(logger)(
+				[]byte("namespace_cleanup_interval: "+tt.pushed), skipped)
+			require.NoError(t, err)
+
+			require.NoError(t, config.UpdateRuntimeConfig(logger, source, parsed, skipped,
+				crons.RuntimeConfigHooks()))
+
+			requireRegisteredAt(t, cr, namespaceCleanupJobName, tt.want)
+			// Without this the refused row cannot fail: the job stays at a minute
+			// whether the push was rejected or never validated at all.
+			assert.Equal(t, tt.wantConfigured, current.Get(),
+				"the knob must hold the value the push left it on")
 		})
 	}
 }
