@@ -123,6 +123,12 @@ type MigrationSubject struct {
 	// re-derives a horizon from a clock that has moved on.
 	IterationCutoff time.Time `json:"iterationCutoff"`
 
+	// TrackerDir is the migration's directory under .migrations, relative to
+	// it. Recorded rather than re-derived because the sweeps have to decide
+	// whether they may remove it, and the number in its name is the node's own
+	// generation counter, which no record key can be compared against.
+	TrackerDir string `json:"trackerDir,omitempty"`
+
 	// StagedDirs is the re-derivation's "live-data dir": per property, the
 	// directory holding this migration's own data. The flip makes it live and
 	// promotion renames it onto CanonicalDirs.

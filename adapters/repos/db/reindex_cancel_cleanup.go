@@ -297,6 +297,7 @@ func (i *Index) cleanStalePartialReindexState(
 // ([dirNamesCache.trackerProps]); a nil one is memoized for this call alone.
 func hasStalePartialReindexState(
 	lsmPath, propName, indexType string, dirs *dirNamesCache, props *taskPropsCache,
+	logger logrus.FieldLogger,
 ) (stale, finalizable bool) {
 	if props == nil {
 		// No run-wide memo: keep the passes below sharing one of their own.
@@ -311,24 +312,19 @@ func hasStalePartialReindexState(
 	if err != nil {
 		return !os.IsNotExist(err), false
 	}
-	var sidecarSuffixes []string
-	for _, name := range names {
-		if isSidecarDirOf(name, mainBucketName) {
-			sidecarSuffixes = append(sidecarSuffixes, strings.TrimPrefix(name, mainBucketName))
-		}
-	}
 	scope := migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props)
+	committed := dirs.committedMigrations(lsmPath, logger)
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep must preserve.
-	if len(sidecarSuffixes) > 0 {
-		preserveSidecars := completedMigrationSidecarSuffixes(scope.preserving(indexType))
-		for _, suffix := range sidecarSuffixes {
-			if !preserveSidecars[suffix] {
-				return true, false
-			}
+	for _, name := range names {
+		if !isSidecarDirOf(name, mainBucketName) {
+			continue
 		}
-		// Every sidecar here backs a completed migration, so nothing but a
-		// load reclaims them.
+		if !committed.preservesBucket(name) {
+			return true, false
+		}
+		// This one backs a completed migration, so nothing but a load
+		// reclaims it.
 		finalizable = true
 	}
 
@@ -337,7 +333,6 @@ func hasStalePartialReindexState(
 	if err != nil {
 		return !os.IsNotExist(err), false
 	}
-	var preservedGens map[int]bool
 	for _, name := range names {
 		matched, unreadablePayload := scope.inScopeFailingOpen(name)
 		if unreadablePayload {
@@ -348,10 +343,7 @@ func hasStalePartialReindexState(
 		if !matched {
 			continue
 		}
-		if preservedGens == nil {
-			preservedGens = completedMigrationGens(scope)
-		}
-		if _, gen, ok := parseMigrationDirName(name); ok && preservedGens[gen] {
+		if committed.preservesTracker(name) {
 			finalizable = true
 			continue
 		}
@@ -388,6 +380,29 @@ type dirNamesCache struct {
 	// props is the tracker-payload memo of the same run; see
 	// [dirNamesCache.trackerProps].
 	props taskPropsCache
+	// committed memoizes each shard's committed migrations; see
+	// [dirNamesCache.committedMigrations].
+	committed map[string]migrationCommittedState
+}
+
+// committedMigrations answers, per shard, which directories a committed
+// migration owns. Memoized on the same cache as the listings because one run
+// asks it per (property, index type) tuple over the same shards, and because
+// nothing may change the answer while a sweep holds it: a migration commits
+// only through a load, and a loaded shard leaves the sweep's unloaded path.
+func (c *dirNamesCache) committedMigrations(lsmPath string, logger logrus.FieldLogger) migrationCommittedState {
+	if c == nil {
+		return migrationCommittedStateOf(migrationRecordsAt(lsmPath, logger))
+	}
+	if state, ok := c.committed[lsmPath]; ok {
+		return state
+	}
+	state := migrationCommittedStateOf(migrationRecordsAt(lsmPath, logger))
+	if c.committed == nil {
+		c.committed = map[string]migrationCommittedState{}
+	}
+	c.committed[lsmPath] = state
+	return state
 }
 
 // trackerProps is the payload memo sharing this cache's lifetime, so the two

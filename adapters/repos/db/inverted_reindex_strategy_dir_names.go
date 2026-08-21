@@ -143,21 +143,6 @@ func parseMigrationDirName(name string) (prefix string, generation int, ok bool)
 	return name[:idx], gen, true
 }
 
-// classLevelMigrationDirForIndexType returns the class-level strategy's
-// migration dir prefix for an indexType. Excluded from deletion in
-// [migrationDirPrefixesForIndexType], but its completed gens must still feed
-// the preserve set in CleanStalePartialReindexState: their sidecars are live.
-func classLevelMigrationDirForIndexType(indexType string) (string, bool) {
-	switch indexType {
-	case "filterable":
-		return MigrationDirFilterableRoaringsetRefresh, true
-	case "searchable":
-		return MigrationDirSearchableMapToBlockmax, true
-	default:
-		return "", false
-	}
-}
-
 // migrationDirPrefixesForIndexType returns the per-property migration
 // strategy prefixes for a "filterable"/"searchable"/"rangeable" indexType,
 // whose tracker dirs would lie (report "previous run completed") after the
@@ -166,7 +151,6 @@ func classLevelMigrationDirForIndexType(indexType string) (string, bool) {
 // Class-level migration dirs are deliberately omitted: they aggregate state
 // across every property, so deleting one on a single property's DELETE would
 // corrupt migrations for the rest of the class.
-// [migrationDirScope.preserving] adds them back for the preserve set.
 func migrationDirPrefixesForIndexType(indexType string) []string {
 	switch indexType {
 	case "filterable":
@@ -212,13 +196,6 @@ type migrationDirScope struct {
 	propName string
 	// prefixes are the per-property strategy prefixes this cleanup deletes.
 	prefixes []string
-	// classDir is a whole tracker dir name matched as it is. An index type has
-	// at most one ([classLevelMigrationDirForIndexType]), and only the
-	// preserve set carries it; see [migrationDirScope.preserving].
-	classDir string
-	// preserve widens the no-payload fallback in [migrationDirScope.inScope];
-	// set by [migrationDirScope.preserving].
-	preserve bool
 	// props memoizes payloads across the passes of one sweep; nil reads every
 	// time. Set by [migrationDirScope.cachingProps].
 	props *taskPropsCache
@@ -248,25 +225,6 @@ func migrationDirsOf(lsmPath string, dirs *dirNamesCache, propName, indexType st
 		propName: propName,
 		prefixes: migrationDirPrefixesForIndexType(indexType),
 	}
-}
-
-// classLevelMigrationDirsOf returns the scope of a single class-level tracker
-// dir, which every property of the collection shares.
-func classLevelMigrationDirsOf(lsmPath, classDir string) migrationDirScope {
-	return migrationDirScope{lsmPath: lsmPath, classDir: classDir}
-}
-
-// preserving widens the scope to keep live data out of the sweep's reach:
-// the class-level tracker for indexType joins it (a completed one owns live
-// sidecars of every property), and a tracker with no readable payload
-// matches on name alone. Used identically by the unloaded-shard gate and
-// the sweep so the two can't drift apart.
-func (s migrationDirScope) preserving(indexType string) migrationDirScope {
-	s.preserve = true
-	if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
-		s.classDir = classDir
-	}
-	return s
 }
 
 // inScope reports whether the tracker dir called name is in this scope. See
@@ -299,9 +257,6 @@ func (s migrationDirScope) inScope(name string) bool {
 // the name does leave in scope.
 func (s migrationDirScope) matchByName(name string) (matched, decided bool) {
 	base := migrationDirBase(name)
-	if s.classDir != "" && base == s.classDir {
-		return true, true
-	}
 	if !s.hasStrategyPrefix(base) {
 		return false, true
 	}
@@ -404,9 +359,6 @@ func migrationDirBase(name string) string {
 // from the same sorted list.
 func (s migrationDirScope) inScopeFailingOpen(name string) (matched, unreadablePayload bool) {
 	base := migrationDirBase(name)
-	if s.classDir != "" && base == s.classDir {
-		return true, false
-	}
 	if !s.hasStrategyPrefix(base) {
 		// Not this cleanup's dir; skip reading its payload.
 		return false, false
@@ -430,9 +382,6 @@ func (s migrationDirScope) inScopeFailingOpen(name string) (matched, unreadableP
 	}
 	for _, prefix := range s.prefixes {
 		if base == migrationDirWithProps(prefix, []string{s.propName}) {
-			return true, unreadable
-		}
-		if s.preserve && namesPropertyToken(base, prefix, s.propName) {
 			return true, unreadable
 		}
 	}

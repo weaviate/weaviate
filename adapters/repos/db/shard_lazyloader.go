@@ -1100,6 +1100,6 @@ func (l *LazyLoadShard) canSkipUnloadedSweep(
 	// props is a running total over the whole run, so the caller gets the delta.
 	before := props.count()
 	stale, finalizable := hasStalePartialReindexState(
-		l.pathLSM(), propName, indexType, dirs, props)
+		l.pathLSM(), propName, indexType, dirs, props, l.Index().logger)
 	return !stale && !finalizable, props.count() - before
 }

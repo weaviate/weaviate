@@ -16,8 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -1973,43 +1971,9 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 		lsmPath := shardPathLSM(idx.path(), shardName)
 		// Memos per shard, not per walk: no two shards name the same path, so
 		// nothing carries over between them anyway.
-		if hasCompletedMigrationTracker(lsmPath, payload.MigrationType, payload.Properties,
-			&dirNamesCache{}, &taskPropsCache{}) {
+		if migrationRecordFor(migrationRecordsAt(lsmPath, p.logger),
+			payload.MigrationType, payload.Properties, MigrationRecord.DataCommitted) {
 			return true
-		}
-	}
-	return false
-}
-
-// hasCompletedMigrationTracker reports whether any tracker dir the
-// migration owns under lsmPath carries merged.mig or tidied.mig.
-//
-// That is the on-disk signature of a swap far enough along to arm the
-// next restart's FinalizeCompletedMigrations. If the task then ends
-// CANCELLED or FAILED the schema flip is correctly skipped, so the bucket
-// and the schema disagree and only an operator rebuild resolves it.
-//
-// Every tuple asks about the same .migrations, so dirs memoizes its listing
-// and props the tracker payloads it attributes; nil for either re-reads per
-// tuple. Both belong to one shard, since no two shards name the same path.
-func hasCompletedMigrationTracker(
-	lsmPath string, migrationType ReindexMigrationType, properties []string,
-	dirs *dirNamesCache, props *taskPropsCache,
-) bool {
-	// ChangeAlgorithm keeps a class-level tracker dir, which the
-	// per-property scope deliberately omits.
-	if migrationType == ReindexTypeChangeAlgorithm &&
-		len(completedMigrationGens(
-			classLevelMigrationDirsOf(lsmPath, MigrationDirSearchableMapToBlockmax).
-				cachingDirs(dirs).cachingProps(props))) > 0 {
-		return true
-	}
-	for _, indexType := range semanticMigrationIndexTypes(migrationType) {
-		for _, propName := range properties {
-			if len(completedMigrationGens(
-				migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props))) > 0 {
-				return true
-			}
 		}
 	}
 	return false
@@ -2260,8 +2224,7 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 	if idx == nil {
 		return true
 	}
-	indexTypes := semanticMigrationIndexTypes(payload.MigrationType)
-	if len(indexTypes) == 0 {
+	if len(semanticMigrationIndexTypes(payload.MigrationType)) == 0 {
 		return true
 	}
 
@@ -2299,38 +2262,12 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 		if !isHosted {
 			continue
 		}
-		// A memo per shard, not per shard walk: no two shards name the same
-		// tracker path, so nothing carries over between them anyway.
-		if shardHasUntidiedTracker(shardPathLSM(idx.path(), shardName),
-			&payload, indexTypes, &taskPropsCache{}) {
+		if migrationRecordFor(migrationRecordsAt(shardPathLSM(idx.path(), shardName), p.logger),
+			payload.MigrationType, payload.Properties, migrationRecordUncommitted) {
 			return false
 		}
 	}
 	return true
-}
-
-// shardHasUntidiedTracker reports whether any (index type, property) tuple
-// this task owns left an uncommitted tracker on the shard at lsmPath. props
-// memoizes payload reads across tuples (nil re-reads); one read is a full
-// payload.mig parse — hundreds of milliseconds on a large migration.
-func shardHasUntidiedTracker(
-	lsmPath string, payload *ReindexTaskPayload, indexTypes []string, props *taskPropsCache,
-) bool {
-	// ChangeAlgorithm uses a class-level tracker dir; the per-property
-	// scope deliberately omits it.
-	if payload.MigrationType == ReindexTypeChangeAlgorithm &&
-		hasUntidiedTracker(classLevelMigrationDirsOf(lsmPath, MigrationDirSearchableMapToBlockmax)) {
-		return true
-	}
-	for _, indexType := range indexTypes {
-		for _, propName := range payload.Properties {
-			scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props)
-			if hasUntidiedTracker(scope) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // semanticMigrationIndexTypes returns the inverted-index discriminators
@@ -2358,47 +2295,6 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 		return nil
 	}
 	return nil
-}
-
-// hasUntidiedTracker returns true when at least one tracker dir in scope
-// carries neither tidied.mig nor merged.mig — a swap begun but not
-// committed, or a tracker written before iteration started. A tidied/merged
-// tracker is NOT a recovery signal (it's a completed migration awaiting
-// next-restart promotion); neither is a missing dir (already
-// promoted-and-removed).
-//
-// Generation-less dirs (pre-[genSuffix]) count too, matching what
-// [migrationDirScope.inScopeFailingOpen] treats as this tuple's trackers. An
-// unreadable payload and an unlistable .migrations dir both count as well — either
-// could hide a tracker naming this property, and reporting "done" on
-// unreadable state would deregister the local callbacks while an untidied
-// tracker remains. Like the unloaded-shard gate
-// ([hasStalePartialReindexState]), this fails toward recovery.
-//
-// Same unreadable-payload rule as [hasStalePartialReindexState].
-func hasUntidiedTracker(scope migrationDirScope) bool {
-	migsDir := filepath.Join(scope.lsmPath, ".migrations")
-	entries, err := os.ReadDir(migsDir)
-	if err != nil {
-		return !os.IsNotExist(err)
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		matched, unreadablePayload := scope.inScopeFailingOpen(entry.Name())
-		if !matched && !unreadablePayload {
-			continue
-		}
-		dirPath := filepath.Join(migsDir, entry.Name())
-		if fileExistsInDir(dirPath, "tidied.mig") || fileExistsInDir(dirPath, "merged.mig") {
-			continue
-		}
-		// Tracker dir exists for this strategy but neither tidied.mig
-		// nor merged.mig is present — local swap was interrupted.
-		return true
-	}
-	return false
 }
 
 // flipSemanticMigrationSchema issues the cluster-wide RAFT update that

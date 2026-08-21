@@ -1742,6 +1742,7 @@ func (t *ShardReindexTaskGeneric) migrationSubject(shard ShardLike, props []stri
 		TargetTokenization:   t.targetTokenization,
 		OriginalTokenization: t.originalTokenization,
 		IterationCutoff:      cutoff,
+		TrackerDir:           t.strategy.MigrationDirName(),
 		StagedDirs:           make(map[string]string, len(props)),
 		CanonicalDirs:        make(map[string]string, len(props)),
 		SidecarDirs:          make([]string, 0, len(props)),
