@@ -715,3 +715,74 @@ func TestAuditOrphanReindexTrackersReclaimsTrackersNoRecordNames(t *testing.T) {
 		})
 	}
 }
+
+// TestAuditOrphanReindexTrackersHonorsUnreadableRecords covers the shard the
+// audit cannot classify: at least one record on it does not decode, so any
+// tracker here may belong to a live migration whose record is the thing that
+// went unreadable. The record-less arm has no liveness check to fall back on,
+// so the only safe answer is to reclaim nothing until the records read again.
+// Withholding recovery on such a shard is already the behavior everywhere
+// else, and it is reversible; a deletion is not.
+func TestAuditOrphanReindexTrackersHonorsUnreadableRecords(t *testing.T) {
+	const trackerName = "searchable_retokenize_legacy_1"
+
+	tests := []struct {
+		name  string
+		plant func(t *testing.T, lsmPath string)
+		// wantSentinel is only meaningful where plant leaves one behind.
+		wantSentinel bool
+	}{
+		{
+			name: "a tracker no record names is not reclaimed",
+			plant: func(t *testing.T, lsmPath string) {
+				mkTrackerDir(t, lsmPath, trackerName)
+				aged := processStartTime.Add(-time.Hour)
+				require.NoError(t, os.Chtimes(
+					filepath.Join(lsmPath, ".migrations", trackerName), aged, aged))
+			},
+		},
+		{
+			name: "a matured quarantine sentinel is cleared rather than left to mature further",
+			plant: func(t *testing.T, lsmPath string) {
+				// Swapped, so the tracker is exempt from the orphan arm and
+				// the sweep that clears sentinels is the code under test.
+				dir := mkAuditTracker(t, lsmPath, trackerName, "task-1", 7, "shard-1__node-0",
+					MigrationStateSwapped, "title")
+				writePreAgedQuarantineSentinel(t, dir)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shd, idx := testShard(t, ctx, "AuditUnreadableRecords")
+			lsmPath := shd.(*Shard).pathLSM()
+
+			tt.plant(t, lsmPath)
+			// A record this build cannot decode, which is what the ordinary
+			// I/O faults (EACCES, EIO) reduce to for every reader here.
+			logger, _ := test.NewNullLogger()
+			recordsDir := NewMigrationRecordStore(lsmPath, logger).Dir()
+			require.NoError(t, os.MkdirAll(recordsDir, 0o755))
+			require.NoError(t, os.WriteFile(
+				filepath.Join(recordsDir, "99_enable_searchable.json"), []byte("{"), 0o600))
+
+			db := &DB{
+				indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+				config:  Config{RootPath: idx.Config.RootPath},
+			}
+			outcome, err := db.AuditOrphanReindexTrackers(ctx,
+				func(string, uint64) bool { return false }, logrus.New())
+			require.NoError(t, err)
+
+			assert.Equal(t, AuditStatusRan, outcome.Status)
+			assert.Zero(t, outcome.OrphansFound)
+			trackerPath := filepath.Join(lsmPath, ".migrations", trackerName)
+			assert.True(t, dirExists(trackerPath), "the tracker must survive a shard nothing can classify")
+			assert.Equal(t, tt.wantSentinel,
+				fileExists(filepath.Join(trackerPath, reindexAuditQuarantineFile)),
+				"quarantine sentinel")
+		})
+	}
+}

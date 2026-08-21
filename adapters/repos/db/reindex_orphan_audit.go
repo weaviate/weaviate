@@ -424,7 +424,16 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 	if err != nil {
 		return nil
 	}
-	records, _, _ := migrationRecordsAt(lsmPath, logger)
+	records, frozen, unreadable := migrationRecordsAt(lsmPath, logger)
+	if frozen || unreadable {
+		// A record this build cannot read may name any tracker here, and the
+		// record-less arm below has no liveness check to fall back on. Same
+		// shard-wide withholding every other consumer of an unreadable record
+		// set applies, and it costs disk rather than data.
+		logger.WithField("collection", collection).WithField("shard", shardName).
+			Warn("reindex orphan audit: migration records could not be read; reclaiming nothing on this shard")
+		return nil
+	}
 	var orphans []orphanReindexTracker
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -446,9 +455,9 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 				continue
 			}
 			if !old {
-				// The record lands during the shard load that follows the
-				// directory's creation, so a directory this process created
-				// may simply not have reached that load yet.
+				// The record is written later in the same run, once the
+				// migration's buckets are open, so a directory this process
+				// just created may not have one yet.
 				logger.WithField("collection", collection).WithField("shard", shardName).
 					WithField("tracker", dirName).WithField("tracker_mtime", mtime).
 					Warn("reindex orphan audit: tracker names no migration record but was created after this process started; leaving it for the next sweep")
@@ -620,7 +629,7 @@ func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLoo
 	if err != nil {
 		return
 	}
-	records, _, _ := migrationRecordsAt(lsmPath, logger)
+	records, frozen, unreadable := migrationRecordsAt(lsmPath, logger)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -629,6 +638,17 @@ func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLoo
 		trackerPath := filepath.Join(migsDir, dirName)
 		sentinelPath := filepath.Join(trackerPath, reindexAuditQuarantineFile)
 		if !fileExists(sentinelPath) {
+			continue
+		}
+		if frozen || unreadable {
+			// A matured sentinel is stored destructive intent. Leaving it on a
+			// shard nothing can classify means the first sweep after the
+			// records read again deletes with no fresh grace period, so clear
+			// it and let that sweep start the window over.
+			if rmErr := os.Remove(sentinelPath); rmErr != nil && !os.IsNotExist(rmErr) {
+				logger.WithField("tracker", dirName).
+					Warnf("reindex orphan audit: failed to clear quarantine sentinel on a shard whose records could not be read: %v", rmErr)
+			}
 			continue
 		}
 		rec, recOK := migrationRecordForTracker(records, dirName)
