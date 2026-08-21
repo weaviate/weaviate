@@ -15,8 +15,6 @@ import (
 	"fmt"
 	"time"
 
-	gocron "github.com/netresearch/go-cron"
-
 	"github.com/weaviate/weaviate/entities/cron"
 )
 
@@ -84,7 +82,7 @@ func ValidateCronInterval(val time.Duration) error {
 
 func ValidateGocronSchedule(val string) error {
 	if val != "" {
-		if _, err := gocron.FullParser().Parse(val); err != nil {
+		if _, err := cron.Parser().Parse(val); err != nil {
 			return err
 		}
 	}
