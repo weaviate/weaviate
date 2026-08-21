@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -366,70 +367,94 @@ func TestBuildRecoveryTasksStampsTheIdentity(t *testing.T) {
 // per record, and a migration over many tuples multiplies the tuples without
 // adding a single new place to look.
 //
-// The count is observable because an unreadable record set logs exactly once
-// per read.
+// The healthy row is the one that can catch the regression: an unreadable
+// shard ends the walk on the spot, so a probe reading once per tuple would
+// still read only once.
 func TestLocalCallbacksDoneReadsEachShardsRecordsOnce(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root reads a directory whatever its mode says")
-	}
 	const (
 		prop   = "title"
 		tenant = "cold-tenant"
 		node   = "n1"
 	)
 
-	ctx := testCtx()
-	className := "LocalCallbacksDoneReadCost_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{prop})
-	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	defer hot.Shutdown(context.Background())
-
-	records := filepath.Join(shardPathLSM(idx.path(), tenant), ".migrations", migrationRecordsDirName)
-	require.NoError(t, os.MkdirAll(records, 0o755))
-	defer func() { require.NoError(t, os.Chmod(records, 0o755)) }()
-	require.NoError(t, os.Chmod(records, 0o000))
-
-	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-		false, idx.bitmapBufPool)
-	idx.shards.Store(tenant, cold)
-	defer func() {
-		if cold.isLoaded() {
-			require.NoError(t, cold.Shutdown(context.Background()))
-		}
-	}()
-
-	// Two index types on one property: two tuples on this shard, one set of
-	// records either way.
-	require.Len(t, semanticMigrationIndexTypes(ReindexTypeChangeTokenization), 2)
-	payload, err := json.Marshal(ReindexTaskPayload{
-		Collection:    className,
-		MigrationType: ReindexTypeChangeTokenization,
-		Properties:    []string{prop},
-		UnitToShard:   map[string]string{"u1": tenant},
-		UnitToNode:    map[string]string{"u1": node},
-	})
-	require.NoError(t, err)
-
-	logger, hook := logrustest.NewNullLogger()
-	p := NewReindexProvider(
-		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
-		nil, nil, logger, node, nil, ctx)
-
-	require.False(t, p.LocalCallbacksDone(&distributedtask.Task{
-		Namespace:      ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_cost", Version: 1},
-		Status:         distributedtask.TaskStatusSwapping,
-		Payload:        payload,
-	}, node), "records nobody can read may be the ones still owing callbacks")
-
-	reads := 0
-	for _, entry := range hook.AllEntries() {
-		if strings.Contains(entry.Message, "read migration records") {
-			reads++
-		}
+	tests := []struct {
+		name       string
+		unreadable bool
+		wantDone   bool
+	}{
+		{
+			name:     "records that read cleanly release the gate",
+			wantDone: true,
+		},
+		{
+			name:       "records nobody can read hold it closed",
+			unreadable: true,
+		},
 	}
-	require.Equal(t, 1, reads, "one read per shard, whatever the payload's tuple count")
-	require.False(t, cold.isLoaded())
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.unreadable && os.Geteuid() == 0 {
+				t.Skip("root reads a directory whatever its mode says")
+			}
+			ctx := testCtx()
+			className := "LocalCallbacksDoneReadCost_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{prop})
+			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			defer hot.Shutdown(context.Background())
+
+			records := filepath.Join(shardPathLSM(idx.path(), tenant), ".migrations", migrationRecordsDirName)
+			require.NoError(t, os.MkdirAll(records, 0o755))
+			if tt.unreadable {
+				defer func() { require.NoError(t, os.Chmod(records, 0o755)) }()
+				require.NoError(t, os.Chmod(records, 0o000))
+			}
+
+			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				false, idx.bitmapBufPool)
+			idx.shards.Store(tenant, cold)
+			defer func() {
+				if cold.isLoaded() {
+					require.NoError(t, cold.Shutdown(context.Background()))
+				}
+			}()
+
+			// Two index types on one property: two tuples on this shard, one
+			// set of records either way.
+			require.Len(t, semanticMigrationIndexTypes(ReindexTypeChangeTokenization), 2)
+			payload, err := json.Marshal(ReindexTaskPayload{
+				Collection:    className,
+				MigrationType: ReindexTypeChangeTokenization,
+				Properties:    []string{prop},
+				UnitToShard:   map[string]string{"u1": tenant},
+				UnitToNode:    map[string]string{"u1": node},
+			})
+			require.NoError(t, err)
+
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			p := NewReindexProvider(
+				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+				nil, nil, logger, node, nil, ctx)
+
+			done := p.LocalCallbacksDone(&distributedtask.Task{
+				Namespace:      ReindexNamespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_cost", Version: 1},
+				Status:         distributedtask.TaskStatusSwapping,
+				Payload:        payload,
+			}, node)
+			require.Equal(t, tt.wantDone, done)
+
+			reads := 0
+			for _, entry := range hook.AllEntries() {
+				if strings.Contains(entry.Message, "read migration records") {
+					reads++
+				}
+			}
+			require.Equal(t, 1, reads, "one read per shard, whatever the payload's tuple count")
+			require.False(t, cold.isLoaded())
+		})
+	}
 }

@@ -35,6 +35,12 @@ func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []Mi
 		logger.WithField("path", store.Dir()).Errorf("read migration records: %v", err)
 		return nil, true, true
 	}
+	// One line per read, on the healthy path too: several gates ask this
+	// question once per shard while the payload names many (property, index
+	// type) tuples, and a regression to one read per tuple is otherwise
+	// invisible until it shows up as startup latency.
+	logger.WithField("path", store.Dir()).WithField("records", len(store.Records())).
+		Debug("read migration records")
 	return store.Records(), len(store.Unreadable()) > 0, false
 }
 

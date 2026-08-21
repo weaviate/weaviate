@@ -208,10 +208,15 @@ type divergence struct {
 	narrow, widened          bool
 }
 
-// Pins that the widened name shortcut selects exactly the dirs the narrower
-// gate did, for every fixture a writer can produce. The shortcut skips the
-// record and the payload on the strength of the name alone, so a dir it moves
-// is a dir the sweep either deletes or spares differently.
+// Pins the widened name shortcut against the conservative gate it replaced,
+// over the dir-name, property-name and attribution shapes below. The shortcut
+// skips the record and the payload on the strength of the name alone, so a dir
+// it moves is a dir the sweep either deletes or spares differently.
+//
+// Narrower than the whole space a writer can produce: every record here
+// carries one strategy code and one index type whatever its directory's real
+// strategy is, and only the Iterating and Swapped states appear, so
+// migrationCommittedStateOf's promoted-tracker arm is never reached.
 func TestWidenedMatchesAgreesWithTheNarrowGate(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
