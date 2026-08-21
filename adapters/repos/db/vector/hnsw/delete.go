@@ -126,7 +126,7 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 			}
 			idBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(idBytes, id)
-			if err := h.store.Bucket(h.id + "_mv_mappings").Delete(idBytes); err != nil {
+			if err := h.store.Bucket(helpers.MVMappingsBucketName(h.id)).Delete(idBytes); err != nil {
 				return errors.Wrap(err, fmt.Sprintf("failed to delete %s_mv_mappings from the bucket", h.id))
 			}
 		}
@@ -952,7 +952,7 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 		if h.muvera.Load() {
 			idBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(idBytes, id)
-			if err := h.store.Bucket(h.id + "_muvera_vectors").Delete(idBytes); err != nil {
+			if err := h.store.Bucket(helpers.MuveraBucketName(h.id)).Delete(idBytes); err != nil {
 				h.logger.WithFields(logrus.Fields{
 					"action": "muvera_delete",
 					"id":     id,

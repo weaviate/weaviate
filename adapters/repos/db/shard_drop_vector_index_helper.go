@@ -39,7 +39,8 @@ func (h *vectorDropIndexHelper) ensureFilesAreRemovedForDroppedVectorIndexes(
 		if !modelsext.IsVectorIndexDropped(cfg) {
 			continue
 		}
-		if err := h.removeVectorIndexFiles(indexPath, shardName, name); err != nil {
+		if err := h.removeVectorIndexFiles(indexPath, shardName, name,
+			otherTargetVectors(class, name)); err != nil {
 			return fmt.Errorf("failed to remove dropped vector index %q files for class %s: %w",
 				name, class.Class, err)
 		}
@@ -47,44 +48,50 @@ func (h *vectorDropIndexHelper) ensureFilesAreRemovedForDroppedVectorIndexes(
 	return nil
 }
 
-// removeVectorIndexFiles removes all on-disk artifacts for a named vector index:
-// - LSM bucket: vectors_{name}
-// - LSM compressed bucket: vectors_compressed_{name}
-// - LSM muvera bucket: vectors_{name}_muvera_vectors (multi-vector + muvera only)
-// - HNSW commit log directory: vectors_{name}.hnsw.commitlog.d
-// - HNSW snapshot directory: vectors_{name}.hnsw.snapshot.d
-// - HFresh directory: vectors_{name}.hfresh.d (hfresh only)
-// - HFresh LSM buckets: hfresh_postings_vectors_{name}, hfresh_shared_vectors_{name}
-func (h *vectorDropIndexHelper) removeVectorIndexFiles(indexPath, shardName, targetVector string) error {
+// removeVectorIndexFiles removes every on-disk artifact of a named vector index
+// (see helpers.VectorIndexArtifactsFor for the set and why it is centralised).
+// otherTargetVectors are the collection's remaining vector names, needed so a
+// sibling whose own bucket collides with one of this target's artifact names is
+// not deleted along with it.
+func (h *vectorDropIndexHelper) removeVectorIndexFiles(
+	indexPath, shardName, targetVector string, otherTargetVectors []string,
+) error {
 	lsmDir := filepath.Join(indexPath, shardName, "lsm")
 	shardDir := filepath.Join(indexPath, shardName)
 
-	vectorsBucket := helpers.GetVectorsBucketName(targetVector)
-	compressedBucket := helpers.GetCompressedBucketName(targetVector)
-	muveraBucket := helpers.GetMuveraBucketName(targetVector)
-	indexID := helpers.GetVectorsBucketName(targetVector)
-	hfreshDir := helpers.HFreshDirName(indexID)
-	hfreshPostings := helpers.HFreshPostingsBucketName(indexID)
-	hfreshShared := helpers.HFreshSharedBucketName(indexID)
-	hnswCommitLogDir := helpers.GetHNSWCommitLogDirName(targetVector)
-	hnswSnapshotDir := helpers.GetHNSWSnapshotDirName(targetVector)
+	artifacts := helpers.VectorIndexArtifactsFor(targetVector, otherTargetVectors)
 
-	vectorIndexDirectories := []string{
-		filepath.Join(lsmDir, vectorsBucket),
-		filepath.Join(lsmDir, compressedBucket),
-		filepath.Join(lsmDir, muveraBucket),
-		filepath.Join(lsmDir, hfreshPostings),
-		filepath.Join(lsmDir, hfreshShared),
-		filepath.Join(shardDir, hfreshDir),
-		filepath.Join(shardDir, hnswCommitLogDir),
-		filepath.Join(shardDir, hnswSnapshotDir),
+	var dirs []string
+	for _, bucket := range artifacts.LSMBuckets {
+		dirs = append(dirs, filepath.Join(lsmDir, bucket))
+	}
+	for _, dir := range artifacts.ShardDirs {
+		dirs = append(dirs, filepath.Join(shardDir, dir))
 	}
 
-	for _, dir := range vectorIndexDirectories {
+	for _, dir := range dirs {
 		if err := os.RemoveAll(dir); err != nil {
 			return fmt.Errorf("remove %s: %w", dir, err)
 		}
 	}
 
 	return nil
+}
+
+// otherTargetVectors lists the collection's vector names except `exclude` —
+// the siblings whose artifacts a drop must not touch. Every artifact a sibling
+// owns is protected, not just its primary bucket.
+func otherTargetVectors(class *models.Class, exclude string) []string {
+	if class == nil {
+		// Nothing to protect, so the drop runs unfiltered: a name collision
+		// with a live sibling takes that sibling's bucket with it.
+		return nil
+	}
+	others := make([]string, 0, len(class.VectorConfig))
+	for name := range class.VectorConfig {
+		if name != exclude {
+			others = append(others, name)
+		}
+	}
+	return others
 }

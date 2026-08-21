@@ -14,17 +14,13 @@ package drop_vector_index
 import (
 	"context"
 	"fmt"
-	"io"
 	"path"
-	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	tcexec "github.com/testcontainers/testcontainers-go/exec"
 
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -104,7 +100,7 @@ func testHFreshLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*testing.
 
 		var owned []string
 		t.Run("the hfresh index owns directories on disk", func(t *testing.T) {
-			owned = hfreshDirsOwnedBy(hfreshDirsOnEveryNode(ctx, t, compose), dropped)
+			owned = dirsOwnedBy(hfreshDirsOnEveryNode(ctx, t, compose), dropped)
 			require.NotEmpty(t, owned,
 				"precondition: the index must have on-disk state, or dropping it proves nothing")
 			t.Logf("%s owns:\n  %s", dropped, strings.Join(owned, "\n  "))
@@ -125,7 +121,7 @@ func testHFreshLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*testing.
 		})
 
 		t.Run("no directory of the dropped index survives", func(t *testing.T) {
-			left := hfreshDirsOwnedBy(hfreshDirsOnEveryNode(ctx, t, compose), dropped)
+			left := dirsOwnedBy(hfreshDirsOnEveryNode(ctx, t, compose), dropped)
 			for _, dir := range left {
 				t.Logf("SURVIVED: %s", dir)
 			}
@@ -150,29 +146,6 @@ func hfreshArtifactNames(targetVector string) []string {
 	}
 }
 
-// hfreshDirsOwnedBy returns the directories belonging to targetVector, matched
-// on EXACT names. Substring matching would be wrong: another vector's name may
-// contain this one as a prefix, and claiming its directories would report a
-// leak that is not there.
-func hfreshDirsOwnedBy(allDirs []string, targetVector string) []string {
-	indexID := "vectors_" + targetVector
-	names := map[string]struct{}{
-		indexID:                              {}, // vectors bucket
-		"vectors_compressed_" + targetVector: {}, // compressed bucket
-	}
-	for _, n := range hfreshArtifactNames(targetVector) {
-		names[n] = struct{}{}
-	}
-	var out []string
-	for _, dir := range allDirs {
-		if _, ok := names[path.Base(dir)]; ok {
-			out = append(out, dir)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
 // hfreshDirsOnEveryNode collects candidate directories from EVERY node. The
 // class's shard lives on whichever node the hash lands it on, so checking only
 // the node the client happens to talk to would pass on the other two by
@@ -185,10 +158,7 @@ func hfreshDirsOnEveryNode(ctx context.Context, t *testing.T, compose *docker.Do
 		if node == nil {
 			continue
 		}
-		out := hfreshExec(ctx, t, node.Container(), []string{
-			"find", "/", "-xdev", "-type", "d",
-			"(", "-name", "vectors_*", "-o", "-name", "hfresh_*", ")",
-		})
+		out := findVectorDirs(ctx, t, node.Container())
 		for _, line := range strings.Split(out, "\n") {
 			if line = strings.TrimSpace(line); line != "" {
 				dirs = append(dirs, node.Name()+":"+line)
@@ -205,16 +175,4 @@ func hasBase(paths []string, base string) bool {
 		}
 	}
 	return false
-}
-
-func hfreshExec(ctx context.Context, t *testing.T, c testcontainers.Container, cmd []string) string {
-	t.Helper()
-	code, reader, err := c.Exec(ctx, cmd, tcexec.Multiplexed())
-	require.NoError(t, err, "exec %v", cmd)
-	buf := new(strings.Builder)
-	_, err = io.Copy(buf, reader)
-	require.NoError(t, err)
-	// find exits non-zero only on a real error; "no matches" is exit 0 + empty.
-	require.Zero(t, code, "exec %v failed: %s", cmd, buf.String())
-	return buf.String()
 }

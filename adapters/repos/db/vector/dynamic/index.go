@@ -506,6 +506,41 @@ func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 	return dynamic.index.Drop(ctx, keepFiles)
 }
 
+// DropTargetVector removes ONE named vector's dynamic index, leaving the shard
+// intact. Drop is unusable here: the state DB is shared by every dynamic vector
+// on the shard (one handle, one key per vector), so its Close()+Remove would
+// take every sibling's state with it. This deletes only this vector's key,
+// which is also what stops a re-created vector of the same name inheriting a
+// stale "already upgraded" verdict.
+//
+// Loaded-shard route only: the files-only sweeps never open the state DB, so a
+// drop on a cold shard leaves the key behind.
+func (dynamic *dynamic) DropTargetVector(ctx context.Context) error {
+	if dynamic.ctx.Err() != nil {
+		// already dropped
+		return nil
+	}
+
+	dynamic.cancel()
+
+	dynamic.Lock()
+	defer dynamic.Unlock()
+
+	if err := dynamic.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		if b == nil {
+			return nil // nothing was ever recorded for this shard
+		}
+		return b.Delete(dynamic.dbKey())
+	}); err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", dynamic.targetVector, err)
+	}
+
+	// keepFiles=false: the underlying index's own files go, but the SHARED
+	// state DB above is untouched by this path.
+	return dynamic.index.Drop(ctx, false)
+}
+
 func (dynamic *dynamic) Flush() error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()

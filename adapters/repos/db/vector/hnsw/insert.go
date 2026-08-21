@@ -302,7 +302,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			docIDBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(docIDBytes, docIDs[i])
 			muveraBytes := multivector.MuveraBytesFromFloat32(processedVectors[i])
-			if err := h.store.Bucket(h.id+"_muvera_vectors").Put(docIDBytes, muveraBytes); err != nil {
+			if err := h.store.Bucket(helpers.MuveraBucketName(h.id)).Put(docIDBytes, muveraBytes); err != nil {
 				return errors.Wrap(err, fmt.Sprintf("failed to put %s_muvera_vectors into the bucket", h.id))
 			}
 		}
@@ -424,7 +424,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			binary.BigEndian.PutUint64(nodeIDBytes, nodeId)
 			docIDBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(docIDBytes, docID)
-			err := h.store.Bucket(h.id+"_mv_mappings").Put(nodeIDBytes, docIDBytes)
+			err := h.store.Bucket(helpers.MVMappingsBucketName(h.id)).Put(nodeIDBytes, docIDBytes)
 			if err != nil {
 				return errors.Wrap(err, fmt.Sprintf("failed to put %s_mv_mappings into the bucket", h.id))
 			}
