@@ -2138,13 +2138,16 @@ func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName stri
 }
 
 // LocalCallbacksDone implements [distributedtask.RecoveryAwareProvider].
-// Returns false when a tracker dir on this node is neither tidied nor
-// merged, or when unreadable tracker state could hide one (see
-// [hasUntidiedTracker]) — the signature of a swap interrupted mid-flight. It
-// also returns false when the shard walk could not reach this node's shards
-// at all, which is what a closing index looks like: not knowing is not the
-// same as being done. An unreadable *task* payload goes the other way and
-// returns true: nothing here can be recovered from it.
+// Returns false when a record on this node still owes the callbacks a swap,
+// or when unreadable record state could hide one — the signature of a swap
+// interrupted mid-flight. It also returns false when the shard walk could not
+// reach this node's shards at all, which is what a closing index looks like:
+// not knowing is not the same as being done. An unreadable *task* payload goes
+// the other way and returns true: nothing here can be recovered from it.
+//
+// The loop below is over shards, not over the (property, index type) tuples
+// the payload names, so one shard's records are read once however many
+// properties the migration covers.
 //
 // False only suppresses the scheduler's bootstrap pre-mark. The task's
 // callbacks are then re-dispatched once on the next tick, where a terminal

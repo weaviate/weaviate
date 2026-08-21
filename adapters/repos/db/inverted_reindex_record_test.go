@@ -442,6 +442,11 @@ func TestMigrationRecordStoreConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 
+	// The in-memory map first: a reload reads the whole directory back from
+	// disk, so it answers correctly even for a store whose map the concurrent
+	// writers left short.
+	require.Len(t, store.Records(), writers*8,
+		"every put publishes into the map the readers were walking")
 	require.NoError(t, store.Load())
 	require.Len(t, store.Records(), writers*8)
 }

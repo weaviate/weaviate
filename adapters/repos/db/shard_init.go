@@ -267,9 +267,9 @@ var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse 
 // migration tracker dir's payload.mig file (see
 // ShardReindexTaskGeneric.SaveRecoveryPayload). The error keeps a missing
 // payload (os.IsNotExist) distinguishable from an unreadable or unparseable
-// one: [migrationDirScope.inScopeFailingOpen] treats only the former as "the task recorded
-// nothing", while the latter makes the unloaded-shard gate and the recovery
-// probe ([hasUntidiedTracker]) fail open.
+// one: [migrationDirScope.inScopeFailingOpen] treats only the former as "the
+// task recorded nothing", while the latter makes the unloaded-shard gate fail
+// open.
 //
 // maxBytes refuses a larger payload before opening it;
 // [unboundedRecoveryPayload] reads any size.

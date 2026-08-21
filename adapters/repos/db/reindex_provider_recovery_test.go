@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -356,4 +357,79 @@ func TestBuildRecoveryTasksStampsTheIdentity(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLocalCallbacksDoneReadsEachShardsRecordsOnce pins the bootstrap probe's
+// cost. It fires once per task at startup with every tenant cold, and it asks
+// one question per shard — not one per (property, index type) tuple the
+// payload names. Reading a shard's records is a directory walk plus a parse
+// per record, and a migration over many tuples multiplies the tuples without
+// adding a single new place to look.
+//
+// The count is observable because an unreadable record set logs exactly once
+// per read.
+func TestLocalCallbacksDoneReadsEachShardsRecordsOnce(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a directory whatever its mode says")
+	}
+	const (
+		prop   = "title"
+		tenant = "cold-tenant"
+		node   = "n1"
+	)
+
+	ctx := testCtx()
+	className := "LocalCallbacksDoneReadCost_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{prop})
+	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	defer hot.Shutdown(context.Background())
+
+	records := filepath.Join(shardPathLSM(idx.path(), tenant), ".migrations", migrationRecordsDirName)
+	require.NoError(t, os.MkdirAll(records, 0o755))
+	defer func() { require.NoError(t, os.Chmod(records, 0o755)) }()
+	require.NoError(t, os.Chmod(records, 0o000))
+
+	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		false, idx.bitmapBufPool)
+	idx.shards.Store(tenant, cold)
+	defer func() {
+		if cold.isLoaded() {
+			require.NoError(t, cold.Shutdown(context.Background()))
+		}
+	}()
+
+	// Two index types on one property: two tuples on this shard, one set of
+	// records either way.
+	require.Len(t, semanticMigrationIndexTypes(ReindexTypeChangeTokenization), 2)
+	payload, err := json.Marshal(ReindexTaskPayload{
+		Collection:    className,
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    []string{prop},
+		UnitToShard:   map[string]string{"u1": tenant},
+		UnitToNode:    map[string]string{"u1": node},
+	})
+	require.NoError(t, err)
+
+	logger, hook := logrustest.NewNullLogger()
+	p := NewReindexProvider(
+		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+		nil, nil, logger, node, nil, ctx)
+
+	require.False(t, p.LocalCallbacksDone(&distributedtask.Task{
+		Namespace:      ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_cost", Version: 1},
+		Status:         distributedtask.TaskStatusSwapping,
+		Payload:        payload,
+	}, node), "records nobody can read may be the ones still owing callbacks")
+
+	reads := 0
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "read migration records") {
+			reads++
+		}
+	}
+	require.Equal(t, 1, reads, "one read per shard, whatever the payload's tuple count")
+	require.False(t, cold.isLoaded())
 }
