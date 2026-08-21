@@ -524,9 +524,9 @@ func TestHasCompletedMigrationTrackerSharesItsMemosAcrossTuples(t *testing.T) {
 
 	lsm := t.TempDir()
 	// Multi-property names: only the payload can say whose tracker each is.
-	mkTrackerDir(t, lsm, "enable_searchable_cat_dog_1", "started.mig")
+	mkTrackerDir(t, lsm, "enable_searchable_cat_dog_1")
 	mkRecoveryPayload(t, lsm, "enable_searchable_cat_dog_1", "cat", "dog")
-	mkTrackerDir(t, lsm, "enable_filterable_cat_dog_1", "started.mig")
+	mkTrackerDir(t, lsm, "enable_filterable_cat_dog_1")
 	mkRecoveryPayload(t, lsm, "enable_filterable_cat_dog_1", "cat", "dog")
 
 	// What the probe read when every tuple brought its own caches.

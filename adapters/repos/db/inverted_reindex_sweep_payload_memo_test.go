@@ -86,7 +86,7 @@ func writeSweepMemoFixtures(t *testing.T) string {
 func writeSweepMemoFixturesAt(t *testing.T, lsm string) {
 	t.Helper()
 	for _, f := range sweepMemoFixtures {
-		mkTrackerDir(t, lsm, f.dir, f.sentinels...)
+		mkTrackerDir(t, lsm, f.dir)
 		mkRecoveryPayload(t, lsm, f.dir, f.props...)
 	}
 }
@@ -273,7 +273,7 @@ func TestSweepReportsOnlyWhatItSwept(t *testing.T) {
 
 			if tc.stale {
 				for _, f := range sweepMemoFixtures {
-					mkTrackerDir(t, shd.(*Shard).pathLSM(), f.dir, f.sentinels...)
+					mkTrackerDir(t, shd.(*Shard).pathLSM(), f.dir)
 					mkRecoveryPayload(t, shd.(*Shard).pathLSM(), f.dir, f.props...)
 				}
 			}

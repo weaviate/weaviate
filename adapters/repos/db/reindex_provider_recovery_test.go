@@ -450,7 +450,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 				trackerDir = MigrationDirSearchableMapToBlockmax + "_1"
 			}
 			if tc.sentinels != nil {
-				mkTrackerDir(t, shardPathLSM(idx.path(), tenant), trackerDir, tc.sentinels...)
+				mkTrackerDir(t, shardPathLSM(idx.path(), tenant), trackerDir)
 			}
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
 				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
@@ -542,7 +542,7 @@ func TestLocalCallbacksDoneReadsAShardsPayloadOnce(t *testing.T) {
 	// A two-property name no shortcut can settle, so every tuple pays for the
 	// payload. Tidied, so the walk runs past it instead of stopping there.
 	const tracker = MigrationDirPrefixEnableFilterable + "_alpha_beta_1"
-	mkTrackerDir(t, lsm, tracker, "started.mig", "tidied.mig")
+	mkTrackerDir(t, lsm, tracker)
 	mkRecoveryPayload(t, lsm, tracker, "alpha", "beta")
 
 	payload := &ReindexTaskPayload{

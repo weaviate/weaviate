@@ -83,11 +83,11 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			hot := shd.(*Shard)
 			defer hot.Shutdown(context.Background())
 
-			mkTrackerDir(t, hot.pathLSM(), tracker, "started.mig")
+			mkTrackerDir(t, hot.pathLSM(), tracker)
 
 			unloadedLSM := shardPathLSM(idx.path(), unloadedShard)
 			if tc.staleOnUnloadedShard {
-				mkTrackerDir(t, unloadedLSM, tracker, "started.mig")
+				mkTrackerDir(t, unloadedLSM, tracker)
 			}
 			unloaded := NewLazyLoadShard(setupCtx, nil, unloadedShard, idx, class, idx.centralJobQueue,
 				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
@@ -208,7 +208,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 			defer shd.Shutdown(context.Background())
 
 			residueLSM := shardPathLSM(idx.path(), residueTenant)
-			mkTrackerDir(t, residueLSM, tc.tracker, completed...)
+			mkTrackerDir(t, residueLSM, tc.tracker)
 			require.NoError(t, os.WriteFile(
 				filepath.Join(residueLSM, ".migrations", tc.tracker, "properties.mig"),
 				[]byte(tc.props), 0o644))
@@ -573,7 +573,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			lsm := shard.pathLSM()
 
 			for name, sentinels := range tc.trackers {
-				mkTrackerDir(t, lsm, name, sentinels...)
+				mkTrackerDir(t, lsm, name)
 				if props, ok := tc.payloads[name]; ok {
 					mkRecoveryPayload(t, lsm, name, props...)
 				}
@@ -636,8 +636,8 @@ func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *tes
 	defer shard.Shutdown(context.Background())
 	lsm := shard.pathLSM()
 
-	mkTrackerDir(t, lsm, mine, "started.mig")
-	mkTrackerDir(t, lsm, theirs, "started.mig", "merged.mig", "swapped.mig", "tidied.mig")
+	mkTrackerDir(t, lsm, mine)
+	mkTrackerDir(t, lsm, theirs)
 	mkSidecarDir(t, lsm, theirSidecar)
 
 	cleanSweep(t, ctx, shard, "category", "filterable")
@@ -692,7 +692,7 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 			defer shard.Shutdown(context.Background())
 			lsm := shard.pathLSM()
 
-			mkTrackerDir(t, lsm, tracker, "started.mig")
+			mkTrackerDir(t, lsm, tracker)
 			if !tc.noPayload {
 				mkRecoveryPayload(t, lsm, tracker, "a", "b")
 			}
@@ -769,7 +769,7 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			defer shard.Shutdown(context.Background())
 			lsm := shard.pathLSM()
 
-			mkTrackerDir(t, lsm, tc.tracker, completed...)
+			mkTrackerDir(t, lsm, tc.tracker)
 			if len(tc.payload) > 0 {
 				mkRecoveryPayload(t, lsm, tc.tracker, tc.payload...)
 			}
@@ -828,8 +828,7 @@ func TestCleanStalePartialReindexStateRemovesAReplacedBucketDir(t *testing.T) {
 			leftover := mainBucket + lsmkv.ReplacedBucketDirSuffix
 			mkSidecarDir(t, lsm, leftover)
 			if tc.completedTracker != "" {
-				mkTrackerDir(t, lsm, tc.completedTracker,
-					"started.mig", "merged.mig", "swapped.mig", "tidied.mig")
+				mkTrackerDir(t, lsm, tc.completedTracker)
 				mkSidecarDir(t, lsm, tc.liveSidecar)
 			}
 
@@ -880,7 +879,7 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 	require.NoError(t, err)
 	_, err = dirs.list(filepath.Join(lsm, ".migrations"))
 	require.True(t, err == nil || os.IsNotExist(err))
-	mkTrackerDir(t, lsm, tracker, "started.mig")
+	mkTrackerDir(t, lsm, tracker)
 	staleAfterArrival, _ := hasStalePartialReindexState(lsm, propName, indexType, dirs, dirs.trackerProps())
 	require.False(t, staleAfterArrival,
 		"the stale listing is the point: the gate cannot see what arrived after it")
@@ -911,7 +910,7 @@ func TestIndexCleanStalePartialReindexStateReportsAnUnlistableMigrationsDir(t *t
 	defer hot.Shutdown(context.Background())
 
 	lsm := hot.pathLSM()
-	mkTrackerDir(t, lsm, tracker, "started.mig")
+	mkTrackerDir(t, lsm, tracker)
 	migrations := filepath.Join(lsm, ".migrations")
 	require.NoError(t, os.Chmod(migrations, 0o000))
 	t.Cleanup(func() { os.Chmod(migrations, 0o755) })
@@ -962,8 +961,7 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 		{
 			name: "unloaded with a completed migration's leftovers",
 			plantOnGateShard: func(t *testing.T, lsm string) {
-				mkTrackerDir(t, lsm, tracker,
-					"started.mig", "merged.mig", "swapped.mig", "tidied.mig")
+				mkTrackerDir(t, lsm, tracker)
 				mkSidecarDir(t, lsm, "property_category__enable_filterable_ingest_1")
 				mkSidecarDir(t, lsm, "property_category__enable_filterable_backup_1")
 			},
@@ -1007,13 +1005,13 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 
 			if tc.staleOnGateShard {
 				// A gate reading any other shard's path would answer "skip" here.
-				mkTrackerDir(t, shardPathLSM(idx.path(), gateShard), tracker, "started.mig")
+				mkTrackerDir(t, shardPathLSM(idx.path(), gateShard), tracker)
 			}
 			if tc.plantOnGateShard != nil {
 				tc.plantOnGateShard(t, shardPathLSM(idx.path(), gateShard))
 			}
 			if tc.staleOnOtherShard {
-				mkTrackerDir(t, shardPathLSM(idx.path(), otherShard), tracker, "started.mig")
+				mkTrackerDir(t, shardPathLSM(idx.path(), otherShard), tracker)
 			}
 
 			lazy := NewLazyLoadShard(ctx, nil, gateShard, idx, class, idx.centralJobQueue,

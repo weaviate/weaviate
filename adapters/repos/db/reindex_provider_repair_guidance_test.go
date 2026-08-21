@@ -300,7 +300,7 @@ func TestHasCompletedMigrationTracker(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			lsmPath := t.TempDir()
 			if tc.tracker != "" {
-				mkTrackerDir(t, lsmPath, tc.tracker, tc.sentinel)
+				mkTrackerDir(t, lsmPath, tc.tracker)
 			}
 
 			require.Equal(t, tc.want,
@@ -396,7 +396,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 	shard, idx := testShard(t, ctx, "C")
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
-	mkTrackerDir(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"), "merged.mig")
+	mkTrackerDir(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"))
 
 	payload, err := json.Marshal(ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -430,7 +430,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	shard, idx := testShard(t, testCtx(), className)
 	concrete, err := unwrapShard(testCtx(), shard)
 	require.NoError(t, err)
-	mkTrackerDir(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"), "merged.mig")
+	mkTrackerDir(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"))
 
 	payload, err := json.Marshal(ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -532,8 +532,7 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 			defer hot.Shutdown(context.Background())
 
 			if tc.postMerge {
-				mkTrackerDir(t, shardPathLSM(idx.path(), tenant),
-					postMergeTrackerDir(t, prop), "merged.mig")
+				mkTrackerDir(t, shardPathLSM(idx.path(), tenant), postMergeTrackerDir(t, prop))
 			}
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
 				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,

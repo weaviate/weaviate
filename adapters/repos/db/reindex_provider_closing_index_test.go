@@ -100,8 +100,7 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 			idx.shards.Store(tenant, &LazyLoadShard{
 				shardOpts: &deferredShardOpts{name: tenant, index: idx},
 			})
-			mkTrackerDir(t, shardPathLSM(idx.path(), tenant),
-				postMergeTrackerDir(t, prop), tc.sentinels...)
+			mkTrackerDir(t, shardPathLSM(idx.path(), tenant), postMergeTrackerDir(t, prop))
 
 			// Drop order: the delete is committed first, teardown cancels
 			// closingCtx after it has queued behind the index locks.

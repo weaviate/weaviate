@@ -48,7 +48,7 @@ func writeTrackerPayload(t *testing.T, lsm string, tr tracker) {
 // makes a sweep walk all three passes and preserve rather than delete.
 func writeDeferredFinalizeTracker(t *testing.T, lsm string, tr tracker) {
 	t.Helper()
-	mkTrackerDir(t, lsm, tr.dir, "started.mig", "merged.mig", "tidied.mig")
+	mkTrackerDir(t, lsm, tr.dir)
 	writeTrackerPayload(t, lsm, tr)
 }
 
@@ -494,7 +494,7 @@ func TestGatePayloadReadCount(t *testing.T) {
 			}
 			lsm := t.TempDir()
 			for _, tr := range tc.trackers {
-				mkTrackerDir(t, lsm, tr.dir, markers...)
+				mkTrackerDir(t, lsm, tr.dir)
 				writeTrackerPayload(t, lsm, tr)
 			}
 			for _, s := range tc.sidecars {
