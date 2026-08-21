@@ -672,8 +672,8 @@ func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, l
 // removeUnloadedSidecarsForOrphan removes per-property sidecar bucket
 // directories owned by the orphan tracker. Routes through the strategy
 // registry (migrationSuffixes) keyed by the orphan's tracker dirName
-// — the strategy's MigrationDirName() and IngestSuffix/BackupSuffix/
-// ReindexSuffix methods are the single source of truth for the on-disk
+// — the strategy's MigrationDirName() and IngestSuffix/ReindexSuffix
+// methods are the single source of truth for the on-disk
 // dir layout (S3 fix). Falls back to no-op if the tracker dirName does
 // not match any registered strategy: defensive, but it also means a
 // future strategy added to migrationSuffixes will be picked up here
@@ -681,7 +681,6 @@ func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, l
 //
 // Sidecar dir names that this consults:
 //   - <main>__<ingestSuffix>_<gen>      (ingest sidecar)
-//   - <main>__<backupSuffix>_<gen>      (backup sidecar)
 //   - <main>__<reindexSuffix>_<gen>     (reindex sidecar)
 //
 // where `<main>` is the strategy's sourceBucketName(propName) for the
@@ -705,8 +704,8 @@ func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, lo
 // names the strategy registry says are owned by this orphan's tracker
 // dir + property set + generation. Computed by consulting
 // [migrationSuffixes] keyed off the orphan's tracker dirName: the
-// strategy itself owns the IngestSuffix / BackupSuffix /
-// ReindexSuffix tail base, and the audit appends the matching
+// strategy itself owns the IngestSuffix / ReindexSuffix tail base,
+// and the audit appends the matching
 // `_<gen>` to each. Returns an empty slice when the tracker dirName
 // does not match any registered strategy or when the orphan carries
 // no properties (class-level cleanup is handled by the caller via
@@ -724,13 +723,10 @@ func sidecarDirsForOrphan(o *orphanReindexTracker) []string {
 	}
 	reindexSuffix := reindexSuffixForFinalize(o.prefix)
 	genTail := genSuffix(o.generation)
-	out := make([]string, 0, 3*len(o.properties))
+	out := make([]string, 0, 2*len(o.properties))
 	for _, propName := range o.properties {
 		main := suffixes.sourceBucketName(propName)
-		out = append(out,
-			main+suffixes.ingestSuffix+genTail,
-			main+suffixes.backupSuffix+genTail,
-		)
+		out = append(out, main+suffixes.ingestSuffix+genTail)
 		if reindexSuffix != "" {
 			out = append(out, main+reindexSuffix+genTail)
 		}

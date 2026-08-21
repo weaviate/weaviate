@@ -52,10 +52,6 @@ func (s *FilterableRetokenizeStrategy) IngestSuffix() string {
 	return "__filt_retokenize_ingest" + genSuffix(s.generation)
 }
 
-func (s *FilterableRetokenizeStrategy) BackupSuffix() string {
-	return "__filt_retokenize_backup" + genSuffix(s.generation)
-}
-
 func (s *FilterableRetokenizeStrategy) SourceStrategy() string {
 	return lsmkv.StrategyRoaringSet
 }

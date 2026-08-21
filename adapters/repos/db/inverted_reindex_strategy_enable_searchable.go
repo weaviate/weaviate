@@ -53,10 +53,6 @@ func (s *EnableSearchableStrategy) IngestSuffix() string {
 	return "__enable_searchable_ingest" + genSuffix(s.generation)
 }
 
-func (s *EnableSearchableStrategy) BackupSuffix() string {
-	return "__enable_searchable_backup" + genSuffix(s.generation)
-}
-
 func (s *EnableSearchableStrategy) SourceStrategy() string {
 	return lsmkv.StrategyInverted
 }

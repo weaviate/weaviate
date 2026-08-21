@@ -49,10 +49,6 @@ func (s *RoaringSetRefreshStrategy) IngestSuffix() string {
 	return "__roaringset_ingest" + genSuffix(s.generation)
 }
 
-func (s *RoaringSetRefreshStrategy) BackupSuffix() string {
-	return "__roaringset_backup" + genSuffix(s.generation)
-}
-
 func (s *RoaringSetRefreshStrategy) SourceStrategy() string {
 	return lsmkv.StrategyRoaringSet
 }

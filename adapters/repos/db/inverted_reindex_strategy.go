@@ -57,10 +57,6 @@ type MigrationStrategy interface {
 	// Default is "__ingest"; blockmax overrides to "__blockmax_ingest" for backward compat.
 	IngestSuffix() string
 
-	// BackupSuffix returns the suffix for backup buckets.
-	// Default is "__backup"; blockmax overrides to "__blockmax_map" for backward compat.
-	BackupSuffix() string
-
 	// SourceStrategy returns the LSM strategy of source buckets to discover.
 	// e.g. lsmkv.StrategyMapCollection
 	SourceStrategy() string

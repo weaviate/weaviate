@@ -49,10 +49,6 @@ func (s *MapToBlockmaxStrategy) IngestSuffix() string {
 	return "__blockmax_ingest" + genSuffix(s.generation)
 }
 
-func (s *MapToBlockmaxStrategy) BackupSuffix() string {
-	return "__blockmax_map" + genSuffix(s.generation)
-}
-
 func (s *MapToBlockmaxStrategy) SourceStrategy() string {
 	return lsmkv.StrategyMapCollection
 }

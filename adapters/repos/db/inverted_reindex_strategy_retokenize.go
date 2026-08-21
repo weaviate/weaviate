@@ -57,10 +57,6 @@ func (s *SearchableRetokenizeStrategy) IngestSuffix() string {
 	return "__retokenize_ingest" + genSuffix(s.generation)
 }
 
-func (s *SearchableRetokenizeStrategy) BackupSuffix() string {
-	return "__retokenize_backup" + genSuffix(s.generation)
-}
-
 func (s *SearchableRetokenizeStrategy) SourceStrategy() string {
 	return s.bucketStrategy
 }

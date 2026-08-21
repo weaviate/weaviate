@@ -456,15 +456,13 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 	return "", false
 }
 
-// cleanStaleSidecarDirs removes leftover __reindex / __ingest / __backup
-// sidecar directories that share the just-removed bucket's name as their
-// prefix. A successful migration moves the new data into the main bucket
-// dir at runtime but leaves the ingest dir under its own name;
-// reconciliation renames it at the next shard load.
-// Between completion and restart these sidecars live on disk; a DELETE
-// then re-enable in the same process lifetime would otherwise hit
-// "rename: file exists" the next time RunSwapOnShard tries to move the
-// fresh main into __backup.
+// cleanStaleSidecarDirs removes leftover __reindex / __ingest sidecar
+// directories that share the just-removed bucket's name as their prefix. A
+// successful migration moves the new data into the main bucket dir at runtime
+// but leaves the ingest dir under its own name; reconciliation renames it at
+// the next shard load. Between completion and restart these sidecars live on
+// disk, and a DELETE followed by a re-enable in the same process lifetime
+// would otherwise collide with them.
 //
 // Sidecar names are <mainBucket>__<strategy>_<role>[_<gen>]; see
 // [isSidecarDirOf] for why matching on the role word (not the whole suffix)
@@ -532,9 +530,9 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, commit
 
 // sidecarRoleWords are the words every migration sidecar suffix ends in, once
 // the numeric generation tail is off. Keep in lockstep with the strategies'
-// ReindexSuffix / IngestSuffix / BackupSuffix; [TestEverySidecarSuffixIsASidecar]
-// pins that a new strategy either reuses one of these or extends the list.
-var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
+// ReindexSuffix / IngestSuffix; [TestEverySidecarSuffixIsASidecar] pins that a
+// new strategy either reuses one of these or extends the list.
+var sidecarRoleWords = []string{"reindex", "ingest"}
 
 // isSidecarDirOf reports whether name is a per-property sidecar of
 // mainBucketName. "__" alone isn't enough: property names may contain "__"

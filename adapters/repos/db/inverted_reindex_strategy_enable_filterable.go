@@ -55,10 +55,6 @@ func (s *EnableFilterableStrategy) IngestSuffix() string {
 	return "__enable_filterable_ingest" + genSuffix(s.generation)
 }
 
-func (s *EnableFilterableStrategy) BackupSuffix() string {
-	return "__enable_filterable_backup" + genSuffix(s.generation)
-}
-
 func (s *EnableFilterableStrategy) SourceStrategy() string {
 	return lsmkv.StrategyRoaringSet
 }

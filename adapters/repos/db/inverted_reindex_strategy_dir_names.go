@@ -107,8 +107,8 @@ func migrationDirWithProps(prefix string, propNames []string) string {
 }
 
 // genSuffix returns the per-migration generation suffix, e.g. "_2".
-// Every concrete strategy's MigrationDirName / ReindexSuffix / IngestSuffix /
-// BackupSuffix appends this so back-to-back in-process migrations on the
+// Every concrete strategy's MigrationDirName / ReindexSuffix / IngestSuffix
+// appends this so back-to-back in-process migrations on the
 // same (prop, indexType) tuple don't collide on dir paths. Generation is
 // computed per-node at task start by [nextMigrationGeneration]; the
 // previous live main bucket lives at `…_ingest_<N-1>` (the in-memory

@@ -72,10 +72,6 @@ func (s *FilterableToRangeableStrategy) IngestSuffix() string {
 	return "__rangeable_ingest" + genSuffix(s.generation)
 }
 
-func (s *FilterableToRangeableStrategy) BackupSuffix() string {
-	return "__rangeable_backup" + genSuffix(s.generation)
-}
-
 func (s *FilterableToRangeableStrategy) SourceStrategy() string {
 	return lsmkv.StrategyRoaringSet
 }

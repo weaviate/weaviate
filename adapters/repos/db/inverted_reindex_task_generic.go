@@ -1184,9 +1184,9 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 //
 //   - oldMainBucket.Shutdown(ctx) per prop (REQUIRED INLINE — see
 //     below)
-//   - os.Rename(oldMainDir, backupDir) per prop (safe inline — the
-//     load-bearing rule is: only rename a shut-down bucket, never
-//     rename a live bucket that is serving queries)
+//   - os.RemoveAll(oldMainDir) per prop (safe inline — the load-bearing
+//     rule is: only remove a shut-down bucket, never one that is still
+//     serving queries)
 //
 // Why oldMain.Shutdown MUST be inline (not deferred to next-startup
 // like the live-ingest rename): Bucket.Shutdown is the only call
@@ -1208,7 +1208,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 //   - OnMigrationComplete (per-strategy hook; see
 //     [MigrationStrategy.OnMigrationComplete] godoc for the
 //     per-strategy contract)
-//   - trimOlderGenerationsLocked (removes the current gen's backup
+//   - trimOlderGenerationsLocked (removes the current gen's reindex
 //     dir + every older gen's sidecars)
 //
 // Live-bucket rename (Phase 3): the ingest bucket whose pointer was
@@ -1473,10 +1473,8 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 // Called at the end of [runtimeSwap].
 //
 // Removes, per shard:
-//   - all `…_<reindexSuffix-base>_<M>/`, `…_<ingestSuffix-base>_<M>/`,
-//     `…_<backupSuffix-base>_<M>/` dirs with M < currentGen, plus the
-//     `…_<backupSuffix-base>_<currentGen>/` dir produced by this swap
-//     (the pre-T_N data we no longer need).
+//   - all `…_<reindexSuffix-base>_<M>/` and `…_<ingestSuffix-base>_<M>/`
+//     dirs with M < currentGen.
 //   - all `.migrations/<migrationDirPrefix><propSuffix>_<M>/` for
 //     M < currentGen.
 //
@@ -1500,7 +1498,6 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 	currentGen := t.strategy.MigrationDirName()
 	currentReindex := t.strategy.ReindexSuffix()
 	currentIngest := t.strategy.IngestSuffix()
-	currentBackup := t.strategy.BackupSuffix()
 
 	// Reverse the gen suffix off each current suffix to get the
 	// suffix-without-gen base for prefix matching against older
@@ -1509,7 +1506,6 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 	// migration dir name; for the bucket suffixes we extract the same way.
 	currentReindexBase, _, _ := parseMigrationDirName(currentReindex)
 	currentIngestBase, _, _ := parseMigrationDirName(currentIngest)
-	currentBackupBase, _, _ := parseMigrationDirName(currentBackup)
 	currentMigBase, currentGenN, _ := parseMigrationDirName(currentGen)
 
 	// Bucket sidecar dirs live at the top of the LSM dir. Match by
@@ -1539,10 +1535,9 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 					continue
 				}
 				switch suffixBase {
-				case currentReindexBase, currentBackupBase:
-					// Always obsolete after tidied (reindex is already
-					// removed during runtimeSwap step 2; current-gen
-					// backup is the pre-T_N data we no longer need).
+				case currentReindexBase:
+					// Already removed during runtimeSwap step 2; this is
+					// the leftover of a run that did not get that far.
 					t.removeAllSafe(logger, filepath.Join(lsmPath, name))
 				case currentIngestBase:
 					if suffixGen < currentGenN {
@@ -1741,7 +1736,7 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 	strategy := t.strategy.TargetStrategy()
 	bucketOpts := t.bucketOptions(shard, strategy, keepLevelCompaction, keepTombstones, t.config.memtableOptFactor)
 
-	// Only the ingest bucket becomes the main bucket post-swap; reindex/backup
+	// Only the ingest bucket becomes the main bucket post-swap; the reindex
 	// buckets are torn down and never serve reads.
 	if strategy == lsmkv.StrategyRoaringSetRange && shard.Index().Config.IndexRangeableInMemory {
 		bucketOpts = append(bucketOpts, lsmkv.WithRangeableInMemoryDeferred(true))
