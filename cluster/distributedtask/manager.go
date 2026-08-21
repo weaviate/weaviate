@@ -544,18 +544,16 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
 
 	if r.Error != "" {
-		u.Status = UnitStatusFailed
+		u.markTerminal(UnitStatusFailed, finishedAt)
 		u.Error = r.Error
-		u.FinishedAt = finishedAt
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
 		task.markTerminal(TaskStatusFailed, finishedAt)
 		m.notifySchedulerWithLock()
 		return nil
 	}
 
-	u.Status = UnitStatusCompleted
+	u.markTerminal(UnitStatusCompleted, finishedAt)
 	u.Progress = 1.0
-	u.FinishedAt = finishedAt
 
 	if task.AllUnitsTerminal() {
 		if task.AnyUnitFailed() {

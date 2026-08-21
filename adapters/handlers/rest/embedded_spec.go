@@ -9091,7 +9091,7 @@ func init() {
           "type": "string"
         },
         "updatedAt": {
-          "description": "The time when the unit was last updated. Absent until the unit first reports progress.",
+          "description": "The time when the unit was last updated, including its transition to a terminal status. Absent for a unit that has not started yet.",
           "type": "string",
           "format": "date-time",
           "x-nullable": true
@@ -21561,7 +21561,7 @@ func init() {
           "type": "string"
         },
         "updatedAt": {
-          "description": "The time when the unit was last updated. Absent until the unit first reports progress.",
+          "description": "The time when the unit was last updated, including its transition to a terminal status. Absent for a unit that has not started yet.",
           "type": "string",
           "format": "date-time",
           "x-nullable": true

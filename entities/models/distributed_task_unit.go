@@ -49,7 +49,7 @@ type DistributedTaskUnit struct {
 	// The status of the unit.
 	Status string `json:"status,omitempty"`
 
-	// The time when the unit was last updated. Absent until the unit first reports progress.
+	// The time when the unit was last updated, including its transition to a terminal status. Absent for a unit that has not started yet.
 	// Format: date-time
 	UpdatedAt *strfmt.DateTime `json:"updatedAt,omitempty"`
 }

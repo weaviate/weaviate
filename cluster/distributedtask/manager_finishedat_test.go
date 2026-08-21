@@ -137,3 +137,76 @@ func TestManager_Restore_ClearsFinishedAtOnNonTerminalTasks(t *testing.T) {
 		})
 	}
 }
+
+// TestManager_UnitUpdatedAtIncludesTheTerminalTransition pins that a unit's
+// updatedAt covers the transition that ended it. The API omits a zero
+// timestamp, so a unit that fails before its first progress report would
+// otherwise come back with a finishedAt and no updatedAt at all.
+func TestManager_UnitUpdatedAtIncludesTheTerminalTransition(t *testing.T) {
+	const (
+		ns      = "ns"
+		id      = "task1"
+		version = uint64(10)
+		unitID  = "u-n1"
+		node    = "n1"
+	)
+
+	tests := []struct {
+		name string
+		// reportsProgress claims the unit with a progress report before it
+		// goes terminal, which is the only writer of updatedAt today.
+		reportsProgress bool
+		terminal        func(t *testing.T, h *testHarness)
+		wantStatus      UnitStatus
+	}{
+		{
+			name:       "failed, never reported progress",
+			terminal:   func(t *testing.T, h *testHarness) { failUnit(t, h, ns, id, version, node, unitID, "boom") },
+			wantStatus: UnitStatusFailed,
+		},
+		{
+			name:       "completed, never reported progress",
+			terminal:   func(t *testing.T, h *testHarness) { completeUnit(t, h, ns, id, version, node, unitID) },
+			wantStatus: UnitStatusCompleted,
+		},
+		{
+			name:            "failed after reporting progress",
+			reportsProgress: true,
+			terminal:        func(t *testing.T, h *testHarness) { failUnit(t, h, ns, id, version, node, unitID, "boom") },
+			wantStatus:      UnitStatusFailed,
+		},
+		{
+			name:            "completed after reporting progress",
+			reportsProgress: true,
+			terminal:        func(t *testing.T, h *testHarness) { completeUnit(t, h, ns, id, version, node, unitID) },
+			wantStatus:      UnitStatusCompleted,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			addTaskWithUnits(t, h, ns, id, version, []string{unitID})
+
+			if tt.reportsProgress {
+				updateProgress(t, h, ns, id, version, node, unitID, 0.5)
+			}
+
+			before := h.manager.tasks[ns][id].Units[unitID]
+			require.Equal(t, tt.reportsProgress, !before.UpdatedAt.IsZero(),
+				"before going terminal a unit carries an update time iff it reported progress")
+
+			h.clock.Advance(time.Hour)
+			wantUpdatedAt := h.clock.Now()
+			tt.terminal(t, h)
+
+			got := h.manager.tasks[ns][id].Units[unitID]
+			require.Equal(t, tt.wantStatus, got.Status)
+			require.False(t, got.UpdatedAt.IsZero(),
+				"a terminal unit must report when it was last touched")
+			require.Equal(t, wantUpdatedAt.UnixMilli(), got.UpdatedAt.UnixMilli(),
+				"the terminal transition is the last touch, so it must move updatedAt")
+			require.Equal(t, wantUpdatedAt.UnixMilli(), got.FinishedAt.UnixMilli())
+		})
+	}
+}

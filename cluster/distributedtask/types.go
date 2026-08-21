@@ -402,6 +402,16 @@ type Unit struct {
 	FinishedAt time.Time  `json:"finishedAt,omitempty"`
 }
 
+// markTerminal stamps FinishedAt and UpdatedAt together with the status, so a
+// unit that goes terminal before its first progress report still reports when
+// it was last touched. at must come from the RAFT request, never a local
+// clock, so every replica's apply produces the same timestamp.
+func (u *Unit) markTerminal(status UnitStatus, at time.Time) {
+	u.Status = status
+	u.FinishedAt = at
+	u.UpdatedAt = at
+}
+
 // UnitSpec defines a unit with an optional group assignment. Used at task creation
 // time when units need group membership (e.g. one group per tenant for MT reindex).
 type UnitSpec struct {
