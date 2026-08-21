@@ -81,10 +81,6 @@ func (s migrationCommittedState) bucketsOf(mainBucketName string) []string {
 	return out
 }
 
-func (s migrationCommittedState) empty() bool {
-	return len(s.buckets) == 0 && len(s.trackers) == 0
-}
-
 // migrationRecordForTracker finds the record that owns one tracker directory.
 // It is how a reader still holding a directory name — the orphan audit, the
 // startup discovery walk — reaches the state that directory is in.
