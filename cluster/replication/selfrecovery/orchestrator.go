@@ -40,8 +40,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
-	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	replicationtypes "github.com/weaviate/weaviate/cluster/replication/types"
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -620,11 +620,22 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 		o.recordOutcome("failure", startedAt)
 		return
 	}
-	// a failed promote would strand the shard in RECOVERING; record
-	// failure rather than misreport success
+	// a failed promote would strand the shard in RECOVERING; retry — the index
+	// may not be published yet (submit runs inside NewIndex, publish after)
 	if o.onRecoveryComplete != nil {
-		if err := o.onRecoveryComplete(ctx, ref.Collection, ref.Shard); err != nil {
-			logger.WithError(err).Error("self-recovery: promote after empty-fallback failed")
+		backoff := o.probeBackoffMin
+		var err error
+		for attempt := 0; attempt < 10; attempt++ {
+			if err = o.onRecoveryComplete(ctx, ref.Collection, ref.Shard); err == nil {
+				break
+			}
+			if !sleepCtx(ctx, backoff) {
+				break
+			}
+			backoff = nextBackoff(backoff, o.probeBackoffMax)
+		}
+		if err != nil {
+			logger.Errorf("self-recovery: promote after empty-fallback failed: %v", err)
 			o.recordOutcome("failure", startedAt)
 			return
 		}
@@ -793,6 +804,13 @@ func (o *Orchestrator) probePeer(ctx context.Context, peer string, ref ShardRef)
 					return false, true, nil
 				}
 				return false, false, fmt.Errorf("peer %q unavailable: %w", peer, err)
+			case codes.Unimplemented:
+				// distinct from generic unreachable so a mixed-version rollout is diagnosable
+				o.logger.WithFields(logrus.Fields{
+					"event": "self_recovery.peer_probe", "peer": peer,
+					"collection": ref.Collection, "shard": ref.Shard,
+				}).Warnf("peer %q does not implement the self-recovery probe; upgrade it or recovery keeps retrying: %v", peer, err)
+				return false, false, fmt.Errorf("peer %q lacks self-recovery support (older version?): %w", peer, err)
 			default:
 			}
 		}
