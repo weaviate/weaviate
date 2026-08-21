@@ -449,6 +449,18 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 		rec, ok := migrationRecordForTracker(records, dirName)
 		if !ok {
 			trackerPath := filepath.Join(migsDir, dirName)
+			// A completion marker is how the previous release recorded that a
+			// migration's staged directories are the live data. This build
+			// writes records instead and reads no markers, so an upgraded node
+			// would see a record-less tracker and reclaim the only copy.
+			// Ahead of the age check on purpose: a matured quarantine sentinel
+			// arriving in a backup makes that check pass on the first sweep.
+			if marker, found := migrationCompletionMarker(trackerPath); found {
+				logger.WithField("collection", collection).WithField("shard", shardName).
+					WithField("tracker", dirName).WithField("marker", marker).
+					Warn("reindex orphan audit: tracker carries a completed-migration marker from an older release and names no migration record; leaving it untouched")
+				continue
+			}
 			old, mtime, err := migrationDirPredatesThisProcess(trackerPath)
 			if err != nil {
 				logger.WithField("collection", collection).WithField("shard", shardName).
@@ -524,6 +536,20 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 // answers is fixed: was this directory on disk before this process existed?
 // Only the first-boot timestamp can answer that.
 var processStartTime = time.Now()
+
+// migrationCompletionMarker reports the completed-migration marker a release
+// before the record store left in a tracker directory, if any. Operators are
+// required to drain and promote before upgrading; this only decides that
+// someone who did not gets a property serving empty until they restore,
+// instead of data that is gone.
+func migrationCompletionMarker(trackerPath string) (string, bool) {
+	for _, marker := range []string{"tidied.mig", "merged.mig"} {
+		if fileExists(filepath.Join(trackerPath, marker)) {
+			return marker, true
+		}
+	}
+	return "", false
+}
 
 // migrationDirPredatesThisProcess reports whether a tracker directory that no
 // record names was already on disk when this process started.

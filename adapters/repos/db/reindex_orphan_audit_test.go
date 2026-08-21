@@ -804,6 +804,7 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 	tests := []struct {
 		name         string
 		payload      string
+		marker       string
 		wantStatus   AuditOutcomeStatus
 		wantTracker  bool
 		wantSidecars bool
@@ -839,6 +840,28 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 			// directories it stranded are never the ones reopened.
 			wantReissued: 2,
 		},
+		{
+			// The release before the record store recorded a finished
+			// migration with a marker file, and this build reads none. An
+			// operator who upgrades without draining first would otherwise
+			// have these directories — the live data — reclaimed.
+			name:         "a tracker marked tidied by an older release is left alone",
+			payload:      `{"payload":{"properties":["title"],"migrationType":"enable-filterable"}}`,
+			marker:       "tidied.mig",
+			wantStatus:   AuditStatusRan,
+			wantTracker:  true,
+			wantSidecars: true,
+			wantReissued: 2,
+		},
+		{
+			name:         "a tracker marked merged by an older release is left alone",
+			payload:      `{"payload":{"properties":["title"],"migrationType":"enable-filterable"}}`,
+			marker:       "merged.mig",
+			wantStatus:   AuditStatusRan,
+			wantTracker:  true,
+			wantSidecars: true,
+			wantReissued: 2,
+		},
 	}
 
 	for _, tt := range tests {
@@ -861,6 +884,11 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 			for _, sidecar := range plantedSidecars {
 				require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, sidecar), 0o755))
 			}
+			if tt.marker != "" {
+				require.NoError(t, os.WriteFile(filepath.Join(trackerPath, tt.marker), nil, 0o600))
+			}
+			// A matured sentinel is what a backup carries in, and it makes the
+			// age check pass on the very first sweep.
 			writePreAgedQuarantineSentinel(t, trackerPath)
 			// After the sentinel write, which would otherwise bump it.
 			aged := processStartTime.Add(-time.Hour)
