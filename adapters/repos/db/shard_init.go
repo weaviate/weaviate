@@ -165,8 +165,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// migration's target property as "not locally ready" on this shard.
 	// Without this, a post-restart shard whose recovery hasn't finished
 	// the local swap yet would serve range queries from an empty
-	// PreReindexHook'd bucket as soon as the cluster-wide schema flag
-	// flips on another node. See [Shard.rangeableLocalReady] for the
+	// PreReindexHook'd bucket: repair-rangeable runs with the schema flag
+	// already true, so nothing else holds those queries back. See
+	// [Shard.rangeableLocalReady] for the
 	// full rationale. Props not found in this scan default to "ready"
 	// (no migration ever ran, or every prior migration already tidied —
 	// FinalizeCompletedMigrations above promoted them to canonical).

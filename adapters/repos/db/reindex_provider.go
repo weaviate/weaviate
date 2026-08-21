@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -45,29 +46,22 @@ import (
 // Migration family classification (see [IsSemanticMigration] for the
 // authoritative predicate):
 //
-//   - "Semantic" migrations are the ones that change query
-//     semantics for the migrated property — change-tokenization,
+//   - "Semantic" migrations are the ones that turn a property's index on or
+//     change what it means — change-tokenization,
 //     change-tokenization-filterable, enable-filterable, enable-searchable,
-//     change-algorithm (Map/WAND → Blockmax). These get the full barrier
-//     dance: every shard reindexes first (RunReindexOnlyOnShard), and only
-//     after every unit is terminal does OnGroupCompleted fire to run the swap
-//     phase (RunSwapOnShard) on each local shard, followed by
+//     enable-rangeable, change-algorithm (Map/WAND → Blockmax). These get the
+//     full barrier dance: every shard reindexes first (RunReindexOnlyOnShard),
+//     and only after every unit is terminal does OnGroupCompleted fire to run
+//     the swap phase (RunSwapOnShard) on each local shard, followed by
 //     OnTaskCompleted's cluster-wide schema flip. No shard serves new data
-//     until ALL shards are ready. This is where the SWAPPING-window
-//     tokenization overlay lives (for the tokenization-changing ones).
+//     until ALL shards are ready, and a task that stops short leaves the
+//     schema exactly as it found it. This is where the SWAPPING-window
+//     overlays live (see [maybeWirePerPropOverlaySet]).
 //
-//   - "Format-only" migrations don't change query semantics — they only
-//     change the on-disk bucket format. enable-rangeable, repair-rangeable,
-//     repair-filterable, rebuild-searchable (rebuild an existing Blockmax
-//     bucket in place), and the RoaringSetRefresh strategy fall in this
-//     bucket. Each shard runs the full lifecycle independently via RunOnShard;
-//     there is no cluster-wide schema flip to coordinate.
-//
-// Note on enable-rangeable: it is intentionally NOT classified as
-// semantic. Range queries' correctness during the migration is gated
-// by the per-shard rangeableLocalReady flag (see [Shard.rangeableLocalReady]),
-// not by the barrier dance — falling back to the filterable bucket walk
-// on shards that haven't completed locally is slow but correct.
+//   - "Format-only" migrations rebuild a bucket whose schema flag is already
+//     true — repair-rangeable, repair-filterable, rebuild-searchable — so
+//     nothing needs coordinating across shards. Each shard runs the full
+//     lifecycle independently via RunOnShard.
 type ReindexProvider struct {
 	mu       sync.Mutex
 	recorder distributedtask.TaskCompletionRecorder
@@ -725,7 +719,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
+			NewRuntimeFilterableToRangeableTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableFilterable:
@@ -1186,6 +1180,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	if len(fresh) == 0 {
 		// Nothing on disk: prior FinalizeCompletedMigrations or end-of-swap
 		// trim already cleaned this unit up. Phase callbacks have no work.
+		seedRangeableReadinessAfterRestart(ctx, payload, concreteShard, logger)
 		logger.WithField("unit", unitID).
 			Info("reindex provider: resolveUnitForPhase: no in-flight state on disk for this unit (post-restart of already-finalized migration); skipping")
 		return phaseUnitResolution{Skip: true}
@@ -1198,6 +1193,63 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	logger.WithField("unit", unitID).
 		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (node likely restarted); cached for subsequent phase callbacks")
 	return phaseUnitResolution{Shard: resolvedShard, UnitTasks: fresh, Rehydrate: true}
+}
+
+// seedRangeableReadinessAfterRestart re-establishes, after a restart, that
+// this shard already swapped its rangeable bucket for an enable-rangeable
+// migration whose cluster-wide flip has not landed yet.
+//
+// Readiness is per-shard and in-memory, so a restart inside that window
+// loses it: the query path falls back to the filterable walk (correct but
+// slow) and, worse, the write path stops filling the new bucket, so every
+// write until the flip is silently missing from it.
+//
+// On disk that window is indistinguishable from a migration that was
+// cancelled after its swap — both leave a promoted bucket and no tracker,
+// because startup's FinalizeCompletedMigrations deletes the tracker either
+// way. A live task is what tells them apart, and this runs with one in
+// hand. A cancelled migration's leftover directory stays dormant.
+//
+// Loads the bucket as well as marking the property ready. Shard init only
+// loads a rangeable bucket when the schema flag says the property has one,
+// which it does not yet, so without this the next write hard-fails on the
+// missing bucket.
+func seedRangeableReadinessAfterRestart(
+	ctx context.Context, payload *ReindexTaskPayload, shard *Shard, logger logrus.FieldLogger,
+) {
+	if shard == nil || payload.MigrationType != ReindexTypeEnableRangeable {
+		return
+	}
+	class := shard.index.getSchema.ReadOnlyClass(payload.Collection)
+	if class == nil {
+		return
+	}
+	byName := make(map[string]*models.Property, len(class.Properties))
+	for _, prop := range class.Properties {
+		byName[prop.Name] = prop
+	}
+	for _, propName := range payload.Properties {
+		prop, ok := byName[propName]
+		if !ok || inverted.HasRangeableIndex(prop) {
+			// Dropped property, or the flip already landed and shard init
+			// loaded the bucket from the live flag.
+			continue
+		}
+		bucketName := helpers.BucketRangeableFromPropNameLSM(propName)
+		if _, err := os.Stat(filepath.Join(shard.pathLSM(), bucketName)); err != nil {
+			// No promoted directory: this shard never reached its swap, so
+			// there is nothing to keep filling. Creating one here would
+			// invent an index the migration has not built.
+			continue
+		}
+		opts := shard.makeDefaultBucketOptions(lsmkv.StrategyRoaringSetRange)
+		if err := shard.store.CreateOrLoadBucket(ctx, bucketName, opts...); err != nil {
+			logger.WithField("shard", shard.name).WithField("property", propName).
+				Errorf("reindex provider: cannot load the swapped rangeable bucket after restart; writes until the cluster-wide flip will be missing from it and the property needs a repair-rangeable: %v", err)
+			continue
+		}
+		shard.setRangeableLocallyReady(propName, true)
+	}
 }
 
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
@@ -1694,30 +1746,69 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	}
 
 	if IsTokenizationChangingMigration(payload.MigrationType) {
-		className := entschema.ClassName(payload.Collection)
-		if idx := p.db.GetIndex(className); idx != nil {
-			// Loaded shards only: the overlay is in memory, so a shard that
-			// is not loaded has none to clear, and loading one to clear
-			// nothing is what the swap path cannot afford.
-			idx.ForEachLoadedShard(func(shardName string, sh ShardLike) error {
-				// Unwrap so the clear reaches the concrete shard whose
-				// overlay the set hook populated. On unwrap failure,
-				// TokenizationFor self-clears on the next query.
-				concreteShard, err := unwrapShard(ctx, sh)
-				if err != nil {
-					logger.WithField("shard", shardName).
-						Warnf("reindex provider: tokenization overlay clear skipped (unwrap failed); relying on TokenizationFor self-clear: %v", err)
-					return nil
-				}
-				for _, propName := range payload.Properties {
-					concreteShard.ClearTokenizationOverlay(propName)
-				}
-				return nil
-			})
-		}
+		p.forEachLoadedShardConcrete(ctx, payload.Collection, logger, func(shard *Shard) {
+			for _, propName := range payload.Properties {
+				shard.ClearTokenizationOverlay(propName)
+			}
+		})
 	}
 
 	return nil
+}
+
+// unreadyRangeableAfterTerminal marks each migrated property "not locally
+// ready" when an enable-rangeable migration ends without its cluster-wide
+// flip. Left ready, a shard that already swapped keeps forcing writes into
+// a bucket the schema does not know about (see [Shard.forcedRangeableProps])
+// and keeps serving range queries from it.
+//
+// Runs after [WaitForLocalTaskDrain], not before: a swap still in flight
+// would otherwise mark the property ready again after this ran, and nothing
+// later would undo it.
+//
+// enable-rangeable only. A cancelled repair-rangeable arrives with the flag
+// already true and a populated bucket, so un-readying it would take a
+// healthy index out of service.
+func (p *ReindexProvider) unreadyRangeableAfterTerminal(
+	payload *ReindexTaskPayload, logger logrus.FieldLogger,
+) {
+	if payload.MigrationType != ReindexTypeEnableRangeable {
+		return
+	}
+	p.forEachLoadedShardConcrete(p.serverCtx, payload.Collection, logger, func(shard *Shard) {
+		for _, propName := range payload.Properties {
+			shard.setRangeableLocallyReady(propName, false)
+		}
+	})
+}
+
+// forEachLoadedShardConcrete runs fn on every loaded shard of the
+// collection. Loaded shards only: a per-shard overlay is in memory, so a
+// shard that is not loaded has none to clear, and loading one to clear
+// nothing is what the swap path cannot afford.
+func (p *ReindexProvider) forEachLoadedShardConcrete(
+	ctx context.Context, collection string, logger logrus.FieldLogger, fn func(*Shard),
+) {
+	if p.db == nil {
+		return
+	}
+	idx := p.db.GetIndex(entschema.ClassName(collection))
+	if idx == nil {
+		return
+	}
+	idx.ForEachLoadedShard(func(shardName string, sh ShardLike) error {
+		// Unwrap so the call reaches the concrete shard whose overlay the
+		// set hook populated. On unwrap failure both overlays self-clear on
+		// the next read (TokenizationFor) or write (writeAnalyzerOverlay).
+		concreteShard, err := unwrapShard(ctx, sh)
+		if err != nil {
+			logger.WithField("shard", shardName).
+				Warnf("reindex provider: swap-window overlay clear skipped (unwrap failed); relying on self-clear: %v", err)
+			return nil
+		}
+		fn(concreteShard)
+		return nil
+	})
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration
@@ -1745,6 +1836,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
 		return
 	}
+	p.unreadyRangeableAfterTerminal(payload, logger)
 	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return
@@ -2201,6 +2293,8 @@ func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName stri
 		return []string{put("searchable", fmt.Sprintf(`{"tokenization":%q}`, tok))}
 	case ReindexTypeEnableFilterable:
 		return []string{put("filterable", "{}")}
+	case ReindexTypeEnableRangeable:
+		return []string{put("rangeFilters", "{}")}
 	case ReindexTypeChangeAlgorithm:
 		return []string{put("searchable", `{"algorithm":"blockmax"}`)}
 	case ReindexTypeChangeTokenization:
@@ -2331,11 +2425,13 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 		return []string{"searchable"}
 	case ReindexTypeEnableFilterable:
 		return []string{"filterable"}
+	case ReindexTypeEnableRangeable:
+		return []string{"rangeable"}
 	case ReindexTypeChangeAlgorithm:
 		return []string{"searchable"}
 	case ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		ReindexTypeRepairRangeable:
 		// Format-only migrations. Returning nil short-circuits
 		// LocalCallbacksDone's recovery check — they don't go through
 		// the swap barrier so there's nothing to recover at this layer.
@@ -2389,7 +2485,8 @@ func hasUntidiedTracker(scope migrationDirScope) bool {
 // completes a semantic migration. For change-tokenization the schema's
 // Tokenization is set to the target; for enable-filterable the per-property
 // IndexFilterable flag is set to true; for enable-searchable the
-// IndexSearchable flag is set to true and Tokenization to the target.
+// IndexSearchable flag is set to true and Tokenization to the target; for
+// enable-rangeable the IndexRangeFilters flag is set to true.
 //
 // applyPerPropertySchemaUpdate is idempotent at the mutator level (returns
 // apply=false when the value already matches) so multiple nodes firing
@@ -2448,6 +2545,25 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// Missing properties are tolerated for multi-property enable-*:
 		// a dropped property is the same outcome we'd want.
 		logger.Info("reindex provider: enable-filterable cutover committed")
+		return nil
+
+	case ReindexTypeEnableRangeable:
+		trueVal := true
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+			[]string{api.PropertyFieldIndexRangeFilters},
+			func(prop *models.Property) bool {
+				if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+					return false
+				}
+				prop.IndexRangeFilters = &trueVal
+				return true
+			})
+		if err != nil {
+			return fmt.Errorf("flip indexRangeFilters: %w", err)
+		}
+		// Missing properties are tolerated for the same reason as
+		// enable-filterable: a dropped property needs no index.
+		logger.Info("reindex provider: enable-rangeable cutover committed")
 		return nil
 
 	case ReindexTypeEnableSearchable:
@@ -2572,13 +2688,14 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 
 // IsSemanticMigration returns true for migration types that change query
 // behavior and therefore require the cross-replica swap barrier + cluster-
-// wide schema flip after every node has acknowledged. enable-rangeable is
-// intentionally NOT semantic — predates the barrier family.
+// wide schema flip after every node has acknowledged. repair-* stays out:
+// its flag is already true at submit, so there is nothing to coordinate.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||
 		mt == ReindexTypeEnableFilterable ||
 		mt == ReindexTypeEnableSearchable ||
+		mt == ReindexTypeEnableRangeable ||
 		mt == ReindexTypeChangeAlgorithm
 }
 
@@ -2598,6 +2715,9 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 // true iff the hook was wired (i.e. this is a tokenization-changing
 // migration with a non-empty target), so the caller can match
 // [maybeClearTokenizationOverlayOnAllFailed]'s clear decision.
+//
+// enable-rangeable needs no hook: its write-side window is derived from
+// the readiness the swap already records. See [Shard.forcedRangeableProps].
 //
 // Why per-prop, not once up front: RunSwapOnShard's disk-I/O preamble
 // (MkdirAll, sentinel stats, prop read) runs between the loop start and

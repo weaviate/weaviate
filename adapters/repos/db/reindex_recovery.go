@@ -232,7 +232,7 @@ func buildRecoveryTasks(
 		}
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
+			NewRuntimeFilterableToRangeableTask(logger, payload.Properties, payload.Collection, generation),
 		}
 	case ReindexTypeEnableFilterable:
 		raw = []*ShardReindexTaskGeneric{

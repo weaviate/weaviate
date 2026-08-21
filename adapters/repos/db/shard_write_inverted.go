@@ -101,47 +101,97 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 	// Mirror the query-path overlay handling (BM25Searcher.effectiveTokenization)
 	// so writes during a change-tokenization SWAPPING window land in the
 	// canonical bucket with TARGET-tokenized keys. weaviate/0-weaviate-issues#240.
-	if overlay := s.tokenizationAnalyzerOverlay(c.Properties); overlay != nil {
+	if overlay := s.writeAnalyzerOverlay(c.Properties); overlay != nil {
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}
 	props, nestedProps, err := analyzer.Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, nestedProps, err
 }
 
-// tokenizationAnalyzerOverlay projects the per-shard tokenization
-// overlay onto the inverted-analyzer PropertyOverlay shape. Only
-// `Tokenization` is populated — the Force* flags are owned by
-// from-scratch backfill strategies and must not affect ordinary writes.
-func (s *Shard) tokenizationAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
+// writeAnalyzerOverlay projects the per-shard migration overlays onto the
+// inverted-analyzer PropertyOverlay shape: the target tokenization of a
+// change-tokenization migration, and the forced rangeable flag of an
+// enable-rangeable one. ForceFilterable / ForceSearchable are deliberately
+// absent — those belong to from-scratch backfill strategies and must not
+// affect ordinary writes.
+func (s *Shard) writeAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil
 	}
 	propNames := make([]string, 0, len(props))
-	liveTok := make(map[string]string, len(props))
+	live := make(map[string]*models.Property, len(props))
 	for _, p := range props {
 		if p == nil {
 			continue
 		}
 		propNames = append(propNames, p.Name)
-		liveTok[p.Name] = p.Tokenization
+		live[p.Name] = p
 	}
-	snap := s.SnapshotTokenizationOverlay(propNames)
-	if len(snap) == 0 {
+	tokSnap := s.SnapshotTokenizationOverlay(propNames)
+	forcedRangeable := s.forcedRangeableProps(props)
+	if len(tokSnap) == 0 && len(forcedRangeable) == 0 {
 		return nil
 	}
-	var out map[string]inverted.PropertyOverlay
-	for name, target := range snap {
-		if target == liveTok[name] {
+
+	out := make(map[string]inverted.PropertyOverlay, len(tokSnap)+len(forcedRangeable))
+	for name, target := range tokSnap {
+		if target == live[name].Tokenization {
 			// Live schema already matches the overlay target. The
 			// authoritative clear happens via ClearTokenizationOverlay
 			// at migration completion; query-path TokenizationFor
 			// self-clears as a secondary nicety.
 			continue
 		}
-		if out == nil {
-			out = make(map[string]inverted.PropertyOverlay, len(snap))
-		}
 		out[name] = inverted.PropertyOverlay{Tokenization: target}
+	}
+	for name := range forcedRangeable {
+		entry := out[name]
+		entry.ForceRangeable = true
+		out[name] = entry
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// forcedRangeableProps returns the properties whose ordinary writes must
+// reach the rangeable bucket even though the live schema still says
+// IndexRangeFilters is false.
+//
+// enable-rangeable mirrors live writes into the new bucket with
+// double-write callbacks, and those come down when this shard's swap
+// returns. The cluster-wide flip lands later, one RAFT round after the last
+// replica swaps. A write in between would be acked and stored but never
+// indexed, and nothing repairs it afterwards: the backfill is finished and
+// the flip does not rescan.
+//
+// Derived from the per-shard readiness map the query path already keeps
+// (see [Shard.rangeableLocalReady]) rather than stored a second time, so
+// the two cannot disagree and a restart inside the window cannot lose it.
+//
+// Only an EXPLICIT true counts. [Shard.IsRangeableLocallyReady]'s
+// bucket-existence default would also match a bucket that a cancelled
+// migration left behind, and forcing writes into that one fills an index
+// nothing reads.
+func (s *Shard) forcedRangeableProps(props []*models.Property) map[string]struct{} {
+	s.rangeableLocalReadyMu.RLock()
+	defer s.rangeableLocalReadyMu.RUnlock()
+	if len(s.rangeableLocalReady) == 0 {
+		return nil
+	}
+	var out map[string]struct{}
+	for _, p := range props {
+		if p == nil || inverted.HasRangeableIndex(p) {
+			continue
+		}
+		if ready, set := s.rangeableLocalReady[p.Name]; !set || !ready {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]struct{}, len(props))
+		}
+		out[p.Name] = struct{}{}
 	}
 	return out
 }

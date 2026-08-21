@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -109,6 +110,73 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 		}
 		err := p.flipSemanticMigrationSchema(ctx, payload, logger)
 		require.NoError(t, err)
+	})
+
+	t.Run("enable-rangeable flips from here, not from the first shard to swap", func(t *testing.T) {
+		// A missing property is tolerated like the other enable-* types;
+		// an already-true flag is skipped, so N nodes firing produce at
+		// most one RAFT commit.
+		trueVal := true
+		for _, tc := range []struct {
+			name  string
+			props []*models.Property
+		}{
+			{name: "property gone", props: nil},
+			{
+				name:  "flag already true",
+				props: []*models.Property{{Name: "price", IndexRangeFilters: &trueVal}},
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				p := newClassificationProvider(&models.Class{Class: "Docs", Properties: tc.props})
+				payload := &ReindexTaskPayload{
+					MigrationType: ReindexTypeEnableRangeable,
+					Collection:    "Docs",
+					Properties:    []string{"price"},
+				}
+				require.NoError(t, p.flipSemanticMigrationSchema(ctx, payload, logger))
+			})
+		}
+	})
+
+	t.Run("only a swapping task reaches the flip", func(t *testing.T) {
+		// The subtests above call the flip directly, so they say nothing
+		// about which statuses get there. A flip on any other status would
+		// commit a cluster-wide schema change for a migration whose buckets
+		// were never swapped.
+		payloadJSON, err := json.Marshal(ReindexTaskPayload{
+			MigrationType:      ReindexTypeChangeTokenization,
+			Collection:         "Docs",
+			Properties:         []string{"title"},
+			TargetTokenization: models.PropertyTokenizationWord,
+		})
+		require.NoError(t, err)
+
+		for _, tc := range []struct {
+			name     string
+			status   distributedtask.TaskStatus
+			wantFlip bool
+		}{
+			{name: "finished", status: distributedtask.TaskStatusFinished},
+			{name: "swapping", status: distributedtask.TaskStatusSwapping, wantFlip: true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				// The class is not locally readable, so a flip that runs
+				// errors and one that never runs cannot.
+				p := newClassificationProvider(nil)
+				err := p.OnTaskCompleted(&distributedtask.Task{
+					Namespace:      ReindexNamespace,
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "t2", Version: 1},
+					Status:         tc.status,
+					Payload:        payloadJSON,
+				})
+				if tc.wantFlip {
+					require.Error(t, err, "swapping is the status that owns the cluster-wide flip")
+					return
+				}
+				require.NoError(t, err, "a non-swapping status must not touch the schema")
+			})
+		}
 	})
 
 	t.Run("enable-searchable tolerates a missing property", func(t *testing.T) {
