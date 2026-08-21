@@ -190,15 +190,22 @@ snapshot-install tails.) Closing this for non-wiped nodes means deferring the
 catch-up reload to the leader's commit index as of boot, which trades restart
 read-availability for coverage — an open design decision.
 
-**Per-shard recovery requires the whole index/data to be missing, not just one
-shard folder.** Recovery fires only when a shard is *first built* during the
-tagged startup load pass. On a wiped node (whole data dir gone) every shard is
-first built there, so each missing one recovers. But on an **otherwise-intact
-node** where a single shard folder was deleted, `DB.Open` (which runs before the
-tagged pass) rebuilds that shard **empty** from the sharding state first, so the
-tagged pass then sees the dir present and skips it — the shard comes up empty
-rather than recovering. Recovering a single lost shard on an intact node is not
-supported; the supported recovery unit is a wiped data dir.
+**COLD tenants on a wiped node are not recovered.** The startup pass only
+considers HOT tenants, so a COLD tenant's directory simply stays missing on the
+rejoined node. A later activation builds the shard **empty** (outside the
+tagged pass) and it enters the read rotation; async replication backfills it,
+but with async replication disabled the replica stays empty until a
+wipe-rejoin or manual heal. Deactivate/activate cycles around node wipes
+should account for this.
+
+**Per-shard recovery on an otherwise-intact node works for shards the node
+already knew.** `DB.Open` runs before RAFT starts, against an empty schema, so
+local indices are built by the tagged catch-up reload — a single deleted shard
+folder is therefore seen missing during the tagged pass and recovers like any
+wiped shard (verified live: one shard dir removed on an intact node → normal
+SELF_RECOVERY copy). The exception is the previous limitation: a class or
+tenant the node has never applied (created while it was down) misses the
+reload and materializes empty.
 
 There is also a brief window during a wiped node's log-replay catch-up
 where the node reports `Ready` but its local DB is not yet built (it is
