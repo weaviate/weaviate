@@ -51,9 +51,6 @@ type Config struct {
 const (
 	READ_BUFFER_SIZE  = 1 * 1024 * 1024 // 1 MB
 	WRITE_BUFFER_SIZE = 1 * 1024 * 1024 // 1 MB
-
-	// Backstop against stream pileup (grpc-go default is unlimited).
-	maxConcurrentStreams = 1024
 )
 
 // NewServer creates *grpc.Server with optional grpc.Serveroption passed.
@@ -73,7 +70,6 @@ func NewServer(
 		grpc.InitialConnWindowSize(int32(windowSize)),
 		grpc.ReadBufferSize(READ_BUFFER_SIZE),
 		grpc.WriteBufferSize(WRITE_BUFFER_SIZE),
-		grpc.MaxConcurrentStreams(maxConcurrentStreams),
 	)
 
 	// Both FileReplicationService and ReplicationService are internal cluster services
