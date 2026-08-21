@@ -94,6 +94,10 @@ linters:
         text: SA1019
       - linters:
           - staticcheck
+        path: usecases/memwatch/monitor_test.go
+        text: SA1019
+      - linters:
+          - staticcheck
         path: adapters/repos/db/vector/datasets/datareader.go
         text: SA1019
       - linters:

@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
 func TestEstimation(t *testing.T) {
@@ -392,4 +393,70 @@ func BenchmarkCurrentMappingsLinuxComparison(b *testing.B) {
 			}
 		}
 	})
+}
+
+// An object can carry several vector sources at once, and the estimate must count all of them.
+func TestEstimateBatchObjectMemory(t *testing.T) {
+	namedVectors := func(sizes ...int) []*protocol.Vectors {
+		out := make([]*protocol.Vectors, 0, len(sizes))
+		for i, size := range sizes {
+			out = append(out, &protocol.Vectors{
+				Name:        fmt.Sprintf("vector-%d", i),
+				VectorBytes: make([]byte, size),
+			})
+		}
+		return out
+	}
+
+	cases := []struct {
+		name     string
+		object   *protocol.BatchObject
+		expected int64
+	}{
+		{
+			name:     "legacy vector only",
+			object:   &protocol.BatchObject{Vector: make([]float32, 10)},
+			expected: 10*4 + 30,
+		},
+		{
+			name:     "vector bytes only",
+			object:   &protocol.BatchObject{VectorBytes: make([]byte, 40)},
+			expected: 40 + 30,
+		},
+		{
+			name:     "named vectors only",
+			object:   &protocol.BatchObject{Vectors: namedVectors(40, 60)},
+			expected: 100 + 30,
+		},
+		{
+			name: "legacy vector and named vectors",
+			object: &protocol.BatchObject{
+				Vector:  make([]float32, 10),
+				Vectors: namedVectors(40),
+			},
+			expected: 10*4 + 40 + 30,
+		},
+		{
+			name: "every source at once",
+			object: &protocol.BatchObject{
+				Vector:      make([]float32, 10),
+				VectorBytes: make([]byte, 40),
+				Vectors:     namedVectors(40, 60, 120),
+			},
+			expected: 10*4 + 40 + 220 + 30,
+		},
+		{
+			// this pins current behavior without endorsing it: an object with no
+			// vector costs nothing at the memory check
+			name:     "no vector at all",
+			object:   &protocol.BatchObject{},
+			expected: 0,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, EstimateBatchObjectMemory(tc.object))
+		})
+	}
 }
