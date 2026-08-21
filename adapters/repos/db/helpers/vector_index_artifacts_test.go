@@ -43,6 +43,7 @@ func TestVectorIndexArtifactsFor_CoversEveryArtifact(t *testing.T) {
 		"vectors_vec.hnsw.snapshot.d",
 		"vectors_vec.hfresh.d",
 		"vectors_vec.queue.d", // async-indexing queue
+		"meta_vec.db",         // flat quantisation metadata (a FILE)
 	}, got.ShardDirs)
 
 	assert.Len(t, got.All(), len(got.LSMBuckets)+len(got.ShardDirs))

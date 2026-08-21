@@ -282,6 +282,9 @@ func multiVectorDirsOnEveryNode(ctx context.Context, t *testing.T, compose *dock
 		if node == nil {
 			continue
 		}
+		if dataRootOf(ctx, t, node.Container()) == "" {
+			continue // this node holds no shard data yet
+		}
 		for _, line := range strings.Split(findVectorDirs(ctx, t, node.Container()), "\n") {
 			if line = strings.TrimSpace(line); line != "" {
 				dirs = append(dirs, node.Name()+":"+line)
@@ -330,8 +333,12 @@ func dataRootOf(ctx context.Context, t *testing.T, c testcontainers.Container) s
 			break
 		}
 	}
-	require.NotEmpty(t, root,
-		"could not locate the data root in the container; a scoped search would find nothing and pass vacuously")
+	// Empty is legitimate: an MT tenant's shard lives on one node, so others
+	// hold nothing. Each scenario's precondition still requires a non-empty
+	// inventory cluster-wide, so a wrong root cannot pass unnoticed.
+	if root == "" {
+		return ""
+	}
 	// Logged once per container: if the root is ever wrong again, the failure
 	// says which directory was searched instead of only that nothing was found.
 	t.Logf("data root in %s resolved to %s", c.GetContainerID()[:12], root)
@@ -349,9 +356,10 @@ func dataRootOf(ctx context.Context, t *testing.T, c testcontainers.Container) s
 // the precondition subtest turns into a loud failure.
 func findVectorDirs(ctx context.Context, t *testing.T, c testcontainers.Container) string {
 	t.Helper()
+	// Not -type d: the flat metadata (meta_<target>.db) is a file.
 	out, _ := execInContainer(ctx, t, c, []string{
-		"find", dataRootOf(ctx, t, c), "-xdev", "-type", "d",
-		"(", "-name", "vectors_*", "-o", "-name", "hfresh_*", ")",
+		"find", dataRootOf(ctx, t, c), "-xdev",
+		"(", "-name", "vectors_*", "-o", "-name", "hfresh_*", "-o", "-name", "meta_*", ")",
 	})
 	return out
 }

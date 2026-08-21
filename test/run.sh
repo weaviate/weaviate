@@ -63,6 +63,7 @@ function main() {
   run_acceptance_drop_vector_index_cluster=false
   run_acceptance_drop_vector_index_restart_cluster=false
   run_acceptance_drop_vector_index_rolling_restart=false
+  run_acceptance_drop_vector_index_async_indexing=false
   run_acceptance_backups=false
 
   while [[ "$#" -gt 0 ]]; do
@@ -126,6 +127,7 @@ function main() {
           --acceptance-drop-vector-index-cluster|-advic) run_all_tests=false; run_acceptance_drop_vector_index_cluster=true;;
           --acceptance-drop-vector-index-restart-cluster|-advirc) run_all_tests=false; run_acceptance_drop_vector_index_restart_cluster=true;;
           --acceptance-drop-vector-index-rolling-restart|-advirr) run_all_tests=false; run_acceptance_drop_vector_index_rolling_restart=true;;
+          --acceptance-drop-vector-index-async-indexing|-advia) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing=true;;
           --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
@@ -441,6 +443,11 @@ function main() {
   if $run_acceptance_drop_vector_index_rolling_restart; then
     echo "running drop-vector-index rolling-restart acceptance tests"
     run_acceptance_drop_vector_index_rolling_restart
+  fi
+
+  if $run_acceptance_drop_vector_index_async_indexing; then
+    echo "running drop-vector-index async-indexing acceptance tests"
+    run_acceptance_drop_vector_index_async_indexing
   fi
 
   if $run_acceptance_backups; then
@@ -1082,6 +1089,13 @@ function run_acceptance_drop_vector_index_restart_cluster() {
   echo_green "acceptance — drop-vector-index-restart-cluster"
   AOF_GROUP_RUN='^TestDropVectorIndex_Restart_Cluster$' \
     run_aof_group "drop-vector-index-restart-cluster" test/acceptance/drop_vector_index
+}
+
+function run_acceptance_drop_vector_index_async_indexing() {
+  build_weaviate_test_image
+  echo_green "acceptance — drop-vector-index-async-indexing"
+  AOF_GROUP_RUN='^TestDropVectorIndex_AsyncIndexing$' \
+    run_aof_group "drop-vector-index-async-indexing" test/acceptance/drop_vector_index
 }
 
 function run_acceptance_drop_vector_index_rolling_restart() {
