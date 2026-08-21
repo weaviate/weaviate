@@ -116,6 +116,13 @@ linters:
           - staticcheck
         path: usecases/auth/authentication/oidc/middleware_test.go
         text: SA1019
+      # The server still accepts the deprecated gRPC request fields, so the
+      # tests covering that have to set them. Matched on the generated protocol
+      # package so every other deprecation still surfaces in test code.
+      - linters:
+          - staticcheck
+        path: ^test/
+        text: 'SA1019: \(github\.com/weaviate/weaviate/grpc/generated/protocol/v1\.'
       - linters:
           - unused
         path: adapters/repos/db/vector/hnsw/distancer/asm/dot_inline.go
