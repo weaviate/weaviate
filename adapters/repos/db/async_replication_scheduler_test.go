@@ -2278,6 +2278,14 @@ func TestSchedulerClose_BoundedAndCancelsContextsWhenShardsStillRegistered(t *te
 	assert.True(t, errorLogged, "Close() must log an error when shards are still registered")
 }
 
+// zeroCoalesceWindow disables dispatch coalescing for tests that expect immediate batches.
+func zeroCoalesceWindow(t *testing.T) {
+	t.Helper()
+	prev := prefilterCoalesceWindow
+	prefilterCoalesceWindow = 0
+	t.Cleanup(func() { prefilterCoalesceWindow = prev })
+}
+
 // durationPtr is a helper that returns a pointer to a time.Duration value.
 func durationPtr(d time.Duration) *time.Duration { return &d }
 
@@ -2670,9 +2678,7 @@ func TestDispatchDueCoalescing(t *testing.T) {
 	})
 
 	t.Run("distinct indexes merge into one cross-class batch", func(t *testing.T) {
-		prev := prefilterCoalesceWindow
-		prefilterCoalesceWindow = 0
-		t.Cleanup(func() { prefilterCoalesceWindow = prev })
+		zeroCoalesceWindow(t)
 		sched := newBareScheduler(512, 16)
 		a := &Index{Config: IndexConfig{ClassName: "A"}}
 		b := &Index{Config: IndexConfig{ClassName: "B"}}
@@ -2708,9 +2714,7 @@ func TestDispatchDueCoalescing(t *testing.T) {
 // TestDeferDescentReDispatchesSingletons: a coalesced batch of diverging shards is
 // deferred and re-dispatched as singletons so descent spreads across the pool.
 func TestDeferDescentReDispatchesSingletons(t *testing.T) {
-	prev := prefilterCoalesceWindow
-	prefilterCoalesceWindow = 0
-	t.Cleanup(func() { prefilterCoalesceWindow = prev })
+	zeroCoalesceWindow(t)
 	sched := newBareScheduler(512, 16)
 	sched.ctx = context.Background()
 	sched.resultCh = make(chan asyncSchedulerResult, 32)
@@ -2841,9 +2845,7 @@ func TestDrainSkipsSettledDones(t *testing.T) {
 
 // TestStaleBatchDroppedAfterReRegister: a previous registration's stranded batch is dropped; the new one runs once.
 func TestStaleBatchDroppedAfterReRegister(t *testing.T) {
-	prev := prefilterCoalesceWindow
-	prefilterCoalesceWindow = 0
-	t.Cleanup(func() { prefilterCoalesceWindow = prev })
+	zeroCoalesceWindow(t)
 	sched := newBareScheduler(512, 4)
 	sched.ctx = context.Background()
 	sched.resultCh = make(chan asyncSchedulerResult, 8)
@@ -3064,9 +3066,7 @@ func TestSettleDispatchBucketsOnExit(t *testing.T) {
 
 // TestDispatchBucketsEmptiedEveryPass: no entry pointer may survive a dispatch pass, or dropped collections stay pinned forever.
 func TestDispatchBucketsEmptiedEveryPass(t *testing.T) {
-	prev := prefilterCoalesceWindow
-	prefilterCoalesceWindow = 0
-	t.Cleanup(func() { prefilterCoalesceWindow = prev })
+	zeroCoalesceWindow(t)
 	tests := []struct {
 		name           string
 		batchSize      int

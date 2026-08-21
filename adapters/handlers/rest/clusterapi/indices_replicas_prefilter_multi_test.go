@@ -20,13 +20,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/clients"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
@@ -39,22 +37,8 @@ type crossClassClient interface {
 
 func newMultiPrefilterTestServer(t *testing.T, replicator replicaTypes.Replicator) (crossClassClient, string) {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
-	indices := clusterapi.NewReplicatedIndices(
-		replicator,
-		clusterapi.NewNoopAuthHandler(),
-		func() bool { return false },
-		logger,
-		func() bool { return true },
-	)
-	mux := http.NewServeMux()
-	mux.Handle("/replicas/indices/", indices.Indices())
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
-
-	client, err := clients.NewReplicationClient(&http.Client{})
-	require.NoError(t, err)
-	return client, strings.TrimPrefix(server.URL, "http://")
+	client, host := newPrefilterTestServer(t, replicator)
+	return client.(crossClassClient), host
 }
 
 // TestCompareHashTreeRootsMultiRESTRoundTrip proves the real REST client+handler classify per class and isolate per-class errors.
