@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 func TestHandler_ListTasks(t *testing.T) {
@@ -40,7 +41,10 @@ func TestHandler_ListTasks(t *testing.T) {
 	tests := []struct {
 		name string
 		task *distributedtask.Task
-		want models.DistributedTask
+		// authzErr makes the authorizer refuse; the row then asserts the
+		// refusal instead of the response shape.
+		authzErr error
+		want     models.DistributedTask
 		// wantJSON pins that an absent finishedAt is never serialized as the zero value.
 		wantJSON string
 	}{
@@ -95,6 +99,20 @@ func TestHandler_ListTasks(t *testing.T) {
 			},
 			wantJSON: `{"id":"u-idle","nodeId":"n3","status":"PENDING"}`,
 		},
+		{
+			// The lister holds a task, so a refusal that logged and fell
+			// through would hand it to a caller without permission.
+			name: "a refused caller gets the error and no tasks",
+			task: &distributedtask.Task{
+				Namespace:      namespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "test-task-3", Version: 12},
+				Payload:        []byte(`{}`),
+				Status:         distributedtask.TaskStatusStarted,
+				StartedAt:      anHourGo,
+			},
+			authzErr: autherrs.NewForbidden(&models.Principal{Username: "nobody"},
+				authorization.READ, authorization.Cluster()),
+		},
 	}
 
 	for _, tt := range tests {
@@ -102,12 +120,18 @@ func TestHandler_ListTasks(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.EXPECT().
 				Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).
-				Return(nil)
+				Return(tt.authzErr)
 			h := NewHandler(authorizer, taskListerStub{
 				items: map[string][]*distributedtask.Task{namespace: {tt.task}},
 			})
 
 			tasks, err := h.ListTasks(context.Background(), &models.Principal{})
+			if tt.authzErr != nil {
+				var forbidden autherrs.Forbidden
+				require.ErrorAs(t, err, &forbidden)
+				require.Nil(t, tasks)
+				return
+			}
 			require.NoError(t, err)
 			require.Equal(t, models.DistributedTasks{namespace: []models.DistributedTask{tt.want}}, tasks)
 
