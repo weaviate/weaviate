@@ -313,12 +313,16 @@ func hasStalePartialReindexState(
 		return !os.IsNotExist(err), false
 	}
 	committed := dirs.committedMigrations(lsmPath, logger)
-	if committed.frozen {
-		// Nothing here is removable while a record cannot be read, so a
-		// hydration would reclaim nothing — and reporting otherwise would
-		// wake this tenant on every sweep pass for as long as the record
-		// stays unreadable. The load that surfaces it happens for its own
-		// reasons.
+	switch {
+	case committed.unreadable:
+		// Nothing about this shard could be read, so reporting it clean would
+		// be a guess. Hydrating is what turns it into an error a caller sees.
+		return true, false
+	case committed.frozen:
+		// A record this build cannot understand withholds every removal, so a
+		// hydration would reclaim nothing — and reporting otherwise would wake
+		// this tenant on every sweep pass for as long as the record stays
+		// unreadable. The load that surfaces it happens for its own reasons.
 		return false, false
 	}
 	scope := migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props).knownFrom(committed)
@@ -352,7 +356,7 @@ func hasStalePartialReindexState(
 			continue
 		}
 		if committed.preservesTracker(name) {
-			finalizable = true
+			finalizable = finalizable || committed.trackerNeedsLoad(name)
 			continue
 		}
 		return true, false

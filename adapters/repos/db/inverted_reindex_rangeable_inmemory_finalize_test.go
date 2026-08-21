@@ -282,13 +282,22 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 
 	// Restart replica B: boot-time population rebuilds the rep from disk,
 	// restoring acceleration without any repair action.
+	//
+	// The class carries the flag the migration's completion commits
+	// cluster-wide. Reconciliation promotes the staged directory onto the
+	// canonical name before any bucket opens, and the schema is what says
+	// there is a rangeable index to open there at all.
 	shardName := shardB.Name()
 	require.NoError(t, shardB.Shutdown(ctxB))
 
 	taskB2, _ := newFilterableToRangeableTask(t, idxB, classNameB, propName)
 	idxB.shardReindexer = &testShardReindexer{task: taskB2}
 
-	shdB2, err := idxB.initShard(ctxB, shardName, newFilterableToRangeableTestClass(classNameB), nil, true, true)
+	migratedClass := newFilterableToRangeableTestClass(classNameB)
+	rangeable := true
+	migratedClass.Properties[0].IndexRangeFilters = &rangeable
+
+	shdB2, err := idxB.initShard(ctxB, shardName, migratedClass, nil, true, true)
 	require.NoError(t, err)
 	shardB2 := shdB2.(*Shard)
 	idxB.shards.Store(shardName, shdB2)

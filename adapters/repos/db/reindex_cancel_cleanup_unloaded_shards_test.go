@@ -32,6 +32,72 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+// committedTracker is a migration directory whose migration has committed its
+// data: a sweep may remove neither it nor the directory it names.
+type committedTracker struct {
+	dir   string
+	prop  string
+	owned string
+	// promoted says the migration already renamed its data onto the canonical
+	// name, which leaves only a closure step no load can perform.
+	promoted bool
+}
+
+// mustMainBucket is the canonical bucket one property's index lives in.
+func mustMainBucket(t *testing.T, propName, indexType string) string {
+	t.Helper()
+	name, ok := mainBucketForPropertyIndex(propName, indexType)
+	require.True(t, ok, "index type %q", indexType)
+	return name
+}
+
+// mkFlippedMigrationRecord plants the record of a migration whose flip is
+// durable: from here its staged directories hold the live data, and only a
+// shard load renames them onto the canonical names. It takes the canonical
+// name explicitly, which [mkMigrationRecord] derives, because the three index
+// types put one property's bucket under three different names.
+func mkFlippedMigrationRecord(t *testing.T, lsmPath, trackerName, prop, staged, canonical string) {
+	t.Helper()
+	mkMigrationRecordAt(t, lsmPath, trackerName,
+		map[string]string{prop: staged}, map[string]string{prop: canonical}, MigrationStateSwapped)
+}
+
+func mkMigrationRecordAt(t *testing.T, lsmPath, trackerName string,
+	staged, canonical map[string]string, state MigrationState,
+) {
+	t.Helper()
+	subject := MigrationSubject{
+		Key: MigrationRecordKey{
+			TaskVersion:  fixtureRecordVersion(trackerName),
+			StrategyCode: StrategyCodeEnableFilterable,
+			UnitID:       "shard-1__node-0",
+		},
+		TaskID:        "fixture:" + trackerName,
+		MigrationType: ReindexTypeEnableFilterable,
+		TrackerDir:    trackerName,
+		StagedDirs:    staged,
+		CanonicalDirs: canonical,
+	}
+	for prop := range staged {
+		subject.Properties = append(subject.Properties, prop)
+	}
+	sort.Strings(subject.Properties)
+
+	var rec MigrationRecord
+	switch state {
+	case MigrationStateIterating:
+		rec = NewMigrationRecordIterating(subject, MigrationCheckpoint{})
+	case MigrationStateSwapped:
+		rec = NewMigrationRecordSwapped(subject, subject.Properties, canonical)
+	case MigrationStatePromoted:
+		rec = NewMigrationRecordPromoted(subject, subject.Properties, canonical)
+	default:
+		require.FailNowf(t, "unsupported fixture state", "%q", state)
+	}
+	logger, _ := test.NewNullLogger()
+	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
+}
+
 // See [Index.cleanStalePartialReindexState] for why hydrating every unloaded
 // tenant to check it is too expensive to do unconditionally.
 func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.T) {
@@ -129,11 +195,10 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 	}
 }
 
-// A completed migration leaves its data under the ingest sidecar name and a
-// full copy of the bucket it replaced under the backup name, both waiting for
-// the finalize a shard load runs. On an unloaded tenant nothing else ever runs
-// it, so a gate that skips the tenant is a gate that never reclaims either
-// copy.
+// A migration that has flipped leaves its data under the staged name until a
+// shard load renames it onto the canonical one. On an unloaded tenant nothing
+// else ever runs that load, so a gate that skips the tenant is a gate that
+// leaves the data at a name no bucket opens.
 func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *testing.T) {
 	const (
 		residueTenant = "residue-tenant"
@@ -142,7 +207,6 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 		// becomes can be told apart from one the reopened bucket created.
 		promoted = "promoted.marker"
 	)
-	completed := []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"}
 
 	// mkBucketDir plants a bucket dir carrying one non-segment file, which the
 	// store ignores and a rename carries along.
@@ -157,11 +221,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 		propName  string
 		indexType string
 		tracker   string
-		// props is the property list the migration recorded, which is what
-		// finalize renames by.
-		props     string
 		ingestDir string
-		backupDir string
 		canonical string
 	}{
 		{
@@ -169,9 +229,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 			propName:  "category",
 			indexType: "filterable",
 			tracker:   "enable_filterable_category_1",
-			props:     "category",
 			ingestDir: "property_category__enable_filterable_ingest_1",
-			backupDir: "property_category__enable_filterable_backup_1",
 			canonical: "property_category",
 		},
 		// A class-level tracker is out of the deletion scope altogether, so
@@ -181,9 +239,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 			propName:  "category",
 			indexType: "filterable",
 			tracker:   "filterable_roaringset_refresh_2",
-			props:     "category",
 			ingestDir: "property_category__roaringset_ingest_2",
-			backupDir: "property_category__roaringset_backup_2",
 			canonical: "property_category",
 		},
 		{
@@ -191,9 +247,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 			propName:  "descr",
 			indexType: "searchable",
 			tracker:   "searchable_retokenize_descr_1",
-			props:     "descr",
 			ingestDir: "property_descr_searchable__retokenize_ingest_1",
-			backupDir: "property_descr_searchable__retokenize_backup_1",
 			canonical: "property_descr_searchable",
 		},
 	}
@@ -209,11 +263,9 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 
 			residueLSM := shardPathLSM(idx.path(), residueTenant)
 			mkTrackerDir(t, residueLSM, tc.tracker)
-			require.NoError(t, os.WriteFile(
-				filepath.Join(residueLSM, ".migrations", tc.tracker, "properties.mig"),
-				[]byte(tc.props), 0o644))
+			mkFlippedMigrationRecord(t, residueLSM, tc.tracker, tc.propName,
+				tc.ingestDir, tc.canonical)
 			mkBucketDir(t, residueLSM, tc.ingestDir, promoted)
-			mkBucketDir(t, residueLSM, tc.backupDir, "superseded.marker")
 
 			// The clean tenant carries the canonical bucket a migrated tenant
 			// ends up with, so the gate has a real listing to answer from
@@ -244,10 +296,13 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 					"promoting it to the canonical name, never deleting it")
 			assert.False(t, dirExistsAt(t, residueLSM, tc.ingestDir),
 				"the data is under its canonical name now")
-			assert.False(t, dirExistsAt(t, residueLSM, tc.backupDir),
-				"the copy of the bucket the migration replaced is what costs the disk")
-			assert.False(t, dirExistsAt(t, residueLSM, ".migrations/"+tc.tracker),
-				"and the tracker goes with them, so the next sweep skips this tenant")
+
+			logger, _ := test.NewNullLogger()
+			records, frozen, _ := migrationRecordsAt(residueLSM, logger)
+			require.False(t, frozen)
+			rec, ok := migrationRecordForTracker(records, tc.tracker)
+			require.True(t, ok, "the record outlives the rename that answers it")
+			assert.Equal(t, MigrationStatePromoted, rec.State())
 
 			assert.False(t, tenants[cleanTenant].isLoaded(),
 				"a tenant with no migration leftovers is the population the gate is "+
@@ -285,19 +340,23 @@ func lsmDirNames(t *testing.T, lsmPath string) []string {
 // compared — several stale rows are fail-open answers the hydrated sweep
 // decides for itself, at the cost [hasStalePartialReindexState] names.
 func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing.T) {
-	// A completed-but-deferred migration: the tracker carries tidied.mig and
-	// its ingest sidecar is the live bucket, which the sweep preserves.
-	deferredFinalize := map[string][]string{
-		"enable_filterable_category_1": {"started.mig", "merged.mig", "swapped.mig", "tidied.mig"},
-	}
-	completed := []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"}
+	// A committed migration awaiting promotion: its ingest sidecar is the live
+	// bucket, which the sweep must preserve along with the tracker dir.
+	deferredFinalize := []committedTracker{{
+		dir:   "enable_filterable_category_1",
+		prop:  "category",
+		owned: "property_category__enable_filterable_ingest_1",
+	}}
 
 	tests := []struct {
 		name      string
 		propName  string
 		indexType string
-		// trackers are .migrations dirs, mapped to the sentinels inside them.
-		trackers map[string][]string
+		// trackers are .migrations dirs no record names.
+		trackers []string
+		// committed are .migrations dirs whose migration has committed its
+		// data, so neither they nor the directories they name are removable.
+		committed []committedTracker
 		// payloads is the property list a tracker's task recorded, distinguishing
 		// a two-property task from a property whose name contains the join char.
 		payloads map[string][]string
@@ -313,6 +372,12 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		// corruptPayload names a tracker whose payload.mig is written as
 		// garbage bytes instead of a recovery record.
 		corruptPayload string
+		// unreadableRecord plants a file in the record store this build cannot
+		// place, which freezes every removal on the shard.
+		unreadableRecord bool
+		// wantSweepFails says the sweep this gate stands in front of cannot
+		// run at all, so there is no post-state to compare.
+		wantSweepFails bool
 		wantStale      bool
 	}{
 		{
@@ -340,19 +405,29 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		{
 			name:      "a tracker a cancelled run left behind",
 			indexType: "filterable",
-			trackers:  map[string][]string{"enable_filterable_category_1": {"started.mig"}},
+			trackers:  []string{"enable_filterable_category_1"},
 			wantStale: true,
 		},
 		{
 			name:      "deferred-finalize state the sweep preserves",
 			indexType: "filterable",
-			trackers:  deferredFinalize,
+			committed: deferredFinalize,
 			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
+		},
+		{
+			// A record this build cannot place may name any directory here,
+			// so nothing on the shard is removable until it can be read.
+			// Reporting work would wake this tenant on every pass instead.
+			name:             "a migration record this build cannot read",
+			indexType:        "filterable",
+			trackers:         []string{"enable_filterable_category_1"},
+			sidecars:         []string{"property_category__enable_filterable_ingest_1"},
+			unreadableRecord: true,
 		},
 		{
 			name:      "deferred-finalize state plus one stale sidecar",
 			indexType: "filterable",
-			trackers:  deferredFinalize,
+			committed: deferredFinalize,
 			sidecars: []string{
 				"property_category__enable_filterable_ingest_1",
 				"property_category__enable_filterable_ingest_2",
@@ -362,7 +437,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		{
 			name:      "another property's stale state is not this property's",
 			indexType: "filterable",
-			trackers:  map[string][]string{"enable_filterable_other_1": {"started.mig"}},
+			trackers:  []string{"enable_filterable_other_1"},
 			sidecars:  []string{"property_other__enable_filterable_ingest_1"},
 		},
 		// Pins that "category"'s prefix matching "category_x"'s tracker does
@@ -370,13 +445,17 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		{
 			name:      "a property whose name extends this one, awaiting finalize",
 			indexType: "filterable",
-			trackers:  map[string][]string{"enable_filterable_category_x_1": completed},
-			sidecars:  []string{"property_category_x__enable_filterable_ingest_1"},
+			committed: []committedTracker{{
+				dir:   "enable_filterable_category_x_1",
+				prop:  "category_x",
+				owned: "property_category_x__enable_filterable_ingest_1",
+			}},
+			sidecars: []string{"property_category_x__enable_filterable_ingest_1"},
 		},
 		{
 			name:      "a property whose name extends this one, left mid-run",
 			indexType: "filterable",
-			trackers:  map[string][]string{"enable_filterable_category_x_1": {"started.mig"}},
+			trackers:  []string{"enable_filterable_category_x_1"},
 			sidecars:  []string{"property_category_x__enable_filterable_ingest_1"},
 		},
 		// A class-level migration awaiting finalize leaves a live sidecar on
@@ -384,20 +463,28 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		{
 			name:      "filterable: a class-level roaringset refresh awaiting finalize",
 			indexType: "filterable",
-			trackers:  map[string][]string{"filterable_roaringset_refresh_2": completed},
-			sidecars:  []string{"property_category__roaringset_ingest_2"},
+			committed: []committedTracker{{
+				dir:   "filterable_roaringset_refresh_2",
+				prop:  "category",
+				owned: "property_category__roaringset_ingest_2",
+			}},
+			sidecars: []string{"property_category__roaringset_ingest_2"},
 		},
 		{
 			name:      "searchable: a class-level map_to_blockmax awaiting finalize",
 			propName:  "descr",
 			indexType: "searchable",
-			trackers:  map[string][]string{"searchable_map_to_blockmax_2": completed},
-			sidecars:  []string{"property_descr_searchable__blockmax_ingest_2"},
+			committed: []committedTracker{{
+				dir:   "searchable_map_to_blockmax_2",
+				prop:  "descr",
+				owned: "property_descr_searchable__blockmax_ingest_2",
+			}},
+			sidecars: []string{"property_descr_searchable__blockmax_ingest_2"},
 		},
 		{
 			name:      "filterable: a cancelled class-level attempt is still stale",
 			indexType: "filterable",
-			trackers:  map[string][]string{"filterable_roaringset_refresh_3": {"started.mig"}},
+			trackers:  []string{"filterable_roaringset_refresh_3"},
 			sidecars:  []string{"property_category__roaringset_ingest_3"},
 			wantStale: true,
 		},
@@ -414,15 +501,19 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			name:      "searchable: a tracker a cancelled enable left behind",
 			propName:  "descr",
 			indexType: "searchable",
-			trackers:  map[string][]string{"enable_searchable_descr_1": {"started.mig"}},
+			trackers:  []string{"enable_searchable_descr_1"},
 			wantStale: true,
 		},
 		{
 			name:      "searchable: a per-property enable awaiting finalize",
 			propName:  "descr",
 			indexType: "searchable",
-			trackers:  map[string][]string{"enable_searchable_descr_1": completed},
-			sidecars:  []string{"property_descr_searchable__enable_searchable_ingest_1"},
+			committed: []committedTracker{{
+				dir:   "enable_searchable_descr_1",
+				prop:  "descr",
+				owned: "property_descr_searchable__enable_searchable_ingest_1",
+			}},
+			sidecars: []string{"property_descr_searchable__enable_searchable_ingest_1"},
 		},
 		// Every searchable strategy writes sidecars of one main bucket, so the
 		// preserve set is keyed by (suffix, generation), not generation alone.
@@ -430,7 +521,11 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			name:      "searchable: deferred-finalize enable state plus another strategy's sidecar",
 			propName:  "descr",
 			indexType: "searchable",
-			trackers:  map[string][]string{"enable_searchable_descr_1": completed},
+			committed: []committedTracker{{
+				dir:   "enable_searchable_descr_1",
+				prop:  "descr",
+				owned: "property_descr_searchable__enable_searchable_ingest_1",
+			}},
 			sidecars: []string{
 				"property_descr_searchable__enable_searchable_ingest_1",
 				"property_descr_searchable__rebuild_searchable_ingest_1",
@@ -441,35 +536,43 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			name:      "searchable: a rebuild left mid-run",
 			propName:  "descr",
 			indexType: "searchable",
-			trackers:  map[string][]string{"rebuild_searchable_descr_2": {"started.mig"}},
+			trackers:  []string{"rebuild_searchable_descr_2"},
 			wantStale: true,
 		},
 		{
 			name:      "searchable: a per-property rebuild awaiting finalize",
 			propName:  "descr",
 			indexType: "searchable",
-			trackers:  map[string][]string{"rebuild_searchable_descr_1": completed},
-			sidecars:  []string{"property_descr_searchable__rebuild_searchable_ingest_1"},
+			committed: []committedTracker{{
+				dir:   "rebuild_searchable_descr_1",
+				prop:  "descr",
+				owned: "property_descr_searchable__rebuild_searchable_ingest_1",
+			}},
+			sidecars: []string{"property_descr_searchable__rebuild_searchable_ingest_1"},
 		},
 		{
 			name:      "searchable: a retokenize left mid-run",
 			propName:  "descr",
 			indexType: "searchable",
-			trackers:  map[string][]string{"searchable_retokenize_descr_1": {"started.mig"}},
+			trackers:  []string{"searchable_retokenize_descr_1"},
 			wantStale: true,
 		},
 		{
 			name:      "searchable: a per-property retokenize awaiting finalize",
 			propName:  "descr",
 			indexType: "searchable",
-			trackers:  map[string][]string{"searchable_retokenize_descr_1": completed},
-			sidecars:  []string{"property_descr_searchable__retokenize_ingest_1"},
+			committed: []committedTracker{{
+				dir:   "searchable_retokenize_descr_1",
+				prop:  "descr",
+				owned: "property_descr_searchable__retokenize_ingest_1",
+			}},
+			sidecars: []string{"property_descr_searchable__retokenize_ingest_1"},
 		},
 		{
 			name:      "searchable: another property's stale enable is not this property's",
 			propName:  "descr",
 			indexType: "searchable",
-			trackers:  map[string][]string{"enable_searchable_other_1": {"started.mig"}},
+			trackers:  []string{"enable_searchable_other_1"},
 			sidecars:  []string{"property_other_searchable__enable_searchable_ingest_1"},
 		},
 		// rangeable has no class-level strategy, so the preserve set is the
@@ -477,8 +580,12 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		{
 			name:      "rangeable: a per-property migration awaiting finalize",
 			indexType: "rangeable",
-			trackers:  map[string][]string{"filterable_to_rangeable_category_1": completed},
-			sidecars:  []string{"property_category_rangeable__rangeable_ingest_1"},
+			committed: []committedTracker{{
+				dir:   "filterable_to_rangeable_category_1",
+				prop:  "category",
+				owned: "property_category_rangeable__rangeable_ingest_1",
+			}},
+			sidecars: []string{"property_category_rangeable__rangeable_ingest_1"},
 		},
 		{
 			name:      "rangeable: a sidecar a cancelled run left behind",
@@ -498,7 +605,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		{
 			name:      "a two-property task this property is part of",
 			indexType: "filterable",
-			trackers:  map[string][]string{"enable_filterable_category_other_1": {"started.mig"}},
+			trackers:  []string{"enable_filterable_category_other_1"},
 			payloads: map[string][]string{
 				"enable_filterable_category_other_1": {"category", "other"},
 			},
@@ -507,7 +614,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		{
 			name:      "a two-property task this property is not part of",
 			indexType: "filterable",
-			trackers:  map[string][]string{"enable_filterable_other_third_1": {"started.mig"}},
+			trackers:  []string{"enable_filterable_other_third_1"},
 			payloads: map[string][]string{
 				"enable_filterable_other_third_1": {"other", "third"},
 			},
@@ -520,11 +627,28 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			wantStale:  true,
 		},
 		{
-			name:       "a .migrations dir the gate cannot enumerate",
-			indexType:  "filterable",
-			unreadable: ".migrations",
-			trackers:   map[string][]string{"enable_filterable_category_1": completed},
-			wantStale:  true,
+			// A load can remove directories, but it can never make an absent
+			// schema effect appear, so a promoted migration whose data is
+			// already at the canonical name is not work a hydration reclaims.
+			// Counting it would wake this tenant on every sweep pass, forever.
+			name:      "a promoted migration waiting only on its schema effect",
+			indexType: "filterable",
+			committed: []committedTracker{{
+				dir: "enable_filterable_category_1", prop: "category",
+				owned: "property_category__enable_filterable_ingest_1", promoted: true,
+			}},
+		},
+		{
+			// A directory nothing can list says nothing about what is in it,
+			// which is a stronger fault than a record this build cannot
+			// understand: that one withholds removals, this one hides them.
+			// The gate fails open and the sweep says so loudly.
+			name:           "a .migrations dir the gate cannot enumerate",
+			indexType:      "filterable",
+			unreadable:     ".migrations",
+			trackers:       []string{"enable_filterable_category_1"},
+			wantStale:      true,
+			wantSweepFails: true,
 		},
 		// A payload this sweep can't read could name this property; answering
 		// from the name alone would report a shard this sweep owns as clean.
@@ -532,13 +656,13 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			name:                     "a tracker payload the gate cannot read",
 			indexType:                "filterable",
 			unreadablePayloadTracker: "enable_filterable_category_other_1",
-			trackers:                 map[string][]string{"enable_filterable_category_other_1": {"started.mig"}},
+			trackers:                 []string{"enable_filterable_category_other_1"},
 			wantStale:                true,
 		},
 		{
 			name:           "a tracker payload the gate cannot parse",
 			indexType:      "filterable",
-			trackers:       map[string][]string{"enable_filterable_category_other_1": {"started.mig"}},
+			trackers:       []string{"enable_filterable_category_other_1"},
 			corruptPayload: "enable_filterable_category_other_1",
 			wantStale:      true,
 		},
@@ -548,7 +672,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		{
 			name:           "a corrupt payload on a dir whose name omits this property",
 			indexType:      "filterable",
-			trackers:       map[string][]string{"enable_filterable_other_1": {"started.mig"}},
+			trackers:       []string{"enable_filterable_other_1"},
 			corruptPayload: "enable_filterable_other_1",
 			wantStale:      false,
 		},
@@ -572,14 +696,30 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			defer shard.Shutdown(context.Background())
 			lsm := shard.pathLSM()
 
-			for name, sentinels := range tc.trackers {
+			for _, name := range tc.trackers {
 				mkTrackerDir(t, lsm, name)
 				if props, ok := tc.payloads[name]; ok {
 					mkRecoveryPayload(t, lsm, name, props...)
 				}
 			}
+			for _, c := range tc.committed {
+				mkTrackerDir(t, lsm, c.dir)
+				state := MigrationStateSwapped
+				if c.promoted {
+					state = MigrationStatePromoted
+				}
+				mkMigrationRecordAt(t, lsm, c.dir,
+					map[string]string{c.prop: c.owned},
+					map[string]string{c.prop: mustMainBucket(t, c.prop, tc.indexType)}, state)
+			}
 			for _, name := range tc.sidecars {
 				mkSidecarDir(t, lsm, name)
+			}
+			if tc.unreadableRecord {
+				records := filepath.Join(lsm, ".migrations", migrationRecordsDirName)
+				require.NoError(t, os.MkdirAll(records, 0o755))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(records, "99_enable_searchable.json"), []byte("{"), 0o644))
 			}
 			if tc.corruptPayload != "" {
 				require.NoError(t, os.WriteFile(
@@ -600,12 +740,20 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 					0o755))
 			}
 
-			stale, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, nil)
+			logger, _ := test.NewNullLogger()
+			stale, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, nil, logger)
 			require.Equal(t, tc.wantStale, stale)
 			if tc.wantStale {
 				// The shard is hydrated, and whatever the sweep then makes of
 				// it is the sweep's own business — the other tests here cover
 				// what it removes.
+				return
+			}
+			if tc.wantSweepFails {
+				_, err := shard.CleanStalePartialReindexState(ctx, propName, tc.indexType)
+				require.Error(t, err,
+					"a sweep that removed nothing because it could not read the shard "+
+						"must not be summarized as one that finished")
 				return
 			}
 
@@ -645,9 +793,9 @@ func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *tes
 	assert.False(t, dirExistsAt(t, lsm, ".migrations/"+mine),
 		"this property's cancelled run is what the sweep is for")
 	assert.True(t, dirExistsAt(t, lsm, ".migrations/"+theirs),
-		"another property's completed migration is live state, not this sweep's to remove")
+		"another property's migration is not this sweep's to remove")
 	assert.True(t, dirExistsAt(t, lsm, theirSidecar),
-		"the bucket that tracker still points at")
+		"nor is the bucket that tracker names")
 }
 
 // A cancelled two-property task leaves one tracker dir for both properties,
@@ -698,7 +846,8 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 			}
 			mkSidecarDir(t, lsm, sidecar)
 
-			stale, _ := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil, nil)
+			logger, _ := test.NewNullLogger()
+			stale, _ := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil, nil, logger)
 			require.Equal(t, tc.wantStale, stale,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
 			cleanSweep(t, ctx, shard, tc.propName, "filterable")
@@ -711,50 +860,62 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 	}
 }
 
-// Pins #10675: sweeping one property of a completed multi-property migration
-// must not remove the tracker or its live sidecar, payload or not.
+// Pins #10675: sweeping one property must not remove the tracker or the live
+// sidecar of a migration that owns them, and must remove exactly the ones no
+// committed migration owns. A directory name reads three ways at once, so what
+// decides is the record, never the name.
 func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTracker(t *testing.T) {
 	const sidecar = "property_a__enable_filterable_ingest_1"
-	completed := []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"}
 
 	tests := []struct {
 		name    string
 		tracker string
-		// payload is what the task recorded; empty writes no payload.mig.
-		payload      []string
+		// staged is the record's property list and, per property, the
+		// directory it says that property's data is in.
+		staged       map[string]string
+		state        MigrationState
 		wantTracker  bool
 		wantSidecar  bool
 		wantGateHold bool
 	}{
 		{
-			name:    "the completed tracker names this property",
-			tracker: "enable_filterable_a_b_1", payload: []string{"a", "b"},
+			name:    "the record names this property among two",
+			tracker: "enable_filterable_a_b_1",
+			staged: map[string]string{
+				"a": sidecar,
+				"b": "property_b__enable_filterable_ingest_1",
+			},
+			state:       MigrationStateSwapped,
 			wantTracker: true, wantSidecar: true,
 		},
+		// "enable_filterable_a_x_1" is both ["a","x"] and ["a_x"]. Guessing
+		// from the name preserved this property's sidecar on the strength of
+		// another property's migration.
 		{
-			name:        "the completed tracker names this property, payload gone",
-			tracker:     "enable_filterable_a_b_1",
-			wantTracker: true, wantSidecar: true,
-		},
-		// Preserve guessing must not shield another property's stale sidecar.
-		{
-			name:        "a completed tracker of another property, payload gone",
-			tracker:     "enable_filterable_other_1",
+			name:        "a name that reads as this property, whose record names another",
+			tracker:     "enable_filterable_a_x_1",
+			staged:      map[string]string{"a_x": "property_a_x__enable_filterable_ingest_1"},
+			state:       MigrationStateSwapped,
 			wantTracker: true, wantGateHold: true,
 		},
-		// Ambiguous name ("a"+"x" vs "a_x") over-preserves; see [migrationDirScope].
 		{
-			name:        "a completed tracker of a property whose name extends this one, payload gone",
-			tracker:     "enable_filterable_a_x_1",
-			wantTracker: true, wantSidecar: true,
-		},
-		// This property as a middle "_"-token of the payload-less name: the
-		// tracker's gens must still feed the preserve set, else the live
-		// sidecar is swept (#10675 shape).
-		{
-			name:        "a completed tracker naming this property mid-list, payload gone",
+			name:        "a name carrying this property mid-list, whose record names another",
 			tracker:     "enable_filterable_x_a_y_1",
-			wantTracker: true, wantSidecar: true,
+			staged:      map[string]string{"x_a_y": "property_x_a_y__enable_filterable_ingest_1"},
+			state:       MigrationStateSwapped,
+			wantTracker: true, wantGateHold: true,
+		},
+		// The state decides, not the record's existence: staged data that is
+		// not yet the data is exactly what this sweep is for.
+		{
+			name:    "a record naming this property whose data is not committed",
+			tracker: "enable_filterable_a_b_1",
+			staged: map[string]string{
+				"a": sidecar,
+				"b": "property_b__enable_filterable_ingest_1",
+			},
+			state:        MigrationStateIterating,
+			wantGateHold: true,
 		},
 	}
 
@@ -762,7 +923,7 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
 			class := newTestClassWithProps("UnloadedSweepMultiPropDone_"+uuid.NewString()[:8],
-				[]string{"a", "b", "other", "a_x"})
+				[]string{"a", "b", "a_x"})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
 			shard := shd.(*Shard)
@@ -770,12 +931,15 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			lsm := shard.pathLSM()
 
 			mkTrackerDir(t, lsm, tc.tracker)
-			if len(tc.payload) > 0 {
-				mkRecoveryPayload(t, lsm, tc.tracker, tc.payload...)
+			canonical := map[string]string{}
+			for prop := range tc.staged {
+				canonical[prop] = mustMainBucket(t, prop, "filterable")
 			}
+			mkMigrationRecordAt(t, lsm, tc.tracker, tc.staged, canonical, tc.state)
 			mkSidecarDir(t, lsm, sidecar)
 
-			gateHold, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil, nil)
+			logger, _ := test.NewNullLogger()
+			gateHold, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil, nil, logger)
 			require.Equal(t, tc.wantGateHold, gateHold,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
 			cleanSweep(t, ctx, shard, "a", "filterable")
@@ -829,10 +993,13 @@ func TestCleanStalePartialReindexStateRemovesAReplacedBucketDir(t *testing.T) {
 			mkSidecarDir(t, lsm, leftover)
 			if tc.completedTracker != "" {
 				mkTrackerDir(t, lsm, tc.completedTracker)
+				mkFlippedMigrationRecord(t, lsm, tc.completedTracker, propName,
+					tc.liveSidecar, mainBucket)
 				mkSidecarDir(t, lsm, tc.liveSidecar)
 			}
 
-			stale, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, nil)
+			logger, _ := test.NewNullLogger()
+			stale, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, nil, logger)
 			require.True(t, stale,
 				"a shard holding the leftover has state to sweep, so the gate must hydrate it")
 
@@ -880,7 +1047,9 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 	_, err = dirs.list(filepath.Join(lsm, ".migrations"))
 	require.True(t, err == nil || os.IsNotExist(err))
 	mkTrackerDir(t, lsm, tracker)
-	staleAfterArrival, _ := hasStalePartialReindexState(lsm, propName, indexType, dirs, dirs.trackerProps())
+	logger, _ := test.NewNullLogger()
+	staleAfterArrival, _ := hasStalePartialReindexState(
+		lsm, propName, indexType, dirs, dirs.trackerProps(), logger)
 	require.False(t, staleAfterArrival,
 		"the stale listing is the point: the gate cannot see what arrived after it")
 
@@ -959,11 +1128,12 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 		// Only a load reclaims these, so the gate has to stop skipping until
 		// one has run.
 		{
-			name: "unloaded with a completed migration's leftovers",
+			name: "unloaded with a committed migration awaiting promotion",
 			plantOnGateShard: func(t *testing.T, lsm string) {
+				const staged = "property_category__enable_filterable_ingest_1"
 				mkTrackerDir(t, lsm, tracker)
-				mkSidecarDir(t, lsm, "property_category__enable_filterable_ingest_1")
-				mkSidecarDir(t, lsm, "property_category__enable_filterable_backup_1")
+				mkFlippedMigrationRecord(t, lsm, tracker, propName, staged, "property_category")
+				mkSidecarDir(t, lsm, staged)
 			},
 		},
 		// The population the gate is for: migrated once, finalized already,
@@ -1139,6 +1309,32 @@ func TestDirNamesCache(t *testing.T) {
 			"the cached listing shares a backing array with the full-directory slice")
 	})
 
+	// The gate asks per (index type, property) tuple over the same shards, and
+	// each ask reads that shard's records off disk. Memoizing them on the run's
+	// cache is what keeps one terminal cleanup's grid at one read per shard.
+	t.Run("a shard's committed migrations are read once per run", func(t *testing.T) {
+		lsm := t.TempDir()
+		const tracker = "enable_filterable_cat_dog_1"
+		mkTrackerDir(t, lsm, tracker)
+		mkMigrationRecord(t, lsm, tracker, MigrationStateSwapped,
+			map[string]string{"cat": "property_cat__enable_filterable_ingest_1"})
+		logger, _ := test.NewNullLogger()
+
+		cache := &dirNamesCache{}
+		require.True(t, cache.committedMigrations(lsm, logger).preservesTracker(tracker))
+
+		// Removing the record is a change only a fresh read can see.
+		require.NoError(t, os.RemoveAll(
+			filepath.Join(lsm, ".migrations", migrationRecordsDirName)))
+
+		require.True(t, cache.committedMigrations(lsm, logger).preservesTracker(tracker),
+			"a second tuple of the same run must not pay for the same shard again")
+
+		var uncached *dirNamesCache
+		require.False(t, uncached.committedMigrations(lsm, logger).preservesTracker(tracker),
+			"a nil cache holds nothing, so it reads the shard every time")
+	})
+
 	// The full and the filtered listing are different answers about one path;
 	// handing the filtered one back for the full question hides every bucket dir.
 	t.Run("a filtered listing does not answer an unfiltered question", func(t *testing.T) {
@@ -1212,15 +1408,21 @@ func strategiesByMigrationDir(generation int) map[string]MigrationStrategy {
 	}
 }
 
+// classLevelMigrationDirs are the two trackers no per-property cleanup owns:
+// they aggregate every property of the class, so a single property's DELETE
+// removing one would corrupt the rest. They appear in no production
+// per-index-type table for that reason, which is why they are named here.
+var classLevelMigrationDirs = []string{
+	MigrationDirSearchableMapToBlockmax,
+	MigrationDirFilterableRoaringsetRefresh,
+}
+
 // sweptMigrationDirPrefixes is every tracker dir prefix the cleanup knows, taken
 // from the production tables a new strategy has to extend to be swept at all.
 func sweptMigrationDirPrefixes() []string {
-	var prefixes []string
+	prefixes := append([]string(nil), classLevelMigrationDirs...)
 	for _, indexType := range []string{"filterable", "searchable", "rangeable"} {
 		prefixes = append(prefixes, migrationDirPrefixesForIndexType(indexType)...)
-		if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
-			prefixes = append(prefixes, classDir)
-		}
 	}
 	slices.Sort(prefixes)
 	return slices.Compact(prefixes)
@@ -1244,9 +1446,7 @@ func TestEverySidecarSuffixIsASidecar(t *testing.T) {
 			require.Truef(t, strings.HasPrefix(strategy.MigrationDirName(), prefix),
 				"%T is filed under %q but names its tracker dir %q",
 				strategy, prefix, strategy.MigrationDirName())
-			for _, suffix := range []string{
-				strategy.ReindexSuffix(), strategy.IngestSuffix(), strategy.BackupSuffix(),
-			} {
+			for _, suffix := range []string{strategy.ReindexSuffix(), strategy.IngestSuffix()} {
 				assert.Truef(t, isSidecarDirOf(main+suffix, main),
 					"%T's %q is not recognized as a sidecar suffix", strategy, suffix)
 			}
@@ -1272,7 +1472,10 @@ func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
 		{name: "category__reindex's own bucket, wrongly accepted", dir: main + "__reindex", want: true},
 		{name: "category__ingest_0's own bucket, wrongly accepted", dir: main + "__ingest_0", want: true},
 		{name: "a property named after a number", dir: main + "__12", want: false},
-		{name: "a blockmax backup sidecar", dir: main + "__blockmax_map_3", want: true},
+		// A backup copy an earlier release left on disk. "map" is no longer a
+		// role word, so nothing here reclaims one any more: the sweep does not
+		// see it, and no record names it either.
+		{name: "a blockmax backup dir from an earlier release", dir: main + "__blockmax_map_3", want: false},
 		{name: "a property whose name extends a role word", dir: main + "__ingest_x", want: false},
 		// An empty tail is not a generation, so this is property
 		// "category__ingest_"'s own main bucket.

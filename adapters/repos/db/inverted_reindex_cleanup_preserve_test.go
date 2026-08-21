@@ -22,204 +22,89 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCompletedMigrationGens_PinsR2DataLoss pins the gating logic that
-// prevents the R2/R2b silent data loss (#10675 family): a back-to-back
-// submit on the same property must NOT wipe the prior migration's
-// tracker dir when that tracker has tidied.mig (= successfully
-// completed, ingest dir is live data).
-//
-// The tests below construct a synthetic .migrations/ directory layout
-// and assert which generations [completedMigrationGens] reports as
-// preserved.
-func TestCompletedMigrationGens(t *testing.T) {
-	type setup struct {
-		// trackerDir name (e.g. "searchable_retokenize_text_1") → sentinels to write.
-		trackers map[string][]string
-	}
-	tests := []struct {
-		name string
-		// indexType picks the strategy prefixes through the production table;
-		// "searchable" unless set.
-		indexType string
-		setup     setup
-		want      []int
-	}{
-		{
-			name:  "empty migrations dir → no preserved gens",
-			setup: setup{trackers: map[string][]string{}},
-			want:  []int{},
-		},
-		{
-			name: "only started.mig → not preserved (partial state)",
-			setup: setup{trackers: map[string][]string{
-				"searchable_retokenize_text_1": {"started.mig", "payload.mig"},
-			}},
-			want: []int{},
-		},
-		{
-			name: "tidied.mig present → preserved",
-			setup: setup{trackers: map[string][]string{
-				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
-			}},
-			want: []int{1},
-		},
-		{
-			name: "merged.mig only (untidied; recovery path) → preserved",
-			setup: setup{trackers: map[string][]string{
-				"searchable_retokenize_text_2": {"started.mig", "merged.mig"},
-			}},
-			want: []int{2},
-		},
-		{
-			name: "mix: tidied gen 1, started gen 2 → only gen 1 preserved",
-			setup: setup{trackers: map[string][]string{
-				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
-				"searchable_retokenize_text_2": {"started.mig"},
-			}},
-			want: []int{1},
-		},
-		{
-			name: "different prefix → not matched",
-			setup: setup{trackers: map[string][]string{
-				"filterable_retokenize_text_1": {"tidied.mig"},
-			}},
-			want: []int{},
-		},
-		{
-			name: "different prop suffix → not matched",
-			setup: setup{trackers: map[string][]string{
-				"searchable_retokenize_other_1": {"tidied.mig"},
-			}},
-			want: []int{},
-		},
-		{
-			name: "two of this index type's prefixes at the same gen, " +
-				"both tidied → the gen is preserved once",
-			setup: setup{trackers: map[string][]string{
-				"searchable_retokenize_text_1": {"tidied.mig"},
-				"enable_searchable_text_1":     {"tidied.mig"},
-			}},
-			want: []int{1},
-		},
-		{
-			name:  "no .migrations dir → empty result, no error",
-			setup: setup{trackers: nil},
-			want:  []int{},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tmp := t.TempDir()
-			if tc.setup.trackers != nil {
-				migsDir := filepath.Join(tmp, ".migrations")
-				require.NoError(t, os.MkdirAll(migsDir, 0o755))
-				for trackerName, sentinels := range tc.setup.trackers {
-					dir := filepath.Join(migsDir, trackerName)
-					require.NoError(t, os.MkdirAll(dir, 0o755))
-					for _, s := range sentinels {
-						require.NoError(t,
-							os.WriteFile(filepath.Join(dir, s), []byte("x"), 0o644))
-					}
-				}
-			}
-
-			indexType := tc.indexType
-			if indexType == "" {
-				indexType = "searchable"
-			}
-			got := completedMigrationGens(migrationDirsOf(tmp, nil, "text", indexType))
-			gens := make([]int, 0, len(got))
-			for g := range got {
-				gens = append(gens, g)
-			}
-			sort.Ints(gens)
-			require.Equal(t, tc.want, gens, "preserved gens mismatch")
-		})
-	}
+// plantedTracker is one migration directory on disk plus, where the migration
+// got that far, the record that says whose it is and how far it got.
+type plantedTracker struct {
+	dir  string
+	prop string
+	// state empty leaves the directory with no record, which is a migration
+	// that never reached its first record write.
+	state MigrationState
 }
 
-// TestCleanStaleMigrationDirsAt_PreservesCompletedGens pins the
-// end-to-end behavior of the cleanup helper: tracker dirs with
-// tidied.mig (or merged.mig) survive; tracker dirs with only started.mig
-// are removed.
+// TestCleanStaleMigrationDirsAt_PreservesCompletedGens pins the R2/R2b
+// regression (#10675): the pre-submit sweep wiped a completed migration's
+// directory out from under the in-memory bucket pointer, so the next
+// migration picked the same generation and overwrote the previous data.
 //
-// This is the R2/R2b regression: before the fix, the pre-submit
-// CleanStalePartialReindexState wiped tracker_1 (which had tidied.mig)
-// out from under the in-memory ingest bucket pointer → next migration
-// picked gen=1 again → previous data overwritten → silent #10675-shape
-// loss on the controller node.
+// What may be removed is decided by the migration's record: only a migration
+// whose data is not yet committed leaves directories a sweep owns.
 func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 	tests := []struct {
 		name     string
 		propName string
 		idxType  string
-		// Pre-cleanup trackers: name → sentinels.
-		trackers map[string][]string
-		// Post-cleanup expected trackers still on disk.
+		trackers []plantedTracker
+		// wantSurvivors is what must still be on disk afterwards.
 		wantSurvivors []string
 	}{
 		{
-			name:     "tidied tracker survives, started-only tracker removed",
+			name:     "a committed migration survives, an uncommitted one is removed",
 			propName: "text",
 			idxType:  "searchable",
-			trackers: map[string][]string{
-				// Completed migration (T1) — must survive.
-				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
-				// Cancelled / partial migration (T2 cancelled mid-flight) — wipe.
-				"searchable_retokenize_text_2": {"started.mig"},
+			trackers: []plantedTracker{
+				{dir: "searchable_retokenize_text_1", prop: "text", state: MigrationStateSwapped},
+				{dir: "searchable_retokenize_text_2", prop: "text", state: MigrationStateIterating},
 			},
 			wantSurvivors: []string{"searchable_retokenize_text_1"},
 		},
 		{
-			name:     "untidied-merged tracker survives (recovery path)",
+			// Merged is where the staged data becomes the data, so it is the
+			// earliest state a sweep may not touch.
+			name:     "a merged migration survives",
 			propName: "text",
 			idxType:  "searchable",
-			trackers: map[string][]string{
-				"searchable_retokenize_text_3": {"started.mig", "merged.mig"},
+			trackers: []plantedTracker{
+				{dir: "searchable_retokenize_text_3", prop: "text", state: MigrationStateMerged},
 			},
 			wantSurvivors: []string{"searchable_retokenize_text_3"},
 		},
 		{
-			name:     "non-matching prop survives (different propName)",
+			name:          "a tracker with no record at all is removed",
+			propName:      "text",
+			idxType:       "searchable",
+			trackers:      []plantedTracker{{dir: "searchable_retokenize_text_1", prop: "text"}},
+			wantSurvivors: []string{},
+		},
+		{
+			name:     "another property's tracker is not this sweep's",
 			propName: "text",
 			idxType:  "searchable",
-			trackers: map[string][]string{
-				// Cleaning prop=text MUST NOT touch prop=other.
-				"searchable_retokenize_other_1": {"started.mig"},
-				// Stale state on the target prop — wipe.
-				"searchable_retokenize_text_1": {"started.mig"},
+			trackers: []plantedTracker{
+				{dir: "searchable_retokenize_other_1", prop: "other", state: MigrationStateIterating},
+				{dir: "searchable_retokenize_text_1", prop: "text", state: MigrationStateIterating},
 			},
 			wantSurvivors: []string{"searchable_retokenize_other_1"},
 		},
 		{
-			name:     "different indexType survives (filterable when searchable is cleaned)",
+			name:     "another index type's tracker for the same property is not this sweep's",
 			propName: "text",
 			idxType:  "searchable",
-			trackers: map[string][]string{
-				// Filterable tracker for the same prop — not touched.
-				"filterable_retokenize_text_1": {"started.mig"},
-				"searchable_retokenize_text_1": {"started.mig"},
+			trackers: []plantedTracker{
+				{dir: "filterable_retokenize_text_1", prop: "text", state: MigrationStateIterating},
+				{dir: "searchable_retokenize_text_1", prop: "text", state: MigrationStateIterating},
 			},
 			wantSurvivors: []string{"filterable_retokenize_text_1"},
 		},
 		{
-			name:     "all started-only → all removed",
+			// The R2 repro: two back-to-back migrations both completed, and
+			// both still hold their data under their own generation's name.
+			name:     "two committed generations both survive",
 			propName: "text",
 			idxType:  "searchable",
-			trackers: map[string][]string{
-				"searchable_retokenize_text_1": {"started.mig"},
-				"searchable_retokenize_text_2": {"started.mig"},
-			},
-			wantSurvivors: []string{},
-		},
-		{
-			name:     "R2 repro: T1 tidied at gen 1, T2 tidied at gen 2 → both survive",
-			propName: "text",
-			idxType:  "searchable",
-			trackers: map[string][]string{
-				"searchable_retokenize_text_1": {"started.mig", "tidied.mig"},
-				"searchable_retokenize_text_2": {"started.mig", "tidied.mig"},
+			trackers: []plantedTracker{
+				{dir: "searchable_retokenize_text_1", prop: "text", state: MigrationStateSwapped},
+				{dir: "searchable_retokenize_text_2", prop: "text", state: MigrationStateSwapped},
 			},
 			wantSurvivors: []string{
 				"searchable_retokenize_text_1",
@@ -233,63 +118,24 @@ func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			tmp := t.TempDir()
-			migsDir := filepath.Join(tmp, ".migrations")
-			require.NoError(t, os.MkdirAll(migsDir, 0o755))
-			for trackerName, sentinels := range tc.trackers {
-				dir := filepath.Join(migsDir, trackerName)
-				require.NoError(t, os.MkdirAll(dir, 0o755))
-				for _, s := range sentinels {
-					require.NoError(t,
-						os.WriteFile(filepath.Join(dir, s), []byte("x"), 0o644))
+			lsm := t.TempDir()
+			require.NoError(t, os.MkdirAll(filepath.Join(lsm, ".migrations"), 0o755))
+			for _, tracker := range tc.trackers {
+				mkTrackerDir(t, lsm, tracker.dir)
+				if tracker.state == "" {
+					continue
 				}
+				// Directory names are opaque to every reader of a record, so
+				// the staged one only has to be this migration's own.
+				mkMigrationRecord(t, lsm, tracker.dir, tracker.state,
+					map[string]string{tracker.prop: "staged_" + tracker.dir})
 			}
 
-			cleanStaleMigrationDirsAt(t.Context(), tmp, tc.propName, tc.idxType, logger, nil)
+			cleanStaleMigrationDirsAt(t.Context(), lsm, tc.propName, tc.idxType, logger, nil)
 
-			survivors, err := os.ReadDir(migsDir)
-			require.NoError(t, err)
-			var got []string
-			for _, e := range survivors {
-				got = append(got, e.Name())
-			}
-			sort.Strings(got)
-			want := append([]string(nil), tc.wantSurvivors...)
+			want := append([]string{}, tc.wantSurvivors...)
 			sort.Strings(want)
-			require.Equal(t, want, got)
+			require.Equal(t, want, survivingTrackerDirs(t, lsm))
 		})
 	}
-}
-
-// TestCompletedMigrationGens_R2Repro pins the exact R2 scenario where the
-// pre-submit defense-in-depth cleanup would otherwise wipe a successfully
-// completed migration's tracker dir. T1 finishes (tracker_1 has
-// tidied.mig). T2 is submitted. completedMigrationGens MUST report gen=1
-// as preserved so the cleanup leaves the live ingest dir alone.
-func TestCompletedMigrationGens_R2Repro(t *testing.T) {
-	tmp := t.TempDir()
-	migsDir := filepath.Join(tmp, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-
-	// Simulate post-T1 disk state: tracker_1 has all sentinels through
-	// markTidied (started, reindexed, prepended, merged, swapped, tidied).
-	for _, sub := range []string{
-		"searchable_retokenize_text_1",
-		"filterable_retokenize_text_1",
-	} {
-		dir := filepath.Join(migsDir, sub)
-		require.NoError(t, os.MkdirAll(dir, 0o755))
-		for _, sentinel := range []string{
-			"started.mig", "payload.mig", "reindexed.mig",
-			"prepended.mig", "merged.mig", "swapped.mig", "tidied.mig",
-		} {
-			require.NoError(t,
-				os.WriteFile(filepath.Join(dir, sentinel), []byte("x"), 0o644))
-		}
-	}
-
-	got := completedMigrationGens(migrationDirsOf(tmp, nil, "text", "searchable"))
-	require.True(t, got[1],
-		"R2 repro: gen=1 MUST be preserved (T1 successfully tidied); else pre-submit cleanup wipes live ingest_1 dir → silent data loss on the controller node")
-	require.Len(t, got, 1, "only gen=1 should be reported, got %v", got)
 }

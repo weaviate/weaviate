@@ -24,15 +24,18 @@ import (
 // frozen reports that at least one record could not be understood. Its
 // property list is exactly what could not be read, so there is no way to scope
 // the withholding to the directories it stands on — the same shard-wide
-// reading reconciliation applies at load. A listing this build cannot read at
-// all freezes the shard for the same reason.
-func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []MigrationRecord, frozen bool) {
+// reading reconciliation applies at load.
+//
+// unreadable is the stronger fault: the record set could not be read at all,
+// so this shard's state is not merely undecidable but invisible. A caller that
+// would otherwise report the shard clean has to fail open on it.
+func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []MigrationRecord, frozen, unreadable bool) {
 	store := NewMigrationRecordStore(lsmPath, logger)
 	if err := store.Load(); err != nil {
 		logger.WithField("path", store.Dir()).Errorf("read migration records: %v", err)
-		return nil, true
+		return nil, true, true
 	}
-	return store.Records(), len(store.Unreadable()) > 0
+	return store.Records(), len(store.Unreadable()) > 0, false
 }
 
 // migrationCommittedState names what a sweep of one shard must leave alone.
@@ -43,22 +46,28 @@ type migrationCommittedState struct {
 	// records is the whole understood set, not just the committed part: the
 	// sweeps also ask an extant record which properties its directory belongs
 	// to, which is a subject fact and true in every state.
-	records  []MigrationRecord
-	buckets  map[string]struct{}
-	trackers map[string]struct{}
+	records []MigrationRecord
+	buckets map[string]struct{}
+	// trackers maps each preserved migration directory to whether a load
+	// would still do disk work for it.
+	trackers map[string]bool
 
 	// frozen preserves everything on the shard. A record this build cannot
 	// read may name any directory here, and deleting one it names is exactly
 	// the loss the three-outcome loader exists to prevent.
 	frozen bool
+	// unreadable means nothing here could be read at all, which no caller may
+	// report as a clean shard.
+	unreadable bool
 }
 
-func migrationCommittedStateOf(records []MigrationRecord, frozen bool) migrationCommittedState {
+func migrationCommittedStateOf(records []MigrationRecord, frozen, unreadable bool) migrationCommittedState {
 	state := migrationCommittedState{
-		records:  records,
-		buckets:  map[string]struct{}{},
-		trackers: map[string]struct{}{},
-		frozen:   frozen,
+		records:    records,
+		buckets:    map[string]struct{}{},
+		trackers:   map[string]bool{},
+		frozen:     frozen,
+		unreadable: unreadable,
 	}
 	for _, rec := range records {
 		if !rec.DataCommitted() {
@@ -69,7 +78,10 @@ func migrationCommittedStateOf(records []MigrationRecord, frozen bool) migration
 			state.buckets[dir] = struct{}{}
 		}
 		if subject.TrackerDir != "" {
-			state.trackers[subject.TrackerDir] = struct{}{}
+			// A promoted record's one remaining step is its closure, which
+			// waits on the schema effect becoming visible. No load can make
+			// that happen, so no load counts as reclaiming it.
+			state.trackers[subject.TrackerDir] = rec.State() != MigrationStatePromoted
 		}
 	}
 	return state
@@ -89,6 +101,11 @@ func (s migrationCommittedState) preservesTracker(dir string) bool {
 	}
 	_, ok := s.trackers[dir]
 	return ok
+}
+
+// trackerNeedsLoad reports whether hydrating this shard would reclaim dir.
+func (s migrationCommittedState) trackerNeedsLoad(dir string) bool {
+	return s.trackers[dir]
 }
 
 // bucketsOf names the preserved sidecars of one main bucket, sorted, for a

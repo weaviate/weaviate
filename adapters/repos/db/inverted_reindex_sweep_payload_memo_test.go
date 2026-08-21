@@ -27,54 +27,45 @@ import (
 )
 
 // memoFixture is one tracker dir of the sweep-memo fixtures. A multi-property
-// name is what forces the payload read: no name shortcut can answer it.
+// name is what forces the payload read: no name shortcut can answer it, and no
+// record here names one either.
 type memoFixture struct {
-	dir       string
-	props     []string
-	sentinels []string
+	dir   string
+	props []string
 }
 
 var sweepMemoFixtures = []memoFixture{
-	{
-		dir:       "enable_filterable_cat_dog_1",
-		props:     []string{"cat", "dog"},
-		sentinels: []string{"started.mig", "tidied.mig"},
-	},
-	{
-		dir:       "enable_filterable_cat_dog_2",
-		props:     []string{"cat", "dog"},
-		sentinels: []string{"started.mig"},
-	},
-	{
-		dir:       "filterable_retokenize_bird_cat_1",
-		props:     []string{"bird_cat"},
-		sentinels: []string{"started.mig"},
-	},
+	{dir: "enable_filterable_cat_dog_1", props: []string{"cat", "dog"}},
+	{dir: "enable_filterable_cat_dog_2", props: []string{"cat", "dog"}},
+	{dir: "filterable_retokenize_bird_cat_1", props: []string{"bird_cat"}},
 	{
 		// Another property's tracker: settled by name, so never read.
-		dir:       "enable_filterable_dog_1",
-		props:     []string{"dog"},
-		sentinels: []string{"started.mig"},
+		dir:   "enable_filterable_dog_1",
+		props: []string{"dog"},
 	},
 	{
 		// No strategy prefix of this index type: settled by name too.
-		dir:       "searchable_retokenize_cat_1",
-		props:     []string{"cat"},
-		sentinels: []string{"started.mig"},
+		dir:   "searchable_retokenize_cat_1",
+		props: []string{"cat"},
 	},
 	{
 		// The only rangeable strategy, so without it a sweep that skipped
-		// rangeable would cost the same as one that didn't. Tidied at an
-		// otherwise-unused gen, so both passes owning the prefix keep it.
-		dir:       "filterable_to_rangeable_cat_dog_3",
-		props:     []string{"cat", "dog"},
-		sentinels: []string{"started.mig", "tidied.mig"},
+		// rangeable would cost the same as one that did not.
+		dir:   "filterable_to_rangeable_cat_dog_3",
+		props: []string{"cat", "dog"},
+	},
+	{
+		// Owned by both index types that share the rangeable strategy, and
+		// deleted by neither: its payload names one property called
+		// "bird_cat". A memo per index type opens it twice.
+		dir:   "filterable_to_rangeable_bird_cat_1",
+		props: []string{"bird_cat"},
 	},
 }
 
 // payloadReadingFixtures is how many fixtures the filterable sweep has to open
-// a payload for, i.e. the N of the 2N→N claim.
-const payloadReadingFixtures = 4
+// a payload for.
+const payloadReadingFixtures = 5
 
 func writeSweepMemoFixtures(t *testing.T) string {
 	t.Helper()
@@ -91,33 +82,30 @@ func writeSweepMemoFixturesAt(t *testing.T, lsm string) {
 	}
 }
 
-// TestSweepSharesOnePayloadMemoAcrossItsPasses pins that the preserve pass and
-// the deletion loop of one DELETE-path sweep read each tracker payload once
-// between them, not once each.
-func TestSweepSharesOnePayloadMemoAcrossItsPasses(t *testing.T) {
-	lsm := writeSweepMemoFixtures(t)
+// TestSweepReadsEachTrackerPayloadAtMostOnce pins what one DELETE-path sweep
+// costs. A payload parse runs to megabytes inside the RAFT apply that holds
+// the FSM loop cluster-wide, so a tracker whose record already answers the
+// property question must cost nothing at all.
+func TestSweepReadsEachTrackerPayloadAtMostOnce(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
-	// Each pass on its own memo is what the sweep cost before they shared one.
-	preservePass := &taskPropsCache{}
-	completedMigrationGens(migrationDirsOf(lsm, nil, "cat", "filterable").
-		cachingProps(preservePass))
-	deletionPass := &taskPropsCache{}
-	deletionScope := migrationDirsOf(lsm, nil, "cat", "filterable").cachingProps(deletionPass)
-	for _, f := range sweepMemoFixtures {
-		deletionScope.inScope(f.dir)
-	}
-	require.Equal(t, payloadReadingFixtures, preservePass.count(),
-		"preserve pass on its own memo")
-	require.Equal(t, payloadReadingFixtures, deletionPass.count(),
-		"deletion pass on its own memo")
-	require.Equal(t, 2*payloadReadingFixtures, preservePass.count()+deletionPass.count(),
-		"unshared memos read every payload twice")
-
+	lsm := writeSweepMemoFixtures(t)
 	sweep := &taskPropsCache{}
 	cleanStaleMigrationDirsAt(t.Context(), lsm, "cat", "filterable", logger, sweep)
 	require.Equal(t, payloadReadingFixtures, sweep.count(),
-		"one sweep reads each payload once")
+		"one sweep opens each ambiguous tracker's payload once")
+
+	recorded := writeSweepMemoFixtures(t)
+	const answeredByRecord = "enable_filterable_cat_dog_1"
+	mkMigrationRecord(t, recorded, answeredByRecord, MigrationStateIterating,
+		map[string]string{"cat": "staged_cat", "dog": "staged_dog"})
+
+	withRecord := &taskPropsCache{}
+	cleanStaleMigrationDirsAt(t.Context(), recorded, "cat", "filterable", logger, withRecord)
+	require.Equal(t, payloadReadingFixtures-1, withRecord.count(),
+		"a tracker a record names is answered from the record, not from its payload")
+	require.Equal(t, survivingTrackerDirs(t, lsm), survivingTrackerDirs(t, recorded),
+		"and the record answers it the same way the payload did")
 }
 
 // disabledFilterableProp is a text property with its filterable index switched
@@ -310,7 +298,8 @@ func TestSweepMemoLeavesTheDeletedSetAlone(t *testing.T) {
 			for _, f := range sweepMemoFixtures {
 				names = append(names, f.dir)
 			}
-			want := sweepSurvivors(names, completedMigrationGens(refScope), refScope.inScope)
+			committed := migrationCommittedStateOf(migrationRecordsAt(refLSM, logger))
+			want := sweepSurvivors(names, committed, refScope.inScope)
 
 			lsm := writeSweepMemoFixtures(t)
 			cleanStaleMigrationDirsAt(t.Context(), lsm, tc.propName, tc.idxType, logger, nil)
@@ -320,17 +309,13 @@ func TestSweepMemoLeavesTheDeletedSetAlone(t *testing.T) {
 }
 
 // sweepSurvivors is which of names a sweep leaves behind: the ones inScope
-// rejects, plus the ones whose generation preserved holds. Both differential
-// tests build their reference answer with it, so the real sweep and its
-// reference can only differ where inScope or preserved does.
-func sweepSurvivors(names []string, preserved map[int]bool, inScope func(string) bool) []string {
-	var survivors []string
+// rejects, plus the ones a committed migration owns. It is the reference the
+// real sweep is diffed against, so the two can only differ where inScope or
+// the committed set does.
+func sweepSurvivors(names []string, committed migrationCommittedState, inScope func(string) bool) []string {
+	survivors := []string{}
 	for _, name := range names {
-		if !inScope(name) {
-			survivors = append(survivors, name)
-			continue
-		}
-		if _, gen, ok := parseMigrationDirName(name); ok && preserved[gen] {
+		if !inScope(name) || committed.preservesTracker(name) {
 			survivors = append(survivors, name)
 		}
 	}
@@ -338,13 +323,15 @@ func sweepSurvivors(names []string, preserved map[int]bool, inScope func(string)
 	return survivors
 }
 
+// survivingTrackerDirs names the migration directories left on a shard. The
+// record store's own directory lives there too and belongs to no migration.
 func survivingTrackerDirs(t *testing.T, lsm string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(filepath.Join(lsm, ".migrations"))
 	require.NoError(t, err)
-	var names []string
+	names := []string{}
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() && e.Name() != migrationRecordsDirName {
 			names = append(names, e.Name())
 		}
 	}

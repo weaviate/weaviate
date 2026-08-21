@@ -19,7 +19,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -304,7 +303,7 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 
 	// Sanity: no record was written (the crash beat the iteration to it).
 	// This is the invariant the discover path keys off.
-	records, frozen := migrationRecordsAt(shard.pathLSM(), idx.logger)
+	records, frozen, _ := migrationRecordsAt(shard.pathLSM(), idx.logger)
 	require.False(t, frozen)
 	require.Empty(t, records, "no record may exist — iteration never ran")
 
@@ -405,7 +404,7 @@ func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *tes
 	// Re-read the record the way a real startup does. This pins the
 	// end-to-end contract: the barrier persisted, and the recovery path sees
 	// the state that dispatches RunSwapOnShard into its resume branch.
-	recovered, frozen := migrationRecordsAt(shard.pathLSM(), idx.logger)
+	recovered, frozen, _ := migrationRecordsAt(shard.pathLSM(), idx.logger)
 	require.False(t, frozen)
 	require.Len(t, recovered, 1)
 	assert.Equal(t, MigrationStateIterated, recovered[0].State(),

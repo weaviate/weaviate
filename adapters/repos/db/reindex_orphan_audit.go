@@ -422,7 +422,7 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 	if err != nil {
 		return nil
 	}
-	records, _ := migrationRecordsAt(lsmPath, logger)
+	records, _, _ := migrationRecordsAt(lsmPath, logger)
 	var orphans []orphanReindexTracker
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -562,7 +562,7 @@ func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLoo
 	if err != nil {
 		return
 	}
-	records, _ := migrationRecordsAt(lsmPath, logger)
+	records, _, _ := migrationRecordsAt(lsmPath, logger)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue

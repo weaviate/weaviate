@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +20,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -86,65 +86,17 @@ func TestOrphanTrackerString_PinsLogShape(t *testing.T) {
 	}
 }
 
-func TestLoadAuditRecord_RoundTripsPayload(t *testing.T) {
-	dir := t.TempDir()
-	rec := reindexRecoveryRecord{
-		TaskID:      "tid-x",
-		TaskVersion: 11,
-		UnitID:      "uid-y",
-		Payload: ReindexTaskPayload{
-			Collection:    "Cls",
-			MigrationType: ReindexTypeChangeTokenization,
-			Properties:    []string{"foo"},
-		},
-	}
-	data, err := json.Marshal(rec)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), data, 0o600))
-
-	got, ok := loadAuditRecord(dir)
-	require.True(t, ok)
-	assert.Equal(t, rec.TaskID, got.TaskID)
-	assert.Equal(t, rec.TaskVersion, got.TaskVersion)
-	assert.Equal(t, rec.UnitID, got.UnitID)
-	assert.Equal(t, rec.Payload.Collection, got.Payload.Collection)
-	assert.Equal(t, rec.Payload.MigrationType, got.Payload.MigrationType)
-	assert.Equal(t, rec.Payload.Properties, got.Payload.Properties)
-}
-
-func TestLoadAuditRecord_MissingFile(t *testing.T) {
-	_, ok := loadAuditRecord(t.TempDir())
-	assert.False(t, ok)
-}
-
-func TestLoadAuditRecord_MalformedJSON(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile),
-		[]byte("not json"), 0o600))
-	_, ok := loadAuditRecord(dir)
-	assert.False(t, ok)
-}
-
 func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T) {
 	ctx := testCtx()
 	className := "AuditOrphanClass"
 	shd, idx := testShard(t, ctx, className)
 
 	lsmPath := shd.(*Shard).pathLSM()
-	migsDir := filepath.Join(lsmPath, ".migrations")
 
-	knownDir := filepath.Join(migsDir, "searchable_retokenize_known_1")
-	require.NoError(t, os.MkdirAll(knownDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(knownDir, "started.mig"), nil, 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(knownDir, "reindexed.mig"), nil, 0o600))
-	writePayload(t, knownDir, "task-known", 5, "unit-known", className,
-		ReindexTypeChangeTokenization, []string{"known"})
-
-	orphanDir := filepath.Join(migsDir, "searchable_retokenize_orphan_1")
-	require.NoError(t, os.MkdirAll(orphanDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(orphanDir, "started.mig"), nil, 0o600))
-	writePayload(t, orphanDir, "task-orphan", 9, "unit-orphan", className,
-		ReindexTypeChangeTokenization, []string{"orphan"})
+	knownDir := mkAuditTracker(t, lsmPath, "searchable_retokenize_known_1",
+		"task-known", 5, "unit-known", MigrationStateIterated, "known")
+	orphanDir := mkAuditTracker(t, lsmPath, "searchable_retokenize_orphan_1",
+		"task-orphan", 9, "unit-orphan", MigrationStateIterating, "orphan")
 	// S2: pre-age the quarantine sentinel so this single sweep exercises
 	// the post-quarantine destructive-cleanup path. The first sweep
 	// would otherwise only quarantine and defer cleanup.
@@ -169,9 +121,7 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 	assert.Empty(t, outcome.FailedDirs)
 
 	_, err = os.Stat(knownDir)
-	require.NoError(t, err)
-	_, err = os.Stat(filepath.Join(knownDir, "started.mig"))
-	require.NoError(t, err)
+	require.NoError(t, err, "a tracker whose task the cluster still knows is not an orphan")
 
 	_, err = os.Stat(orphanDir)
 	assert.True(t, os.IsNotExist(err), "orphan tracker dir must be removed; stat err=%v", err)
@@ -195,12 +145,8 @@ func TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard(t *testing.T) {
 		{"gamma", "searchable_retokenize_gamma_1"},
 	}
 	for i, o := range orphans {
-		dir := filepath.Join(migs, o.dir)
-		require.NoError(t, os.MkdirAll(dir, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
-		writePayload(t, dir, fmt.Sprintf("task-orphan-%d", i), uint64(i+1),
-			fmt.Sprintf("unit-orphan-%d", i), className,
-			ReindexTypeChangeTokenization, []string{o.prop})
+		dir := mkAuditTracker(t, lsmPath, o.dir, fmt.Sprintf("task-orphan-%d", i),
+			uint64(i+1), fmt.Sprintf("unit-orphan-%d", i), MigrationStateIterating, o.prop)
 		// S2: pre-age the quarantine sentinel so this single sweep
 		// runs the destructive cleanup path.
 		writePreAgedQuarantineSentinel(t, dir)
@@ -224,22 +170,16 @@ func TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard(t *testing.T) {
 	}
 }
 
-// TestAuditOrphanReindexTrackers_TidiedTrackerLeftAlone pins that a
-// tracker with tidied.mig (deferred-finalize state) is never wiped by
-// the audit, even when its DTM task is unknown.
-func TestAuditOrphanReindexTrackers_TidiedTrackerLeftAlone(t *testing.T) {
+// TestAuditOrphanReindexTrackers_CommittedTrackerLeftAlone pins that a
+// migration whose data is committed is never wiped by the audit, even when
+// its DTM task is unknown: from there its directories back live buckets.
+func TestAuditOrphanReindexTrackers_CommittedTrackerLeftAlone(t *testing.T) {
 	ctx := testCtx()
-	className := "AuditTidiedClass"
+	className := "AuditCommittedClass"
 	shd, idx := testShard(t, ctx, className)
 
-	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
-	dir := filepath.Join(migs, "searchable_retokenize_body_1")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	for _, s := range []string{"started.mig", "reindexed.mig", "swapped.mig", "tidied.mig"} {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, s), nil, 0o600))
-	}
-	writePayload(t, dir, "task-finished", 1, "unit-0", className,
-		ReindexTypeChangeTokenization, []string{"body"})
+	dir := mkAuditTracker(t, shd.(*Shard).pathLSM(), "searchable_retokenize_body_1",
+		"task-finished", 1, "unit-0", MigrationStateSwapped, "body")
 
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
@@ -249,11 +189,12 @@ func TestAuditOrphanReindexTrackers_TidiedTrackerLeftAlone(t *testing.T) {
 	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
 	require.NoError(t, err)
 	assert.Equal(t, AuditStatusRan, outcome.Status,
-		"tidied tracker is not an orphan; status must be ran with zero orphans")
+		"a committed migration is not an orphan; status must be ran with zero orphans")
 	assert.Equal(t, 0, outcome.OrphansFound)
 
-	_, err = os.Stat(filepath.Join(dir, "tidied.mig"))
-	require.NoError(t, err, "tidied tracker must survive the audit even when classified as unknown")
+	_, err = os.Stat(dir)
+	require.NoError(t, err,
+		"a committed migration must survive the audit even when its task is unknown")
 }
 
 func TestAuditOrphanReindexTrackers_NoMigrationsDir(t *testing.T) {
@@ -333,12 +274,8 @@ func TestSetReindexAuditDeps_ReplaysDeferredRequests(t *testing.T) {
 	shd, idx := testShard(t, ctx, className)
 
 	// Set up an on-disk orphan tracker BEFORE deps are installed.
-	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
-	dir := filepath.Join(migs, "searchable_retokenize_body_1")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
-	writePayload(t, dir, "task-orphan-deferred", 7, "unit-deferred", className,
-		ReindexTypeChangeTokenization, []string{"body"})
+	dir := mkAuditTracker(t, shd.(*Shard).pathLSM(), "searchable_retokenize_body_1",
+		"task-orphan-deferred", 7, "unit-deferred", MigrationStateIterating, "body")
 	// S2: pre-age the quarantine sentinel so the replay sweep
 	// completes destructive cleanup synchronously rather than only
 	// quarantining and deferring.
@@ -396,12 +333,8 @@ func TestSetReindexAuditDeps_NoReplayWhenCounterZero(t *testing.T) {
 
 	// Place an orphan on disk. If SetReindexAuditDeps incorrectly
 	// always replays, the orphan would be removed.
-	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
-	dir := filepath.Join(migs, "searchable_retokenize_body_1")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
-	writePayload(t, dir, "task-noreplay", 11, "unit-noreplay", className,
-		ReindexTypeChangeTokenization, []string{"body"})
+	dir := mkAuditTracker(t, shd.(*Shard).pathLSM(), "searchable_retokenize_body_1",
+		"task-noreplay", 11, "unit-noreplay", MigrationStateIterating, "body")
 
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
@@ -429,12 +362,8 @@ func TestAuditOrphanReindexTrackers_TwoSweepCycle_ClassicalOrphan(t *testing.T) 
 	className := "AuditTwoSweepCycle"
 	shd, idx := testShard(t, ctx, className)
 
-	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
-	dir := filepath.Join(migs, "searchable_retokenize_body_1")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
-	writePayload(t, dir, "task-orphan", 9, "unit-orphan", className,
-		ReindexTypeChangeTokenization, []string{"body"})
+	dir := mkAuditTracker(t, shd.(*Shard).pathLSM(), "searchable_retokenize_body_1",
+		"task-orphan", 9, "unit-orphan", MigrationStateIterating, "body")
 
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
@@ -476,12 +405,8 @@ func TestAuditOrphanReindexTrackers_FirstSweep_OnlyQuarantines(t *testing.T) {
 	className := "AuditFirstSweepQuarantine"
 	shd, idx := testShard(t, ctx, className)
 
-	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
-	dir := filepath.Join(migs, "searchable_retokenize_body_1")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
-	writePayload(t, dir, "task-orphan", 9, "unit-orphan", className,
-		ReindexTypeChangeTokenization, []string{"body"})
+	dir := mkAuditTracker(t, shd.(*Shard).pathLSM(), "searchable_retokenize_body_1",
+		"task-orphan", 9, "unit-orphan", MigrationStateIterating, "body")
 
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
@@ -514,12 +439,8 @@ func TestAuditOrphanReindexTrackers_SecondSweep_ClearsSentinelWhenTaskLive(t *te
 	className := "AuditSecondSweepClear"
 	shd, idx := testShard(t, ctx, className)
 
-	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
-	dir := filepath.Join(migs, "searchable_retokenize_body_1")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
-	writePayload(t, dir, "task-recovering", 17, "unit-recovering", className,
-		ReindexTypeChangeTokenization, []string{"body"})
+	dir := mkAuditTracker(t, shd.(*Shard).pathLSM(), "searchable_retokenize_body_1",
+		"task-recovering", 17, "unit-recovering", MigrationStateIterating, "body")
 	// Pre-write a quarantine sentinel as if a previous sweep had
 	// already classified this tracker as orphan.
 	writePreAgedQuarantineSentinel(t, dir)
@@ -568,7 +489,6 @@ func TestSidecarDirsForOrphan_StrategyRegistry(t *testing.T) {
 			properties: []string{"body"},
 			wantSidecar: []string{
 				"property_body_searchable__retokenize_ingest_2",
-				"property_body_searchable__retokenize_backup_2",
 				"property_body_searchable__retokenize_reindex_2",
 			},
 		},
@@ -580,7 +500,6 @@ func TestSidecarDirsForOrphan_StrategyRegistry(t *testing.T) {
 			properties: []string{"title"},
 			wantSidecar: []string{
 				"property_title__filt_retokenize_ingest_3",
-				"property_title__filt_retokenize_backup_3",
 				"property_title__filt_retokenize_reindex_3",
 			},
 		},
@@ -592,7 +511,6 @@ func TestSidecarDirsForOrphan_StrategyRegistry(t *testing.T) {
 			properties: []string{"alpha"},
 			wantSidecar: []string{
 				"property_alpha__enable_filterable_ingest_1",
-				"property_alpha__enable_filterable_backup_1",
 				"property_alpha__enable_filterable_reindex_1",
 			},
 		},
@@ -604,7 +522,6 @@ func TestSidecarDirsForOrphan_StrategyRegistry(t *testing.T) {
 			properties: []string{"beta"},
 			wantSidecar: []string{
 				"property_beta_searchable__enable_searchable_ingest_4",
-				"property_beta_searchable__enable_searchable_backup_4",
 				"property_beta_searchable__enable_searchable_reindex_4",
 			},
 		},
@@ -616,7 +533,6 @@ func TestSidecarDirsForOrphan_StrategyRegistry(t *testing.T) {
 			properties: []string{"gamma"},
 			wantSidecar: []string{
 				"property_gamma_searchable__rebuild_searchable_ingest_5",
-				"property_gamma_searchable__rebuild_searchable_backup_5",
 				"property_gamma_searchable__rebuild_searchable_reindex_5",
 			},
 		},
@@ -628,7 +544,6 @@ func TestSidecarDirsForOrphan_StrategyRegistry(t *testing.T) {
 			properties: []string{"delta"},
 			wantSidecar: []string{
 				"property_delta_searchable__blockmax_ingest_6",
-				"property_delta_searchable__blockmax_map_6",
 				"property_delta_searchable__blockmax_reindex_6",
 			},
 		},
@@ -663,108 +578,6 @@ func TestSidecarDirsForOrphan_StrategyRegistry(t *testing.T) {
 	}
 }
 
-// TestAuditOrphanReindexTrackers_LegacyTrackerWithoutPayload_Cleaned
-// pins M8: pre-PR-cluster tracker dirs without payload.mig whose
-// mtime predates this process start MUST be classified as class-level
-// orphans and removed. Without the M8 fix they were skipped with a
-// WARN and accumulated indefinitely as disk leak.
-func TestAuditOrphanReindexTrackers_LegacyTrackerWithoutPayload_Cleaned(t *testing.T) {
-	ctx := testCtx()
-	className := "AuditLegacyTrackerClass"
-	shd, idx := testShard(t, ctx, className)
-
-	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
-	dir := filepath.Join(migs, "searchable_retokenize_legacy_1")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
-	// Deliberately do NOT write payload.mig (the pre-PR shape).
-	// Pre-age the S2 quarantine sentinel so this single sweep
-	// exercises the destructive cleanup path. Then force the dir
-	// mtime to be before processStartTime (the legacy classifier
-	// signal); this must come AFTER the sentinel write so the dir's
-	// mtime is not bumped past processStartTime by the file write.
-	writePreAgedQuarantineSentinel(t, dir)
-	legacyMtime := processStartTime.Add(-time.Hour)
-	require.NoError(t, os.Chtimes(dir, legacyMtime, legacyMtime))
-
-	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
-	}
-	knownNothing := func(string, uint64) bool { return false }
-	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
-	require.NoError(t, err)
-	assert.Equal(t, AuditStatusOrphansFound, outcome.Status,
-		"legacy tracker must be classified as orphan and counted")
-	assert.Equal(t, 1, outcome.OrphansFound)
-	assert.Equal(t, 1, outcome.OrphansClean)
-	_, err = os.Stat(dir)
-	assert.Truef(t, os.IsNotExist(err),
-		"legacy tracker dir must be removed; stat err=%v", err)
-}
-
-// TestAuditOrphanReindexTrackers_TrackerWithoutPayloadButFresh_LeftAlone
-// pins M8's safety side: tracker dirs created AFTER process start
-// without payload.mig may be racing the writer and MUST NOT be wiped
-// — they are left for the next audit.
-func TestAuditOrphanReindexTrackers_TrackerWithoutPayloadButFresh_LeftAlone(t *testing.T) {
-	ctx := testCtx()
-	className := "AuditFreshNoPayloadClass"
-	shd, idx := testShard(t, ctx, className)
-
-	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
-	dir := filepath.Join(migs, "searchable_retokenize_fresh_1")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
-	// Force the dir mtime to be AFTER processStartTime — the M8
-	// safety branch: a writer race is possible, must leave alone.
-	freshMtime := processStartTime.Add(time.Hour)
-	require.NoError(t, os.Chtimes(dir, freshMtime, freshMtime))
-
-	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
-	}
-	knownNothing := func(string, uint64) bool { return false }
-	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
-	require.NoError(t, err)
-	assert.Equal(t, AuditStatusRan, outcome.Status,
-		"fresh tracker without payload.mig is left for next audit; no orphan reported")
-	assert.Equal(t, 0, outcome.OrphansFound)
-	_, err = os.Stat(dir)
-	require.NoError(t, err, "fresh tracker MUST survive the audit")
-}
-
-// TestIsLegacyTrackerWithoutPayload_Boundary pins the mtime boundary
-// at processStartTime: strictly-before is legacy; at-process-start is
-// also legacy (mtime <= processStartTime); after-process-start is
-// fresh.
-func TestIsLegacyTrackerWithoutPayload_Boundary(t *testing.T) {
-	cases := []struct {
-		name       string
-		offset     time.Duration
-		wantLegacy bool
-	}{
-		{"hour_before", -time.Hour, true},
-		{"second_before", -time.Second, true},
-		{"at_boundary", 0, true},
-		{"second_after", time.Second, false},
-		{"hour_after", time.Hour, false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			dir := t.TempDir()
-			mtime := processStartTime.Add(c.offset)
-			require.NoError(t, os.Chtimes(dir, mtime, mtime))
-			legacy, gotMtime, err := isLegacyTrackerWithoutPayload(dir)
-			require.NoError(t, err)
-			assert.Equal(t, c.wantLegacy, legacy,
-				"mtime offset %v expected legacy=%v, got %v (mtime=%v, processStart=%v)",
-				c.offset, c.wantLegacy, legacy, gotMtime, processStartTime)
-		})
-	}
-}
-
 // writePreAgedQuarantineSentinel writes the S2 quarantine sentinel
 // into trackerDir with an mtime older than reindexAuditQuarantineWindow,
 // so the *next* AuditOrphanReindexTrackers sweep observes the
@@ -779,21 +592,49 @@ func writePreAgedQuarantineSentinel(t *testing.T, trackerDir string) {
 	require.NoError(t, os.Chtimes(p, aged, aged))
 }
 
-// writePayload mirrors ReindexProvider.persistRecoveryRecord: emits the
-// same JSON shape loadAuditRecord reads.
-func writePayload(t *testing.T, dir, taskID string, taskVersion uint64, unitID, collection string, mt ReindexMigrationType, props []string) {
+// mkAuditTracker plants a migration directory and the record that says whose
+// it is. The record is the only thing the audit classifies by: it carries the
+// task identity the DTM lookup is asked about and the property list the
+// cleanup then runs over.
+//
+// state decides whether the tracker is a candidate at all. The audit exempts a
+// migration whose data is committed, because from there the directories back
+// live buckets.
+func mkAuditTracker(t *testing.T, lsmPath, trackerName, taskID string, taskVersion uint64,
+	unitID string, state MigrationState, props ...string,
+) string {
 	t.Helper()
-	rec := reindexRecoveryRecord{
-		TaskID:      taskID,
-		TaskVersion: taskVersion,
-		UnitID:      unitID,
-		Payload: ReindexTaskPayload{
-			Collection:    collection,
-			MigrationType: mt,
-			Properties:    props,
+	mkTrackerDir(t, lsmPath, trackerName)
+	subject := MigrationSubject{
+		Key: MigrationRecordKey{
+			TaskVersion:  taskVersion,
+			StrategyCode: StrategyCodeSearchableRetokenize,
+			UnitID:       unitID,
 		},
+		TaskID:        taskID,
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    props,
+		TrackerDir:    trackerName,
+		StagedDirs:    map[string]string{},
+		CanonicalDirs: map[string]string{},
 	}
-	data, err := json.Marshal(rec)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), data, 0o600))
+	for _, prop := range props {
+		subject.StagedDirs[prop] = "property_" + prop + "_searchable__retokenize_ingest_1"
+		subject.CanonicalDirs[prop] = "property_" + prop + "_searchable"
+	}
+
+	var rec MigrationRecord
+	switch state {
+	case MigrationStateIterating:
+		rec = NewMigrationRecordIterating(subject, MigrationCheckpoint{})
+	case MigrationStateIterated:
+		rec = NewMigrationRecordIterated(subject)
+	case MigrationStateSwapped:
+		rec = NewMigrationRecordSwapped(subject, props, subject.CanonicalDirs)
+	default:
+		require.FailNowf(t, "unsupported fixture state", "%q", state)
+	}
+	logger, _ := test.NewNullLogger()
+	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
+	return filepath.Join(lsmPath, ".migrations", trackerName)
 }

@@ -542,8 +542,8 @@ var sidecarRoleWords = []string{"reindex", "ingest"}
 //
 // The dir a crashed [lsmkv.Store.ReplaceBuckets] leaves behind is matched by
 // whole name, since "del" is no migration role word. It is swept here because
-// nothing else removes it, and it can never be preserved: the preserve set
-// holds migration suffixes only ([completedMigrationSidecarSuffixes]).
+// nothing else removes it, and it can never be preserved: only a directory a
+// committed record names is.
 //
 // Still too weak: a property named "a__<word>_<role>" (or "a___del") reads as
 // a sidecar of "a" on all three index types, so sweeping "a" deletes that
