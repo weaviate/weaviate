@@ -348,10 +348,11 @@ func TestIndex_getShardsStatus(t *testing.T) {
 	clusterNodes := []string{"node-0", "node-1", "node-2"}
 	targetNode := clusterNodes[0]
 	shardReplicas := map[string][]string{
-		"shard_local":          clusterNodes,
-		"shard_not_local":      clusterNodes[1:],
-		"remote_not_reachable": clusterNodes,
-		"local_not_reachable":  clusterNodes,
+		"shard_local":             clusterNodes,
+		"shard_not_local":         clusterNodes[1:],
+		"remote_not_reachable":    clusterNodes,
+		"local_not_reachable":     clusterNodes,
+		"no_local_none_reachable": clusterNodes[1:],
 	}
 	shardStatus := map[string]map[string]string{
 		"shard_local": {
@@ -373,6 +374,10 @@ func TestIndex_getShardsStatus(t *testing.T) {
 			"node-2": storagestate.StatusReady.String(),
 			"node-1": storagestate.StatusReady.String(),
 		},
+		"no_local_none_reachable": {
+			"node-1": NodeUnresponsive, // Remote replica failed to report status.
+			"node-2": storagestate.StatusReady.String(),
+		},
 	}
 
 	// NodeUnresponsive should not be in the final response.
@@ -383,11 +388,15 @@ func TestIndex_getShardsStatus(t *testing.T) {
 	want["local_not_reachable"] = maps.Clone(want["local_not_reachable"])
 	want["local_not_reachable"]["node-0"] = storagestate.StatusUnavailable.String()
 
+	want["no_local_none_reachable"] = maps.Clone(want["no_local_none_reachable"])
+	want["no_local_none_reachable"]["node-1"] = storagestate.StatusUnavailable.String()
+
 	wantLegacy := map[string]string{
-		"shard_local":          storagestate.StatusReady.String(),
-		"shard_not_local":      storagestate.StatusIndexing.String(),
-		"remote_not_reachable": storagestate.StatusReady.String(),
-		"local_not_reachable":  storagestate.StatusUnavailable.String(),
+		"shard_local":             storagestate.StatusReady.String(),
+		"shard_not_local":         storagestate.StatusIndexing.String(),
+		"remote_not_reachable":    storagestate.StatusReady.String(),
+		"local_not_reachable":     storagestate.StatusUnavailable.String(),
+		"no_local_none_reachable": storagestate.StatusUnavailable.String(),
 	}
 
 	var replicas []types.Replica
@@ -478,8 +487,8 @@ func TestIndex_getShardsStatus(t *testing.T) {
 
 	// Assert
 	assert.NoError(t, err)
-	require.Equal(t, want, got, "shard statuses")
-	require.Equal(t, wantLegacy, gotLegacy, "legacy statuses")
+	assert.Equal(t, want, got, "shard statuses")
+	assert.Equal(t, wantLegacy, gotLegacy, "legacy statuses")
 }
 
 // TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement pins the

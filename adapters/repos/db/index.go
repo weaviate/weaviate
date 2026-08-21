@@ -4266,11 +4266,12 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 						localShardOperationRead,
 						0,
 					)
-					oneNodeStatus.Store(storagestate.StatusUnavailable.String())
 					if err == nil && shard != nil {
 						status := shard.GetStatus().String()
 						oneNodeStatus.Store(status)
 						perNodeStatus[nodeName] = status
+					} else {
+						oneNodeStatus.Store(storagestate.StatusUnavailable.String())
 					}
 					release()
 				} else {
@@ -4278,6 +4279,8 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 					if status, err = i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
 						oneNodeStatus.CompareAndSwap(nil, status)
 						perNodeStatus[nodeName] = status
+					} else {
+						oneNodeStatus.CompareAndSwap(nil, storagestate.StatusUnavailable.String())
 					}
 				}
 
