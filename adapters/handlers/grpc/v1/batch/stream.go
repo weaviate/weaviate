@@ -363,7 +363,7 @@ func (h *StreamHandler) close(streamId string, wg *sync.WaitGroup) {
 	h.workerStatsPerStream.Delete(streamId)
 }
 
-func (h *StreamHandler) recv(stream pb.Weaviate_BatchStreamServer) (chan *pb.BatchStreamRequest, chan error) {
+func (h *StreamHandler) recv(ctx context.Context, stream pb.Weaviate_BatchStreamServer) (chan *pb.BatchStreamRequest, chan error) {
 	reqCh := make(chan *pb.BatchStreamRequest)
 	errCh := make(chan error)
 	enterrors.GoWrapper(func() {
@@ -372,16 +372,23 @@ func (h *StreamHandler) recv(stream pb.Weaviate_BatchStreamServer) (chan *pb.Bat
 			close(reqCh)
 		}()
 		for {
-			// stream context is cancelled once the send() method returns
-			// cleaning up this goroutine without needing any additional signalling
-			// i.e. when the stream is closed by the client or an error occurs
-			// including server shutdowns
+			// stream context cancellation unblocks stream.Recv, e.g. when the stream
+			// is closed by the client, an error occurs or the server shuts down
 			req, err := stream.Recv()
 			if err != nil {
-				errCh <- err
+				// the consumer (receiver) cancels ctx on every exit path; without the
+				// select a send after the consumer is gone blocks forever (issue #12749)
+				select {
+				case errCh <- err:
+				case <-ctx.Done():
+				}
 				return
 			}
-			reqCh <- req
+			select {
+			case reqCh <- req:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}, h.logger)
 	return reqCh, errCh
@@ -404,7 +411,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 	shuttingDownDone := h.shuttingDownCtx.Done()
 	var gracePeriod <-chan time.Time
 
-	reqCh, errCh := h.recv(stream)
+	reqCh, errCh := h.recv(ctx, stream)
 	for {
 		// we must check for shutting down before we start blocking on h.recv in the event
 		// that the client is misbehaving by sending more messages after the shutdown signal
