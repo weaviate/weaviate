@@ -384,10 +384,17 @@ func (h *StreamHandler) recv(stream pb.Weaviate_BatchStreamServer) (chan *pb.Bat
 			// including server shutdowns
 			req, err := stream.Recv()
 			if err != nil {
-				errCh <- err
+				select {
+				case errCh <- err:
+				case <-stream.Context().Done():
+				}
 				return
 			}
-			reqCh <- req
+			select {
+			case reqCh <- req:
+			case <-stream.Context().Done():
+				return
+			}
 		}
 	}, h.logger)
 	return reqCh, errCh
