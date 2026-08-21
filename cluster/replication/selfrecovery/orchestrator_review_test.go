@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 )
 
 func quietLogger() *logrus.Logger {
@@ -183,6 +184,44 @@ func TestRunOne_GiveUpAfterMaxAttempts(t *testing.T) {
 
 	require.InDelta(t, beforeGiveup+1, testutil.ToFloat64(o.metrics.GiveupTotal), 0.001)
 	require.InDelta(t, beforeFailure+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure")), 0.001)
+}
+
+// Pins the delete-during-recovery ghost: a shard gone from the schema settles as cancelled, not retries+give-up.
+func TestRunOne_ShardGoneFromSchemaSettlesCancelled(t *testing.T) {
+	ns := &stubNodeSelector{
+		addrs: map[string]string{"peer1": "10.0.0.1"},
+		ports: map[string]int{"peer1": 50051},
+	}
+	clientFactory := func(_ context.Context, _ string) (copier.FileReplicationServiceClient, error) {
+		return nil, errors.New("unused")
+	}
+	for name, schemaErr := range map[string]error{
+		"class deleted":  clusterschema.ErrClassNotFound,
+		"tenant deleted": clusterschema.ErrShardNotFound,
+	} {
+		t.Run(name, func(t *testing.T) {
+			o := newOrchestratorForTest(t, &stubRaft{},
+				stubSchema{err: fmt.Errorf("read shard replicas: %w", schemaErr)}, ns, clientFactory,
+				stubPathResolver{root: t.TempDir()})
+
+			beforeCancelled := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled"))
+			beforeGiveup := testutil.ToFloat64(o.metrics.GiveupTotal)
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false)
+			}()
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("runOne did not settle for a shard no longer in the schema")
+			}
+
+			require.InDelta(t, beforeCancelled+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled")), 0.001)
+			require.InDelta(t, beforeGiveup, testutil.ToFloat64(o.metrics.GiveupTotal), 0.001)
+		})
+	}
 }
 
 func TestRunOne_EmptyFallbackBootstrapSeverity(t *testing.T) {
