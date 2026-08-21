@@ -13,7 +13,9 @@ package modules
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -106,6 +108,31 @@ func getMultiVector(v models.Vector) ([][]float32, error) {
 	}
 }
 
+// renderSourceValue renders a value into a canonical string so equal logical values in
+// different Go representations compare equal.
+func renderSourceValue(v any) string {
+	switch val := v.(type) {
+	case time.Time:
+		return val.Format(time.RFC3339)
+	case string:
+		// A stored date reads back as an RFC3339Nano string while the request side is a
+		// time.Time; normalize to RFC3339 so the same instant compares equal.
+		if t, err := time.Parse(time.RFC3339, val); err == nil {
+			return t.Format(time.RFC3339)
+		}
+		return val
+	case map[string]any, []any, []map[string]any, []float64, []int, []int64, []bool, []string, []time.Time:
+		// Composites get a deterministic JSON key. []time.Time marshals as RFC3339Nano,
+		// matching the []string disk form, so a date[] round-trip compares equal.
+		// NOTE: scalar dates key at RFC3339, arrays at RFC3339Nano on purpose - do not
+		// align the precisions without fixing the corpus first.
+		if b, err := json.Marshal(val); err == nil {
+			return string(b)
+		}
+	}
+	return fmt.Sprintf("%v", v)
+}
+
 func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 	cfg moduletools.ClassConfig,
 	mod modulecapabilities.Vectorizer[T],
@@ -123,6 +150,8 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 		Name       string
 		IsArray    bool
 		IsBlobHash bool
+		// Generic: a non-text source property compared via its corpus string form.
+		Generic bool
 	}
 	propsToCompare := make([]compareProps, 0)
 
@@ -150,7 +179,9 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 			}
 		}
 
-		if prop.ModuleConfig != nil {
+		// Honor the per-property skip flag only without source properties; with them
+		// membership decides vectorization (PropertyIndexed ignores skip), so must we.
+		if sourcePropsSet == nil && prop.ModuleConfig != nil {
 			if modConfig, ok := prop.ModuleConfig.(map[string]any)[class.Vectorizer]; ok {
 				if skip, ok2 := modConfig.(map[string]any)["skip"]; ok2 && skip == true {
 					continue
@@ -175,6 +206,29 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 				IsBlobHash: schema.IsBlobHashDataType(prop.DataType),
 			})
 			continue
+		}
+
+		// A blob/blobHash vectorizes like any indexed string, so a change must
+		// re-vectorize; IsBlobHash routes through the same hash normalization as
+		// media properties.
+		if schema.IsBlobLikeDataType(prop.DataType) {
+			propsToCompare = append(propsToCompare, compareProps{
+				Name:       prop.Name,
+				IsBlobHash: schema.IsBlobHashDataType(prop.DataType),
+			})
+			continue
+		}
+
+		// With source properties set, the corpus also vectorizes non-text types
+		// (number/int/bool/date/object + array variants); compare those generically.
+		if sourcePropsSet != nil {
+			switch schema.DataType(prop.DataType[0]) {
+			case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate,
+				schema.DataTypeIntArray, schema.DataTypeNumberArray, schema.DataTypeBooleanArray, schema.DataTypeDateArray,
+				schema.DataTypeObject, schema.DataTypeObjectArray:
+				propsToCompare = append(propsToCompare, compareProps{Name: prop.Name, Generic: true})
+			default:
+			}
 		}
 	}
 
@@ -211,6 +265,14 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 		}
 
 		if !isPresentNew {
+			continue
+		}
+
+		if propStruct.Generic {
+			// Compare via the corpus rendering, not the raw Go value (see renderSourceValue).
+			if renderSourceValue(valOld) != renderSourceValue(valNew) {
+				return true, nil
+			}
 			continue
 		}
 
