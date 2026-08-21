@@ -234,6 +234,23 @@ func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec Migration
 // Swapped and re-runs idempotent directory work instead of re-deciding a
 // question whose inputs may have changed.
 func (r *migrationReconciler) commitMerged(subject MigrationSubject, why string) (MigrationRecordSwapped, error) {
+	// No flip has happened yet, so every staged directory this decision
+	// promotes must still be there. Recording the decision without it would
+	// leave promotion probing an absent staged directory, which it reads as
+	// proof the rename already ran — stamping the migration complete over the
+	// pre-migration data still sitting at the canonical name.
+	for _, prop := range subject.Properties {
+		staged := subject.StagedDirs[prop]
+		there, err := r.dirExists(staged)
+		if err != nil {
+			return MigrationRecordSwapped{}, err
+		}
+		if !there {
+			return MigrationRecordSwapped{}, fmt.Errorf(
+				"refusing to commit the flip: property %q names no staged directory %q to promote", prop, staged)
+		}
+	}
+
 	displaced := make(map[string]string, len(subject.Properties))
 	for _, prop := range subject.Properties {
 		displaced[prop] = subject.CanonicalDirs[prop]

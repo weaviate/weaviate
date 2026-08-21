@@ -217,6 +217,7 @@ func TestReconcileMergedDisposition(t *testing.T) {
 		name            string
 		task            *distributedtask.Task
 		tasksUnreadable bool
+		noStagedDir     bool
 		class           *models.Class
 		wantState       MigrationState
 		wantRecord      bool
@@ -312,6 +313,19 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			wantCanonical:   "property_title",
 		},
 		{
+			// Promotion reads an absent staged directory as proof its rename
+			// already ran. Committing here would therefore stamp the migration
+			// complete while the canonical name still holds pre-migration data.
+			name:           "task finished but the staged data is gone: freeze rather than stamp it complete",
+			task:           testTask(taskID, 42, distributedtask.TaskStatusFinished),
+			noStagedDir:    true,
+			class:          testClassWithTokenization(models.PropertyTokenizationLowercase, "title"),
+			wantState:      MigrationStateMerged,
+			wantRecord:     true,
+			wantStagedGone: true,
+			wantCanonical:  "property_title",
+		},
+		{
 			name:          "collection missing from the applied schema is an anomaly, not a licence to delete",
 			class:         nil,
 			wantState:     MigrationStateMerged,
@@ -331,7 +345,11 @@ func TestReconcileMergedDisposition(t *testing.T) {
 
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
 			subject.TaskID = taskID
-			f.mkdirs("m_42_title", "m_42_sidecar", "property_title")
+			if tt.noStagedDir {
+				f.mkdirs("m_42_sidecar", "property_title")
+			} else {
+				f.mkdirs("m_42_title", "m_42_sidecar", "property_title")
+			}
 			f.put(NewMigrationRecordMerged(subject))
 
 			f.reconcile()
