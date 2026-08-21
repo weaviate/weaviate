@@ -136,6 +136,7 @@ type MigrationSubject struct {
 type MigrationRecord interface {
 	State() MigrationState
 	Subject() MigrationSubject
+	migrationRecordQuestions
 
 	// toEnvelope both serializes and seals: an unexported method keeps the
 	// variant set closed to this package.
@@ -180,6 +181,10 @@ type MigrationRecordMerged struct {
 type MigrationRecordSwapped struct {
 	migrationRecordBase
 	migrationFlipBlock
+
+	// runtimeFlipped is the in-process flip window and is never serialized:
+	// nil means every recorded flip is done, which is what a load always sees.
+	runtimeFlipped map[string]struct{}
 }
 
 type MigrationRecordPromoted struct {
@@ -200,7 +205,7 @@ func NewMigrationRecordMerged(subject MigrationSubject) MigrationRecordMerged {
 }
 
 func NewMigrationRecordSwapped(subject MigrationSubject, flipped []string, displacedDirs map[string]string) MigrationRecordSwapped {
-	return MigrationRecordSwapped{migrationRecordBase{subject}, migrationFlipBlock{flipped, displacedDirs}}
+	return MigrationRecordSwapped{migrationRecordBase: migrationRecordBase{subject}, migrationFlipBlock: migrationFlipBlock{flipped, displacedDirs}}
 }
 
 func NewMigrationRecordPromoted(subject MigrationSubject, flipped []string, displacedDirs map[string]string) MigrationRecordPromoted {
