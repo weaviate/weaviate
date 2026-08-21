@@ -1334,26 +1334,26 @@ const asyncRepSkipWarnEvery = 20
 
 // noteHashbeatSkip counts a retry-later cycle by reason and escalates long consecutive runs to Warn.
 func (s *Shard) noteHashbeatSkip(err error, loggingFrequency time.Duration) {
-	reason := replica.AsyncReplicationSkipReason(err)
 	skips := s.asyncRepConsecutiveSkips.Add(1)
 	if skips%asyncRepSkipWarnEvery == 0 {
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
 			WithField("shard_name", s.name).
-			WithField("skip_reason", reason).
+			WithField("skip_reason", replica.AsyncReplicationSkipReason(err)).
 			Warnf("hashbeat skipped for %d consecutive cycles: %v", skips, err)
 		return
 	}
-	if time.Since(time.Unix(s.asyncRepFailLastLog.Load(), 0)) >= loggingFrequency {
+	if s.index.debugLoggingEnabled() &&
+		time.Since(time.Unix(s.asyncRepFailLastLog.Load(), 0)) >= loggingFrequency {
 		// Expected during peer restart, freeze upload, or hashtree init — Debug, not Warn.
 		s.asyncRepFailLastLog.Store(time.Now().Unix())
-		s.index.logger.
-			WithField("action", "async_replication").
-			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
-			WithField("skip_reason", reason).
-			Debugf("hashbeat iteration skipped: target replica not ready: %v", err)
+		s.index.logger.WithFields(logrus.Fields{
+			"action":      "async_replication",
+			"class_name":  s.class.Class,
+			"shard_name":  s.name,
+			"skip_reason": replica.AsyncReplicationSkipReason(err),
+		}).Debugf("hashbeat iteration skipped: target replica not ready: %v", err)
 	}
 }
 
@@ -1785,7 +1785,6 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 	}
 
 	// update the shard stats for the target node
-	var toLog []*hashBeatHostStats
 	func() {
 		s.asyncReplicationStatsMux.Lock()
 		defer s.asyncReplicationStatsMux.Unlock()
@@ -1797,23 +1796,10 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 			for _, stat := range stats {
 				if stat != nil {
 					s.asyncReplicationStatsByTargetNode[stat.targetNodeName] = stat
-					toLog = append(toLog, stat)
 				}
 			}
 		}
 	}()
-	for _, stat := range toLog {
-		s.index.logger.WithFields(logrus.Fields{
-			"shard_name":                      s.name,
-			"target_node_name":                stat.targetNodeName,
-			"hashtree_diff_took":              stat.hashtreeDiffTook,
-			"object_digests_diff_took":        stat.objectDigestsDiffTook,
-			"local_object_digests_count":      stat.localObjectDigestsCount,
-			"objects_diff_count":              stat.objectsDiffCount,
-			"local_objects_propagation_count": stat.localObjectsPropagationCount,
-			"local_objects_propagation_took":  stat.localObjectsPropagationTook,
-		}).Debug("updating async replication stats")
-	}
 
 	if err != nil {
 		if ctx.Err() != nil {
@@ -1822,14 +1808,16 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 
 		if errors.Is(err, replicaerrors.ErrNoDiffFound) {
 			s.asyncRepConsecutiveSkips.Store(0)
-			if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
+			// debugLoggingEnabled gates the WithFields allocations and the lock+clone in getLastComparedHosts, not just the emit.
+			if s.index.debugLoggingEnabled() &&
+				time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
 				s.asyncRepLastLog.Store(time.Now().Unix())
-				s.index.logger.
-					WithField("action", "async_replication").
-					WithField("class_name", s.class.Class).
-					WithField("shard_name", s.name).
-					WithField("hosts", s.getLastComparedHosts()).
-					Debug("hashbeat iteration successfully completed: no differences were found")
+				s.index.logger.WithFields(logrus.Fields{
+					"action":     "async_replication",
+					"class_name": s.class.Class,
+					"shard_name": s.name,
+					"hosts":      s.getLastComparedHosts(),
+				}).Debug("hashbeat iteration successfully completed: no differences were found")
 			}
 			return false, replicaerrors.ErrNoDiffFound
 		}
@@ -1861,22 +1849,23 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		}
 	}
 
-	if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
+	if s.index.debugLoggingEnabled() &&
+		time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
 		s.asyncRepLastLog.Store(time.Now().Unix())
 
 		for _, stat := range stats {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				WithField("target_node_name", stat.targetNodeName).
-				WithField("hashtree_diff_took", stat.hashtreeDiffTook).
-				WithField("object_digests_diff_took", stat.objectDigestsDiffTook).
-				WithField("local_object_digests_count", stat.localObjectDigestsCount).
-				WithField("objects_diff_count", stat.objectsDiffCount).
-				WithField("local_objects_propagation_count", stat.localObjectsPropagationCount).
-				WithField("local_objects_propagation_took", stat.localObjectsPropagationTook).
-				Debug("hashbeat iteration successfully completed")
+			s.index.logger.WithFields(logrus.Fields{
+				"action":                          "async_replication",
+				"class_name":                      s.class.Class,
+				"shard_name":                      s.name,
+				"target_node_name":                stat.targetNodeName,
+				"hashtree_diff_took":              stat.hashtreeDiffTook,
+				"object_digests_diff_took":        stat.objectDigestsDiffTook,
+				"local_object_digests_count":      stat.localObjectDigestsCount,
+				"objects_diff_count":              stat.objectsDiffCount,
+				"local_objects_propagation_count": stat.localObjectsPropagationCount,
+				"local_objects_propagation_took":  stat.localObjectsPropagationTook,
+			}).Debug("hashbeat iteration successfully completed")
 		}
 	}
 
