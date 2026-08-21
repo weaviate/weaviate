@@ -435,6 +435,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 
 		var request *pb.BatchStreamRequest
 		var err error
+		var open bool
 		// non-blocking select to receive messages from the stream
 		// this allows us to detect hanging clients during server shutdown
 		// we either receive a request, an error, or a shutdown signal
@@ -443,8 +444,8 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 		// if we receive a request or an error, we process it as normal
 		// if the context is cancelled, we exit the loop
 		select {
-		case request = <-reqCh:
-		case err = <-errCh:
+		case request, open = <-reqCh:
+		case err, open = <-errCh:
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-shuttingDownDone:
@@ -460,6 +461,11 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			log.Warn("grace period expired, closing recv stream")
 			cancel()
 			return fmt.Errorf("server is shutting down, recv stream closed after grace period: %w", ctx.Err())
+		}
+		if !open {
+			// both channels are closed: recv observed ctx.Done and exited without
+			// delivering anything, so the cancellation is the real reason
+			return ctx.Err()
 		}
 
 		if errors.Is(err, io.EOF) {

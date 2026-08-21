@@ -17,6 +17,7 @@ import (
 	"io"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -65,7 +66,8 @@ func TestRecvGoroutineExitsWhenConsumerIsGone(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Zero(t, recvGoroutines(), "leftover recv goroutines from a previous test")
+			require.Eventually(t, func() bool { return recvGoroutines() == 0 }, 3*time.Second, 10*time.Millisecond,
+				"leftover recv goroutines from a previous test")
 			h := &StreamHandler{logger: logrus.New()}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -86,7 +88,8 @@ func TestRecvGoroutineExitsWhenConsumerIsGone(t *testing.T) {
 // TestRecvDeliversRequestsAndError verifies the normal path: requests then the
 // terminating error are delivered, and the goroutine exits closing both channels.
 func TestRecvDeliversRequestsAndError(t *testing.T) {
-	require.Zero(t, recvGoroutines(), "leftover recv goroutines from a previous test")
+	require.Eventually(t, func() bool { return recvGoroutines() == 0 }, 3*time.Second, 10*time.Millisecond,
+		"leftover recv goroutines from a previous test")
 	h := &StreamHandler{logger: logrus.New()}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -119,4 +122,55 @@ func TestRecvDeliversRequestsAndError(t *testing.T) {
 	_, open = <-errCh
 	require.False(t, open, "errCh should be closed after recv exits")
 	require.Eventually(t, func() bool { return recvGoroutines() == 0 }, 3*time.Second, 10*time.Millisecond)
+}
+
+// TestReceiverReportsCancellationNotClosedChannels covers the follow-up to issue
+// #12749: once recv exits through ctx.Done and closes its channels, receiver must
+// report the cancellation instead of misreading the closed channels as a nil
+// request ("invalid batch send request"). The hot request loop gives the race
+// window many chances; with the fix the misread is impossible, so the test passes
+// deterministically.
+func TestReceiverReportsCancellationNotClosedChannels(t *testing.T) {
+	emptyData := &pb.BatchStreamRequest{
+		Message: &pb.BatchStreamRequest_Data_{Data: &pb.BatchStreamRequest_Data{}},
+	}
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	for i := 0; i < 100; i++ {
+		h := &StreamHandler{
+			logger:               logger,
+			shuttingDownCtx:      context.Background(),
+			reportingQueues:      NewReportingQueues(),
+			workerStatsPerStream: &sync.Map{},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		recvErr := errors.New("stream aborted")
+		// a data message without values makes receiver log a warning and continue,
+		// so it cycles between its select and the processing code while requests
+		// keep arriving; the cancel below lands at an arbitrary point of that loop
+		stream := &fakeRecvStream{recvFn: func() (*pb.BatchStreamRequest, error) {
+			select {
+			case <-ctx.Done():
+				return nil, recvErr
+			default:
+				return emptyData, nil
+			}
+		}}
+
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- h.receiver(ctx, "test-stream", nil, stream)
+		}()
+		time.Sleep(time.Millisecond)
+		cancel()
+
+		select {
+		case err := <-errCh:
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), "invalid batch send request",
+				"receiver misread closed recv channels as a nil request")
+		case <-time.After(3 * time.Second):
+			t.Fatal("receiver did not return after cancellation")
+		}
+	}
 }
