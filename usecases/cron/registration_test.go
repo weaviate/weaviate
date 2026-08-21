@@ -68,12 +68,12 @@ func scheduleDelay(cr *gocron.Cron, name string) (time.Duration, bool) {
 	return schedule.Delay, ok
 }
 
-func requireRegisteredAt(t *testing.T, cr *gocron.Cron, delay time.Duration) {
+func requireRegisteredAt(t *testing.T, cr *gocron.Cron, name string, delay time.Duration) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		got, ok := scheduleDelay(cr, testJobName)
+		got, ok := scheduleDelay(cr, name)
 		return ok && got == delay
-	}, 2*time.Second, 10*time.Millisecond, "job should be registered at %s", delay)
+	}, 2*time.Second, 10*time.Millisecond, "%s should be registered at %s", name, delay)
 }
 
 // requireNoGoroutine asserts start launched no registration goroutine. wait
@@ -379,7 +379,7 @@ func TestCronsRegistration_Registration(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStarted, started)
 			if tt.wantRegistered {
-				requireRegisteredAt(t, cr, time.Minute)
+				requireRegisteredAt(t, cr, testJobName, time.Minute)
 				return
 			}
 			// Absence needs a settling window; the loop consumes its first
@@ -399,13 +399,13 @@ func TestCronsRegistration_ReRegistrationReplacesTheEntry(t *testing.T) {
 	started, err := c.start(cr, cron.RunOnEveryNode, func(context.Context) {})
 	require.NoError(t, err)
 	require.True(t, started)
-	requireRegisteredAt(t, cr, time.Minute)
+	requireRegisteredAt(t, cr, testJobName, time.Minute)
 
 	before := cr.EntryByName(testJobName).ID
 
 	c.valueCh <- 2 * time.Minute
 
-	requireRegisteredAt(t, cr, 2*time.Minute)
+	requireRegisteredAt(t, cr, testJobName, 2*time.Minute)
 	assert.Len(t, cr.Entries(), 1)
 	// The upsert reuses the entry; a remove-and-add would allocate a new id.
 	assert.Equal(t, before, cr.EntryByName(testJobName).ID)
@@ -442,7 +442,7 @@ func TestCronsRegistration_DisableRemovesRunningJob(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, started)
 			if tt.initial > 0 {
-				requireRegisteredAt(t, cr, tt.initial)
+				requireRegisteredAt(t, cr, testJobName, tt.initial)
 			}
 
 			for _, push := range tt.pushes {
@@ -450,7 +450,7 @@ func TestCronsRegistration_DisableRemovesRunningJob(t *testing.T) {
 			}
 
 			if tt.want > 0 {
-				requireRegisteredAt(t, cr, tt.want)
+				requireRegisteredAt(t, cr, testJobName, tt.want)
 				return
 			}
 			// Poll the log, not the entry: the loop deletes the entry and
@@ -477,7 +477,7 @@ func TestCronsRegistration_BadScheduleKeepsRegistration(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, started)
-	requireRegisteredAt(t, cr, time.Minute)
+	requireRegisteredAt(t, cr, testJobName, time.Minute)
 
 	// No validator clears a sub-second @every, so the parser refuses it.
 	c.resolve = func(time.Duration) (string, bool) { return "@every 500ms", true }
@@ -536,7 +536,7 @@ func TestCronsRegistration_SwapDrainsTickInFlight(t *testing.T) {
 	started, err := c.start(cr, cron.RunOnEveryNode, tick)
 	require.NoError(t, err)
 	require.True(t, started)
-	requireRegisteredAt(t, cr, time.Second)
+	requireRegisteredAt(t, cr, testJobName, time.Second)
 	cr.Start()
 	t.Cleanup(func() { cr.Stop() })
 
@@ -552,7 +552,7 @@ func TestCronsRegistration_SwapDrainsTickInFlight(t *testing.T) {
 	assert.Equal(t, time.Second, delay, "the swap completed before the tick returned")
 
 	close(release)
-	requireRegisteredAt(t, cr, 2*time.Second)
+	requireRegisteredAt(t, cr, testJobName, 2*time.Second)
 	// The barrier alone would also hold the assertion above, so pin the swap
 	// itself: the upsert keeps the entry id, a remove-and-add allocates one.
 	assert.Equal(t, before, cr.EntryByName(testJobName).ID)
@@ -567,7 +567,7 @@ func TestCronsRegistration_ExcludesAcrossRemoveAndReAdd(t *testing.T) {
 	started, err := c.start(cr, cron.RunOnEveryNode, tick)
 	require.NoError(t, err)
 	require.True(t, started)
-	requireRegisteredAt(t, cr, time.Second)
+	requireRegisteredAt(t, cr, testJobName, time.Second)
 	cr.Start()
 	t.Cleanup(func() { cr.Stop() })
 
@@ -584,7 +584,7 @@ func TestCronsRegistration_ExcludesAcrossRemoveAndReAdd(t *testing.T) {
 	assert.Equal(t, int32(1), peak.Load(), "a second tick body must not run alongside the first")
 
 	close(release)
-	requireRegisteredAt(t, cr, time.Second)
+	requireRegisteredAt(t, cr, testJobName, time.Second)
 }
 
 func TestCronsRegistration_RefusedFirstScheduleRegistersNothing(t *testing.T) {
@@ -629,7 +629,7 @@ func TestCronsRegistration_CancelOnChangeEndsTheReplacedTick(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.True(t, started)
-			requireRegisteredAt(t, cr, time.Minute)
+			requireRegisteredAt(t, cr, testJobName, time.Minute)
 
 			// Run the job to read the context it was handed, then replace it.
 			cr.EntryByName(testJobName).Run()
@@ -641,7 +641,7 @@ func TestCronsRegistration_CancelOnChangeEndsTheReplacedTick(t *testing.T) {
 
 			// The cancel runs ahead of the upsert, so a visible replacement
 			// means it has already fired or never will.
-			requireRegisteredAt(t, cr, 2*time.Minute)
+			requireRegisteredAt(t, cr, testJobName, 2*time.Minute)
 			assert.Equal(t, tt.wantCancelled, replaced.Err() != nil,
 				"only a cancelOnChange job ends the tick it replaces")
 		})
@@ -654,7 +654,7 @@ func TestCronsRegistration_ShutdownAfterTheBarrierRegistersNothing(t *testing.T)
 	started, err := c.start(cr, cron.RunOnEveryNode, func(context.Context) {})
 	require.NoError(t, err)
 	require.True(t, started)
-	requireRegisteredAt(t, cr, time.Minute)
+	requireRegisteredAt(t, cr, testJobName, time.Minute)
 
 	// Stand in for a tick in flight: the loop parks on the barrier, which is
 	// the window the shutdown re-check behind it covers.
@@ -761,7 +761,7 @@ func TestCrons_RuntimeConfigHookReRegistersTheJob(t *testing.T) {
 	started, err := c.start(cr, cron.RunOnEveryNode, func(context.Context) {})
 	require.NoError(t, err)
 	require.True(t, started)
-	requireRegisteredAt(t, cr, time.Minute)
+	requireRegisteredAt(t, cr, testJobName, time.Minute)
 
 	// Through the map startup reads, not the method: that map is the only
 	// thing joining a runtime config change to the registration loop.
@@ -770,5 +770,5 @@ func TestCrons_RuntimeConfigHookReRegistersTheJob(t *testing.T) {
 	interval.Store(int64(2 * time.Minute))
 	require.NoError(t, hook())
 
-	requireRegisteredAt(t, cr, 2*time.Minute)
+	requireRegisteredAt(t, cr, testJobName, 2*time.Minute)
 }

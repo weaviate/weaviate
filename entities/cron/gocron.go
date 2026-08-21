@@ -13,6 +13,7 @@ package cron
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -20,6 +21,9 @@ import (
 // RunOnEveryNode is the tick gate for a cron job every node runs, rather than
 // only the leader.
 func RunOnEveryNode() bool { return true }
+
+// EverySpec renders d as an `@every` cron descriptor.
+func EverySpec(d time.Duration) string { return fmt.Sprintf("@every %s", d) }
 
 func NewGoCronLogger(logger logrus.FieldLogger, infoLevel logrus.Level) *GoCronLogger {
 	return &GoCronLogger{logger: logger, infoLevel: infoLevel}

@@ -1126,7 +1126,9 @@ type Namespaces struct {
 	Enabled bool `json:"enabled" yaml:"enabled"`
 
 	// CleanupInterval drives the deleting-namespace sweep on the leader.
-	// NAMESPACE_CLEANUP_INTERVAL; <= 0 disables.
+	// NAMESPACE_CLEANUP_INTERVAL. Get() reports the configured value; the
+	// cleanup cron applies DefaultNamespaceCleanupInterval at or below zero.
+	// Nothing disables the sweep — a very long interval parks it.
 	CleanupInterval *runtime.DynamicValue[time.Duration] `json:"cleanup_interval" yaml:"cleanup_interval"`
 }
 
