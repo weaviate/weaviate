@@ -58,8 +58,9 @@ type stubNodeSelector struct {
 	ports map[string]int
 }
 
-func (s *stubNodeSelector) NodeAddress(id string) string                      { return s.addrs[id] }
-func (s *stubNodeSelector) NodeGRPCPort(id string) (int, error)               { return s.ports[id], nil }
+func (s *stubNodeSelector) NodeAddress(id string) string        { return s.addrs[id] }
+func (s *stubNodeSelector) NodeGRPCPort(id string) (int, error) { return s.ports[id], nil }
+
 func (s *stubNodeSelector) NodeHostname(id string) (string, bool)             { return s.addrs[id], true }
 func (s *stubNodeSelector) AllHostnames() []string                            { return nil }
 func (s *stubNodeSelector) AllOtherClusterMembers(port int) map[string]string { return nil }
