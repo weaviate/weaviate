@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
@@ -88,8 +89,8 @@ func (sc swapWindowScenario) run(t *testing.T) *lsmkv.Bucket {
 
 	injected := false
 	origSwap := task.processOneSwapPropFn
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, prop string) (*lsmkv.Bucket, error) {
-		oldMain, err := origSwap(ctx, store, rt, propIdx, prop)
+	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, propIdx int, prop string) (*lsmkv.Bucket, error) {
+		oldMain, err := origSwap(ctx, store, propIdx, prop)
 		if err != nil {
 			return oldMain, err
 		}
@@ -167,47 +168,87 @@ func TestReindex_ConcurrentDeleteDuringSwapWindow_NotLost(t *testing.T) {
 		"exactly one object must be removed from the rangeable index after the swap-window delete")
 }
 
-// TestResolveDoubleWriteBucket_FallsBackAfterSwap is the hook-free unit test
-// for resolveDoubleWriteBucket against the exact store state SwapBucketPointer
-// produces (weaviate/weaviate#11688) — see that function's doc for the
-// resolution rules.
-func TestResolveDoubleWriteBucket_FallsBackAfterSwap(t *testing.T) {
-	ctx := testCtx()
-	className := "ResolveDoubleWrite_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{"category"})
-	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
+// TestResolveScopedDoubleWriteBucket pins the mirror's bucket resolution
+// against the exact store states the swap produces (weaviate/weaviate#11688).
+// The mirror stays armed past the pointer flip, so "the sidecar name is gone"
+// has to mean "follow it to the canonical name", never "write nowhere".
+func TestResolveScopedDoubleWriteBucket(t *testing.T) {
 	// Synthetic names decoupled from any shard-managed bucket, so the resolver
 	// (a pure store map lookup) is exercised in isolation.
-	const sidecarName = "dw_resolver_ingest_sidecar"
-	const canonicalName = "dw_resolver_canonical"
-	require.NoError(t, shard.store.CreateOrLoadBucket(ctx, sidecarName,
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
-	require.NoError(t, shard.store.CreateOrLoadBucket(ctx, canonicalName,
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
+	const (
+		propName      = "category"
+		sidecarName   = "dw_resolver_ingest_sidecar"
+		canonicalName = "dw_resolver_canonical"
+	)
 
-	// Pre-swap: sidecar resolves directly.
-	require.Same(t, shard.store.Bucket(sidecarName),
-		resolveDoubleWriteBucket(shard, sidecarName, canonicalName),
-		"pre-swap the sidecar bucket must be resolved directly")
+	tests := []struct {
+		name        string
+		create      []string
+		swap        bool
+		propsByName map[string]struct{}
+		wantBucket  string
+		wantSkip    bool
+	}{
+		{
+			name:        "the sidecar is registered, so the mirror writes into it",
+			create:      []string{sidecarName, canonicalName},
+			propsByName: map[string]struct{}{propName: {}},
+			wantBucket:  sidecarName,
+		},
+		{
+			name:        "the flip unregistered the sidecar name, so the mirror follows to the canonical one",
+			create:      []string{sidecarName, canonicalName},
+			swap:        true,
+			propsByName: map[string]struct{}{propName: {}},
+			wantBucket:  canonicalName,
+		},
+		{
+			name:        "neither name resolves: no-op rather than a nil dereference",
+			propsByName: map[string]struct{}{propName: {}},
+			wantSkip:    true,
+		},
+		{
+			name:        "a property outside the migration's scope is skipped before any lookup",
+			create:      []string{sidecarName, canonicalName},
+			propsByName: map[string]struct{}{"other": {}},
+			wantSkip:    true,
+		},
+	}
 
-	// The production swap: canonical takes over the sidecar's physical bucket
-	// and the sidecar NAME is unregistered.
-	_, err := shard.store.SwapBucketPointer(ctx, canonicalName, sidecarName)
-	require.NoError(t, err)
-	require.Nil(t, shard.store.Bucket(sidecarName),
-		"sanity: SwapBucketPointer must unregister the sidecar name")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "ResolveDoubleWrite_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{propName})
+			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
 
-	// Ingest-phase: sidecar gone, falls back to canonical (not nil).
-	require.Same(t, shard.store.Bucket(canonicalName),
-		resolveDoubleWriteBucket(shard, sidecarName, canonicalName),
-		"#11688: post-swap the resolver must fall back to the canonical bucket, "+
-			"not return nil (the pre-fix nil deref that panicked the write)")
+			for _, name := range tt.create {
+				require.NoError(t, shard.store.CreateOrLoadBucket(ctx, name,
+					lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
+			}
+			if tt.swap {
+				_, err := shard.store.SwapBucketPointer(ctx, canonicalName, sidecarName)
+				require.NoError(t, err)
+				require.Nil(t, shard.store.Bucket(sidecarName),
+					"sanity: SwapBucketPointer must unregister the sidecar name")
+			}
 
-	// Backup-phase: no fallback, nil is correct (no-op, not loss).
-	require.Nil(t, resolveDoubleWriteBucket(shard, sidecarName, ""),
-		"with no swap-fallback name the resolver must return nil (backup phase)")
+			bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard,
+				&inverted.Property{Name: propName}, tt.propsByName,
+				func(string) string { return sidecarName },
+				func(string) string { return canonicalName })
+
+			require.Equal(t, tt.wantSkip, skip)
+			if tt.wantSkip {
+				require.Nil(t, bucket)
+				return
+			}
+			require.Same(t, shard.store.Bucket(tt.wantBucket), bucket)
+			require.Equal(t, sidecarName, bucketName,
+				"the reported name is the mirror's own, whichever bucket answered it")
+		})
+	}
 }

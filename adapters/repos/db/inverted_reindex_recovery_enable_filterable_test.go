@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -58,6 +59,13 @@ func newEnableFilterableTask(t *testing.T, idx *Index, className, propName strin
 			},
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+	)
+	// Without an identity the task's record key is incomplete and every
+	// transition would refuse to write itself.
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-enable-filterable", Version: 1},
+		"shard-1__node-0",
+		&ReindexTaskPayload{MigrationType: ReindexTypeEnableFilterable},
 	)
 	return task, wrapped
 }
@@ -148,11 +156,10 @@ func TestRecoveryConvergence_EnableFilterable_Baseline(t *testing.T) {
 			"post-migration filterable token %q has no docIDs (posting list is empty)", tok)
 	}
 
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
+	// Swapped rather than Promoted: the flip is durable, and the
+	// staged-to-canonical rename is deliberately left to the next load.
+	rec, ok := task.migrationRecord(shard)
+	require.True(t, ok, "the migration must have left a record")
+	require.Equal(t, MigrationStateSwapped, rec.State())
+	require.Equal(t, []string{propName}, rec.(MigrationRecordSwapped).Flipped())
 }

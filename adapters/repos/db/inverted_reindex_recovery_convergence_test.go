@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -89,6 +90,16 @@ func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 			checkProcessingEveryNoObjects: 1000,
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+	)
+	// Without an identity the task's record key is incomplete and every
+	// transition would refuse to write itself.
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-searchable-retokenize", Version: 1},
+		"shard-1__node-0",
+		&ReindexTaskPayload{
+			MigrationType:      ReindexTypeChangeTokenization,
+			TargetTokenization: targetTokenization,
+		},
 	)
 	return task, wrapped
 }
@@ -167,12 +178,12 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	require.NotNil(t, postBucket, "post-migration searchable bucket must exist")
 	require.Equal(t, lsmkv.StrategyInverted, postBucket.Strategy())
 
-	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
+	// Swapped rather than Promoted: the flip is durable, and the
+	// staged-to-canonical rename is deliberately left to the next load.
+	rec, ok := task.migrationRecord(shard)
+	require.True(t, ok, "the migration must have left a record")
+	require.Equal(t, MigrationStateSwapped, rec.State())
+	require.Equal(t, []string{propName}, rec.(MigrationRecordSwapped).Flipped())
 
 	fp := fingerprintInvertedBucket(t, postBucket)
 	require.NotEmpty(t, fp, "baseline fingerprint must have at least one term")
@@ -225,11 +236,12 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 	return fingerprintInvertedBucket(t, shard.store.Bucket(bucketName))
 }
 
-// recoveryConvergenceCase: drive the shard to a specific on-disk state,
+// recoveryConvergenceCase: drive the shard to a specific recorded state,
 // then restart with a fresh task and assert post-recovery fingerprint
 // matches the baseline.
 type recoveryConvergenceCase struct {
-	name                       string
-	driveToState               func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric)
-	expectedPostStateSentinels map[string]bool // sanity-check the drive-to actually halted there
+	name         string
+	driveToState func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric)
+	// expectedState sanity-checks that the drive-to actually halted there.
+	expectedState MigrationState
 }

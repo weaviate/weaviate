@@ -14,8 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -28,41 +26,27 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Full sentinel-aware [ShardReindexTaskGeneric.RunSwapOnShard] dispatch
-// matrix: 8 strategies × 5 sentinels = 40 cells (32 executed, 8 skipped).
+// Full [ShardReindexTaskGeneric.RunSwapOnShard] dispatch matrix: 8 strategies
+// × every recorded state the dispatch resumes from.
 //
-// Extends [TestRunSwapOnShard_SentinelAwareDispatch] which only covers
-// MapToBlockmax at IsTidied / IsSwapped. weaviate/0-weaviate-issues#214
-// Phase 7c is the dispatch fix being pinned; without it a rolling
-// restart past markPrepended() would call runtimeSwap on a missing
-// reindex bucket, flip the cluster-wide task to FAILED, and leave the
-// already-swapped replicas inverted against the schema.
+// Extends [TestRunSwapOnShard_RecordAwareDispatch], which only covers
+// MapToBlockmax. weaviate/0-weaviate-issues#214 Phase 7c is the dispatch fix
+// being pinned; without it a rolling restart past the prepend would call the
+// full prep+swap on a reindex bucket that is no longer there, flip the
+// cluster-wide task to FAILED, and leave the already-swapped replicas inverted
+// against the schema.
 //
-// IsPrepended cells are skipped: that branch's recoverRuntimeSwapBuckets
-// renames the live mmap'd main bucket dir, which corrupts the segment
-// registry in-process. Production reaches it only post-restart; the
-// recovery-convergence matrices in this directory cover that path.
+// Promoted has no row: the dispatch branches on PointerSwapped, which Promoted
+// answers exactly as Swapped does, so a Promoted cell would repeat the Swapped
+// one. It is also only ever produced by a load, never in-process.
 
-// dispatchMatrixSentinel names one of the five sentinel states.
-type dispatchMatrixSentinel string
-
-const (
-	dispatchMatrixIsReindexed dispatchMatrixSentinel = "IsReindexed"
-	dispatchMatrixIsPrepended dispatchMatrixSentinel = "IsPrepended"
-	dispatchMatrixIsMerged    dispatchMatrixSentinel = "IsMerged"
-	dispatchMatrixIsSwapped   dispatchMatrixSentinel = "IsSwapped"
-	dispatchMatrixIsTidied    dispatchMatrixSentinel = "IsTidied"
-)
-
-// dispatchMatrixAllSentinels is the canonical iteration order; used by
-// the inner loop of each strategy row so the failure output reads
-// left-to-right along the state machine.
-var dispatchMatrixAllSentinels = []dispatchMatrixSentinel{
-	dispatchMatrixIsReindexed,
-	dispatchMatrixIsPrepended,
-	dispatchMatrixIsMerged,
-	dispatchMatrixIsSwapped,
-	dispatchMatrixIsTidied,
+// dispatchMatrixStates is the canonical iteration order, so the failure output
+// reads left-to-right along the state machine.
+var dispatchMatrixStates = []MigrationState{
+	MigrationStateIterating,
+	MigrationStateIterated,
+	MigrationStateMerged,
+	MigrationStateSwapped,
 }
 
 // dispatchMatrixStrategyCase describes one row in the strategy axis. The
@@ -77,8 +61,8 @@ var dispatchMatrixAllSentinels = []dispatchMatrixSentinel{
 type dispatchMatrixStrategyCase struct {
 	strategyName string
 	// path indicates whether the strategy uses the trio (semantic) or
-	// inline (non-semantic) drive-to-state primitives. Affects how each
-	// sentinel cell is reached.
+	// inline (non-semantic) drive-to-state primitives. Affects how each cell
+	// is reached.
 	path dispatchMatrixPath
 	// buildClass returns the class fixture this strategy operates on
 	// (and the property name to migrate — same for every cell).
@@ -257,9 +241,8 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 }
 
 // dispatchMatrixSearchableSourceStrategy looks up the searchable bucket's
-// strategy on a freshly-built class. SearchableRetokenize requires this
-// at construction time so it can stamp the right BackupStrategy on the
-// tracker. Captured in a helper to keep the table init readable.
+// strategy on a freshly-built class. SearchableRetokenize needs it at
+// construction time. Captured in a helper to keep the table init readable.
 func dispatchMatrixSearchableSourceStrategy(t *testing.T, idx *Index, className, propName string) string {
 	t.Helper()
 	// Build a transient shard with the same class to look up the source
@@ -293,84 +276,43 @@ func dispatchMatrixRangeableFingerprintAsString(t *testing.T, b *lsmkv.Bucket) m
 	return out
 }
 
-// dispatchMatrixDriveCell drives the test shard to the requested
-// sentinel state. Returns true on success, false (with t.Skip on the
-// underlying t) if the cell is unreachable at unit level for this
-// strategy.
+// dispatchMatrixDriveCell drives the test shard to the requested recorded
+// state.
 //
-// The drive primitives differ by path:
-//   - inline path: OnAfterLsmInit + OnAfterLsmInitAsync loop with
-//     skipSwapOnFinish for IsReindexed; direct runtimePrepare call for
-//     IsMerged; full migration for IsTidied; synthetic file removal for
-//     IsPrepended/IsSwapped.
-//   - trio path: RunReindexOnlyOnShard for IsReindexed; +RunPrepareOnShard
-//     for IsMerged; +RunSwapOnShard for IsTidied; synthetic file removal
-//     for IsPrepended/IsSwapped.
+// The drive primitives differ by path only where the production route does:
+// inline strategies reach a finished migration through OnAfterLsmInitAsync,
+// semantic ones through the trio. Everything short of that is the trio, whose
+// methods are well-defined for both.
 func dispatchMatrixDriveCell(
 	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	path dispatchMatrixPath, sentinel dispatchMatrixSentinel,
+	path dispatchMatrixPath, state MigrationState,
 ) {
 	t.Helper()
-	switch sentinel {
-	case dispatchMatrixIsReindexed:
-		dispatchMatrixDriveToReindexed(t, ctx, shard, task, path)
-	case dispatchMatrixIsPrepended:
-		// recoverRuntimeSwapBuckets renames the live main bucket dir
-		// while the in-memory store still mmaps its segments; that
-		// corrupts the segment registry and any subsequent path-based
-		// resolve. Production never reaches this dispatch branch in
-		// the same process — it's only entered post-restart on a node
-		// where FinalizeCompletedMigrations did not already advance
-		// the sentinel. See the file godoc above.
-		t.Skip("IsPrepended dispatch branch requires post-restart in-memory state; not safely reachable in a same-process unit test (recoverRuntimeSwapBuckets renames live mmap'd bucket dirs). Convergence matrices cover the post-restart path.")
-	case dispatchMatrixIsMerged:
-		dispatchMatrixDriveToMerged(t, ctx, shard, task, path)
-	case dispatchMatrixIsSwapped:
-		dispatchMatrixDriveToTidied(t, ctx, shard, task, path)
-		dispatchMatrixRemoveTidiedSentinel(t, shard, task)
-	case dispatchMatrixIsTidied:
-		dispatchMatrixDriveToTidied(t, ctx, shard, task, path)
-	default:
-		t.Fatalf("dispatchMatrix: unknown sentinel %q", sentinel)
-	}
-}
-
-func dispatchMatrixDriveToReindexed(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	path dispatchMatrixPath,
-) {
-	t.Helper()
-	switch path {
-	case dispatchMatrixPathTrio:
-		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	case dispatchMatrixPathInline:
-		task.skipSwapOnFinish.Store(true)
+	switch state {
+	case MigrationStateIterating:
+		// Armed, rebuild not started: the dispatch has to resume the
+		// iteration itself before it can decide anything.
 		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-		for {
-			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-			require.NoError(t, err)
-			if rerunAt.IsZero() {
-				break
-			}
-		}
-		// Release the flag — RunSwapOnShard's default branch
-		// (IsReindexed) will re-issue runtimePrepare + runtimeSwap
-		// itself; skipSwapOnFinish on a fresh swap-only call is
-		// undefined and we want the dispatch to behave exactly as it
-		// does in production OnGroupCompleted.
-		task.skipSwapOnFinish.Store(false)
-	}
-}
-
-func dispatchMatrixDriveToMerged(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	path dispatchMatrixPath,
-) {
-	t.Helper()
-	switch path {
-	case dispatchMatrixPathTrio:
-		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	case MigrationStateIterated:
+		dispatchMatrixDriveToIterated(t, ctx, shard, task, path)
+	case MigrationStateMerged:
+		dispatchMatrixDriveToIterated(t, ctx, shard, task, path)
 		require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+	case MigrationStateSwapped:
+		dispatchMatrixDriveToSwapped(t, ctx, shard, task, path)
+	default:
+		t.Fatalf("dispatchMatrix: no drive for state %q", state)
+	}
+}
+
+func dispatchMatrixDriveToIterated(
+	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
+	path dispatchMatrixPath,
+) {
+	t.Helper()
+	switch path {
+	case dispatchMatrixPathTrio:
+		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	case dispatchMatrixPathInline:
 		task.skipSwapOnFinish.Store(true)
 		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
@@ -381,21 +323,14 @@ func dispatchMatrixDriveToMerged(
 				break
 			}
 		}
+		// Release the flag: RunSwapOnShard re-issues prep + swap itself, and
+		// skipSwapOnFinish on a swap-only call is undefined. We want the
+		// dispatch to behave exactly as it does under OnGroupCompleted.
 		task.skipSwapOnFinish.Store(false)
-		// Inline strategies don't expose a trio entry point for prep
-		// alone; call runtimePrepare directly. This matches what the
-		// existing inline-path convergence rows do (e.g.
-		// FilterableToRangeable_IsMerged_via_runtimePrepare_no_runtimeSwap
-		// at inverted_reindex_recovery_filterable_to_rangeable_test.go:472).
-		rt, err := task.newReindexTracker(shard.pathLSM())
-		require.NoError(t, err)
-		props, err := task.readPropsToReindex(rt)
-		require.NoError(t, err)
-		require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
 	}
 }
 
-func dispatchMatrixDriveToTidied(
+func dispatchMatrixDriveToSwapped(
 	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
 	path dispatchMatrixPath,
 ) {
@@ -417,69 +352,19 @@ func dispatchMatrixDriveToTidied(
 	}
 }
 
-// dispatchMatrixRemoveTidiedSentinel removes tidied.mig to synthesize the
-// IsSwapped-without-IsTidied state. runtimeSwap writes markSwapped and
-// markTidied together (no kernel-level guarantee about file order under a
-// crash); the synthetic removal mimics a crash between the two fsyncs.
-func dispatchMatrixRemoveTidiedSentinel(
-	t *testing.T, shard *Shard, task *ShardReindexTaskGeneric,
-) {
+// dispatchMatrixStateOf reads the state the drive actually landed in, so a
+// broken drive cannot let a downstream pass mask a missed setup.
+func dispatchMatrixStateOf(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric) MigrationRecord {
 	t.Helper()
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	ftr := rt.(*fileReindexTracker)
-	require.NoError(t, os.Remove(
-		filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)),
-		"removing tidied.mig to synthesize IsSwapped-only state")
-}
-
-// dispatchMatrixExpectedSentinelsForState returns the sentinel snapshot
-// the test asserts BEFORE calling RunSwapOnShard, so a buggy driveToState
-// doesn't let a downstream pass mask a missed setup.
-func dispatchMatrixExpectedSentinelsForState(s dispatchMatrixSentinel) map[string]bool {
-	switch s {
-	case dispatchMatrixIsReindexed:
-		return map[string]bool{
-			"reindexed": true, "prepended": false, "merged": false, "swapped": false, "tidied": false,
-		}
-	case dispatchMatrixIsPrepended:
-		return map[string]bool{
-			"reindexed": true, "prepended": true, "merged": false, "swapped": false, "tidied": false,
-		}
-	case dispatchMatrixIsMerged:
-		return map[string]bool{
-			"reindexed": true, "prepended": true, "merged": true, "swapped": false, "tidied": false,
-		}
-	case dispatchMatrixIsSwapped:
-		return map[string]bool{
-			"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": false,
-		}
-	case dispatchMatrixIsTidied:
-		return map[string]bool{
-			"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true,
-		}
-	}
-	return nil
-}
-
-// dispatchMatrixReadSentinels snapshots all five sentinels in one call so
-// the assertion failure output displays the full state, not a single
-// missed flag.
-func dispatchMatrixReadSentinels(t *testing.T, rt reindexTracker) map[string]bool {
-	t.Helper()
-	return map[string]bool{
-		"reindexed": rt.IsReindexed(),
-		"prepended": rt.IsPrepended(),
-		"merged":    rt.IsMerged(),
-		"swapped":   rt.IsSwapped(),
-		"tidied":    rt.IsTidied(),
-	}
+	rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
+	require.True(t, ok, "the migration should have a record on this shard")
+	return rec
 }
 
 // dispatchMatrixComputeBaseline computes the post-clean-migration
 // fingerprint on a throw-away shard for this strategy. Each strategy row
-// caches the baseline once and reuses it across the five sentinel cells
-// — every cell's post-RunSwapOnShard fingerprint must match it.
+// caches the baseline once and reuses it across its cells: every cell's
+// post-RunSwapOnShard fingerprint must match it.
 func dispatchMatrixComputeBaseline(
 	t *testing.T, sc dispatchMatrixStrategyCase, numObjects int,
 ) map[string][]uint64 {
@@ -496,7 +381,7 @@ func dispatchMatrixComputeBaseline(
 	dispatchMatrixSeedObjects(t, ctx, shard, sc, className, numObjects)
 
 	task := sc.buildTask(t, idx, className, propName)
-	dispatchMatrixDriveToTidied(t, ctx, shard, task, sc.path)
+	dispatchMatrixDriveToSwapped(t, ctx, shard, task, sc.path)
 
 	return sc.fingerprint(t, shard, sc.fingerprintBucketName(propName))
 }
@@ -521,11 +406,10 @@ func dispatchMatrixSeedObjects(
 	}
 }
 
-// TestRunSwapOnShard_DispatchMatrix: full sentinel × strategy cross
-// product. Each cell drives to the target sentinel via the strategy's
-// primitives, verifies the setup landed, calls RunSwapOnShard, and
-// asserts the target bucket fingerprint matches the baseline. See
-// file-level godoc for the IsPrepended skip rationale.
+// TestRunSwapOnShard_DispatchMatrix: full state × strategy cross product. Each
+// cell drives to the target state via the strategy's primitives, verifies the
+// setup landed, calls RunSwapOnShard, and asserts the target bucket
+// fingerprint matches the baseline.
 func TestRunSwapOnShard_DispatchMatrix(t *testing.T) {
 	const numObjects = 10
 
@@ -539,26 +423,26 @@ func TestRunSwapOnShard_DispatchMatrix(t *testing.T) {
 				"baseline fingerprint for %s must be non-empty (a strategy whose clean migration produces no terms can't anchor convergence assertions)",
 				sc.strategyName)
 
-			for _, sentinel := range dispatchMatrixAllSentinels {
-				sentinel := sentinel
-				t.Run(string(sentinel), func(t *testing.T) {
-					dispatchMatrixRunCell(t, sc, sentinel, numObjects, baseline)
+			for _, state := range dispatchMatrixStates {
+				state := state
+				t.Run(string(state), func(t *testing.T) {
+					dispatchMatrixRunCell(t, sc, state, numObjects, baseline)
 				})
 			}
 		})
 	}
 }
 
-// dispatchMatrixRunCell runs one (strategy, sentinel) cell.
+// dispatchMatrixRunCell runs one (strategy, state) cell.
 func dispatchMatrixRunCell(
 	t *testing.T,
 	sc dispatchMatrixStrategyCase,
-	sentinel dispatchMatrixSentinel,
+	state MigrationState,
 	numObjects int,
 	baseline map[string][]uint64,
 ) {
 	ctx := testCtx()
-	className := "DispatchMatrixCell_" + sc.strategyName + "_" + string(sentinel) + "_" + uuid.NewString()[:6]
+	className := "DispatchMatrixCell_" + sc.strategyName + "_" + string(state) + "_" + uuid.NewString()[:6]
 	class, propName := sc.buildClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
@@ -570,39 +454,20 @@ func dispatchMatrixRunCell(
 
 	task := sc.buildTask(t, idx, className, propName)
 
-	// driveToState may call t.Skip for unreachable cells; if so, the
-	// subtest is recorded as skipped (not failed). The defer-Shutdown
-	// above is still honored on the skip path.
-	dispatchMatrixDriveCell(t, ctx, shard, task, sc.path, sentinel)
+	dispatchMatrixDriveCell(t, ctx, shard, task, sc.path, state)
 
-	// Verify the drive halted at the intended sentinel snapshot.
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	want := dispatchMatrixExpectedSentinelsForState(sentinel)
-	got := dispatchMatrixReadSentinels(t, rt)
-	for name, w := range want {
-		assert.Equalf(t, w, got[name],
-			"pre-RunSwapOnShard sentinel %q (strategy=%s state=%s): want=%v got=%v full=%v",
-			name, sc.strategyName, sentinel, w, got[name], got)
-	}
+	require.Equalf(t, state, dispatchMatrixStateOf(t, shard, task).State(),
+		"the drive landed somewhere other than the state this cell dispatches from (strategy=%s)",
+		sc.strategyName)
 
 	// Call RunSwapOnShard — the dispatch under test.
-	require.NoError(t, task.RunSwapOnShard(ctx, shard),
+	require.NoErrorf(t, task.RunSwapOnShard(ctx, shard),
 		"RunSwapOnShard should succeed for (strategy=%s, state=%s)",
-		sc.strategyName, sentinel)
+		sc.strategyName, state)
 
-	// Post-call: every sentinel should be set (terminal state).
-	rtPost, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	postGot := dispatchMatrixReadSentinels(t, rtPost)
-	postWant := map[string]bool{
-		"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true,
-	}
-	for name, w := range postWant {
-		assert.Equalf(t, w, postGot[name],
-			"post-RunSwapOnShard sentinel %q (strategy=%s state=%s): want=%v got=%v full=%v",
-			name, sc.strategyName, sentinel, w, postGot[name], postGot)
-	}
+	require.Truef(t, dispatchMatrixStateOf(t, shard, task).PointerSwapped(),
+		"every dispatch branch must leave the flip decision durable (strategy=%s state=%s)",
+		sc.strategyName, state)
 
 	// Fingerprint convergence: every term in the baseline must appear
 	// in the post-dispatch bucket with the same sorted docID list. We
@@ -617,11 +482,11 @@ func dispatchMatrixRunCell(
 		if !ok {
 			assert.Failf(t, "missing term post-RunSwapOnShard",
 				"term %q present in baseline but missing post-dispatch (strategy=%s state=%s)",
-				term, sc.strategyName, sentinel)
+				term, sc.strategyName, state)
 			continue
 		}
 		assert.Equalf(t, expectedIDs, gotIDs,
 			"term %q post-dispatch doc-id list diverges from baseline (strategy=%s state=%s)",
-			term, sc.strategyName, sentinel)
+			term, sc.strategyName, state)
 	}
 }

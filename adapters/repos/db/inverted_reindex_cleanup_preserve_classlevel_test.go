@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -47,14 +48,15 @@ func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
 	state MigrationState, staged map[string]string,
 ) {
 	t.Helper()
+	code, migrationType := fixtureStrategyOf(t, trackerName)
 	subject := MigrationSubject{
 		Key: MigrationRecordKey{
 			TaskVersion:  fixtureRecordVersion(trackerName),
-			StrategyCode: StrategyCodeSearchableRetokenize,
+			StrategyCode: code,
 			UnitID:       "shard-1__node-0",
 		},
 		TaskID:        "fixture:" + trackerName,
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: migrationType,
 		TrackerDir:    trackerName,
 		StagedDirs:    map[string]string{},
 		CanonicalDirs: map[string]string{},
@@ -86,11 +88,42 @@ func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
 	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
 }
 
+// fixtureStrategyOf reads the strategy a tracker dir belongs to off its name,
+// which is what the writer of that name did. Production never holds a record
+// whose code disagrees with the directory it points at, so neither does a
+// fixture.
+func fixtureStrategyOf(t *testing.T, trackerName string) (MigrationStrategyCode, ReindexMigrationType) {
+	t.Helper()
+	for _, known := range []struct {
+		prefix string
+		code   MigrationStrategyCode
+		mType  ReindexMigrationType
+	}{
+		{MigrationDirSearchableMapToBlockmax, StrategyCodeSearchableMapToBlockmax, ReindexTypeChangeAlgorithm},
+		{MigrationDirFilterableRoaringsetRefresh, StrategyCodeFilterableRoaringsetRefresh, ReindexTypeRepairFilterable},
+		{MigrationDirPrefixFilterableToRangeable, StrategyCodeFilterableToRangeable, ReindexTypeEnableRangeable},
+		{MigrationDirPrefixSearchableRetokenize, StrategyCodeSearchableRetokenize, ReindexTypeChangeTokenization},
+		{MigrationDirPrefixFilterableRetokenize, StrategyCodeFilterableRetokenize, ReindexTypeChangeTokenizationFilterable},
+		{MigrationDirPrefixEnableFilterable, StrategyCodeEnableFilterable, ReindexTypeEnableFilterable},
+		{MigrationDirPrefixEnableSearchable, StrategyCodeEnableSearchable, ReindexTypeEnableSearchable},
+		{MigrationDirPrefixRebuildSearchable, StrategyCodeRebuildSearchable, ReindexTypeRebuildSearchable},
+	} {
+		if strings.HasPrefix(trackerName, known.prefix) {
+			return known.code, known.mType
+		}
+	}
+	require.FailNowf(t, "no strategy owns this tracker dir name", "%q", trackerName)
+	return "", ""
+}
+
 func fixtureRecordVersion(trackerName string) uint64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(trackerName))
 	// Zero is not a valid generation, and the record loader rejects it.
-	return h.Sum64()%1_000_000 + 1
+	if v := h.Sum64(); v != 0 {
+		return v
+	}
+	return 1
 }
 
 // mkRecoveryPayload writes the payload.mig a task persists before it starts,

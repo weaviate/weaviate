@@ -13,8 +13,6 @@ package db
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -24,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -33,8 +32,8 @@ import (
 // existing BlockMax bucket from objects. Source and target are both
 // StrategyInverted, so the test class needs UsingBlockMaxWAND=true.
 // Driven via the trio Run*OnShard methods even though production
-// dispatches via RunOnShard; recovery dispatches off the on-disk
-// sentinel, indifferent to invocation route.
+// dispatches via RunOnShard; recovery dispatches off the recorded
+// state, indifferent to invocation route.
 
 // newRebuildSearchableTestClass mirrors newTestClassWithProps but flips
 // UsingBlockMaxWAND to true so the searchable bucket for each property
@@ -98,6 +97,13 @@ func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName stri
 			},
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+	)
+	// Without an identity the task's record key is incomplete and every
+	// transition would refuse to write itself.
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-rebuild-searchable", Version: 1},
+		"shard-1__node-0",
+		&ReindexTaskPayload{MigrationType: ReindexTypeRebuildSearchable},
 	)
 	return task, wrapped
 }
@@ -208,25 +214,22 @@ func TestRecoveryConvergence_RebuildSearchable_Baseline(t *testing.T) {
 			term, len(preIDs), preIDs, len(postIDs), postIDs)
 	}
 
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
+	// Swapped rather than Promoted: the flip is durable, and the
+	// staged-to-canonical rename is deliberately left to the next load.
+	rec, ok := task.migrationRecord(shard)
+	require.True(t, ok, "the migration must have left a record")
+	require.Equal(t, MigrationStateSwapped, rec.State())
+	require.Equal(t, []string{propName}, rec.(MigrationRecordSwapped).Flipped())
 }
 
 // TestRecoveryConvergence_RebuildSearchable_FromEachState pins the
 // #240 Symptom B invariant for the RebuildSearchable strategy: from
-// any on-disk state a replica could land in after a mid-migration
+// any recorded state a replica could land in after a mid-migration
 // restart, the recovery code path converges on bucket content
 // bit-equivalent to the clean baseline run.
 //
-// Five sentinel states, all reached via either production code (the
-// Run*OnShard trio) or — for the two atomic-method-internal states
-// (IsPrepended, IsSwapped) — synthetic removal of the later sentinel
-// file. Same scheme PR #11415 used for SearchableRetokenize.
+// Every state is reached through production code — the Run*OnShard
+// trio, stopped one call short of the next transition.
 func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25
@@ -236,65 +239,28 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 
 	cases := []recoveryConvergenceCase{
 		{
-			name: "RebuildSearchable_IsReindexed_via_RunReindexOnlyOnShard",
+			name: "RebuildSearchable_Iterated_via_RunReindexOnlyOnShard",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true, "prepended": false, "merged": false, "swapped": false, "tidied": false,
-			},
+			expectedState: MigrationStateIterated,
 		},
 		{
-			name: "RebuildSearchable_IsPrepended_synthetic_merged_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-				rt, err := task.newReindexTracker(shard.pathLSM())
-				require.NoError(t, err)
-				ftr := rt.(*fileReindexTracker)
-				require.NoError(t, os.Remove(
-					filepath.Join(ftr.config.migrationPath, ftr.config.filenameMerged)))
-			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true, "prepended": true, "merged": false, "swapped": false, "tidied": false,
-			},
-		},
-		{
-			name: "RebuildSearchable_IsSwapped_synthetic_tidied_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-				require.NoError(t, task.RunSwapOnShard(ctx, shard))
-				rt, err := task.newReindexTracker(shard.pathLSM())
-				require.NoError(t, err)
-				ftr := rt.(*fileReindexTracker)
-				require.NoError(t, os.Remove(
-					filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)))
-			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": false,
-			},
-		},
-		{
-			name: "RebuildSearchable_IsMerged_via_RunPrepareOnShard",
+			name: "RebuildSearchable_Merged_via_RunPrepareOnShard",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true, "prepended": true, "merged": true, "swapped": false, "tidied": false,
-			},
+			expectedState: MigrationStateMerged,
 		},
 		{
-			name: "RebuildSearchable_IsTidied_via_full_trio",
+			name: "RebuildSearchable_Swapped_via_full_trio",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 				require.NoError(t, task.RunSwapOnShard(ctx, shard))
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true,
-			},
+			expectedState: MigrationStateSwapped,
 		},
 	}
 
@@ -317,32 +283,18 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 
 			tc.driveToState(t, ctx, shard, task)
 
-			// Verify driveToState actually landed at the intended on-disk
-			// state. Without this guard a buggy driveToState would let
-			// recovery from a different state appear to "converge".
-			rt, err := task.newReindexTracker(shard.pathLSM())
-			require.NoError(t, err)
-			for name, want := range tc.expectedPostStateSentinels {
-				var got bool
-				switch name {
-				case "reindexed":
-					got = rt.IsReindexed()
-				case "prepended":
-					got = rt.IsPrepended()
-				case "merged":
-					got = rt.IsMerged()
-				case "swapped":
-					got = rt.IsSwapped()
-				case "tidied":
-					got = rt.IsTidied()
-				}
-				assert.Equalf(t, want, got, "after driveToState, sentinel %q (case %q)", name, tc.name)
-			}
+			// Verify driveToState actually landed at the intended state.
+			// Without this guard a buggy driveToState would let recovery
+			// from a different state appear to "converge".
+			rec, ok := task.migrationRecord(shard)
+			require.Truef(t, ok, "driveToState must leave a record (case %q)", tc.name)
+			assert.Equalf(t, tc.expectedState, rec.State(),
+				"after driveToState (case %q)", tc.name)
 
 			// Simulated restart: graceful shutdown, fresh task, then
-			// idx.initShard re-runs FinalizeCompletedMigrations →
-			// LSM init → OnAfterLsmInit. Same restart primitive
-			// PR #11415 uses for the searchable half.
+			// idx.initShard reconciles the records → LSM init →
+			// OnAfterLsmInit. Same restart primitive PR #11415 uses for
+			// the searchable half.
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
@@ -367,16 +319,15 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 				}
 			}
 
-			// Trio-style migrations require an explicit RunSwapOnShard
-			// to move past IsReindexed (in production OnGroupCompleted
-			// does this on re-ack for semantic migrations; for the
-			// non-semantic inline path runtimeSwap fires inside the
-			// async loop above and this is a no-op). Mirrors the
-			// SearchableRetokenize / FilterableRetokenize recovery
-			// finalization at convergence_test.go:790-795.
-			rt2, err := task2.newReindexTracker(shard2.pathLSM())
-			require.NoErrorf(t, err, "post-recovery tracker init (case %q)", tc.name)
-			if !rt2.IsTidied() {
+			// Trio-style migrations need an explicit RunSwapOnShard to get
+			// past the rebuild (in production OnGroupCompleted does this on
+			// re-ack for semantic migrations; on the non-semantic inline
+			// path runtimeSwap fires inside the async loop above and this
+			// is a no-op). A durable flip decision means there is nothing
+			// left for it to do.
+			rec2, ok := task2.migrationRecord(shard2)
+			require.Truef(t, ok, "post-recovery record must exist (case %q)", tc.name)
+			if !rec2.PointerSwapped() {
 				if err := task2.RunSwapOnShard(ctx, shard2); err != nil {
 					t.Logf("explicit RunSwapOnShard (case %q): %v", tc.name, err)
 				}

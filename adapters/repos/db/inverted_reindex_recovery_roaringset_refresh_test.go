@@ -13,8 +13,6 @@ package db
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -24,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -49,6 +48,13 @@ func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneri
 			checkProcessingEveryNoObjects: 1000,
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+	)
+	// Without an identity the task's record key is incomplete and every
+	// transition would refuse to write itself.
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-roaringset-refresh", Version: 1},
+		"shard-1__node-0",
+		&ReindexTaskPayload{MigrationType: ReindexTypeRepairFilterable},
 	)
 	return task, wrapped
 }
@@ -164,27 +170,24 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 			"term %q posting list changed across same-strategy refresh", term)
 	}
 
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
+	// Swapped rather than Promoted: the flip is durable, and the
+	// staged-to-canonical rename is deliberately left to the next load.
+	rec, ok := task.migrationRecord(shard)
+	require.True(t, ok, "the migration must have left a record")
+	require.Equal(t, MigrationStateSwapped, rec.State())
+	require.Equal(t, []string{propName}, rec.(MigrationRecordSwapped).Flipped())
 }
 
 // TestRecoveryConvergence_RoaringSetRefresh_FromEachState pins the
 // #240 Symptom B invariant for the RoaringSetRefresh strategy: from any
-// on-disk state a replica could land in after a mid-migration restart,
+// recorded state a replica could land in after a mid-migration restart,
 // the recovery code path converges on filterable-bucket content
 // bit-equivalent to the clean baseline run.
 //
-// Five sentinel states, all reached via either the production
+// Each state is reached through production code: the
 // OnAfterLsmInit+OnAfterLsmInitAsync loop (with skipSwapOnFinish to halt
-// at IsReindexed) plus direct runtimePrepare invocations for the
-// intermediate states, or — for the two atomic-method-internal states
-// (IsPrepended, IsSwapped) — synthetic removal of the later sentinel
-// file. Same scheme PR #11415 uses for MapToBlockmax.
+// once the rebuild is recorded complete), plus a direct runtimePrepare
+// call for the merged state.
 func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25
@@ -194,7 +197,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 
 	cases := []recoveryConvergenceCase{
 		{
-			name: "RoaringSetRefresh_IsReindexed_via_skipSwapOnFinish",
+			name: "RoaringSetRefresh_Iterated_via_skipSwapOnFinish",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
 				task.skipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
@@ -206,23 +209,11 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 					}
 				}
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": false,
-				"merged":    false,
-				"swapped":   false,
-				"tidied":    false,
-			},
+			expectedState: MigrationStateIterated,
 		},
 		{
-			name: "RoaringSetRefresh_IsPrepended_synthetic_merged_removed",
+			name: "RoaringSetRefresh_Merged_via_runtimePrepare_no_runtimeSwap",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				// runtimePrepare writes markPrepended + cleanup +
-				// markMerged in one atomic method, so we can't reach
-				// IsPrepended-without-IsMerged via production code
-				// alone. Drive to IsMerged via runtimePrepare, then
-				// remove merged.mig by hand to simulate a crash
-				// between markPrepended() and markMerged().
 				task.skipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
@@ -232,88 +223,16 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 						break
 					}
 				}
-				rt, err := task.newReindexTracker(shard.pathLSM())
-				require.NoError(t, err)
-				props, err := task.readPropsToReindex(rt)
-				require.NoError(t, err)
-				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
-				ftr := rt.(*fileReindexTracker)
-				require.NoError(t, os.Remove(
-					filepath.Join(ftr.config.migrationPath, ftr.config.filenameMerged)),
-					"removing merged.mig to synthesize IsPrepended-only state")
+				// runtimePrepare stops one step short of runtimeSwap, so
+				// the staged data is complete and no flip is decided yet.
+				rec, ok := task.migrationRecord(shard)
+				require.True(t, ok)
+				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rec.Subject().Properties))
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": true,
-				"merged":    false,
-				"swapped":   false,
-				"tidied":    false,
-			},
+			expectedState: MigrationStateMerged,
 		},
 		{
-			name: "RoaringSetRefresh_IsSwapped_synthetic_tidied_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				// runtimeSwap writes markSwapped + tidy + markTidied
-				// atomically. Drive the migration to completion, then
-				// remove tidied.mig by hand to simulate a crash between
-				// markSwapped() and markTidied().
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
-				rt, err := task.newReindexTracker(shard.pathLSM())
-				require.NoError(t, err)
-				ftr := rt.(*fileReindexTracker)
-				require.NoError(t, os.Remove(
-					filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)),
-					"removing tidied.mig to synthesize IsSwapped-only state")
-			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": true,
-				"merged":    true,
-				"swapped":   true,
-				"tidied":    false,
-			},
-		},
-		{
-			name: "RoaringSetRefresh_IsMerged_via_runtimePrepare_no_runtimeSwap",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				// Step 1: drive iteration to markReindexed via the
-				// production barrier path.
-				task.skipSwapOnFinish.Store(true)
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
-				// Step 2: call runtimePrepare directly (production code
-				// path; same package access). This writes markPrepended
-				// + cleanup + markMerged in one atomic method. We stop
-				// before runtimeSwap.
-				rt, err := task.newReindexTracker(shard.pathLSM())
-				require.NoError(t, err)
-				props, err := task.readPropsToReindex(rt)
-				require.NoError(t, err)
-				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
-			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": true,
-				"merged":    true,
-				"swapped":   false,
-				"tidied":    false,
-			},
-		},
-		{
-			name: "RoaringSetRefresh_IsTidied_full_migration",
+			name: "RoaringSetRefresh_Swapped_full_migration",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
@@ -324,13 +243,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 					}
 				}
 			},
-			expectedPostStateSentinels: map[string]bool{
-				"reindexed": true,
-				"prepended": true,
-				"merged":    true,
-				"swapped":   true,
-				"tidied":    true,
-			},
+			expectedState: MigrationStateSwapped,
 		},
 	}
 
@@ -355,29 +268,34 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			tc.driveToState(t, ctx, shard, task)
 
 			// Verify driveToState actually landed at the intended
-			// on-disk state. Without this guard a buggy driveToState
-			// would let recovery from a different state appear to
-			// "converge".
-			rt, err := task.newReindexTracker(shard.pathLSM())
-			require.NoError(t, err)
-			actualSentinels := map[string]bool{
-				"reindexed": rt.IsReindexed(),
-				"prepended": rt.IsPrepended(),
-				"merged":    rt.IsMerged(),
-				"swapped":   rt.IsSwapped(),
-				"tidied":    rt.IsTidied(),
-			}
-			for name, want := range tc.expectedPostStateSentinels {
-				assert.Equalf(t, want, actualSentinels[name],
-					"after driveToState, sentinel %q expected=%v got=%v (case %q)",
-					name, want, actualSentinels[name], tc.name)
-			}
+			// state. Without this guard a buggy driveToState would let
+			// recovery from a different state appear to "converge".
+			rec, ok := task.migrationRecord(shard)
+			require.Truef(t, ok, "driveToState must leave a record (case %q)", tc.name)
+			assert.Equalf(t, tc.expectedState, rec.State(),
+				"after driveToState (case %q)", tc.name)
 
 			// Phase 2: simulate restart — full shutdown + shard re-init
 			// + fresh task. This is the real-world restart sequence:
-			// shard_init runs FinalizeCompletedMigrations, then LSM
-			// init, then OnAfterLsmInit, then the OnAfterLsmInitAsync
-			// loop on the background scheduler.
+			// shard_init reconciles the records, then LSM init, then
+			// OnAfterLsmInit, then the OnAfterLsmInitAsync loop on the
+			// background scheduler.
+			// Whether a merged migration should become live is a cluster
+			// fact. With no task map the verdict is "leave", and the row
+			// that exists to prove promotion happens at load would pass
+			// against the pre-migration bucket instead.
+			subject := rec.Subject()
+			require.NotNil(t, idx.db, "test shard fixture must wire idx.db")
+			idx.db.SetMigrationLocalTaskSource(func() ([]*distributedtask.Task, bool) {
+				return []*distributedtask.Task{{
+					Namespace: ReindexNamespace,
+					TaskDescriptor: distributedtask.TaskDescriptor{
+						ID: subject.TaskID, Version: subject.Key.TaskVersion,
+					},
+					Status: distributedtask.TaskStatusFinished,
+				}}, true
+			})
+
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 

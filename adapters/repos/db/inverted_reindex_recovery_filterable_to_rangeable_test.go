@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/filters"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
@@ -195,6 +196,13 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 		"FilterableToRangeable", idx.logger, wrapped, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
+	// Without an identity the task's record key is incomplete and every
+	// transition would refuse to write itself.
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-filterable-to-rangeable", Version: 1},
+		"shard-1__node-0",
+		&ReindexTaskPayload{MigrationType: ReindexTypeEnableRangeable},
+	)
 	return task, wrapped
 }
 
@@ -282,11 +290,10 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 			"term %d should have %d docIDs, got %d", term, expectedPerValue, len(ids))
 	}
 
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
+	// Swapped rather than Promoted: the flip is durable, and the
+	// staged-to-canonical rename is deliberately left to the next load.
+	rec, ok := task.migrationRecord(shard)
+	require.True(t, ok, "the migration must have left a record")
+	require.Equal(t, MigrationStateSwapped, rec.State())
+	require.Equal(t, []string{propName}, rec.(MigrationRecordSwapped).Flipped())
 }

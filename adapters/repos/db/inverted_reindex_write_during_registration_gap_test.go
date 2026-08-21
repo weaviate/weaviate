@@ -27,9 +27,10 @@ import (
 )
 
 // TestReindex_ConcurrentWriteInRegistrationGap_NotLost pins
-// weaviate/weaviate#11688: a write landing in the markStarted→register gap is
-// skipped by the backfill iterator (LastUpdateTimeUnix >= reindexStarted) and
-// unmirrored by the not-yet-registered double-write — permanently lost.
+// weaviate/weaviate#11688: a write that lands before the double-write mirror is
+// armed reaches no mirror, so the iteration horizon has to be fixed after the
+// arming. Fixed before it, the backfill skips the same write
+// (LastUpdateTimeUnix >= horizon) and it is lost for good.
 func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 	const (
 		numObjects        = 25
@@ -71,19 +72,18 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
 
-	// Wrap the ingest-window registration to land the gap writes at exactly
-	// the markStarted→register seam #11688 is about — right before callbacks
-	// arm, so only the fixed markStarted ordering keeps them.
+	// Land the gap writes exactly where #11688 loses them: after the ingest
+	// buckets exist but before the mirror is armed.
 	gapWritesDone := false
 	origRegister := task.registerDoubleWriteCallbacksFn
 	task.registerDoubleWriteCallbacksFn = func(shard *Shard, props []string,
-		bucketNamer func(string) string, forTargetStrategy bool,
+		bucketNamer func(string) string,
 	) func() {
 		for i := 0; i < numGapUpdates; i++ {
 			update(i, gapValueBase+int64(i))
 		}
 		gapWritesDone = true
-		return origRegister(shard, props, bucketNamer, forTargetStrategy)
+		return origRegister(shard, props, bucketNamer)
 	}
 
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
@@ -110,12 +110,12 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 	require.NotEmptyf(t, readRangeableIDs(t, rangeBucket, 0),
 		"positive control: iterator-backfilled corpus value 0 must be present")
 
-	// Gap writes: served via the fixed markStarted ordering.
+	// Gap writes: kept only because the horizon is fixed after the arming.
 	for i := 0; i < numGapUpdates; i++ {
 		val := gapValueBase + int64(i)
 		assert.Lenf(t, readRangeableIDs(t, rangeBucket, val), 1,
 			"gap-updated object %d must survive under value %d — a miss means "+
-				"the markStarted→registerDoubleWriteCallbacks gap lost it", i, val)
+				"the arm-to-horizon gap lost it", i, val)
 	}
 
 	// Post-registration writes: served only via the double-write path.

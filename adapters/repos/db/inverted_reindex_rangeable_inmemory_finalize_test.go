@@ -215,7 +215,7 @@ func TestRangeableFinalize_DataWorkFailure_StillFAILED(t *testing.T) {
 	putRangeableTestObjects(t, ctx, shard, className, 5)
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
+	task.processOneSwapPropFn = func(_ context.Context, _ *lsmkv.Store, _ int, _ string) (*lsmkv.Bucket, error) {
 		return nil, fmt.Errorf("injected data-work swap failure")
 	}
 

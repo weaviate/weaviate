@@ -26,8 +26,8 @@ import (
 )
 
 // TestModeADrainRematerialize pins the race where a draining reindex
-// goroutine's tracker MkdirAll re-creates the class dir a concurrent DELETE
-// (Index.drop) just renamed away.
+// goroutine re-creates the class directory a concurrent DELETE (Index.drop)
+// just renamed away.
 func TestModeADrainRematerialize(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -68,17 +68,13 @@ func TestModeADrainRematerialize(t *testing.T) {
 			releaseHook := make(chan struct{})
 			var hookOnce sync.Once
 
-			// Interpose a barrier at the tracker's pre-MkdirAll point (before
-			// the real close-lock guard runs, holding no lock) so the DELETE
-			// lands between the worker parking and its guarded MkdirAll.
-			realGuardFor := task.trackerMkdirGuard
-			task.trackerMkdirGuard = func(s ShardLike) func(func() error) error {
-				guard := realGuardFor(s)
-				return func(mkdir func() error) error {
-					hookOnce.Do(func() { close(inHook) })
-					<-releaseHook
-					return guard(mkdir)
-				}
+			// Park the worker ahead of the real close-lock guard, holding no
+			// lock, so the DELETE lands between the parking and the guard.
+			realGuard := task.indexClosingGuard
+			task.indexClosingGuard = func(s ShardLike) error {
+				hookOnce.Do(func() { close(inHook) })
+				<-releaseHook
+				return realGuard(s)
 			}
 
 			var driveErr error
@@ -88,13 +84,13 @@ func TestModeADrainRematerialize(t *testing.T) {
 				driveErr = tc.drive(ctx, task, shard)
 			}()
 
-			// Worker parked pre-MkdirAll; drive the DELETE to completion.
+			// Worker parked before the guard; drive the DELETE to completion.
 			<-inHook
 			require.NoError(t, idx.drop())
 			require.NoFileExists(t, idxPath,
 				"drop() must have renamed the class dir away before the worker proceeds")
 
-			// Release the worker so its MkdirAll runs AFTER the rename.
+			// Release the worker so it resumes AFTER the rename.
 			close(releaseHook)
 			<-workerDone
 
