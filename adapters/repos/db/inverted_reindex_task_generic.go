@@ -655,6 +655,14 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
+	// This path reaches a flipped record without going through runtimeSwap, so
+	// it owes the same relation pass: a predecessor superseded by this record
+	// is retired here or waits for a restart.
+	if concrete, err := unwrapShard(ctx, shard); err == nil {
+		concrete.retireSupersededMigrations(ctx)
+	} else {
+		logger.Warnf("RunSwapOnShard: cannot retire superseded migrations: %v", err)
+	}
 	t.trimOlderGenerationsLocked(logger, shard, props)
 	logger.Info("RunSwapOnShard: recovery path complete")
 	return nil
@@ -1353,6 +1361,21 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		return fmt.Errorf("recording the flip decision: %w", err)
 	}
 
+	// Before the flip, not after it. The flip is what ends a predecessor's
+	// chance of becoming the live data, and from the flip on the predecessor's
+	// own staged bucket name no longer resolves — its still-armed mirror would
+	// fall back to the canonical name and write predecessor-form rows straight
+	// into this migration's live bucket. Retiring here closes that window
+	// instead of narrowing it, and it is outside the no-I/O rule, which spans
+	// the first pointer flip to the last. The one directory that must survive
+	// until Phase 2b — the predecessor's live data, which this flip displaces —
+	// is held back by this record's own displaced claim.
+	if concrete, err := unwrapShard(ctx, shard); err == nil {
+		concrete.retireSupersededMigrations(ctx)
+	} else {
+		logger.Warnf("runtime swap: cannot retire superseded migrations: %v", err)
+	}
+
 	// Phase 2a (atomic, tight loop): in-memory pointer swap per property.
 	// This is the ONLY work that runs inside the per-shard tokenization
 	// overlay's "mixed-state" window (between first prop swapped and last
@@ -1477,11 +1500,13 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 //   - all `.migrations/<migrationDirPrefix><propSuffix>_<M>/` for
 //     M < currentGen.
 //
-// Keeps:
-//   - The current gen's ingest dir (the live main's physical dir, still
-//     referenced by the in-memory bucket pointer until next-restart
-//     finalize renames it to canonical).
-//   - The current gen's migration tracker dir.
+// Keeps every directory a record still names. Those belong to the relation,
+// which disarms the mirror pointed at them and shuts their buckets down before
+// removing anything; removing one here would delete an open bucket's directory
+// out from under a mirror that is still copying into it, and with both-or-
+// neither semantics the next user write fails. What is left for this sweep is
+// what no record can attribute: leftovers of a cluster that predates the
+// records, and of runs whose record has already gone.
 func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) {
@@ -1494,6 +1519,18 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 		return
 	}
 	lsmPath := concrete.pathLSM()
+	var records []MigrationRecord
+	if concrete.migrationRecords != nil {
+		records = concrete.migrationRecords.Records()
+	}
+	ownedByARecord := func(dir string) bool {
+		for _, rec := range records {
+			if rec.OwnsBucket(dir) {
+				return true
+			}
+		}
+		return false
+	}
 	currentGen := t.strategy.MigrationDirName()
 	currentReindex := t.strategy.ReindexSuffix()
 	currentIngest := t.strategy.IngestSuffix()
@@ -1530,7 +1567,7 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 					continue // the live main bucket itself
 				}
 				suffixBase, suffixGen, ok := parseMigrationDirName(rest)
-				if !ok {
+				if !ok || ownedByARecord(name) {
 					continue
 				}
 				switch suffixBase {
@@ -1557,12 +1594,20 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 		}
 		return
 	}
+	namedByARecord := func(dir string) bool {
+		for _, rec := range records {
+			if rec.Subject().TrackerDir == dir {
+				return true
+			}
+		}
+		return false
+	}
 	for _, entry := range migEntries {
 		if !entry.IsDir() {
 			continue
 		}
 		base, gen, ok := parseMigrationDirName(entry.Name())
-		if !ok {
+		if !ok || namedByARecord(entry.Name()) {
 			continue
 		}
 		if base != currentMigBase {

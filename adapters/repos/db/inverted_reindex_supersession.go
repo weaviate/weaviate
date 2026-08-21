@@ -112,6 +112,17 @@ func migrationRecordFullySuperseded(all []MigrationRecord, rec MigrationRecord) 
 	return true
 }
 
+// RetireSuperseded is the engine's entry into the relation, run in the process
+// that flipped. An unreadable record never retires anything and never
+// witnesses for anything, so it withholds this pass exactly as it withholds
+// reconciliation's.
+func (r *migrationReconciler) RetireSuperseded(ctx context.Context) {
+	if len(r.store.Unreadable()) > 0 {
+		return
+	}
+	r.retireSuperseded(ctx, r.store.Records())
+}
+
 // retireSuperseded runs the relation over every committed record. Ascending
 // generation is not needed for correctness — the predicate makes any order
 // safe — but it leaves the fewest dangling links after a crash and makes the

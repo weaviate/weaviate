@@ -34,10 +34,21 @@ import (
 // scan because that flag is still false at migration time.
 func newEnableFilterableTask(t *testing.T, idx *Index, className string, propNames ...string) (*ShardReindexTaskGeneric, *testEnableFilterableStrategyWrapper) {
 	t.Helper()
+	return newEnableFilterableTaskAtGeneration(t, idx, className, 1, propNames...)
+}
+
+// newEnableFilterableTaskAtGeneration is newEnableFilterableTask for the
+// back-to-back case, where a second migration on the same property carries a
+// higher generation and a higher task version — the pair the supersession
+// relation orders by.
+func newEnableFilterableTaskAtGeneration(t *testing.T, idx *Index, className string,
+	generation int, propNames ...string,
+) (*ShardReindexTaskGeneric, *testEnableFilterableStrategyWrapper) {
+	t.Helper()
 	wrapped := &testEnableFilterableStrategyWrapper{
 		EnableFilterableStrategy: EnableFilterableStrategy{
 			propNames:  propNames,
-			generation: 1,
+			generation: generation,
 		},
 	}
 	selectedProps := map[string]struct{}{}
@@ -66,7 +77,7 @@ func newEnableFilterableTask(t *testing.T, idx *Index, className string, propNam
 	// Without an identity the task's record key is incomplete and every
 	// transition would refuse to write itself.
 	task.setMigrationIdentity(
-		distributedtask.TaskDescriptor{ID: "test-enable-filterable", Version: 1},
+		distributedtask.TaskDescriptor{ID: "test-enable-filterable", Version: uint64(generation)},
 		"shard-1__node-0",
 		&ReindexTaskPayload{MigrationType: ReindexTypeEnableFilterable},
 	)

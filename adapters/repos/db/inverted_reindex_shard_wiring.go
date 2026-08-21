@@ -89,17 +89,32 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 }
 
 // reconcileMigrationRecordsAfterTaskMap is the second pass, run once this
-// node's applied task map becomes readable. The class is re-read rather than
-// carried from load, because the effect predicate has to see the schema as it
-// is now.
+// node's applied task map becomes readable.
 func (s *Shard) reconcileMigrationRecordsAfterTaskMap() {
 	if s.migrationRecords == nil {
 		return
 	}
+	s.liveMigrationReconciler().ReconcileAfterTaskMap()
+}
+
+// retireSupersededMigrations runs the supersession relation in the process
+// that just flipped, which is the only place a predecessor's mirror is armed
+// and its staged buckets are open. Reconciliation re-derives the same outcome
+// at any later load, where there is nothing armed and nothing open.
+func (s *Shard) retireSupersededMigrations(ctx context.Context) {
+	if s.migrationRecords == nil {
+		return
+	}
+	s.liveMigrationReconciler().RetireSuperseded(ctx)
+}
+
+// liveMigrationReconciler reads the class as it is now rather than as it was
+// at load, because the effect predicate answers about the current schema.
+func (s *Shard) liveMigrationReconciler() *migrationReconciler {
 	className := s.index.Config.ClassName.String()
-	s.migrationReconciler(func() *models.Class {
+	return s.migrationReconciler(func() *models.Class {
 		return s.index.getSchema.ReadOnlyClass(className)
-	}).ReconcileAfterTaskMap()
+	})
 }
 
 func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconciler {
