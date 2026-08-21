@@ -1115,12 +1115,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
 		// Migration reconciliation runs at shard load and reads this node's
 		// own applied task map. ListDistributedTasks would need a leader
-		// round-trip, which a shard load must never wait on. Installing it
-		// here rather than at DB construction is what makes the map readable:
-		// until this runs, reconciliation treats the map as unavailable and
-		// decides nothing that depends on it.
+		// round-trip, which a shard load must never wait on, and the map
+		// cannot be installed at DB construction because the cluster service
+		// does not exist yet. Shards loaded before this point therefore read
+		// the map as unavailable and decide nothing that depends on it, which
+		// is why the setter re-runs that decision on them.
 		raft := appState.ClusterService.Raft
-		repo.SetMigrationLocalTaskSource(func() ([]*distributedtask.Task, bool) {
+		repo.SetMigrationLocalTaskSource(auditCtx, func() ([]*distributedtask.Task, bool) {
 			return raft.LocalDistributedTasks()[db.ReindexNamespace], true
 		})
 	}, appState.Logger)

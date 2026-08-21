@@ -25,13 +25,42 @@ import (
 // unreadable map must not be mistaken for one.
 type MigrationLocalTaskSource func() ([]*distributedtask.Task, bool)
 
-// SetMigrationLocalTaskSource installs the source reconciliation consults.
-// It arrives post-bootstrap, alongside the other reindex audit dependencies,
-// because the cluster service does not exist when the DB is built.
-func (db *DB) SetMigrationLocalTaskSource(source MigrationLocalTaskSource) {
+// SetMigrationLocalTaskSource installs the source reconciliation consults and
+// immediately re-runs the edge that needs it on every shard already loaded.
+// The two are one act: the source arrives post-bootstrap, because the cluster
+// service does not exist when the DB is built, and every shard loaded during
+// RAFT catch-up reconciled with the map unavailable.
+func (db *DB) SetMigrationLocalTaskSource(ctx context.Context, source MigrationLocalTaskSource) {
 	db.reindexAuditMu.Lock()
-	defer db.reindexAuditMu.Unlock()
 	db.migrationLocalTaskSource = source
+	db.reindexAuditMu.Unlock()
+
+	db.reconcileLoadedMigrationsAfterTaskMap(ctx)
+}
+
+// reconcileLoadedMigrationsAfterTaskMap walks the shards that are already
+// loaded. An unloaded one needs nothing: its own load runs the full pass with
+// the map readable.
+func (db *DB) reconcileLoadedMigrationsAfterTaskMap(ctx context.Context) {
+	db.indexLock.RLock()
+	indices := make([]*Index, 0, len(db.indices))
+	for _, idx := range db.indices {
+		indices = append(indices, idx)
+	}
+	db.indexLock.RUnlock()
+
+	for _, idx := range indices {
+		idx.ForEachLoadedShard(func(_ string, shard ShardLike) error {
+			concrete, err := unwrapShard(ctx, shard)
+			if err != nil {
+				idx.logger.WithField("shard", shard.Name()).Errorf(
+					"reconcile migration records once the task map became readable: %v", err)
+				return nil
+			}
+			concrete.reconcileMigrationRecordsAfterTaskMap()
+			return nil
+		})
+	}
 }
 
 func (db *DB) migrationLocalTasks() ([]*distributedtask.Task, bool) {
@@ -52,19 +81,35 @@ func (db *DB) migrationLocalTasks() ([]*distributedtask.Task, bool) {
 func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Class) {
 	s.migrationRecords = NewMigrationRecordStore(s.pathLSM(), s.index.logger)
 
-	reconciler := newMigrationReconciler(s.migrationRecords, s.pathLSM(), s.index.logger,
-		migrationReconcileDeps{
-			LocalTasks: s.index.db.migrationLocalTasks,
-			Class:      func() *models.Class { return class },
-			Mirror:     s,
-			Buckets:    s,
-		})
-
-	if err := reconciler.Reconcile(ctx); err != nil {
+	if err := s.migrationReconciler(func() *models.Class { return class }).Reconcile(ctx); err != nil {
 		// A shard whose records cannot be read still has to load; every
 		// individual disposition already fails toward doing nothing.
 		s.index.logger.WithField("shard", s.ID()).Errorf("reconcile migration records: %v", err)
 	}
+}
+
+// reconcileMigrationRecordsAfterTaskMap is the second pass, run once this
+// node's applied task map becomes readable. The class is re-read rather than
+// carried from load, because the effect predicate has to see the schema as it
+// is now.
+func (s *Shard) reconcileMigrationRecordsAfterTaskMap() {
+	if s.migrationRecords == nil {
+		return
+	}
+	className := s.index.Config.ClassName.String()
+	s.migrationReconciler(func() *models.Class {
+		return s.index.getSchema.ReadOnlyClass(className)
+	}).ReconcileAfterTaskMap()
+}
+
+func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconciler {
+	return newMigrationReconciler(s.migrationRecords, s.pathLSM(), s.index.logger,
+		migrationReconcileDeps{
+			LocalTasks: s.index.db.migrationLocalTasks,
+			Class:      class,
+			Mirror:     s,
+			Buckets:    s,
+		})
 }
 
 // ShutdownStagedBuckets closes a record's open buckets for one property so

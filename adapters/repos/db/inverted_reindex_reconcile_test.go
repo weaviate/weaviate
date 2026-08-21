@@ -83,6 +83,19 @@ func (f *reconcileFixture) reconcile() {
 	require.NoError(f.t, r.Reconcile(context.Background()))
 }
 
+// reconcileAfterTaskMap is the second pass: the one this node runs once its
+// applied task map becomes readable, on shards that are already loaded.
+func (f *reconcileFixture) reconcileAfterTaskMap() {
+	f.t.Helper()
+	logger, _ := test.NewNullLogger()
+	newMigrationReconciler(f.store, f.lsmPath, logger, migrationReconcileDeps{
+		LocalTasks: func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
+		Class:      func() *models.Class { return f.class },
+		Mirror:     f.mirror,
+		Buckets:    f.buckets,
+	}).ReconcileAfterTaskMap()
+}
+
 func (f *reconcileFixture) mkdirs(names ...string) {
 	f.t.Helper()
 	for _, name := range names {
@@ -608,4 +621,103 @@ func TestReconcileCommitEdgeWritesItsVerdictFirst(t *testing.T) {
 	state, present = f.state(subject.Key)
 	require.True(t, present, "a decided flip is never re-decided, whatever the cluster later says")
 	require.Equal(t, MigrationStateSwapped, state)
+}
+
+// TestReconcileCommitEdgeFiresOnceTheTaskMapArrives pins the boot ordering.
+// The task map is installed after the cluster service exists, so shards loaded
+// during RAFT catch-up read it as unavailable and leave every merged record
+// alone. A shard that is not multi-tenant is never loaded again in this
+// process, so without a second pass the record stays at Merged and the
+// property serves pre-migration data until a restart that repeats the same
+// ordering.
+func TestReconcileCommitEdgeFiresOnceTheTaskMapArrives(t *testing.T) {
+	const taskID = "Books:change-tokenization:title:ab12"
+
+	tests := []struct {
+		name       string
+		task       *distributedtask.Task
+		class      *models.Class
+		unreadable bool
+		wantState  MigrationState
+	}{
+		{
+			name:      "the task finished while this node was down: commit",
+			task:      testTask(taskID, 42, distributedtask.TaskStatusFinished),
+			class:     testClassWithTokenization(models.PropertyTokenizationLowercase, "title"),
+			wantState: MigrationStateSwapped,
+		},
+		{
+			name:      "the task is gone and the schema shows its effect: commit",
+			class:     testClassWithTokenization(models.PropertyTokenizationLowercase, "title"),
+			wantState: MigrationStateSwapped,
+		},
+		{
+			name:      "the task is still running: the unit discovery found resumes it",
+			task:      testTask(taskID, 42, distributedtask.TaskStatusSwapping),
+			class:     testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantState: MigrationStateMerged,
+		},
+		{
+			// The discard is a directory removal on buckets that are open by
+			// now, so this pass leaves it to the next load, which runs before
+			// any bucket opens.
+			name:      "the task was cancelled: nothing here discards",
+			task:      testTask(taskID, 42, distributedtask.TaskStatusCancelled),
+			class:     testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantState: MigrationStateMerged,
+		},
+		{
+			name:       "a record this build cannot place withholds the second pass too",
+			task:       testTask(taskID, 42, distributedtask.TaskStatusFinished),
+			class:      testClassWithTokenization(models.PropertyTokenizationLowercase, "title"),
+			unreadable: true,
+			wantState:  MigrationStateMerged,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newReconcileFixture(t)
+			f.class = tt.class
+
+			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+			subject.TaskID = taskID
+			f.mkdirs("m_42_title", "m_42_sidecar", "property_title")
+			f.put(NewMigrationRecordMerged(subject))
+			if tt.unreadable {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(f.store.Dir(), "99_enable_searchable.json"), []byte("{"), 0o600))
+			}
+
+			// The load that happened before the source was installed.
+			f.tasksReadable = false
+			f.reconcile()
+			state, _ := f.state(subject.Key)
+			require.Equal(t, MigrationStateMerged, state,
+				"an unreadable task map decides nothing")
+
+			f.tasksReadable = true
+			if tt.task != nil {
+				f.tasks = []*distributedtask.Task{tt.task}
+			}
+			f.reconcileAfterTaskMap()
+
+			state, present := f.state(subject.Key)
+			require.True(t, present)
+			require.Equal(t, tt.wantState, state)
+			require.True(t, f.exists("m_42_title"),
+				"promotion renames a directory whose buckets are open by now; it belongs to the next load")
+			require.Equal(t, "property_title", f.contentOf("property_title"))
+
+			if tt.wantState != MigrationStateSwapped {
+				return
+			}
+			// The next load finds the verdict already durable and finishes it.
+			f.reconcile()
+			state, _ = f.state(subject.Key)
+			require.Equal(t, MigrationStatePromoted, state)
+			require.False(t, f.exists("m_42_title"))
+			require.Equal(t, "m_42_title", f.contentOf("property_title"))
+		})
+	}
 }

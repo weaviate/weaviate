@@ -217,20 +217,66 @@ func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec Migration
 		return fmt.Errorf("unhandled verdict %d", verdict)
 	}
 
-	// The verdict is written before it acts. A crash between the two resumes
-	// from Swapped and re-runs idempotent directory work, instead of
-	// re-deciding a question whose inputs may have changed.
+	swapped, err := r.commitMerged(subject, why)
+	if err != nil {
+		return err
+	}
+	return r.reconcileSwapped(ctx, swapped, all, frozen)
+}
+
+// commitMerged writes the flip decision and nothing else. The verdict is
+// durable before anything acts on it, so a crash between the two resumes from
+// Swapped and re-runs idempotent directory work instead of re-deciding a
+// question whose inputs may have changed.
+func (r *migrationReconciler) commitMerged(subject MigrationSubject, why string) (MigrationRecordSwapped, error) {
 	displaced := make(map[string]string, len(subject.Properties))
 	for _, prop := range subject.Properties {
 		displaced[prop] = subject.CanonicalDirs[prop]
 	}
 	swapped := NewMigrationRecordSwapped(subject, slices.Clone(subject.Properties), displaced)
 	if err := r.store.Put(swapped); err != nil {
-		return fmt.Errorf("record the flip decision: %w", err)
+		return swapped, fmt.Errorf("record the flip decision: %w", err)
 	}
 	r.logger.WithField("record", subject.Key.String()).Infof("committing merged migration: %s", why)
+	return swapped, nil
+}
 
-	return r.reconcileSwapped(ctx, swapped, all, frozen)
+// ReconcileAfterTaskMap re-runs the one edge whose disposition is a cluster
+// fact: a shard loaded while this node was still catching up on RAFT read the
+// task map as unavailable and left every Merged record alone. A shard that is
+// not multi-tenant is never loaded again in this process, so without a second
+// pass the record waits for a restart that repeats the same ordering, and a
+// migration the cluster finished serves pre-migration data forever.
+//
+// It writes the verdict and stops there. Promotion renames a directory and the
+// buckets backing that directory are open by now; the verdict-before-action
+// ordering is exactly what lets the two happen at different times.
+//
+// It reads the records the shard already holds rather than re-reading disk:
+// the engine writes through the same store, and a reload here would drop what
+// it published since the load.
+func (r *migrationReconciler) ReconcileAfterTaskMap() {
+	if len(r.store.Unreadable()) > 0 {
+		return
+	}
+	for _, rec := range r.store.Records() {
+		merged, ok := rec.(MigrationRecordMerged)
+		if !ok {
+			continue
+		}
+		subject := merged.Subject()
+		verdict, why := r.verdict(subject)
+		if verdict != migrationVerdictCommit {
+			continue
+		}
+		if _, err := r.commitMerged(subject, why); err != nil {
+			r.logger.WithField("record", subject.Key.String()).Errorf(
+				"commit a merged migration once the task map became readable: %v", err)
+			continue
+		}
+		r.logger.WithField("record", subject.Key.String()).Info(
+			"the staged data is the data; the next shard load promotes it onto the canonical name")
+	}
 }
 
 // reconcileSwapped promotes. Every arm is decided by probing the handles the
