@@ -183,12 +183,6 @@ type ShardReindexTaskGeneric struct {
 	// instance is later invoked from OnGroupCompleted's swap phase).
 	skipSwapOnFinish atomic.Bool
 
-	// callbackDisableFuncs collects the disable functions returned by
-	// registerAddToPropertyValueIndex / registerDeleteFromPropertyValueIndex.
-	// They are called after a runtime swap to stop the double-write callbacks.
-	callbackDisableFuncsMu sync.Mutex
-	callbackDisableFuncs   []func()
-
 	// progressCallback, when set, is called from the iteration loop with the
 	// current fraction-complete (clamped 0..1). It lets the DTM-side recorder
 	// surface live unit progress to the GET /indexes and GET /tasks endpoints.
@@ -2219,10 +2213,6 @@ func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, pro
 		disable = func() { disableAdd(); disableDelete() }
 	}
 
-	t.callbackDisableFuncsMu.Lock()
-	t.callbackDisableFuncs = append(t.callbackDisableFuncs, disable)
-	t.callbackDisableFuncsMu.Unlock()
-
 	// Also publish the handle on the shard, keyed per (record, property), so
 	// an actor that did not arm the mirror can still disarm it: a successor's
 	// retirement, reconciliation's cancel edge, terminal cleanup. Handles kept
@@ -2253,18 +2243,6 @@ func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, pro
 	}
 
 	return disable
-}
-
-// disableCallbacks calls all stored callback disable functions collected
-// during registerDoubleWriteCallbacks, then clears the list.
-func (t *ShardReindexTaskGeneric) disableCallbacks() {
-	t.callbackDisableFuncsMu.Lock()
-	defer t.callbackDisableFuncsMu.Unlock()
-
-	for _, fn := range t.callbackDisableFuncs {
-		fn()
-	}
-	t.callbackDisableFuncs = nil
 }
 
 func (t *ShardReindexTaskGeneric) bucketOptions(shard *Shard, strategy string,
