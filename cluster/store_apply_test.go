@@ -649,10 +649,10 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 	addTaskAtIndex(t, 3, "foo-2", "Foo")
 	addTaskAtIndex(t, 4, "bar-1", "Bar")
 
-	preTasks, err := ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
-	if err != nil {
-		t.Fatalf("list pre: %v", err)
-	}
+	// Read back through Raft.LocalDistributedTasks, the passthrough the
+	// index-status handler calls: a task applied to this node's FSM is
+	// readable from it with no leader round-trip.
+	preTasks := (&Raft{store: ms.store}).LocalDistributedTasks()
 	if got, want := len(preTasks["test-namespace"]), 3; got != want {
 		t.Fatalf("pre-delete task count: got %d want %d", got, want)
 	}

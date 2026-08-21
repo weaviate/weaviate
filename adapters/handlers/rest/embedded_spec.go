@@ -5815,7 +5815,7 @@ func init() {
     },
     "/schema/{className}/indexes": {
       "get": {
-        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
+        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status. The response reflects the state of the node that answered, which may briefly omit the entry for a just-submitted migration or still report its pre-migration state.",
         "tags": [
           "schema"
         ],
@@ -9401,7 +9401,7 @@ func init() {
           "type": "string"
         },
         "taskId": {
-          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, and the finalize-window override); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
           "type": "string"
         },
         "tokenization": {
@@ -18133,7 +18133,7 @@ func init() {
     },
     "/schema/{className}/indexes": {
       "get": {
-        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
+        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status. The response reflects the state of the node that answered, which may briefly omit the entry for a just-submitted migration or still report its pre-migration state.",
         "tags": [
           "schema"
         ],
@@ -21904,7 +21904,7 @@ func init() {
           "type": "string"
         },
         "taskId": {
-          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, and the finalize-window override); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
           "type": "string"
         },
         "tokenization": {

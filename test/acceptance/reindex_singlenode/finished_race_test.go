@@ -34,40 +34,42 @@ import (
 // Sequence:
 //
 //  1. The last unit's `RecordDistributedTaskUnitCompletion` runs (Raft apply).
-//     In cluster/distributedtask/manager.go AllUnitsTerminal() → true and
-//     task.Status flips to FINISHED. A poller against /v1/tasks now sees
-//     FINISHED. The same apply also calls notifySchedulerWithLock which wakes
-//     the scheduler reactively (cluster/distributedtask/scheduler.go wakeCh
-//     path).
-//  2. The scheduler's run loop runs OnTaskCompleted within RAFT-propagation +
-//     scheduler-loop latency of the apply — typically low tens of ms with
-//     reactive firing, much faster than the periodic tick interval.
+//     In cluster/distributedtask/manager.go AllUnitsTerminal() → true and the
+//     task moves to PREPARING or SWAPPING — not FINISHED. The same apply calls
+//     notifySchedulerWithLock, which wakes the scheduler reactively
+//     (cluster/distributedtask/scheduler.go wakeCh path).
+//  2. The scheduler's run loop runs OnTaskCompleted on the SWAPPING task,
+//     within RAFT-propagation + scheduler-loop latency of that apply —
+//     typically low tens of ms with reactive firing, much faster than the
+//     periodic tick interval.
 //  3. OnTaskCompleted in adapters/repos/db/reindex_provider.go calls
-//     applyPerPropertySchemaUpdate (RAFT-idempotent), which flips the
-//     property's Tokenization. The flip is observable on /v1/schema once
-//     that RAFT entry applies locally.
+//     flipSemanticMigrationSchema → applyPerPropertySchemaUpdate
+//     (RAFT-idempotent), which commits the property's Tokenization.
+//  4. Only once every node has acked is the task proposed FINISHED. That entry
+//     lands after the flip in the same log, so a node that applied FINISHED
+//     applied the flip before it.
 //
 // Contract this test pins: after a poller observes FINISHED on /v1/tasks,
 // the schema must catch up within a bounded window. We allow up to 5
 // seconds, which is conservative against RAFT propagation hiccups on a
 // loaded test runner; in practice it converges in well under 100ms.
 //
-// Why a window at all (rather than strict equality): the cluster-wide
-// atomicity guarantee (no node sees a half-applied migration where some
-// shards have swapped buckets but the schema hasn't flipped) requires the
-// schema flip to happen *after* every node's local OnGroupCompleted has
-// run the per-shard bucket swap. The schema flip is therefore one RAFT
-// commit removed from the task-FINISHED transition. The previous
-// implementation (commit f937532ea5) inlined the flip BEFORE FINISHED in
-// processOneUnit, eliminating this window but introducing a worse
-// cross-node window where the first node's swap flipped the schema flag
+// Why a window at all (rather than strict equality): /v1/tasks is
+// leader-routed, so it can answer FINISHED from a node that has applied that
+// entry while the node serving /v1/schema has not yet applied the flip
+// preceding it. Putting the flip after every node's local OnGroupCompleted
+// bucket swap is what buys the cluster-wide atomicity guarantee — no node sees
+// a half-applied migration where some shards have swapped buckets but the
+// schema has not flipped. The previous implementation (commit f937532ea5)
+// inlined the flip in processOneUnit, eliminating this window but introducing
+// a worse cross-node one where the first node's swap flipped the schema flag
 // for the entire cluster while peer nodes still served the old bucket.
 //
 // Callers that need to observe the post-migration state synchronously
-// should poll /v1/indexes, which has a "finalize-window" override
-// (mergeReindexStatus in adapters/handlers/rest/handlers_indexes.go) that
-// surfaces "indexing@100%" during this brief window so the UI does not
-// flash "ready" with the pre-migration schema.
+// should poll /v1/schema/{class}/indexes. It reads the task list and the
+// property's schema flags from the node that answers, task list first, so
+// the flags it reports are never the older of the two. /v1/tasks is
+// leader-routed, so a status read from it can outrun this node's schema.
 func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 	ctx := context.Background()
 

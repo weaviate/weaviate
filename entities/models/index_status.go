@@ -49,7 +49,7 @@ type IndexStatus struct {
 	// target tokenization
 	TargetTokenization string `json:"targetTokenization,omitempty"`
 
-	// ID of the reindex task driving this index entry. Present on every task-driven entry (`pending`, `indexing`, `failed`, `cancelled`, and the finalize-window override); absent on a plain `ready` entry. A coupled searchable+filterable tokenization migration reports the same `taskId` on both affected entries.
+	// ID of the reindex task driving this index entry. Present on every task-driven entry (`pending`, `indexing`, `failed`, `cancelled`); absent on a plain `ready` entry. A coupled searchable+filterable tokenization migration reports the same `taskId` on both affected entries.
 	TaskID string `json:"taskId,omitempty"`
 
 	// tokenization

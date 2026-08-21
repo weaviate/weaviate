@@ -1001,8 +1001,9 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	return nil
 }
 
-// ListDistributedTasks returns a snapshot of all tasks grouped by namespace. Each [Task] is
-// cloned, so callers may read the returned values without holding the Manager's lock.
+// LocalDistributedTasks returns the cluster-wide task map as this node has
+// applied it, grouped by namespace. Each [Task] is cloned, so callers may
+// read the returned values without holding the Manager's lock.
 //
 // Tasks within each namespace are sorted deterministically so adjacent
 // polls return the same slice order regardless of Go's randomized map
@@ -1012,7 +1013,7 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 //  2. Within priority, by activity-time DESC (newest first). Activity-time
 //     is FinishedAt for terminal tasks, StartedAt otherwise.
 //  3. Tiebreak by ID ASC for full stability.
-func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
+func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 	// Read-only: holding RLock lets concurrent /indexes polls proceed
 	// without serialising against each other (they still wait on any
 	// in-flight RAFT-apply mutator).
@@ -1031,11 +1032,22 @@ func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, e
 		}
 		sortTasksForDisplay(result[namespace])
 	}
-	return result, nil
+	return result
+}
+
+// This is not reached through the [TaskLister] interface in production —
+// [cluster.Raft] is the concrete TaskLister the wiring hands out. It still
+// has two direct production callers: [Manager.Snapshot], on the RAFT FSM's
+// own snapshot path, and [Manager.ListDistributedTasksPayload], on the
+// leader-routed distributed-task-list query dispatch. The TaskLister-shaped
+// signature stays because six scheduler tests drive the Manager directly and
+// need it that way.
+func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
+	return m.LocalDistributedTasks(), nil
 }
 
 // sortTasksForDisplay sorts tasks in place so the slice is identical on
-// every call given the same input set. See [Manager.ListDistributedTasks]
+// every call given the same input set. See [Manager.LocalDistributedTasks]
 // for the sort-key rationale. SliceStable is intentional: equal-priority
 // equal-time equal-ID inputs are byte-identical to clone anyway, but
 // SliceStable documents the intent.
