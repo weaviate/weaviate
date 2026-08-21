@@ -431,7 +431,7 @@ func TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth(t *testing.T) {
 				func(map[string]struct{}) (onAddToPropertyValueIndex, onDeleteFromPropertyValueIndex) {
 					return func(_ *Shard, _ uint64, _ *inverted.Property) error { addInvocations.Add(1); return nil },
 						func(_ *Shard, _ uint64, _ *inverted.Property) error { delInvocations.Add(1); return nil }
-				})()
+				})("p")
 		}
 
 		st := s.loadPropValueIndexState()

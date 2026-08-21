@@ -1361,15 +1361,15 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		return fmt.Errorf("recording the flip decision: %w", err)
 	}
 
-	// Before the flip, not after it. The flip is what ends a predecessor's
-	// chance of becoming the live data, and from the flip on the predecessor's
-	// own staged bucket name no longer resolves — its still-armed mirror would
-	// fall back to the canonical name and write predecessor-form rows straight
-	// into this migration's live bucket. Retiring here closes that window
-	// instead of narrowing it, and it is outside the no-I/O rule, which spans
-	// the first pointer flip to the last. The one directory that must survive
-	// until Phase 2b — the predecessor's live data, which this flip displaces —
-	// is held back by this record's own displaced claim.
+	// Before the flip, not after it. Retirement shuts the predecessor's staged
+	// bucket down, and a write that already read the pre-disarm callback
+	// snapshot can still fire afterwards and fall back to the canonical name.
+	// Running this before the pointers move means that fallback lands in the
+	// bucket this flip is about to discard, not in the new live one. It is
+	// outside the no-I/O rule, which spans the first pointer flip to the last.
+	// The one directory that must survive until Phase 2b — the predecessor's
+	// live data, which this flip displaces — is held back by this record's own
+	// displaced claim.
 	if concrete, err := unwrapShard(ctx, shard); err == nil {
 		concrete.retireSupersededMigrations(ctx)
 	} else {

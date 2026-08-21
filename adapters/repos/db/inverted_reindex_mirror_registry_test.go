@@ -20,8 +20,10 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -226,4 +228,117 @@ func TestMigrationMirrorDisarmIsPerProperty(t *testing.T) {
 		"a disarmed property must stop mirroring")
 	require.Len(t, mirrored(kept, "bravo"), 1,
 		"a property nobody disarmed must keep mirroring")
+}
+
+// TestOverlappingMirrorsOnOneProperty pins the steady state supersession
+// creates: two records mirroring one property at once. Each arming is owned by
+// its own record, so one record's disarm must leave the other's mirror copying
+// — and must not un-suppress the inline write path, which analyzes under the
+// source schema and would land source-tokenized rows in the survivor's staged
+// bucket, the one a flip is about to make canonical.
+func TestOverlappingMirrorsOnOneProperty(t *testing.T) {
+	const (
+		propName = "title"
+		text     = "alpha bravo"
+	)
+
+	tests := []struct {
+		name string
+		// journey disarms or re-arms, then makes the user writes whose mirror
+		// the assertions inspect.
+		journey func(t *testing.T, ctx context.Context, shard *Shard, className string,
+			predecessor, successor *ShardReindexTaskGeneric)
+		survivor func(predecessor, successor *ShardReindexTaskGeneric) *ShardReindexTaskGeneric
+		// wantDocs maps a term in the survivor's staged bucket to the number
+		// of documents that must be posted under it.
+		wantDocs map[string]int
+	}{
+		{
+			name: "the predecessor's disarm leaves the successor's mirror copying",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard, className string,
+				predecessor, _ *ShardReindexTaskGeneric,
+			) {
+				shard.migrationMirrorRegistry().DisarmMigrationMirror(predecessor.migrationRecordKey(), propName)
+				require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, text)))
+			},
+			survivor: func(_, successor *ShardReindexTaskGeneric) *ShardReindexTaskGeneric { return successor },
+			wantDocs: map[string]int{"alpha bravo": 1, "alpha": 0, "bravo": 0},
+		},
+		{
+			name: "the successor's disarm leaves the predecessor's mirror copying",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard, className string,
+				_, successor *ShardReindexTaskGeneric,
+			) {
+				shard.migrationMirrorRegistry().DisarmMigrationMirror(successor.migrationRecordKey(), propName)
+				require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, text)))
+			},
+			survivor: func(predecessor, _ *ShardReindexTaskGeneric) *ShardReindexTaskGeneric { return predecessor },
+			wantDocs: map[string]int{"alpha bravo": 1, "alpha": 0, "bravo": 0},
+		},
+		{
+			name: "re-arming one record's property leaves its new mirror copying",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard, className string,
+				_, successor *ShardReindexTaskGeneric,
+			) {
+				require.NoError(t, successor.OnAfterLsmInit(ctx, shard))
+				require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, text)))
+			},
+			survivor: func(_, successor *ShardReindexTaskGeneric) *ShardReindexTaskGeneric { return successor },
+			wantDocs: map[string]int{"alpha bravo": 1, "alpha": 0, "bravo": 0},
+		},
+		{
+			name: "the predecessor's disarm leaves the successor's mirror deleting",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard, className string,
+				predecessor, successor *ShardReindexTaskGeneric,
+			) {
+				obj := createTestObjectWithText(className, text)
+				require.NoError(t, shard.PutObject(ctx, obj))
+				require.Len(t, fingerprintInvertedBucket(t,
+					shard.store.Bucket(successor.ingestBucketName(propName)))[text], 1,
+					"both mirrors are armed for this write, so the term has to be there to be removed")
+
+				shard.migrationMirrorRegistry().DisarmMigrationMirror(predecessor.migrationRecordKey(), propName)
+				require.NoError(t, shard.DeleteObject(ctx, obj.ID(), time.Now()))
+			},
+			survivor: func(_, successor *ShardReindexTaskGeneric) *ShardReindexTaskGeneric { return successor },
+			wantDocs: map[string]int{"alpha bravo": 0, "alpha": 0, "bravo": 0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "MirrorOverlap_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{propName})
+
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+
+			// FIELD against the class's WORD source: the mirror's own analysis
+			// and the inline path's differ term for term, which is what makes
+			// a lost suppression visible rather than merely theoretical.
+			bucketStrategy := shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)).Strategy()
+			predecessor, _ := newSearchableRetokenizeTaskAtGeneration(t, idx, className, propName,
+				models.PropertyTokenizationField, bucketStrategy, 1)
+			require.NoError(t, predecessor.OnAfterLsmInit(ctx, shard))
+			successor, _ := newSearchableRetokenizeTaskAtGeneration(t, idx, className, propName,
+				models.PropertyTokenizationField, bucketStrategy, 2)
+			require.NoError(t, successor.OnAfterLsmInit(ctx, shard))
+			require.Equal(t, 2, shard.migrationMirrorRegistry().ArmedMigrationMirrors(),
+				"two generations on one property is the steady state under test")
+
+			tt.journey(t, ctx, shard, className, predecessor, successor)
+
+			survivor := tt.survivor(predecessor, successor)
+			staged := shard.store.Bucket(survivor.ingestBucketName(propName))
+			require.NotNil(t, staged, "the survivor's staged bucket")
+			fingerprint := fingerprintInvertedBucket(t, staged)
+			for term, want := range tt.wantDocs {
+				assert.Lenf(t, fingerprint[term], want,
+					"documents posted under %q in the survivor's staged bucket", term)
+			}
+		})
+	}
 }

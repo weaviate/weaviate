@@ -20,10 +20,10 @@ import (
 // double-write callback: scope-filters the property, then resolves the bucket
 // the mirror writes into. skip=true means the callback must no-op.
 //
-// The canonical name is the fallback and never a bare second choice:
-// callbacks stay armed until disableCallbacks runs at the end of runtimeSwap,
-// but SwapBucketPointer deletes the sidecar-name entry at the flip, after
-// which the canonical name denotes the same physical bucket
+// The canonical name is the fallback and never a bare second choice: a mirror
+// stays armed until the edge that ends its record's chance of becoming live
+// disarms it, but SwapBucketPointer deletes the staged-name entry at the flip,
+// after which the canonical name denotes the same physical bucket
 // (weaviate/weaviate#11688).
 func resolveScopedDoubleWriteBucket(shard *Shard, property *inverted.Property,
 	propsByName map[string]struct{}, bucketNamer, sourceBucketName func(string) string,

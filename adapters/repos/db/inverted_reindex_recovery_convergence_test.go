@@ -71,13 +71,24 @@ func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint6
 // each shard, not the inline runtimeSwap used by MapToBlockmax.
 func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, bucketStrategy string) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
 	t.Helper()
+	return newSearchableRetokenizeTaskAtGeneration(t, idx, className, propName, targetTokenization, bucketStrategy, 1)
+}
+
+// newSearchableRetokenizeTaskAtGeneration is newSearchableRetokenizeTask for
+// the back-to-back case, where a second migration on the same property carries
+// a higher generation and a higher task version — the pair the supersession
+// relation orders by, and what gives the two their own staged buckets.
+func newSearchableRetokenizeTaskAtGeneration(t *testing.T, idx *Index, className, propName,
+	targetTokenization, bucketStrategy string, generation int,
+) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
+	t.Helper()
 	wrapped := &testSearchableRetokenizeStrategyWrapper{
 		SearchableRetokenizeStrategy: SearchableRetokenizeStrategy{
 			propName:           propName,
 			targetTokenization: targetTokenization,
 			className:          className,
 			bucketStrategy:     bucketStrategy,
-			generation:         1,
+			generation:         generation,
 		},
 	}
 	task := NewShardReindexTaskGeneric(
@@ -94,7 +105,7 @@ func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 	// Without an identity the task's record key is incomplete and every
 	// transition would refuse to write itself.
 	task.setMigrationIdentity(
-		distributedtask.TaskDescriptor{ID: "test-searchable-retokenize", Version: 1},
+		distributedtask.TaskDescriptor{ID: "test-searchable-retokenize", Version: uint64(generation)},
 		"shard-1__node-0",
 		&ReindexTaskPayload{
 			MigrationType:      ReindexTypeChangeTokenization,
