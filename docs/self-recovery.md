@@ -177,6 +177,19 @@ never mistaken for a wiped one and never triggers recovery.
 
 ## Limitations
 
+**A class or tenant created while a non-wiped node was down materializes empty
+on its restart, with no recovery.** A node that kept its raft state catches up
+by replaying the entries it missed; the catch-up DB reload fires at the node's
+*stored* applied index, so a missed `ADD_CLASS`/`ADD_TENANT` applies *after* the
+reload as a normal runtime apply — the shard is built empty outside the tagged
+load pass and never probes peers. With async replication enabled the replica
+backfills; with it disabled the divergence persists until a wipe-rejoin or
+manual heal. (The wiped-joiner path does not have this gap: its join barrier
+defers the reload past every entry committed before the join, including
+snapshot-install tails.) Closing this for non-wiped nodes means deferring the
+catch-up reload to the leader's commit index as of boot, which trades restart
+read-availability for coverage — an open design decision.
+
 **Per-shard recovery requires the whole index/data to be missing, not just one
 shard folder.** Recovery fires only when a shard is *first built* during the
 tagged startup load pass. On a wiped node (whole data dir gone) every shard is
