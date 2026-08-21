@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	replicationtypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -525,7 +526,13 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, fromBootstrap b
 
 		decision, err := o.probeAndDecide(ctx, ref)
 		if err != nil {
-			logger.WithError(err).Warn("self-recovery probe failed; will retry")
+			// class/tenant deleted while pending: settle now, don't burn retries into a spurious give-up
+			if errors.Is(err, clusterschema.ErrClassNotFound) || errors.Is(err, clusterschema.ErrShardNotFound) {
+				logger.Infof("self-recovery abandoned: shard no longer in schema: %v", err)
+				o.recordOutcome("cancelled", startedAt)
+				return
+			}
+			logger.Warnf("self-recovery probe failed; will retry: %v", err)
 			if !retryAfterBackoff() {
 				return
 			}
