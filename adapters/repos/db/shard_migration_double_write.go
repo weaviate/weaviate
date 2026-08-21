@@ -59,7 +59,9 @@ func deriveScope(regs []migrationScopeReg) (migrationDoubleWriteScope, []string)
 			next.props[prop] = struct{}{}
 		}
 		for prop, overlay := range reg.overlay {
-			if prev, ok := next.overlay[prop]; ok && prev != overlay {
+			// Once per property, not once per disagreeing pair: three
+			// registrations that all differ are still one thing to report.
+			if prev, ok := next.overlay[prop]; ok && prev != overlay && !slices.Contains(conflicts, prop) {
 				conflicts = append(conflicts, prop)
 			}
 			if next.overlay == nil {

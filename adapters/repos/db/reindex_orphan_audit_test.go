@@ -772,8 +772,9 @@ func TestAuditOrphanReindexTrackersHonorsUnreadableRecords(t *testing.T) {
 				indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
 				config:  Config{RootPath: idx.Config.RootPath},
 			}
+			auditLogger, _ := test.NewNullLogger()
 			outcome, err := db.AuditOrphanReindexTrackers(ctx,
-				func(string, uint64) bool { return false }, logrus.New())
+				func(string, uint64) bool { return false }, auditLogger)
 			require.NoError(t, err)
 
 			assert.Equal(t, AuditStatusRan, outcome.Status)
@@ -803,18 +804,40 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 	tests := []struct {
 		name         string
 		payload      string
+		wantStatus   AuditOutcomeStatus
+		wantTracker  bool
 		wantSidecars bool
+		wantReissued int
 	}{
 		{
-			name:    "a payload names the properties the missing record cannot",
-			payload: `{"payload":{"properties":["title"],"migrationType":"enable-filterable"}}`,
+			name:         "a payload names the properties the missing record cannot",
+			payload:      `{"payload":{"properties":["title"],"migrationType":"enable-filterable"}}`,
+			wantStatus:   AuditStatusOrphansFound,
+			wantReissued: 1,
 		},
 		{
-			// SaveRecoveryPayload creates the directory and writes the payload
-			// in one call, so a tracker without one crashed before any bucket
-			// was opened. Removing the directory alone is the whole job.
+			// No payload at all: the mkdir landed and the write did not, so
+			// there is no property list because none was ever recorded. The
+			// payload is written before any bucket is opened, so production
+			// never pairs this state with sidecars; planting them here is what
+			// shows the audit removes only what a payload named.
 			name:         "a tracker with no payload removes only itself",
+			wantStatus:   AuditStatusOrphansFound,
 			wantSidecars: true,
+			wantReissued: 1,
+		},
+		{
+			// Present but unparseable says nothing about how many properties
+			// the run had. Reclaiming here would remove the tracker, strand
+			// the sidecars, and hand the same generation to the next run.
+			name:         "a payload nobody can read reclaims nothing",
+			payload:      `{"payload":{"properties":`,
+			wantStatus:   AuditStatusRan,
+			wantTracker:  true,
+			wantSidecars: true,
+			// The surviving tracker keeps the counter moving, so the
+			// directories it stranded are never the ones reopened.
+			wantReissued: 2,
 		},
 	}
 
@@ -830,10 +853,12 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 				require.NoError(t, os.WriteFile(
 					filepath.Join(trackerPath, reindexRecoveryPayloadFile), []byte(tt.payload), 0o600))
 			}
-			for _, sidecar := range sidecarDirsForOrphan(&orphanReindexTracker{
+			plantedSidecars := sidecarDirsForOrphan(&orphanReindexTracker{
 				dirName: trackerName, prefix: "enable_filterable_title",
 				generation: 1, properties: []string{propName},
-			}) {
+			})
+			require.NotEmpty(t, plantedSidecars, "the strategy registry has to name this tracker's sidecars")
+			for _, sidecar := range plantedSidecars {
 				require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, sidecar), 0o755))
 			}
 			writePreAgedQuarantineSentinel(t, trackerPath)
@@ -845,24 +870,22 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 				indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
 				config:  Config{RootPath: idx.Config.RootPath},
 			}
+			auditLogger, _ := test.NewNullLogger()
 			outcome, err := db.AuditOrphanReindexTrackers(ctx,
-				func(string, uint64) bool { return false }, logrus.New())
+				func(string, uint64) bool { return false }, auditLogger)
 			require.NoError(t, err)
-			require.Equal(t, AuditStatusOrphansFound, outcome.Status)
-
-			assert.False(t, dirExists(trackerPath), "the tracker directory")
-			// Named at the generation the next migration on this property will
-			// claim, which is what makes a survivor an adoption rather than
-			// merely wasted disk.
-			reissued := nextMigrationGeneration(lsmPath, "enable_filterable_", propName)
-			require.Equal(t, 1, reissued,
-				"the generation counter reads .migrations only, so removing the tracker hands the same number back")
-			for _, sidecar := range sidecarDirsForOrphan(&orphanReindexTracker{
-				dirName: trackerName, prefix: "enable_filterable_title",
-				generation: reissued, properties: []string{propName},
-			}) {
+			assert.Equal(t, tt.wantStatus, outcome.Status)
+			assert.Equal(t, tt.wantTracker, dirExists(trackerPath), "the tracker directory")
+			for _, sidecar := range plantedSidecars {
 				assert.Equal(t, tt.wantSidecars, dirExists(filepath.Join(lsmPath, sidecar)), sidecar)
 			}
+			// The adoption is the conjunction of the two: a surviving
+			// directory only gets opened again if the generation that names
+			// it is handed back. Removing the tracker is what hands it back,
+			// because the counter reads .migrations and nothing else.
+			assert.Equal(t, tt.wantReissued,
+				nextMigrationGeneration(lsmPath, "enable_filterable_", propName),
+				"the generation the next migration on this property claims")
 		})
 	}
 }

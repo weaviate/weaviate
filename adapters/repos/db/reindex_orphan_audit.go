@@ -415,9 +415,11 @@ const reindexAuditQuarantineWindow = 5 * time.Minute
 // reclaimer it has. Every cluster that upgrades into this build brings a set
 // of them, and a run whose record was already removed can leave one behind.
 // Those upgrade trackers still carry payload.mig, so the property list comes
-// from there and the cleanup reclaims the sidecar directories too; only a
-// tracker with no payload either falls back to removing the directory alone.
-// Age is what separates it from a directory this process is still writing.
+// from there and the cleanup reclaims the sidecar directories too. A tracker
+// whose payload is absent has no properties to name and gives up its directory
+// alone; one whose payload is present but unreadable is left entirely, because
+// only absence proves the list is empty. Age is what separates any of them
+// from a directory this process is still writing.
 func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -469,6 +471,16 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 			// behind, and the next migration re-issues the same generation
 			// straight onto them.
 			payload, _ := readTaskProps(filepath.Join(migsDir, dirName))
+			if payload.unreadable {
+				// Present but unreadable is not the same as absent, and only
+				// absent means "there were no properties". Reclaiming on a
+				// payload nobody could parse would delete the tracker on the
+				// strength of a list we never saw.
+				logger.WithField("collection", collection).WithField("shard", shardName).
+					WithField("tracker", dirName).WithField("tracker_mtime", mtime).
+					Warn("reindex orphan audit: tracker names no migration record and its payload could not be read; reclaiming nothing for it")
+				continue
+			}
 			logger.WithField("collection", collection).WithField("shard", shardName).
 				WithField("tracker", dirName).WithField("tracker_mtime", mtime).
 				WithField("props", payload.props).

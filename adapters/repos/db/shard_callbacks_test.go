@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -475,4 +476,90 @@ func TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth(t *testing.T) {
 		assert.Empty(t, s.loadPropValueIndexState().add,
 			"disarming all registrations must leave an empty slice")
 	})
+}
+
+// TestDeriveScope pins what the write path's scope is derived from. The scope
+// is the union of the surviving registrations, so one migration's disarm
+// cannot strip a property another still mirrors; where two overlay one
+// property differently the most recent arm wins, because a single analysis
+// runs per property.
+func TestDeriveScope(t *testing.T) {
+	filterable := inverted.PropertyOverlay{ForceFilterable: true}
+	rangeable := inverted.PropertyOverlay{ForceRangeable: true}
+	searchable := inverted.PropertyOverlay{ForceSearchable: true}
+
+	tests := []struct {
+		name          string
+		regs          []migrationScopeReg
+		wantProps     []string
+		wantOverlay   map[string]inverted.PropertyOverlay
+		wantConflicts []string
+	}{
+		{
+			name:      "no registrations leave the idle fast path",
+			wantProps: nil,
+		},
+		{
+			name: "two registrations union their properties",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}},
+				{id: 2, props: map[string]struct{}{"title": {}, "body": {}}},
+			},
+			wantProps: []string{"body", "title"},
+		},
+		{
+			name: "the same overlay twice is not a conflict",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+			},
+			wantProps:   []string{"title"},
+			wantOverlay: map[string]inverted.PropertyOverlay{"title": filterable},
+		},
+		{
+			name: "the most recent arm's overlay wins",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": rangeable}},
+			},
+			wantProps:     []string{"title"},
+			wantOverlay:   map[string]inverted.PropertyOverlay{"title": rangeable},
+			wantConflicts: []string{"title"},
+		},
+		{
+			name: "three registrations disagreeing on one property report it once",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": rangeable}},
+				{id: 3, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": searchable}},
+			},
+			wantProps:     []string{"title"},
+			wantOverlay:   map[string]inverted.PropertyOverlay{"title": searchable},
+			wantConflicts: []string{"title"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scope, conflicts := deriveScope(tt.regs)
+
+			props := make([]string, 0, len(scope.props))
+			for prop := range scope.props {
+				props = append(props, prop)
+			}
+			sort.Strings(props)
+			assert.Equal(t, tt.wantProps, emptyToNil(props))
+			assert.Equal(t, tt.wantOverlay, scope.overlay)
+			assert.Equal(t, tt.wantConflicts, conflicts)
+		})
+	}
+}
+
+// emptyToNil lets a row say "nothing armed" once rather than distinguishing an
+// empty slice from a nil one.
+func emptyToNil(s []string) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	return s
 }
