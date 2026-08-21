@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -482,28 +483,73 @@ func TestReconcileFlippedMigrationIgnoresAbandonedTask(t *testing.T) {
 // outrun its data, and resuming from a stale checkpoint against data that is
 // gone silently skips every object at or below that key.
 func TestReconcileReverseEdge(t *testing.T) {
+	// checkpointed is the state a large migration spends its whole runtime in,
+	// and it vouches for postings exactly as Iterated does.
+	checkpointed := func(subject MigrationSubject) MigrationRecord {
+		return NewMigrationRecordIterating(subject, MigrationCheckpoint{
+			LastProcessedKey: []byte("halfway"), ProcessedCount: 10, IndexedCount: 10,
+		})
+	}
+
 	tests := []struct {
-		name      string
-		present   []string
-		wantState MigrationState
+		name        string
+		plant       func(MigrationSubject) MigrationRecord
+		present     []string
+		wantState   MigrationState
+		wantRestart bool
 	}{
 		{
-			name:      "every owned directory on disk: stay iterated",
+			name:      "iterated with every owned directory on disk: stay iterated",
+			plant:     func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
 			present:   []string{"m_42_title", "m_42_sidecar", "property_title"},
 			wantState: MigrationStateIterated,
 		},
 		{
-			name:      "the directory the rebuild wrote into is gone: back to iterating",
-			present:   []string{"m_42_title", "property_title"},
+			name:        "iterated and the directory the rebuild wrote into is gone",
+			plant:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
+			present:     []string{"m_42_title", "property_title"},
+			wantState:   MigrationStateIterating,
+			wantRestart: true,
+		},
+		{
+			name:        "iterated and the directory the mirror writes into is gone",
+			plant:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
+			present:     []string{"m_42_sidecar", "property_title"},
+			wantState:   MigrationStateIterating,
+			wantRestart: true,
+		},
+		{
+			name:        "iterated and both gone",
+			plant:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
+			present:     []string{"property_title"},
+			wantState:   MigrationStateIterating,
+			wantRestart: true,
+		},
+		{
+			name:      "a checkpoint with every owned directory on disk keeps its place",
+			plant:     checkpointed,
+			present:   []string{"m_42_title", "m_42_sidecar", "property_title"},
 			wantState: MigrationStateIterating,
 		},
 		{
-			name:      "the directory the mirror writes into is gone: back to iterating",
-			present:   []string{"m_42_sidecar", "property_title"},
-			wantState: MigrationStateIterating,
+			name:        "a checkpoint whose rebuild directory is gone restarts",
+			plant:       checkpointed,
+			present:     []string{"m_42_title", "property_title"},
+			wantState:   MigrationStateIterating,
+			wantRestart: true,
 		},
 		{
-			name:      "both gone: back to iterating",
+			name:        "a checkpoint whose mirror directory is gone restarts",
+			plant:       checkpointed,
+			present:     []string{"m_42_sidecar", "property_title"},
+			wantState:   MigrationStateIterating,
+			wantRestart: true,
+		},
+		{
+			// Nothing is vouched for yet, so a missing directory is just a
+			// bucket the load is about to create.
+			name:      "an iteration that has recorded no checkpoint has nothing to restart",
+			plant:     func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
 			present:   []string{"property_title"},
 			wantState: MigrationStateIterating,
 		},
@@ -517,7 +563,7 @@ func TestReconcileReverseEdge(t *testing.T) {
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
 			f.tasks = []*distributedtask.Task{testTask(subject.TaskID, 42, distributedtask.TaskStatusStarted)}
 			f.mkdirs(tt.present...)
-			f.put(NewMigrationRecordIterated(subject))
+			f.put(tt.plant(subject))
 
 			f.reconcile()
 
@@ -525,11 +571,21 @@ func TestReconcileReverseEdge(t *testing.T) {
 			require.True(t, present)
 			require.Equal(t, tt.wantState, state)
 
-			if tt.wantState == MigrationStateIterating {
-				rec, _ := f.store.Get(subject.Key)
-				require.Equal(t, MigrationCheckpoint{}, rec.(MigrationRecordIterating).Checkpoint(),
-					"the checkpoint has to clear with the state, or the rebuild resumes past data it never wrote")
+			rec, _ := f.store.Get(subject.Key)
+			if !tt.wantRestart {
+				require.Equal(t, subject.IterationCutoff, rec.Subject().IterationCutoff,
+					"a rebuild that was not restarted keeps the horizon it armed with")
+				return
 			}
+
+			require.Equal(t, MigrationCheckpoint{}, rec.(MigrationRecordIterating).Checkpoint(),
+				"the checkpoint has to clear with the state, or the rebuild resumes past data it never wrote")
+
+			// The horizon delegated everything above it to the mirror, and the
+			// mirror's directory is what went missing. A restart that keeps it
+			// skips every object updated since, and nothing else covers them.
+			require.True(t, rec.Subject().IterationCutoff.After(time.Now()),
+				"a restarted rebuild must skip nothing: the mirror it delegated to is gone")
 		})
 	}
 }

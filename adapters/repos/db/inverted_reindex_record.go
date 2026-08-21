@@ -122,6 +122,10 @@ type MigrationSubject struct {
 	// keeps the window between arming the mirror and fixing the horizon
 	// empty. Every later state carries it unchanged, so a resume never
 	// re-derives a horizon from a clock that has moved on.
+	//
+	// The reverse edge is the one exception: it raises the horizon to
+	// migrationHorizonEverything, because the mirror it delegated to has lost
+	// the directory it was writing into.
 	IterationCutoff time.Time `json:"iterationCutoff"`
 
 	// TrackerDir is the migration's directory under .migrations, relative to
@@ -137,6 +141,12 @@ type MigrationSubject struct {
 	CanonicalDirs map[string]string `json:"canonicalDirs,omitempty"`
 	SidecarDirs   []string          `json:"sidecarDirs,omitempty"`
 }
+
+// migrationHorizonEverything is the horizon of a rebuild that skips nothing.
+// The skip predicate processes an object only while it is older than the
+// horizon, so "cover everything" is a horizon nothing can reach rather than a
+// zero one.
+var migrationHorizonEverything = time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 // MigrationRecord is the sealed set of five variants. Only this package can
 // implement it, and a record is a value: whoever holds one must not mutate it

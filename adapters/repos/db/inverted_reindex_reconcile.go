@@ -150,6 +150,19 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 		return nil
 	}
 	subject := rec.Subject()
+
+	// A checkpoint vouches for postings, so it is subject to the same reverse
+	// edge Iterated is. This is the wide window: Iterated lasts an instant near
+	// the end of a rebuild, while a large migration carries a checkpoint for
+	// its whole runtime, and the sweeps remove a not-yet-committed record's
+	// directories without removing the record.
+	if iterating, ok := rec.(MigrationRecordIterating); ok && len(iterating.Checkpoint().LastProcessedKey) > 0 {
+		restarted, err := r.restartIfRebuiltDataGone(subject)
+		if err != nil || restarted {
+			return err
+		}
+	}
+
 	switch verdict, why := r.verdict(subject); verdict {
 	case migrationVerdictDiscard:
 		return r.discard(ctx, all, subject, why)
@@ -180,24 +193,45 @@ func (r *migrationReconciler) reconcileIterated(ctx context.Context, rec Migrati
 		}
 	}
 
-	// Every directory the record owns has to be present at Iterated: the
-	// rebuild wrote into the sidecars and the mirror into the staged ones.
-	// A missing one means the rebuild never reached disk or was reclaimed,
-	// and a resume from the checkpoint would then swap in a bucket holding
-	// only the objects that happen to sort above the stale key.
+	restarted, err := r.restartIfRebuiltDataGone(subject)
+	if err != nil || restarted {
+		return err
+	}
+	return r.reconcileUncommitted(ctx, rec, all, frozen)
+}
+
+// restartIfRebuiltDataGone is the machine's one reverse edge. Every directory
+// the record owns has to be present while it vouches for rebuilt postings: the
+// rebuild wrote into the sidecars and the mirror into the staged ones. A
+// missing one means the rebuild never reached disk or was reclaimed, and a
+// resume would then swap in a bucket holding only the objects that happen to
+// sort above the stale key.
+func (r *migrationReconciler) restartIfRebuiltDataGone(subject MigrationSubject) (bool, error) {
 	for _, dir := range migrationOwnedDirs(subject) {
 		there, err := r.dirExists(dir)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if there {
 			continue
 		}
+
+		// The horizon delegated every object updated at or after it to the
+		// mirror, and the mirror's own directory is among the ones that just
+		// went missing — so this rebuild has to take all of them back. Raised
+		// rather than cleared: the predicate processes an object only when it
+		// is older than the horizon, so a zero value would skip every object
+		// instead of none. Re-indexing an object the mirror also covers
+		// converges, because reindex segments precede ingest in merge order
+		// and the writes are per-key idempotent.
+		restarted := subject
+		restarted.IterationCutoff = migrationHorizonEverything
+
 		r.logger.WithField("record", subject.Key.String()).Warnf(
-			"rebuilt data at %q is gone; restarting the rebuild from the beginning", dir)
-		return r.store.Put(NewMigrationRecordIterating(subject, MigrationCheckpoint{}))
+			"rebuilt data at %q is gone; restarting the rebuild from the beginning and re-covering the horizon the mirror held", dir)
+		return true, r.store.Put(NewMigrationRecordIterating(restarted, MigrationCheckpoint{}))
 	}
-	return r.reconcileUncommitted(ctx, rec, all, frozen)
+	return false, nil
 }
 
 // reconcileMerged owns the machine's one external-fact edge. The staged data
