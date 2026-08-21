@@ -175,12 +175,11 @@ func (f *fakeSegment) dropMarked() error {
 func (f *fakeSegment) get(key []byte) ([]byte, error) {
 	f.getCounter++
 
-	keyStr := string(key)
 	if f.strategy != segmentindex.StrategyReplace {
 		return nil, fmt.Errorf("not a replace segment")
 	}
 
-	if val, ok := f.replaceStore[keyStr]; ok {
+	if val, ok := f.replaceStore[string(key)]; ok {
 		return val, nil
 	}
 
@@ -194,12 +193,11 @@ func (f *fakeSegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte
 func (f *fakeSegment) getCollection(key []byte) ([]value, error) {
 	f.getCounter++
 
-	keyStr := string(key)
 	if f.strategy != segmentindex.StrategySetCollection && f.strategy != segmentindex.StrategyMapCollection {
 		return nil, fmt.Errorf("not a collection segment")
 	}
 
-	if val, ok := f.collectionStore[keyStr]; ok {
+	if val, ok := f.collectionStore[string(key)]; ok {
 		return val, nil
 	}
 
@@ -209,12 +207,11 @@ func (f *fakeSegment) getCollection(key []byte) ([]value, error) {
 func (f *fakeSegment) getCollectionBytes(key []byte) ([][]byte, error) {
 	f.getCounter++
 
-	keyStr := string(key)
 	if f.strategy != segmentindex.StrategySetCollection && f.strategy != segmentindex.StrategyMapCollection {
 		return nil, fmt.Errorf("not a collection segment")
 	}
 
-	if val, ok := f.collectionStore[keyStr]; ok {
+	if val, ok := f.collectionStore[string(key)]; ok {
 		result := make([][]byte, len(val))
 		for _, v := range val {
 			result = append(result, v.value)
@@ -476,12 +473,11 @@ func (s *fakeSegment) indexContainsKey(key []byte) (bool, error) {
 }
 
 func (s *fakeSegment) exists(key []byte) error {
-	keyStr := string(key)
 	if s.strategy != segmentindex.StrategyReplace {
 		return fmt.Errorf("not a replace segment")
 	}
 
-	if _, ok := s.replaceStore[keyStr]; ok {
+	if _, ok := s.replaceStore[string(key)]; ok {
 		return nil
 	}
 

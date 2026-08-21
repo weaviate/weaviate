@@ -853,7 +853,7 @@ func SearchResults(in []*Object, additional additional.Properties, tenant string
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = *(elem.SearchResult(additional, tenant))
+		out[i] = *elem.SearchResult(additional, tenant)
 	}
 
 	return out
