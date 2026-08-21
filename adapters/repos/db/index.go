@@ -403,8 +403,14 @@ func (i *Index) debugLoggingEnabled() bool {
 
 // NewIndex creates an index with the specified amount of shards, using only
 // the shards that are local to a node
+// NewIndex builds an index and every shard it owns. db is the owning DB, wired
+// in here rather than by the caller because the shards built below read state
+// off it while they come up (e.g. the resource-pressure read-only flag, see
+// [Shard.inheritResourcePressureReadOnly]) - assigning it after this returns
+// would leave those reads racing the assignment.
 func NewIndex(
 	ctx context.Context,
+	db *DB,
 	cfg IndexConfig,
 	invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schemaConfig.VectorIndexConfig,
@@ -459,6 +465,7 @@ func NewIndex(
 	}
 
 	index := &Index{
+		db:                      db,
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,
 		getSchema:               sg,
@@ -802,16 +809,27 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
 
+// shardIsLoaded reports whether the shard is materialized, i.e. whether
+// touching it would force a cold shard to load.
+func shardIsLoaded(shard ShardLike) bool {
+	asLazyLoadShard, ok := shard.(*LazyLoadShard)
+	return !ok || asLazyLoadShard.isLoaded()
+}
+
 func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(func(name string, shard ShardLike) error {
-		// Skip lazy loaded shard which are not loaded
-		if asLazyLoadShard, ok := shard.(*LazyLoadShard); ok {
-			if !asLazyLoadShard.isLoaded() {
-				return nil
-			}
+		if !shardIsLoaded(shard) {
+			return nil
 		}
 		return f(name, shard)
 	})
+}
+
+// publishShard makes the shard visible under shardName, reconciling it against
+// the resource-pressure flag it may have read before becoming visible.
+func (i *Index) publishShard(shardName string, shard ShardLike) {
+	i.shards.Store(shardName, shard)
+	i.db.reconcileShardResourcePressure(shardName, shard)
 }
 
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
@@ -825,11 +843,8 @@ func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) er
 
 func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLike) error) error {
 	return i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
-		// Skip lazy loaded shard which are not loaded
-		if asLazyLoadShard, ok := shard.(*LazyLoadShard); ok {
-			if !asLazyLoadShard.isLoaded() {
-				return nil
-			}
+		if !shardIsLoaded(shard) {
+			return nil
 		}
 		return f(name, shard)
 	})
@@ -3049,7 +3064,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		return err
 	}
 
-	i.shards.Store(shardName, shard)
+	i.publishShard(shardName, shard)
 
 	return nil
 }
@@ -3180,7 +3195,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			if err != nil {
 				return nil, func() {}, fmt.Errorf("init local shard %q of index %s: %w", shardName, i.ID(), err)
 			}
-			i.shards.Store(shardName, shard)
+			i.publishShard(shardName, shard)
 		}
 	}
 
