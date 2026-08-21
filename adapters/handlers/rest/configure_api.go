@@ -25,6 +25,7 @@ import (
 	"regexp"
 	goruntime "runtime"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -2717,6 +2718,29 @@ func initRuntimeOverrides(appState *state.State, registerer prometheus.Registere
 	return nil
 }
 
+// mergeRuntimeHooks adds src into dst, refusing the whole merge on a key dst
+// already holds or a key that prefixes no runtime config field. Hooks fire by
+// prefix-matching a changed field's Go name, so a key matching nothing
+// disables that knob's hot reload and a key already taken replaces a live
+// hook, both without an error anywhere.
+func mergeRuntimeHooks(dst, src map[string]func() error) error {
+	// Sorted so two bad keys always name the same one in the boot error.
+	for _, key := range slices.Sorted(maps.Keys(src)) {
+		if key == "" {
+			return fmt.Errorf("runtime config hook has an empty key, which prefixes every field")
+		}
+		if _, taken := dst[key]; taken {
+			return fmt.Errorf("runtime config hook %q is already registered", key)
+		}
+		if !config.HookKeyMatchesAnyField(key) {
+			return fmt.Errorf("runtime config hook %q prefixes no runtime config field", key)
+		}
+	}
+	maps.Copy(dst, src)
+
+	return nil
+}
+
 // postInitRuntimeOverrides registers hooks and starts runtime config background process
 func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.Context, cm *configRuntime.ConfigManager[config.WeaviateRuntimeConfig]) {
 	if appState.ServerConfig.Config.RuntimeOverrides.Enabled && cm != nil {
@@ -2766,7 +2790,6 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 			}
 			return nil
 		}
-		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())
 
 		// Re-run cross-field restriction validation on runtime YAML pushes
 		// (per-value runs at SetValue time). Keys are exact struct-field
@@ -2779,6 +2802,13 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 		hooks["AllowedCompressionTypes"] = restrictionHook
 		hooks["DefaultVectorIndexType"] = restrictionHook
 		hooks["DefaultQuantization"] = restrictionHook
+
+		// Merged last so the guard sees every other key a collision could
+		// hide behind.
+		if err := mergeRuntimeHooks(hooks, appState.Crons.RuntimeConfigHooks()); err != nil {
+			appState.Logger.WithField("action", "startup").Errorf("cannot register cron runtime config hooks: %v", err)
+			appState.Logger.Exit(1)
+		}
 
 		appState.Logger.Log(logrus.InfoLevel, "registering runtime overrides hooks")
 		cm.RegisterHooks(hooks)

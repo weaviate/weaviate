@@ -402,7 +402,7 @@ type updateLogRecord struct {
 
 func matchUpdatedFields(match string, records []updateLogRecord) bool {
 	for _, v := range records {
-		if strings.HasPrefix(v.field, match) {
+		if hookKeyMatchesField(match, v.field) {
 			return true
 		}
 	}
@@ -494,4 +494,25 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	}
 
 	return registered
+}
+
+// hookKeyMatchesField is the one rule deciding whether a runtime config hook
+// key names a field: the key prefixes the field's Go name.
+func hookKeyMatchesField(hookKey, fieldName string) bool {
+	return strings.HasPrefix(fieldName, hookKey)
+}
+
+// HookKeyMatchesAnyField reports whether a hook key names any
+// WeaviateRuntimeConfig field. A key naming none never fires, so a caller
+// registering hooks can refuse it instead of leaving that knob's hot reload
+// quiet. An empty key names every field.
+func HookKeyMatchesAnyField(hookKey string) bool {
+	runtimeConfig := reflect.TypeFor[WeaviateRuntimeConfig]()
+	for i := range runtimeConfig.NumField() {
+		if hookKeyMatchesField(hookKey, runtimeConfig.Field(i).Name) {
+			return true
+		}
+	}
+
+	return false
 }
