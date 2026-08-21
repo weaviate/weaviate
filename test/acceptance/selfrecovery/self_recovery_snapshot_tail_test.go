@@ -19,7 +19,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
@@ -27,6 +29,35 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
+
+// ensureClass retries a class create across transient leader-forwarding drops
+// right after formation ("grpc: the client connection is closing").
+func ensureClass(t *testing.T, c *models.Class) {
+	t.Helper()
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		if _, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil); err != nil {
+			getParams := clschema.NewSchemaObjectsGetParams().WithClassName(c.Class)
+			if _, gerr := helper.Client(t).Schema.SchemaObjectsGet(getParams, nil); gerr != nil {
+				require.NoError(ct, err)
+			}
+		}
+	}, 30*time.Second, 1*time.Second, "class %s never created", c.Class)
+}
+
+func ensureTenants(t *testing.T, class string, tenants []*models.Tenant) {
+	t.Helper()
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		params := clschema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
+		if _, err := helper.Client(t).Schema.TenantsCreate(params, nil); err != nil {
+			existing, gerr := helper.Client(t).Schema.TenantsGet(clschema.NewTenantsGetParams().WithClassName(class), nil)
+			if gerr == nil && existing.Payload != nil && len(existing.Payload) >= len(tenants) {
+				return
+			}
+			require.NoError(ct, err)
+		}
+	}, 30*time.Second, 1*time.Second, "tenants on %s never created", class)
+}
 
 func srParagraphClass(name string) *models.Class {
 	c := articles.ParagraphsClass()
@@ -80,11 +111,11 @@ func TestSelfRecoverySnapshotTailChangesRecover(t *testing.T) {
 	})
 
 	t.Run("create pre-snapshot collections", func(t *testing.T) {
-		helper.CreateClass(t, srParagraphClass(baseClass))
+		ensureClass(t, srParagraphClass(baseClass))
 		mt := srParagraphClass(tenantedClass)
 		mt.ShardingConfig = nil
 		mt.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
-		helper.CreateClass(t, mt)
+		ensureClass(t, mt)
 	})
 
 	t.Run("verify all 3 nodes report shard loaded", func(t *testing.T) {
@@ -107,8 +138,8 @@ func TestSelfRecoverySnapshotTailChangesRecover(t *testing.T) {
 	})
 
 	t.Run("commit tail schema changes and data while node-3 is down", func(t *testing.T) {
-		helper.CreateClass(t, srParagraphClass(tailClass))
-		helper.CreateTenants(t, tenantedClass, []*models.Tenant{{Name: tailTenant}})
+		ensureClass(t, srParagraphClass(tailClass))
+		ensureTenants(t, tenantedClass, []*models.Tenant{{Name: tailTenant}})
 		submitBatch(t, srParagraphObjects(tailClass, "22222222-2222-2222-2222", tailCount, ""), types.ConsistencyLevelQuorum)
 		submitBatch(t, srParagraphObjects(tenantedClass, "33333333-3333-3333-3333", tailTenantCount, tailTenant), types.ConsistencyLevelQuorum)
 	})
