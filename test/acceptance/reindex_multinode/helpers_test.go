@@ -547,7 +547,7 @@ func runBM25QueryOnNodeWithRetry(t *testing.T, restURI, className, query string)
 // restartCluster cycles every node serially — stop, start, wait for
 // ready, move on. Used by the restart-matrix tests to verify the
 // deferred-finalize design: every per-node migration tracker dir is
-// consumed by FinalizeCompletedMigrations at startup, and follow-up
+// consumed by reconciliation at startup, and follow-up
 // migrations start from a clean state.
 //
 // Full-cluster simultaneous restart is intentionally NOT used here.
@@ -589,7 +589,7 @@ func cycleNodeFastKill(ctx context.Context, t *testing.T, compose *docker.Docker
 // times produced different on-disk states for the same migration.
 //
 // Without the readiness wait, the test would race the node's
-// FinalizeCompletedMigrations + shard-init + bucket-load — queries to
+// reconciliation + shard-init + bucket-load — queries to
 // a not-yet-ready node return 0 across the board even though the
 // promoted canonical dir is present on disk. That manifested as a
 // per-replica `[6 6 0]`/`[0 0 0]` failure that looks identical to the
@@ -603,7 +603,7 @@ func rollingRestartCluster(ctx context.Context, t *testing.T, compose *docker.Do
 		// Wait for this node's HTTP endpoint to respond before moving
 		// on. tryGetSchema is cheap and exercises the same routing
 		// path the test asserts against. 60s is generous for the
-		// FinalizeCompletedMigrations + shard-init phase.
+		// reconciliation + shard-init phase.
 		restartedURI := compose.GetWeaviateNode(i).URI()
 		require.Eventuallyf(t, func() bool {
 			resp, err := http.Get(fmt.Sprintf("http://%s/v1/.well-known/ready", restartedURI))

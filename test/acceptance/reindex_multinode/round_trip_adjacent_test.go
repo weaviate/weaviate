@@ -212,7 +212,7 @@ func TestMultiNode_ChangeTokenization_AJ_EnableThenChange(t *testing.T) {
 // TestMultiNode_ChangeTokenization_RestartThenRoundTrip pins journey 8:
 // T1 word→field, RESTART every node (graceful), then T2 field→word.
 // Hypothesis: a node restart between rounds triggers
-// FinalizeCompletedMigrations on shard init, which cleans up the
+// reconciliation on shard init, which cleans up the
 // completed-but-not-tidied migration directory for the first migration.
 // If that cleanup is what's missing from the in-process round-trip path,
 // a restart-between should produce CONSISTENT replicas where the
@@ -260,7 +260,7 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
-	// Restart every node, one at a time, so FinalizeCompletedMigrations
+	// Restart every node, one at a time, so reconciliation
 	// runs on each node's shard init.
 	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
 		t.Logf("cycling node %d between rounds", nodeIdx+1)

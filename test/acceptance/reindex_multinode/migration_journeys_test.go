@@ -409,7 +409,7 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 	// Poll until every replica converges on all three migrated props, then
 	// run the histogram below as a post-convergence stability check.
 	// rollingRestartCluster only waits for /ready; a restarted node may
-	// still be loading buckets (FinalizeCompletedMigrations). Polling the
+	// still be loading buckets (reconciliation). Polling the
 	// real per-replica condition (50ms) instead of a fixed settle means a
 	// node that never converges fails loudly. testcontainers reallocates
 	// ports across stop+start, so restURIOf re-resolves on every call.

@@ -42,7 +42,7 @@ import (
 // landed in RAFT. A node that goes down between local swap and ack
 // emission either:
 //   - already finished the swap (sentinels present on disk; the
-//     post-restart FinalizeCompletedMigrations + RecoveryAwareProvider
+//     post-restart reconciliation + RecoveryAwareProvider
 //     path re-emits the ack on the next scheduler tick), OR
 //   - died mid-swap (LocalCallbacksDone reports false; OnGroupCompleted
 //     re-fires via the rehydrate path; ack emitted after rehydrate +
@@ -145,7 +145,7 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	// Poll until every replica converges to expectedPathCount, then sample
 	// stability below. AwaitReindexFinished only confirms node-1; a
 	// just-restarted node may still be loading buckets
-	// (FinalizeCompletedMigrations). A node that never converges fails here
+	// (reconciliation). A node that never converges fails here
 	// loudly instead of being slept past. testcontainers reallocates ports
 	// on stop+start, so restURIOf re-resolves on every call.
 	require.Eventually(t, func() bool {
@@ -295,7 +295,7 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 	// Poll until every replica converges to expectedPathCount, then sample
 	// stability below. AwaitReindexFinished only confirms node-1; the
 	// SIGKILL'd-and-restarted node may still be loading buckets
-	// (FinalizeCompletedMigrations). A node that never converges fails here
+	// (reconciliation). A node that never converges fails here
 	// loudly instead of being slept past.
 	require.Eventually(t, func() bool {
 		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
