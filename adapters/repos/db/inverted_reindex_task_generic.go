@@ -1121,20 +1121,11 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		// missing the lost rows: queries return per-replica divergent
 		// counts.
 		//
-		// FlushAndSwitch's contract is durability: every write that
-		// returned before the call is in a segment file (fsynced) by the
-		// time it returns. Doing it here makes the record write strictly
-		// happen-after durable persistence, on both the barrier path
-		// (where the swap is deferred and the crash window is wide) and
-		// the inline one.
-		for propName, bucket := range bucketsByPropName {
-			if bucket == nil {
-				continue
-			}
-			if err = bucket.FlushAndSwitch(); err != nil {
-				err = fmt.Errorf("flushing reindex bucket for prop %q before recording the rebuild complete: %w", propName, err)
-				return zerotime, false, err
-			}
+		// Doing it here makes the record write strictly happen-after durable
+		// persistence, on both the barrier path (where the swap is deferred
+		// and the crash window is wide) and the inline one.
+		if err = t.flushReindexBuckets(shard, props, "recording the rebuild complete"); err != nil {
+			return zerotime, false, err
 		}
 		if err = t.putMigrationRecord(shard, NewMigrationRecordIterated(subject)); err != nil {
 			err = fmt.Errorf("recording the rebuild as complete: %w", err)
@@ -1688,12 +1679,40 @@ func (t *ShardReindexTaskGeneric) putMigrationRecord(shard ShardLike, rec Migrat
 	return store.Put(rec)
 }
 
+// flushReindexBuckets is the durability barrier every progress record has to
+// clear. FlushAndSwitch's contract is that every write which returned before
+// the call is in an fsynced segment by the time it returns.
+func (t *ShardReindexTaskGeneric) flushReindexBuckets(shard ShardLike, props []string, what string) error {
+	store := shard.Store()
+	if store == nil {
+		return nil
+	}
+	for _, prop := range props {
+		bucket := store.Bucket(t.reindexBucketName(prop))
+		if bucket == nil {
+			continue
+		}
+		if err := bucket.FlushAndSwitch(); err != nil {
+			return fmt.Errorf("flushing the reindex bucket for property %q before %s: %w", prop, what, err)
+		}
+	}
+	return nil
+}
+
 // recordCheckpoint advances the iteration resume point. The whole record is
 // rewritten because a checkpoint only means anything alongside the horizon and
 // the directories the same record names.
 func (t *ShardReindexTaskGeneric) recordCheckpoint(shard ShardLike, subject MigrationSubject,
 	lastProcessedKey indexKey, processedCount, indexedCount int,
 ) error {
+	// The checkpoint is fsynced and the postings it vouches for are not, so
+	// without this the two disagree after a crash: the resume seeks strictly
+	// past the checkpoint key, and nothing ever rebuilds a posting the crash
+	// dropped from the buffer. The flip then promotes a bucket permanently
+	// missing it.
+	if err := t.flushReindexBuckets(shard, subject.Properties, "recording iteration progress"); err != nil {
+		return err
+	}
 	return t.putMigrationRecord(shard, NewMigrationRecordIterating(subject, MigrationCheckpoint{
 		LastProcessedKey: lastProcessedKey.Clone().Bytes(),
 		ProcessedCount:   processedCount,
