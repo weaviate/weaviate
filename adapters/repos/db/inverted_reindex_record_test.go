@@ -265,9 +265,10 @@ func TestMigrationRecordStore(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		arrange func(t *testing.T, s *MigrationRecordStore)
-		assert  func(t *testing.T, s *MigrationRecordStore)
+		name        string
+		arrange     func(t *testing.T, s *MigrationRecordStore)
+		assert      func(t *testing.T, s *MigrationRecordStore)
+		wantLoadErr bool
 	}{
 		{
 			name:    "a shard that never ran a migration loads empty",
@@ -385,6 +386,44 @@ func TestMigrationRecordStore(t *testing.T) {
 			},
 		},
 		{
+			// Overwriting it destroys the one artifact the freeze exists to
+			// preserve, and what replaces it is a guess about the very
+			// migration nobody could read.
+			name: "a record this build cannot read is not overwritten by a fresh one",
+			arrange: func(t *testing.T, s *MigrationRecordStore) {
+				require.NoError(t, os.MkdirAll(s.Dir(), 0o777))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(s.Dir(), "42_enable_filterable.json"), []byte("{torn"), 0o600))
+			},
+			assert: func(t *testing.T, s *MigrationRecordStore) {
+				require.Len(t, s.Unreadable(), 1)
+				require.Error(t, s.Put(merged(42, StrategyCodeEnableFilterable)))
+
+				kept, err := os.ReadFile(filepath.Join(s.Dir(), "42_enable_filterable.json"))
+				require.NoError(t, err)
+				require.Equal(t, "{torn", string(kept))
+
+				// A different migration on the same shard is not this file.
+				require.NoError(t, s.Put(merged(43, StrategyCodeEnableFilterable)))
+			},
+		},
+		{
+			// A caller logs the error and carries on with the shard load, so
+			// an empty store here reads as "no migration on this shard" and
+			// licenses every sweep to reclaim.
+			name: "a records directory that cannot be read leaves the shard frozen, not clean",
+			arrange: func(t *testing.T, s *MigrationRecordStore) {
+				require.NoError(t, os.MkdirAll(filepath.Dir(s.Dir()), 0o777))
+				require.NoError(t, os.WriteFile(s.Dir(), []byte("not a directory"), 0o600))
+			},
+			wantLoadErr: true,
+			assert: func(t *testing.T, s *MigrationRecordStore) {
+				require.Empty(t, s.Records())
+				require.NotEmpty(t, s.Unreadable(),
+					"a directory nobody could read must withhold, not report a clean shard")
+			},
+		},
+		{
 			name: "records come back in ascending generation order",
 			arrange: func(t *testing.T, s *MigrationRecordStore) {
 				require.NoError(t, s.Put(merged(43, StrategyCodeEnableFilterable)))
@@ -415,7 +454,12 @@ func TestMigrationRecordStore(t *testing.T) {
 
 			// Every assertion runs against a store that re-read the directory,
 			// so nothing passes on in-memory state a restart would lose.
-			require.NoError(t, store.Load())
+			err := store.Load()
+			if tt.wantLoadErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
 			tt.assert(t, store)
 		})
 	}

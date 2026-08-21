@@ -131,6 +131,14 @@ func (s *MigrationRecordStore) Load() error {
 			s.publish(map[MigrationRecordKey]MigrationRecord{}, nil)
 			return nil
 		}
+		// Callers log this and carry on with the shard load, and an empty store
+		// reads as "no migration here" — which licenses exactly the destructive
+		// work a directory nobody could read has to withhold. Publish the fault
+		// so every reader sees a frozen shard rather than a clean one.
+		s.publish(map[MigrationRecordKey]MigrationRecord{}, []MigrationRecordUnreadable{{
+			FileName: migrationRecordsDirName,
+			Reason:   fmt.Sprintf("read migration records dir: %v", err),
+		}})
 		return fmt.Errorf("read migration records dir %q: %w", s.dir, err)
 	}
 
@@ -192,6 +200,13 @@ func (s *MigrationRecordStore) Put(rec MigrationRecord) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
+	// The file this would land on may be one this build could not read. That
+	// file is the artifact the freeze exists to preserve, and what would
+	// replace it is a guess about the migration it describes.
+	if reason, blocked := s.unreadableAt(rec.Subject().Key); blocked {
+		return fmt.Errorf("refusing to write migration record %q over a file this build could not read: %s",
+			rec.Subject().Key, reason)
+	}
 	if err := s.mkdir(); err != nil {
 		return fmt.Errorf("create migration records dir %q: %w", s.dir, err)
 	}
@@ -219,6 +234,20 @@ func (s *MigrationRecordStore) Remove(key MigrationRecordKey) error {
 	defer s.mu.Unlock()
 	delete(s.records, key)
 	return nil
+}
+
+// unreadableAt reports whether the file key would be written to is one the
+// last load could not place.
+func (s *MigrationRecordStore) unreadableAt(key MigrationRecordKey) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	name := key.fileName()
+	for _, u := range s.unreadable {
+		if u.FileName == name {
+			return u.Reason, true
+		}
+	}
+	return "", false
 }
 
 func (s *MigrationRecordStore) Get(key MigrationRecordKey) (MigrationRecord, bool) {
