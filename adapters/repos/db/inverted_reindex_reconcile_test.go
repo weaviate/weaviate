@@ -46,13 +46,14 @@ func (f *fakeBucketCloser) ShutdownStagedBuckets(_ context.Context, key Migratio
 }
 
 type reconcileFixture struct {
-	t       *testing.T
-	lsmPath string
-	store   *MigrationRecordStore
-	mirror  *fakeMirrorRegistry
-	buckets *fakeBucketCloser
-	tasks   []*distributedtask.Task
-	class   *models.Class
+	t             *testing.T
+	lsmPath       string
+	store         *MigrationRecordStore
+	mirror        *fakeMirrorRegistry
+	buckets       *fakeBucketCloser
+	tasks         []*distributedtask.Task
+	tasksReadable bool
+	class         *models.Class
 }
 
 func newReconcileFixture(t *testing.T) *reconcileFixture {
@@ -60,11 +61,12 @@ func newReconcileFixture(t *testing.T) *reconcileFixture {
 	logger, _ := test.NewNullLogger()
 	lsmPath := t.TempDir()
 	return &reconcileFixture{
-		t:       t,
-		lsmPath: lsmPath,
-		store:   NewMigrationRecordStore(lsmPath, logger),
-		mirror:  &fakeMirrorRegistry{},
-		buckets: &fakeBucketCloser{},
+		t:             t,
+		tasksReadable: true,
+		lsmPath:       lsmPath,
+		store:         NewMigrationRecordStore(lsmPath, logger),
+		mirror:        &fakeMirrorRegistry{},
+		buckets:       &fakeBucketCloser{},
 	}
 }
 
@@ -72,7 +74,7 @@ func (f *reconcileFixture) reconcile() {
 	f.t.Helper()
 	logger, _ := test.NewNullLogger()
 	r := newMigrationReconciler(f.store, f.lsmPath, logger, migrationReconcileDeps{
-		LocalTasks: func() []*distributedtask.Task { return f.tasks },
+		LocalTasks: func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
 		Class:      func() *models.Class { return f.class },
 		Mirror:     f.mirror,
 		Buckets:    f.buckets,
@@ -139,13 +141,14 @@ func TestReconcileMergedDisposition(t *testing.T) {
 	const taskID = "Books:change-tokenization:title:ab12"
 
 	tests := []struct {
-		name           string
-		task           *distributedtask.Task
-		class          *models.Class
-		wantState      MigrationState
-		wantRecord     bool
-		wantStagedGone bool
-		wantCanonical  string
+		name            string
+		task            *distributedtask.Task
+		tasksUnreadable bool
+		class           *models.Class
+		wantState       MigrationState
+		wantRecord      bool
+		wantStagedGone  bool
+		wantCanonical   string
 	}{
 		{
 			name:          "task still running: record and directories survive the load untouched",
@@ -228,6 +231,14 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			wantCanonical:  "property_title",
 		},
 		{
+			name:            "the task map is not readable yet, so an absent task proves nothing",
+			tasksUnreadable: true,
+			class:           testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantState:       MigrationStateMerged,
+			wantRecord:      true,
+			wantCanonical:   "property_title",
+		},
+		{
 			name:          "collection missing from the applied schema is an anomaly, not a licence to delete",
 			class:         nil,
 			wantState:     MigrationStateMerged,
@@ -240,6 +251,7 @@ func TestReconcileMergedDisposition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newReconcileFixture(t)
 			f.class = tt.class
+			f.tasksReadable = !tt.tasksUnreadable
 			if tt.task != nil {
 				f.tasks = []*distributedtask.Task{tt.task}
 			}

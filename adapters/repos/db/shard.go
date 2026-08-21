@@ -505,6 +505,10 @@ type Shard struct {
 	propValueIndexState           atomic.Value // *propValueIndexState
 	propertyValueIndexCallbacksMu sync.Mutex
 
+	// migrationRecords is this shard's reindex migration state. Reconciliation
+	// builds it at load, before any bucket opens.
+	migrationRecords *MigrationRecordStore
+
 	// migrationMirrors holds the handles that disarm a reindex migration's
 	// double-write mirror. They live here rather than on the task instance
 	// that armed them because the actor that disarms is never that one.

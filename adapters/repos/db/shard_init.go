@@ -156,10 +156,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
-	// Finalize any completed migrations whose directory renames were deferred
-	// from a runtime swap. This must run before bucket loading (initNonVector)
-	// so that buckets are found at their canonical directory names.
-	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+	// Ahead of initNonVector because reconciliation renames directories: a
+	// bucket opened at a name it is about to move would serve the wrong data.
+	s.reconcileMigrationRecords(ctx, class)
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
 	// migration's target property as "not locally ready" on this shard.

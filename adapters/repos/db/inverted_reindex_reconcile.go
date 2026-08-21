@@ -45,7 +45,12 @@ type migrationStagedBucketCloser interface {
 type migrationReconcileDeps struct {
 	// LocalTasks is this node's own applied view of the reindex namespace, not
 	// the leader's. Reading it needs no round-trip and cannot block a load.
-	LocalTasks func() []*distributedtask.Task
+	//
+	// The second result reports whether the map could be read at all. It
+	// matters because an unreadable map and an empty one are opposite facts:
+	// an absent task is terminal and licenses a discard, so a source that is
+	// merely not installed yet would read as "every task is gone".
+	LocalTasks func() ([]*distributedtask.Task, bool)
 
 	// Class is the locally applied schema for the migrated collection, or nil
 	// when the collection is not in it.
@@ -338,7 +343,11 @@ func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec Migrati
 // verdict consults the two external facts, in the order that makes the second
 // unnecessary whenever the first is conclusive.
 func (r *migrationReconciler) verdict(subject MigrationSubject) (migrationVerdict, string) {
-	if task := r.findTask(subject); task != nil {
+	task, mapReadable := r.findTask(subject)
+	if !mapReadable {
+		return migrationVerdictLeave, "this node's task map cannot be read yet"
+	}
+	if task != nil {
 		switch task.Status {
 		case distributedtask.TaskStatusFinished:
 			return migrationVerdictCommit, "owning task finished"
@@ -366,16 +375,20 @@ func (r *migrationReconciler) verdict(subject MigrationSubject) (migrationVerdic
 
 // findTask matches on ID and version together: the same task ID re-submitted
 // is a different run, and its outcome says nothing about this record's.
-func (r *migrationReconciler) findTask(subject MigrationSubject) *distributedtask.Task {
+func (r *migrationReconciler) findTask(subject MigrationSubject) (*distributedtask.Task, bool) {
 	if r.deps.LocalTasks == nil {
-		return nil
+		return nil, false
 	}
-	for _, task := range r.deps.LocalTasks() {
+	tasks, readable := r.deps.LocalTasks()
+	if !readable {
+		return nil, false
+	}
+	for _, task := range tasks {
 		if task != nil && task.ID == subject.TaskID && task.Version == subject.Key.TaskVersion {
-			return task
+			return task, true
 		}
 	}
-	return nil
+	return nil, true
 }
 
 // discard is the cancel edge. The order is load-bearing: a still-armed mirror
