@@ -157,7 +157,7 @@ func migrationSuffixes(migName string) *migrationBucketSuffixes {
 		}
 	// Per-property dir names: "enable_filterable_<prop1>_<prop2>..." (see
 	// EnableFilterableStrategy.MigrationDirName). The list of properties is
-	// authoritative in properties.mig; the dir name is informational.
+	// authoritative in the migration's record; the dir name is informational.
 	case strings.HasPrefix(migName, MigrationDirPrefixEnableFilterable):
 		return &migrationBucketSuffixes{
 			sourceBucketName: func(p string) string { return "property_" + p },

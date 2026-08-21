@@ -268,10 +268,9 @@ func (i *Index) cleanStalePartialReindexState(
 // false "clean" would leave a stale record for the next task to resume
 // against.
 //
-// The unreadable payload only fails open while no properties.mig rebuilds
-// the dir's name. Where one does, [readTaskProps] answers from it, and a
-// tracker naming other properties leaves this reporting clean and skipping
-// the shard.
+// The unreadable payload only fails open while no record names the dir. Where
+// one does, [migrationDirScope.taskProperties] answers from it, and a tracker
+// naming other properties leaves this reporting clean and skipping the shard.
 //
 // Failing open costs only a hydration, except on an unlistable .migrations:
 // that hydration then finds no completed migration to preserve and removes

@@ -352,9 +352,9 @@ func migrationDirBase(name string) string {
 // clean/recovered.
 //
 // That fail-open only covers a dir whose name leaves this property possible
-// and no properties.mig corroborates. Where one rebuilds the dir's name,
-// [readTaskProps] answers from it, unreadablePayload stays false, and both
-// probes decide from that list instead.
+// and no record names the dir. Where one does,
+// [migrationDirScope.taskProperties] answers from it, unreadablePayload stays
+// false, and both probes decide from that list instead.
 //
 // An intact payload still requires the exact sorted-name reconstruction —
 // unreachable from real writers, which always derive the name and payload

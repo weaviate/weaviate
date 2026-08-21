@@ -199,7 +199,7 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // Shard.updatePropertyBuckets ran cleanStaleMigrationDirs for every
 // index whose flag was now false, removing the in-flight migration's
 // .migrations/<dir>/ working directory and causing the next
-// markProgress to fail with "progress.mig.000000001: no such file or
+// the resumed migration's checkpoint write to fail with "no such file or
 // directory" → task FAILED. https://github.com/weaviate/weaviate/issues/10675 frontend repro on
 // parallel enable-filterable + enable-rangeable hit this.
 //

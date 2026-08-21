@@ -72,7 +72,6 @@ func writeTrackerWithPayload(tb testing.TB, lsm, dirName string, doc []byte) str
 	tb.Helper()
 	dir := filepath.Join(lsm, ".migrations", dirName)
 	require.NoError(tb, os.MkdirAll(dir, 0o755))
-	require.NoError(tb, os.WriteFile(filepath.Join(dir, "started.mig"), []byte("x"), 0o644))
 	require.NoError(tb, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), doc, 0o644))
 	return dirName
 }
