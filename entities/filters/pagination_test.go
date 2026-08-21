@@ -55,4 +55,13 @@ func TestExtractPagination(t *testing.T) {
 		assert.Equal(t, 11, p.Offset)
 		assert.Equal(t, 25, p.Limit)
 	})
+
+	t.Run("with a negative offset", func(t *testing.T) {
+		p, err := ExtractPaginationFromArgs(map[string]interface{}{
+			"offset": -1,
+			"limit":  25,
+		})
+		require.Nil(t, p)
+		require.EqualError(t, err, "offset must be non-negative")
+	})
 }
