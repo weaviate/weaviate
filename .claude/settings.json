@@ -3,7 +3,8 @@
     "allow": [
       "Bash(./tools/gen-code-from-swagger.sh:*)",
       "Bash(golangci-lint:*)",
-      "Bash(./tools/linter_go_routines.sh:*)"
+      "Bash(./tools/linter_go_routines.sh:*)",
+      "Bash(tools/mutest.sh:*)"
     ]
   }
 }
