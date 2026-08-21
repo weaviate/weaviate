@@ -643,6 +643,19 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return nil
 	}
 
+	if !i.Config.backgroundWarmupEnabled() {
+		// Nothing else sets allShardsReady once the sweep is skipped, and
+		// observeObjectCount publishes no node-wide object count while any index
+		// reports false. Cold shards answer it from disk via ObjectCountAsync.
+		i.allShardsReady.Store(true)
+		i.logger.WithFields(logrus.Fields{
+			"action":     "skip_load_all_shards",
+			"class":      i.Config.ClassName.String(),
+			"hot_shards": len(hotShardNames),
+		}).Debug("background warmup disabled; lazy shards will load on first access")
+		return nil
+	}
+
 	// NOTE(dyma):
 	// 1. So "lazy-loaded" shards are actually loaded "half-eagerly"?
 	// 2. If <-ctx.Done or we fail to load a shard, should allShardsReady still report true?
@@ -1197,6 +1210,7 @@ type IndexConfig struct {
 	AsyncReplicationScheduler           *AsyncReplicationScheduler
 	AvoidMMap                           bool
 	EnableLazyLoadShards                bool
+	LazyLoadShardWarmupDisabled         bool // read only when EnableLazyLoadShards is true
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
@@ -1238,6 +1252,13 @@ type IndexConfig struct {
 	AutoTenantActivation bool
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
+}
+
+// backgroundWarmupEnabled reports whether the startup sweep loads cold shards.
+// The sweep only runs on the lazy-loading path, so LazyLoadShardWarmupDisabled
+// has nothing to switch off while EnableLazyLoadShards is false.
+func (c IndexConfig) backgroundWarmupEnabled() bool {
+	return c.EnableLazyLoadShards && !c.LazyLoadShardWarmupDisabled
 }
 
 func indexID(class schema.ClassName) string {
