@@ -3019,7 +3019,11 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 			func() error {
 				var err error
 				res, err = i.remote.Aggregate(ctx, shardName, params)
-				return err
+				if err != nil || res == nil {
+					return err
+				}
+				// restore wire state here so a malformed payload error still names the shard
+				return aggregator.NewShardCombiner().RestoreSerializedAggregators(res)
 			})
 		if err != nil {
 			return nil, errors.Wrapf(err, "shard %s", shardName)

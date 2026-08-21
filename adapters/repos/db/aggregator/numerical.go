@@ -116,22 +116,29 @@ type numericalAggregatorJSON struct {
 	Pairs []numericalPairJSON `json:"pairs,omitempty"`
 }
 
-// MarshalJSON is the cluster-internal wire form of the merge state.
+// MarshalJSON is the cluster-internal wire form of the merge state. It runs on
+// the request-scoped aggregator after aggregation finished, so no locking; pair
+// order on the wire is irrelevant, the decoder rebuilds and re-sorts.
 func (a *numericalAggregator) MarshalJSON() ([]byte, error) {
-	a.Lock()
-	defer a.Unlock()
-
 	out := numericalAggregatorJSON{Count: a.count, Sum: a.sum}
 	if a.serializePairs {
 		out.Pairs = make([]numericalPairJSON, 0, len(a.valueCounter))
 		for value, count := range a.valueCounter {
 			out.Pairs = append(out.Pairs, numericalPairJSON{Value: value, Count: count})
 		}
-		sort.Slice(out.Pairs, func(x, y int) bool {
-			return out.Pairs[x].Value < out.Pairs[y].Value
-		})
 	}
 	return json.Marshal(out)
+}
+
+// wireCount validates a count decoded from a cluster-internal JSON payload.
+// JSON numbers decode as float64, so a count >= 2^53 may already differ from
+// what the remote node sent; reject it alongside negative and non-integral
+// counts instead of silently truncating.
+func wireCount(f float64) (uint64, error) {
+	if f < 0 || f != math.Trunc(f) || f >= 1<<53 {
+		return 0, errors.Errorf("invalid count %v in remote shard result", f)
+	}
+	return uint64(f), nil
 }
 
 // numericalAggregatorFromJSON rebuilds the wire form from the generic map
@@ -145,13 +152,22 @@ func numericalAggregatorFromJSON(raw map[string]interface{}) (*numericalAggregat
 	}
 
 	agg := newNumericalAggregator()
-	pairs, hasPairs := raw["pairs"].([]interface{})
-	if !hasPairs {
-		agg.count = uint64(count)
+	rawPairs, hasPairs := raw["pairs"]
+	if !hasPairs || rawPairs == nil {
+		// mean-only wire form
+		restored, err := wireCount(count)
+		if err != nil {
+			return nil, err
+		}
+		agg.count = restored
 		agg.sum = sum
 		return agg, nil
 	}
 
+	pairs, ok := rawPairs.([]interface{})
+	if !ok {
+		return nil, errors.New("malformed numerical aggregator pairs in remote shard result")
+	}
 	agg.serializePairs = true
 	for _, pair := range pairs {
 		pairMap, ok := pair.(map[string]interface{})
@@ -163,10 +179,27 @@ func numericalAggregatorFromJSON(raw map[string]interface{}) (*numericalAggregat
 		if !okValue || !okPairCount {
 			return nil, errors.New("malformed numerical aggregator pair in remote shard result")
 		}
-		agg.AddNumberRow(value, uint64(pairCount))
+		restored, err := wireCount(pairCount)
+		if err != nil {
+			return nil, err
+		}
+		agg.AddNumberRow(value, restored)
 	}
 	agg.buildPairsFromCounts()
 	return agg, nil
+}
+
+// hasCompleteDistribution reports whether the value pairs account for every
+// counted element; mode/median recomputation relies on that.
+func (a *numericalAggregator) hasCompleteDistribution() bool {
+	if a.count == 0 {
+		return false
+	}
+	var total uint64
+	for _, pair := range a.pairs {
+		total += pair.count
+	}
+	return total == a.count
 }
 
 // absorb adds other's distribution; an aggregator restored from a mean-only

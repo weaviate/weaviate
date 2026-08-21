@@ -16,6 +16,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
@@ -32,11 +33,13 @@ func (sc *ShardCombiner) Do(results []*aggregation.Result) (*aggregation.Result,
 		if res == nil || len(res.Groups) < 1 {
 			continue
 		}
-		if err := sc.restoreSerializedAggregators(res); err != nil {
+		if err := sc.RestoreSerializedAggregators(res); err != nil {
 			return nil, err
 		}
+		if allResultsAreNil {
+			firstNonNilRes = i
+		}
 		allResultsAreNil = false
-		firstNonNilRes = i
 	}
 
 	if allResultsAreNil {
@@ -44,89 +47,167 @@ func (sc *ShardCombiner) Do(results []*aggregation.Result) (*aggregation.Result,
 	}
 
 	if results[firstNonNilRes].Groups[0].GroupedBy == nil {
-		return sc.combineUngrouped(results), nil
+		return sc.combineUngrouped(results)
 	}
 
-	return sc.combineGrouped(results), nil
+	return sc.combineGrouped(results)
 }
 
-func (sc *ShardCombiner) combineUngrouped(results []*aggregation.Result) *aggregation.Result {
+func (sc *ShardCombiner) combineUngrouped(results []*aggregation.Result) (*aggregation.Result, error) {
 	combined := aggregation.Result{
 		Groups: make([]aggregation.Group, 1),
 	}
 
 	for _, shard := range results {
-		if len(shard.Groups) == 0 { // not every shard has results
+		if shard == nil || len(shard.Groups) == 0 { // not every shard has results
 			continue
 		}
-		sc.mergeIntoCombinedGroupAtPos(combined.Groups, 0, shard.Groups[0])
+		if shard.Groups[0].GroupedBy != nil {
+			return nil, errors.New("mixed grouped and ungrouped shard results")
+		}
+		if err := sc.mergeIntoCombinedGroupAtPos(combined.Groups, 0, shard.Groups[0]); err != nil {
+			return nil, err
+		}
 	}
 
-	sc.finalizeGroup(&combined.Groups[0])
-	return &combined
+	if err := sc.finalizeGroup(&combined.Groups[0]); err != nil {
+		return nil, err
+	}
+	return &combined, nil
 }
 
-func (sc *ShardCombiner) combineGrouped(results []*aggregation.Result) *aggregation.Result {
+func (sc *ShardCombiner) combineGrouped(results []*aggregation.Result) (*aggregation.Result, error) {
 	combined := aggregation.Result{}
 
 	for _, shard := range results {
+		if shard == nil {
+			continue
+		}
 		for _, shardGroup := range shard.Groups {
+			if shardGroup.GroupedBy == nil {
+				return nil, errors.New("mixed grouped and ungrouped shard results")
+			}
 			pos := getPosOfGroup(combined.Groups, shardGroup.GroupedBy.Value)
 			if pos < 0 {
 				combined.Groups = append(combined.Groups, shardGroup)
-			} else {
-				sc.mergeIntoCombinedGroupAtPos(combined.Groups, pos, shardGroup)
+			} else if err := sc.mergeIntoCombinedGroupAtPos(combined.Groups, pos, shardGroup); err != nil {
+				return nil, err
 			}
 		}
 	}
 
 	for i := range combined.Groups {
-		sc.finalizeGroup(&combined.Groups[i])
+		if err := sc.finalizeGroup(&combined.Groups[i]); err != nil {
+			return nil, err
+		}
 	}
 
 	sort.Slice(combined.Groups, func(a, b int) bool {
 		return combined.Groups[a].Count > combined.Groups[b].Count
 	})
-	return &combined
+	return &combined, nil
 }
 
-// restoreSerializedAggregators converts aggregator merge state that crossed
+// RestoreSerializedAggregators converts aggregator merge state that crossed
 // the cluster-internal JSON boundary back into its concrete in-memory types.
-func (sc *ShardCombiner) restoreSerializedAggregators(res *aggregation.Result) error {
+// It is idempotent: already-typed local state is left untouched.
+func (sc *ShardCombiner) RestoreSerializedAggregators(res *aggregation.Result) error {
 	for gi := range res.Groups {
 		for name, prop := range res.Groups[gi].Properties {
 			switch prop.Type {
 			case aggregation.PropertyTypeNumerical:
-				if raw, ok := prop.NumericalAggregations["_numericalAggregator"].(map[string]interface{}); ok {
-					agg, err := numericalAggregatorFromJSON(raw)
-					if err != nil {
-						return fmt.Errorf("prop %q: %w", name, err)
-					}
-					prop.NumericalAggregations["_numericalAggregator"] = agg
+				if err := restoreNumericalAggregations(name, prop.NumericalAggregations); err != nil {
+					return err
 				}
 			case aggregation.PropertyTypeDate:
-				if raw, ok := prop.DateAggregations["_dateAggregator"].(map[string]interface{}); ok {
-					agg, err := dateAggregatorFromJSON(raw)
-					if err != nil {
-						return fmt.Errorf("prop %q: %w", name, err)
-					}
-					prop.DateAggregations["_dateAggregator"] = agg
-				}
-				if count, ok := prop.DateAggregations["count"].(float64); ok {
-					prop.DateAggregations["count"] = int64(count)
+				if err := restoreDateAggregations(name, prop.DateAggregations); err != nil {
+					return err
 				}
 			default:
-				continue
+				// only numerical and date merge state crosses the wire untyped
 			}
-			res.Groups[gi].Properties[name] = prop
 		}
+	}
+	return nil
+}
+
+func restoreNumericalAggregations(name string, aggs map[string]interface{}) error {
+	state, ok := aggs["_numericalAggregator"]
+	if !ok {
+		return requirePairsForModeMedian(name, aggs, 0)
+	}
+	if _, typed := state.(*numericalAggregator); typed {
+		return nil
+	}
+	raw, ok := state.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("prop %q: malformed numerical aggregator state in remote shard result", name)
+	}
+	agg, err := numericalAggregatorFromJSON(raw)
+	if err != nil {
+		return fmt.Errorf("prop %q: %w", name, err)
+	}
+	if err := requirePairsForModeMedian(name, aggs, len(agg.pairs)); err != nil {
+		return err
+	}
+	aggs["_numericalAggregator"] = agg
+	return nil
+}
+
+func restoreDateAggregations(name string, aggs map[string]interface{}) error {
+	if state, ok := aggs["_dateAggregator"]; !ok {
+		if err := requirePairsForModeMedian(name, aggs, 0); err != nil {
+			return err
+		}
+	} else {
+		if _, typed := state.(*dateAggregator); !typed {
+			raw, ok := state.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("prop %q: malformed date aggregator state in remote shard result", name)
+			}
+			agg, err := dateAggregatorFromJSON(raw)
+			if err != nil {
+				return fmt.Errorf("prop %q: %w", name, err)
+			}
+			if err := requirePairsForModeMedian(name, aggs, len(agg.pairs)); err != nil {
+				return err
+			}
+			aggs["_dateAggregator"] = agg
+		}
+	}
+
+	switch count := aggs["count"].(type) {
+	case nil, int64:
+		// absent, or a local shard result: nothing to restore
+	case float64:
+		restored, err := wireCount(count)
+		if err != nil {
+			return fmt.Errorf("prop %q: %w", name, err)
+		}
+		aggs["count"] = int64(restored)
+	default:
+		return fmt.Errorf("prop %q: malformed count in remote shard result", name)
+	}
+	return nil
+}
+
+// requirePairsForModeMedian rejects wire state that carries a mode or median
+// result but no distribution to recompute it from during the merge.
+func requirePairsForModeMedian(name string, aggs map[string]interface{}, numPairs int) error {
+	if numPairs > 0 {
+		return nil
+	}
+	_, hasMode := aggs["mode"]
+	_, hasMedian := aggs["median"]
+	if hasMode || hasMedian {
+		return fmt.Errorf("prop %q: mode/median aggregation without value pairs in remote shard result", name)
 	}
 	return nil
 }
 
 func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregation.Group,
 	pos int, shardGroup aggregation.Group,
-) {
+) error {
 	combinedGroups[pos].Count += shardGroup.Count
 
 	for propName, prop := range shardGroup.Properties {
@@ -143,14 +224,18 @@ func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregatio
 			if combinedProp.NumericalAggregations == nil {
 				combinedProp.NumericalAggregations = map[string]interface{}{}
 			}
-			sc.mergeNumericalProp(
-				combinedProp.NumericalAggregations, prop.NumericalAggregations)
+			if err := sc.mergeNumericalProp(
+				combinedProp.NumericalAggregations, prop.NumericalAggregations); err != nil {
+				return fmt.Errorf("prop %q: %w", propName, err)
+			}
 		case aggregation.PropertyTypeDate:
 			if combinedProp.DateAggregations == nil {
 				combinedProp.DateAggregations = map[string]interface{}{}
 			}
-			sc.mergeDateProp(
-				combinedProp.DateAggregations, prop.DateAggregations)
+			if err := sc.mergeDateProp(
+				combinedProp.DateAggregations, prop.DateAggregations); err != nil {
+				return fmt.Errorf("prop %q: %w", propName, err)
+			}
 		case aggregation.PropertyTypeBoolean:
 			sc.mergeBooleanProp(
 				&combinedProp.BooleanAggregation, &prop.BooleanAggregation)
@@ -161,138 +246,223 @@ func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregatio
 			sc.mergeRefProp(
 				&combinedProp.ReferenceAggregation, &prop.ReferenceAggregation)
 		default:
-			panic("unknown prop type: " + prop.Type)
+			return fmt.Errorf("unknown property type %q in shard result", prop.Type)
 		}
 		combinedGroups[pos].Properties[propName] = combinedProp
-
 	}
+	return nil
 }
 
-func (sc *ShardCombiner) mergeDateProp(first, second map[string]interface{}) {
+func (sc *ShardCombiner) mergeDateProp(first, second map[string]interface{}) error {
 	if len(second) == 0 {
-		return
+		return nil
 	}
 
-	// add all values from the second map to the first one. This is needed to compute median and mode correctly
-	for propType := range second {
-		switch propType {
-		case "_dateAggregator":
-			dateAggSource := second[propType].(*dateAggregator)
-			if dateAggCombined, ok := first[propType]; ok {
-				dateAggCombinedTyped := dateAggCombined.(*dateAggregator)
-				for _, pair := range dateAggSource.pairs {
-					dateAggCombinedTyped.addRow(pair.value, pair.count)
-				}
-				dateAggCombinedTyped.buildPairsFromCounts()
-				first[propType] = dateAggCombinedTyped
-
-			} else {
-				first[propType] = second[propType]
+	// merge the raw distributions first, so that mode/median recompute over both shards
+	if source, ok := second["_dateAggregator"]; ok {
+		sourceTyped, ok := source.(*dateAggregator)
+		if !ok {
+			return errors.New("malformed date aggregator state in shard result")
+		}
+		if combined, ok := first["_dateAggregator"]; ok {
+			combinedTyped, ok := combined.(*dateAggregator)
+			if !ok {
+				return errors.New("malformed date aggregator state in shard result")
 			}
+			for _, pair := range sourceTyped.pairs {
+				combinedTyped.addRow(pair.value, pair.count)
+			}
+			combinedTyped.buildPairsFromCounts()
+		} else {
+			first["_dateAggregator"] = source
 		}
 	}
 
 	for propType, value := range second {
 		switch propType {
 		case "count":
+			sourceCount, ok := value.(int64)
+			if !ok {
+				return fmt.Errorf("malformed %q entry in shard result", propType)
+			}
 			if val, ok := first[propType]; ok {
-				first[propType] = val.(int64) + value.(int64)
+				combinedCount, ok := val.(int64)
+				if !ok {
+					return fmt.Errorf("malformed %q entry in shard result", propType)
+				}
+				first[propType] = combinedCount + sourceCount
 			} else {
 				first[propType] = value
 			}
-		case "mode":
-			dateAggCombined := first["_dateAggregator"].(*dateAggregator)
-			first[propType] = dateAggCombined.Mode()
-		case "median":
-			dateAggCombined := first["_dateAggregator"].(*dateAggregator)
-			first[propType] = dateAggCombined.Median()
-		case "minimum":
-			val, ok := first["minimum"]
-			if !ok {
-				first["minimum"] = value
-			} else {
-				source1Time, _ := time.Parse(time.RFC3339, val.(string))
-				source2Time, _ := time.Parse(time.RFC3339, value.(string))
-				if source2Time.Before(source1Time) {
-					first["minimum"] = value
-				}
+		case "mode", "median":
+			if _, ok := second["_dateAggregator"]; !ok {
+				return fmt.Errorf("%s aggregation without distribution state in shard result", propType)
 			}
-		case "maximum":
-			val, ok := first["maximum"]
+			agg, ok := first["_dateAggregator"].(*dateAggregator)
 			if !ok {
-				first["maximum"] = value
+				return fmt.Errorf("%s aggregation without distribution state in shard result", propType)
+			}
+			if !agg.hasCompleteDistribution() {
+				return fmt.Errorf("%s aggregation with incomplete distribution state in shard result", propType)
+			}
+			if propType == "mode" {
+				first[propType] = agg.Mode()
 			} else {
-				source1Time, _ := time.Parse(time.RFC3339, val.(string))
-				source2Time, _ := time.Parse(time.RFC3339, value.(string))
-				if source2Time.After(source1Time) {
-					first["maximum"] = value
-				}
+				first[propType] = agg.Median()
+			}
+		case "minimum", "maximum":
+			sourceStr, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("malformed %q entry in shard result", propType)
+			}
+			val, ok := first[propType]
+			if !ok {
+				first[propType] = value
+				continue
+			}
+			combinedStr, ok := val.(string)
+			if !ok {
+				return fmt.Errorf("malformed %q entry in shard result", propType)
+			}
+			combinedTime, err := time.Parse(time.RFC3339, combinedStr)
+			if err != nil {
+				return fmt.Errorf("malformed %q entry in shard result: %w", propType, err)
+			}
+			sourceTime, err := time.Parse(time.RFC3339, sourceStr)
+			if err != nil {
+				return fmt.Errorf("malformed %q entry in shard result: %w", propType, err)
+			}
+			if (propType == "minimum" && sourceTime.Before(combinedTime)) ||
+				(propType == "maximum" && sourceTime.After(combinedTime)) {
+				first[propType] = value
 			}
 		case "_dateAggregator":
 			continue
 		default:
-			panic("unknown map entry: " + propType)
+			return fmt.Errorf("unknown aggregation %q in shard result", propType)
 		}
 	}
+	return nil
 }
 
-func (sc *ShardCombiner) mergeNumericalProp(first, second map[string]interface{}) {
+func (sc *ShardCombiner) mergeNumericalProp(first, second map[string]interface{}) error {
 	if len(second) == 0 {
-		return
+		return nil
 	}
 
-	// add all values from the second map to the first one. This is needed to compute median, mean and mode correctly
-	for propType := range second {
-		switch propType {
-		case "_numericalAggregator":
-			numAggSecondTyped := second[propType].(*numericalAggregator)
-			if numAggFirst, ok := first[propType]; ok {
-				numAggFirst.(*numericalAggregator).absorb(numAggSecondTyped)
-			} else {
-				first[propType] = numAggSecondTyped
+	// merge the raw distributions first, so that mode/mean/median recompute over both shards
+	if source, ok := second["_numericalAggregator"]; ok {
+		sourceTyped, ok := source.(*numericalAggregator)
+		if !ok {
+			return errors.New("malformed numerical aggregator state in shard result")
+		}
+		if combined, ok := first["_numericalAggregator"]; ok {
+			combinedTyped, ok := combined.(*numericalAggregator)
+			if !ok {
+				return errors.New("malformed numerical aggregator state in shard result")
 			}
+			combinedTyped.absorb(sourceTyped)
+		} else {
+			first["_numericalAggregator"] = source
 		}
 	}
 
 	for propType, value := range second {
 		switch propType {
 		case "count", "sum":
+			sourceVal, ok := value.(float64)
+			if !ok {
+				return fmt.Errorf("malformed %q entry in shard result", propType)
+			}
 			if val, ok := first[propType]; ok {
-				first[propType] = val.(float64) + value.(float64)
+				combinedVal, ok := val.(float64)
+				if !ok {
+					return fmt.Errorf("malformed %q entry in shard result", propType)
+				}
+				first[propType] = combinedVal + sourceVal
 			} else {
 				first[propType] = value
 			}
-		case "mode":
-			numAggFirst := first["_numericalAggregator"].(*numericalAggregator)
-			first[propType] = numAggFirst.Mode()
-		case "mean":
-			numAggFirst := first["_numericalAggregator"].(*numericalAggregator)
-			first[propType] = numAggFirst.Mean()
-		case "median":
-			numAggFirst := first["_numericalAggregator"].(*numericalAggregator)
-			first[propType] = numAggFirst.Median()
-		case "minimum":
-			if _, ok := first["minimum"]; !ok || value.(float64) < first["minimum"].(float64) {
-				first["minimum"] = value
+		case "mode", "mean", "median":
+			if _, ok := second["_numericalAggregator"]; !ok {
+				return fmt.Errorf("%s aggregation without distribution state in shard result", propType)
 			}
-		case "maximum":
-			if _, ok := first["maximum"]; !ok || value.(float64) > first["maximum"].(float64) {
-				first["maximum"] = value
+			agg, ok := first["_numericalAggregator"].(*numericalAggregator)
+			if !ok {
+				return fmt.Errorf("%s aggregation without distribution state in shard result", propType)
+			}
+			if propType != "mean" && !agg.hasCompleteDistribution() {
+				return fmt.Errorf("%s aggregation with incomplete distribution state in shard result", propType)
+			}
+			switch propType {
+			case "mode":
+				first[propType] = agg.Mode()
+			case "mean":
+				first[propType] = agg.Mean()
+			case "median":
+				first[propType] = agg.Median()
+			}
+		case "minimum", "maximum":
+			sourceVal, ok := value.(float64)
+			if !ok {
+				return fmt.Errorf("malformed %q entry in shard result", propType)
+			}
+			val, ok := first[propType]
+			if !ok {
+				first[propType] = value
+				continue
+			}
+			combinedVal, ok := val.(float64)
+			if !ok {
+				return fmt.Errorf("malformed %q entry in shard result", propType)
+			}
+			if (propType == "minimum" && sourceVal < combinedVal) ||
+				(propType == "maximum" && sourceVal > combinedVal) {
+				first[propType] = value
 			}
 		case "_numericalAggregator":
 			continue
 		default:
-			panic("unknown map entry: " + propType)
+			return fmt.Errorf("unknown aggregation %q in shard result", propType)
 		}
 	}
+	return nil
 }
 
-func (sc *ShardCombiner) finalizeDateProp(combined map[string]interface{}) {
+// finalizeDateProp and finalizeNumerical re-check distribution completeness on
+// the fully combined state: the per-merge checks only run for shards that carry
+// the mode/median key, so a trailing shard can still leave the combined
+// distribution incomplete.
+func (sc *ShardCombiner) finalizeDateProp(combined map[string]interface{}) error {
+	if agg, ok := combined["_dateAggregator"].(*dateAggregator); ok {
+		if err := requireCompleteForModeMedian(combined, agg.hasCompleteDistribution()); err != nil {
+			return err
+		}
+	}
 	delete(combined, "_dateAggregator")
+	return nil
 }
 
-func (sc *ShardCombiner) finalizeNumerical(combined map[string]interface{}) {
+func (sc *ShardCombiner) finalizeNumerical(combined map[string]interface{}) error {
+	if agg, ok := combined["_numericalAggregator"].(*numericalAggregator); ok {
+		if err := requireCompleteForModeMedian(combined, agg.hasCompleteDistribution()); err != nil {
+			return err
+		}
+	}
 	delete(combined, "_numericalAggregator")
+	return nil
+}
+
+func requireCompleteForModeMedian(combined map[string]interface{}, complete bool) error {
+	if complete {
+		return nil
+	}
+	_, hasMode := combined["mode"]
+	_, hasMedian := combined["median"]
+	if hasMode || hasMedian {
+		return errors.New("incomplete distribution state for a mode/median aggregation in shard result")
+	}
+	return nil
 }
 
 func (sc *ShardCombiner) mergeBooleanProp(combined, source *aggregation.Boolean) {
@@ -339,24 +509,29 @@ func getPosOfTextOcc(haystack []aggregation.TextOccurrence, needle string) int {
 	return -1
 }
 
-func (sc *ShardCombiner) finalizeGroup(group *aggregation.Group) {
+func (sc *ShardCombiner) finalizeGroup(group *aggregation.Group) error {
 	for propName, prop := range group.Properties {
 		switch prop.Type {
 		case aggregation.PropertyTypeNumerical:
-			sc.finalizeNumerical(prop.NumericalAggregations)
+			if err := sc.finalizeNumerical(prop.NumericalAggregations); err != nil {
+				return fmt.Errorf("prop %q: %w", propName, err)
+			}
 		case aggregation.PropertyTypeBoolean:
 			sc.finalizeBoolean(&prop.BooleanAggregation)
 		case aggregation.PropertyTypeText:
 			sc.finalizeText(&prop.TextAggregation)
 		case aggregation.PropertyTypeDate:
-			sc.finalizeDateProp(prop.DateAggregations)
+			if err := sc.finalizeDateProp(prop.DateAggregations); err != nil {
+				return fmt.Errorf("prop %q: %w", propName, err)
+			}
 		case aggregation.PropertyTypeReference:
 			continue
 		default:
-			panic("Unknown prop type: " + prop.Type)
+			return fmt.Errorf("unknown property type %q in shard result", prop.Type)
 		}
 		group.Properties[propName] = prop
 	}
+	return nil
 }
 
 func getPosOfGroup(haystack []aggregation.Group, needle interface{}) int {

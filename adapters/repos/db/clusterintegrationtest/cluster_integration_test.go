@@ -433,7 +433,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		logger, _ := test.NewNullLogger()
 		node := nodes[rnd.Intn(len(nodes))]
 		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger, config.Config{}))
-		require.Nil(t, err)
+		require.NoError(t, err)
 		require.Len(t, res.Groups, 1)
 
 		num := res.Groups[0].Properties["int_property"].NumericalAggregations
@@ -471,7 +471,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		logger, _ := test.NewNullLogger()
 		node := nodes[rnd.Intn(len(nodes))]
 		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger, config.Config{}))
-		require.Nil(t, err)
+		require.NoError(t, err)
 		require.Len(t, res.Groups, 1)
 		assert.InDelta(t, sum/float64(len(data)),
 			res.Groups[0].Properties["int_property"].NumericalAggregations["mean"], 0.0001)

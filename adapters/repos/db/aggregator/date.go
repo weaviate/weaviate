@@ -116,18 +116,14 @@ type datePairJSON struct {
 	Count uint64 `json:"count"`
 }
 
-// MarshalJSON is the cluster-internal wire form of the merge state.
+// MarshalJSON is the cluster-internal wire form of the merge state. It runs on
+// the request-scoped aggregator after aggregation finished, so no locking; pair
+// order on the wire is irrelevant, the decoder rebuilds and re-sorts.
 func (a *dateAggregator) MarshalJSON() ([]byte, error) {
-	a.Lock()
-	defer a.Unlock()
-
 	pairs := make([]datePairJSON, 0, len(a.valueCounter))
 	for ts, count := range a.valueCounter {
 		pairs = append(pairs, datePairJSON{Value: ts.rfc3339, Count: count})
 	}
-	sort.Slice(pairs, func(x, y int) bool {
-		return pairs[x].Value < pairs[y].Value
-	})
 	return json.Marshal(struct {
 		Pairs []datePairJSON `json:"pairs"`
 	}{Pairs: pairs})
@@ -136,10 +132,14 @@ func (a *dateAggregator) MarshalJSON() ([]byte, error) {
 // dateAggregatorFromJSON rebuilds the wire form from the generic map
 // json.Unmarshal produces for an interface{} target.
 func dateAggregatorFromJSON(raw map[string]interface{}) (*dateAggregator, error) {
-	pairs, ok := raw["pairs"].([]interface{})
-	if !ok {
+	rawPairs, hasPairs := raw["pairs"]
+	if !hasPairs || rawPairs == nil {
 		return nil, errors.New("date aggregator state missing from remote shard result, " +
 			"the remote node likely runs an older version")
+	}
+	pairs, ok := rawPairs.([]interface{})
+	if !ok {
+		return nil, errors.New("malformed date aggregator pairs in remote shard result")
 	}
 
 	agg := newDateAggregator()
@@ -157,10 +157,27 @@ func dateAggregatorFromJSON(raw map[string]interface{}) (*dateAggregator, error)
 		if err != nil {
 			return nil, fmt.Errorf("malformed date aggregator pair in remote shard result: %w", err)
 		}
-		agg.addRow(timestamp{epochNano: t.UnixNano(), rfc3339: value}, uint64(count))
+		restored, err := wireCount(count)
+		if err != nil {
+			return nil, err
+		}
+		agg.addRow(timestamp{epochNano: t.UnixNano(), rfc3339: value}, restored)
 	}
 	agg.buildPairsFromCounts()
 	return agg, nil
+}
+
+// hasCompleteDistribution reports whether the value pairs account for every
+// counted element; mode/median recomputation relies on that.
+func (a *dateAggregator) hasCompleteDistribution() bool {
+	if a.count == 0 {
+		return false
+	}
+	var total uint64
+	for _, pair := range a.pairs {
+		total += pair.count
+	}
+	return total == a.count
 }
 
 func (a *dateAggregator) AddTimestamp(rfc3339 string) error {
