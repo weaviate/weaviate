@@ -118,6 +118,12 @@ linters:
           - staticcheck
         path: usecases/auth/authentication/oidc/middleware_test.go
         text: SA1019
+      # The server still accepts these legacy request fields, so tests have to
+      # set them. Named individually so other deprecations still surface.
+      - linters:
+          - staticcheck
+        path: ^test/
+        text: 'SA1019: \(github\.com/weaviate/weaviate/grpc/generated/protocol/v1\.(Filters\)\.On|Hybrid\)\.Alpha|NearVector\)\.VectorBytes|SearchRequest\)\.Uses_123Api|SearchRequest\)\.Uses_125Api) is deprecated'
       - linters:
           - unused
         path: adapters/repos/db/vector/hnsw/distancer/asm/dot_inline.go

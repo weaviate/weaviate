@@ -17,6 +17,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          # Keep in sync with .pre-commit-config.yaml.
+          version: v2.13.1
   protolint:
     name: protolint
     runs-on: ubuntu-latest

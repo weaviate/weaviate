@@ -106,7 +106,7 @@ func TestListSetResize(t *testing.T) {
 	assert.Equal(t, l.Len(), 2)
 	l.Visit(1)
 	assert.Equal(t, []uint8{2, 0, 2}, l.set)
-	assert.Equal(t, l.Len(), (2))
+	assert.Equal(t, l.Len(), 2)
 	l.Visit(3)
 	assert.Equal(t, []uint8{2, 0, 2, 0, 2}, l.set[0:5])
 	assert.Equal(t, (2 + 1024), l.Len())

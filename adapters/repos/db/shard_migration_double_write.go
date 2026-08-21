@@ -137,7 +137,7 @@ func (s *Shard) mutatePropValueIndexState(fn func(cur propValueIndexState) propV
 
 	var cur propValueIndexState
 	if v := s.propValueIndexState.Load(); v != nil {
-		cur = *(v.(*propValueIndexState))
+		cur = *v.(*propValueIndexState)
 	}
 	next := fn(cur)
 	s.propValueIndexState.Store(&next)

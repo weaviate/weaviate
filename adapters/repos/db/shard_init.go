@@ -192,6 +192,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		enterrors.GoWrapper(f, s.index.logger)
 	}
 	s.NotifyReady()
+	s.inheritResourcePressureReadOnly()
 
 	if exists {
 		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
@@ -212,6 +213,25 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 	}
 
 	log.Debug("successfully cleaned up partially initialized shard")
+}
+
+// inheritResourcePressureReadOnly marks a freshly built shard READONLY while
+// the resource scan holds the DB read-only, so a shard that did not exist when
+// the scan swept does not come up READY and take the writes the scan is trying
+// to stop.
+//
+// The flag is raised before the sweep, so a lazily loaded shard is caught by
+// exactly one of the two: this runs under the load lock the sweep needs to see
+// the shard as loaded. An eagerly built shard is not in the shard map yet here,
+// and reconciles against the flag when it is published instead.
+func (s *Shard) inheritResourcePressureReadOnly() {
+	if !s.index.db.resourcePressureReadOnly() {
+		return
+	}
+	if err := s.SetStatusReadonly(statusReasonResourcePressure); err != nil {
+		s.index.logger.WithField("action", "set_shard_read_only").
+			Errorf("failed to set to READONLY on init: shard %q: %v", s.name, err)
+	}
 }
 
 func (s *Shard) NotifyReady() {

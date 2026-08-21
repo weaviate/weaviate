@@ -258,7 +258,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 
 	newIndexFn := func(lazy, trackDimensions bool) *Index {
-		idx, err := NewIndex(ctx, IndexConfig{
+		idx, err := NewIndex(ctx, nil, IndexConfig{
 			RootPath:              dirName,
 			ClassName:             schema.ClassName(className),
 			ReplicationFactor:     1,
