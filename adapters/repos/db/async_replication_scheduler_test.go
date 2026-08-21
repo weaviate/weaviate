@@ -3047,7 +3047,53 @@ func TestSettleDispatchBucketsOnExit(t *testing.T) {
 
 	awaitAsyncRepWg(t, s, "stranded bucket reservation must settle")
 	assert.False(t, entry.inFlight)
-	assert.Empty(t, sched.dispatchBuckets[idx])
+	assert.Empty(t, sched.dispatchBuckets)
+}
+
+// TestDispatchBucketsEmptiedEveryPass: no *Index key may survive a dispatch pass, or dropped collections stay pinned forever.
+func TestDispatchBucketsEmptiedEveryPass(t *testing.T) {
+	t.Run("after coalesced dispatch", func(t *testing.T) {
+		sched := newBareScheduler(512, 16)
+		a := &Index{Config: IndexConfig{ClassName: "A"}}
+		b := &Index{Config: IndexConfig{ClassName: "B"}}
+		for range 3 {
+			sched.onAddLocked(&Shard{index: a, class: &models.Class{Class: "A"}})
+		}
+		for range 2 {
+			sched.onAddLocked(&Shard{index: b, class: &models.Class{Class: "B"}})
+		}
+
+		sched.dispatchDueLocked()
+
+		assert.ElementsMatch(t, []int{3, 2}, drainBatchSizes(sched.workCh))
+		assert.Empty(t, sched.dispatchBuckets)
+	})
+
+	t.Run("after mid-pass full batch", func(t *testing.T) {
+		sched := newBareScheduler(2, 16)
+		idx := &Index{Config: IndexConfig{ClassName: "C"}}
+		for range 4 {
+			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
+		}
+
+		sched.dispatchDueLocked()
+
+		assert.ElementsMatch(t, []int{2, 2}, drainBatchSizes(sched.workCh))
+		assert.Empty(t, sched.dispatchBuckets)
+	})
+
+	t.Run("after full-channel rollback", func(t *testing.T) {
+		sched := newBareScheduler(512, 0)
+		idx := &Index{Config: IndexConfig{ClassName: "C"}}
+		for range 3 {
+			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
+		}
+
+		sched.dispatchDueLocked()
+
+		assert.Len(t, sched.h, 3)
+		assert.Empty(t, sched.dispatchBuckets)
+	})
 }
 
 // TestDeregisterSettlesEntriesAwaitingPrefilter: entries parked behind the root pre-filter stay settleable, so teardown drains never wait out an RPC bound to sched.ctx.

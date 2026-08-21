@@ -613,7 +613,7 @@ func (f *Finder) PrefilterShardRoots(ctx context.Context,
 	}
 
 	var stats PrefilterStats
-	chunk := make(map[string]hashtree.Digest, prefilterMaxShardsPerRPC)
+	chunk := make(map[string]hashtree.Digest, min(len(roots), prefilterMaxShardsPerRPC))
 	flush := func(host string) {
 		if len(chunk) == 0 {
 			return
