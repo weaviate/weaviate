@@ -73,6 +73,13 @@ type TestDataConfig struct {
 	// UseVectorizer specifies which vectorizer module to use.
 	// Empty string means no vectorizer (manual vectors).
 	UseVectorizer string
+
+	// VectorIndexType selects the vector index. Empty means the server default (hnsw).
+	VectorIndexType string
+
+	// VectorIndexConfig is the index config for VectorIndexType, e.g. the dynamic
+	// index's upgrade threshold.
+	VectorIndexConfig map[string]any
 }
 
 // DefaultTestDataConfig returns a default configuration for test data generation.
@@ -156,6 +163,13 @@ func (g *TestDataGenerator) GenerateClass() *models.Class {
 			Enabled:              true,
 			AutoTenantActivation: true,
 		}
+	}
+
+	if g.config.VectorIndexType != "" {
+		class.VectorIndexType = g.config.VectorIndexType
+	}
+	if g.config.VectorIndexConfig != nil {
+		class.VectorIndexConfig = g.config.VectorIndexConfig
 	}
 
 	if g.config.UseVectorizer != "" {
