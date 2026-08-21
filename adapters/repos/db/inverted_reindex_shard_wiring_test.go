@@ -93,3 +93,62 @@ func TestReconcileAfterTaskMapSkipsAShardShuttingDown(t *testing.T) {
 		})
 	}
 }
+
+// TestReconcileWithoutADatabaseHandle pins the startup window. An index is
+// given its database handle only after its constructor returns, and an eagerly
+// loaded shard reconciles inside that call — so a record whose disposition
+// needs the task map reconciles with no handle to read it from. The shard
+// constructor's recover swallows the resulting panic, the index never
+// registers, and every later submit fails against the whole collection.
+func TestReconcileWithoutADatabaseHandle(t *testing.T) {
+	const propName = "title"
+
+	// Only the three in-flight states consult the task map; the two flipped
+	// ones are decided by probing handles alone.
+	tests := []struct {
+		name string
+		rec  func(MigrationSubject) MigrationRecord
+	}{
+		{
+			name: "iterating",
+			rec:  func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
+		},
+		{
+			name: "iterated",
+			rec:  func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
+		},
+		{
+			name: "merged",
+			rec:  func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "WiringNoDBHandle_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{propName})
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+
+			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, propName)
+			require.NoError(t, shard.migrationRecords.Put(tt.rec(subject)))
+			for _, dir := range migrationOwnedDirs(subject) {
+				require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), dir), 0o777))
+			}
+			staged := filepath.Join(shard.pathLSM(), subject.StagedDirs[propName])
+
+			handle := idx.db
+			idx.db = nil
+			// Restored before the deferred Shutdown, which needs the handle.
+			defer func() { idx.db = handle }()
+
+			require.NotPanics(t, func() { shard.reconcileMigrationRecords(ctx, class) })
+
+			assert.True(t, dirExists(staged), "the staged directory")
+			_, present := shard.migrationRecords.Get(subject.Key)
+			assert.True(t, present, "the migration record")
+		})
+	}
+}

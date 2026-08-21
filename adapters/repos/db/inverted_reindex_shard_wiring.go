@@ -145,11 +145,23 @@ func (s *Shard) liveMigrationReconciler() *migrationReconciler {
 func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconciler {
 	return newMigrationReconciler(s.migrationRecords, s.pathLSM(), s.index.logger,
 		migrationReconcileDeps{
-			LocalTasks: s.index.db.migrationLocalTasks,
+			LocalTasks: s.migrationLocalTasks,
 			Class:      class,
 			Mirror:     s,
 			Buckets:    s,
 		})
+}
+
+// migrationLocalTasks reads the handle at call time rather than at wiring time.
+// The index is given its database handle only after NewIndex returns, and an
+// eagerly loaded shard reconciles inside that call — so at wiring there may be
+// no handle to bind. No handle reads as an unreadable task map, which withholds
+// every disposition until the second pass runs it with the map installed.
+func (s *Shard) migrationLocalTasks() ([]*distributedtask.Task, bool) {
+	if s.index == nil || s.index.db == nil {
+		return nil, false
+	}
+	return s.index.db.migrationLocalTasks()
 }
 
 // ShutdownStagedBuckets closes a record's open buckets for one property so
