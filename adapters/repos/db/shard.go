@@ -405,7 +405,7 @@ type Shard struct {
 	// property — either the property was created with
 	// IndexRangeFilters=true (no migration ever ran) or an
 	// enable-rangeable / repair-rangeable migration completed locally
-	// (markTidied fired in [runtimeSwap]).
+	// (the flip decision was recorded in [runtimeSwap]).
 	//
 	// False means the rangeable bucket is mid-migration on THIS replica:
 	// a PreReindexHook created an empty main bucket but the per-shard
@@ -731,7 +731,7 @@ func (s *Shard) isFallbackToSearchable() bool {
 //   - The per-shard map has an explicit `true` entry. Set by
 //     [setRangeableLocallyReady] after a local
 //     enable-rangeable / repair-rangeable migration's swap completes
-//     (markTidied + OnMigrationComplete), OR
+//     (the recorded flip decision + OnMigrationComplete), OR
 //   - There is no explicit entry in the map AND the rangeable bucket
 //     for this prop exists in the LSM store. This covers native
 //     rangeable props (created with IndexRangeFilters=true, bucket

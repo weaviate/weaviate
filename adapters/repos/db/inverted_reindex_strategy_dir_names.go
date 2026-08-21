@@ -417,10 +417,8 @@ func (s migrationDirScope) hasStrategyPrefix(base string) bool {
 // payload exists but couldn't be read, so "recorded nothing" isn't a safe
 // conclusion.
 //
-// An unusable payload still answers ok=true where properties.mig rebuilds
-// the dir's own name — see [readTaskProps].
 func (s migrationDirScope) taskProperties(name string) (props []string, ok, unreadable bool) {
-	answer := s.props.lookup(filepath.Join(s.lsmPath, ".migrations", name), s.prefixes)
+	answer := s.props.lookup(filepath.Join(s.lsmPath, ".migrations", name))
 	return answer.props, answer.ok, answer.unreadable
 }
 
@@ -445,18 +443,18 @@ type taskProps struct {
 
 // lookup answers for one tracker dir. The memo is keyed by dir alone —
 // safe because [migrationDirScope.inScopeFailingOpen] only reaches here after
-// [migrationDirScope.hasStrategyPrefix] accepts the name, no strategy
-// prefix is a prefix of another, and [propsFromSidecar] needs whole-name
-// equality, so at most one prefix can ever satisfy a given dir.
-func (c *taskPropsCache) lookup(migDir string, prefixes []string) taskProps {
+// [migrationDirScope.hasStrategyPrefix] accepts the name, and no strategy
+// prefix is a prefix of another, so at most one prefix can ever satisfy a
+// given dir.
+func (c *taskPropsCache) lookup(migDir string) taskProps {
 	if c == nil {
-		answer, _ := readTaskProps(migDir, prefixes)
+		answer, _ := readTaskProps(migDir)
 		return answer
 	}
 	if answer, hit := c.byDir[migDir]; hit {
 		return answer
 	}
-	answer, readPayload := readTaskProps(migDir, prefixes)
+	answer, readPayload := readTaskProps(migDir)
 	if c.byDir == nil {
 		c.byDir = map[string]taskProps{}
 	}
@@ -467,8 +465,7 @@ func (c *taskPropsCache) lookup(migDir string, prefixes []string) taskProps {
 	return answer
 }
 
-// count is how many payloads this cache had to read. Trackers answered from
-// their properties.mig sidecar are not counted: they never opened a payload.
+// count is how many payloads this cache had to read; a refusal opens none.
 func (c *taskPropsCache) count() int {
 	if c == nil {
 		return 0
@@ -476,10 +473,9 @@ func (c *taskPropsCache) count() int {
 	return c.reads
 }
 
-// readTaskProps answers from properties.mig where it corroborates the dir's
-// own name, falling back to payload.mig only when it doesn't. Parsing
-// payload.mig costs megabytes per tracker on a large migration, inside a RAFT
-// apply that holds the FSM loop cluster-wide.
+// readTaskProps answers from payload.mig, which costs megabytes per tracker
+// on a large migration, inside a RAFT apply that holds the FSM loop
+// cluster-wide.
 //
 // A payload over [maxRecoveryPayloadBytes] is refused rather than parsed, and
 // reads the same as one that could not be parsed: fail-open, never
@@ -490,10 +486,7 @@ func (c *taskPropsCache) count() int {
 //
 // readPayload reports whether payload.mig was opened, so the caller's read
 // counter keeps meaning what it says. A refusal opens nothing.
-func readTaskProps(migDir string, prefixes []string) (answer taskProps, readPayload bool) {
-	if props, ok := propsFromSidecar(migDir, prefixes); ok {
-		return taskProps{props: props, ok: true}, false
-	}
+func readTaskProps(migDir string) (answer taskProps, readPayload bool) {
 	props, err := readRecoveryPropertyNames(migDir, maxRecoveryPayloadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -507,27 +500,3 @@ func readTaskProps(migDir string, prefixes []string) (answer taskProps, readPayl
 	return taskProps{props: props, ok: true}, true
 }
 
-// propsFromSidecar accepts properties.mig's list only if it reconstructs
-// the tracker dir's own name — an independent witness that catches a
-// truncated, deduped, or contradicting list for free.
-//
-// This is load-bearing: a rejected list makes
-// [migrationDirScope.inScopeFailingOpen] report not-in-scope, dropping a
-// completed migration from the preserve pass ([forEachCompletedMigration])
-// and letting the sweep delete live sidecar dirs still in use.
-func propsFromSidecar(migDir string, prefixes []string) ([]string, bool) {
-	if _, err := os.Stat(filepath.Join(migDir, reindexRecoveryPayloadFile)); err != nil {
-		return nil, false
-	}
-	props, err := readMigrationProps(migDir)
-	if err != nil || len(props) == 0 {
-		return nil, false
-	}
-	base := migrationDirBase(filepath.Base(migDir))
-	for _, prefix := range prefixes {
-		if base == migrationDirWithProps(prefix, props) {
-			return props, true
-		}
-	}
-	return nil, false
-}

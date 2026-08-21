@@ -19,7 +19,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -394,17 +393,10 @@ func (p *ReindexProvider) processUnits(
 ) {
 	limiter := distributedtask.NewConcurrencyLimiter(p.concurrency())
 
-	var propsFailures selectedPropsFailures
-
 	// defer Wait so an early return on Acquire ctx-cancel still drains
 	// spawned per-unit goroutines before OnTaskCompleted's cleanup runs.
-	// The props-failure aggregate reports after that drain, so it covers
-	// every unit that ran and reads first without racing them.
 	var wg sync.WaitGroup
-	defer func() {
-		wg.Wait()
-		propsFailures.report(p.logger, task.ID)
-	}()
+	defer wg.Wait()
 	for _, unitID := range localUnits {
 		unit := task.Units[unitID]
 		if unit != nil && (unit.Status == distributedtask.UnitStatusCompleted || unit.Status == distributedtask.UnitStatusFailed) {
@@ -421,7 +413,7 @@ func (p *ReindexProvider) processUnits(
 			defer wg.Done()
 			defer limiter.Release()
 
-			p.processOneUnit(ctx, task, payload, idx, unitID, recorder, &propsFailures)
+			p.processOneUnit(ctx, task, payload, idx, unitID, recorder)
 		}, p.logger)
 	}
 }
@@ -437,7 +429,6 @@ func (p *ReindexProvider) processOneUnit(
 	idx *Index,
 	unitID string,
 	recorder distributedtask.TaskCompletionRecorder,
-	propsFailures *selectedPropsFailures,
 ) {
 	shardName := payload.UnitToShard[unitID]
 	logger := p.logger.WithField("taskID", task.ID).
@@ -572,10 +563,10 @@ func (p *ReindexProvider) processOneUnit(
 	// See [ReindexProvider.persistRecoveryRecord] for the on-disk shape.
 	//
 	// Guarded: SaveRecoveryPayload MkdirAll's the migration dir on a
-	// goroutine holding no closeLock — same re-materialization race as
-	// newReindexTrackerGuarded.
+	// goroutine holding no closeLock, which would otherwise re-create a
+	// class directory a concurrent DELETE just renamed away.
 	if err := concreteShard.Index().withCloseRLockGuard(func() error {
-		return p.persistRecoveryRecord(task, payload, unitID, concreteShard, tasks, propsFailures)
+		return p.persistRecoveryRecord(task, payload, unitID, concreteShard, tasks)
 	}); err != nil {
 		if errors.Is(err, context.Canceled) {
 			// Index is closing: cascade-cancel ends the task; don't fail the unit.
@@ -1061,42 +1052,6 @@ type reindexRecoveryRecord struct {
 	Payload     ReindexTaskPayload `json:"payload"`
 }
 
-// selectedPropsFailures counts the units whose property list could not be
-// recorded, so the task warns once instead of once per unit: the usual
-// cause (a full or read-only disk) fails every unit alike, and a
-// multi-tenant collection has one unit per tenant.
-//
-// Safe for concurrent use: units run in parallel under [processUnits].
-type selectedPropsFailures struct {
-	n     atomic.Int64
-	once  sync.Once
-	first string
-}
-
-// record counts one failure and keeps the first as the sample the warning
-// carries. Later ones add to the count only: a systemic cause repeats the
-// same error, and a per-unit cause is still visible as a count above one.
-func (f *selectedPropsFailures) record(taskName, shardName string, err error) {
-	f.n.Add(1)
-	f.once.Do(func() {
-		f.first = fmt.Sprintf("task %s, shard %s: %v", taskName, shardName, err)
-	})
-}
-
-// report emits the task's one warning, or nothing when every unit wrote its
-// list. Call it once the unit goroutines have joined, which is also what
-// makes reading first race-free.
-func (f *selectedPropsFailures) report(logger logrus.FieldLogger, taskID string) {
-	n := f.n.Load()
-	if n == 0 {
-		return
-	}
-	logger.WithField("taskID", taskID).WithField("units", n).
-		Warnf("reindex provider: failed to record task properties on %d unit(s); "+
-			"a property DELETE reads payload.mig instead, at the cost these "+
-			"writes exist to avoid; first failure: %s", n, f.first)
-}
-
 // persistRecoveryRecord writes one recovery record per generated task
 // into each task's migration directory. For semantic migrations
 // (change-tokenization) there are two tasks per unit (searchable +
@@ -1104,19 +1059,13 @@ func (f *selectedPropsFailures) report(logger logrus.FieldLogger, taskID string)
 // same record is written into each.
 //
 // The migration sub-directory under <shard>/lsm/.migrations/<dir>/ is what
-// holds the per-strategy payload.mig file. Each task's
-// property list is recorded beside it
-// ([ShardReindexTaskGeneric.SaveSelectedProps]) so a property DELETE landing
-// before the shard's first reindex pass need not parse payload.mig. That
-// write is best-effort, and its failures accrue into propsFailures rather
-// than being logged per unit.
+// holds the per-strategy payload.mig file.
 func (p *ReindexProvider) persistRecoveryRecord(
 	task *distributedtask.Task,
 	payload *ReindexTaskPayload,
 	unitID string,
 	shard ShardLike,
 	tasks []*ShardReindexTaskGeneric,
-	propsFailures *selectedPropsFailures,
 ) error {
 	lsmPath := shard.pathLSM()
 	if lsmPath == "" {
@@ -1135,12 +1084,6 @@ func (p *ReindexProvider) persistRecoveryRecord(
 	for _, t := range tasks {
 		if err := t.SaveRecoveryPayload(lsmPath, encoded); err != nil {
 			return fmt.Errorf("save recovery payload for task %q: %w", t.Name(), err)
-		}
-		// Not fatal: the DELETE path still answers from payload.mig, just at
-		// the cost this write exists to avoid. Counted rather than logged
-		// here — see [selectedPropsFailures].
-		if err := t.SaveSelectedProps(shard); err != nil {
-			propsFailures.record(t.Name(), shard.Name(), err)
 		}
 	}
 	return nil
@@ -1431,8 +1374,8 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// prior process lifetime — FINISHED, FAILED, or CANCELLED tasks
 	// rehydrated during startup recovery, or replayed when a node rejoins
 	// the cluster with a stale RAFT log. For semantic migrations the swap
-	// dirs are long gone by then (markTidied + the per-shard
-	// trimOlderGenerations call removed them), so any attempt to re-run
+	// dirs are long gone by then (the flip's own retirement plus the
+	// per-shard trimOlderGenerations call removed them), so any attempt to re-run
 	// runtimeSwap would error with "reindex bucket %q not found" — noise
 	// only since the ack barrier in [Manager.RecordPostCompletionAck]
 	// drops acks on terminal tasks (correctness unaffected), but every

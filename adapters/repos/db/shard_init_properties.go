@@ -236,8 +236,8 @@ func (s *Shard) cleanStaleMigrationDirs(ctx context.Context, propName, indexType
 // Every migration tracker dir on disk carries a per-node generation
 // suffix (`_<N>`); a single (prop, indexType) tuple can have multiple
 // generations on disk simultaneously when the last migration's trim
-// hasn't run (e.g. crash before markTidied → next-restart finalize
-// cleans up everything). Walk every entry, asking
+// hasn't run (e.g. a crash before the flip's retirement → the next
+// restart's reconciliation cleans up everything). Walk every entry, asking
 // [migrationDirScope.inScope] about each, so we don't miss old
 // generations.
 //

@@ -158,7 +158,6 @@ type ShardReindexTaskGeneric struct {
 	targetTokenization   string
 	originalTokenization string
 
-	newReindexTracker    func(lsmPath string) (reindexTracker, error)
 	keyParser            indexKeyParser
 	objectsIteratorAsync objectsIteratorAsync
 	config               reindexTaskConfig
@@ -214,14 +213,12 @@ type ShardReindexTaskGeneric struct {
 	// bucket for Phase-2b, or (nil, nil) on an already-swapped prop.
 	swapPropAtomic func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error)
 
-	// trackerMkdirGuard yields the close-lock guard serializing a reindex
-	// tracker's init() MkdirAll against a concurrent Index.drop (see
-	// newReindexTrackerGuarded). Defaults to Index.withCloseRLockGuard in
-	// NewShardReindexTaskGeneric; the drain-rematerialize test wraps it to
-	// interpose a barrier at the exact pre-MkdirAll point that makes the
-	// drop()-vs-MkdirAll race deterministic. Always set — no test-only
+	// indexClosingGuard reports a closing index as context.Canceled.
+	// Defaults to Index.withCloseRLockGuard in NewShardReindexTaskGeneric;
+	// the drain-rematerialize test wraps it to park a worker at the exact
+	// point a concurrent Index.drop has to land. Always set — no test-only
 	// branch runs in production.
-	trackerMkdirGuard func(shard ShardLike) func(func() error) error
+	indexClosingGuard func(shard ShardLike) error
 
 	// rebuildRangeableRepFn dispatches [rebuildRangeableInMemoryReps]'s
 	// per-prop bucket rebuild; defaults to
@@ -237,13 +234,6 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	keyParser indexKeyParser, objectsIteratorAsync objectsIteratorAsync,
 ) *ShardReindexTaskGeneric {
 	logger = logger.WithField("task", name)
-	newReindexTracker := func(lsmPath string) (reindexTracker, error) {
-		rt := NewFileReindexTracker(lsmPath, strategy.MigrationDirName(), keyParser)
-		if err := rt.init(); err != nil {
-			return nil, err
-		}
-		return rt, nil
-	}
 
 	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("task created")
 
@@ -251,14 +241,13 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 		name:                 name,
 		logger:               logger,
 		strategy:             strategy,
-		newReindexTracker:    newReindexTracker,
 		keyParser:            keyParser,
 		objectsIteratorAsync: objectsIteratorAsync,
 		config:               config,
 	}
 	t.processOneSwapPropFn = t.processOneSwapProp
-	t.trackerMkdirGuard = func(shard ShardLike) func(func() error) error {
-		return shard.Index().withCloseRLockGuard
+	t.indexClosingGuard = func(shard ShardLike) error {
+		return shard.Index().withCloseRLockGuard(func() error { return nil })
 	}
 	t.registerDoubleWriteCallbacksFn = t.registerDoubleWriteCallbacks
 	t.rebuildRangeableRepFn = func(ctx context.Context, b *lsmkv.Bucket) error {
@@ -436,7 +425,7 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	if err != nil {
 		return err
 	}
-	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
+	concreteShard, logger := entry.shard, entry.logger
 
 	// Idempotent fast-path: committed means prep already completed, either
 	// by an earlier call in this process or by a previous boot's
@@ -446,10 +435,7 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 		return nil
 	}
 
-	props, err := t.readPropsToReindex(rt)
-	if err != nil {
-		return fmt.Errorf("reading props: %w", err)
-	}
+	props := entry.rec.Subject().Properties
 	if len(props) == 0 {
 		return fmt.Errorf("no props found for prep on shard %q", concreteShard.Name())
 	}
@@ -466,14 +452,12 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 type dtmPhaseEntry struct {
 	shard  *Shard
 	logger logrus.FieldLogger
-	rt     reindexTracker
 	rec    MigrationRecord
 }
 
-// enterDTMPhase unwraps the shard, opens the guarded tracker (DTM callbacks
-// run under no closeLock; see newReindexTrackerGuarded), and — if the
-// recorded state trails RAFT (still iterating after a rolling restart) —
-// resumes the iteration before returning.
+// enterDTMPhase unwraps the shard and — if the recorded state trails RAFT
+// (still iterating after a rolling restart) — resumes the iteration before
+// returning.
 func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard ShardLike, method string) (*dtmPhaseEntry, error) {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
@@ -486,11 +470,6 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 		"method":     method,
 	})
 
-	rt, err := t.newReindexTrackerGuarded(concreteShard)
-	if err != nil {
-		return nil, fmt.Errorf("creating reindex tracker: %w", err)
-	}
-
 	rec, ok := t.migrationRecord(concreteShard)
 	if !ok {
 		// Shouldn't happen via OnGroupCompleted (units are node-assigned).
@@ -502,7 +481,7 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 	// migration whose data is already staged. Both callers handle it
 	// downstream.
 	if rec.DataCommitted() {
-		return &dtmPhaseEntry{shard: concreteShard, logger: logger, rt: rt, rec: rec}, nil
+		return &dtmPhaseEntry{shard: concreteShard, logger: logger, rec: rec}, nil
 	}
 
 	if rec.State() == MigrationStateIterating {
@@ -515,7 +494,7 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 		}
 	}
 
-	return &dtmPhaseEntry{shard: concreteShard, logger: logger, rt: rt, rec: rec}, nil
+	return &dtmPhaseEntry{shard: concreteShard, logger: logger, rec: rec}, nil
 }
 
 // RunSwapOnShard runs the swap + OnMigrationComplete phase.
@@ -539,12 +518,9 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 	if err != nil {
 		return err
 	}
-	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
+	concreteShard, logger := entry.shard, entry.logger
 
-	props, err := t.readPropsToReindex(rt)
-	if err != nil {
-		return fmt.Errorf("reading props: %w", err)
-	}
+	props := entry.rec.Subject().Properties
 	if len(props) == 0 {
 		return fmt.Errorf("no props found for swap on shard %q", concreteShard.Name())
 	}
@@ -796,31 +772,24 @@ func (t *ShardReindexTaskGeneric) logPhase(collectionName, shardName, method str
 	return logger, done
 }
 
-// OnAfterLsmInit is the shard-init entry into the after-LSM-init hook. It
-// uses the plain tracker because some NewShard routes hold closeLock.RLock
-// (see newReindexTrackerGuarded); DTM-driven callers MUST use
-// onAfterLsmInitGuarded instead.
-func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) error {
-	return t.onAfterLsmInitWithTracker(ctx, shard, func(s *Shard) (reindexTracker, error) {
-		return t.newReindexTracker(s.pathLSM())
-	})
-}
-
 // onAfterLsmInitGuarded is the DTM-route entry into the after-LSM-init hook:
-// scheduler/worker goroutines hold no closeLock, so the tracker init must be
-// guarded against a concurrent Index.drop. Returns context.Canceled
-// unwrapped when the index is closing (clean stop).
+// scheduler/worker goroutines hold no closeLock, so a drain that outlived a
+// collection DELETE must stop before it opens a single bucket. Returns
+// context.Canceled unwrapped when the index is closing (clean stop).
 func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, shard *Shard) error {
-	return t.onAfterLsmInitWithTracker(ctx, shard, func(s *Shard) (reindexTracker, error) {
-		return t.newReindexTrackerGuarded(s)
-	})
+	if err := t.indexClosingGuard(shard); err != nil {
+		t.logger.Debug("index is closing, stopping after-LSM-init hook")
+		return err
+	}
+	return t.OnAfterLsmInit(ctx, shard)
 }
 
-// onAfterLsmInitWithTracker is the shared body of OnAfterLsmInit /
-// onAfterLsmInitGuarded; newTracker selects the plain or guarded factory.
-func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context, shard *Shard,
-	newTracker func(*Shard) (reindexTracker, error),
-) (err error) {
+// OnAfterLsmInit is the shard-init entry into the after-LSM-init hook, and the
+// shared body of both routes. It runs no closing check of its own: some
+// NewShard routes already hold closeLock.RLock, and sync.RWMutex is not
+// reentrant, so taking it again deadlocks against a queued drop() writer.
+// DTM-driven callers MUST use onAfterLsmInitGuarded instead.
+func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) (err error) {
 	collectionName := shard.Index().Config.ClassName.String()
 	shardName := shard.Name()
 	logger, done := t.logPhase(collectionName, shardName, "OnAfterLsmInit")
@@ -830,27 +799,18 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 	// enabled if migration was already started
 	isShardSelected := t.isShardSelected(collectionName, shardName)
 
-	rt, err := newTracker(shard)
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			// Guarded route: return unwrapped so callers can errors.Is on it.
-			logger.Debug("index is closing, stopping after-LSM-init hook")
-			return err
-		}
-		err = fmt.Errorf("creating reindex tracker: %w", err)
-		return err
-	}
-
 	rec, hasRecord := t.migrationRecord(shard)
 	if !hasRecord && !isShardSelected {
 		logger.Debug("different collection/shard selected. nothing to do")
 		return nil
 	}
 
-	props, err := t.getPropsToReindex(shard, rt)
-	if err != nil {
-		err = fmt.Errorf("getting reindexable props: %w", err)
-		return err
+	// An extant record fixes the property set for the rest of the migration:
+	// re-discovering it here would let a schema that moved on since the claim
+	// stage data for one set and flip pointers for another.
+	props := t.findPropsToReindex(shard)
+	if hasRecord {
+		props = rec.Subject().Properties
 	}
 	logger.WithField("props", props).Debug("props found")
 	if len(props) == 0 {
@@ -919,23 +879,6 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 	return nil
 }
 
-// newReindexTrackerGuarded serializes the tracker's init()-time MkdirAll
-// against Index.drop: DTM-driven callers hold no closeLock, and an unguarded
-// MkdirAll would re-create the class dir a concurrent DELETE just renamed
-// away. context.Canceled means the index is closing (clean stop).
-//
-// The shard-init hooks MUST keep the plain factory: some NewShard routes
-// hold closeLock.RLock, and a nested RLock (sync.RWMutex is non-reentrant)
-// deadlocks against a queued drop() writer.
-func (t *ShardReindexTaskGeneric) newReindexTrackerGuarded(shard ShardLike) (reindexTracker, error) {
-	rt := NewFileReindexTracker(shard.pathLSM(), t.strategy.MigrationDirName(), t.keyParser)
-	rt.mkdirGuard = t.trackerMkdirGuard(shard)
-	if err := rt.init(); err != nil {
-		return nil, err
-	}
-	return rt, nil
-}
-
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
 ) (rerunAt time.Time, reloadShard bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
@@ -950,25 +893,18 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		return zerotime, false, nil
 	}
 
-	// Guarded: a cancelled worker re-enters here with no ctx check before the
-	// tracker's MkdirAll (see newReindexTrackerGuarded).
-	rt, err := t.newReindexTrackerGuarded(shard)
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			logger.Debug("index is closing, stopping reindex drain")
-			return zerotime, false, err
-		}
-		err = fmt.Errorf("creating reindex tracker: %w", err)
-		return zerotime, false, err
-	}
-
-	props, err := t.readPropsToReindex(rt)
-	if err != nil {
-		err = fmt.Errorf("reading reindexable props: %w", err)
+	// A cancelled worker re-enters here with no ctx check of its own, and
+	// everything below this point creates directories.
+	if err = t.indexClosingGuard(shard); err != nil {
+		logger.Debug("index is closing, stopping reindex drain")
 		return zerotime, false, err
 	}
 
 	rec, hasRecord := t.migrationRecord(shard)
+	var props []string
+	if hasRecord {
+		props = rec.Subject().Properties
+	}
 
 	if hasRecord && rec.PointerSwapped() {
 		// Defense in depth: a durable flip decision means a previous run
@@ -1969,13 +1905,13 @@ func (t *ShardReindexTaskGeneric) bucketOptions(shard *Shard, strategy string,
 // Property discovery and selection
 // -----------------------------------------------------------------------------
 
-func (t *ShardReindexTaskGeneric) findPropsToReindex(shard ShardLike) (props []string, save bool) {
+func (t *ShardReindexTaskGeneric) findPropsToReindex(shard ShardLike) []string {
 	collectionName := shard.Index().Config.ClassName.String()
 	shardName := shard.Name()
 	propNames := []string{}
 
 	if !t.isShardSelected(collectionName, shardName) {
-		return propNames, false
+		return propNames
 	}
 
 	// When selection is enabled and an explicit list of properties is given,
@@ -1986,7 +1922,7 @@ func (t *ShardReindexTaskGeneric) findPropsToReindex(shard ShardLike) (props []s
 	// whose source bucket does not exist yet and will be created in
 	// PreReindexHook. Both cases reduce to "use the selected list".
 	if selected, ok := t.selectedProps(collectionName); ok {
-		return selected, true
+		return selected
 	}
 
 	// Fallback: discover props by scanning existing buckets that have the
@@ -2001,7 +1937,7 @@ func (t *ShardReindexTaskGeneric) findPropsToReindex(shard ShardLike) (props []s
 			}
 		}
 	}
-	return propNames, true
+	return propNames
 }
 
 // selectedProps is the sorted property list the task already carries in its own
@@ -2023,71 +1959,6 @@ func (t *ShardReindexTaskGeneric) selectedProps(collectionName string) ([]string
 	// downstream state hashes the list.
 	sort.Strings(propNames)
 	return propNames, true
-}
-
-// SaveSelectedProps records the task's property list in properties.mig as soon
-// as the recovery payload is written, instead of waiting for this shard's first
-// [ShardReindexTaskGeneric.getPropsToReindex]. A property DELETE arriving in
-// between then answers an ambiguous tracker-dir name from that sidecar rather
-// than parsing payload.mig, which costs megabytes per tracker inside the RAFT
-// apply that holds the FSM loop cluster-wide.
-//
-// Only a task that already knows its properties writes one. A whole-collection
-// task discovers them by scanning the shard's buckets, so there is nothing to
-// record here ahead of that discovery.
-func (t *ShardReindexTaskGeneric) SaveSelectedProps(shard ShardLike) error {
-	collectionName := shard.Index().Config.ClassName.String()
-	if !t.isShardSelected(collectionName, shard.Name()) {
-		return nil
-	}
-	props, ok := t.selectedProps(collectionName)
-	if !ok {
-		return nil
-	}
-
-	// No init(): the migration dir is the one SaveRecoveryPayload just created,
-	// so this write cannot re-materialize a class dir a concurrent DELETE
-	// renamed away.
-	rt := NewFileReindexTracker(shard.pathLSM(), t.strategy.MigrationDirName(), t.keyParser)
-	if rt.HasProps() {
-		return nil
-	}
-	return rt.saveProps(props)
-}
-
-// recordedProps reads the property list the tracker holds. HasProps only
-// reports a file that has content, so a list that parses to nothing means that
-// content is corrupt — answering "no properties" would silently retire the
-// shard's reindex instead of reporting the file.
-func recordedProps(rt reindexTracker) ([]string, error) {
-	props, err := rt.GetProps()
-	if err != nil {
-		return nil, err
-	}
-	if len(props) == 0 {
-		return nil, fmt.Errorf("properties file names no property")
-	}
-	return props, nil
-}
-
-func (t *ShardReindexTaskGeneric) getPropsToReindex(shard ShardLike, rt reindexTracker) ([]string, error) {
-	if rt.HasProps() {
-		return recordedProps(rt)
-	}
-	props, save := t.findPropsToReindex(shard)
-	if save {
-		if err := rt.saveProps(props); err != nil {
-			return nil, err
-		}
-	}
-	return props, nil
-}
-
-func (t *ShardReindexTaskGeneric) readPropsToReindex(rt reindexTracker) ([]string, error) {
-	if rt.HasProps() {
-		return recordedProps(rt)
-	}
-	return []string{}, nil
 }
 
 func (t *ShardReindexTaskGeneric) isShardSelected(collectionName, shardName string) bool {

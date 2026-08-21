@@ -106,18 +106,6 @@ func reindexSuffixForFinalize(namespace string) string {
 	return ""
 }
 
-func readMigrationProps(migDir string) ([]string, error) {
-	data, err := os.ReadFile(filepath.Join(migDir, "properties.mig"))
-	if err != nil {
-		return nil, err
-	}
-	content := strings.TrimSpace(string(data))
-	if content == "" {
-		return nil, nil
-	}
-	return strings.Split(content, ","), nil
-}
-
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
