@@ -130,10 +130,9 @@ func (a *numericalAggregator) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
-// wireCount validates a count decoded from a cluster-internal JSON payload.
-// JSON numbers decode as float64, so a count >= 2^53 may already differ from
-// what the remote node sent; reject it alongside negative and non-integral
-// counts instead of silently truncating.
+// wireCount validates a count decoded from a cluster-internal JSON payload:
+// negative or non-integral counts are malformed, and a count >= 2^53 may
+// already differ from what the remote node sent (float64 decoding).
 func wireCount(f float64) (uint64, error) {
 	if f < 0 || f != math.Trunc(f) || f >= 1<<53 {
 		return 0, errors.Errorf("invalid count %v in remote shard result", f)

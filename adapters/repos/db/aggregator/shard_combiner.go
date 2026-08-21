@@ -429,10 +429,8 @@ func (sc *ShardCombiner) mergeNumericalProp(first, second map[string]interface{}
 	return nil
 }
 
-// finalizeDateProp and finalizeNumerical re-check distribution completeness on
-// the fully combined state: the per-merge checks only run for shards that carry
-// the mode/median key, so a trailing shard can still leave the combined
-// distribution incomplete.
+// The per-merge completeness checks only run for shards that carry the
+// mode/median key, so the fully combined state is re-checked at finalize.
 func (sc *ShardCombiner) finalizeDateProp(combined map[string]interface{}) error {
 	if agg, ok := combined["_dateAggregator"].(*dateAggregator); ok {
 		if err := requireCompleteForModeMedian(combined, agg.hasCompleteDistribution()); err != nil {

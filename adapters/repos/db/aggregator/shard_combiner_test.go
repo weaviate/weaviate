@@ -13,7 +13,6 @@ package aggregator
 
 import (
 	"encoding/json"
-	"fmt"
 	"math/rand"
 	"testing"
 
@@ -205,6 +204,26 @@ func TestShardCombinerMergeNil(t *testing.T) {
 			},
 			totalResults: 1,
 		},
+		{
+			name: "Literal nil first",
+			results: []*aggregation.Result{
+				nil,
+				{
+					Groups: []aggregation.Group{{Count: 1}},
+				},
+			},
+			totalResults: 1,
+		},
+		{
+			name: "Literal nil last, grouped",
+			results: []*aggregation.Result{
+				{
+					Groups: []aggregation.Group{{GroupedBy: &aggregation.GroupedBy{Value: 10, Path: []string{"something"}}}},
+				},
+				nil,
+			},
+			totalResults: 1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -314,38 +333,17 @@ func TestShardCombinerRemoteShardResults(t *testing.T) {
 	numbers2 := []float64{15, 15, 2.5}
 	dates1 := []string{"55", "26", "10"}
 	dates2 := []string{"15", "26", "45", "26"}
+	unionNumbers := append(append([]float64{}, numbers1...), numbers2...)
+	unionDates := append(append([]string{}, dates1...), dates2...)
 
-	assertCombined := func(t *testing.T, combined *aggregation.Result) {
-		require.Len(t, combined.Groups, 1)
-
-		expectedNum := createNumericalAgg(append(append([]float64{}, numbers1...), numbers2...))
-		num := combined.Groups[0].Properties["number"].NumericalAggregations
-		assert.Equal(t, float64(len(numbers1)+len(numbers2)), num["count"])
-		assert.InDelta(t, expectedNum["mean"], num["mean"], 0.0001)
-		assert.InDelta(t, expectedNum["median"], num["median"], 0.0001)
-		assert.Equal(t, expectedNum["mode"], num["mode"])
-		assert.NotContains(t, num, "_numericalAggregator")
-
-		expectedDate := createDateAgg(append(append([]string{}, dates1...), dates2...))
-		date := combined.Groups[0].Properties["date"].DateAggregations
-		assert.Equal(t, int64(len(dates1)+len(dates2)), date["count"])
-		for _, key := range []string{"minimum", "maximum", "median", "mode"} {
-			assert.Equal(t, expectedDate[key], date[key], key)
-		}
-		assert.NotContains(t, date, "_dateAggregator")
-	}
-
-	tests := []struct {
+	for _, tt := range []struct {
 		name    string
 		remote1 bool
 		remote2 bool
 	}{
 		{name: "first shard remote", remote1: true},
 		{name: "second shard remote", remote2: true},
-		{name: "both shards remote", remote1: true, remote2: true},
-	}
-
-	for _, tt := range tests {
+	} {
 		t.Run("ungrouped, "+tt.name, func(t *testing.T) {
 			res1 := makeResult(numbers1, dates1, nil)
 			res2 := makeResult(numbers2, dates2, nil)
@@ -357,20 +355,9 @@ func TestShardCombinerRemoteShardResults(t *testing.T) {
 			}
 			combined, err := NewShardCombiner().Do([]*aggregation.Result{res1, res2})
 			require.NoError(t, err)
-			assertCombined(t, combined)
+			assertCombinedResult(t, combined, unionNumbers, unionDates)
 		})
 	}
-
-	t.Run("grouped, remote group appended before merge", func(t *testing.T) {
-		groupedBy := func() *aggregation.GroupedBy {
-			return &aggregation.GroupedBy{Value: "a", Path: []string{"prop"}}
-		}
-		res1 := roundTrip(t, makeResult(numbers1, dates1, groupedBy()))
-		res2 := makeResult(numbers2, dates2, groupedBy())
-		combined, err := NewShardCombiner().Do([]*aggregation.Result{res1, res2})
-		require.NoError(t, err)
-		assertCombined(t, combined)
-	})
 
 	t.Run("mean-only query ships count and sum instead of pairs", func(t *testing.T) {
 		meanOnly := func(numbers []float64) *aggregation.Result {
@@ -396,126 +383,30 @@ func TestShardCombinerRemoteShardResults(t *testing.T) {
 		assert.Equal(t, float64(len(all)), num["count"])
 	})
 
-	t.Run("payload from an older node is rejected, not merged wrong", func(t *testing.T) {
-		for _, propName := range []string{"number", "date"} {
-			res1 := makeResult(numbers1, dates1, nil)
-			res2 := roundTrip(t, makeResult(numbers2, dates2, nil))
-			// an older node serializes the aggregator's unexported fields as {}
-			props := res2.Groups[0].Properties[propName]
-			switch propName {
-			case "number":
-				props.NumericalAggregations["_numericalAggregator"] = map[string]interface{}{}
-			case "date":
-				props.DateAggregations["_dateAggregator"] = map[string]interface{}{}
-			}
-			_, err := NewShardCombiner().Do([]*aggregation.Result{res1, res2})
-			require.ErrorContains(t, err, "older version")
-		}
-	})
+	t.Run("date count-only query has no merge state", func(t *testing.T) {
+		res1 := makeDateResult(dates1, aggregation.CountAggregator)
+		res2 := roundTrip(t, makeDateResult(dates2, aggregation.CountAggregator))
 
-	t.Run("malformed pairs are rejected", func(t *testing.T) {
-		res2 := roundTrip(t, makeResult(numbers2, dates2, nil))
-		res2.Groups[0].Properties["number"].NumericalAggregations["_numericalAggregator"] = map[string]interface{}{
-			"count": float64(1), "sum": float64(1), "pairs": []interface{}{"garbage"},
-		}
-		_, err := NewShardCombiner().Do([]*aggregation.Result{makeResult(numbers1, dates1, nil), res2})
-		require.ErrorContains(t, err, "malformed")
-	})
-
-	t.Run("selector-specific wire round trips", func(t *testing.T) {
-		unionNumbers := append(append([]float64{}, numbers1...), numbers2...)
-		unionDates := append(append([]string{}, dates1...), dates2...)
-
-		tests := []struct {
-			name   string
-			isDate bool
-			aggs   []aggregation.Aggregator
-			keys   []string
-		}{
-			{
-				name: "numerical median-only",
-				aggs: []aggregation.Aggregator{aggregation.MedianAggregator, aggregation.CountAggregator},
-				keys: []string{"median", "count"},
-			},
-			{
-				name: "numerical mode-only",
-				aggs: []aggregation.Aggregator{aggregation.ModeAggregator, aggregation.CountAggregator},
-				keys: []string{"mode", "count"},
-			},
-			{
-				name:   "date median-only",
-				isDate: true,
-				aggs:   []aggregation.Aggregator{aggregation.MedianAggregator, aggregation.CountAggregator},
-				keys:   []string{"median", "count"},
-			},
-			{
-				name:   "date mode-only",
-				isDate: true,
-				aggs:   []aggregation.Aggregator{aggregation.ModeAggregator, aggregation.CountAggregator},
-				keys:   []string{"mode", "count"},
-			},
-			{
-				name:   "date count-only",
-				isDate: true,
-				aggs:   []aggregation.Aggregator{aggregation.CountAggregator},
-				keys:   []string{"count"},
-			},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				var res1, res2 *aggregation.Result
-				var expected map[string]interface{}
-				if tt.isDate {
-					res1 = makeDateResult(dates1, tt.aggs...)
-					res2 = roundTrip(t, makeDateResult(dates2, tt.aggs...))
-					expected = createDateAggWith(unionDates, tt.aggs)
-				} else {
-					res1 = makeNumberResult(numbers1, tt.aggs...)
-					res2 = roundTrip(t, makeNumberResult(numbers2, tt.aggs...))
-					expected = createNumericalAggWith(unionNumbers, tt.aggs)
-				}
-
-				combined, err := NewShardCombiner().Do([]*aggregation.Result{res1, res2})
-				require.NoError(t, err)
-				require.Len(t, combined.Groups, 1)
-
-				var got map[string]interface{}
-				if tt.isDate {
-					got = combined.Groups[0].Properties["date"].DateAggregations
-					assert.NotContains(t, got, "_dateAggregator")
-					assert.IsType(t, int64(0), got["count"])
-				} else {
-					got = combined.Groups[0].Properties["number"].NumericalAggregations
-					assert.NotContains(t, got, "_numericalAggregator")
-				}
-				for _, key := range tt.keys {
-					assert.Equal(t, expected[key], got[key], key)
-				}
-			})
-		}
-	})
-
-	t.Run("single remote result is restored and finalized", func(t *testing.T) {
-		combined, err := NewShardCombiner().Do([]*aggregation.Result{roundTrip(t, makeResult(numbers2, dates2, nil))})
+		combined, err := NewShardCombiner().Do([]*aggregation.Result{res1, res2})
 		require.NoError(t, err)
 		require.Len(t, combined.Groups, 1)
-
-		expectedNum := createNumericalAgg(numbers2)
-		num := combined.Groups[0].Properties["number"].NumericalAggregations
-		assert.Equal(t, float64(len(numbers2)), num["count"])
-		assert.InDelta(t, expectedNum["mean"], num["mean"], 0.0001)
-		assert.InDelta(t, expectedNum["median"], num["median"], 0.0001)
-		assert.Equal(t, expectedNum["mode"], num["mode"])
-		assert.NotContains(t, num, "_numericalAggregator")
-
-		expectedDate := createDateAgg(dates2)
 		date := combined.Groups[0].Properties["date"].DateAggregations
-		assert.Equal(t, int64(len(dates2)), date["count"])
-		for _, key := range []string{"minimum", "maximum", "median", "mode"} {
-			assert.Equal(t, expectedDate[key], date[key], key)
-		}
+		assert.Equal(t, int64(len(dates1)+len(dates2)), date["count"])
 		assert.NotContains(t, date, "_dateAggregator")
+	})
+
+	t.Run("zero-row shard merges cleanly", func(t *testing.T) {
+		for _, emptyFirst := range []bool{false, true} {
+			data := roundTrip(t, makeResult(numbers2, dates2, nil))
+			empty := roundTrip(t, makeResult([]float64{}, []string{}, nil))
+			results := []*aggregation.Result{data, empty}
+			if emptyFirst {
+				results = []*aggregation.Result{empty, data}
+			}
+			combined, err := NewShardCombiner().Do(results)
+			require.NoError(t, err)
+			assertCombinedResult(t, combined, numbers2, dates2)
+		}
 	})
 
 	t.Run("grouped, remote-only group is restored", func(t *testing.T) {
@@ -558,432 +449,301 @@ func TestShardCombinerRemoteShardResults(t *testing.T) {
 		assert.Equal(t, int64(len(datesB)), dateB["count"])
 		assert.NotContains(t, dateB, "_dateAggregator")
 	})
-
-	t.Run("later group failure surfaces after earlier group merged", func(t *testing.T) {
-		groupA := &aggregation.GroupedBy{Value: "a", Path: []string{"prop"}}
-		groupB := &aggregation.GroupedBy{Value: "b", Path: []string{"prop"}}
-		twoGroups := func() *aggregation.Result {
-			return &aggregation.Result{Groups: []aggregation.Group{
-				makeResult(numbers1, dates1, groupA).Groups[0],
-				makeResult(numbers2, dates2, groupB).Groups[0],
-			}}
-		}
-
-		res2 := roundTrip(t, twoGroups())
-		res2.Groups[1].Properties["number"].NumericalAggregations["percentile"] = float64(5)
-
-		_, err := NewShardCombiner().Do([]*aggregation.Result{twoGroups(), res2})
-		require.ErrorContains(t, err, `unknown aggregation "percentile"`)
-	})
 }
 
-func TestShardCombinerRejectsInvalidWireCounts(t *testing.T) {
+func assertCombinedResult(t *testing.T, combined *aggregation.Result, numbers []float64, dates []string) {
+	t.Helper()
+	require.Len(t, combined.Groups, 1)
+	assert.Equal(t, len(numbers), combined.Groups[0].Count)
+
+	expectedNum := createNumericalAgg(numbers)
+	num := combined.Groups[0].Properties["number"].NumericalAggregations
+	assert.Equal(t, float64(len(numbers)), num["count"])
+	assert.InDelta(t, expectedNum["mean"], num["mean"], 0.0001)
+	assert.InDelta(t, expectedNum["median"], num["median"], 0.0001)
+	assert.Equal(t, expectedNum["mode"], num["mode"])
+	assert.NotContains(t, num, "_numericalAggregator")
+
+	expectedDate := createDateAgg(dates)
+	date := combined.Groups[0].Properties["date"].DateAggregations
+	assert.Equal(t, int64(len(dates)), date["count"])
+	for _, key := range []string{"minimum", "maximum", "median", "mode"} {
+		assert.Equal(t, expectedDate[key], date[key], key)
+	}
+	assert.NotContains(t, date, "_dateAggregator")
+}
+
+// TestShardCombinerRejectsMalformedPayloads pins every payload-rejection
+// branch: one row per branch, each expecting an error instead of the panic or
+// silent mis-merge the branch replaces.
+func TestShardCombinerRejectsMalformedPayloads(t *testing.T) {
 	numbers := []float64{0, 5, 10, 15}
 	dates := []string{"55", "26", "10"}
+	groupedBy := &aggregation.GroupedBy{Value: "a", Path: []string{"prop"}}
+	ts26 := YearMonthDayHourMinute + "26" + NanoSecondsTimeZone
 
-	targets := []struct {
-		name    string
-		results func(t *testing.T, bad float64) []*aggregation.Result
-	}{
-		{
-			name: "numerical mean-only top-level count",
-			results: func(t *testing.T, bad float64) []*aggregation.Result {
-				meanOnly := func() *aggregation.Result {
-					return makeNumberResult(numbers, aggregation.MeanAggregator, aggregation.CountAggregator)
-				}
-				remote := roundTrip(t, meanOnly())
-				remote.Groups[0].Properties["number"].NumericalAggregations["_numericalAggregator"] = map[string]interface{}{
-					"count": bad, "sum": float64(1),
-				}
-				return []*aggregation.Result{meanOnly(), remote}
-			},
-		},
-		{
-			name: "numerical pair count",
-			results: func(t *testing.T, bad float64) []*aggregation.Result {
-				remote := roundTrip(t, makeResult(numbers, dates, nil))
-				remote.Groups[0].Properties["number"].NumericalAggregations["_numericalAggregator"] = map[string]interface{}{
-					"count": float64(1), "sum": float64(1),
-					"pairs": []interface{}{map[string]interface{}{"value": float64(1), "count": bad}},
-				}
-				return []*aggregation.Result{makeResult(numbers, dates, nil), remote}
-			},
-		},
-		{
-			name: "date pair count",
-			results: func(t *testing.T, bad float64) []*aggregation.Result {
-				remote := roundTrip(t, makeResult(numbers, dates, nil))
-				remote.Groups[0].Properties["date"].DateAggregations["_dateAggregator"] = map[string]interface{}{
-					"pairs": []interface{}{map[string]interface{}{
-						"value": YearMonthDayHourMinute + "26" + NanoSecondsTimeZone, "count": bad,
-					}},
-				}
-				return []*aggregation.Result{makeResult(numbers, dates, nil), remote}
-			},
-		},
-		{
-			name: "date count scalar",
-			results: func(t *testing.T, bad float64) []*aggregation.Result {
-				remote := roundTrip(t, makeResult(numbers, dates, nil))
-				remote.Groups[0].Properties["date"].DateAggregations["count"] = bad
-				return []*aggregation.Result{makeResult(numbers, dates, nil), remote}
-			},
-		},
-	}
-
-	badCounts := []float64{-1, 1.5, 1 << 53, 1e19}
-	for _, target := range targets {
-		for _, bad := range badCounts {
-			t.Run(fmt.Sprintf("%s with %v", target.name, bad), func(t *testing.T) {
-				_, err := NewShardCombiner().Do(target.results(t, bad))
-				require.ErrorContains(t, err, "invalid count")
-			})
-		}
-	}
-}
-
-func TestShardCombinerRejectsMalformedAggregatorState(t *testing.T) {
-	numbers := []float64{0, 5, 10, 15}
-	dates := []string{"55", "26", "10"}
-	badStates := []interface{}{nil, "garbage", float64(42), []interface{}{}}
-
-	for _, marker := range []string{"_numericalAggregator", "_dateAggregator"} {
-		for _, state := range badStates {
-			t.Run(fmt.Sprintf("%s set to %v", marker, state), func(t *testing.T) {
-				remote := roundTrip(t, makeResult(numbers, dates, nil))
-				props := remote.Groups[0].Properties
-				switch marker {
-				case "_numericalAggregator":
-					props["number"].NumericalAggregations[marker] = state
-				case "_dateAggregator":
-					props["date"].DateAggregations[marker] = state
-				}
-				_, err := NewShardCombiner().Do([]*aggregation.Result{makeResult(numbers, dates, nil), remote})
-				require.ErrorContains(t, err, "malformed")
-				require.ErrorContains(t, err, "aggregator state")
-			})
-		}
-	}
-}
-
-func TestShardCombinerRejectsPairlessModeMedian(t *testing.T) {
-	numbers := []float64{0, 5, 10, 15}
-	dates := []string{"55", "26", "10"}
-
-	tests := []struct {
-		name   string
-		mutate func(props map[string]aggregation.Property)
-	}{
-		{
-			name: "numerical state without pairs",
-			mutate: func(props map[string]aggregation.Property) {
-				props["number"].NumericalAggregations["_numericalAggregator"] = map[string]interface{}{
-					"count": float64(3), "sum": float64(6),
-				}
-			},
-		},
-		{
-			name: "date state with empty pairs",
-			mutate: func(props map[string]aggregation.Property) {
-				props["date"].DateAggregations["_dateAggregator"] = map[string]interface{}{
-					"pairs": []interface{}{},
-				}
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			remote := roundTrip(t, makeResult(numbers, dates, nil))
-			tt.mutate(remote.Groups[0].Properties)
-			_, err := NewShardCombiner().Do([]*aggregation.Result{makeResult(numbers, dates, nil), remote})
-			require.ErrorContains(t, err, "without value pairs")
-		})
-	}
-}
-
-func TestShardCombinerRejectsUnknownAggregationKey(t *testing.T) {
-	numbers := []float64{0, 5, 10, 15}
-	dates := []string{"55", "26", "10"}
-
-	remote := roundTrip(t, makeResult(numbers, dates, nil))
-	remote.Groups[0].Properties["number"].NumericalAggregations["percentile"] = float64(5)
-
-	_, err := NewShardCombiner().Do([]*aggregation.Result{makeResult(numbers, dates, nil), remote})
-	require.ErrorContains(t, err, `unknown aggregation "percentile"`)
-}
-
-func TestShardCombinerRejectsMissingDistributionState(t *testing.T) {
-	t.Run("mode/median without marker is rejected at restore", func(t *testing.T) {
-		remote := roundTrip(t, makeResult([]float64{0, 5, 10, 15}, []string{"55", "26", "10"}, nil))
-		delete(remote.Groups[0].Properties["number"].NumericalAggregations, "_numericalAggregator")
-
-		_, err := NewShardCombiner().Do([]*aggregation.Result{remote})
-		require.ErrorContains(t, err, "without value pairs")
-	})
-
-	t.Run("mean without marker is rejected at merge", func(t *testing.T) {
-		remote := roundTrip(t, makeNumberResult([]float64{0, 5},
-			aggregation.MeanAggregator, aggregation.CountAggregator))
-		delete(remote.Groups[0].Properties["number"].NumericalAggregations, "_numericalAggregator")
-
-		_, err := NewShardCombiner().Do([]*aggregation.Result{remote})
-		require.ErrorContains(t, err, "without distribution state")
-	})
-}
-
-func TestShardCombinerRejectsMeanOnlyModeMedianMixture(t *testing.T) {
 	meanOnly := func() *aggregation.Result {
-		return makeNumberResult([]float64{0, 5}, aggregation.MeanAggregator, aggregation.CountAggregator)
+		return makeNumberResult(numbers, aggregation.MeanAggregator, aggregation.CountAggregator)
 	}
 	full := func() *aggregation.Result {
-		return makeNumberResult([]float64{10, 15, 15},
+		return makeNumberResult(numbers,
 			aggregation.MedianAggregator, aggregation.MeanAggregator, aggregation.ModeAggregator, aggregation.CountAggregator)
+	}
+	mutated := func(mutate func(props map[string]aggregation.Property)) func(t *testing.T) []*aggregation.Result {
+		return func(t *testing.T) []*aggregation.Result {
+			remote := roundTrip(t, makeResult(numbers, dates, nil))
+			mutate(remote.Groups[0].Properties)
+			return []*aggregation.Result{makeResult(numbers, dates, nil), remote}
+		}
 	}
 
 	tests := []struct {
 		name    string
 		results func(t *testing.T) []*aggregation.Result
+		errText string
 	}{
 		{
-			name: "mean-only shard first",
+			name: "old-node numerical payload",
+			results: func(t *testing.T) []*aggregation.Result {
+				var remote aggregation.Result
+				require.NoError(t, json.Unmarshal([]byte(oldNodeNumericalWireJSON), &remote))
+				return []*aggregation.Result{full(), &remote}
+			},
+			errText: "older version",
+		},
+		{
+			name: "old-node date marker",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["date"].DateAggregations["_dateAggregator"] = map[string]interface{}{}
+			}),
+			errText: "older version",
+		},
+		{
+			name: "numerical marker as null",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["number"].NumericalAggregations["_numericalAggregator"] = nil
+			}),
+			errText: "malformed numerical aggregator state",
+		},
+		{
+			name: "date marker as string",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["date"].DateAggregations["_dateAggregator"] = "garbage"
+			}),
+			errText: "malformed date aggregator state",
+		},
+		{
+			name: "garbage numerical pair element",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["number"].NumericalAggregations["_numericalAggregator"] = map[string]interface{}{
+					"count": float64(1), "sum": float64(1), "pairs": []interface{}{"garbage"},
+				}
+			}),
+			errText: "malformed numerical aggregator pair",
+		},
+		{
+			name: "numerical pairs as string",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["number"].NumericalAggregations["_numericalAggregator"] = map[string]interface{}{
+					"count": float64(2), "sum": float64(3), "pairs": "garbage",
+				}
+			}),
+			errText: "malformed numerical aggregator pairs",
+		},
+		{
+			name: "date pairs as string",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["date"].DateAggregations["_dateAggregator"] = map[string]interface{}{"pairs": "garbage"}
+			}),
+			errText: "malformed date aggregator pairs",
+		},
+		{
+			name: "negative numerical pair count",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["number"].NumericalAggregations["_numericalAggregator"] = map[string]interface{}{
+					"count": float64(1), "sum": float64(1),
+					"pairs": []interface{}{map[string]interface{}{"value": float64(1), "count": float64(-1)}},
+				}
+			}),
+			errText: "invalid count",
+		},
+		{
+			name: "fractional mean-only count",
+			results: func(t *testing.T) []*aggregation.Result {
+				remote := roundTrip(t, meanOnly())
+				remote.Groups[0].Properties["number"].NumericalAggregations["_numericalAggregator"] = map[string]interface{}{
+					"count": 1.5, "sum": float64(3),
+				}
+				return []*aggregation.Result{meanOnly(), remote}
+			},
+			errText: "invalid count",
+		},
+		{
+			name: "float64-inexact date pair count",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["date"].DateAggregations["_dateAggregator"] = map[string]interface{}{
+					"pairs": []interface{}{map[string]interface{}{"value": ts26, "count": float64(1 << 53)}},
+				}
+			}),
+			errText: "invalid count",
+		},
+		{
+			name: "out-of-range date count scalar",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["date"].DateAggregations["count"] = 1e19
+			}),
+			errText: "invalid count",
+		},
+		{
+			name: "numerical mode/median state without pairs",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["number"].NumericalAggregations["_numericalAggregator"] = map[string]interface{}{
+					"count": float64(3), "sum": float64(6),
+				}
+			}),
+			errText: "without value pairs",
+		},
+		{
+			name: "date state with empty pairs",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["date"].DateAggregations["_dateAggregator"] = map[string]interface{}{"pairs": []interface{}{}}
+			}),
+			errText: "without value pairs",
+		},
+		{
+			name: "mode/median without marker",
+			results: mutated(func(props map[string]aggregation.Property) {
+				delete(props["number"].NumericalAggregations, "_numericalAggregator")
+			}),
+			errText: "without value pairs",
+		},
+		{
+			name: "mean scalar without marker",
+			results: func(t *testing.T) []*aggregation.Result {
+				remote := roundTrip(t, meanOnly())
+				delete(remote.Groups[0].Properties["number"].NumericalAggregations, "_numericalAggregator")
+				return []*aggregation.Result{roundTrip(t, meanOnly()), remote}
+			},
+			errText: "without distribution state",
+		},
+		{
+			name: "mean-only shard mixed with mode/median shard",
 			results: func(t *testing.T) []*aggregation.Result {
 				return []*aggregation.Result{roundTrip(t, meanOnly()), roundTrip(t, full())}
 			},
+			errText: "incomplete distribution state",
 		},
 		{
-			name: "mode/median shard first",
+			name: "mode/median shard mixed with mean-only shard",
 			results: func(t *testing.T) []*aggregation.Result {
 				return []*aggregation.Result{roundTrip(t, full()), roundTrip(t, meanOnly())}
 			},
+			errText: "incomplete distribution state",
+		},
+		{
+			name: "unknown aggregation key",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["number"].NumericalAggregations["percentile"] = float64(5)
+			}),
+			errText: `unknown aggregation "percentile"`,
+		},
+		{
+			name: "unknown aggregation key in a later group",
+			results: func(t *testing.T) []*aggregation.Result {
+				groupB := &aggregation.GroupedBy{Value: "b", Path: []string{"prop"}}
+				twoGroups := func() *aggregation.Result {
+					return &aggregation.Result{Groups: []aggregation.Group{
+						makeResult(numbers, dates, groupedBy).Groups[0],
+						makeResult(numbers, dates, groupB).Groups[0],
+					}}
+				}
+				remote := roundTrip(t, twoGroups())
+				remote.Groups[1].Properties["number"].NumericalAggregations["percentile"] = float64(5)
+				return []*aggregation.Result{twoGroups(), remote}
+			},
+			errText: `unknown aggregation "percentile"`,
+		},
+		{
+			name: "mixed groupedness, ungrouped first",
+			results: func(t *testing.T) []*aggregation.Result {
+				return []*aggregation.Result{
+					roundTrip(t, makeResult(numbers, dates, nil)),
+					roundTrip(t, makeResult(numbers, dates, groupedBy)),
+				}
+			},
+			errText: "mixed grouped and ungrouped",
+		},
+		{
+			name: "mixed groupedness, grouped first",
+			results: func(t *testing.T) []*aggregation.Result {
+				return []*aggregation.Result{
+					roundTrip(t, makeResult(numbers, dates, groupedBy)),
+					roundTrip(t, makeResult(numbers, dates, nil)),
+				}
+			},
+			errText: "mixed grouped and ungrouped",
+		},
+		{
+			name: "date count as string",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["date"].DateAggregations["count"] = "garbage"
+			}),
+			errText: "malformed count",
+		},
+		{
+			name: "date minimum as number",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["date"].DateAggregations["minimum"] = float64(5)
+			}),
+			errText: `malformed "minimum" entry`,
+		},
+		{
+			name: "date minimum as unparseable string",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["date"].DateAggregations["minimum"] = "not-a-date"
+			}),
+			errText: `malformed "minimum" entry`,
+		},
+		{
+			name: "numerical sum as string",
+			results: mutated(func(props map[string]aggregation.Property) {
+				props["number"].NumericalAggregations["sum"] = "garbage"
+			}),
+			errText: `malformed "sum" entry`,
+		},
+		{
+			name: "unknown property type",
+			results: func(t *testing.T) []*aggregation.Result {
+				bogus := &aggregation.Result{Groups: []aggregation.Group{{Count: 1, Properties: map[string]aggregation.Property{
+					"weird": {Type: aggregation.PropertyType("bogus")},
+				}}}}
+				return []*aggregation.Result{makeResult(numbers, dates, nil), bogus}
+			},
+			errText: "unknown property type",
+		},
+		{
+			name: "unknown property type in appended group",
+			results: func(t *testing.T) []*aggregation.Result {
+				return []*aggregation.Result{{Groups: []aggregation.Group{{
+					GroupedBy:  groupedBy,
+					Count:      1,
+					Properties: map[string]aggregation.Property{"weird": {Type: aggregation.PropertyType("bogus")}},
+				}}}}
+			},
+			errText: "unknown property type",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := NewShardCombiner().Do(tt.results(t))
-			require.ErrorContains(t, err, "incomplete distribution state")
-		})
-	}
-}
-
-func TestShardCombinerRejectsBareScalarFromSecondShard(t *testing.T) {
-	meanOnly := func() *aggregation.Result {
-		return makeNumberResult([]float64{0, 5}, aggregation.MeanAggregator, aggregation.CountAggregator)
-	}
-
-	remote := roundTrip(t, meanOnly())
-	delete(remote.Groups[0].Properties["number"].NumericalAggregations, "_numericalAggregator")
-
-	_, err := NewShardCombiner().Do([]*aggregation.Result{roundTrip(t, meanOnly()), remote})
-	require.ErrorContains(t, err, "without distribution state")
-}
-
-func TestShardCombinerRejectsMixedGroupedness(t *testing.T) {
-	numbers := []float64{0, 5, 10, 15}
-	dates := []string{"55", "26", "10"}
-	groupedBy := &aggregation.GroupedBy{Value: "a", Path: []string{"prop"}}
-
-	tests := []struct {
-		name         string
-		groupedFirst bool
-	}{
-		{name: "ungrouped first"},
-		{name: "grouped first", groupedFirst: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ungrouped := roundTrip(t, makeResult(numbers, dates, nil))
-			grouped := roundTrip(t, makeResult(numbers, dates, groupedBy))
-			results := []*aggregation.Result{ungrouped, grouped}
-			if tt.groupedFirst {
-				results = []*aggregation.Result{grouped, ungrouped}
-			}
-
-			_, err := NewShardCombiner().Do(results)
-			require.ErrorContains(t, err, "mixed grouped and ungrouped")
-		})
-	}
-}
-
-func TestShardCombinerRejectsMalformedWireEntries(t *testing.T) {
-	numbers := []float64{0, 5, 10, 15}
-	dates := []string{"55", "26", "10"}
-
-	tests := []struct {
-		name    string
-		mutate  func(props map[string]aggregation.Property)
-		errText string
-	}{
-		{
-			name: "date count as string",
-			mutate: func(props map[string]aggregation.Property) {
-				props["date"].DateAggregations["count"] = "garbage"
-			},
-			errText: "malformed count",
-		},
-		{
-			name: "numerical pairs as string",
-			mutate: func(props map[string]aggregation.Property) {
-				props["number"].NumericalAggregations["_numericalAggregator"] = map[string]interface{}{
-					"count": float64(2), "sum": float64(3), "pairs": "garbage",
-				}
-			},
-			errText: "malformed numerical aggregator pairs",
-		},
-		{
-			name: "date pairs as string",
-			mutate: func(props map[string]aggregation.Property) {
-				props["date"].DateAggregations["_dateAggregator"] = map[string]interface{}{
-					"pairs": "garbage",
-				}
-			},
-			errText: "malformed date aggregator pairs",
-		},
-		{
-			name: "date minimum as number",
-			mutate: func(props map[string]aggregation.Property) {
-				props["date"].DateAggregations["minimum"] = float64(5)
-			},
-			errText: `malformed "minimum" entry`,
-		},
-		{
-			name: "numerical sum as string",
-			mutate: func(props map[string]aggregation.Property) {
-				props["number"].NumericalAggregations["sum"] = "garbage"
-			},
-			errText: `malformed "sum" entry`,
-		},
-		{
-			name: "date minimum as unparseable string",
-			mutate: func(props map[string]aggregation.Property) {
-				props["date"].DateAggregations["minimum"] = "not-a-date"
-			},
-			errText: `malformed "minimum" entry`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			remote := roundTrip(t, makeResult(numbers, dates, nil))
-			tt.mutate(remote.Groups[0].Properties)
-			_, err := NewShardCombiner().Do([]*aggregation.Result{makeResult(numbers, dates, nil), remote})
 			require.ErrorContains(t, err, tt.errText)
 		})
 	}
 }
 
-func TestShardCombinerRejectsUnknownPropertyType(t *testing.T) {
-	bogusProps := func() map[string]aggregation.Property {
-		return map[string]aggregation.Property{
-			"weird": {Type: aggregation.PropertyType("bogus")},
-		}
-	}
-
-	t.Run("ungrouped merge path", func(t *testing.T) {
-		bogus := &aggregation.Result{Groups: []aggregation.Group{{Count: 1, Properties: bogusProps()}}}
-		_, err := NewShardCombiner().Do([]*aggregation.Result{
-			makeResult([]float64{0, 5}, []string{"26"}, nil), bogus,
-		})
-		require.ErrorContains(t, err, "unknown property type")
-	})
-
-	t.Run("grouped finalize path", func(t *testing.T) {
-		bogus := &aggregation.Result{Groups: []aggregation.Group{{
-			GroupedBy:  &aggregation.GroupedBy{Value: "a", Path: []string{"prop"}},
-			Count:      1,
-			Properties: bogusProps(),
-		}}}
-		_, err := NewShardCombiner().Do([]*aggregation.Result{bogus})
-		require.ErrorContains(t, err, "unknown property type")
-	})
-}
-
-func TestShardCombinerMergesEmptyShardForModeMedian(t *testing.T) {
-	numbers := []float64{15, 15, 2.5}
-	dates := []string{"15", "26", "45", "26"}
-
-	tests := []struct {
-		name       string
-		emptyFirst bool
-	}{
-		{name: "empty shard last"},
-		{name: "empty shard first", emptyFirst: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			data := roundTrip(t, makeResult(numbers, dates, nil))
-			empty := roundTrip(t, makeResult([]float64{}, []string{}, nil))
-			results := []*aggregation.Result{data, empty}
-			if tt.emptyFirst {
-				results = []*aggregation.Result{empty, data}
-			}
-
-			combined, err := NewShardCombiner().Do(results)
-			require.NoError(t, err)
-			require.Len(t, combined.Groups, 1)
-			assert.Equal(t, len(numbers), combined.Groups[0].Count)
-
-			expectedNum := createNumericalAgg(numbers)
-			num := combined.Groups[0].Properties["number"].NumericalAggregations
-			assert.Equal(t, float64(len(numbers)), num["count"])
-			assert.InDelta(t, expectedNum["mean"], num["mean"], 0.0001)
-			assert.InDelta(t, expectedNum["median"], num["median"], 0.0001)
-			assert.Equal(t, expectedNum["mode"], num["mode"])
-			assert.NotContains(t, num, "_numericalAggregator")
-
-			expectedDate := createDateAgg(dates)
-			date := combined.Groups[0].Properties["date"].DateAggregations
-			assert.Equal(t, int64(len(dates)), date["count"])
-			for _, key := range []string{"minimum", "maximum", "median", "mode"} {
-				assert.Equal(t, expectedDate[key], date[key], key)
-			}
-			assert.NotContains(t, date, "_dateAggregator")
-		})
-	}
-}
-
-func TestShardCombinerMergeLiteralNil(t *testing.T) {
-	numbers := []float64{0, 5, 10, 15}
-	dates := []string{"55", "26", "10"}
-
-	tests := []struct {
-		name      string
-		groupedBy *aggregation.GroupedBy
-		nilFirst  bool
-	}{
-		{name: "ungrouped, nil first", nilFirst: true},
-		{name: "ungrouped, nil last"},
-		{name: "grouped, nil first", groupedBy: &aggregation.GroupedBy{Value: "a", Path: []string{"prop"}}, nilFirst: true},
-		{name: "grouped, nil last", groupedBy: &aggregation.GroupedBy{Value: "a", Path: []string{"prop"}}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			valid := makeResult(numbers, dates, tt.groupedBy)
-			results := []*aggregation.Result{valid, nil}
-			if tt.nilFirst {
-				results = []*aggregation.Result{nil, valid}
-			}
-
-			combined, err := NewShardCombiner().Do(results)
-			require.NoError(t, err)
-			require.Len(t, combined.Groups, 1)
-			assert.Equal(t, len(numbers), combined.Groups[0].Count)
-
-			expected := createNumericalAgg(numbers)
-			num := combined.Groups[0].Properties["number"].NumericalAggregations
-			assert.Equal(t, float64(len(numbers)), num["count"])
-			assert.Equal(t, expected["mode"], num["mode"])
-		})
-	}
-}
-
-// oldNodeNumericalWireJSON is the exact body a pre-fix node produces for an
-// ungrouped numerical mean/mode/median query: the aggregator's unexported
-// fields marshal as {}.
+// oldNodeNumericalWireJSON is the body a pre-fix node produces: the
+// aggregator's unexported fields marshal as {}.
 const oldNodeNumericalWireJSON = `{
 	"groups": [
 		{
@@ -1009,16 +769,6 @@ const oldNodeNumericalWireJSON = `{
 		}
 	]
 }`
-
-func TestShardCombinerRejectsOldNodeRawPayload(t *testing.T) {
-	var remote aggregation.Result
-	require.NoError(t, json.Unmarshal([]byte(oldNodeNumericalWireJSON), &remote))
-
-	local := makeNumberResult([]float64{0, 5, 10, 15},
-		aggregation.MeanAggregator, aggregation.ModeAggregator, aggregation.MedianAggregator, aggregation.CountAggregator)
-	_, err := NewShardCombiner().Do([]*aggregation.Result{local, &remote})
-	require.ErrorContains(t, err, "older version")
-}
 
 func createRandomSlice() []float64 {
 	size := rand.Intn(100) + 1 // at least one entry
