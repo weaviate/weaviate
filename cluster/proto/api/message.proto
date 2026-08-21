@@ -19,6 +19,8 @@ message JoinPeerRequest {
 
 message JoinPeerResponse {
   string leader = 1;
+  // Leader's committed index at join; a wiped joiner's catch-up barrier (0 from an older leader = legacy eager load).
+  uint64 leader_commit_index = 2;
 }
 
 message RemovePeerRequest {

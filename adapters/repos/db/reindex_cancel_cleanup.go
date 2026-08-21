@@ -78,7 +78,7 @@ func (i *Index) CleanStalePartialReindexState(
 			// the OnAfterLsmInitAsync stale-sentinel check both fire on
 			// next load, so the safety net is intact even when we skip
 			// here.
-			lazy, isLazy := shardLike.(*LazyLoadShard)
+			lazy, isLazy := asLazyLoadShard(shardLike)
 			if !isLazy {
 				return nil
 			}

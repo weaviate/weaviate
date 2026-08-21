@@ -94,7 +94,10 @@ func NewServer(
 
 	s := grpc.NewServer(o...)
 
-	weaviateV1FileReplicationService := NewFileReplicationService(config.FileReplicationRepo, config.FileReplicationSchema, fileCopyChunkSize)
+	// Donor-side aggregate transfer cap: one op's client workers never starve;
+	// concurrent ops share the headroom instead of saturating the donor's disk.
+	transferConcurrency := 2 * config.State.ServerConfig.Config.ReplicationEngineFileCopyWorkers
+	weaviateV1FileReplicationService := NewFileReplicationService(config.FileReplicationRepo, config.FileReplicationSchema, fileCopyChunkSize, transferConcurrency)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
 
 	replicationService := NewReplicationService(config.Replicator)

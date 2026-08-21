@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 // buildUnitMaps creates per-replica unit IDs and maps from shard ownership.
@@ -256,7 +257,8 @@ func validateTokenizationChange(
 	}
 
 	idx.ForEachShard(func(_ string, shard db.ShardLike) error {
-		if bucketStrategy != "" {
+		// Store() on a recovering shard panics by design.
+		if bucketStrategy != "" || shard.GetStatus() == storagestate.StatusRecovering {
 			return nil
 		}
 		bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
