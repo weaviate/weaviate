@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -916,6 +917,16 @@ func wipedJoinerSelfLeaderReady(isLeader bool, commit, applied uint64) bool {
 	return isLeader && commit > 0 && applied >= commit
 }
 
+// A snapshot install only covers the catch-up barrier when its index reaches it.
+// With no barrier, only a completed join loads at Restore (pre-barrier leader,
+// no barrier ever coming); a join still in flight may yet deliver one.
+func wipedJoinerSnapshotCoversBarrier(joined bool, barrier, snapIndex uint64) bool {
+	if barrier > 0 {
+		return snapIndex >= barrier
+	}
+	return joined
+}
+
 // SetJoinBarrier records the leader's committed index at join as a wiped joiner's
 // catch-up barrier. No-op unless this node is an un-reloaded candidate; a 0 index
 // falls back to watchWipedJoiner's timeout paths.
@@ -973,6 +984,45 @@ func (st *Store) finishWipedJoinerReloadExclusive() {
 	st.finishWipedJoinerReload()
 }
 
+// wipedJoinerRestoreReload completes the wiped joiner's reload at snapshot
+// restore, unless entries in (snapIndex, joinBarrier] are still to be applied:
+// completing early would full-apply them outside the tagged load pass, so a
+// class or tenant created in that window would materialize empty with no
+// recovery. Deferred, applies stay schema-only and the barrier path (Apply
+// thread or watcher) runs the single tagged reload once caught up. Reports
+// whether the reload ran.
+func (st *Store) wipedJoinerRestoreReload(snapIndex uint64) bool {
+	if wipedJoinerSnapshotCoversBarrier(st.wipedJoinerJoined.Load(), st.joinBarrier.Load(), snapIndex) {
+		st.finishWipedJoinerReload()
+		return true
+	}
+	st.log.WithFields(logrus.Fields{
+		"join_barrier":        st.joinBarrier.Load(),
+		"last_snapshot_index": snapIndex,
+	}).Info("wiped joiner: snapshot precedes catch-up barrier; deferring self-recovery reload until caught up")
+	return false
+}
+
+const wipedJoinerFSMSettleWindow = 200 * time.Millisecond
+
+// raft.AppliedIndex counts enqueued-not-consumed entries; reloading mid-drain would let queued ADD_CLASS full-apply post-reload (empty shard, no recovery).
+func (st *Store) wipedJoinerFSMCaughtUp(barrier uint64) bool {
+	if st.lastAppliedIndex.Load() >= barrier {
+		return true
+	}
+	before := st.lastAppliedIndex.Load()
+	time.Sleep(wipedJoinerFSMSettleWindow)
+	if st.lastAppliedIndex.Load() != before {
+		return false
+	}
+	if st.raft == nil {
+		return true
+	}
+	// stable FSM index + empty queue: only config/noop entries remain below the barrier
+	pending, err := strconv.ParseUint(st.raft.Stats()["fsm_pending"], 10, 64)
+	return err != nil || pending == 0
+}
+
 func (st *Store) wipedJoinerBarrierTimeout() time.Duration {
 	if st.cfg.WipedJoinerBarrierTimeout > 0 {
 		return st.cfg.WipedJoinerBarrierTimeout
@@ -1017,6 +1067,9 @@ func (st *Store) watchWipedJoiner() {
 		// Barrier reached but the Apply-thread trigger didn't fire (entry at the
 		// barrier was a config/noop, not a LogCommand); catch it here.
 		if wipedJoinerBarrierReached(st.wipedJoinerReloaded.Load(), barrier, applied) {
+			if !st.wipedJoinerFSMCaughtUp(barrier) {
+				continue
+			}
 			st.log.WithField("applied_index", applied).
 				Info("wiped joiner: applied up to join barrier (watcher); running self-recovery reload")
 			st.finishWipedJoinerReloadExclusive()
