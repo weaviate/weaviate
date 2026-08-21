@@ -638,3 +638,80 @@ func mkAuditTracker(t *testing.T, lsmPath, trackerName, taskID string, taskVersi
 	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
 	return filepath.Join(lsmPath, ".migrations", trackerName)
 }
+
+// TestAuditOrphanReindexTrackersReclaimsTrackersNoRecordNames covers the
+// second kind of orphan: a tracker directory no record names. Every cluster
+// that upgrades into this build brings a set of them, and this audit is the
+// only thing that reclaims one. Age separates it from a directory this
+// process created and has not yet written a record for, and the sentinel the
+// audit itself writes has to not turn a reclaimable directory into a fresh
+// one forever.
+func TestAuditOrphanReindexTrackersReclaimsTrackersNoRecordNames(t *testing.T) {
+	tests := []struct {
+		name        string
+		mtimeOffset time.Duration
+		quarantined bool
+		wantStatus  AuditOutcomeStatus
+		wantOrphans int
+		wantDir     bool
+	}{
+		{
+			name:        "older than this process: reclaimed",
+			mtimeOffset: -time.Hour,
+			quarantined: true,
+			wantStatus:  AuditStatusOrphansFound,
+			wantOrphans: 1,
+		},
+		{
+			name:        "exactly at process start is still older, not newer",
+			quarantined: true,
+			wantStatus:  AuditStatusOrphansFound,
+			wantOrphans: 1,
+		},
+		{
+			name:        "created after this process started: left for the next sweep",
+			mtimeOffset: time.Hour,
+			wantStatus:  AuditStatusRan,
+			wantDir:     true,
+		},
+		{
+			// The sentinel is written into the directory, so it bumps the very
+			// modification time the age test reads. Without answering from the
+			// sentinel, the first quarantine would make the directory look
+			// fresh on every later sweep and nothing would ever reclaim it.
+			name:        "quarantining it must not make it look fresh",
+			mtimeOffset: time.Hour,
+			quarantined: true,
+			wantStatus:  AuditStatusOrphansFound,
+			wantOrphans: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shd, idx := testShard(t, ctx, "AuditRecordlessTracker")
+
+			dir := filepath.Join(shd.(*Shard).pathLSM(), ".migrations", "searchable_retokenize_legacy_1")
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			if tt.quarantined {
+				writePreAgedQuarantineSentinel(t, dir)
+			}
+			// After the sentinel write, which would otherwise bump it.
+			mtime := processStartTime.Add(tt.mtimeOffset)
+			require.NoError(t, os.Chtimes(dir, mtime, mtime))
+
+			db := &DB{
+				indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+				config:  Config{RootPath: idx.Config.RootPath},
+			}
+			outcome, err := db.AuditOrphanReindexTrackers(ctx,
+				func(string, uint64) bool { return false }, logrus.New())
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantStatus, outcome.Status)
+			assert.Equal(t, tt.wantOrphans, outcome.OrphansFound)
+			assert.Equal(t, tt.wantDir, dirExists(dir))
+		})
+	}
+}

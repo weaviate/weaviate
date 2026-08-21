@@ -411,11 +411,13 @@ const reindexAuditQuarantineWindow = 5 * time.Minute
 // is not committed, and the task that record names is not known to DTM.
 // Read-only; cleanup is the caller's job.
 //
-// The record is the only thing consulted. It carries the task identity and
-// the property list the audit needs, so a tracker dir the record does not
-// name is left alone rather than classified by its own age: a directory whose
-// owner cannot be established is one no cleanup can attribute, and guessing
-// from a modification time is how an in-flight migration gets reclaimed.
+// A directory no record names is the second kind of orphan, and the only
+// reclaimer it has. Every cluster that upgrades into this build brings a set
+// of them, and a run whose record was already removed can leave one behind.
+// It is enqueued without properties or index types, so cleanup removes the
+// directory itself and touches no bucket — the property list is exactly what
+// a missing record loses. Age is what separates it from a directory this
+// process is still writing.
 func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -434,7 +436,37 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 			continue
 		}
 		rec, ok := migrationRecordForTracker(records, dirName)
-		if !ok || rec.DataCommitted() {
+		if !ok {
+			trackerPath := filepath.Join(migsDir, dirName)
+			old, mtime, err := migrationDirPredatesThisProcess(trackerPath)
+			if err != nil {
+				logger.WithField("collection", collection).WithField("shard", shardName).
+					WithField("tracker", dirName).
+					Warnf("reindex orphan audit: tracker names no migration record and its mtime is unreadable; manual cleanup may be needed: %v", err)
+				continue
+			}
+			if !old {
+				// The record lands during the shard load that follows the
+				// directory's creation, so a directory this process created
+				// may simply not have reached that load yet.
+				logger.WithField("collection", collection).WithField("shard", shardName).
+					WithField("tracker", dirName).WithField("tracker_mtime", mtime).
+					Warn("reindex orphan audit: tracker names no migration record but was created after this process started; leaving it for the next sweep")
+				continue
+			}
+			logger.WithField("collection", collection).WithField("shard", shardName).
+				WithField("tracker", dirName).WithField("tracker_mtime", mtime).
+				Warn("reindex orphan audit: tracker predating this process names no migration record; quarantining it as a class-level orphan")
+			orphans = append(orphans, orphanReindexTracker{
+				collection: collection,
+				shardName:  shardName,
+				dirName:    dirName,
+				prefix:     prefix,
+				generation: generation,
+			})
+			continue
+		}
+		if rec.DataCommitted() {
 			continue
 		}
 		subject := rec.Subject()
@@ -455,6 +487,32 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 		})
 	}
 	return orphans
+}
+
+// processStartTime is the clock the record-less arm of collectOrphanTrackers
+// compares against. The audit runs many times per process, but the question it
+// answers is fixed: was this directory on disk before this process existed?
+// Only the first-boot timestamp can answer that.
+var processStartTime = time.Now()
+
+// migrationDirPredatesThisProcess reports whether a tracker directory that no
+// record names was already on disk when this process started.
+//
+// The audit's own quarantine sentinel is written into the directory, which
+// bumps its modification time. A directory that carries one therefore answers
+// from the sentinel's presence instead: quarantining is itself proof that an
+// earlier sweep found no record for it, and without this the first quarantine
+// would make every legacy directory look fresh forever.
+func migrationDirPredatesThisProcess(trackerPath string) (bool, time.Time, error) {
+	info, err := os.Stat(trackerPath)
+	if err != nil {
+		return false, time.Time{}, err
+	}
+	mtime := info.ModTime()
+	if fileExists(filepath.Join(trackerPath, reindexAuditQuarantineFile)) {
+		return true, mtime, nil
+	}
+	return !mtime.After(processStartTime), mtime, nil
 }
 
 // partitionOrphansByQuarantine implements the S2 two-pass safeguard:
