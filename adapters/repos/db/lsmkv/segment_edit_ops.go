@@ -675,15 +675,27 @@ func (s *SegmentEditOps) Pending(opID string) ([]string, error) {
 func (s *SegmentEditOps) AllPending() ([]PendingSegment, error) {
 	var out []PendingSegment
 	if err := s.withReadTx(func(tx *bolt.Tx) error {
-		return tx.Bucket(editOpsBucketPending).ForEachBucket(func(opID []byte) error {
-			return tx.Bucket(editOpsBucketPending).Bucket(opID).ForEach(func(segID, v []byte) error {
-				ps, err := decodePending(string(opID), string(segID), v)
-				if err != nil {
-					return err
-				}
-				out = append(out, ps)
-				return nil
-			})
+		var err error
+		out, err = segmentRowsTx(tx, editOpsBucketPending)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// segmentRowsTx walks every (op, segment) row in one of the two per-op segment
+// buckets (pending or quarantine) within an existing transaction.
+func segmentRowsTx(tx *bolt.Tx, bucket []byte) ([]PendingSegment, error) {
+	var out []PendingSegment
+	if err := tx.Bucket(bucket).ForEachBucket(func(opID []byte) error {
+		return tx.Bucket(bucket).Bucket(opID).ForEach(func(segID, v []byte) error {
+			ps, err := decodePending(string(opID), string(segID), v)
+			if err != nil {
+				return err
+			}
+			out = append(out, ps)
+			return nil
 		})
 	}); err != nil {
 		return nil, err
@@ -837,7 +849,19 @@ func (s *SegmentEditOps) RequeueQuarantined(opID string, liveSegIDs []string) er
 		}
 		for segID, meta := range rows {
 			if meta.Requeues >= maxQuarantineRequeues {
-				continue // budget spent: the verdict is now permanent
+				// Budget spent: the verdict is now permanent, and no later round
+				// will move this segment. Said once per round rather than
+				// silently, because from here the gauges alone cannot tell a drop
+				// that is retrying from one that never will — segments_owed holds
+				// above pending in both cases.
+				if s.logger != nil {
+					s.logger.WithField("action", "lsm_editops_requeue").
+						WithField("op_id", opID).
+						WithField("segment", segID).
+						Warnf("segment stays quarantined for good: %d requeues exhausted the budget of %d; this drop cannot finish without intervention",
+							meta.Requeues, maxQuarantineRequeues)
+				}
+				continue
 			}
 			if err := sub.Delete([]byte(segID)); err != nil {
 				return err
@@ -883,20 +907,38 @@ func (s *SegmentEditOps) addPendingWithMetaTx(tx *bolt.Tx, opID, segID string, m
 func (s *SegmentEditOps) Quarantined() ([]PendingSegment, error) {
 	var out []PendingSegment
 	if err := s.withReadTx(func(tx *bolt.Tx) error {
-		return tx.Bucket(editOpsBucketQuarantine).ForEachBucket(func(opID []byte) error {
-			return tx.Bucket(editOpsBucketQuarantine).Bucket(opID).ForEach(func(segID, v []byte) error {
-				ps, err := decodePending(string(opID), string(segID), v)
-				if err != nil {
-					return err
-				}
-				out = append(out, ps)
-				return nil
-			})
-		})
+		var err error
+		out, err = segmentRowsTx(tx, editOpsBucketQuarantine)
+		return err
 	}); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// MetricsSnapshot reads the ops, pending and quarantined sets in ONE read
+// transaction. The three fields must be mutually consistent, not merely each
+// fresh: the gauges derive "owed" as pending plus quarantined, so a Quarantine
+// commit landing between two separate reads would show the same segment in
+// both and count it twice — inflating precisely the gauge that is read as the
+// stalled-drop signal, in the direction that fabricates a stall.
+func (s *SegmentEditOps) MetricsSnapshot() (ops []ActiveOp, pending, quarantined []PendingSegment, err error) {
+	if err := s.withReadTx(func(tx *bolt.Tx) error {
+		var err error
+		if ops, err = s.loadOpsTx(tx); err != nil {
+			return fmt.Errorf("load ops: %w", err)
+		}
+		if pending, err = segmentRowsTx(tx, editOpsBucketPending); err != nil {
+			return fmt.Errorf("load pending: %w", err)
+		}
+		if quarantined, err = segmentRowsTx(tx, editOpsBucketQuarantine); err != nil {
+			return fmt.Errorf("load quarantined: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, nil, nil, err
+	}
+	return ops, pending, quarantined, nil
 }
 
 // DeleteOp removes an operation and all of its pending and quarantined rows.

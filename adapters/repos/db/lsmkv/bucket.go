@@ -521,7 +521,16 @@ func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 		// quarantined by an earlier round get a fresh retry budget — otherwise
 		// a single exhausted budget would wedge the drop permanently (the op
 		// and its quarantine rows outlive FAILED rounds by design).
-		return b.disk.requeueQuarantinedEditOps(opID)
+		// Refresh: a requeue moves segments out of quarantine and back into the
+		// queue, which is exactly the transition that clears the owed-above-
+		// queued signature a stalled drop is recognised by. Without this the
+		// stale "stalled" reading persists until the next cleanup pass, and on
+		// a READONLY segment group that pass never comes.
+		if err := b.disk.requeueQuarantinedEditOps(opID); err != nil {
+			return err
+		}
+		b.disk.refreshEditOpsMetrics()
+		return nil
 	}
 	if err := b.flushAndSwitchLocked(); err != nil {
 		return fmt.Errorf("flush before edit-op snapshot: %w", err)
@@ -556,7 +565,13 @@ func (b *Bucket) DeleteEditOpIfDrained(opID string) (deleted bool, pending, quar
 	if !b.HasEditOps() {
 		return false, 0, 0, fmt.Errorf("edit ops not enabled for this bucket")
 	}
-	return b.disk.editOps.DeleteOpIfDrained(opID)
+	deleted, pending, quarantined, err = b.disk.editOps.DeleteOpIfDrained(opID)
+	if err == nil && deleted {
+		// The op's series must go with it, or its gauges keep reporting a
+		// value forever (refresh is self-reconciling and forgets vanished ops).
+		b.disk.refreshEditOpsMetrics()
+	}
+	return deleted, pending, quarantined, err
 }
 
 // EditOpsHaveRows reports whether ANY edit op on this bucket still has
