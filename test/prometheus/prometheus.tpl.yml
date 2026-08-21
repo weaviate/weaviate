@@ -1,0 +1,16 @@
+# Rendered by test/prometheus/start.sh. Discovers every ephemeral Weaviate the
+# harness publishes into ${METRICS_SD_DIR} via file_sd.
+global:
+  scrape_interval: 2s
+  scrape_timeout: 2s
+  external_labels:
+    git_sha: "${GIT_SHA}"
+    git_branch: "${GIT_BRANCH}"
+
+scrape_configs:
+  - job_name: weaviate-acceptance
+    metrics_path: /metrics
+    file_sd_configs:
+      - files:
+          - "${METRICS_SD_DIR}/*.json"
+        refresh_interval: 2s
