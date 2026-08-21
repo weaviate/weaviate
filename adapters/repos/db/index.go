@@ -4052,7 +4052,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 //
 //	map[string]map[string]string{
 //		"shard-0": { "node-0": "READY", "node-1": "READONLY" },
-//		"shard-1": { "node-1": "READY", "node-1": "READONLY" },
+//		"shard-1": { "node-1": "READY", "node-2": "READONLY" },
 //	}
 //
 // The second return value are shard statuses mirroring the legacy implementation,
@@ -4088,7 +4088,9 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 				oneNodeStatus atomic.Value
 				perNodeStatus = make(map[string]string, len(replicas))
 			)
+
 			for _, nodeName := range replicas {
+				perNodeStatus[nodeName] = storagestate.StatusUnavailable.String()
 				var err error
 				if nodeName == thisNode {
 					var (
@@ -4106,6 +4108,8 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 						status := shard.GetStatus().String()
 						oneNodeStatus.Store(status)
 						perNodeStatus[nodeName] = status
+					} else {
+						oneNodeStatus.Store(storagestate.StatusUnavailable.String())
 					}
 					release()
 				} else {
@@ -4113,6 +4117,8 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 					if status, err = i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
 						oneNodeStatus.CompareAndSwap(nil, status)
 						perNodeStatus[nodeName] = status
+					} else {
+						oneNodeStatus.CompareAndSwap(nil, storagestate.StatusUnavailable.String())
 					}
 				}
 
