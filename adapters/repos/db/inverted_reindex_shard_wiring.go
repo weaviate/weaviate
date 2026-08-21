@@ -50,16 +50,38 @@ func (db *DB) reconcileLoadedMigrationsAfterTaskMap(ctx context.Context) {
 	db.indexLock.RUnlock()
 
 	for _, idx := range indices {
-		idx.ForEachLoadedShard(func(_ string, shard ShardLike) error {
-			concrete, err := unwrapShard(ctx, shard)
-			if err != nil {
-				idx.logger.WithField("shard", shard.Name()).Errorf(
-					"reconcile migration records once the task map became readable: %v", err)
+		// A tenant deactivation, a tenant delete and a collection delete each
+		// take a shard out of the map and tear it down while this walk holds
+		// the pointer. The pass removes directories, so a teardown racing it
+		// fails a memtable flush after the shard is already marked shut, and
+		// that failure latches: every later reactivation of the tenant
+		// returns the teardown error.
+		func() {
+			idx.dropIndex.RLock()
+			defer idx.dropIndex.RUnlock()
+
+			idx.ForEachLoadedShard(func(_ string, shard ShardLike) error {
+				concrete, err := unwrapShard(ctx, shard)
+				if err != nil {
+					idx.logger.WithField("shard", shard.Name()).Errorf(
+						"reconcile migration records once the task map became readable: %v", err)
+					return nil
+				}
+				release, err := concrete.preventShutdown()
+				if err != nil {
+					// Multi-tenant by construction — nothing else deactivates
+					// a shard — so its next activation runs the full pass with
+					// the map readable.
+					idx.logger.WithField("shard", shard.Name()).Infof(
+						"skipping migration reconciliation on a shard that is shutting down: %v", err)
+					return nil
+				}
+				defer release()
+
+				concrete.reconcileMigrationRecordsAfterTaskMap(ctx)
 				return nil
-			}
-			concrete.reconcileMigrationRecordsAfterTaskMap(ctx)
-			return nil
-		})
+			})
+		}()
 	}
 }
 
