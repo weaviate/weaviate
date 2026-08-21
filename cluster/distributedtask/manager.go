@@ -544,19 +544,16 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
 
 	if r.Error != "" {
-		u.Status = UnitStatusFailed
+		u.markTerminal(UnitStatusFailed, finishedAt)
 		u.Error = r.Error
-		u.FinishedAt = finishedAt
-		task.Status = TaskStatusFailed
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
-		task.FinishedAt = finishedAt
+		task.markTerminal(TaskStatusFailed, finishedAt)
 		m.notifySchedulerWithLock()
 		return nil
 	}
 
-	u.Status = UnitStatusCompleted
+	u.markTerminal(UnitStatusCompleted, finishedAt)
 	u.Progress = 1.0
-	u.FinishedAt = finishedAt
 
 	if task.AllUnitsTerminal() {
 		if task.AnyUnitFailed() {
@@ -565,19 +562,17 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			// (the schema flip is intentionally skipped when any
 			// unit failed; see OnTaskCompleted's early-return for
 			// FAILED tasks).
-			task.Status = TaskStatusFailed
+			task.markTerminal(TaskStatusFailed, finishedAt)
 		} else {
 			// Barrier tasks go through PREPARING; others jump to SWAPPING.
+			// Both are non-terminal, so neither stamps FinishedAt: the unit
+			// work has stopped but the cutover has not run yet.
 			if task.NeedsPreparationBarrier {
 				task.Status = TaskStatusPreparing
 			} else {
 				task.Status = TaskStatusSwapping
 			}
 		}
-		// FinishedAt = when units completed, for PREPARING and SWAPPING
-		// alike. The TTL cleanup skips both, so this cannot clean a task
-		// mid-coordination.
-		task.FinishedAt = finishedAt
 	}
 
 	// Notify on every unit completion — even when not the last one — so
@@ -630,23 +625,22 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		return nil
 	}
 
+	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
 	task.PostCompletionAcks[r.NodeId] = PostCompletionAck{
 		Success: r.Success,
 		Error:   r.Error,
-		AckedAt: time.UnixMilli(r.AckedAtUnixMillis),
+		AckedAt: ackedAt,
 	}
 
-	// Any failure flips the task to FAILED immediately; later acks are
-	// still recorded for forensic value. FinishedAt is not updated —
-	// "when did the work end" should remain the AllUnitsTerminal moment.
+	// Any failure flips the task to FAILED immediately.
 	if !r.Success && task.Status == TaskStatusSwapping {
-		task.Status = TaskStatusFailed
 		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
 		if task.Error != "" {
 			task.Error = task.Error + "; " + ackErr
 		} else {
 			task.Error = ackErr
 		}
+		task.markTerminal(TaskStatusFailed, ackedAt)
 	}
 
 	m.notifySchedulerWithLock()
@@ -721,23 +715,23 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 		return nil
 	}
 
+	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
 	task.PreparationCompletionAcks[r.NodeId] = PostCompletionAck{
 		Success: r.Success,
 		Error:   r.Error,
-		AckedAt: time.UnixMilli(r.AckedAtUnixMillis),
+		AckedAt: ackedAt,
 	}
 
 	// Failure path: the task fails immediately. No node proceeds to the
 	// atomic swap.
 	if !r.Success && task.Status == TaskStatusPreparing {
-		task.Status = TaskStatusFailed
 		ackErr := fmt.Sprintf("prep failed on node %s: %s", r.NodeId, r.Error)
 		if task.Error != "" {
 			task.Error = task.Error + "; " + ackErr
 		} else {
 			task.Error = ackErr
 		}
-		// FinishedAt was set when AllUnitsTerminal landed; keep it.
+		task.markTerminal(TaskStatusFailed, ackedAt)
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -812,13 +806,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	// FinishedAt is intentionally NOT overwritten here. It was already set
-	// in [Manager.RecordUnitCompletion] when all units reached terminal
-	// state — that is the user-meaningful "when did the work finish"
-	// timestamp, and the completed-task TTL counts from there. The
-	// FinalizedAtUnixMillis on the request is left in place for forensic
-	// purposes (visible in RAFT logs) but not stored on the Task.
-	task.Status = TaskStatusFinished
+	task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FinalizedAtUnixMillis))
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -830,7 +818,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 //
 // Idempotent at the FSM layer: the first commit wins; a later call on an
 // already-FAILED task is a no-op, and one racing a peer's FINISHED/CANCELLED
-// is refused. FinishedAt stays at the AllUnitsTerminal moment.
+// is refused.
 func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 	var r api.MarkTaskFailedRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -858,7 +846,6 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	task.Status = TaskStatusFailed
 	if r.Error != "" {
 		if task.Error != "" {
 			task.Error = task.Error + "; " + r.Error
@@ -866,6 +853,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 			task.Error = r.Error
 		}
 	}
+	task.markTerminal(TaskStatusFailed, time.UnixMilli(r.FailedAtUnixMillis))
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -957,8 +945,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
 
-	task.Status = TaskStatusCancelled
-	task.FinishedAt = time.UnixMilli(r.CancelledAtUnixMillis)
+	task.markTerminal(TaskStatusCancelled, time.UnixMilli(r.CancelledAtUnixMillis))
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -981,14 +968,10 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	// This check is all that stands between a STARTED task and deletion:
-	// such a task never had its FinishedAt stamped, so the age check below
-	// reads it as long expired.
-	//
-	// A status this build cannot name is deliberately not refused. The
-	// scheduler's TTL sweep is the only proposer and it reads the leader's
-	// view, so a clean-up for such a task means the rest of the cluster
-	// already considers it done.
+	// Without this guard an in-flight task — never FinishedAt-stamped — would
+	// read as long expired by the check below. An unrecognized status is let
+	// through deliberately: the TTL sweep is the sole proposer and reads the
+	// leader's view, so a clean-up for it means the cluster already calls it done.
 	if task.Status.IsActive() && task.Status.IsRecognized() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
@@ -1186,6 +1169,13 @@ func (m *Manager) Restore(bytes []byte) error {
 		for _, task := range tasks {
 			if _, ok := m.tasks[namespace]; !ok {
 				m.tasks[namespace] = make(map[string]*Task)
+			}
+
+			// An older snapshot can hold a mid-coordination task with
+			// FinishedAt already stamped, which would misreport work still
+			// in flight.
+			if !task.Status.IsTerminal() {
+				task.FinishedAt = time.Time{}
 			}
 
 			m.tasks[namespace][task.ID] = task

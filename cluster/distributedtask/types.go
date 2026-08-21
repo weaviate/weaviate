@@ -410,6 +410,16 @@ type Unit struct {
 	FinishedAt time.Time  `json:"finishedAt,omitempty"`
 }
 
+// markTerminal stamps FinishedAt and UpdatedAt together with the status, so a
+// unit that goes terminal before its first progress report still reports when
+// it was last touched. at must come from the RAFT request, never a local
+// clock, so every replica's apply produces the same timestamp.
+func (u *Unit) markTerminal(status UnitStatus, at time.Time) {
+	u.Status = status
+	u.FinishedAt = at
+	u.UpdatedAt = at
+}
+
 // UnitSpec defines a unit with an optional group assignment. Used at task creation
 // time when units need group membership (e.g. one group per tenant for MT reindex).
 type UnitSpec struct {
@@ -553,11 +563,14 @@ type Task struct {
 	// Status is the current status of the task.
 	Status TaskStatus `json:"status"`
 
-	// StartedAt is the time that a task was submitted to the cluster.
+	// StartedAt is set once by [Manager.AddTask] and is never zero, unlike
+	// its pointer-typed API siblings.
 	StartedAt time.Time `json:"startedAt"`
 
-	// FinishedAt is the time that task reached a terminal status.
-	// Additionally, it is used to schedule task clean up.
+	// FinishedAt is the terminal timestamp (zero until then); [Task.markTerminal]
+	// is the sole writer, aside from Restore clearing it on non-terminal tasks.
+	// Must not be stamped during PREPARING/SWAPPING — those can run minutes on
+	// large collections — since cleanup TTL counts from this value.
 	FinishedAt time.Time `json:"finishedAt"`
 
 	// Error is an optional field to store the error which moved the task to FAILED status.
@@ -602,11 +615,10 @@ type PostCompletionAck struct {
 	// Error captures the aggregated error message when Success==false.
 	// Empty when Success==true.
 	Error string `json:"error,omitempty"`
-	// AckedAt is the wall-clock time the ack was applied on the FSM
-	// (set on the apply path, not from the scheduler). Useful for
-	// forensics — the gap between AllUnitsTerminal's FinishedAt and the
-	// last AckedAt is the SWAPPING window's wall-clock duration on this
-	// cluster.
+	// AckedAt is the acking node's clock at request-build time, not the FSM
+	// apply-time clock — required so every replica's apply produces the
+	// same value. The spread between the earliest and latest AckedAt shows
+	// how long the cluster waited on its slowest node.
 	AckedAt time.Time `json:"ackedAt"`
 }
 
@@ -632,6 +644,15 @@ func (t *Task) Clone() *Task {
 		}
 	}
 	return &clone
+}
+
+// markTerminal stamps status and FinishedAt together so a terminal
+// transition never sets one without the other. at must come from the RAFT
+// request, never a local clock, so every replica's apply produces the same
+// timestamp.
+func (t *Task) markTerminal(status TaskStatus, at time.Time) {
+	t.Status = status
+	t.FinishedAt = at
 }
 
 // AllUnitsTerminal returns true if all units are in a terminal state (COMPLETED or FAILED).
