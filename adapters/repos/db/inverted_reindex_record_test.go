@@ -353,6 +353,20 @@ func TestMigrationRecordStore(t *testing.T) {
 			},
 		},
 		{
+			name: "a write racing a collection DELETE fails instead of re-creating the tree",
+			arrange: func(t *testing.T, s *MigrationRecordStore) {
+				// A DELETE renames the class directory away, and the shard's
+				// LSM directory the store paths off goes with it.
+				require.NoError(t, os.RemoveAll(filepath.Dir(filepath.Dir(s.Dir()))))
+				require.Error(t, s.Put(merged(42, StrategyCodeEnableFilterable)))
+			},
+			assert: func(t *testing.T, s *MigrationRecordStore) {
+				_, err := os.Stat(filepath.Dir(filepath.Dir(s.Dir())))
+				require.True(t, os.IsNotExist(err),
+					"the deleted collection's directory tree must stay deleted")
+			},
+		},
+		{
 			name: "records come back in ascending generation order",
 			arrange: func(t *testing.T, s *MigrationRecordStore) {
 				require.NoError(t, s.Put(merged(43, StrategyCodeEnableFilterable)))

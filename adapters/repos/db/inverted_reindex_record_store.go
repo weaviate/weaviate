@@ -75,6 +75,19 @@ func NewMigrationRecordStore(lsmPath string, logger logrus.FieldLogger) *Migrati
 
 func (s *MigrationRecordStore) Dir() string { return s.dir }
 
+// mkdir creates the two levels below the shard's LSM directory and not one
+// level more. MkdirAll would rebuild the whole path, so a write racing a
+// collection DELETE — which renames the class directory away — would
+// re-materialize the deleted collection's tree around one record file.
+func (s *MigrationRecordStore) mkdir() error {
+	for _, dir := range []string{filepath.Dir(s.dir), s.dir} {
+		if err := os.Mkdir(dir, 0o777); err != nil && !os.IsExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *MigrationRecordStore) path(key MigrationRecordKey) string {
 	return filepath.Join(s.dir, key.fileName())
 }
@@ -153,7 +166,7 @@ func (s *MigrationRecordStore) Put(rec MigrationRecord) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	if err := os.MkdirAll(s.dir, 0o777); err != nil {
+	if err := s.mkdir(); err != nil {
 		return fmt.Errorf("create migration records dir %q: %w", s.dir, err)
 	}
 	if err := writeFileAtomic(s.dir, rec.Subject().Key.fileName(), data); err != nil {
