@@ -312,7 +312,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 
 	res, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, nil)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch)")
+		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch")
 	}
 
 	if mmr {
