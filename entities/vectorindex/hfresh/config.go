@@ -105,6 +105,10 @@ func (u *UserConfig) validate() error {
 		))
 	}
 
+	if u.RQ.Centering {
+		errs = append(errs, errors.New("centering in HFresh not supported yet"))
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid hfresh config: %w", errors.Join(errs...))
 	}
@@ -141,6 +145,15 @@ func parseAndValidateRQ(ucMap map[string]interface{}, uc *UserConfig) error {
 	}
 	if bits > 1 {
 		return fmt.Errorf("rq only supports 1 bit, got %d", bits)
+	}
+
+	if err := vectorIndexCommon.OptionalBoolFromMap(rqConfigMap, "centering", func(v bool) {
+		uc.RQ.Centering = v
+	}); err != nil {
+		return err
+	}
+	if uc.RQ.Centering {
+		return errors.New("centering in HFresh not supported yet")
 	}
 
 	if err := vectorIndexCommon.OptionalIntFromMap(rqConfigMap, "rescoreLimit", func(v int) {
