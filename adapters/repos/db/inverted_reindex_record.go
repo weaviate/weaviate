@@ -14,6 +14,7 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"time"
 )
 
@@ -307,6 +308,9 @@ func decodeMigrationRecord(data []byte) (MigrationRecord, error) {
 	if !migrationTypeKnown(env.Subject.MigrationType) {
 		return nil, fmt.Errorf("record %q names unknown migration type %q", env.Subject.Key, env.Subject.MigrationType)
 	}
+	if err := validateMigrationHandles(env); err != nil {
+		return nil, err
+	}
 
 	switch env.State {
 	case MigrationStateIterating:
@@ -337,6 +341,50 @@ func decodeMigrationRecord(data []byte) (MigrationRecord, error) {
 	default:
 		return nil, fmt.Errorf("record %q names unknown state %q", env.Subject.Key, env.State)
 	}
+}
+
+// validateMigrationHandles rejects a directory handle that does not stay under
+// the shard root. Every handle is joined onto that root and the result reaches
+// os.RemoveAll, and a join cleans "../" without containing it — so a crafted
+// handle deletes outside the shard. Backup restore is the reachable producer:
+// it writes an archive's record bytes into the records directory untouched.
+func validateMigrationHandles(e migrationRecordEnvelope) error {
+	reject := func(field, handle string) error {
+		return fmt.Errorf("record %q names %s %q, which is not a directory inside the shard",
+			e.Subject.Key, field, handle)
+	}
+
+	named := map[string][]string{
+		"tracker directory": {e.Subject.TrackerDir},
+		"sidecar directory": e.Subject.SidecarDirs,
+	}
+	for field, dirs := range map[string]map[string]string{
+		"staged directory":    e.Subject.StagedDirs,
+		"canonical directory": e.Subject.CanonicalDirs,
+	} {
+		for _, dir := range dirs {
+			named[field] = append(named[field], dir)
+		}
+	}
+	if e.Flip != nil {
+		for _, dir := range e.Flip.DisplacedDirs {
+			named["displaced directory"] = append(named["displaced directory"], dir)
+		}
+	}
+
+	for field, dirs := range named {
+		for _, dir := range dirs {
+			// An empty handle is the ordinary "this record names none", and
+			// every reader already guards on it.
+			if dir == "" {
+				continue
+			}
+			if !filepath.IsLocal(dir) {
+				return reject(field, dir)
+			}
+		}
+	}
+	return nil
 }
 
 func (e migrationRecordEnvelope) requireBlocks(checkpoint, flip bool) error {

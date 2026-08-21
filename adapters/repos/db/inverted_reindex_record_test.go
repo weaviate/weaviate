@@ -475,3 +475,92 @@ func TestMigrationRecordStoreConcurrentAccess(t *testing.T) {
 	require.NoError(t, store.Load())
 	require.Len(t, store.Records(), writers*8)
 }
+
+// TestDecodeMigrationRecordRejectsEscapingHandles pins the containment check.
+// Every path field is joined onto the shard root and the result reaches
+// os.RemoveAll, and a join cleans "../" without containing it. Backup restore
+// writes an archive's record bytes into the records directory untouched, so a
+// crafted handle is a reachable way to delete outside the shard.
+func TestDecodeMigrationRecordRejectsEscapingHandles(t *testing.T) {
+	tests := []struct {
+		name    string
+		place   func(*MigrationSubject, *migrationFlipEnvelope, string)
+		handle  string
+		wantErr bool
+	}{
+		{
+			name:   "tracker directory",
+			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.TrackerDir = h },
+			handle: "../../../../etc", wantErr: true,
+		},
+		{
+			name: "staged directory",
+			place: func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) {
+				s.StagedDirs = map[string]string{"title": h}
+			},
+			handle: "/var/lib/weaviate", wantErr: true,
+		},
+		{
+			name: "canonical directory",
+			place: func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) {
+				s.CanonicalDirs = map[string]string{"title": h}
+			},
+			handle: "../sibling_shard/property_title", wantErr: true,
+		},
+		{
+			name:   "sidecar directory",
+			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.SidecarDirs = []string{h} },
+			handle: "..", wantErr: true,
+		},
+		{
+			name: "displaced directory",
+			place: func(_ *MigrationSubject, f *migrationFlipEnvelope, h string) {
+				f.DisplacedDirs = map[string]string{"title": h}
+			},
+			handle: "/", wantErr: true,
+		},
+		{
+			name: "a handle that only looks like an escape stays inside",
+			place: func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) {
+				s.StagedDirs = map[string]string{"title": h}
+			},
+			handle: "m_42_..title",
+		},
+		{
+			name:   "a legitimate nested handle is accepted",
+			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.SidecarDirs = []string{h} },
+			handle: "m_42_tracker/searchable/title",
+		},
+		{
+			name:   "an empty handle is the ordinary names-none",
+			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.TrackerDir = h },
+			handle: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subject := testMigrationSubject(42, StrategyCodeEnableFilterable, "title")
+			subject.TrackerDir, subject.StagedDirs, subject.CanonicalDirs, subject.SidecarDirs = "", nil, nil, nil
+			flip := migrationFlipEnvelope{Flipped: []string{"title"}}
+			tt.place(&subject, &flip, tt.handle)
+
+			data, err := json.Marshal(migrationRecordEnvelope{
+				FormatVersion: migrationRecordFormatVersion,
+				State:         MigrationStateSwapped,
+				Subject:       subject,
+				Flip:          &flip,
+			})
+			require.NoError(t, err)
+
+			rec, err := decodeMigrationRecord(data)
+			if tt.wantErr {
+				require.Error(t, err, "a handle that leaves the shard root must not decode")
+				require.Nil(t, rec)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, rec)
+		})
+	}
+}
