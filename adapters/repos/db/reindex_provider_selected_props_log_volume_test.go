@@ -46,7 +46,8 @@ func TestPersistRecoveryRecordDoesNotWarnPerUnit(t *testing.T) {
 		Properties:    props,
 		UnitToShard:   map[string]string{"unit-1": shard.Name()},
 	}
-	tasks, err := p.createReindexTasks(payload, lsm, false)
+	desc, unitID := testTaskIdentity()
+	tasks, err := p.createReindexTasks(desc, unitID, payload, lsm, false)
 	require.NoError(t, err)
 	require.NotEmpty(t, tasks)
 

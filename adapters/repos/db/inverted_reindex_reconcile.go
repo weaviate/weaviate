@@ -175,13 +175,17 @@ func (r *migrationReconciler) reconcileIterated(ctx context.Context, rec Migrati
 		}
 	}
 
-	for _, prop := range subject.Properties {
-		staged := subject.StagedDirs[prop]
-		if staged != "" && r.dirExists(staged) {
+	// Every directory the record owns has to be present at Iterated: the
+	// rebuild wrote into the sidecars and the mirror into the staged ones.
+	// A missing one means the rebuild never reached disk or was reclaimed,
+	// and a resume from the checkpoint would then swap in a bucket holding
+	// only the objects that happen to sort above the stale key.
+	for _, dir := range migrationOwnedDirs(subject) {
+		if r.dirExists(dir) {
 			continue
 		}
 		r.logger.WithField("record", subject.Key.String()).Warnf(
-			"rebuilt data for property %q is gone; restarting the rebuild from the beginning", prop)
+			"rebuilt data at %q is gone; restarting the rebuild from the beginning", dir)
 		return r.store.Put(NewMigrationRecordIterating(subject, MigrationCheckpoint{}))
 	}
 	return r.reconcileUncommitted(ctx, rec, frozen)

@@ -396,12 +396,22 @@ func TestReconcileReverseEdge(t *testing.T) {
 		wantState MigrationState
 	}{
 		{
-			name:      "rebuilt data still on disk: stay iterated",
-			present:   []string{"m_42_title", "property_title"},
+			name:      "every owned directory on disk: stay iterated",
+			present:   []string{"m_42_title", "m_42_sidecar", "property_title"},
 			wantState: MigrationStateIterated,
 		},
 		{
-			name:      "rebuilt data gone: back to iterating",
+			name:      "the directory the rebuild wrote into is gone: back to iterating",
+			present:   []string{"m_42_title", "property_title"},
+			wantState: MigrationStateIterating,
+		},
+		{
+			name:      "the directory the mirror writes into is gone: back to iterating",
+			present:   []string{"m_42_sidecar", "property_title"},
+			wantState: MigrationStateIterating,
+		},
+		{
+			name:      "both gone: back to iterating",
 			present:   []string{"property_title"},
 			wantState: MigrationStateIterating,
 		},

@@ -531,16 +531,12 @@ func (p *ReindexProvider) processOneUnit(
 	}
 	if !cached {
 		var createErr error
-		tasks, createErr = p.createReindexTasks(payload, concreteShard.pathLSM(), false)
+		tasks, createErr = p.createReindexTasks(task.TaskDescriptor, unitID, payload, concreteShard.pathLSM(), false)
 		if createErr != nil {
 			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
 			return
 		}
 	}
-	for _, reindexTask := range tasks {
-		reindexTask.setMigrationIdentity(task.TaskDescriptor, unitID, payload)
-	}
-
 	// Compose per-task progress into a single per-unit envelope so the
 	// operator sees a monotonic 0→1 climb across N tasks instead of N
 	// independent 0→0.99 ramps that look like regressions on the same
@@ -650,7 +646,24 @@ const maxReindexPropertiesPerTask = 1024
 //
 // See `docs/runtime-reindex.md` for the deferred-finalize + per-migration-
 // generation design rationale.
-func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPath string, rehydrate bool) ([]*ShardReindexTaskGeneric, error) {
+func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor, unitID string,
+	payload *ReindexTaskPayload, lsmPath string, rehydrate bool,
+) ([]*ShardReindexTaskGeneric, error) {
+	tasks, err := p.buildReindexTasks(payload, lsmPath, rehydrate)
+	if err != nil {
+		return nil, err
+	}
+	for _, task := range tasks {
+		task.setMigrationIdentity(desc, unitID, payload)
+	}
+	return tasks, nil
+}
+
+// buildReindexTasks constructs the strategy instances alone. Only
+// createReindexTasks may call it: a task that reaches a shard without an
+// identity cannot key a record, so it would run a migration that records
+// nothing and leave its data at a directory no later load can attribute.
+func (p *ReindexProvider) buildReindexTasks(payload *ReindexTaskPayload, lsmPath string, rehydrate bool) ([]*ShardReindexTaskGeneric, error) {
 	// Every migration type requires at least one property — repair-* / enable-*
 	// because they're per-property migrations, change-tokenization because it
 	// needs exactly one property. Check up front so each arm only deals with
@@ -1177,7 +1190,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 			SawContextCanceled: errors.Is(unwrapErr, context.Canceled),
 		}
 	}
-	fresh, err := p.createReindexTasks(payload, concreteShard.pathLSM(), true)
+	fresh, err := p.createReindexTasks(task.TaskDescriptor, unitID, payload, concreteShard.pathLSM(), true)
 	if err != nil {
 		logger.WithField("unit", unitID).
 			Errorf("reindex provider: resolveUnitForPhase: creating reindex tasks: %v", err)

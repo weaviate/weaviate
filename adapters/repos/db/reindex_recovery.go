@@ -292,8 +292,15 @@ func buildRecoveryTasks(
 	// Constrain each task to exactly this shard so multiple recovered
 	// instances (one per shard) don't fight over the same
 	// callbackDisableFuncs slice when [runtimeSwap] runs per-shard.
+	//
+	// The identity is stamped here rather than by the caller for the same
+	// reason createReindexTasks stamps its own: a recovered task that
+	// reached a shard unstamped could not key a record, so the flip it
+	// completes after the restart would record nothing.
+	desc := distributedtask.TaskDescriptor{ID: rec.TaskID, Version: rec.TaskVersion}
 	for _, t := range raw {
 		t.constrainToShard(payload.Collection, shardName)
+		t.setMigrationIdentity(desc, rec.UnitID, &payload)
 	}
 	return raw, nil
 }
