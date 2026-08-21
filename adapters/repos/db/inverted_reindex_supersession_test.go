@@ -12,8 +12,10 @@
 package db
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -266,4 +268,68 @@ func TestReconcileRetirementDisarmsBeforeRemoving(t *testing.T) {
 	require.True(t, stagedDirAtDisarm, "the mirror must be disarmed while its target still exists")
 	require.Equal(t, []string{"10/searchable_retokenize/shard-1__node-0/title"}, f.buckets.closed)
 	require.False(t, f.exists("m_10_title"))
+}
+
+// TestShutdownFailureHoldsBackRemoval pins what the two edges that remove a
+// record's directories have in common: each shuts the staged buckets down
+// first, so a shutdown that failed means those buckets are still open.
+// Removing an open bucket's directory leaves mmaps, in-flight compactions and
+// a registry entry behind, and removing the record on top of that strands the
+// directory at a name nothing can attribute afterwards.
+func TestShutdownFailureHoldsBackRemoval(t *testing.T) {
+	const taskID = "Books:change-tokenization:title:ab12"
+	key := func(version uint64) MigrationRecordKey {
+		return MigrationRecordKey{
+			TaskVersion: version, StrategyCode: StrategyCodeSearchableRetokenize,
+			UnitID: "shard-1__node-0",
+		}
+	}
+
+	tests := []struct {
+		name    string
+		arrange func(f *reconcileFixture)
+		drive   func(f *reconcileFixture)
+		key     MigrationRecordKey
+		dir     string
+	}{
+		{
+			name: "the cancel edge keeps the staged copy it could not close",
+			arrange: func(f *reconcileFixture) {
+				subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+				subject.TaskID = taskID
+				f.mkdirs("m_42_title", "m_42_sidecar", "property_title")
+				f.put(NewMigrationRecordMerged(subject))
+				f.tasks = []*distributedtask.Task{testTask(taskID, 42, distributedtask.TaskStatusCancelled)}
+			},
+			drive: (*reconcileFixture).reconcileAfterTaskMap,
+			key:   key(42),
+			dir:   "m_42_title",
+		},
+		{
+			name: "the supersession edge keeps the predecessor that still names it",
+			arrange: func(f *reconcileFixture) {
+				f.mkdirs("m_10_title", "m_10_sidecar", "m_20_title", "property_title")
+				f.put(NewMigrationRecordMerged(testMigrationSubject(10, StrategyCodeSearchableRetokenize, "title")))
+				f.put(swappedOn(20, "title"))
+			},
+			drive: (*reconcileFixture).reconcile,
+			key:   key(10),
+			dir:   "m_10_title",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newReconcileFixture(t)
+			f.class = testClassWithTokenization(models.PropertyTokenizationWord, "title")
+			tt.arrange(f)
+			f.buckets.err = errors.New("bucket shutdown refused")
+
+			tt.drive(f)
+
+			assert.True(t, f.exists(tt.dir), "the directory of a bucket that is still open")
+			_, present := f.state(tt.key)
+			assert.True(t, present, "the record that names the directory has to outlive a failed removal")
+		})
+	}
 }

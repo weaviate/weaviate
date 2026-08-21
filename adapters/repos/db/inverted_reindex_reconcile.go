@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -249,11 +250,11 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject, why string)
 // finished serves pre-migration data forever, and one the cluster abandoned
 // keeps its staged copy forever.
 //
-// It writes the verdict and stops there. Promotion renames a directory and the
-// buckets backing that directory are open by now; the verdict-before-action
-// ordering is exactly what lets the two happen at different times. The discard
-// needs no such deferral because it shuts its buckets down before removing
-// anything.
+// The two arms differ in when they act. The commit arm only records the
+// decision: promotion renames a directory whose buckets are open by now, so it
+// waits for the next load. The discard arm acts immediately, which is safe
+// only because this pass is installed before the scheduler resumes any local
+// unit — see the discard branch below.
 //
 // Only the verdict decides here. The reverse edge from Iterated is deliberately
 // left to a load: it clears the checkpoint, and a live task iterating right now
@@ -274,8 +275,11 @@ func (r *migrationReconciler) ReconcileAfterTaskMap(ctx context.Context) {
 		verdict, why := r.verdict(subject)
 		switch {
 		case verdict == migrationVerdictDiscard:
-			// Only a terminal task produces this verdict, and a terminal task
-			// has no unit running, so nothing is writing this record now.
+			// This removes directories a unit would be writing through a raw
+			// bucket pointer, and a task's cluster status goes terminal
+			// independently of when the local unit exits. What makes it safe
+			// is that the task source is installed before Scheduler.Start, so
+			// no unit has been resumed in this process yet.
 			if err := r.discard(ctx, subject, why); err != nil {
 				r.logger.WithField("record", subject.Key.String()).Errorf(
 					"discard a migration once the task map became readable: %v", err)
@@ -461,8 +465,12 @@ func (r *migrationReconciler) findTask(subject MigrationSubject) (*distributedta
 func (r *migrationReconciler) discard(ctx context.Context, subject MigrationSubject, why string) error {
 	r.logger.WithField("record", subject.Key.String()).Infof("discarding staged migration data: %s", why)
 
+	ec := errorcompounder.New()
 	for _, prop := range subject.Properties {
-		r.disarmAndClose(ctx, subject.Key, prop)
+		ec.Add(r.disarmAndClose(ctx, subject.Key, prop))
+	}
+	if err := ec.ToError(); err != nil {
+		return err
 	}
 	if remaining := r.reclaimOwnedDirs(subject); len(remaining) > 0 {
 		return fmt.Errorf("%d owned directory/directories survived the discard", len(remaining))
@@ -471,16 +479,20 @@ func (r *migrationReconciler) discard(ctx context.Context, subject MigrationSubj
 	return r.store.Remove(subject.Key)
 }
 
-func (r *migrationReconciler) disarmAndClose(ctx context.Context, key MigrationRecordKey, prop string) {
+// disarmAndClose reports a shutdown failure rather than logging it away: every
+// caller removes the property's directory next, and removing an open bucket's
+// directory leaves mmaps, in-flight compactions and a registry entry behind.
+func (r *migrationReconciler) disarmAndClose(ctx context.Context, key MigrationRecordKey, prop string) error {
 	if r.deps.Mirror != nil {
 		r.deps.Mirror.DisarmMigrationMirror(key, prop)
 	}
 	if r.deps.Buckets == nil {
-		return
+		return nil
 	}
 	if err := r.deps.Buckets.ShutdownStagedBuckets(ctx, key, prop); err != nil {
-		r.logger.WithField("record", key.String()).Errorf("shut down staged buckets for property %q: %v", prop, err)
+		return fmt.Errorf("shut down staged buckets of %s for property %q: %w", key.String(), prop, err)
 	}
+	return nil
 }
 
 // removeTrackerDir removes the migration's own directory under .migrations,

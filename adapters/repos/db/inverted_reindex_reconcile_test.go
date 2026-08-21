@@ -679,11 +679,11 @@ func TestReconcileCommitEdgeFiresOnceTheTaskMapArrives(t *testing.T) {
 			wantState: MigrationStateMerged,
 		},
 		{
-			// A discard is safe with buckets open because it shuts them down
-			// before it removes anything. Left to the next load it would never
-			// run at all: the sweeps preserve a committed record's directories,
-			// so nothing else reclaims the staged copy of an abandoned
-			// migration.
+			// Left to the next load the discard would never run at all: the
+			// sweeps preserve a committed record's directories, so nothing
+			// else reclaims the staged copy of an abandoned migration. What
+			// makes acting here safe is startup ordering — no unit has been
+			// resumed yet — which no fixture at this level can observe.
 			name:  "the task was cancelled: the staged copy goes",
 			task:  testTask(taskID, 42, distributedtask.TaskStatusCancelled),
 			class: testClassWithTokenization(models.PropertyTokenizationWord, "title"),

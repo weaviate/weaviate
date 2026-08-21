@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 )
 
@@ -146,13 +147,21 @@ func (r *migrationReconciler) retireSuperseded(ctx context.Context, all []Migrat
 			continue
 		}
 
+		retired := true
 		for _, prop := range subject.Properties {
 			if !migrationPropertySuperseded(all, subject, prop) {
 				continue
 			}
-			r.retireProperty(ctx, all, subject, prop)
+			if err := r.retireProperty(ctx, all, subject, prop); err != nil {
+				r.logger.WithField("record", subject.Key.String()).Errorf(
+					"retire a superseded property: %v", err)
+				retired = false
+			}
 		}
-		if !migrationRecordFullySuperseded(all, rec) {
+		// A directory whose removal did not happen must keep the record that
+		// names it, or nothing can attribute it afterwards. The next load
+		// re-derives this pass and tries again.
+		if !retired || !migrationRecordFullySuperseded(all, rec) {
 			continue
 		}
 
@@ -176,14 +185,17 @@ func (r *migrationReconciler) retireSuperseded(ctx context.Context, all []Migrat
 // which is what makes back-to-back generations safe inside one process.
 func (r *migrationReconciler) retireProperty(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject, prop string,
-) {
-	r.disarmAndClose(ctx, subject.Key, prop)
+) error {
+	if err := r.disarmAndClose(ctx, subject.Key, prop); err != nil {
+		return err
+	}
 
 	dir := subject.StagedDirs[prop]
 	if dir == "" || migrationDirClaimedAsDisplaced(all, subject, dir) {
-		return
+		return nil
 	}
 	if err := os.RemoveAll(r.path(dir)); err != nil {
-		r.logger.WithField("dir", dir).Errorf("remove staged directory of a superseded migration: %v", err)
+		return fmt.Errorf("remove staged directory %q of a superseded migration: %w", dir, err)
 	}
+	return nil
 }

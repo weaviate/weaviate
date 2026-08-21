@@ -1020,6 +1020,27 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if metaStoreReady.waitForMetaStore() != nil {
 			return
 		}
+
+		// Migration reconciliation runs at shard load and reads this node's
+		// own applied task map. ListDistributedTasks would need a leader
+		// round-trip, which a shard load must never wait on, and the map
+		// cannot be installed at DB construction because the cluster service
+		// does not exist yet. Shards loaded before this point therefore read
+		// the map as unavailable and decide nothing that depends on it, which
+		// is why the setter re-runs that decision on them.
+		//
+		// Ahead of Scheduler.Start, which resumes local units synchronously:
+		// that re-run can discard an abandoned migration's directories, and
+		// only before the first unit is resumed is it certain no iterator is
+		// writing through them. The map is complete here for the same reason
+		// the scheduler trusts it to choose what to resume — waitForMetaStore
+		// above. The 60-second DTM-readiness loop below waits on a leader
+		// round-trip that LocalDistributedTasks never makes.
+		raft := appState.ClusterService.Raft
+		repo.SetMigrationLocalTaskSource(serverShutdownCtx, func() ([]*distributedtask.Task, bool) {
+			return raft.LocalDistributedTasks()[db.ReindexNamespace], true
+		})
+
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
 			appState.Logger.WithField("action", "startup").
 				Errorf("failed to start distributed task scheduler: %v", err)
@@ -1113,17 +1134,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// closed for that window so a backup landing in the gap doesn't
 		// snapshot half-removed sidecars.
 		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
-		// Migration reconciliation runs at shard load and reads this node's
-		// own applied task map. ListDistributedTasks would need a leader
-		// round-trip, which a shard load must never wait on, and the map
-		// cannot be installed at DB construction because the cluster service
-		// does not exist yet. Shards loaded before this point therefore read
-		// the map as unavailable and decide nothing that depends on it, which
-		// is why the setter re-runs that decision on them.
-		raft := appState.ClusterService.Raft
-		repo.SetMigrationLocalTaskSource(auditCtx, func() ([]*distributedtask.Task, bool) {
-			return raft.LocalDistributedTasks()[db.ReindexNamespace], true
-		})
 	}, appState.Logger)
 
 	return appState
