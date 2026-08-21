@@ -265,7 +265,7 @@ func (i *Index) cleanStalePartialReindexState(
 //
 // Fails open (returns true) on anything it can't read — an unmappable index
 // type, an unlistable directory, or an unparseable tracker payload — since a
-// false "clean" would leave a stale started.mig for the next task to resume
+// false "clean" would leave a stale record for the next task to resume
 // against.
 //
 // The unreadable payload only fails open while no properties.mig rebuilds
@@ -288,7 +288,7 @@ func (i *Index) cleanStalePartialReindexState(
 // The second return says the shard holds a completed migration's leftovers:
 // its data still under the ingest sidecar name, plus the backup copy of the
 // bucket it replaced. Only a shard load reclaims those, since
-// [FinalizeCompletedMigrations] runs before buckets open. It is only
+// reconciliation runs before buckets open. It is only
 // meaningful where the first return is false — a shard already being
 // hydrated finalizes them on the way in either way.
 //

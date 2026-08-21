@@ -62,11 +62,8 @@ type RecoveredReindex struct {
 // reindex iteration is terminal but the swap has not yet completed.
 //
 // Reads payload.mig (the typed task payload persisted by
-// persistRecoveryRecord before the iteration ran) and consults the
-// sentinel files: started.mig (iteration started), reindexed.mig
-// (iteration terminal), merged.mig (PREP complete), swapped.mig
-// (in-memory swap complete), tidied.mig (swap fully tidied; no
-// recovery needed).
+// persistRecoveryRecord before the iteration ran) and consults the shard's
+// migration records for the state each of those directories is in.
 //
 // Returns a flat slice; deduplication across sibling migration dirs
 // belonging to the same task is the caller's job.
@@ -108,12 +105,13 @@ func DiscoverInFlightReindexTasks(
 				// Most shards have no .migrations dir; that's the normal path.
 				continue
 			}
+			records := migrationRecordsAt(lsmPath, logger)
 			for _, migEntry := range migs {
 				if !migEntry.IsDir() {
 					continue
 				}
 				migDir := filepath.Join(migrationsDir, migEntry.Name())
-				rec, ok := loadReindexRecoveryRecord(migDir, logger)
+				rec, ok := loadReindexRecoveryRecord(migDir, records, logger)
 				if !ok {
 					continue
 				}
@@ -152,37 +150,28 @@ func DiscoverInFlightReindexTasks(
 	return recovered, nil
 }
 
-// loadReindexRecoveryRecord reads payload.mig from a migration directory
-// and returns the decoded record. Returns ok=false if:
-//   - payload.mig is missing (older migration without the recovery
-//     record, or no migration in progress);
-//   - started.mig is missing (nothing has happened yet, no callbacks to
-//     restore);
-//   - reindexed.mig is missing (the reindex iteration is not yet
-//     terminal — the DTM scheduler will call StartTask post-restart,
-//     which re-registers callbacks via OnAfterLsmInit on a fresh task
-//     instance; if we ALSO registered one here we'd end up with
-//     duplicate double-write callbacks);
-//   - tidied.mig is present (the migration is fully done — leftover
-//     state will be cleaned up by [FinalizeCompletedMigrations]).
+// loadReindexRecoveryRecord reads payload.mig from a migration directory and
+// returns the decoded record, but only for a migration whose rebuild is
+// complete and whose flip is not yet decided. Returns ok=false otherwise, and
+// when payload.mig is missing or unreadable.
 //
-// The reindexed-but-not-tidied window is exactly the bug fixed by this
-// recovery path: the unit is terminal in RAFT (so the scheduler will
-// NOT call StartTask post-restart) but the swap (driven by
-// OnGroupCompleted on the next scheduler tick) has not yet happened.
-// Any write that arrives between shard init and that tick must land in
-// the ingest bucket via a double-write callback, and the only way to
-// have those callbacks active that early is to re-register them during
-// shard init from on-disk state.
-func loadReindexRecoveryRecord(migDir string, logger logrus.FieldLogger) (reindexRecoveryRecord, bool) {
+// That window is exactly the bug this recovery path fixes: the unit is
+// terminal in RAFT (so the scheduler will NOT call StartTask post-restart)
+// but the swap (driven by OnGroupCompleted on the next scheduler tick) has
+// not yet happened. Any write arriving between shard init and that tick must
+// land in the ingest bucket through a double-write callback, and the only way
+// to have those active that early is to re-register them during shard init.
+//
+// Either side of the window is wrong for a different reason. Before it, the
+// scheduler restarts the unit and arms the callbacks itself, so arming here
+// too would leave the write path carrying two. After it, the old copy is
+// dead and mirroring into it buys nothing.
+func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
+	logger logrus.FieldLogger,
+) (reindexRecoveryRecord, bool) {
 	var rec reindexRecoveryRecord
-	if !fileExists(filepath.Join(migDir, "started.mig")) {
-		return rec, false
-	}
-	if !fileExists(filepath.Join(migDir, "reindexed.mig")) {
-		return rec, false
-	}
-	if fileExists(filepath.Join(migDir, "tidied.mig")) {
+	state, ok := migrationRecordForTracker(records, filepath.Base(migDir))
+	if !ok || state.State() == MigrationStateIterating || state.PointerSwapped() {
 		return rec, false
 	}
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)

@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -166,9 +165,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// the local swap yet would serve range queries from an empty
 	// PreReindexHook'd bucket as soon as the cluster-wide schema flag
 	// flips on another node. See [Shard.rangeableLocalReady] for the
-	// full rationale. Props not found in this scan default to "ready"
-	// (no migration ever ran, or every prior migration already tidied —
-	// FinalizeCompletedMigrations above promoted them to canonical).
+	// full rationale. Props no record names default to "ready": no migration
+	// ever ran, or reconciliation above already promoted it.
 	markInFlightRangeableMigrationsNotReady(s)
 
 	if err := s.initNonVector(ctx, class); err != nil {
@@ -220,68 +218,29 @@ func (s *Shard) NotifyReady() {
 		Debugf("shard=%s is ready", s.name)
 }
 
-// markInFlightRangeableMigrationsNotReady scans this shard's
-// .migrations/ directory for rangeable-related tracker dirs whose
-// `tidied.mig` sentinel is not present, and flips the corresponding
-// per-prop entry in Shard.rangeableLocalReady to false. See
-// [Shard.rangeableLocalReady] for rationale. Idempotent and safe to
-// call on shards with no rangeable migrations on disk.
+// markInFlightRangeableMigrationsNotReady flips the per-prop entry in
+// Shard.rangeableLocalReady to false for every rangeable migration on this
+// shard whose flip decision is not yet durable. See
+// [Shard.rangeableLocalReady] for the rationale. Idempotent and safe to call
+// on shards with no rangeable migration.
 //
-// Property names are read from the on-disk recovery payload (payload.mig
-// inside each tracker dir). Parsing them out of the dir name would be
-// fragile for props whose names themselves contain `_` (e.g.
-// `price_cents`), because [migrationDirWithProps] joins multiple props
-// with `_` — the dir-name decoder can't tell `price_cents` (one prop)
-// from `[price, cents]` (two props).
+// Property names come from the record rather than from the tracker dir's
+// name: that name joins multiple properties with "_", so its decoder cannot
+// tell "price_cents" (one property) from ["price", "cents"] (two).
 //
-// Tracker dirs whose payload.mig is unreadable or missing are skipped
-// — they are either stale (operator surgery, partial-init crash) or
-// from an old build before payload persistence. We accept the
-// default-true policy in [Shard.IsRangeableLocallyReady] for those
-// edge cases; the bucket-existence fallback inside
-// IsRangeableLocallyReady still protects queries when the
-// PreReindexHook hasn't fired yet on this replica.
-//
-// Properties that don't have a tracker dir, or whose dir has
-// `tidied.mig` (FinalizeCompletedMigrations promoted them to canonical
-// in this same startup), are left untouched — the default-true policy
-// in [Shard.IsRangeableLocallyReady] applies to them.
+// A migration whose flip is decided is left untouched — reconciliation has
+// promoted it, or will at the load that can rename its directory safely — and
+// so is a property no record names. Both fall back to the default-true policy
+// in [Shard.IsRangeableLocallyReady].
 func markInFlightRangeableMigrationsNotReady(s *Shard) {
-	migrationsDir := filepath.Join(s.pathLSM(), ".migrations")
-	entries, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		// No .migrations dir is the common case: nothing to do.
+	if s.migrationRecords == nil {
 		return
 	}
-	const prefix = MigrationDirPrefixFilterableToRangeable + "_"
-	for _, entry := range entries {
-		if !entry.IsDir() {
+	for _, rec := range s.migrationRecords.Records() {
+		if rec.Subject().Key.StrategyCode != StrategyCodeFilterableToRangeable || rec.PointerSwapped() {
 			continue
 		}
-		name := entry.Name()
-		base, _, ok := parseMigrationDirName(name)
-		if !ok {
-			continue
-		}
-		if !strings.HasPrefix(base, prefix) {
-			continue
-		}
-		// tidied.mig present means FinalizeCompletedMigrations either
-		// promoted the migration or will at the next call site; the
-		// query-side fallback isn't needed for these.
-		dirPath := filepath.Join(migrationsDir, name)
-		if fileExistsInDir(dirPath, "tidied.mig") {
-			continue
-		}
-		// Unbounded on purpose, unlike the cleanup probes: refusing here would
-		// leave the property on the default-true readiness policy for the whole
-		// of a large migration, which is a query-side answer rather than an
-		// extra directory walk.
-		propNames, err := readRecoveryPropertyNames(dirPath, unboundedRecoveryPayload)
-		if err != nil {
-			continue
-		}
-		for _, propName := range propNames {
+		for _, propName := range rec.Subject().Properties {
 			s.setRangeableLocallyReady(propName, false)
 		}
 	}
@@ -305,7 +264,7 @@ const unboundedRecoveryPayload = 0
 var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse bound")
 
 // readRecoveryPropertyNames extracts the `Properties` slice from a
-// migration tracker dir's payload.mig sentinel file (see
+// migration tracker dir's payload.mig file (see
 // ShardReindexTaskGeneric.SaveRecoveryPayload). The error keeps a missing
 // payload (os.IsNotExist) distinguishable from an unreadable or unparseable
 // one: [migrationDirScope.inScopeFailingOpen] treats only the former as "the task recorded

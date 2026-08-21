@@ -684,14 +684,13 @@ func logCancelCleanupOutcome(entry *logrus.Entry, failures []staleSweepFailure, 
 // Most migration types target exactly one index. change-tokenization (both
 // indexes) targets TWO — it spawns one ShardReindexTaskGeneric per index
 // (searchable + filterable) via createReindexTasks, and each leaves its own
-// .migrations/<prefix>_<prop>/ sentinel directory on disk. Pre-submit
-// cleanup must wipe BOTH dirs; cleaning only one of them was the root cause
-// of the Sev 1 data-loss bug fixed alongside this change (see Journey 7 in
+// .migrations/<prefix>_<prop>/ directory on disk. Pre-submit cleanup must
+// wipe BOTH dirs; cleaning only one of them was the root cause of the Sev 1
+// data-loss bug fixed alongside this change (see Journey 7 in
 // change_tok_delete_journeys_test.go): a prior filterable-only retokenize
-// left .migrations/filterable_retokenize_<prop>/tidied.mig on disk, the
-// next change-tokenization-both submit did not clean it, and its
-// FilterableRetokenize sub-task short-circuited on OnAfterLsmInit's
-// IsTidied check while OnMigrationComplete still flipped the schema's
+// left its completed state on disk, the next change-tokenization-both submit
+// did not clean it, and its FilterableRetokenize sub-task short-circuited on
+// that state while OnMigrationComplete still flipped the schema's
 // Tokenization. Schema and on-disk state then disagreed.
 //
 // Callers run the sweep from db.DB.NewStalePartialReindexSweep once per
@@ -709,8 +708,8 @@ func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 		// change-tokenization-both runs ONE task per inverted index
 		// (searchable + filterable). Each leaves its own per-property
 		// migration dir on disk. Pre-cleanup must wipe both, otherwise a
-		// stale tidied.mig from a previous single-index retokenize on the
-		// same prop short-circuits the sub-task and produces a schema /
+		// stale completed state from a previous single-index retokenize on
+		// the same prop short-circuits the sub-task and produces a schema /
 		// bucket state mismatch (Sev 1 silent data loss).
 		return []string{"searchable", "filterable"}, true
 	case db.ReindexTypeChangeTokenizationFilterable:

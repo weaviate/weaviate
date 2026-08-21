@@ -241,7 +241,7 @@ func (s *Shard) cleanStaleMigrationDirs(ctx context.Context, propName, indexType
 // [migrationDirScope.inScope] about each, so we don't miss old
 // generations.
 //
-// Tracker dirs with tidied.mig / merged.mig are PRESERVED — they are
+// Tracker dirs a committed migration owns are PRESERVED — they are
 // live deferred-finalize state for a successfully completed migration,
 // NOT stale partial state. Wiping them out from under the in-memory
 // bucket pointer is what produces the #10675-shape silent data loss on
@@ -335,7 +335,7 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 // (propName, indexType) on this shard. Mirrors the DELETE-handler cleanup
 // (updatePropertyBuckets) on the CANCEL→retry axis: after a cancel, the
 // next submit must start from a clean slate, otherwise the retry sees the
-// stale started.mig + partial __reindex/__ingest sidecars from the
+// a stale record + partial __reindex/__ingest sidecars from the
 // cancelled run, short-circuits the iteration to a 50-entry no-op, flips
 // the schema flag, and reports success against an empty-or-partial bucket.
 // Same Sev 1 family as the DELETE-then-re-enable silent failure fixed in
@@ -351,7 +351,7 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 //  2. Sidecar directories on disk are removed.
 //
 //  3. The .migrations/<dir>/ for this (prop, indexType) tuple is removed —
-//     all sentinel files (started.mig, progress.mig, ...) and the
+//     the migration record and the
 //     payload.mig recovery record vanish in one call.
 //
 // Failures to remove an individual directory at steps 2/3 are logged but not
@@ -460,7 +460,7 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // sidecar directories that share the just-removed bucket's name as their
 // prefix. A successful migration moves the new data into the main bucket
 // dir at runtime but leaves the ingest dir under its own name;
-// FinalizeCompletedMigrations renames it at the next startup.
+// reconciliation renames it at the next shard load.
 // Between completion and restart these sidecars live on disk; a DELETE
 // then re-enable in the same process lifetime would otherwise hit
 // "rename: file exists" the next time RunSwapOnShard tries to move the
@@ -474,7 +474,7 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // dir's entry from [lsmkv.GlobalBucketRegistry]. Background: a successful
 // runtime swap moves the in-memory bucket pointer from the ingest name to
 // the main name (Store.SwapBucketPointer), but leaves the on-disk dir
-// under the ingest name (FinalizeCompletedMigrations renames it at the
+// under the ingest name (reconciliation renames it at the
 // next startup) AND leaves the registry entry under the ingest dir path
 // (Bucket.Shutdown is never called on the live ingest bucket — it just
 // becomes the main bucket). When a follow-up migration tries to load a

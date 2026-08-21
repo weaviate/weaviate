@@ -493,7 +493,7 @@ func (p *ReindexProvider) processOneUnit(
 	// clobbering the gen-N task instances that OnGroupCompleted relies
 	// on. When OnGroupCompleted then calls RunSwapOnShard on the
 	// cached gen N+1 task, its tracker points at the (just-mkdir'd)
-	// .migrations/<dir>_N+1/ which has no reindexed.mig → "shard is
+	// .migrations/<dir>_N+1/ whose record has no complete rebuild → "shard is
 	// not in reindexed state" → swap fails → migration is half-applied
 	// on this replica → #10675-shape per-replica data divergence.
 	//
@@ -681,7 +681,7 @@ func (p *ReindexProvider) buildReindexTasks(payload *ReindexTaskPayload, lsmPath
 	// (rehydrate=false). On rehydrate=true, ok=false means there is no
 	// in-flight migration for this strategy on disk — every prior
 	// generation's tracker dir was already cleaned up by either
-	// `FinalizeCompletedMigrations` (at startup) or the end-of-swap trim
+	// reconciliation (at shard load) or the end-of-swap trim
 	// (in-process). The caller MUST skip task instantiation in that case;
 	// instantiating with a fabricated gen would later try to swap from
 	// reindex bucket dirs that no longer exist.
@@ -697,7 +697,7 @@ func (p *ReindexProvider) buildReindexTasks(payload *ReindexTaskPayload, lsmPath
 
 	// On the normal path (rehydrate=false) genFor always returns ok=true.
 	// On rehydrate (post-restart) ok=false means the strategy has no
-	// in-flight on-disk state — `FinalizeCompletedMigrations` at startup
+	// in-flight on-disk state — reconciliation at shard load
 	// or the end-of-swap trim already cleaned up. Re-instantiating with
 	// a fabricated gen would fail at runtimeSwap with "reindex bucket
 	// not found", so callers skip task instantiation in that case.
@@ -1104,7 +1104,7 @@ func (f *selectedPropsFailures) report(logger logrus.FieldLogger, taskID string)
 // same record is written into each.
 //
 // The migration sub-directory under <shard>/lsm/.migrations/<dir>/ is what
-// holds the per-strategy sentinels and the new payload.mig file. Each task's
+// holds the per-strategy payload.mig file. Each task's
 // property list is recorded beside it
 // ([ShardReindexTaskGeneric.SaveSelectedProps]) so a property DELETE landing
 // before the shard's first reindex pass need not parse payload.mig. That
@@ -1198,7 +1198,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 		}
 	}
 	if len(fresh) == 0 {
-		// Nothing on disk: prior FinalizeCompletedMigrations or end-of-swap
+		// Nothing on disk: prior reconciliation or end-of-swap
 		// trim already cleaned this unit up. Phase callbacks have no work.
 		logger.WithField("unit", unitID).
 			Info("reindex provider: resolveUnitForPhase: no in-flight state on disk for this unit (post-restart of already-finalized migration); skipping")
@@ -1216,7 +1216,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
 // Best-effort across tasks: one task failing doesn't abort the rest. The
-// returned ok=true iff every task on this shard reached merged.mig; on
+// returned ok=true iff every task on this shard committed its staged data; on
 // false the caller MUST skip OVERLAY+SWAP.
 func (p *ReindexProvider) runShardPrepPhase(
 	ctx context.Context,
@@ -1324,7 +1324,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 // surfaced by TestLiveQueriesDuringChangeTokenization on container
 // disk. Per-shard state in runPhase is structurally disjoint:
 //   - separate per-shard LSM store / bucket pointers (Shard.store).
-//   - separate per-shard sentinel tracker (.migrations/<dir>/*.mig).
+//   - separate per-shard migration record (.migrations/records/).
 //   - separate per-shard tokenization overlay (Shard.TokenizationFor).
 //   - separate ShardReindexTaskGeneric instance per (task, unit) with
 //     its own callbackDisableFuncs guarded by callbackDisableFuncsMu.
@@ -1482,9 +1482,9 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	//      SET atomically with that prop's bucket-pointer flip in
 	//      phase 3.
 	//   3. ATOMIC SWAP (RunSwapOnShard, per task) — in-memory
-	//      bucket-pointer flip + per-prop sentinel fsync + per-prop
+	//      bucket-pointer flip + per-prop
 	//      overlay set, all in the Phase 2a tight loop. The live
-	//      ingest dir keeps its name here; FinalizeCompletedMigrations
+	//      ingest dir keeps its name here; reconciliation
 	//      renames it to the canonical name at the next startup.
 	//
 	// Under barrier=false, all three phases run inside this single
@@ -1508,7 +1508,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 
 // onGroupCompletedRunPhaseForUnit is the per-unit callback driven by
 // runPerUnitPhase for OnGroupCompleted. Encapsulates the
-// barrier-vs-non-barrier dispatch. PREP always runs (idempotent at merged.mig);
+// barrier-vs-non-barrier dispatch. PREP always runs (idempotent once the record commits);
 // OVERLAY+SWAP run inline only when NeedsPreparationBarrier=false and PREP succeeded.
 func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	ctx context.Context,
@@ -1586,7 +1586,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 	ctx := p.serverCtx
 	// SWAP path runs the in-memory pointer flip first (the user-observable
 	// event) and then per-shard post-flip work (Shutdown drain, dir
-	// rename, sentinel writes, trim). Parallel across this node's units
+	// rename, record writes, trim). Parallel across this node's units
 	// so the post-flip work on shard A does NOT serialize the pointer
 	// flip on shard B — without this the per-replica cutover window
 	// grows linearly in shard count. Per-shard state is structurally
@@ -1599,7 +1599,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 }
 
 // onSwapRequestedRunPhaseForUnit runs OVERLAY+SWAP. On rehydrate (cache
-// miss after restart), it first re-runs PREP — idempotent at merged.mig —
+// miss after restart), it first re-runs PREP — idempotent once the record commits —
 // so OnAfterLsmInit registers double-write callbacks before SWAP.
 func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	ctx context.Context,
@@ -1619,7 +1619,7 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 		if !prepOK {
 			shardName := payload.UnitToShard[unitID]
 			logger.WithField("unit", unitID).WithField("shard", shardName).
-				Warn("reindex provider: swap-requested: rehydrate prep-sentinel check failed; skipping overlay+swap for this shard")
+				Warn("reindex provider: swap-requested: rehydrate prep check failed; skipping overlay+swap for this shard")
 			return out
 		}
 	}
@@ -1664,7 +1664,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 			case distributedtask.TaskStatusCancelled:
 				// The acks are not the whole story: a cancel can land while
 				// the task is still STARTED but this node has already
-				// written merged.mig, and the late ack hits an
+				// committed its staged data, and the late ack hits an
 				// already-CANCELLED task and is dropped. The probe answers
 				// the same boolean but costs a shard walk, hence second.
 				tornLocally := len(task.PostCompletionAcks) > 0 ||
@@ -2512,7 +2512,7 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 // [maybeClearTokenizationOverlayOnAllFailed]'s clear decision.
 //
 // Why per-prop, not once up front: RunSwapOnShard's disk-I/O preamble
-// (MkdirAll, sentinel stats, prop read) runs between the loop start and
+// (MkdirAll, record read, prop read) runs between the loop start and
 // the flip. Setting the overlay before the loop exposes overlay=NEW /
 // bucket=OLD for that whole window, so a BM25 query returns a wrong
 // count (0 for reverse field→word). Per-flip wiring collapses it to one

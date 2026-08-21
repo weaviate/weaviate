@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -385,27 +384,6 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 	return outcome, nil
 }
 
-// processStartTime captures the moment of process startup so the
-// audit can distinguish tracker dirs whose payload.mig was simply not
-// flushed yet (post-process-start, in-flight) from pre-PR cluster
-// state (pre-process-start, no payload.mig will ever land because the
-// writer side did not exist on the source cluster). Initialised once
-// at package init: the audit may run multiple times, but the
-// distinction is "was this tracker on disk before this process
-// existed?", which only the first-boot timestamp can answer.
-//
-// Subtle: a tracker dir created shortly before process start but read
-// shortly after will be classified as legacy. That is correct: the
-// only writer to .migrations/ on this process is ReindexProvider,
-// which writes payload.mig BEFORE creating started.mig. Any tracker
-// dir on disk at process start without payload.mig is therefore not
-// one this process wrote and must come from either a pre-PR cluster
-// version, a backup-restored class dir from such a cluster, or a
-// crash that interleaved between the not-yet-existent payload.mig
-// write and an earlier-version started.mig write (impossible on this
-// branch).
-var processStartTime = time.Now()
-
 // reindexAuditQuarantineFile is the sentinel file the audit writes
 // into a tracker dir on first orphan detection (S2 quarantine).
 // Subsequent audits read its mtime to gate the destructive cleanup
@@ -429,26 +407,22 @@ const reindexAuditQuarantineFile = "audit_quarantined.mig"
 const reindexAuditQuarantineWindow = 5 * time.Minute
 
 // collectOrphanTrackers walks <lsmPath>/.migrations/ and returns every
-// tracker dir classified as an orphan (started.mig present,
-// tidied.mig/merged.mig absent, payload.mig parseable, and the
-// referenced task not known to DTM). Read-only; cleanup is the
-// caller's job.
+// tracker dir classified as an orphan: a migration record names it, its data
+// is not committed, and the task that record names is not known to DTM.
+// Read-only; cleanup is the caller's job.
 //
-// M8: a tracker dir with started.mig but NO payload.mig is the
-// pre-PR-cluster shape. We treat it as a class-level orphan iff the
-// tracker dir's mtime is at or before processStartTime — meaning the
-// dir predates this process and is not in-flight. The orphan has no
-// properties/indexTypes (the missing payload.mig is exactly the loss
-// of that information) so the cleanup path falls back to direct
-// tracker-dir removal. Newer trackers without payload.mig (mtime
-// after process start) are skipped with a WARN and left for the next
-// audit invocation — they may still be mid-flush.
+// The record is the only thing consulted. It carries the task identity and
+// the property list the audit needs, so a tracker dir the record does not
+// name is left alone rather than classified by its own age: a directory whose
+// owner cannot be established is one no cleanup can attribute, and guessing
+// from a modification time is how an in-flight migration gets reclaimed.
 func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
 	if err != nil {
 		return nil
 	}
+	records := migrationRecordsAt(lsmPath, logger)
 	var orphans []orphanReindexTracker
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -459,55 +433,12 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 		if !ok {
 			continue
 		}
-		trackerPath := filepath.Join(migsDir, dirName)
-		if fileExistsInDir(trackerPath, "tidied.mig") || fileExistsInDir(trackerPath, "merged.mig") {
+		rec, ok := migrationRecordForTracker(records, dirName)
+		if !ok || rec.DataCommitted() {
 			continue
 		}
-		if !fileExistsInDir(trackerPath, "started.mig") {
-			continue
-		}
-		rec, recOK := loadAuditRecord(trackerPath)
-		if !recOK {
-			// M8: distinguish pre-PR legacy state (no payload.mig will
-			// ever land — the writer did not exist on the source
-			// cluster) from a tracker we're racing the writer on.
-			legacy, mtime, classifyErr := isLegacyTrackerWithoutPayload(trackerPath)
-			if classifyErr != nil {
-				logger.WithField("collection", collection).WithField("shard", shardName).
-					WithField("tracker", dirName).
-					Warnf("reindex orphan audit: tracker missing payload.mig and mtime unreadable; manual cleanup may be needed: %v", classifyErr)
-				continue
-			}
-			if !legacy {
-				// Tracker dir created post-process-start: a write
-				// could still be in flight. Leave for next audit.
-				logger.WithField("collection", collection).WithField("shard", shardName).
-					WithField("tracker", dirName).WithField("tracker_mtime", mtime).
-					Warn("reindex orphan audit: tracker missing payload.mig but mtime is post-process-start; " +
-						"leaving for next audit invocation (writer race or upstream bug)")
-				continue
-			}
-			// Pre-PR cluster orphan: enqueue as class-level cleanup.
-			// We cannot recover taskID / properties / indexTypes
-			// (they were never persisted), so the loaded-shard
-			// fallback in cleanupOrphanTrackerCompactionPaused
-			// removes the tracker dir directly to reclaim disk.
-			logger.WithField("collection", collection).WithField("shard", shardName).
-				WithField("tracker", dirName).WithField("tracker_mtime", mtime).
-				Warn("reindex orphan audit: pre-PR-cluster tracker dir without payload.mig (mtime <= process start); quarantining as class-level orphan")
-			orphans = append(orphans, orphanReindexTracker{
-				collection: collection,
-				shardName:  shardName,
-				dirName:    dirName,
-				prefix:     prefix,
-				generation: generation,
-				// Empty taskID / properties / indexTypes drives the
-				// class-level cleanup branch in
-				// cleanupOrphanTrackerCompactionPaused.
-			})
-			continue
-		}
-		if knownTask(rec.TaskID, rec.TaskVersion) {
+		subject := rec.Subject()
+		if knownTask(subject.TaskID, subject.Key.TaskVersion) {
 			continue
 		}
 		orphans = append(orphans, orphanReindexTracker{
@@ -516,27 +447,14 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 			dirName:     dirName,
 			prefix:      prefix,
 			generation:  generation,
-			taskID:      rec.TaskID,
-			taskVersion: rec.TaskVersion,
-			unitID:      rec.UnitID,
-			properties:  append([]string(nil), rec.Payload.Properties...),
-			indexTypes:  semanticMigrationIndexTypesForAudit(rec.Payload.MigrationType),
+			taskID:      subject.TaskID,
+			taskVersion: subject.Key.TaskVersion,
+			unitID:      subject.Key.UnitID,
+			properties:  append([]string(nil), subject.Properties...),
+			indexTypes:  semanticMigrationIndexTypesForAudit(subject.MigrationType),
 		})
 	}
 	return orphans
-}
-
-// isLegacyTrackerWithoutPayload returns true if the tracker dir was
-// last modified at or before this process started, signalling
-// pre-PR-cluster state with no payload.mig. Returns the mtime so
-// callers can include it in logs for forensics.
-func isLegacyTrackerWithoutPayload(trackerPath string) (bool, time.Time, error) {
-	info, err := os.Stat(trackerPath)
-	if err != nil {
-		return false, time.Time{}, err
-	}
-	mtime := info.ModTime()
-	return !mtime.After(processStartTime), mtime, nil
 }
 
 // partitionOrphansByQuarantine implements the S2 two-pass safeguard:
@@ -625,7 +543,7 @@ func writeQuarantineSentinel(trackerPath string) error {
 }
 
 // clearStaleQuarantineSentinels removes audit_quarantined.mig from
-// tracker dirs whose recovery record (now / freshly-evaluated) maps
+// tracker dirs whose migration record (now / freshly-evaluated) maps
 // to a known-live DTM task. Called per-shard when the orphan list is
 // empty: it covers the case where a previous audit sweep mis-
 // classified a live migration as orphan (e.g. follower with stale
@@ -644,6 +562,7 @@ func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLoo
 	if err != nil {
 		return
 	}
+	records := migrationRecordsAt(lsmPath, logger)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -654,17 +573,16 @@ func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLoo
 		if !fileExists(sentinelPath) {
 			continue
 		}
-		rec, recOK := loadAuditRecord(trackerPath)
+		rec, recOK := migrationRecordForTracker(records, dirName)
 		if !recOK {
 			continue
 		}
-		if !knownTask(rec.TaskID, rec.TaskVersion) {
-			// Tracker is still classified as orphan from the
-			// recovery-record perspective; the empty-orphans branch
-			// got here only because collectOrphanTrackers already
-			// filtered upstream (e.g. tracker has tidied.mig now).
-			// Either way the sentinel is now load-bearing for a
-			// future orphan sweep, so leave it alone.
+		if !knownTask(rec.Subject().TaskID, rec.Subject().Key.TaskVersion) {
+			// Tracker is still classified as orphan from the record's
+			// perspective; the empty-orphans branch got here only because
+			// collectOrphanTrackers already filtered upstream (e.g. the
+			// migration has since committed). Either way the sentinel is now
+			// load-bearing for a future orphan sweep, so leave it alone.
 			continue
 		}
 		if rmErr := os.Remove(sentinelPath); rmErr != nil && !os.IsNotExist(rmErr) {
@@ -852,21 +770,6 @@ func (db *DB) cleanupOrphanTrackerCompactionPaused(ctx context.Context, shard *S
 		}
 	}
 	return nil
-}
-
-// loadAuditRecord reads the payload.mig recovery record for a tracker
-// dir. Returns false if missing or unparseable. Sentinel-file presence
-// checks are the caller's responsibility.
-func loadAuditRecord(trackerPath string) (reindexRecoveryRecord, bool) {
-	var rec reindexRecoveryRecord
-	data, err := os.ReadFile(filepath.Join(trackerPath, reindexRecoveryPayloadFile))
-	if err != nil {
-		return rec, false
-	}
-	if err := json.Unmarshal(data, &rec); err != nil {
-		return rec, false
-	}
-	return rec, true
 }
 
 // semanticMigrationIndexTypesForAudit returns the indexType fan-out

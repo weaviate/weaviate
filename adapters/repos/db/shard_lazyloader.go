@@ -1065,7 +1065,7 @@ func (l *LazyLoadShard) blockLoading() func() {
 // returning — the hydration that follows takes it itself.
 //
 // A completed migration's leftovers are the second reason not to skip: a
-// load is what runs [FinalizeCompletedMigrations], so a shard that keeps its
+// load is what runs reconciliation, so a shard that keeps its
 // data under the ingest sidecar name plus a full backup copy of the bucket it
 // replaced reclaims neither until something hydrates it. One load per tenant
 // per completed migration settles that — finalize removes the tracker dir it

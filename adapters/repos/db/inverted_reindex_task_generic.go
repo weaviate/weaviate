@@ -312,9 +312,9 @@ func (t *ShardReindexTaskGeneric) migrationPath(lsmPath string) string {
 // describing the in-flight reindex task. Written by [ReindexProvider]
 // before the reindex iteration starts; read at startup by
 // [DiscoverInFlightReindexTasks] to rebuild task instances for shards that
-// had a reindex in progress when the node went down. The sentinel lives
-// in the same migration sub-directory as the other *.mig sentinels so it
-// is removed alongside them on reset/cleanup.
+// had a reindex in progress when the node went down. It lives in the
+// migration's own sub-directory so it is removed alongside it on
+// reset/cleanup.
 const reindexRecoveryPayloadFile = "payload.mig"
 
 // SaveRecoveryPayload writes the given JSON-encoded recovery record to
@@ -603,8 +603,8 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 //   - A previous in-process runtimeSwap was interrupted mid-flight
 //     by ctx.Canceled (graceful shutdown) at Step 1 or Step 2. The
 //     interrupted ShutdownBucket may have removed the reindex bucket
-//     from the store's bucket map without persisting a sentinel
-//     advance, and the cancellation can leave compaction callbacks
+//     from the store's bucket map without advancing the record, and
+//     the cancellation can leave compaction callbacks
 //     unregistered partway through the unhook sequence.
 //   - On restart, the shard-registered recovery task's OnAfterLsmInit
 //     (see [shardReindexerV3RecoveryOnly]) is the only re-load hook.
@@ -1278,7 +1278,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 // Live-bucket rename (Phase 3): the ingest bucket whose pointer was
 // flipped into the canonical slot is STILL at __ingest_<gen>/ on
 // disk. That rename to the canonical name is deferred to next
-// startup via [FinalizeCompletedMigrations], because renaming a
+// load via reconciliation, because renaming a
 // dir whose mmaps are open would corrupt the segment registry.
 //
 // Disable double-write callbacks via a defer at the top of the
