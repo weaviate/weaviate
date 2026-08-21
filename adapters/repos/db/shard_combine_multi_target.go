@@ -170,7 +170,7 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 		joinedResults := make([]uint64, len(joined))
 		joinedDists := make([]float32, len(joined))
 		for i := range joined {
-			joinedResults[i] = *(joined[i].DocID)
+			joinedResults[i] = *joined[i].DocID
 			joinedDists[i] = joined[i].Score
 		}
 

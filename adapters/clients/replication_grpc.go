@@ -40,7 +40,7 @@ type grpcReplicationClient struct {
 	connManager *grpcconn.ConnManager
 }
 
-var _ (replica.Client) = (*grpcReplicationClient)(nil)
+var _ replica.Client = (*grpcReplicationClient)(nil)
 
 // NewGRPCReplicationClient creates a new gRPC-based replication client.
 func NewGRPCReplicationClient(connManager *grpcconn.ConnManager) *grpcReplicationClient {

@@ -41,7 +41,7 @@ type switchReplicationClient struct {
 	useGRPC    func() bool
 }
 
-var _ (replica.Client) = (*switchReplicationClient)(nil)
+var _ replica.Client = (*switchReplicationClient)(nil)
 
 // NewSwitchReplicationClient creates a client that routes all calls to gRPC
 // when useGRPC returns true, or REST when false.
