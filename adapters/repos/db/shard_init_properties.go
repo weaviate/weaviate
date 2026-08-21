@@ -316,7 +316,7 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 			// aggregate line on that call path counts payload reads, not
 			// preserved dirs, so it does not report this on their behalf.
 			logger.WithField("path", filepath.Join(migrationsRoot, name)).
-				Debug("partial-reindex cleanup: preserving the tracker dir of a committed migration")
+				Debug("partial-reindex cleanup: preserving a tracker dir the records say is not stale")
 			continue
 		}
 		path := filepath.Join(migrationsRoot, name)
