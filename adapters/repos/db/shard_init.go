@@ -263,8 +263,8 @@ const unboundedRecoveryPayload = 0
 // parsed, so a refusal is not counted as a read: it cost a stat.
 var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse bound")
 
-// readRecoveryPropertyNames extracts the `Properties` slice from a
-// migration tracker dir's payload.mig file (see
+// readRecoveryPayloadFacts extracts the property list and migration type from
+// a migration tracker dir's payload.mig file (see
 // ShardReindexTaskGeneric.SaveRecoveryPayload). The error keeps a missing
 // payload (os.IsNotExist) distinguishable from an unreadable or unparseable
 // one: [migrationDirScope.inScopeFailingOpen] treats only the former as "the
@@ -273,32 +273,33 @@ var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse 
 //
 // maxBytes refuses a larger payload before opening it;
 // [unboundedRecoveryPayload] reads any size.
-func readRecoveryPropertyNames(migDir string, maxBytes int64) ([]string, error) {
+func readRecoveryPayloadFacts(migDir string, maxBytes int64) ([]string, ReindexMigrationType, error) {
 	path := filepath.Join(migDir, reindexRecoveryPayloadFile)
 	if maxBytes > unboundedRecoveryPayload {
 		info, err := os.Stat(path)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if info.Size() > maxBytes {
-			return nil, fmt.Errorf("%w: %s holds %d bytes, bound is %d",
+			return nil, "", fmt.Errorf("%w: %s holds %d bytes, bound is %d",
 				errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), maxBytes)
 		}
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	// Anonymous shape: only the field we need. Avoids depending on
+	// Anonymous shape: only the fields we need. Avoids depending on
 	// ReindexTaskPayload here (no import cycle risk, but keeping shard
 	// init lean).
 	var rec struct {
 		Payload struct {
-			Properties []string `json:"properties"`
+			Properties    []string             `json:"properties"`
+			MigrationType ReindexMigrationType `json:"migrationType"`
 		} `json:"payload"`
 	}
 	if err := json.Unmarshal(data, &rec); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", reindexRecoveryPayloadFile, err)
+		return nil, "", fmt.Errorf("parse %s: %w", reindexRecoveryPayloadFile, err)
 	}
-	return rec.Payload.Properties, nil
+	return rec.Payload.Properties, rec.Payload.MigrationType, nil
 }

@@ -450,11 +450,14 @@ type taskPropsCache struct {
 	reads int
 }
 
-// taskProps is one [migrationDirScope.taskProperties] answer.
+// taskProps is one [migrationDirScope.taskProperties] answer. migrationType
+// travels with the property list because the orphan audit needs both to name
+// the sidecar buckets a tracker owns, and both come from the same read.
 type taskProps struct {
-	props      []string
-	ok         bool
-	unreadable bool
+	props         []string
+	migrationType ReindexMigrationType
+	ok            bool
+	unreadable    bool
 }
 
 // lookup answers for one tracker dir. The memo is keyed by dir alone —
@@ -503,7 +506,7 @@ func (c *taskPropsCache) count() int {
 // readPayload reports whether payload.mig was opened, so the caller's read
 // counter keeps meaning what it says. A refusal opens nothing.
 func readTaskProps(migDir string) (answer taskProps, readPayload bool) {
-	props, err := readRecoveryPropertyNames(migDir, maxRecoveryPayloadBytes)
+	props, migrationType, err := readRecoveryPayloadFacts(migDir, maxRecoveryPayloadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return taskProps{}, false
@@ -511,7 +514,7 @@ func readTaskProps(migDir string) (answer taskProps, readPayload bool) {
 		return taskProps{unreadable: true}, !errors.Is(err, errRecoveryPayloadTooLarge)
 	}
 	if len(props) == 0 {
-		return taskProps{}, true
+		return taskProps{migrationType: migrationType}, true
 	}
-	return taskProps{props: props, ok: true}, true
+	return taskProps{props: props, migrationType: migrationType, ok: true}, true
 }

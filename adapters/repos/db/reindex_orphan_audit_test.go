@@ -786,3 +786,83 @@ func TestAuditOrphanReindexTrackersHonorsUnreadableRecords(t *testing.T) {
 		})
 	}
 }
+
+// TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload covers the
+// trackers every cluster upgrading from a pre-record build carries: a good
+// payload.mig and no migration record. Reclaiming the tracker alone leaves the
+// sidecar directories behind, and since the generation counter is derived from
+// .migrations only, the next migration on that property claims the same
+// generation and opens those directories with the previous run's segments
+// still in them.
+func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) {
+	const (
+		propName    = "title"
+		trackerName = "enable_filterable_title_1"
+	)
+
+	tests := []struct {
+		name         string
+		payload      string
+		wantSidecars bool
+	}{
+		{
+			name:    "a payload names the properties the missing record cannot",
+			payload: `{"payload":{"properties":["title"],"migrationType":"enable-filterable"}}`,
+		},
+		{
+			// SaveRecoveryPayload creates the directory and writes the payload
+			// in one call, so a tracker without one crashed before any bucket
+			// was opened. Removing the directory alone is the whole job.
+			name:         "a tracker with no payload removes only itself",
+			wantSidecars: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shd, idx := testShard(t, ctx, "AuditPayloadSidecars")
+			lsmPath := shd.(*Shard).pathLSM()
+
+			trackerPath := filepath.Join(lsmPath, ".migrations", trackerName)
+			mkTrackerDir(t, lsmPath, trackerName)
+			if tt.payload != "" {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(trackerPath, reindexRecoveryPayloadFile), []byte(tt.payload), 0o600))
+			}
+			for _, sidecar := range sidecarDirsForOrphan(&orphanReindexTracker{
+				dirName: trackerName, prefix: "enable_filterable_title",
+				generation: 1, properties: []string{propName},
+			}) {
+				require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, sidecar), 0o755))
+			}
+			writePreAgedQuarantineSentinel(t, trackerPath)
+			// After the sentinel write, which would otherwise bump it.
+			aged := processStartTime.Add(-time.Hour)
+			require.NoError(t, os.Chtimes(trackerPath, aged, aged))
+
+			db := &DB{
+				indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+				config:  Config{RootPath: idx.Config.RootPath},
+			}
+			outcome, err := db.AuditOrphanReindexTrackers(ctx,
+				func(string, uint64) bool { return false }, logrus.New())
+			require.NoError(t, err)
+			require.Equal(t, AuditStatusOrphansFound, outcome.Status)
+
+			assert.False(t, dirExists(trackerPath), "the tracker directory")
+			// Named at the generation the next migration on this property will
+			// claim, which is what makes a survivor an adoption rather than
+			// merely wasted disk.
+			reissued := nextMigrationGeneration(lsmPath, "enable_filterable_", propName)
+			require.Equal(t, 1, reissued,
+				"the generation counter reads .migrations only, so removing the tracker hands the same number back")
+			for _, sidecar := range sidecarDirsForOrphan(&orphanReindexTracker{
+				dirName: trackerName, prefix: "enable_filterable_title",
+				generation: reissued, properties: []string{propName},
+			}) {
+				assert.Equal(t, tt.wantSidecars, dirExists(filepath.Join(lsmPath, sidecar)), sidecar)
+			}
+		})
+	}
+}

@@ -414,10 +414,10 @@ const reindexAuditQuarantineWindow = 5 * time.Minute
 // A directory no record names is the second kind of orphan, and the only
 // reclaimer it has. Every cluster that upgrades into this build brings a set
 // of them, and a run whose record was already removed can leave one behind.
-// It is enqueued without properties or index types, so cleanup removes the
-// directory itself and touches no bucket — the property list is exactly what
-// a missing record loses. Age is what separates it from a directory this
-// process is still writing.
+// Those upgrade trackers still carry payload.mig, so the property list comes
+// from there and the cleanup reclaims the sidecar directories too; only a
+// tracker with no payload either falls back to removing the directory alone.
+// Age is what separates it from a directory this process is still writing.
 func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -463,8 +463,15 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 					Warn("reindex orphan audit: tracker names no migration record but was created after this process started; leaving it for the next sweep")
 				continue
 			}
+			// payload.mig, not the record, is what a tracker from a
+			// pre-record build still has. Without its property list the
+			// cleanup removes the tracker and leaves the sidecar directories
+			// behind, and the next migration re-issues the same generation
+			// straight onto them.
+			payload, _ := readTaskProps(filepath.Join(migsDir, dirName))
 			logger.WithField("collection", collection).WithField("shard", shardName).
 				WithField("tracker", dirName).WithField("tracker_mtime", mtime).
+				WithField("props", payload.props).
 				Warn("reindex orphan audit: tracker predating this process names no migration record; quarantining it as a class-level orphan")
 			orphans = append(orphans, orphanReindexTracker{
 				collection: collection,
@@ -472,6 +479,8 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 				dirName:    dirName,
 				prefix:     prefix,
 				generation: generation,
+				properties: append([]string(nil), payload.props...),
+				indexTypes: semanticMigrationIndexTypesForAudit(payload.migrationType),
 			})
 			continue
 		}
