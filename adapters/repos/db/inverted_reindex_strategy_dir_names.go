@@ -199,12 +199,22 @@ type migrationDirScope struct {
 	// props memoizes payloads across the passes of one sweep; nil reads every
 	// time. Set by [migrationDirScope.cachingProps].
 	props *taskPropsCache
+	// records answers for every directory a record names, which is what keeps
+	// payload.mig off this path. Set by [migrationDirScope.knownFrom].
+	records []MigrationRecord
 }
 
 // cachingProps scopes a payload memo to this scope and every scope derived from
 // it. See [taskPropsCache] for why it must not outlive one sweep.
 func (s migrationDirScope) cachingProps(c *taskPropsCache) migrationDirScope {
 	s.props = c
+	return s
+}
+
+// knownFrom hands the scope the shard's records, which the sweep has already
+// read to decide what it must preserve.
+func (s migrationDirScope) knownFrom(state migrationCommittedState) migrationDirScope {
+	s.records = state.records
 	return s
 }
 
@@ -417,6 +427,13 @@ func (s migrationDirScope) hasStrategyPrefix(base string) bool {
 // payload exists but couldn't be read, so "recorded nothing" isn't a safe
 // conclusion.
 func (s migrationDirScope) taskProperties(name string) (props []string, ok, unreadable bool) {
+	// The record is authoritative and costs nothing: it was already read to
+	// build the preserve set. payload.mig is the fallback for a directory no
+	// record names, and parsing it costs megabytes per tracker inside the
+	// RAFT apply that holds the FSM loop cluster-wide.
+	if rec, found := migrationRecordForTracker(s.records, name); found {
+		return rec.Subject().Properties, len(rec.Subject().Properties) > 0, false
+	}
 	answer := s.props.lookup(filepath.Join(s.lsmPath, ".migrations", name))
 	return answer.props, answer.ok, answer.unreadable
 }

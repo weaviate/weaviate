@@ -40,6 +40,10 @@ func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []Mi
 // in-memory bucket pointer: removing one empties the canonical bucket on the
 // node that submitted the migration, and nothing reports it.
 type migrationCommittedState struct {
+	// records is the whole understood set, not just the committed part: the
+	// sweeps also ask an extant record which properties its directory belongs
+	// to, which is a subject fact and true in every state.
+	records  []MigrationRecord
 	buckets  map[string]struct{}
 	trackers map[string]struct{}
 
@@ -51,6 +55,7 @@ type migrationCommittedState struct {
 
 func migrationCommittedStateOf(records []MigrationRecord, frozen bool) migrationCommittedState {
 	state := migrationCommittedState{
+		records:  records,
 		buckets:  map[string]struct{}{},
 		trackers: map[string]struct{}{},
 		frozen:   frozen,

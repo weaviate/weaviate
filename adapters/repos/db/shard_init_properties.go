@@ -255,8 +255,8 @@ func (s *Shard) cleanStaleMigrationDirs(ctx context.Context, propName, indexType
 func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType string,
 	logger logrus.FieldLogger, props *taskPropsCache,
 ) {
-	scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props)
 	committed := migrationCommittedStateOf(migrationRecordsAt(lsmPath, logger))
+	scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props).knownFrom(committed)
 	if err := cleanStaleMigrationDirsIn(ctx, scope, committed, logger); err != nil && ctx.Err() == nil {
 		// Logged and dropped here only: the DELETE this serves has already
 		// removed the bucket, and the next re-enable fails loudly on the stale
@@ -388,8 +388,8 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	props := &taskPropsCache{}
 	// Preserve the directories of completed-but-deferred migrations: they back
 	// the live in-memory bucket pointer; wiping them is #10675-shape data loss.
-	scope := migrationDirsOf(s.pathLSM(), nil, propName, indexType).cachingProps(props)
 	committed := migrationCommittedStateOf(migrationRecordsAt(s.pathLSM(), s.index.logger))
+	scope := migrationDirsOf(s.pathLSM(), nil, propName, indexType).cachingProps(props).knownFrom(committed)
 
 	loaded := s.store.GetBucketsByName()
 	var shutDown []string

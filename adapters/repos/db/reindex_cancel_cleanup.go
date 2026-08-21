@@ -312,7 +312,6 @@ func hasStalePartialReindexState(
 	if err != nil {
 		return !os.IsNotExist(err), false
 	}
-	scope := migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props)
 	committed := dirs.committedMigrations(lsmPath, logger)
 	if committed.frozen {
 		// Nothing here is removable while a record cannot be read, so a
@@ -322,6 +321,7 @@ func hasStalePartialReindexState(
 		// reasons.
 		return false, false
 	}
+	scope := migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props).knownFrom(committed)
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep must preserve.
 	for _, name := range names {
