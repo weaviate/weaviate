@@ -504,6 +504,11 @@ type Shard struct {
 	// path; registration/arm/disarm publish a fresh copy under the mutex.
 	propValueIndexState           atomic.Value // *propValueIndexState
 	propertyValueIndexCallbacksMu sync.Mutex
+
+	// migrationMirrors holds the handles that disarm a reindex migration's
+	// double-write mirror. They live here rather than on the task instance
+	// that armed them because the actor that disarms is never that one.
+	migrationMirrors migrationMirrorRegistry
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
