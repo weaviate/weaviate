@@ -5749,11 +5749,52 @@ func (_c *MockShardLike_updateVectorIndexesIgnoreDelete_Call) RunAndReturn(run f
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockShardLike {
+},
+) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 
 	t.Cleanup(func() { mock.AssertExpectations(t) })
 
 	return mock
+}
+
+// migrationRecordStore provides a mock function with no fields
+func (_m *MockShardLike) migrationRecordStore() *MigrationRecordStore {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for migrationRecordStore")
+	}
+
+	var r0 *MigrationRecordStore
+	if rf, ok := ret.Get(0).(func() *MigrationRecordStore); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*MigrationRecordStore)
+		}
+	}
+
+	return r0
+}
+
+// migrationMirrorRegistry provides a mock function with no fields
+func (_m *MockShardLike) migrationMirrorRegistry() *migrationMirrorRegistry {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for migrationMirrorRegistry")
+	}
+
+	var r0 *migrationMirrorRegistry
+	if rf, ok := ret.Get(0).(func() *migrationMirrorRegistry); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*migrationMirrorRegistry)
+		}
+	}
+
+	return r0
 }

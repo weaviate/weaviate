@@ -92,3 +92,23 @@ func (s *Shard) ShutdownStagedBuckets(ctx context.Context, key MigrationRecordKe
 	}
 	return nil
 }
+
+func (s *Shard) migrationRecordStore() *MigrationRecordStore { return s.migrationRecords }
+
+// A lazy shard forwards rather than computing a path, because the store is
+// only meaningful once reconciliation has populated it at load.
+func (l *LazyLoadShard) migrationRecordStore() *MigrationRecordStore {
+	if l.shard == nil {
+		return nil
+	}
+	return l.shard.migrationRecordStore()
+}
+
+func (s *Shard) migrationMirrorRegistry() *migrationMirrorRegistry { return &s.migrationMirrors }
+
+func (l *LazyLoadShard) migrationMirrorRegistry() *migrationMirrorRegistry {
+	if l.shard == nil {
+		return nil
+	}
+	return l.shard.migrationMirrorRegistry()
+}

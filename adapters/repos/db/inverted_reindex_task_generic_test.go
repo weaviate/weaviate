@@ -28,6 +28,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -104,6 +105,19 @@ func newTestClassWithProps(className string, propNames []string) *models.Class {
 }
 
 func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardReindexTaskGeneric {
+	task := newTestTaskWithoutIdentity(logger, strategy)
+	// A task the provider built carries the identity its record key is made
+	// of; one built straight from the constructor does not, and would refuse
+	// to record its flip.
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-reindex-task", Version: 1},
+		"shard-1__node-0",
+		&ReindexTaskPayload{MigrationType: ReindexTypeChangeAlgorithm},
+	)
+	return task
+}
+
+func newTestTaskWithoutIdentity(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardReindexTaskGeneric {
 	return NewShardReindexTaskGeneric("MapToBlockmax", logger, strategy,
 		reindexTaskConfig{
 			concurrency:                   2,
@@ -408,9 +422,10 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 // TestRuntimeSwap_Phase2a_AtomicTightLoop pins the architectural
 // contract from https://github.com/weaviate/0-weaviate-issues/issues/216 (per QA-Claude design
 // consideration in PR https://github.com/weaviate/weaviate/pull/11322 comment 4470016252): between consecutive
-// per-prop SwapBucketPointer calls inside runtimeSwap's Phase 2a, only
-// the cheap sentinel fsync (markSwappedProp) is allowed — no Shutdown,
-// no Rename, no RAFT, no compaction wait. The total Phase 2a wall-clock
+// per-prop SwapBucketPointer calls inside runtimeSwap's Phase 2a, NO I/O of
+// any kind is allowed — no Shutdown, no Rename, no RAFT, no compaction wait,
+// and no record write either: the flip decision is made durable before the
+// loop begins, which is what makes the loop legally empty of I/O. The total Phase 2a wall-clock
 // for an N-prop migration MUST stay inside the microseconds-to-low-ms
 // budget at any scale; the per-shard tokenization overlay's
 // "mixed-state" subwindow (some props swapped, others not — queries to
@@ -429,10 +444,12 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 //   - Any artificial slowdown (e.g. a sleep/Gosched accidentally added
 //     during refactor).
 //
-// Threshold of 100ms across 4 props is generous enough that single-
-// digit-ms per-prop markSwappedProp fsync on healthy CI disks comfortably
-// fits, but tight enough that any of the regression scenarios above
-// blow it. If a real reason emerges to relax the bound (e.g. CI disk
+// The loop is now four map-writes under a lock, so the budget is 20ms
+// across 4 props: still orders of magnitude above what the work costs, and
+// far below any of the regression scenarios above. The predecessor of this
+// bound allowed 100ms to accommodate a per-prop sentinel write that the
+// phase contract described as an fsync and which never was one — it was a
+// non-synced O_EXCL create. Nothing of that budget is owed any more. If a real reason emerges to relax the bound (e.g. CI disk
 // performance regression), surface that as a separate signal — DO NOT
 // just raise the threshold, that would silently swallow the architectural
 // regression the test is meant to catch.
@@ -534,7 +551,7 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 
 	// Phase 2a wall-clock invariant. See test godoc for threshold
 	// rationale.
-	const atomicPhaseBudget = 100 * time.Millisecond
+	const atomicPhaseBudget = 20 * time.Millisecond
 	totalDelta := hookCallTimes[len(hookCallTimes)-1].Sub(hookCallTimes[0])
 	require.Lessf(t, totalDelta, atomicPhaseBudget,
 		"Phase 2a wall-clock across %d props was %v — exceeded atomic-phase budget of %v. "+
@@ -546,11 +563,18 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	// Sanity: assert markers landed as the contract specifies post-Phase
 	// 2c (since this is the inline path, runtimeSwap also runs 2b + 2c
 	// for the dead-bucket tidy and OnMigrationComplete + trim).
-	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
+	rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
+	require.True(t, ok, "the flip decision should be recorded post-runtimeSwap")
+	require.Equal(t, MigrationStateSwapped, rec.State())
+	require.True(t, rec.PointerSwapped())
 	for _, p := range propNames {
-		assert.True(t, rt.IsSwappedProp(p),
-			"prop %q should be IsSwappedProp post-runtimeSwap", p)
+		assert.Contains(t, rec.(MigrationRecordSwapped).Flipped(), p,
+			"prop %q should be in the recorded flip set", p)
+		displaced, hasDisplaced := rec.(MigrationRecordSwapped).DisplacedDir(p)
+		assert.True(t, hasDisplaced, "prop %q should record the directory its flip displaced", p)
+		assert.NotEmpty(t, displaced)
 	}
+	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	assert.True(t, rt.IsSwapped(), "aggregate swapped sentinel should be set post-runtimeSwap")
 	assert.True(t, rt.IsTidied(), "aggregate tidied sentinel should be set post-runtimeSwap (inline path)")
 

@@ -537,6 +537,9 @@ func (p *ReindexProvider) processOneUnit(
 			return
 		}
 	}
+	for _, reindexTask := range tasks {
+		reindexTask.setMigrationIdentity(task.TaskDescriptor, unitID, payload)
+	}
 
 	// Compose per-task progress into a single per-unit envelope so the
 	// operator sees a monotonic 0→1 climb across N tasks instead of N

@@ -138,6 +138,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -153,9 +154,19 @@ import (
 // swap / deferred-rename invariants that every code path in this file
 // must preserve.
 type ShardReindexTaskGeneric struct {
-	name                 string
-	logger               logrus.FieldLogger
-	strategy             MigrationStrategy
+	name     string
+	logger   logrus.FieldLogger
+	strategy MigrationStrategy
+
+	// The migration's durable identity. taskVersion is the RAFT log index of
+	// the task's creation, so it is also the generation supersession compares.
+	taskID               string
+	taskVersion          uint64
+	unitID               string
+	migrationType        ReindexMigrationType
+	targetTokenization   string
+	originalTokenization string
+
 	newReindexTracker    func(lsmPath string) (reindexTracker, error)
 	keyParser            indexKeyParser
 	objectsIteratorAsync objectsIteratorAsync
@@ -283,18 +294,20 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 // Returns the displaced old main bucket for the caller's Phase 2b
 // (Shutdown + dir rename). Skips props whose per-prop sentinel is
 // already set (recovery idempotency).
-func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store *lsmkv.Store, rt reindexTracker, _ int, propName string) (*lsmkv.Bucket, error) {
-	if rt.IsSwappedProp(propName) {
-		return nil, nil
-	}
+func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store *lsmkv.Store, _ reindexTracker, _ int, propName string) (*lsmkv.Bucket, error) {
 	ingestName := t.ingestBucketName(propName)
 	mainName := t.strategy.SourceBucketName(propName)
+
+	// A property already flipped in this process has no ingest-name entry
+	// left. Reading the bucket map keeps the loop free of I/O, which the
+	// per-property sentinel this replaces could not.
+	if store.Bucket(ingestName) == nil {
+		return nil, nil
+	}
+
 	oldMainBucket, err := store.SwapBucketPointer(ctx, mainName, ingestName)
 	if err != nil {
 		return nil, fmt.Errorf("swapping bucket pointer %q <- %q: %w", mainName, ingestName, err)
-	}
-	if err := rt.markSwappedProp(propName); err != nil {
-		return nil, fmt.Errorf("marking swapped prop %q: %w", propName, err)
 	}
 	return oldMainBucket, nil
 }
@@ -1583,48 +1596,59 @@ func (t *ShardReindexTaskGeneric) runtimePrepare(ctx context.Context,
 func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
 ) error {
-	// Always disable the double-write callbacks registered by this task
-	// instance, regardless of whether the swap completes successfully.
-	//
-	// On the happy path this runs after the in-memory pointer flip. Callbacks
-	// stay armed until this defer, so a live write in between still fires
-	// them; [resolveDoubleWriteBucket] falls back to the canonical name once
-	// SwapBucketPointer deletes the ingest-name entry, landing the mirror
-	// write in the surviving bucket instead of dereferencing nil.
-	//
-	// On an error path this is the load-bearing case: without it,
-	// callbacks would keep firing against buckets that may be mid-swap,
-	// shut down, or otherwise in an inconsistent state. We want
-	// subsequent writes to stop touching the ingest/backup buckets
-	// entirely; they should land only in whatever the main pointer
-	// resolves to.
-	//
-	// Recovery from a mid-swap failure is restart-only (FinalizeCompletedMigrations,
-	// then OnAfterLsmInit, then RunSwapOnShard's sentinel dispatch); same-process
-	// retry isn't supported since the in-memory bucket state is partially mutated.
-	defer t.disableCallbacks()
+	// The mirror survives every error exit. Restart promotion already promotes a
+	// merged generation unconditionally and removes the old canonical directory,
+	// so tearing the mirror down mid-loop would route every write to a
+	// not-yet-flipped property into the one directory the restart then deletes:
+	// the teardown was itself the loss mechanism. Disarming on completion is
+	// hygiene — past the flip the mirror resolves by name to the surviving
+	// bucket and copies nothing new.
+	swapCompleted := false
+	defer func() {
+		if !swapCompleted {
+			return
+		}
+		if registry := shard.migrationMirrorRegistry(); registry != nil {
+			registry.DisarmMigrationMirrors(t.migrationRecordKey())
+		}
+	}()
 
 	store := shard.Store()
-	lsmPath := shard.pathLSM()
+
+	// Write-ahead: the flip decision is durable before the first pointer moves,
+	// which is what lets a Merged record prove no flip was ever decided. The
+	// displaced handles resolve only now — they are the directories currently
+	// serving these properties.
+	displaced := make(map[string]string, len(props))
+	for _, propName := range props {
+		if bucket := store.Bucket(t.strategy.SourceBucketName(propName)); bucket != nil {
+			displaced[propName] = filepath.Base(bucket.GetDir())
+		}
+	}
+	// An unkeyable record would land on disk as a file the loader rejects, and
+	// an unreadable record withholds every destructive and promoting action on
+	// the shard. Refusing to write one, loudly, beats freezing reconciliation.
+	if key := t.migrationRecordKey(); !key.valid() {
+		logger.Errorf("migration identity is incomplete (%s); the flip decision will not be recorded", key)
+	} else if records := shard.migrationRecordStore(); records != nil {
+		if err := records.Put(NewMigrationRecordSwapped(t.migrationSubject(props), props, displaced)); err != nil {
+			return fmt.Errorf("recording the flip decision: %w", err)
+		}
+	}
 
 	// Phase 2a (atomic, tight loop): in-memory pointer swap per property.
 	// This is the ONLY work that runs inside the per-shard tokenization
 	// overlay's "mixed-state" window (between first prop swapped and last
-	// prop swapped). SwapBucketPointer is a single map-write under
-	// bucketsLock (microseconds); markSwappedProp is a single fsync
-	// (single-digit ms). The per-prop loop completes in a few ms total
-	// even for 4-property migrations.
+	// prop swapped). The loop performs no I/O at all: SwapBucketPointer is a
+	// single map-write under bucketsLock, and the flip decision was already
+	// made durable before the loop began.
 	//
-	// The slow disk work (old-bucket Shutdown, oldMainDir→backupDir
-	// rename) is pulled OUT of this loop so it can't extend the
-	// mixed-state window. It runs in Phase 2b below (after all
-	// in-memory swaps are done) and only touches the OLD (already
-	// shut-down) bucket — never the LIVE ingest bucket whose dir stays
-	// at ingest_<gen> until next-restart recovery does the ingest→main
-	// rename safely (no in-memory state at that point).
-	// processOneSwapPropFn dispatches to processOneSwapProp by default;
-	// the per-prop body returns (nil, nil) for props whose per-prop
-	// sentinel is already on disk — recovery idempotency.
+	// The slow disk work — shutting the displaced bucket down and removing it
+	// — is pulled OUT into Phase 2b so it cannot extend the mixed-state
+	// window. It touches only the OLD, already shut-down bucket, never the
+	// live one, whose directory keeps its staged name until reconciliation
+	// promotes it at a later load (renaming a dir whose buckets are mmap'd
+	// would corrupt the segment registry).
 	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))
 	for propIdx, propName := range props {
 		var (
@@ -1678,10 +1702,11 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		if err := oldMainBucket.Shutdown(ctx); err != nil {
 			return fmt.Errorf("shutting down old main bucket for %q: %w", propName, err)
 		}
-		oldMainDir := oldMainBucket.GetDir()
-		backupDir := filepath.Join(lsmPath, t.backupBucketName(propName))
-		if err := os.Rename(oldMainDir, backupDir); err != nil {
-			return fmt.Errorf("renaming old main dir %q -> %q: %w", oldMainDir, backupDir, err)
+		// Removed at the recorded handle rather than renamed aside. A derived
+		// backup name parks a crash's leftovers where no record points, which
+		// under opaque directory names makes them unattributable.
+		if err := os.RemoveAll(oldMainBucket.GetDir()); err != nil {
+			return fmt.Errorf("removing displaced dir for %q: %w", propName, err)
 		}
 	}
 
@@ -1700,6 +1725,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		return fmt.Errorf("marking tidied: %w", err)
 	}
 	logger.Debug("runtime swap: tidy complete (ingest→main rename deferred to next restart)")
+	swapCompleted = true
 
 	// Ordering contract: rebuild must be checked before OnMigrationComplete.
 	//
@@ -1859,6 +1885,51 @@ func (t *ShardReindexTaskGeneric) removeAllSafe(logger logrus.FieldLogger, path 
 // -----------------------------------------------------------------------------
 // Bucket operations
 // -----------------------------------------------------------------------------
+
+// setMigrationIdentity stamps the identity the record key is built from. It is
+// applied after construction because the same constructor serves the
+// rehydrate path, which reaches its identity from a different place.
+func (t *ShardReindexTaskGeneric) setMigrationIdentity(desc distributedtask.TaskDescriptor,
+	unitID string, payload *ReindexTaskPayload,
+) {
+	t.taskID = desc.ID
+	t.taskVersion = desc.Version
+	t.unitID = unitID
+	t.migrationType = payload.MigrationType
+	t.targetTokenization = payload.TargetTokenization
+	t.originalTokenization = payload.OriginalTokenization
+}
+
+func (t *ShardReindexTaskGeneric) migrationRecordKey() MigrationRecordKey {
+	return MigrationRecordKey{
+		TaskVersion:  t.taskVersion,
+		StrategyCode: t.strategy.StrategyCode(),
+		UnitID:       t.unitID,
+	}
+}
+
+// migrationSubject names every directory the migration touches. Bucket names
+// are directory names, so the record holds handles rather than a recipe for
+// re-deriving them.
+func (t *ShardReindexTaskGeneric) migrationSubject(props []string) MigrationSubject {
+	subject := MigrationSubject{
+		Key:                  t.migrationRecordKey(),
+		TaskID:               t.taskID,
+		MigrationType:        t.migrationType,
+		Properties:           props,
+		TargetTokenization:   t.targetTokenization,
+		OriginalTokenization: t.originalTokenization,
+		StagedDirs:           make(map[string]string, len(props)),
+		CanonicalDirs:        make(map[string]string, len(props)),
+		SidecarDirs:          make([]string, 0, len(props)),
+	}
+	for _, propName := range props {
+		subject.StagedDirs[propName] = t.ingestBucketName(propName)
+		subject.CanonicalDirs[propName] = t.strategy.SourceBucketName(propName)
+		subject.SidecarDirs = append(subject.SidecarDirs, t.reindexBucketName(propName))
+	}
+	return subject
+}
 
 func (t *ShardReindexTaskGeneric) reindexBucketName(propName string) string {
 	return t.strategy.SourceBucketName(propName) + t.strategy.ReindexSuffix()
@@ -2151,6 +2222,35 @@ func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, pro
 	t.callbackDisableFuncsMu.Lock()
 	t.callbackDisableFuncs = append(t.callbackDisableFuncs, disable)
 	t.callbackDisableFuncsMu.Unlock()
+
+	// Also publish the handle on the shard, keyed per (record, property), so
+	// an actor that did not arm the mirror can still disarm it: a successor's
+	// retirement, reconciliation's cancel edge, terminal cleanup. Handles kept
+	// only on this task instance are unreachable from all three, and the
+	// provider clears a terminal task's instance cache outright.
+	//
+	// One registration covers a scope of properties, so the published handle
+	// is shared and counted down: the underlying callbacks come off the write
+	// path only once the last property in the scope has been disarmed, never
+	// when the first one is.
+	if registry := shard.migrationMirrorRegistry(); registry != nil && len(props) > 0 {
+		key := t.migrationRecordKey()
+		var (
+			mu        sync.Mutex
+			remaining = len(props)
+		)
+		shared := func() {
+			mu.Lock()
+			defer mu.Unlock()
+			remaining--
+			if remaining == 0 {
+				disable()
+			}
+		}
+		for _, propName := range props {
+			registry.ArmMigrationMirror(key, propName, shared)
+		}
+	}
 
 	return disable
 }
