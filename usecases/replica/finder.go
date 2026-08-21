@@ -577,6 +577,11 @@ func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
 	return hosts, nil
 }
 
+// TargetHostAddrsForShard exposes per-shard replica host resolution for the scheduler's cross-class pre-filter.
+func (f *Finder) TargetHostAddrsForShard(shardName string) ([]string, error) {
+	return f.targetHostAddrsForShard(shardName)
+}
+
 // prefilterMaxShardsPerRPC caps shards per CompareHashTreeRoots request to bound
 // gRPC/REST message size.
 const prefilterMaxShardsPerRPC = 1000

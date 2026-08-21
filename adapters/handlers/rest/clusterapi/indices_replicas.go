@@ -138,6 +138,14 @@ func (i *replicatedIndices) handleRequest(w http.ResponseWriter, r *http.Request
 	// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
 	// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
 	switch {
+	case path == shared.CompareHashTreeRootsMultiPath:
+		if r.Method == http.MethodPost {
+			i.postCompareHashTreeRootsMulti().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
 	case regxObjectsDigest.MatchString(path):
 		if r.Method == http.MethodGet {
 			i.getObjectsDigest().ServeHTTP(w, r)
@@ -524,6 +532,51 @@ func (i *replicatedIndices) getHashTreeLevel() http.Handler {
 		}
 
 		writeHashTreeLevelResponse(w, r, results)
+	})
+}
+
+func (i *replicatedIndices) postCompareHashTreeRootsMulti() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		var req replica.CompareHashTreeRootsMultiReq
+		body := http.MaxBytesReader(w, r.Body, maxDecompressedReplicaBody)
+		if err := json.NewDecoder(body).Decode(&req); err != nil {
+			http.Error(w, "unmarshal compare hashtree roots multi request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		total := 0
+		for _, wireRoots := range req.Classes {
+			total += len(wireRoots)
+		}
+		if total > replica.CompareHashTreeRootsMaxShardsPerRequest {
+			http.Error(w, fmt.Sprintf("too many shards: %d exceeds maximum %d",
+				total, replica.CompareHashTreeRootsMaxShardsPerRequest), http.StatusBadRequest)
+			return
+		}
+
+		resp := replica.CompareHashTreeRootsMultiResp{
+			Classes: make(map[string]replica.CompareHashTreeRootsMultiClassResp, len(req.Classes)),
+		}
+		for class, wireRoots := range req.Classes {
+			roots := make(map[string]hashtree.Digest, len(wireRoots))
+			for shard, root := range wireRoots {
+				roots[shard] = hashtree.Digest(root)
+			}
+			diverging, err := i.replicator.CompareHashTreeRoots(r.Context(), class, roots)
+			if err != nil {
+				resp.Classes[class] = replica.CompareHashTreeRootsMultiClassResp{Error: err.Error()}
+				continue
+			}
+			resp.Classes[class] = replica.CompareHashTreeRootsMultiClassResp{DivergingShards: diverging}
+		}
+
+		resBytes, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Write(resBytes) //nolint:errcheck
 	})
 }
 

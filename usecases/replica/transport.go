@@ -94,6 +94,21 @@ type CompareHashTreeRootsResp struct {
 	DivergingShards []string `json:"divergingShards,omitempty"`
 }
 
+// CompareHashTreeRootsMultiReq is the cross-class root pre-filter payload: class → shard → raw [high,low] root.
+type CompareHashTreeRootsMultiReq struct {
+	Classes map[string]map[string][2]uint64 `json:"classes"`
+}
+
+type CompareHashTreeRootsMultiResp struct {
+	Classes map[string]CompareHashTreeRootsMultiClassResp `json:"classes"`
+}
+
+// CompareHashTreeRootsMultiClassResp: Error set ⇒ receiver could not compare this class, sender descends its shards.
+type CompareHashTreeRootsMultiClassResp struct {
+	DivergingShards []string `json:"divergingShards,omitempty"`
+	Error           string   `json:"error,omitempty"`
+}
+
 // WClient is the client used to write to replicas
 type WClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,

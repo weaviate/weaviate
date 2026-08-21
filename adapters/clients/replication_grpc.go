@@ -497,6 +497,13 @@ func (c *grpcReplicationClient) CompareHashTreeRoots(ctx context.Context, host, 
 	return resp.GetDivergingShards(), nil
 }
 
+// CompareHashTreeRootsMulti has no gRPC RPC yet; Unsupported routes callers to the per-class gRPC compare.
+func (c *grpcReplicationClient) CompareHashTreeRootsMulti(ctx context.Context, host string,
+	classes map[string]map[string]hashtree.Digest,
+) (*replica.CompareHashTreeRootsMultiResp, error) {
+	return nil, replica.ErrCompareHashTreeRootsUnsupported
+}
+
 func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, index, shard string,
 	vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {

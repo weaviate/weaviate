@@ -411,6 +411,53 @@ func (c *replicationClient) CompareHashTreeRoots(ctx context.Context, host, inde
 	return resp.DivergingShards, nil
 }
 
+func (c *replicationClient) CompareHashTreeRootsMulti(ctx context.Context, host string,
+	classes map[string]map[string]hashtree.Digest,
+) (*replica.CompareHashTreeRootsMultiResp, error) {
+	wire := make(map[string]map[string][2]uint64, len(classes))
+	for class, roots := range classes {
+		wireRoots := make(map[string][2]uint64, len(roots))
+		for shard, root := range roots {
+			wireRoots[shard] = [2]uint64(root)
+		}
+		wire[class] = wireRoots
+	}
+	body, err := json.Marshal(replica.CompareHashTreeRootsMultiReq{Classes: wire})
+	if err != nil {
+		return nil, fmt.Errorf("marshal compare hashtree roots multi request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.timeoutUnit*20)
+	defer cancel()
+
+	u := url.URL{Scheme: "http", Host: host, Path: clusterapi.CompareHashTreeRootsMultiPath}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == http.StatusNotFound {
+		// Older peers lack this route; callers fall back to the per-class RPC.
+		return nil, replica.ErrCompareHashTreeRootsUnsupported
+	}
+	if code := res.StatusCode; !successCode(code) {
+		errBody, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("status code: %v, error: %s", code, errBody)
+	}
+
+	var resp replica.CompareHashTreeRootsMultiResp
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("decode compare hashtree roots multi response: %w", err)
+	}
+	return &resp, nil
+}
+
 func (c *replicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
 	var resp int
 	req, err := newHttpReplicaRequest(
