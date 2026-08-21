@@ -127,15 +127,15 @@ func (r *migrationReconciler) reconcileOne(ctx context.Context, rec MigrationRec
 ) error {
 	switch typed := rec.(type) {
 	case MigrationRecordIterating:
-		return r.reconcileUncommitted(ctx, typed, frozen)
+		return r.reconcileUncommitted(ctx, typed, all, frozen)
 	case MigrationRecordIterated:
-		return r.reconcileIterated(ctx, typed, frozen)
+		return r.reconcileIterated(ctx, typed, all, frozen)
 	case MigrationRecordMerged:
 		return r.reconcileMerged(ctx, typed, all, frozen)
 	case MigrationRecordSwapped:
 		return r.reconcileSwapped(ctx, typed, all, frozen)
 	case MigrationRecordPromoted:
-		return r.reconcilePromoted(ctx, typed, frozen)
+		return r.reconcilePromoted(ctx, typed, all, frozen)
 	default:
 		return fmt.Errorf("no reconciliation for record variant %T", rec)
 	}
@@ -143,14 +143,16 @@ func (r *migrationReconciler) reconcileOne(ctx context.Context, rec MigrationRec
 
 // reconcileUncommitted handles Iterating: the rebuild is in flight, nothing is
 // staged completely, and the canonical bucket has never stopped being primary.
-func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec MigrationRecord, frozen bool) error {
+func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec MigrationRecord,
+	all []MigrationRecord, frozen bool,
+) error {
 	if frozen {
 		return nil
 	}
 	subject := rec.Subject()
 	switch verdict, why := r.verdict(subject); verdict {
 	case migrationVerdictDiscard:
-		return r.discard(ctx, subject, why)
+		return r.discard(ctx, all, subject, why)
 	case migrationVerdictCommit:
 		// The cluster considers the task done while this shard never finished
 		// its rebuild. Nothing here can complete it and nothing may be
@@ -168,11 +170,13 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 // reconcileIterated adds the one reverse edge in the machine: a record can
 // outrun its data, and resuming from a checkpoint against data that is gone
 // would silently skip every object at or below the stale key.
-func (r *migrationReconciler) reconcileIterated(ctx context.Context, rec MigrationRecordIterated, frozen bool) error {
+func (r *migrationReconciler) reconcileIterated(ctx context.Context, rec MigrationRecordIterated,
+	all []MigrationRecord, frozen bool,
+) error {
 	subject := rec.Subject()
 	if !frozen {
 		if verdict, why := r.verdict(subject); verdict == migrationVerdictDiscard {
-			return r.discard(ctx, subject, why)
+			return r.discard(ctx, all, subject, why)
 		}
 	}
 
@@ -193,7 +197,7 @@ func (r *migrationReconciler) reconcileIterated(ctx context.Context, rec Migrati
 			"rebuilt data at %q is gone; restarting the rebuild from the beginning", dir)
 		return r.store.Put(NewMigrationRecordIterating(subject, MigrationCheckpoint{}))
 	}
-	return r.reconcileUncommitted(ctx, rec, frozen)
+	return r.reconcileUncommitted(ctx, rec, all, frozen)
 }
 
 // reconcileMerged owns the machine's one external-fact edge. The staged data
@@ -216,7 +220,7 @@ func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec Migration
 		// flip, so a Merged record proves no flip was decided, and before the
 		// flip every acknowledged write landed in the canonical bucket
 		// natively. This removes only the staged copy.
-		return r.discard(ctx, subject, why)
+		return r.discard(ctx, all, subject, why)
 	case migrationVerdictCommit:
 	default:
 		return fmt.Errorf("unhandled verdict %d", verdict)
@@ -288,7 +292,8 @@ func (r *migrationReconciler) ReconcileAfterTaskMap(ctx context.Context) {
 	if len(r.store.Unreadable()) > 0 {
 		return
 	}
-	for _, rec := range r.store.Records() {
+	records := r.store.Records()
+	for _, rec := range records {
 		if rec.PointerSwapped() {
 			continue
 		}
@@ -301,7 +306,7 @@ func (r *migrationReconciler) ReconcileAfterTaskMap(ctx context.Context) {
 			// independently of when the local unit exits. What makes it safe
 			// is that the task source is installed before Scheduler.Start, so
 			// no unit has been resumed in this process yet.
-			if err := r.discard(ctx, subject, why); err != nil {
+			if err := r.discard(ctx, records, subject, why); err != nil {
 				r.logger.WithField("record", subject.Key.String()).Errorf(
 					"discard a migration once the task map became readable: %v", err)
 			}
@@ -421,13 +426,15 @@ func (r *migrationReconciler) promoteProperty(subject MigrationSubject, prop, st
 // reconcilePromoted is the closure sweep. The record outlives its data: under
 // opaque naming only its owned-dirs list can attribute a leftover from a
 // retirement step that partly failed.
-func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec MigrationRecordPromoted, frozen bool) error {
+func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec MigrationRecordPromoted,
+	all []MigrationRecord, frozen bool,
+) error {
 	if frozen {
 		return nil
 	}
 	subject := rec.Subject()
 
-	remaining := r.reclaimOwnedDirs(subject)
+	remaining := r.reclaimOwnedDirs(all, subject)
 	if len(remaining) > 0 {
 		r.logger.WithField("record", subject.Key.String()).Warnf(
 			"%d directory/directories of a promoted migration could not be reclaimed yet", len(remaining))
@@ -501,7 +508,9 @@ func (r *migrationReconciler) findTask(subject MigrationSubject) (*distributedta
 // discard is the cancel edge. The order is load-bearing: a still-armed mirror
 // whose staged bucket has been removed fails the next user write, because a
 // mirror copy that fails fails the write with it.
-func (r *migrationReconciler) discard(ctx context.Context, subject MigrationSubject, why string) error {
+func (r *migrationReconciler) discard(ctx context.Context, all []MigrationRecord,
+	subject MigrationSubject, why string,
+) error {
 	r.logger.WithField("record", subject.Key.String()).Infof("discarding staged migration data: %s", why)
 
 	ec := errorcompounder.New()
@@ -511,7 +520,7 @@ func (r *migrationReconciler) discard(ctx context.Context, subject MigrationSubj
 	if err := ec.ToError(); err != nil {
 		return err
 	}
-	if remaining := r.reclaimOwnedDirs(subject); len(remaining) > 0 {
+	if remaining := r.reclaimOwnedDirs(all, subject); len(remaining) > 0 {
 		return fmt.Errorf("%d owned directory/directories survived the discard", len(remaining))
 	}
 	r.removeTrackerDir(subject)
@@ -551,9 +560,17 @@ func (r *migrationReconciler) removeTrackerDir(subject MigrationSubject) {
 
 // reclaimOwnedDirs removes every directory the record created and reports the
 // ones that survived. The canonical directory is never among them.
-func (r *migrationReconciler) reclaimOwnedDirs(subject MigrationSubject) []string {
+//
+// A directory a higher-generation record claims as what its own flip displaced
+// belongs to that claimer, not here: a predecessor that flipped and never
+// promoted holds its live data at a staged name, and that name is exactly what
+// the successor displaced. Removing it takes the successor's only copy.
+func (r *migrationReconciler) reclaimOwnedDirs(all []MigrationRecord, subject MigrationSubject) []string {
 	var remaining []string
 	for _, dir := range migrationOwnedDirs(subject) {
+		if migrationDirClaimedAsDisplaced(all, subject, dir) {
+			continue
+		}
 		if err := os.RemoveAll(r.path(dir)); err != nil {
 			r.logger.WithField("dir", dir).Errorf("remove migration directory: %v", err)
 		}

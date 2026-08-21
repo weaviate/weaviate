@@ -193,6 +193,31 @@ func TestReconcileSupersession(t *testing.T) {
 			},
 		},
 		{
+			// The closure sweep of a promoted record removes every directory
+			// it owns, and one of them is what a successor's flip displaced —
+			// the successor's live data until its own promotion runs. Here
+			// that promotion cannot run, so this is the last copy there is.
+			name: "the closure sweep of a promoted record leaves a successor's displaced claim alone",
+			arrange: func(f *reconcileFixture) {
+				// 10 promoted its unshared property and skipped the shared
+				// one, which 20 already covers.
+				predecessor := testMigrationSubject(10, StrategyCodeSearchableRetokenize, "title", "body")
+				successor := testMigrationSubject(20, StrategyCodeSearchableRetokenize, "title")
+				f.mkdirs("m_10_title", "m_10_sidecar", "property_body")
+				f.put(NewMigrationRecordPromoted(predecessor, []string{"title", "body"},
+					map[string]string{"title": "property_title", "body": "property_body"}))
+				f.put(NewMigrationRecordSwapped(successor, []string{"title"},
+					map[string]string{"title": "m_10_title"}))
+			},
+			assert: func(t *testing.T, f *reconcileFixture) {
+				require.True(t, f.exists("m_10_title"),
+					"the successor cannot promote, so the directory it displaced is the only copy of the property")
+				state, present := f.state(MigrationRecordKey{TaskVersion: 20, StrategyCode: StrategyCodeSearchableRetokenize, UnitID: "shard-1__node-0"})
+				require.True(t, present)
+				require.Equal(t, MigrationStateSwapped, state)
+			},
+		},
+		{
 			name: "a chain of displacements retires end to end without stranding a directory",
 			arrange: func(f *reconcileFixture) {
 				middle := testMigrationSubject(20, StrategyCodeSearchableRetokenize, "title")
