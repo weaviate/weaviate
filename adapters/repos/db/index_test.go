@@ -469,7 +469,7 @@ func TestIndex_getShardsStatus(t *testing.T) {
 			preventShutdown().
 			RunAndReturn(func() (func(), error) {
 				if statusByNode[targetNode] == NodeUnresponsive {
-					return nil, errors.New(NodeUnresponsive)
+					return func() {}, errors.New(NodeUnresponsive)
 				}
 				return func() {}, nil
 			}).Maybe()
