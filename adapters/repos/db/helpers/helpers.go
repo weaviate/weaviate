@@ -42,9 +42,9 @@ func GetVectorsBucketName(targetVector string) string {
 	return VectorsBucketLSM
 }
 
-// A multivector index keeps its per-object encoding in a bucket of its own,
-// named off the index ID. Which one depends on the config — muvera on, or
-// mv_mappings when it is off — and they are mutually exclusive.
+// A multivector index keeps one bucket of its own, named off the index ID:
+// muvera encodings when muvera is on, node-to-doc mappings when it is off. The
+// two are mutually exclusive.
 //
 // These live here rather than being concatenated at the point of use so the
 // code that CREATES the bucket and the drop that removes it share one
@@ -53,7 +53,7 @@ func GetVectorsBucketName(targetVector string) string {
 // leak returns silently.
 
 // MuveraBucketName is the bucket a muvera-encoded multivector index stores its
-// encoded vectors in. indexID is the vector index's ID ("vectors_<target>").
+// encoded vectors in. indexID is the vector index's ID.
 func MuveraBucketName(indexID string) string {
 	return fmt.Sprintf("%s_muvera_vectors", indexID)
 }
@@ -137,26 +137,21 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 // the tests all read it, because three hand-maintained copies is exactly how
 // "<indexID>_mv_mappings" ended up missing from all of them at once.
 //
-// Some entries only exist for some index types (muvera and mv_mappings are
-// mutually exclusive; hfresh's are hfresh-only). Listing them unconditionally
-// is deliberate — removal is a no-op when the artifact is absent, whereas
-// reading the config back to decide would miss an index that failed to load, or
-// one whose config changed since it was written.
+// Entries that only exist for some index types are listed unconditionally:
+// removal is a no-op when the artifact is absent, whereas reading the config
+// back to decide would miss an index that failed to load, or one whose config
+// changed since it was written.
 //
-// otherTargetVectors are the collection's OTHER vector names, and they are not
-// optional. Target vector names are only constrained by TargetVectorNameRegex,
-// so a vector may legally be called "<other>_muvera_vectors", "<other>_centroids"
-// and so on — names that make one of THIS target's artifacts byte-identical to
-// a live sibling's own bucket. Removing it would destroy a live vector's data,
-// and the file sweep would re-remove it on every restart while the drop marker
-// persists, so a re-import would not survive either. Any artifact claimed by a
-// sibling is therefore dropped from the list: leaking is strictly better than
+// otherTargetVectors is not optional. TargetVectorNameRegex permits names like
+// "<other>_muvera_vectors" or "<other>_centroids", which make one of THIS
+// target's artifacts byte-identical to a bucket a live sibling owns. Any
+// artifact a sibling claims is therefore dropped from the list: leaking beats
 // deleting data that is still in use.
 func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) VectorIndexArtifacts {
 	artifacts := vectorIndexArtifactNames(targetVector)
 
-	// Skipping the target itself is what keeps its OWN artifacts in the list;
-	// callers routinely pass the whole schema rather than filtering first.
+	// Skipping the target itself is what keeps its OWN artifacts in the list,
+	// for a caller that passes the whole schema rather than filtering first.
 	protected := map[string]struct{}{}
 	for _, other := range otherTargetVectors {
 		if other == targetVector {

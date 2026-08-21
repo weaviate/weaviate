@@ -79,12 +79,12 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 }
 
 // otherTargetVectors lists the collection's vector names except `exclude` —
-// the set whose primary buckets a drop must not touch.
+// the siblings whose artifacts a drop must not touch. Every artifact a sibling
+// owns is protected, not just its primary bucket.
 func otherTargetVectors(class *models.Class, exclude string) []string {
 	if class == nil {
-		// No schema to consult: protect nothing rather than guess. The caller
-		// still removes this target's own artifacts; a collision would leak
-		// rather than delete a sibling's data.
+		// Nothing to protect, so the drop runs unfiltered: a name collision
+		// with a live sibling takes that sibling's bucket with it.
 		return nil
 	}
 	others := make([]string, 0, len(class.VectorConfig))

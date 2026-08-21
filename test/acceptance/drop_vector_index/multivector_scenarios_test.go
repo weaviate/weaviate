@@ -170,6 +170,11 @@ func testMultiVectorLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*tes
 				} else {
 					require.False(t, hasSuffix(owned[v.name], "_muvera_vectors"),
 						"%s has muvera disabled and must NOT have a muvera bucket, got %v", v.name, owned[v.name])
+					// Without this, NotEmpty above is satisfied by the raw
+					// bucket and the commit log alone, and the post-drop
+					// Empty would pass over a bucket that never existed.
+					require.True(t, hasSuffix(owned[v.name], "_mv_mappings"),
+						"precondition: %s must have created its mappings bucket, got %v", v.name, owned[v.name])
 				}
 			}
 		})
@@ -200,6 +205,11 @@ func testMultiVectorLeavesNoFilesOnDisk(compose *docker.DockerCompose) func(*tes
 					"dropping %s must leave none of its on-disk state, but these survived:\n  %s",
 					v.name, strings.Join(left, "\n  "))
 
+				unlisted := dirsNamedAfter(all, v.name)
+				require.Empty(t, unlisted,
+					"dropping %s must leave no directory named after it, including ones the artifact list does not know about:\n  %s",
+					v.name, strings.Join(unlisted, "\n  "))
+
 				for _, other := range variants[i+1:] {
 					require.Equal(t, owned[other.name], dirsOwnedBy(all, other.name),
 						"dropping %s must not disturb %s, whose name shares its prefix",
@@ -226,6 +236,29 @@ func dirsOwnedBy(allDirs []string, targetVector string) []string {
 	var out []string
 	for _, dir := range allDirs {
 		if _, ok := names[path.Base(dir)]; ok {
+			out = append(out, dir)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// dirsNamedAfter returns every observed directory whose name is derived from
+// targetVector, WITHOUT going through the artifact list. dirsOwnedBy filters
+// the walk down to the names the cleanup already knows about, so an artifact
+// the index creates that nobody added to helpers.VectorIndexArtifactsFor is
+// discarded before the leak assertion sees it — exactly how "_mv_mappings"
+// leaked while this test reported clean. This is the unfiltered net.
+//
+// Prefix matching is safe here only because the variants are dropped longest
+// name first: by the time v.name is dropped, every variant whose name extends
+// it is already gone.
+func dirsNamedAfter(allDirs []string, targetVector string) []string {
+	var out []string
+	for _, dir := range allDirs {
+		base := path.Base(dir)
+		if strings.HasPrefix(base, "vectors_"+targetVector) ||
+			strings.HasPrefix(base, "vectors_compressed_"+targetVector) {
 			out = append(out, dir)
 		}
 	}
@@ -278,7 +311,7 @@ func dataRootOf(ctx context.Context, t *testing.T, c testcontainers.Container) s
 	}
 
 	// Located by finding a shard's "lsm" directory at ANY depth and walking up
-	// two levels (<root>/<class>/<shard>/lsm). Depth is not assumed: with the
+	// three levels (<root>/<class>/<shard>/lsm). Depth is not assumed: with the
 	// default PERSISTENCE_DATA_PATH the marker sits at depth 4, and a bounded
 	// search that guessed wrong found nothing at all. `head -1` stops the walk
 	// at the first hit, so this stays cheap despite being unbounded, and it

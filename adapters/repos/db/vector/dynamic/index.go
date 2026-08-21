@@ -507,17 +507,14 @@ func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 }
 
 // DropTargetVector removes ONE named vector's dynamic index, leaving the shard
-// intact. It is the per-vector counterpart of Drop, and the difference is not
-// cosmetic: the state DB is shared by every dynamic vector on the shard (the
-// shard opens it once, see getOrInitDynamicVectorIndexDB, and each vector is a
-// KEY inside it), so Drop's Close()+Remove would take every sibling's state
-// with it — their flat-to-hnsw upgrades, the shard backup, and the shard's own
-// shutdown all use that handle.
+// intact. Drop is unusable here: the state DB is shared by every dynamic vector
+// on the shard (one handle, one key per vector), so its Close()+Remove would
+// take every sibling's state with it. This deletes only this vector's key,
+// which is also what stops a re-created vector of the same name inheriting a
+// stale "already upgraded" verdict.
 //
-// So this deletes only this vector's key and leaves the handle open. Deleting
-// the key is also what stops a re-created vector of the same name inheriting a
-// stale "already upgraded" verdict and booting straight into an empty hnsw,
-// skipping its flat stage.
+// Loaded-shard route only: the files-only sweeps never open the state DB, so a
+// drop on a cold shard leaves the key behind.
 func (dynamic *dynamic) DropTargetVector(ctx context.Context) error {
 	if dynamic.ctx.Err() != nil {
 		// already dropped

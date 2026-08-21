@@ -294,6 +294,41 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 		assert.False(t, pathExists(filepath.Join(indexPath, shardName, "vectors_hnsw_rq8.hnsw.snapshot.d")))
 	})
 
+	t.Run("a live sibling whose bucket name collides survives the sweep", func(t *testing.T) {
+		// The sibling-guard case in removeVectorIndexFiles is handed a list
+		// built by hand, so it proves the guard works given a correct list but
+		// not that any caller supplies one — passing nil at every call site
+		// leaves it green. This drives the real entry point, which derives the
+		// list from the class itself.
+		indexPath, shardName := setup(t)
+
+		const (
+			dropped = "foo"
+			sibling = "foo_muvera_vectors"
+		)
+		require.Equal(t, helpers.GetVectorsBucketName(sibling),
+			helpers.MuveraBucketName(helpers.GetVectorsBucketName(dropped)),
+			"precondition: the sibling's own bucket must be one of the dropped vector's artifact names")
+
+		createLSMBucket(t, indexPath, shardName, helpers.GetVectorsBucketName(dropped))
+		createLSMBucket(t, indexPath, shardName, helpers.GetVectorsBucketName(sibling))
+
+		class := &models.Class{
+			Class: "TestClass",
+			VectorConfig: map[string]models.VectorConfig{
+				dropped: {VectorIndexType: vectorindex.VectorIndexTypeNone},
+				sibling: {VectorIndexType: "hnsw"},
+			},
+		}
+
+		require.NoError(t, h.ensureFilesAreRemovedForDroppedVectorIndexes(indexPath, shardName, class))
+
+		assert.True(t, pathExists(filepath.Join(indexPath, shardName, "lsm", helpers.GetVectorsBucketName(sibling))),
+			"%s is a live vector's own bucket and must survive dropping %s", sibling, dropped)
+		assert.False(t, pathExists(filepath.Join(indexPath, shardName, "lsm", helpers.GetVectorsBucketName(dropped))),
+			"the dropped vector's own bucket must still go")
+	})
+
 	t.Run("dropped vector but no files on disk - no error", func(t *testing.T) {
 		indexPath, shardName := setup(t)
 

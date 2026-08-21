@@ -407,9 +407,6 @@ func (s *Shard) setVectorIndex(targetVector string, index VectorIndex) {
 	}
 }
 
-// DropVectorIndex shuts down and removes the named vector index and its queue
-// from this shard, deleting associated files from disk. It also removes the
-// LSM buckets that store the raw and compressed vector data.
 // perVectorDropper is implemented by index types whose Drop() would reach
 // beyond the one vector being dropped. Only dynamic needs it today: its state
 // DB is shared across the shard, so Drop's Close()+Remove would take every
@@ -430,6 +427,9 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 	return index.Drop(ctx, false)
 }
 
+// DropVectorIndex shuts down and removes the named vector index and its queue
+// from this shard, deleting associated files from disk. It also removes the
+// LSM buckets that store the raw and compressed vector data.
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
