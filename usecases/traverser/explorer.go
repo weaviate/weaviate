@@ -636,7 +636,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			normalizedResultDist := res.Dist / 2
 
 			certainty := ExtractCertaintyFromParams(params)
-			if 1-(normalizedResultDist) < float32(certainty) && 1-normalizedResultDist >= 0 {
+			if 1-normalizedResultDist < float32(certainty) && 1-normalizedResultDist >= 0 {
 				// TODO: Clean this up. The >= check is so that this logic does not run
 				// non-cosine distance.
 				continue

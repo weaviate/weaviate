@@ -128,7 +128,7 @@ func (db *DB) init(ctx context.Context) error {
 			).Build()
 			shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaGetter)
 			var lazyLoadShardEnabled bool
-			idx, err := NewIndex(ctx, IndexConfig{
+			idx, err := NewIndex(ctx, db, IndexConfig{
 				ClassName:                      schema.ClassName(class.Class),
 				RootPath:                       db.config.RootPath,
 				ResourceUsage:                  db.config.ResourceUsage,
@@ -220,7 +220,6 @@ func (db *DB) init(ctx context.Context) error {
 			}
 
 			idx.usageLimits = db.usageLimits
-			idx.db = db
 			idx.SetReplicationFSMReader(db.replicationFSM)
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
