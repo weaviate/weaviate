@@ -825,12 +825,17 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 		return nil
 	}
 
-	// The flip decision is durable from Swapped on: the staged data is the
-	// data, and the copy this hook would otherwise open and keep fresh is
-	// dead. Reconciliation has already promoted it, or will at the load that
-	// can rename it safely.
-	if hasRecord && rec.PointerSwapped() {
-		logger.Debug("flip decision already recorded. nothing to open")
+	// Promotion has renamed the staged directory onto the canonical name, so
+	// the copy this hook would open and keep fresh is the live one already.
+	//
+	// A recorded flip that has NOT been promoted is deliberately not stopped
+	// here. The pointer flip lives only in the process that made it, so this
+	// load serves the property from the canonical directory again — the one
+	// promotion removes before renaming the staged directory over it. Without
+	// the mirror below, every write taken until then is deleted by the
+	// promotion that follows.
+	if hasRecord && rec.State() == MigrationStatePromoted {
+		logger.Debug("migration already promoted. nothing to open")
 		return nil
 	}
 

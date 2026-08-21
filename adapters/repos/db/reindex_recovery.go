@@ -175,16 +175,22 @@ func DiscoverInFlightReindexTasks(
 // land in the ingest bucket through a double-write callback, and the only way
 // to have those active that early is to re-register them during shard init.
 //
+// A recorded flip stays inside the window until promotion has actually run.
+// The flip that moved the pointers lives only in the process that made it, so
+// after a restart the property is served from the canonical directory again —
+// and promotion removes that directory before renaming the staged one over it.
+// Every write taken between the two would go with it unless it is mirrored.
+//
 // Either side of the window is wrong for a different reason. Before it, the
 // scheduler restarts the unit and arms the callbacks itself, so arming here
-// too would leave the write path carrying two. After it, the old copy is
-// dead and mirroring into it buys nothing.
+// too would leave the write path carrying two. After promotion the staged copy
+// is the canonical one and there is nothing left to mirror into.
 func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 	logger logrus.FieldLogger,
 ) (reindexRecoveryRecord, bool) {
 	var rec reindexRecoveryRecord
 	state, ok := migrationRecordForTracker(records, filepath.Base(migDir))
-	if !ok || state.State() == MigrationStateIterating || state.PointerSwapped() {
+	if !ok || state.State() == MigrationStateIterating || state.State() == MigrationStatePromoted {
 		return rec, false
 	}
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
