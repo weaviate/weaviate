@@ -109,6 +109,7 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 	tests := []struct {
 		name       string
 		keepRecord bool
+		unreadable bool
 		wantDir    bool
 	}{
 		{
@@ -118,6 +119,14 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 		},
 		{
 			name: "no record names it, so nothing else will ever reclaim it",
+		},
+		{
+			// The records are the whole protection set here. One that does not
+			// decode may be the one naming this directory, and "not in the set
+			// I could read" is not "nobody owns it".
+			name:       "a record that does not decode withholds the whole trim",
+			unreadable: true,
+			wantDir:    true,
 		},
 	}
 
@@ -141,6 +150,12 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 			if tt.keepRecord {
 				subject := older.migrationSubject(shard, []string{propName}, time.Now())
 				require.NoError(t, shard.migrationRecords.Put(NewMigrationRecordMerged(subject)))
+			}
+			if tt.unreadable {
+				require.NoError(t, os.MkdirAll(shard.migrationRecords.Dir(), 0o755))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(shard.migrationRecords.Dir(), "99_enable_searchable.json"), []byte("{"), 0o600))
+				require.NoError(t, shard.migrationRecords.Load())
 			}
 
 			logger, _ := test.NewNullLogger()

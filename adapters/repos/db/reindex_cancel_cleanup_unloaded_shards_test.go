@@ -888,9 +888,10 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 			mkSidecarDir(t, lsm, sidecar)
 
 			logger, _ := test.NewNullLogger()
-			stale, _ := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil, nil, logger)
+			stale, finalizable := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil, nil, logger)
 			require.Equal(t, tc.wantStale, stale,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
+			require.False(t, finalizable, "the skip is !stale && !finalizable, so a row claiming a skip owes both")
 			cleanSweep(t, ctx, shard, tc.propName, "filterable")
 
 			require.Equal(t, tc.wantTracker, dirExistsAt(t, lsm, ".migrations/"+tracker))
@@ -918,6 +919,9 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 		wantTracker  bool
 		wantSidecar  bool
 		wantGateHold bool
+		// wantFinalizable is the gate's other half: leftovers only a load can
+		// reclaim hold the shard open just as stale state does.
+		wantFinalizable bool
 	}{
 		{
 			name:    "the record names this property among two",
@@ -928,6 +932,10 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			},
 			state:       MigrationStateSwapped,
 			wantTracker: true, wantSidecar: true,
+			// Preserved is not the same as skipped: a recorded flip awaiting
+			// promotion is work only a load finishes, so the gate still holds
+			// this shard open — via the half wantGateHold does not cover.
+			wantFinalizable: true,
 		},
 		// "enable_filterable_a_x_1" is both ["a","x"] and ["a_x"]. Guessing
 		// from the name preserved this property's sidecar on the strength of
@@ -980,9 +988,11 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			mkSidecarDir(t, lsm, sidecar)
 
 			logger, _ := test.NewNullLogger()
-			gateHold, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil, nil, logger)
+			gateHold, finalizable := hasStalePartialReindexState(lsm, "a", "filterable", nil, nil, logger)
 			require.Equal(t, tc.wantGateHold, gateHold,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
+			require.Equal(t, tc.wantFinalizable, finalizable,
+				"the skip is !stale && !finalizable, so a row claiming a skip owes both")
 			cleanSweep(t, ctx, shard, "a", "filterable")
 
 			require.Equal(t, tc.wantTracker, dirExistsAt(t, lsm, ".migrations/"+tc.tracker))
@@ -1089,10 +1099,12 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 	require.True(t, err == nil || os.IsNotExist(err))
 	mkTrackerDir(t, lsm, tracker)
 	logger, _ := test.NewNullLogger()
-	staleAfterArrival, _ := hasStalePartialReindexState(
+	staleAfterArrival, finalizableAfterArrival := hasStalePartialReindexState(
 		lsm, propName, indexType, dirs, dirs.trackerProps(), logger)
 	require.False(t, staleAfterArrival,
 		"the stale listing is the point: the gate cannot see what arrived after it")
+	require.False(t, finalizableAfterArrival,
+		"the skip is !stale && !finalizable, so the claim owes both")
 
 	require.NoError(t, idx.cleanStalePartialReindexState(ctx, propName, indexType, dirs))
 

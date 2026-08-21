@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -854,6 +855,59 @@ func TestReconcilePerShardDivergentStatesConverge(t *testing.T) {
 			for _, entry := range entries {
 				require.NotEqual(t, "shard-0", entry.Name())
 			}
+		})
+	}
+}
+
+// TestPromotionWithholdsOnADirectoryItCannotStat pins the presence probe's one
+// blind spot. Every destructive arm of promotion is guarded by a directory's
+// absence, so a stat that fails for any reason other than "not there" must
+// stop the decision: read as absence, an unstattable staged directory is taken
+// as proof the promotion rename already ran, and the record advances to
+// Promoted while the pointer never moved. The staged data is then reclaimed as
+// a promoted record's leftovers.
+func TestPromotionWithholdsOnADirectoryItCannotStat(t *testing.T) {
+	tests := []struct {
+		name      string
+		stagedDir func(f *reconcileFixture) string
+		wantState MigrationState
+	}{
+		{
+			name:      "a staged directory that stats cleanly promotes",
+			stagedDir: func(*reconcileFixture) string { return "m_20_title" },
+			wantState: MigrationStatePromoted,
+		},
+		{
+			// A non-directory in the path makes the stat fail with something
+			// other than ENOENT, which is what a permission or I/O fault on
+			// the real path looks like to the probe.
+			name: "a staged directory that cannot be stat'd promotes nothing",
+			stagedDir: func(f *reconcileFixture) string {
+				require.NoError(t, os.WriteFile(filepath.Join(f.lsmPath, "blocked"), nil, 0o600))
+				return "blocked/m_20_title"
+			},
+			wantState: MigrationStateSwapped,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newReconcileFixture(t)
+			f.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")
+			f.mkdirs("m_20_title", "property_title")
+
+			subject := testMigrationSubject(20, StrategyCodeSearchableRetokenize, "title")
+			subject.StagedDirs["title"] = tt.stagedDir(f)
+			displaced := map[string]string{"title": subject.CanonicalDirs["title"]}
+			f.put(NewMigrationRecordSwapped(subject, []string{"title"}, displaced))
+
+			f.reconcile()
+
+			state, present := f.state(subject.Key)
+			require.True(t, present, "the record survives either way")
+			assert.Equal(t, tt.wantState, state)
+			assert.True(t, f.exists("property_title"),
+				"the canonical directory is never removed on a withheld promotion")
 		})
 	}
 }

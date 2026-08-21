@@ -1038,6 +1038,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// round-trip that LocalDistributedTasks never makes.
 		raft := appState.ClusterService.Raft
 		repo.SetMigrationLocalTaskSource(serverShutdownCtx, func() ([]*distributedtask.Task, bool) {
+			// Readable is asserted, not measured, and it licenses a discard:
+			// the read is an in-memory snapshot that cannot fail, and
+			// waitForMetaStore above is what makes the snapshot complete. An
+			// absent namespace key and an empty one are the same fact here,
+			// since a task missing from the map is already read as terminal.
 			return raft.LocalDistributedTasks()[db.ReindexNamespace], true
 		})
 

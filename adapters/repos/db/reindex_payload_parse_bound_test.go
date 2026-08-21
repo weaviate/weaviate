@@ -216,8 +216,9 @@ func TestOversizedTrackerPayloadMakesTheUnloadedGateHydrate(t *testing.T) {
 				tenantScalePayload(t, []string{"a_b"}, tc.tenants))
 			logger, _ := test.NewNullLogger()
 
-			stale, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil, nil, logger)
+			stale, finalizable := hasStalePartialReindexState(lsm, "a", "filterable", nil, nil, logger)
 			require.Equal(t, tc.wantStale, stale)
+			require.False(t, finalizable, "the skip is !stale && !finalizable, so a row claiming a skip owes both")
 		})
 	}
 }

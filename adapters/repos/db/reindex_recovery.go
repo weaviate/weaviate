@@ -105,7 +105,20 @@ func DiscoverInFlightReindexTasks(
 				// Most shards have no .migrations dir; that's the normal path.
 				continue
 			}
-			records, _, _ := migrationRecordsAt(lsmPath, logger)
+			records, frozen, unreadable := migrationRecordsAt(lsmPath, logger)
+			if unreadable {
+				// Every tracker here resolves through the records, so an
+				// unreadable set would otherwise read as "no migration is in
+				// the recovery window" and leave the double-write mirror
+				// unarmed for one that is.
+				logger.WithField("shard", shardName).Warn(
+					"reindex recovery: migration records could not be read; recovering nothing on this shard")
+				continue
+			}
+			if frozen {
+				logger.WithField("shard", shardName).Warn(
+					"reindex recovery: some migration records could not be read; recovering only the trackers the rest name")
+			}
 			for _, migEntry := range migs {
 				if !migEntry.IsDir() {
 					continue

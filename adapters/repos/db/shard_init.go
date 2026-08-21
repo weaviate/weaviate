@@ -232,9 +232,16 @@ func (s *Shard) NotifyReady() {
 // promoted it, or will at the load that can rename its directory safely — and
 // so is a property no record names. Both fall back to the default-true policy
 // in [Shard.IsRangeableLocallyReady].
+//
+// A record that does not decode is the third case, and it cannot be answered
+// per property: the property list is exactly what could not be read. It marks
+// the shard undecidable instead, which the same policy reads as not ready.
 func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	if s.migrationRecords == nil {
 		return
+	}
+	if len(s.migrationRecords.Unreadable()) > 0 {
+		s.rangeableUndecidable.Store(true)
 	}
 	for _, rec := range s.migrationRecords.Records() {
 		if rec.Subject().Key.StrategyCode != StrategyCodeFilterableToRangeable || rec.PointerSwapped() {

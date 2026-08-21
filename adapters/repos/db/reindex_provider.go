@@ -1914,7 +1914,13 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 		lsmPath := shardPathLSM(idx.path(), shardName)
 		// Memos per shard, not per walk: no two shards name the same path, so
 		// nothing carries over between them anyway.
-		records, _, _ := migrationRecordsAt(lsmPath, p.logger)
+		records, frozen, unreadable := migrationRecordsAt(lsmPath, p.logger)
+		if frozen || unreadable {
+			// Cannot rule this shard out, and the answer decides only whether
+			// the operator is pointed at it. Pointing them at a shard that
+			// turns out to be clean costs a log line.
+			return true
+		}
 		if migrationRecordFor(records, payload.MigrationType, payload.Properties, MigrationRecord.DataCommitted) {
 			return true
 		}

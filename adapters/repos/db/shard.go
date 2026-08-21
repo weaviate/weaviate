@@ -428,6 +428,14 @@ type Shard struct {
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
 
+	// rangeableUndecidable records that this shard's migration records could
+	// not all be read at init, so the pessimistic entries above could not be
+	// derived. A record that does not decode may be exactly the in-flight
+	// rangeable migration whose empty bucket must not be queried, and the
+	// default below reads a pre-created empty bucket as ready. Load-time fact:
+	// the record set is read once per shard load.
+	rangeableUndecidable atomic.Bool
+
 	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
 	// "what tokenization should query input use on this shard?" override
 	// that closes the FINALIZING-window misalignment of a
@@ -759,6 +767,12 @@ func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 		}
 	}
 	s.rangeableLocalReadyMu.RUnlock()
+
+	// No explicit entry and no way to know whether one was owed: a record
+	// that failed to decode is not evidence that no migration is in flight.
+	if s.rangeableUndecidable.Load() {
+		return false
+	}
 
 	// Default: ready iff the rangeable bucket physically exists in the
 	// store. Cheap (a map lookup under bucketAccessLock.RLock in

@@ -182,7 +182,11 @@ func (r *migrationReconciler) reconcileIterated(ctx context.Context, rec Migrati
 	// and a resume from the checkpoint would then swap in a bucket holding
 	// only the objects that happen to sort above the stale key.
 	for _, dir := range migrationOwnedDirs(subject) {
-		if r.dirExists(dir) {
+		there, err := r.dirExists(dir)
+		if err != nil {
+			return err
+		}
+		if there {
 			continue
 		}
 		r.logger.WithField("record", subject.Key.String()).Warnf(
@@ -348,8 +352,16 @@ func (r *migrationReconciler) reconcileSwapped(ctx context.Context, rec Migratio
 // strategies pre-create an empty canonical bucket when the migration arms, so
 // an empty canonical directory is the normal armed state and means nothing.
 func (r *migrationReconciler) promoteProperty(subject MigrationSubject, prop, staged, canonical, displaced string) (bool, error) {
-	if !r.dirExists(staged) {
-		if r.dirExists(canonical) {
+	stagedThere, err := r.dirExists(staged)
+	if err != nil {
+		return false, err
+	}
+	if !stagedThere {
+		canonicalThere, err := r.dirExists(canonical)
+		if err != nil {
+			return false, err
+		}
+		if canonicalThere {
 			return true, nil
 		}
 		// A record must not promote a subject that does not exist. Restore is
@@ -366,12 +378,22 @@ func (r *migrationReconciler) promoteProperty(subject MigrationSubject, prop, st
 	// exactly one owner: the record that displaced them. It is usually the
 	// canonical path, but a predecessor that flipped and never promoted still
 	// holds its live data at a staged name, so it can be that instead.
-	if displaced != "" && displaced != canonical && r.dirExists(displaced) {
-		if err := os.RemoveAll(r.path(displaced)); err != nil {
-			return false, fmt.Errorf("remove displaced directory %q: %w", displaced, err)
+	if displaced != "" && displaced != canonical {
+		displacedThere, err := r.dirExists(displaced)
+		if err != nil {
+			return false, err
+		}
+		if displacedThere {
+			if err := os.RemoveAll(r.path(displaced)); err != nil {
+				return false, fmt.Errorf("remove displaced directory %q: %w", displaced, err)
+			}
 		}
 	}
-	if r.dirExists(canonical) {
+	canonicalThere, err := r.dirExists(canonical)
+	if err != nil {
+		return false, err
+	}
+	if canonicalThere {
 		if err := os.RemoveAll(r.path(canonical)); err != nil {
 			return false, fmt.Errorf("remove displaced directory %q: %w", canonical, err)
 		}
@@ -518,7 +540,13 @@ func (r *migrationReconciler) reclaimOwnedDirs(subject MigrationSubject) []strin
 		if err := os.RemoveAll(r.path(dir)); err != nil {
 			r.logger.WithField("dir", dir).Errorf("remove migration directory: %v", err)
 		}
-		if r.dirExists(dir) {
+		// A directory we cannot stat counts as surviving: the caller aborts on
+		// a non-empty list, which is the safe reading of "could not tell".
+		there, err := r.dirExists(dir)
+		if err != nil {
+			r.logger.WithField("dir", dir).Errorf("confirm migration directory is gone: %v", err)
+		}
+		if there || err != nil {
 			remaining = append(remaining, dir)
 		}
 	}
@@ -542,12 +570,23 @@ func migrationOwnedDirs(subject MigrationSubject) []string {
 
 func (r *migrationReconciler) path(dir string) string { return filepath.Join(r.lsmPath, dir) }
 
-func (r *migrationReconciler) dirExists(dir string) bool {
+// dirExists separates "not there" from "could not tell". Every destructive arm
+// here is guarded by a directory's absence, so a stat that fails for any reason
+// other than ENOENT must stop the decision rather than read as absence: the
+// promotion probe would otherwise take a staged directory it cannot see as
+// proof the rename already happened.
+func (r *migrationReconciler) dirExists(dir string) (bool, error) {
 	if dir == "" {
-		return false
+		return false, nil
 	}
 	info, err := os.Stat(r.path(dir))
-	return err == nil && info.IsDir()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat migration directory %q: %w", dir, err)
+	}
+	return info.IsDir(), nil
 }
 
 func (r *migrationReconciler) rename(from, to string) error {

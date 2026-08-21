@@ -1519,10 +1519,15 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 		return
 	}
 	lsmPath := concrete.pathLSM()
-	var records []MigrationRecord
-	if concrete.migrationRecords != nil {
-		records = concrete.migrationRecords.Records()
+	// The records are the whole protection set for the removals below, and a
+	// record this build cannot read names directories nothing else will
+	// vouch for. Every other destructive sweep withholds on that; so does
+	// this one, rather than reading "not in the set" as "nobody owns it".
+	if concrete.migrationRecords == nil || len(concrete.migrationRecords.Unreadable()) > 0 {
+		logger.Warn("runtime swap: trim: migration records could not all be read; trimming nothing")
+		return
 	}
+	records := concrete.migrationRecords.Records()
 	ownedByARecord := func(dir string) bool {
 		for _, rec := range records {
 			if rec.OwnsBucket(dir) {

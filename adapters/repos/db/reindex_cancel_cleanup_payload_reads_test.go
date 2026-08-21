@@ -451,7 +451,11 @@ func TestGatePayloadReadCount(t *testing.T) {
 		trackers  []tracker
 		sidecars  []string
 		wantStale bool
-		wantReads int
+		// wantFinalizable is the gate's other half: leftovers only a load can
+		// reclaim hold the shard open just as stale state does, so a row that
+		// pins wantStale alone has not said whether the gate skips.
+		wantFinalizable bool
+		wantReads       int
 	}{
 		{
 			name:     "a tracker its record names costs no payload read",
@@ -462,8 +466,13 @@ func TestGatePayloadReadCount(t *testing.T) {
 					record: MigrationStateSwapped,
 				},
 			},
-			sidecars:  []string{"staged_price_cents_enable_filterable_price_cents_1"},
-			wantReads: 0,
+			sidecars: []string{"staged_price_cents_enable_filterable_price_cents_1"},
+			// A recorded flip awaiting promotion is exactly what only a load
+			// finishes, so the gate holds this shard open rather than skipping
+			// it — the reason its wantStale is false without the shard being
+			// clean.
+			wantFinalizable: true,
+			wantReads:       0,
 		},
 		{
 			name:     "each tracker no record names is read once",
@@ -521,8 +530,10 @@ func TestGatePayloadReadCount(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			props := &taskPropsCache{}
-			stale, _ := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil, props, logger)
+			stale, finalizable := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil, props, logger)
 			require.Equal(t, tc.wantStale, stale)
+			require.Equal(t, tc.wantFinalizable, finalizable,
+				"the skip is !stale && !finalizable, so a row pinning wantStale alone has not pinned the skip")
 			require.Equal(t, tc.wantReads, props.count(), "payload.mig reads in one gate call")
 		})
 	}
