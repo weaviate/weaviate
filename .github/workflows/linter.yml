@@ -18,8 +18,6 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9
         with:
-          # Pin it: unset, the action installs the latest release at run time,
-          # so an upstream release turns every job in the repo red at once.
           # Keep in sync with .pre-commit-config.yaml.
           version: v2.13.1
   protolint:

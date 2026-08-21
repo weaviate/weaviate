@@ -116,10 +116,8 @@ linters:
           - staticcheck
         path: usecases/auth/authentication/oidc/middleware_test.go
         text: SA1019
-      # The server still accepts these five legacy request fields, so the tests
-      # pinning that behaviour have to set them. Named one by one on purpose:
-      # every other deprecation in the generated protocol package, reply-side
-      # fields included, still has to surface in test code.
+      # The server still accepts these legacy request fields, so tests have to
+      # set them. Named individually so other deprecations still surface.
       - linters:
           - staticcheck
         path: ^test/
