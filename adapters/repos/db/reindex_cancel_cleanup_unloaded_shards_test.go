@@ -389,6 +389,12 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		// run at all, so there is no post-state to compare.
 		wantSweepFails bool
 		wantStale      bool
+		// wantFinalizable says a load would reclaim something here even though
+		// there is nothing for the sweep to remove. It is the other half of
+		// the gate: reporting it wrongly either wakes a cold tenant on every
+		// pass forever, or leaves a completed migration's leftovers on disk
+		// until something else happens to hydrate the tenant.
+		wantFinalizable bool
 	}{
 		{
 			name:      "a shard with no reindex state at all",
@@ -419,10 +425,11 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			wantStale: true,
 		},
 		{
-			name:      "deferred-finalize state the sweep preserves",
-			indexType: "filterable",
-			committed: deferredFinalize,
-			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
+			name:            "deferred-finalize state the sweep preserves",
+			indexType:       "filterable",
+			committed:       deferredFinalize,
+			sidecars:        []string{"property_category__enable_filterable_ingest_1"},
+			wantFinalizable: true,
 		},
 		{
 			// A record this build cannot place may name any directory here,
@@ -478,7 +485,8 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				prop:  "category",
 				owned: "property_category__roaringset_ingest_2",
 			}},
-			sidecars: []string{"property_category__roaringset_ingest_2"},
+			sidecars:        []string{"property_category__roaringset_ingest_2"},
+			wantFinalizable: true,
 		},
 		{
 			name:      "searchable: a class-level map_to_blockmax awaiting finalize",
@@ -489,7 +497,8 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				prop:  "descr",
 				owned: "property_descr_searchable__blockmax_ingest_2",
 			}},
-			sidecars: []string{"property_descr_searchable__blockmax_ingest_2"},
+			sidecars:        []string{"property_descr_searchable__blockmax_ingest_2"},
+			wantFinalizable: true,
 		},
 		{
 			name:      "filterable: a cancelled class-level attempt is still stale",
@@ -523,7 +532,8 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				prop:  "descr",
 				owned: "property_descr_searchable__enable_searchable_ingest_1",
 			}},
-			sidecars: []string{"property_descr_searchable__enable_searchable_ingest_1"},
+			sidecars:        []string{"property_descr_searchable__enable_searchable_ingest_1"},
+			wantFinalizable: true,
 		},
 		// Every searchable strategy writes sidecars of one main bucket, so the
 		// preserve set is keyed by (suffix, generation), not generation alone.
@@ -558,7 +568,8 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				prop:  "descr",
 				owned: "property_descr_searchable__rebuild_searchable_ingest_1",
 			}},
-			sidecars: []string{"property_descr_searchable__rebuild_searchable_ingest_1"},
+			sidecars:        []string{"property_descr_searchable__rebuild_searchable_ingest_1"},
+			wantFinalizable: true,
 		},
 		{
 			name:      "searchable: a retokenize left mid-run",
@@ -576,7 +587,8 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				prop:  "descr",
 				owned: "property_descr_searchable__retokenize_ingest_1",
 			}},
-			sidecars: []string{"property_descr_searchable__retokenize_ingest_1"},
+			sidecars:        []string{"property_descr_searchable__retokenize_ingest_1"},
+			wantFinalizable: true,
 		},
 		{
 			name:      "searchable: another property's stale enable is not this property's",
@@ -595,7 +607,8 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				prop:  "category",
 				owned: "property_category_rangeable__rangeable_ingest_1",
 			}},
-			sidecars: []string{"property_category_rangeable__rangeable_ingest_1"},
+			sidecars:        []string{"property_category_rangeable__rangeable_ingest_1"},
+			wantFinalizable: true,
 		},
 		{
 			name:      "rangeable: a sidecar a cancelled run left behind",
@@ -647,6 +660,19 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				dir: "enable_filterable_category_1", prop: "category",
 				owned: "property_category__enable_filterable_ingest_1", promoted: true,
 			}},
+		},
+		{
+			// The other half of the promoted rule: a directory the record
+			// still owns is disk work, and a load is the only thing that
+			// reclaims it. One hydration settles it, unlike the row above.
+			name:      "a promoted migration whose directory is still on disk",
+			indexType: "filterable",
+			committed: []committedTracker{{
+				dir: "enable_filterable_category_1", prop: "category",
+				owned: "property_category__enable_filterable_ingest_1", promoted: true,
+			}},
+			sidecars:        []string{"property_category__enable_filterable_ingest_1"},
+			wantFinalizable: true,
 		},
 		{
 			// A directory nothing can list says nothing about what is in it,
@@ -751,8 +777,13 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			}
 
 			logger, _ := test.NewNullLogger()
-			stale, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, nil, logger)
+			stale, finalizable := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, nil, logger)
 			require.Equal(t, tc.wantStale, stale)
+			if !tc.wantStale {
+				// Only meaningful where nothing is stale: a shard the gate
+				// hydrates finalizes on the way in either way.
+				require.Equal(t, tc.wantFinalizable, finalizable)
+			}
 			if tc.wantStale {
 				// The shard is hydrated, and whatever the sweep then makes of
 				// it is the sweep's own business — the other tests here cover

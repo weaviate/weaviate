@@ -288,3 +288,72 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildRecoveryTasksStampsTheIdentity is the recovery-path mirror of the
+// enumeration pin on createReindexTasks. A recovered task that reaches a shard
+// unkeyed runs a migration that records nothing: the flip it completes after
+// the restart writes no record, and the data it leaves behind sits at a
+// directory no later load can attribute.
+func TestBuildRecoveryTasksStampsTheIdentity(t *testing.T) {
+	// Every type the recovery switch dispatches. ReindexTypeRebuildSearchable
+	// is absent because that switch has no arm for it, here as on the base
+	// this branch started from.
+	recoverable := []createReindexTasksEnumerationCase{
+		{mt: ReindexTypeChangeAlgorithm, payload: &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"title"}}, wantNTasks: 1},
+		{mt: ReindexTypeRepairFilterable, payload: &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"tag"}}, wantNTasks: 1},
+		{mt: ReindexTypeEnableRangeable, payload: &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"age"}}, wantNTasks: 1},
+		{mt: ReindexTypeRepairRangeable, payload: &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"age"}}, wantNTasks: 1},
+		{mt: ReindexTypeEnableFilterable, payload: &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"tag"}}, wantNTasks: 1},
+		{
+			mt: ReindexTypeEnableSearchable,
+			payload: &ReindexTaskPayload{
+				Collection: "MyClass", Properties: []string{"title"}, TargetTokenization: "word",
+			},
+			wantNTasks: 1,
+		},
+		{
+			mt: ReindexTypeChangeTokenization,
+			payload: &ReindexTaskPayload{
+				Collection: "MyClass", Properties: []string{"title"},
+				TargetTokenization: "field", BucketStrategy: "MapCollection",
+			},
+			wantNTasks: 2,
+		},
+		{
+			mt: ReindexTypeChangeTokenizationFilterable,
+			payload: &ReindexTaskPayload{
+				Collection: "MyClass", Properties: []string{"title"}, TargetTokenization: "field",
+			},
+			wantNTasks: 1,
+		},
+	}
+	require.Len(t, allKnownMigrationTypes(), len(recoverable)+1,
+		"a new migration type has to be classified here: either the recovery switch "+
+			"dispatches it and it belongs in this table, or it joins the one type that has no arm")
+
+	logger, _ := logrustest.NewNullLogger()
+	desc, unitID := testTaskIdentity()
+
+	for _, c := range recoverable {
+		t.Run(string(c.mt), func(t *testing.T) {
+			payload := *c.payload
+			payload.MigrationType = c.mt
+			rec := reindexRecoveryRecord{
+				TaskID: desc.ID, TaskVersion: desc.Version, UnitID: unitID, Payload: payload,
+			}
+
+			tasks, err := buildRecoveryTasks(rec, "shard-1", 1, logger, nil)
+			require.NoError(t, err)
+			require.Len(t, tasks, c.wantNTasks)
+
+			for i, task := range tasks {
+				require.NotNil(t, task)
+				require.Truef(t, task.migrationRecordKey().valid(),
+					"recovered task %d of %q has an unusable record key %s",
+					i, c.mt, task.migrationRecordKey())
+				require.Equal(t, desc.Version, task.migrationRecordKey().TaskVersion)
+				require.Equal(t, unitID, task.migrationRecordKey().UnitID)
+			}
+		})
+	}
+}

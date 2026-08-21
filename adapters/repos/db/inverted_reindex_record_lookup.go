@@ -78,9 +78,11 @@ func migrationCommittedStateOf(records []MigrationRecord, frozen, unreadable boo
 			state.buckets[dir] = struct{}{}
 		}
 		if subject.TrackerDir != "" {
-			// A promoted record's one remaining step is its closure, which
-			// waits on the schema effect becoming visible. No load can make
-			// that happen, so no load counts as reclaiming it.
+			// A promoted record's own directory waits on the schema effect
+			// becoming visible, which no load can make happen, so it never
+			// justifies a hydration on its own. The directories it still owns
+			// are a load's work, and the caller counts those from the buckets
+			// above.
 			state.trackers[subject.TrackerDir] = rec.State() != MigrationStatePromoted
 		}
 	}

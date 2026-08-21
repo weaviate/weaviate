@@ -285,11 +285,11 @@ func (i *Index) cleanStalePartialReindexState(
 // task path, not from a shard load.
 //
 // The second return says the shard holds a completed migration's leftovers:
-// its data still under the ingest sidecar name, plus the backup copy of the
-// bucket it replaced. Only a shard load reclaims those, since
-// reconciliation runs before buckets open. It is only
-// meaningful where the first return is false — a shard already being
-// hydrated finalizes them on the way in either way.
+// its data still under the ingest sidecar name, or a directory a promoted
+// record still owns. Only a shard load reclaims those, since reconciliation
+// runs before buckets open. It is only meaningful where the first return is
+// false — a shard already being hydrated finalizes them on the way in either
+// way.
 //
 // props memoizes the tracker payloads read on the way to that answer. Callers
 // running a grid of tuples over the same shards hand in one for the whole run
