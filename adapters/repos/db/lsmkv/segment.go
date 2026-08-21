@@ -241,11 +241,30 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		_ = fadviseSequential(file)
 	}
 
+	// mmap has some overhead, we can read small files directly to memory.
+	// Declared here (ahead of use) so the defer below can unmap on any
+	// constructor error from this point on, however contents ends up set.
+	var contents []byte
+	var unMapContents bool
+
 	// The lifetime of the `file` exceeds this constructor as we store the open file for later use in `contentFile`.
 	// invariant: We close **only** if any error happened after successfully opening the file. To avoid leaking open file descriptor.
 	// NOTE: This `defer` works even with `err` being shadowed in the whole function because defer checks for named `rerr` return value.
+	//
+	// A constructor error after mmap.MapRegion succeeds (unMapContents set)
+	// must also unmap contents, or every failed load/retry leaks one
+	// mapping — this defer runs after both variables are assigned, so it
+	// always sees their final values.
 	defer func() {
 		if rerr != nil {
+			if unMapContents {
+				m := mmap.MMap(contents)
+				if err := m.Unmap(); err != nil {
+					logger.WithField("action", "lsm_segment_init").
+						WithField("path", path).
+						Warnf("unmap segment file after init error: %v", err)
+				}
+			}
 			file.Close()
 		}
 	}()
@@ -266,9 +285,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		size = fileInfo.Size()
 	}
 
-	// mmap has some overhead, we can read small files directly to memory
-	var contents []byte
-	var unMapContents bool
 	var allocCheckerErr error
 
 	if size <= cfg.MinMMapSize { // check if it is a candidate for full reading

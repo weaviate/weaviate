@@ -18,10 +18,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 var errInjectedFlushFailure = errors.New("injected flush failure")
@@ -42,26 +39,16 @@ func (m *failNFlushesMemtable) flush() (string, error) {
 	return m.memtable.flush()
 }
 
-func newFlushRetryTestBucket(t *testing.T, dir string) *Bucket {
-	t.Helper()
-	noopCB := cyclemanager.NewCallbackGroupNoop()
-	logger, _ := test.NewNullLogger()
-	b, err := NewBucketCreator().NewBucket(context.Background(), dir, "", logger, nil,
-		noopCB, noopCB, WithStrategy(StrategyReplace))
-	require.NoError(t, err)
-	return b
-}
-
 // TestFlushAndSwitchRetainsFailedFlush pins the core bug: a memtable that
 // failed to flush must be retried by the next FlushAndSwitch call, not
-// discarded by it. Before the fix, atomicallySwitchMemtable overwrites
-// b.flushing unconditionally, so the second FlushAndSwitch call below drops
-// row A's memtable on the floor: it was never added to a disk segment, and
-// it's no longer reachable from b.active or b.flushing, so every reader
-// stops seeing it until the WAL is replayed on restart.
+// discarded by it. atomicallySwitchMemtable must never overwrite a non-nil
+// b.flushing, or the second FlushAndSwitch call below drops row A's
+// memtable on the floor: it was never added to a disk segment, and it's no
+// longer reachable from b.active or b.flushing, so every reader stops
+// seeing it until the WAL is replayed on restart.
 func TestFlushAndSwitchRetainsFailedFlush(t *testing.T) {
 	ctx := context.Background()
-	b := newFlushRetryTestBucket(t, t.TempDir())
+	b := createTestBucket(t, ctx, t.TempDir(), StrategyReplace)
 	t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
 
 	require.NoError(t, b.Put([]byte("A"), []byte("vA")))
@@ -106,7 +93,7 @@ func TestFlushAndSwitchRetryAfterPermissionFailure(t *testing.T) {
 
 	ctx := context.Background()
 	dir := t.TempDir()
-	b := newFlushRetryTestBucket(t, dir)
+	b := createTestBucket(t, ctx, dir, StrategyReplace)
 	t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
 
 	require.NoError(t, b.Put([]byte("key"), []byte("value")))
@@ -182,7 +169,7 @@ func TestCommitLoggerCloseDeleteIdempotent(t *testing.T) {
 // memtable is quiet and would otherwise never cross a threshold.
 func TestFlushAndSwitchIfThresholdsMetRetriesPendingFlush(t *testing.T) {
 	ctx := context.Background()
-	b := newFlushRetryTestBucket(t, t.TempDir())
+	b := createTestBucket(t, ctx, t.TempDir(), StrategyReplace)
 	t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
 
 	require.NoError(t, b.Put([]byte("A"), []byte("vA")))

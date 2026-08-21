@@ -188,10 +188,7 @@ type commitLogger struct {
 	// new log again
 	paused bool
 
-	// closed makes close() idempotent: a retried Memtable.flush() (after an
-	// earlier attempt failed downstream of a successful close) must be able
-	// to call close() again without re-flushing/re-syncing an already-closed
-	// file.
+	// closed makes close() idempotent and terminal; see close()'s doc.
 	closed bool
 }
 
@@ -397,27 +394,35 @@ func (cl *commitLogger) sync() error {
 	return cl.file.Sync()
 }
 
+// close is terminal: once called, this logger stays "closed" even if the
+// flush/sync/close sequence below errors out. bufio.Writer errors are
+// sticky (every later Flush call on the same writer keeps failing) and a
+// failed os.File.Close still leaves the fd unusable, so a retry can never
+// make this file descriptor usable again — every step below runs
+// best-effort instead of stopping at the first error, since a later step
+// (e.g. Sync) can still make already-written bytes durable even after an
+// earlier one failed.
 func (cl *commitLogger) close() error {
 	if cl.closed {
 		return nil
 	}
-
-	if !cl.paused {
-		if err := cl.writer.Flush(); err != nil {
-			return err
-		}
-
-		if err := cl.file.Sync(); err != nil {
-			return err
-		}
-	}
-
-	if err := cl.file.Close(); err != nil {
-		return err
-	}
 	cl.closed = true
 
-	return nil
+	var firstErr error
+	if !cl.paused {
+		if err := cl.writer.Flush(); err != nil {
+			firstErr = err
+		}
+		if err := cl.file.Sync(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	if err := cl.file.Close(); err != nil && firstErr == nil {
+		firstErr = err
+	}
+
+	return firstErr
 }
 
 func (cl *commitLogger) pause() {

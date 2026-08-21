@@ -28,8 +28,12 @@ import (
 //
 // This is a preparatory stage for creating backups.
 //
-// Method should be run only if flushCycle is not running
-// (was not started, is stopped, or noop impl is provided)
+// FlushMemtable is serialized with the periodic flush cycle through
+// flushAndSwitchMu, so it is safe to call while the cycle is running.
+// Callers that need the on-disk file set to stay stable afterward (e.g.
+// while copying segment files for a backup) must still deactivate the
+// flush cycle themselves — serialization only prevents concurrent flushes,
+// it does not stop a later one from adding a new segment.
 func (b *Bucket) FlushMemtable() error {
 	if err := b.readOnlyErr(); err != nil {
 		return fmt.Errorf("flush memtable: %w", err)
