@@ -92,8 +92,35 @@ func (s *MigrationRecordStore) path(key MigrationRecordKey) string {
 	return filepath.Join(s.dir, key.fileName())
 }
 
-// Load replaces the in-memory contents from disk and sweeps temp files a crash
-// left behind. A missing directory is the ordinary no-migration case.
+// SweepTempFiles removes the scratch files a crash left behind. It is separate
+// from Load because Load also serves throwaway stores built over a directory
+// another store owns and is actively writing: deleting a scratch file there
+// makes the owner's rename fail. Only the owning shard calls this, once, before
+// it is loaded and while it is therefore the only writer.
+func (s *MigrationRecordStore) SweepTempFiles() {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			s.logger.WithField("path", s.dir).Warnf("sweep stale migration record temp files: %v", err)
+		}
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, tmpExt) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.dir, name)); err != nil && !os.IsNotExist(err) {
+			s.logger.WithField("file", name).Warnf("remove stale migration record temp file: %v", err)
+		}
+	}
+}
+
+// Load replaces the in-memory contents from disk. A missing directory is the
+// ordinary no-migration case.
 func (s *MigrationRecordStore) Load() error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -112,10 +139,9 @@ func (s *MigrationRecordStore) Load() error {
 
 	for _, entry := range entries {
 		name := entry.Name()
+		// A half-written scratch file is not a record, and it belongs to
+		// whoever is writing it.
 		if strings.HasSuffix(name, tmpExt) {
-			if err := os.Remove(filepath.Join(s.dir, name)); err != nil && !os.IsNotExist(err) {
-				s.logger.WithField("file", name).Warnf("remove stale migration record temp file: %v", err)
-			}
 			continue
 		}
 

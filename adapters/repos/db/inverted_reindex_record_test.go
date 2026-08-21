@@ -289,19 +289,6 @@ func TestMigrationRecordStore(t *testing.T) {
 			},
 		},
 		{
-			name: "a temp file a crash left behind is swept",
-			arrange: func(t *testing.T, s *MigrationRecordStore) {
-				require.NoError(t, os.MkdirAll(s.Dir(), 0o777))
-				require.NoError(t, os.WriteFile(filepath.Join(s.Dir(), "42_enable_filterable.json.4711.tmp"), []byte("half a record"), 0o600))
-			},
-			assert: func(t *testing.T, s *MigrationRecordStore) {
-				left, err := os.ReadDir(s.Dir())
-				require.NoError(t, err)
-				require.Empty(t, left)
-				require.Empty(t, s.Unreadable())
-			},
-		},
-		{
 			name: "a file this build cannot place is surfaced, not deleted",
 			arrange: func(t *testing.T, s *MigrationRecordStore) {
 				require.NoError(t, os.MkdirAll(s.Dir(), 0o777))
@@ -373,6 +360,31 @@ func TestMigrationRecordStore(t *testing.T) {
 			},
 		},
 		{
+			name: "a scratch file another writer owns survives a load and only the owner sweeps it",
+			arrange: func(t *testing.T, s *MigrationRecordStore) {
+				require.NoError(t, os.MkdirAll(s.Dir(), 0o777))
+				require.NoError(t, os.WriteFile(filepath.Join(s.Dir(), "42_enable_filterable.json.1234"+tmpExt), []byte("half"), 0o600))
+			},
+			assert: func(t *testing.T, s *MigrationRecordStore) {
+				scratch := filepath.Join(s.Dir(), "42_enable_filterable.json.1234"+tmpExt)
+				require.Empty(t, s.Records())
+				require.Empty(t, s.Unreadable(), "a scratch file is not a record this build failed to read")
+
+				// A reader over someone else's directory removing this file is
+				// what makes that writer's rename fail.
+				logger, _ := test.NewNullLogger()
+				_, _, unreadable := migrationRecordsAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.False(t, unreadable)
+				_, err := os.Stat(scratch)
+				require.NoError(t, err, "a foreign reader must not delete a scratch file it does not own")
+
+				s.SweepTempFiles()
+				left, err := os.ReadDir(s.Dir())
+				require.NoError(t, err)
+				require.Empty(t, left, "the owning store sweeps what a crash left behind")
+			},
+		},
+		{
 			name: "records come back in ascending generation order",
 			arrange: func(t *testing.T, s *MigrationRecordStore) {
 				require.NoError(t, s.Put(merged(43, StrategyCodeEnableFilterable)))
@@ -411,7 +423,8 @@ func TestMigrationRecordStore(t *testing.T) {
 
 func TestMigrationRecordStoreConcurrentAccess(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	store := NewMigrationRecordStore(t.TempDir(), logger)
+	lsmPath := t.TempDir()
+	store := NewMigrationRecordStore(lsmPath, logger)
 
 	const writers, readers = 8, 8
 	var wg sync.WaitGroup
@@ -437,6 +450,18 @@ func TestMigrationRecordStoreConcurrentAccess(t *testing.T) {
 					_, _ = store.Get(rec.Subject().Key)
 				}
 				_ = store.Unreadable()
+			}
+		}()
+	}
+	// Foreign readers build their own store over the same directory. Several
+	// gates do this per shard, one of them on every scheduler tick, so they run
+	// against a shard that is writing.
+	for range readers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 64 {
+				migrationRecordsAt(lsmPath, logger)
 			}
 		}()
 	}

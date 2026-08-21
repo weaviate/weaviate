@@ -102,6 +102,9 @@ func (db *DB) migrationLocalTasks() ([]*distributedtask.Task, bool) {
 // be serving the wrong data.
 func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Class) {
 	s.migrationRecords = NewMigrationRecordStore(s.pathLSM(), s.index.logger)
+	// The owning store is the only one that may sweep: the same directory is
+	// read by throwaway stores while this shard writes to it.
+	s.migrationRecords.SweepTempFiles()
 
 	if err := s.migrationReconciler(func() *models.Class { return class }).Reconcile(ctx); err != nil {
 		// A shard whose records cannot be read still has to load; every
