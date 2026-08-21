@@ -16,6 +16,20 @@ source of truth; this doc is the navigable overview that ties them
 together. If a section here disagrees with a godoc in source, the
 godoc wins — and that's a bug in this doc.
 
+> **Out of date: how migration state is stored.** Everywhere below that
+> describes per-migration marker files (`started.mig`, `reindexed.mig`,
+> `prepended.mig`, `merged.mig`, `swapped.mig`, `tidied.mig`,
+> `properties.mig`) or `FinalizeCompletedMigrations` describes a
+> representation that no longer exists. One JSON record per (shard,
+> migration) at `<shard>/lsm/.migrations/records/` holds the state now, in
+> five states (Iterating, Iterated, Merged, Swapped, Promoted), and
+> reconciliation at shard load owns every load-time decision the finalizer
+> used to make. Read `inverted_reindex_record.go` and
+> `inverted_reindex_reconcile.go` for the current shape. The rest of this
+> document — the API, the strategy catalogue, the phase contract, the
+> concurrency model, multi-tenancy and the tokenization overlay — is
+> unaffected.
+
 ## 1. Overview
 
 A runtime reindex rebuilds one or more inverted-index buckets on a
