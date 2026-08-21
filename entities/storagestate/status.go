@@ -23,6 +23,7 @@ const (
 	StatusLazyLoading Status = "LAZY_LOADING"
 	StatusReady       Status = "READY"
 	StatusShutdown    Status = "SHUTDOWN"
+	StatusUnavailable Status = "UNAVAILABLE"
 )
 
 var ErrStatusReadOnlyWithReason = func(reason string) error {

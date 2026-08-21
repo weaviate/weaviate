@@ -351,6 +351,7 @@ func TestIndex_getShardsStatus(t *testing.T) {
 		"shard_local":          clusterNodes,
 		"shard_not_local":      clusterNodes[1:],
 		"remote_not_reachable": clusterNodes,
+		"local_not_reachable":  clusterNodes,
 	}
 	shardStatus := map[string]map[string]string{
 		"shard_local": {
@@ -367,17 +368,26 @@ func TestIndex_getShardsStatus(t *testing.T) {
 			"node-1": storagestate.StatusReady.String(),
 			"node-2": NodeUnresponsive, // Remote replica failed to report status.
 		},
+		"local_not_reachable": {
+			"node-0": NodeUnresponsive, // Local replica failed to report status.
+			"node-2": storagestate.StatusReady.String(),
+			"node-1": storagestate.StatusReady.String(),
+		},
 	}
 
 	// NodeUnresponsive should not be in the final response.
 	want := maps.Clone(shardStatus)
 	want["remote_not_reachable"] = maps.Clone(want["remote_not_reachable"])
-	delete(want["remote_not_reachable"], "node-2")
+	want["remote_not_reachable"]["node-2"] = storagestate.StatusUnavailable.String()
+
+	want["local_not_reachable"] = maps.Clone(want["local_not_reachable"])
+	want["local_not_reachable"]["node-0"] = storagestate.StatusUnavailable.String()
 
 	wantLegacy := map[string]string{
 		"shard_local":          storagestate.StatusReady.String(),
 		"shard_not_local":      storagestate.StatusIndexing.String(),
 		"remote_not_reachable": storagestate.StatusReady.String(),
+		"local_not_reachable":  storagestate.StatusUnavailable.String(),
 	}
 
 	var replicas []types.Replica
@@ -448,7 +458,12 @@ func TestIndex_getShardsStatus(t *testing.T) {
 		mockShard := NewMockShardLike(t)
 		mockShard.EXPECT().
 			preventShutdown().
-			Return(func() {}, nil).Maybe()
+			RunAndReturn(func() (func(), error) {
+				if statusByNode[targetNode] == NodeUnresponsive {
+					return nil, errors.New(NodeUnresponsive)
+				}
+				return func() {}, nil
+			}).Maybe()
 		mockShard.EXPECT().
 			Name().
 			Return(shardName).Maybe()
