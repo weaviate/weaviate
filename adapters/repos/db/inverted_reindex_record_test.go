@@ -34,6 +34,7 @@ func testMigrationSubject(version uint64, code MigrationStrategyCode, props ...s
 		Properties:           props,
 		TargetTokenization:   models.PropertyTokenizationLowercase,
 		OriginalTokenization: models.PropertyTokenizationWord,
+		TrackerDir:           fmt.Sprintf("m_%d_tracker", version),
 		SidecarDirs:          []string{fmt.Sprintf("m_%d_sidecar", version)},
 	}
 	if len(props) == 0 {

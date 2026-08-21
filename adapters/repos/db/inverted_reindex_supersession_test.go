@@ -201,6 +201,7 @@ func TestReconcileSupersession(t *testing.T) {
 
 			f.reconcile()
 			tt.assert(t, f)
+			f.requireMigrationDirsTrackRecords()
 
 			// Re-deriving the same relation from the same records must not
 			// move anything: a crash between two retirements changes nothing.

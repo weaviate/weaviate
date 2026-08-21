@@ -143,6 +143,7 @@ func (r *migrationReconciler) retireSuperseded(ctx context.Context, all []Migrat
 				r.logger.WithField("dir", dir).Errorf("remove sidecar directory of a superseded migration: %v", err)
 			}
 		}
+		r.removeTrackerDir(subject)
 		if err := r.store.Remove(subject.Key); err != nil {
 			r.logger.WithField("record", subject.Key.String()).Errorf("remove superseded migration record: %v", err)
 		}

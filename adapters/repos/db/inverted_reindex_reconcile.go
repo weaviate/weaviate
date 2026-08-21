@@ -341,6 +341,7 @@ func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec Migrati
 	if !migrationEffectSatisfied(class, subject) {
 		return nil
 	}
+	r.removeTrackerDir(subject)
 	return r.store.Remove(subject.Key)
 }
 
@@ -407,6 +408,7 @@ func (r *migrationReconciler) discard(ctx context.Context, subject MigrationSubj
 	if remaining := r.reclaimOwnedDirs(subject); len(remaining) > 0 {
 		return fmt.Errorf("%d owned directory/directories survived the discard", len(remaining))
 	}
+	r.removeTrackerDir(subject)
 	return r.store.Remove(subject.Key)
 }
 
@@ -419,6 +421,21 @@ func (r *migrationReconciler) disarmAndClose(ctx context.Context, key MigrationR
 	}
 	if err := r.deps.Buckets.ShutdownStagedBuckets(ctx, key, prop); err != nil {
 		r.logger.WithField("record", key.String()).Errorf("shut down staged buckets for property %q: %v", prop, err)
+	}
+}
+
+// removeTrackerDir removes the migration's own directory under .migrations,
+// which holds the recovery payload. It is deliberately not one of the owned
+// dirs: those are bucket directories at the LSM root, and the Iterated probe
+// reads their presence as proof the rebuild reached disk, which this one says
+// nothing about.
+func (r *migrationReconciler) removeTrackerDir(subject MigrationSubject) {
+	if subject.TrackerDir == "" {
+		return
+	}
+	path := filepath.Join(r.lsmPath, migrationsDir, subject.TrackerDir)
+	if err := os.RemoveAll(path); err != nil {
+		r.logger.WithField("dir", path).Errorf("remove migration directory: %v", err)
 	}
 }
 

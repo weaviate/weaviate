@@ -48,6 +48,7 @@ func (f *fakeBucketCloser) ShutdownStagedBuckets(_ context.Context, key Migratio
 type reconcileFixture struct {
 	t             *testing.T
 	lsmPath       string
+	planted       []MigrationSubject
 	store         *MigrationRecordStore
 	mirror        *fakeMirrorRegistry
 	buckets       *fakeBucketCloser
@@ -103,9 +104,35 @@ func (f *reconcileFixture) contentOf(name string) string {
 	return string(data)
 }
 
+// put plants the record and the migration directory together, which is the
+// only pairing production ever writes: the directory holds the recovery
+// payload and is created before the first record write.
 func (f *reconcileFixture) put(rec MigrationRecord) {
 	f.t.Helper()
+	subject := rec.Subject()
 	require.NoError(f.t, f.store.Put(rec))
+	f.planted = append(f.planted, subject)
+	path := filepath.Join(f.lsmPath, migrationsDir, subject.TrackerDir)
+	require.NoError(f.t, os.MkdirAll(path, 0o777))
+	require.NoError(f.t, os.WriteFile(filepath.Join(path, "payload.mig"), []byte(subject.TaskID), 0o600))
+}
+
+func (f *reconcileFixture) migrationDirExists(subject MigrationSubject) bool {
+	info, err := os.Stat(filepath.Join(f.lsmPath, migrationsDir, subject.TrackerDir))
+	return err == nil && info.IsDir()
+}
+
+// requireMigrationDirsTrackRecords pins that the migration directory goes
+// exactly when its record does: earlier would take the recovery payload out
+// from under a live migration, later would strand a directory that nothing
+// left on disk can attribute.
+func (f *reconcileFixture) requireMigrationDirsTrackRecords() {
+	f.t.Helper()
+	for _, subject := range f.planted {
+		_, hasRecord := f.store.Get(subject.Key)
+		require.Equal(f.t, hasRecord, f.migrationDirExists(subject),
+			"migration directory of %s", subject.Key)
+	}
 }
 
 func (f *reconcileFixture) state(key MigrationRecordKey) (MigrationState, bool) {
@@ -271,6 +298,7 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			require.Equal(t, !tt.wantStagedGone, f.exists("m_42_title"))
 			require.True(t, f.exists("property_title"), "the canonical bucket must survive every disposition")
 			require.Equal(t, tt.wantCanonical, f.contentOf("property_title"))
+			f.requireMigrationDirsTrackRecords()
 		})
 	}
 }
@@ -520,6 +548,7 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			for _, leftover := range tt.leftovers {
 				require.False(t, f.exists(leftover), "an owned leftover has to be reclaimed")
 			}
+			f.requireMigrationDirsTrackRecords()
 		})
 	}
 }
