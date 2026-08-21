@@ -3212,6 +3212,9 @@ func TestClassifyCrossClass(t *testing.T) {
 	}
 	type shardSpec struct{ class, name string }
 	type responder func(map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error)
+	refuse := func(map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+		return nil, errors.New("connection refused")
+	}
 	tests := []struct {
 		name        string
 		shards      []shardSpec
@@ -3268,25 +3271,17 @@ func TestClassifyCrossClass(t *testing.T) {
 			wantSkip: map[string]bool{"s1": true, "s2": false},
 		},
 		{
-			name:   "transport error descends the host tuples",
-			shards: []shardSpec{{"A", "s1"}, {"B", "s2"}},
-			hosts:  map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
-			respond: map[string]responder{
-				"h1": func(map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
-					return nil, errors.New("connection refused")
-				},
-			},
+			name:     "transport error descends the host tuples",
+			shards:   []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:    map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond:  map[string]responder{"h1": refuse},
 			wantSkip: map[string]bool{"s1": false, "s2": false},
 		},
 		{
-			name:   "one healthy and one erroring host descends",
-			shards: []shardSpec{{"A", "s1"}},
-			hosts:  map[string][]string{"s1": {"h1", "h2"}},
-			respond: map[string]responder{
-				"h2": func(map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
-					return nil, errors.New("connection refused")
-				},
-			},
+			name:     "one healthy and one erroring host descends",
+			shards:   []shardSpec{{"A", "s1"}},
+			hosts:    map[string][]string{"s1": {"h1", "h2"}},
+			respond:  map[string]responder{"h2": refuse},
 			wantSkip: map[string]bool{"s1": false},
 		},
 		{

@@ -2289,6 +2289,209 @@ func (x *CompareHashTreeRootsResponse) GetDivergingShards() []string {
 	return nil
 }
 
+// CompareHashTreeRootsMulti is the cross-class form of CompareHashTreeRoots: one
+// request carries every class's due shard roots for this target node.
+type ClassShardRootDigests struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Index            string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	ShardRootDigests []*ShardRootDigest     `protobuf:"bytes,2,rep,name=shard_root_digests,json=shardRootDigests,proto3" json:"shard_root_digests,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ClassShardRootDigests) Reset() {
+	*x = ClassShardRootDigests{}
+	mi := &file_protocol_replication_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClassShardRootDigests) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClassShardRootDigests) ProtoMessage() {}
+
+func (x *ClassShardRootDigests) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClassShardRootDigests.ProtoReflect.Descriptor instead.
+func (*ClassShardRootDigests) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *ClassShardRootDigests) GetIndex() string {
+	if x != nil {
+		return x.Index
+	}
+	return ""
+}
+
+func (x *ClassShardRootDigests) GetShardRootDigests() []*ShardRootDigest {
+	if x != nil {
+		return x.ShardRootDigests
+	}
+	return nil
+}
+
+type CompareHashTreeRootsMultiRequest struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Classes       []*ClassShardRootDigests `protobuf:"bytes,1,rep,name=classes,proto3" json:"classes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompareHashTreeRootsMultiRequest) Reset() {
+	*x = CompareHashTreeRootsMultiRequest{}
+	mi := &file_protocol_replication_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompareHashTreeRootsMultiRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompareHashTreeRootsMultiRequest) ProtoMessage() {}
+
+func (x *CompareHashTreeRootsMultiRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompareHashTreeRootsMultiRequest.ProtoReflect.Descriptor instead.
+func (*CompareHashTreeRootsMultiRequest) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *CompareHashTreeRootsMultiRequest) GetClasses() []*ClassShardRootDigests {
+	if x != nil {
+		return x.Classes
+	}
+	return nil
+}
+
+// error set means the class could not be compared; the sender descends its shards.
+type ClassDivergingShards struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Index           string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	DivergingShards []string               `protobuf:"bytes,2,rep,name=diverging_shards,json=divergingShards,proto3" json:"diverging_shards,omitempty"`
+	Error           string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ClassDivergingShards) Reset() {
+	*x = ClassDivergingShards{}
+	mi := &file_protocol_replication_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClassDivergingShards) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClassDivergingShards) ProtoMessage() {}
+
+func (x *ClassDivergingShards) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClassDivergingShards.ProtoReflect.Descriptor instead.
+func (*ClassDivergingShards) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *ClassDivergingShards) GetIndex() string {
+	if x != nil {
+		return x.Index
+	}
+	return ""
+}
+
+func (x *ClassDivergingShards) GetDivergingShards() []string {
+	if x != nil {
+		return x.DivergingShards
+	}
+	return nil
+}
+
+func (x *ClassDivergingShards) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type CompareHashTreeRootsMultiResponse struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Classes       []*ClassDivergingShards `protobuf:"bytes,1,rep,name=classes,proto3" json:"classes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompareHashTreeRootsMultiResponse) Reset() {
+	*x = CompareHashTreeRootsMultiResponse{}
+	mi := &file_protocol_replication_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompareHashTreeRootsMultiResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompareHashTreeRootsMultiResponse) ProtoMessage() {}
+
+func (x *CompareHashTreeRootsMultiResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompareHashTreeRootsMultiResponse.ProtoReflect.Descriptor instead.
+func (*CompareHashTreeRootsMultiResponse) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *CompareHashTreeRootsMultiResponse) GetClasses() []*ClassDivergingShards {
+	if x != nil {
+		return x.Classes
+	}
+	return nil
+}
+
 // CountObjects fetches hash tree level digests.
 type CountObjectsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2300,7 +2503,7 @@ type CountObjectsRequest struct {
 
 func (x *CountObjectsRequest) Reset() {
 	*x = CountObjectsRequest{}
-	mi := &file_protocol_replication_proto_msgTypes[38]
+	mi := &file_protocol_replication_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2312,7 +2515,7 @@ func (x *CountObjectsRequest) String() string {
 func (*CountObjectsRequest) ProtoMessage() {}
 
 func (x *CountObjectsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[38]
+	mi := &file_protocol_replication_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2325,7 +2528,7 @@ func (x *CountObjectsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CountObjectsRequest.ProtoReflect.Descriptor instead.
 func (*CountObjectsRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{38}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *CountObjectsRequest) GetIndex() string {
@@ -2352,7 +2555,7 @@ type CountObjectsResponse struct {
 
 func (x *CountObjectsResponse) Reset() {
 	*x = CountObjectsResponse{}
-	mi := &file_protocol_replication_proto_msgTypes[39]
+	mi := &file_protocol_replication_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2364,7 +2567,7 @@ func (x *CountObjectsResponse) String() string {
 func (*CountObjectsResponse) ProtoMessage() {}
 
 func (x *CountObjectsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[39]
+	mi := &file_protocol_replication_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2377,7 +2580,7 @@ func (x *CountObjectsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CountObjectsResponse.ProtoReflect.Descriptor instead.
 func (*CountObjectsResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{39}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *CountObjectsResponse) GetCount() int32 {
@@ -2401,7 +2604,7 @@ type CreateAsyncCheckpointRequest struct {
 
 func (x *CreateAsyncCheckpointRequest) Reset() {
 	*x = CreateAsyncCheckpointRequest{}
-	mi := &file_protocol_replication_proto_msgTypes[40]
+	mi := &file_protocol_replication_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2413,7 +2616,7 @@ func (x *CreateAsyncCheckpointRequest) String() string {
 func (*CreateAsyncCheckpointRequest) ProtoMessage() {}
 
 func (x *CreateAsyncCheckpointRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[40]
+	mi := &file_protocol_replication_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2426,7 +2629,7 @@ func (x *CreateAsyncCheckpointRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAsyncCheckpointRequest.ProtoReflect.Descriptor instead.
 func (*CreateAsyncCheckpointRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{40}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *CreateAsyncCheckpointRequest) GetIndex() string {
@@ -2465,7 +2668,7 @@ type CreateAsyncCheckpointResponse struct {
 
 func (x *CreateAsyncCheckpointResponse) Reset() {
 	*x = CreateAsyncCheckpointResponse{}
-	mi := &file_protocol_replication_proto_msgTypes[41]
+	mi := &file_protocol_replication_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2477,7 +2680,7 @@ func (x *CreateAsyncCheckpointResponse) String() string {
 func (*CreateAsyncCheckpointResponse) ProtoMessage() {}
 
 func (x *CreateAsyncCheckpointResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[41]
+	mi := &file_protocol_replication_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2490,7 +2693,7 @@ func (x *CreateAsyncCheckpointResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAsyncCheckpointResponse.ProtoReflect.Descriptor instead.
 func (*CreateAsyncCheckpointResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{41}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{45}
 }
 
 type DeleteAsyncCheckpointRequest struct {
@@ -2503,7 +2706,7 @@ type DeleteAsyncCheckpointRequest struct {
 
 func (x *DeleteAsyncCheckpointRequest) Reset() {
 	*x = DeleteAsyncCheckpointRequest{}
-	mi := &file_protocol_replication_proto_msgTypes[42]
+	mi := &file_protocol_replication_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2515,7 +2718,7 @@ func (x *DeleteAsyncCheckpointRequest) String() string {
 func (*DeleteAsyncCheckpointRequest) ProtoMessage() {}
 
 func (x *DeleteAsyncCheckpointRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[42]
+	mi := &file_protocol_replication_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2528,7 +2731,7 @@ func (x *DeleteAsyncCheckpointRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAsyncCheckpointRequest.ProtoReflect.Descriptor instead.
 func (*DeleteAsyncCheckpointRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{42}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *DeleteAsyncCheckpointRequest) GetIndex() string {
@@ -2553,7 +2756,7 @@ type DeleteAsyncCheckpointResponse struct {
 
 func (x *DeleteAsyncCheckpointResponse) Reset() {
 	*x = DeleteAsyncCheckpointResponse{}
-	mi := &file_protocol_replication_proto_msgTypes[43]
+	mi := &file_protocol_replication_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2565,7 +2768,7 @@ func (x *DeleteAsyncCheckpointResponse) String() string {
 func (*DeleteAsyncCheckpointResponse) ProtoMessage() {}
 
 func (x *DeleteAsyncCheckpointResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[43]
+	mi := &file_protocol_replication_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2578,7 +2781,7 @@ func (x *DeleteAsyncCheckpointResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAsyncCheckpointResponse.ProtoReflect.Descriptor instead.
 func (*DeleteAsyncCheckpointResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{43}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{47}
 }
 
 // GetAsyncCheckpointStatusResponse omits shards not loaded on this node, so
@@ -2593,7 +2796,7 @@ type GetAsyncCheckpointStatusRequest struct {
 
 func (x *GetAsyncCheckpointStatusRequest) Reset() {
 	*x = GetAsyncCheckpointStatusRequest{}
-	mi := &file_protocol_replication_proto_msgTypes[44]
+	mi := &file_protocol_replication_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2605,7 +2808,7 @@ func (x *GetAsyncCheckpointStatusRequest) String() string {
 func (*GetAsyncCheckpointStatusRequest) ProtoMessage() {}
 
 func (x *GetAsyncCheckpointStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[44]
+	mi := &file_protocol_replication_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2618,7 +2821,7 @@ func (x *GetAsyncCheckpointStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAsyncCheckpointStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetAsyncCheckpointStatusRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{44}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *GetAsyncCheckpointStatusRequest) GetIndex() string {
@@ -2647,7 +2850,7 @@ type AsyncCheckpointShardStatus struct {
 
 func (x *AsyncCheckpointShardStatus) Reset() {
 	*x = AsyncCheckpointShardStatus{}
-	mi := &file_protocol_replication_proto_msgTypes[45]
+	mi := &file_protocol_replication_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2659,7 +2862,7 @@ func (x *AsyncCheckpointShardStatus) String() string {
 func (*AsyncCheckpointShardStatus) ProtoMessage() {}
 
 func (x *AsyncCheckpointShardStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[45]
+	mi := &file_protocol_replication_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2672,7 +2875,7 @@ func (x *AsyncCheckpointShardStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AsyncCheckpointShardStatus.ProtoReflect.Descriptor instead.
 func (*AsyncCheckpointShardStatus) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{45}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *AsyncCheckpointShardStatus) GetRoot() []byte {
@@ -2705,7 +2908,7 @@ type GetAsyncCheckpointStatusResponse struct {
 
 func (x *GetAsyncCheckpointStatusResponse) Reset() {
 	*x = GetAsyncCheckpointStatusResponse{}
-	mi := &file_protocol_replication_proto_msgTypes[46]
+	mi := &file_protocol_replication_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2717,7 +2920,7 @@ func (x *GetAsyncCheckpointStatusResponse) String() string {
 func (*GetAsyncCheckpointStatusResponse) ProtoMessage() {}
 
 func (x *GetAsyncCheckpointStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[46]
+	mi := &file_protocol_replication_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2730,7 +2933,7 @@ func (x *GetAsyncCheckpointStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAsyncCheckpointStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetAsyncCheckpointStatusResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{46}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *GetAsyncCheckpointStatusResponse) GetStatuses() map[string]*AsyncCheckpointShardStatus {
@@ -2905,7 +3108,18 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12I\n" +
 	"\x12shard_root_digests\x18\x02 \x03(\v2\x1b.clusterapi.ShardRootDigestR\x10shardRootDigests\"I\n" +
 	"\x1cCompareHashTreeRootsResponse\x12)\n" +
-	"\x10diverging_shards\x18\x01 \x03(\tR\x0fdivergingShards\"A\n" +
+	"\x10diverging_shards\x18\x01 \x03(\tR\x0fdivergingShards\"x\n" +
+	"\x15ClassShardRootDigests\x12\x14\n" +
+	"\x05index\x18\x01 \x01(\tR\x05index\x12I\n" +
+	"\x12shard_root_digests\x18\x02 \x03(\v2\x1b.clusterapi.ShardRootDigestR\x10shardRootDigests\"_\n" +
+	" CompareHashTreeRootsMultiRequest\x12;\n" +
+	"\aclasses\x18\x01 \x03(\v2!.clusterapi.ClassShardRootDigestsR\aclasses\"m\n" +
+	"\x14ClassDivergingShards\x12\x14\n" +
+	"\x05index\x18\x01 \x01(\tR\x05index\x12)\n" +
+	"\x10diverging_shards\x18\x02 \x03(\tR\x0fdivergingShards\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"_\n" +
+	"!CompareHashTreeRootsMultiResponse\x12:\n" +
+	"\aclasses\x18\x01 \x03(\v2 .clusterapi.ClassDivergingShardsR\aclasses\"A\n" +
 	"\x13CountObjectsRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\",\n" +
@@ -2932,7 +3146,7 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\bstatuses\x18\x01 \x03(\v2:.clusterapi.GetAsyncCheckpointStatusResponse.StatusesEntryR\bstatuses\x1ac\n" +
 	"\rStatusesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12<\n" +
-	"\x05value\x18\x02 \x01(\v2&.clusterapi.AsyncCheckpointShardStatusR\x05value:\x028\x012\xc6\x0e\n" +
+	"\x05value\x18\x02 \x01(\v2&.clusterapi.AsyncCheckpointShardStatusR\x05value:\x028\x012\xc0\x0f\n" +
 	"\x12ReplicationService\x12H\n" +
 	"\tPutObject\x12\x1c.clusterapi.PutObjectRequest\x1a\x1d.clusterapi.PutObjectResponse\x12K\n" +
 	"\n" +
@@ -2951,7 +3165,8 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\x10OverwriteObjects\x12#.clusterapi.OverwriteObjectsRequest\x1a$.clusterapi.OverwriteObjectsResponse\x12H\n" +
 	"\tFindUUIDs\x12\x1c.clusterapi.FindUUIDsRequest\x1a\x1d.clusterapi.FindUUIDsResponse\x12T\n" +
 	"\rHashTreeLevel\x12 .clusterapi.HashTreeLevelRequest\x1a!.clusterapi.HashTreeLevelResponse\x12i\n" +
-	"\x14CompareHashTreeRoots\x12'.clusterapi.CompareHashTreeRootsRequest\x1a(.clusterapi.CompareHashTreeRootsResponse\x12Q\n" +
+	"\x14CompareHashTreeRoots\x12'.clusterapi.CompareHashTreeRootsRequest\x1a(.clusterapi.CompareHashTreeRootsResponse\x12x\n" +
+	"\x19CompareHashTreeRootsMulti\x12,.clusterapi.CompareHashTreeRootsMultiRequest\x1a-.clusterapi.CompareHashTreeRootsMultiResponse\x12Q\n" +
 	"\fCountObjects\x12\x1f.clusterapi.CountObjectsRequest\x1a .clusterapi.CountObjectsResponse\x12l\n" +
 	"\x15CreateAsyncCheckpoint\x12(.clusterapi.CreateAsyncCheckpointRequest\x1a).clusterapi.CreateAsyncCheckpointResponse\x12l\n" +
 	"\x15DeleteAsyncCheckpoint\x12(.clusterapi.DeleteAsyncCheckpointRequest\x1a).clusterapi.DeleteAsyncCheckpointResponse\x12u\n" +
@@ -2973,56 +3188,60 @@ func file_protocol_replication_proto_rawDescGZIP() []byte {
 	return file_protocol_replication_proto_rawDescData
 }
 
-var file_protocol_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
+var file_protocol_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
 var file_protocol_replication_proto_goTypes = []any{
-	(*ReplicaError)(nil),                     // 0: clusterapi.ReplicaError
-	(*SimpleReplicaResponse)(nil),            // 1: clusterapi.SimpleReplicaResponse
-	(*RepairResponse)(nil),                   // 2: clusterapi.RepairResponse
-	(*PutObjectRequest)(nil),                 // 3: clusterapi.PutObjectRequest
-	(*PutObjectResponse)(nil),                // 4: clusterapi.PutObjectResponse
-	(*PutObjectsRequest)(nil),                // 5: clusterapi.PutObjectsRequest
-	(*PutObjectsResponse)(nil),               // 6: clusterapi.PutObjectsResponse
-	(*MergeObjectRequest)(nil),               // 7: clusterapi.MergeObjectRequest
-	(*MergeObjectResponse)(nil),              // 8: clusterapi.MergeObjectResponse
-	(*DeleteObjectRequest)(nil),              // 9: clusterapi.DeleteObjectRequest
-	(*DeleteObjectResponse)(nil),             // 10: clusterapi.DeleteObjectResponse
-	(*DeleteObjectsRequest)(nil),             // 11: clusterapi.DeleteObjectsRequest
-	(*DeleteObjectsResponse)(nil),            // 12: clusterapi.DeleteObjectsResponse
-	(*AddReferencesRequest)(nil),             // 13: clusterapi.AddReferencesRequest
-	(*AddReferencesResponse)(nil),            // 14: clusterapi.AddReferencesResponse
-	(*CommitRequest)(nil),                    // 15: clusterapi.CommitRequest
-	(*CommitResponse)(nil),                   // 16: clusterapi.CommitResponse
-	(*AbortRequest)(nil),                     // 17: clusterapi.AbortRequest
-	(*AbortResponse)(nil),                    // 18: clusterapi.AbortResponse
-	(*FetchObjectRequest)(nil),               // 19: clusterapi.FetchObjectRequest
-	(*FetchObjectResponse)(nil),              // 20: clusterapi.FetchObjectResponse
-	(*FetchObjectsRequest)(nil),              // 21: clusterapi.FetchObjectsRequest
-	(*FetchObjectsResponse)(nil),             // 22: clusterapi.FetchObjectsResponse
-	(*DigestObjectsRequest)(nil),             // 23: clusterapi.DigestObjectsRequest
-	(*DigestObjectsResponse)(nil),            // 24: clusterapi.DigestObjectsResponse
-	(*DigestObjectsInRangeRequest)(nil),      // 25: clusterapi.DigestObjectsInRangeRequest
-	(*DigestObjectsInRangeResponse)(nil),     // 26: clusterapi.DigestObjectsInRangeResponse
-	(*CompareDigestsRequest)(nil),            // 27: clusterapi.CompareDigestsRequest
-	(*CompareDigestsResponse)(nil),           // 28: clusterapi.CompareDigestsResponse
-	(*OverwriteObjectsRequest)(nil),          // 29: clusterapi.OverwriteObjectsRequest
-	(*OverwriteObjectsResponse)(nil),         // 30: clusterapi.OverwriteObjectsResponse
-	(*FindUUIDsRequest)(nil),                 // 31: clusterapi.FindUUIDsRequest
-	(*FindUUIDsResponse)(nil),                // 32: clusterapi.FindUUIDsResponse
-	(*HashTreeLevelRequest)(nil),             // 33: clusterapi.HashTreeLevelRequest
-	(*HashTreeLevelResponse)(nil),            // 34: clusterapi.HashTreeLevelResponse
-	(*ShardRootDigest)(nil),                  // 35: clusterapi.ShardRootDigest
-	(*CompareHashTreeRootsRequest)(nil),      // 36: clusterapi.CompareHashTreeRootsRequest
-	(*CompareHashTreeRootsResponse)(nil),     // 37: clusterapi.CompareHashTreeRootsResponse
-	(*CountObjectsRequest)(nil),              // 38: clusterapi.CountObjectsRequest
-	(*CountObjectsResponse)(nil),             // 39: clusterapi.CountObjectsResponse
-	(*CreateAsyncCheckpointRequest)(nil),     // 40: clusterapi.CreateAsyncCheckpointRequest
-	(*CreateAsyncCheckpointResponse)(nil),    // 41: clusterapi.CreateAsyncCheckpointResponse
-	(*DeleteAsyncCheckpointRequest)(nil),     // 42: clusterapi.DeleteAsyncCheckpointRequest
-	(*DeleteAsyncCheckpointResponse)(nil),    // 43: clusterapi.DeleteAsyncCheckpointResponse
-	(*GetAsyncCheckpointStatusRequest)(nil),  // 44: clusterapi.GetAsyncCheckpointStatusRequest
-	(*AsyncCheckpointShardStatus)(nil),       // 45: clusterapi.AsyncCheckpointShardStatus
-	(*GetAsyncCheckpointStatusResponse)(nil), // 46: clusterapi.GetAsyncCheckpointStatusResponse
-	nil,                                      // 47: clusterapi.GetAsyncCheckpointStatusResponse.StatusesEntry
+	(*ReplicaError)(nil),                      // 0: clusterapi.ReplicaError
+	(*SimpleReplicaResponse)(nil),             // 1: clusterapi.SimpleReplicaResponse
+	(*RepairResponse)(nil),                    // 2: clusterapi.RepairResponse
+	(*PutObjectRequest)(nil),                  // 3: clusterapi.PutObjectRequest
+	(*PutObjectResponse)(nil),                 // 4: clusterapi.PutObjectResponse
+	(*PutObjectsRequest)(nil),                 // 5: clusterapi.PutObjectsRequest
+	(*PutObjectsResponse)(nil),                // 6: clusterapi.PutObjectsResponse
+	(*MergeObjectRequest)(nil),                // 7: clusterapi.MergeObjectRequest
+	(*MergeObjectResponse)(nil),               // 8: clusterapi.MergeObjectResponse
+	(*DeleteObjectRequest)(nil),               // 9: clusterapi.DeleteObjectRequest
+	(*DeleteObjectResponse)(nil),              // 10: clusterapi.DeleteObjectResponse
+	(*DeleteObjectsRequest)(nil),              // 11: clusterapi.DeleteObjectsRequest
+	(*DeleteObjectsResponse)(nil),             // 12: clusterapi.DeleteObjectsResponse
+	(*AddReferencesRequest)(nil),              // 13: clusterapi.AddReferencesRequest
+	(*AddReferencesResponse)(nil),             // 14: clusterapi.AddReferencesResponse
+	(*CommitRequest)(nil),                     // 15: clusterapi.CommitRequest
+	(*CommitResponse)(nil),                    // 16: clusterapi.CommitResponse
+	(*AbortRequest)(nil),                      // 17: clusterapi.AbortRequest
+	(*AbortResponse)(nil),                     // 18: clusterapi.AbortResponse
+	(*FetchObjectRequest)(nil),                // 19: clusterapi.FetchObjectRequest
+	(*FetchObjectResponse)(nil),               // 20: clusterapi.FetchObjectResponse
+	(*FetchObjectsRequest)(nil),               // 21: clusterapi.FetchObjectsRequest
+	(*FetchObjectsResponse)(nil),              // 22: clusterapi.FetchObjectsResponse
+	(*DigestObjectsRequest)(nil),              // 23: clusterapi.DigestObjectsRequest
+	(*DigestObjectsResponse)(nil),             // 24: clusterapi.DigestObjectsResponse
+	(*DigestObjectsInRangeRequest)(nil),       // 25: clusterapi.DigestObjectsInRangeRequest
+	(*DigestObjectsInRangeResponse)(nil),      // 26: clusterapi.DigestObjectsInRangeResponse
+	(*CompareDigestsRequest)(nil),             // 27: clusterapi.CompareDigestsRequest
+	(*CompareDigestsResponse)(nil),            // 28: clusterapi.CompareDigestsResponse
+	(*OverwriteObjectsRequest)(nil),           // 29: clusterapi.OverwriteObjectsRequest
+	(*OverwriteObjectsResponse)(nil),          // 30: clusterapi.OverwriteObjectsResponse
+	(*FindUUIDsRequest)(nil),                  // 31: clusterapi.FindUUIDsRequest
+	(*FindUUIDsResponse)(nil),                 // 32: clusterapi.FindUUIDsResponse
+	(*HashTreeLevelRequest)(nil),              // 33: clusterapi.HashTreeLevelRequest
+	(*HashTreeLevelResponse)(nil),             // 34: clusterapi.HashTreeLevelResponse
+	(*ShardRootDigest)(nil),                   // 35: clusterapi.ShardRootDigest
+	(*CompareHashTreeRootsRequest)(nil),       // 36: clusterapi.CompareHashTreeRootsRequest
+	(*CompareHashTreeRootsResponse)(nil),      // 37: clusterapi.CompareHashTreeRootsResponse
+	(*ClassShardRootDigests)(nil),             // 38: clusterapi.ClassShardRootDigests
+	(*CompareHashTreeRootsMultiRequest)(nil),  // 39: clusterapi.CompareHashTreeRootsMultiRequest
+	(*ClassDivergingShards)(nil),              // 40: clusterapi.ClassDivergingShards
+	(*CompareHashTreeRootsMultiResponse)(nil), // 41: clusterapi.CompareHashTreeRootsMultiResponse
+	(*CountObjectsRequest)(nil),               // 42: clusterapi.CountObjectsRequest
+	(*CountObjectsResponse)(nil),              // 43: clusterapi.CountObjectsResponse
+	(*CreateAsyncCheckpointRequest)(nil),      // 44: clusterapi.CreateAsyncCheckpointRequest
+	(*CreateAsyncCheckpointResponse)(nil),     // 45: clusterapi.CreateAsyncCheckpointResponse
+	(*DeleteAsyncCheckpointRequest)(nil),      // 46: clusterapi.DeleteAsyncCheckpointRequest
+	(*DeleteAsyncCheckpointResponse)(nil),     // 47: clusterapi.DeleteAsyncCheckpointResponse
+	(*GetAsyncCheckpointStatusRequest)(nil),   // 48: clusterapi.GetAsyncCheckpointStatusRequest
+	(*AsyncCheckpointShardStatus)(nil),        // 49: clusterapi.AsyncCheckpointShardStatus
+	(*GetAsyncCheckpointStatusResponse)(nil),  // 50: clusterapi.GetAsyncCheckpointStatusResponse
+	nil,                                       // 51: clusterapi.GetAsyncCheckpointStatusResponse.StatusesEntry
 }
 var file_protocol_replication_proto_depIdxs = []int32{
 	0,  // 0: clusterapi.SimpleReplicaResponse.errors:type_name -> clusterapi.ReplicaError
@@ -3039,55 +3258,60 @@ var file_protocol_replication_proto_depIdxs = []int32{
 	2,  // 11: clusterapi.CompareDigestsResponse.digests:type_name -> clusterapi.RepairResponse
 	2,  // 12: clusterapi.OverwriteObjectsResponse.results:type_name -> clusterapi.RepairResponse
 	35, // 13: clusterapi.CompareHashTreeRootsRequest.shard_root_digests:type_name -> clusterapi.ShardRootDigest
-	47, // 14: clusterapi.GetAsyncCheckpointStatusResponse.statuses:type_name -> clusterapi.GetAsyncCheckpointStatusResponse.StatusesEntry
-	45, // 15: clusterapi.GetAsyncCheckpointStatusResponse.StatusesEntry.value:type_name -> clusterapi.AsyncCheckpointShardStatus
-	3,  // 16: clusterapi.ReplicationService.PutObject:input_type -> clusterapi.PutObjectRequest
-	5,  // 17: clusterapi.ReplicationService.PutObjects:input_type -> clusterapi.PutObjectsRequest
-	7,  // 18: clusterapi.ReplicationService.MergeObject:input_type -> clusterapi.MergeObjectRequest
-	9,  // 19: clusterapi.ReplicationService.DeleteObject:input_type -> clusterapi.DeleteObjectRequest
-	11, // 20: clusterapi.ReplicationService.DeleteObjects:input_type -> clusterapi.DeleteObjectsRequest
-	13, // 21: clusterapi.ReplicationService.AddReferences:input_type -> clusterapi.AddReferencesRequest
-	15, // 22: clusterapi.ReplicationService.Commit:input_type -> clusterapi.CommitRequest
-	17, // 23: clusterapi.ReplicationService.Abort:input_type -> clusterapi.AbortRequest
-	19, // 24: clusterapi.ReplicationService.FetchObject:input_type -> clusterapi.FetchObjectRequest
-	21, // 25: clusterapi.ReplicationService.FetchObjects:input_type -> clusterapi.FetchObjectsRequest
-	23, // 26: clusterapi.ReplicationService.DigestObjects:input_type -> clusterapi.DigestObjectsRequest
-	25, // 27: clusterapi.ReplicationService.DigestObjectsInRange:input_type -> clusterapi.DigestObjectsInRangeRequest
-	27, // 28: clusterapi.ReplicationService.CompareDigests:input_type -> clusterapi.CompareDigestsRequest
-	29, // 29: clusterapi.ReplicationService.OverwriteObjects:input_type -> clusterapi.OverwriteObjectsRequest
-	31, // 30: clusterapi.ReplicationService.FindUUIDs:input_type -> clusterapi.FindUUIDsRequest
-	33, // 31: clusterapi.ReplicationService.HashTreeLevel:input_type -> clusterapi.HashTreeLevelRequest
-	36, // 32: clusterapi.ReplicationService.CompareHashTreeRoots:input_type -> clusterapi.CompareHashTreeRootsRequest
-	38, // 33: clusterapi.ReplicationService.CountObjects:input_type -> clusterapi.CountObjectsRequest
-	40, // 34: clusterapi.ReplicationService.CreateAsyncCheckpoint:input_type -> clusterapi.CreateAsyncCheckpointRequest
-	42, // 35: clusterapi.ReplicationService.DeleteAsyncCheckpoint:input_type -> clusterapi.DeleteAsyncCheckpointRequest
-	44, // 36: clusterapi.ReplicationService.GetAsyncCheckpointStatus:input_type -> clusterapi.GetAsyncCheckpointStatusRequest
-	4,  // 37: clusterapi.ReplicationService.PutObject:output_type -> clusterapi.PutObjectResponse
-	6,  // 38: clusterapi.ReplicationService.PutObjects:output_type -> clusterapi.PutObjectsResponse
-	8,  // 39: clusterapi.ReplicationService.MergeObject:output_type -> clusterapi.MergeObjectResponse
-	10, // 40: clusterapi.ReplicationService.DeleteObject:output_type -> clusterapi.DeleteObjectResponse
-	12, // 41: clusterapi.ReplicationService.DeleteObjects:output_type -> clusterapi.DeleteObjectsResponse
-	14, // 42: clusterapi.ReplicationService.AddReferences:output_type -> clusterapi.AddReferencesResponse
-	16, // 43: clusterapi.ReplicationService.Commit:output_type -> clusterapi.CommitResponse
-	18, // 44: clusterapi.ReplicationService.Abort:output_type -> clusterapi.AbortResponse
-	20, // 45: clusterapi.ReplicationService.FetchObject:output_type -> clusterapi.FetchObjectResponse
-	22, // 46: clusterapi.ReplicationService.FetchObjects:output_type -> clusterapi.FetchObjectsResponse
-	24, // 47: clusterapi.ReplicationService.DigestObjects:output_type -> clusterapi.DigestObjectsResponse
-	26, // 48: clusterapi.ReplicationService.DigestObjectsInRange:output_type -> clusterapi.DigestObjectsInRangeResponse
-	28, // 49: clusterapi.ReplicationService.CompareDigests:output_type -> clusterapi.CompareDigestsResponse
-	30, // 50: clusterapi.ReplicationService.OverwriteObjects:output_type -> clusterapi.OverwriteObjectsResponse
-	32, // 51: clusterapi.ReplicationService.FindUUIDs:output_type -> clusterapi.FindUUIDsResponse
-	34, // 52: clusterapi.ReplicationService.HashTreeLevel:output_type -> clusterapi.HashTreeLevelResponse
-	37, // 53: clusterapi.ReplicationService.CompareHashTreeRoots:output_type -> clusterapi.CompareHashTreeRootsResponse
-	39, // 54: clusterapi.ReplicationService.CountObjects:output_type -> clusterapi.CountObjectsResponse
-	41, // 55: clusterapi.ReplicationService.CreateAsyncCheckpoint:output_type -> clusterapi.CreateAsyncCheckpointResponse
-	43, // 56: clusterapi.ReplicationService.DeleteAsyncCheckpoint:output_type -> clusterapi.DeleteAsyncCheckpointResponse
-	46, // 57: clusterapi.ReplicationService.GetAsyncCheckpointStatus:output_type -> clusterapi.GetAsyncCheckpointStatusResponse
-	37, // [37:58] is the sub-list for method output_type
-	16, // [16:37] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	35, // 14: clusterapi.ClassShardRootDigests.shard_root_digests:type_name -> clusterapi.ShardRootDigest
+	38, // 15: clusterapi.CompareHashTreeRootsMultiRequest.classes:type_name -> clusterapi.ClassShardRootDigests
+	40, // 16: clusterapi.CompareHashTreeRootsMultiResponse.classes:type_name -> clusterapi.ClassDivergingShards
+	51, // 17: clusterapi.GetAsyncCheckpointStatusResponse.statuses:type_name -> clusterapi.GetAsyncCheckpointStatusResponse.StatusesEntry
+	49, // 18: clusterapi.GetAsyncCheckpointStatusResponse.StatusesEntry.value:type_name -> clusterapi.AsyncCheckpointShardStatus
+	3,  // 19: clusterapi.ReplicationService.PutObject:input_type -> clusterapi.PutObjectRequest
+	5,  // 20: clusterapi.ReplicationService.PutObjects:input_type -> clusterapi.PutObjectsRequest
+	7,  // 21: clusterapi.ReplicationService.MergeObject:input_type -> clusterapi.MergeObjectRequest
+	9,  // 22: clusterapi.ReplicationService.DeleteObject:input_type -> clusterapi.DeleteObjectRequest
+	11, // 23: clusterapi.ReplicationService.DeleteObjects:input_type -> clusterapi.DeleteObjectsRequest
+	13, // 24: clusterapi.ReplicationService.AddReferences:input_type -> clusterapi.AddReferencesRequest
+	15, // 25: clusterapi.ReplicationService.Commit:input_type -> clusterapi.CommitRequest
+	17, // 26: clusterapi.ReplicationService.Abort:input_type -> clusterapi.AbortRequest
+	19, // 27: clusterapi.ReplicationService.FetchObject:input_type -> clusterapi.FetchObjectRequest
+	21, // 28: clusterapi.ReplicationService.FetchObjects:input_type -> clusterapi.FetchObjectsRequest
+	23, // 29: clusterapi.ReplicationService.DigestObjects:input_type -> clusterapi.DigestObjectsRequest
+	25, // 30: clusterapi.ReplicationService.DigestObjectsInRange:input_type -> clusterapi.DigestObjectsInRangeRequest
+	27, // 31: clusterapi.ReplicationService.CompareDigests:input_type -> clusterapi.CompareDigestsRequest
+	29, // 32: clusterapi.ReplicationService.OverwriteObjects:input_type -> clusterapi.OverwriteObjectsRequest
+	31, // 33: clusterapi.ReplicationService.FindUUIDs:input_type -> clusterapi.FindUUIDsRequest
+	33, // 34: clusterapi.ReplicationService.HashTreeLevel:input_type -> clusterapi.HashTreeLevelRequest
+	36, // 35: clusterapi.ReplicationService.CompareHashTreeRoots:input_type -> clusterapi.CompareHashTreeRootsRequest
+	39, // 36: clusterapi.ReplicationService.CompareHashTreeRootsMulti:input_type -> clusterapi.CompareHashTreeRootsMultiRequest
+	42, // 37: clusterapi.ReplicationService.CountObjects:input_type -> clusterapi.CountObjectsRequest
+	44, // 38: clusterapi.ReplicationService.CreateAsyncCheckpoint:input_type -> clusterapi.CreateAsyncCheckpointRequest
+	46, // 39: clusterapi.ReplicationService.DeleteAsyncCheckpoint:input_type -> clusterapi.DeleteAsyncCheckpointRequest
+	48, // 40: clusterapi.ReplicationService.GetAsyncCheckpointStatus:input_type -> clusterapi.GetAsyncCheckpointStatusRequest
+	4,  // 41: clusterapi.ReplicationService.PutObject:output_type -> clusterapi.PutObjectResponse
+	6,  // 42: clusterapi.ReplicationService.PutObjects:output_type -> clusterapi.PutObjectsResponse
+	8,  // 43: clusterapi.ReplicationService.MergeObject:output_type -> clusterapi.MergeObjectResponse
+	10, // 44: clusterapi.ReplicationService.DeleteObject:output_type -> clusterapi.DeleteObjectResponse
+	12, // 45: clusterapi.ReplicationService.DeleteObjects:output_type -> clusterapi.DeleteObjectsResponse
+	14, // 46: clusterapi.ReplicationService.AddReferences:output_type -> clusterapi.AddReferencesResponse
+	16, // 47: clusterapi.ReplicationService.Commit:output_type -> clusterapi.CommitResponse
+	18, // 48: clusterapi.ReplicationService.Abort:output_type -> clusterapi.AbortResponse
+	20, // 49: clusterapi.ReplicationService.FetchObject:output_type -> clusterapi.FetchObjectResponse
+	22, // 50: clusterapi.ReplicationService.FetchObjects:output_type -> clusterapi.FetchObjectsResponse
+	24, // 51: clusterapi.ReplicationService.DigestObjects:output_type -> clusterapi.DigestObjectsResponse
+	26, // 52: clusterapi.ReplicationService.DigestObjectsInRange:output_type -> clusterapi.DigestObjectsInRangeResponse
+	28, // 53: clusterapi.ReplicationService.CompareDigests:output_type -> clusterapi.CompareDigestsResponse
+	30, // 54: clusterapi.ReplicationService.OverwriteObjects:output_type -> clusterapi.OverwriteObjectsResponse
+	32, // 55: clusterapi.ReplicationService.FindUUIDs:output_type -> clusterapi.FindUUIDsResponse
+	34, // 56: clusterapi.ReplicationService.HashTreeLevel:output_type -> clusterapi.HashTreeLevelResponse
+	37, // 57: clusterapi.ReplicationService.CompareHashTreeRoots:output_type -> clusterapi.CompareHashTreeRootsResponse
+	41, // 58: clusterapi.ReplicationService.CompareHashTreeRootsMulti:output_type -> clusterapi.CompareHashTreeRootsMultiResponse
+	43, // 59: clusterapi.ReplicationService.CountObjects:output_type -> clusterapi.CountObjectsResponse
+	45, // 60: clusterapi.ReplicationService.CreateAsyncCheckpoint:output_type -> clusterapi.CreateAsyncCheckpointResponse
+	47, // 61: clusterapi.ReplicationService.DeleteAsyncCheckpoint:output_type -> clusterapi.DeleteAsyncCheckpointResponse
+	50, // 62: clusterapi.ReplicationService.GetAsyncCheckpointStatus:output_type -> clusterapi.GetAsyncCheckpointStatusResponse
+	41, // [41:63] is the sub-list for method output_type
+	19, // [19:41] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_protocol_replication_proto_init() }
@@ -3101,7 +3325,7 @@ func file_protocol_replication_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_protocol_replication_proto_rawDesc), len(file_protocol_replication_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   48,
+			NumMessages:   52,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
