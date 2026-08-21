@@ -1031,13 +1031,10 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_InvalidShard(t *testing
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
 
 	state := createShardingStateWithShards([]string{"shard1", "shard2"})
-	mockSchemaReader.EXPECT().Shards(mock.Anything).RunAndReturn(func(class string) ([]string, error) {
-		return []string{"foo", "bar"}, nil
-	})
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, state)
-	}).Maybe()
+	})
 
 	r := router.NewBuilder(
 		"TestClass",
