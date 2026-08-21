@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -126,33 +127,16 @@ func (b *Bucket) RoaringSetGet(ctx context.Context, key []byte) (bm *sroar.Bitma
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	return b.roaringSetGetFromConsistentView(ctx, view, key)
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
+	return b.roaringSetGetFromConsistentView(view, key, mergeConc)
 }
 
-// RoaringSetGetFromView reads key using a caller-held BucketConsistentView,
-// skipping the per-call GetConsistentView()/ReleaseView() pair (RLock +
-// disk-segment pinning) that RoaringSetGet performs on every invocation.
-// Intended for callers that read many keys from the same bucket in one
-// logical operation: call GetConsistentView() once, pass the result to every
-// RoaringSetGetFromView call, then call view.ReleaseView() exactly once when
-// done. The view must come from this bucket's GetConsistentView: a view of
-// another bucket is not detected and would silently read that bucket's data.
-func (b *Bucket) RoaringSetGetFromView(
-	ctx context.Context, view BucketConsistentView, key []byte,
-) (bm *sroar.Bitmap, release func(), err error) {
-	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
-		return nil, noopRelease, err
-	}
-
-	return b.roaringSetGetFromConsistentView(ctx, view, key)
-}
-
+// A nil view.Active is skipped, the same way a nil view.Flushing is: the caller
+// has established that the layer contributes nothing.
 func (b *Bucket) roaringSetGetFromConsistentView(
-	ctx context.Context, view BucketConsistentView, key []byte,
+	view BucketConsistentView, key []byte, mergeConc int,
 ) (bm *sroar.Bitmap, release func(), err error) {
-	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
-
-	diskBM, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
+	diskBM, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, mergeConc)
 	if err != nil {
 		return nil, noopRelease, err
 	}
@@ -169,29 +153,78 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 	// without materializing a []BitmapLayer. diskBM is the pooled base (with
 	// headroom); on a disk miss it is nil and the merger adopts the first
 	// memtable layer's clone instead of copying it.
-	merger := roaringset.NewLayerMerger(diskBM, false, maxConc)
+	merger := roaringset.NewLayerMerger(diskBM, false, mergeConc)
 
-	if view.Flushing != nil {
-		flushing, flushErr := view.Flushing.roaringSetGet(key)
-		if flushErr != nil {
-			if !errors.Is(flushErr, lsmkv.NotFound) {
-				err = flushErr
+	// Oldest first: the merger replays each layer's deletions before its
+	// additions, so a doc deleted in flushing and re-added in active survives
+	// only in this order.
+	for _, mt := range [2]memtable{view.Flushing, view.Active} {
+		if mt == nil {
+			continue
+		}
+		layer, mtErr := mt.roaringSetGet(key)
+		if mtErr != nil {
+			if !errors.Is(mtErr, lsmkv.NotFound) {
+				err = mtErr
 				return nil, noopRelease, err
 			}
-		} else {
-			merger.Add(flushing)
+			continue
 		}
-	}
-
-	activeBM, activeErr := view.Active.roaringSetGet(key)
-	if activeErr != nil {
-		if !errors.Is(activeErr, lsmkv.NotFound) {
-			err = activeErr
-			return nil, noopRelease, err
-		}
-	} else {
-		merger.Add(activeBM)
+		merger.Add(layer)
 	}
 
 	return merger.Result(), diskRelease, nil
+}
+
+// ErrReaderReleased signals a lifetime bug in the caller, never a storage
+// failure.
+var ErrReaderReleased = errors.New("roaring set batch reader: Get after Release")
+
+// RoaringSetBatchReader reads many roaringset rows under one view, held until
+// Release. It must not outlive the bucket; Get is safe to call concurrently.
+//
+// An active memtable empty at view time is skipped for the whole batch, so a
+// write into it afterwards is invisible to all keys rather than to only the
+// tail. Callers needing per-read freshness must use RoaringSetGet.
+type RoaringSetBatchReader struct {
+	view     BucketConsistentView
+	released atomic.Bool
+}
+
+// NewRoaringSetBatchReader opens a reader on b. See RoaringSetBatchReader for
+// the lifetime and visibility contract.
+func (b *Bucket) NewRoaringSetBatchReader() (*RoaringSetBatchReader, error) {
+	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
+		return nil, err
+	}
+	view := b.GetConsistentView()
+	if view.Active != nil && view.Active.Size() == 0 {
+		// Read outside flushLock, which is safe only because a memtable's size
+		// never decreases: a racing write leaves it stale-low, never stale-high,
+		// so the skip can miss that write but never drops a committed one.
+		view.Active = nil
+	}
+	return &RoaringSetBatchReader{view: view}, nil
+}
+
+// Get reads key's row under the held view. mergeConc reaches sroar unclamped —
+// pass what concurrency.BudgetFromCtxCapped returned, since SROAR_MERGE itself
+// bypasses the query's budget and a non-positive value means unbounded.
+// Returns ErrReaderReleased after Release: those segments may be unmapped.
+func (r *RoaringSetBatchReader) Get(key []byte, mergeConc int) (*sroar.Bitmap, func(), error) {
+	if r.released.Load() {
+		return nil, noopRelease, ErrReaderReleased
+	}
+	return r.view.Bucket.roaringSetGetFromConsistentView(r.view, key, mergeConc)
+}
+
+// Release releases the held view. Later calls are no-ops: a second decRef could
+// take a concurrent reader's count to zero, and compaction then unmaps and
+// deletes a segment that reader is using. The guard detects misuse; it does not
+// synchronize a Release racing an in-flight Get.
+func (r *RoaringSetBatchReader) Release() {
+	if r.released.Swap(true) {
+		return
+	}
+	r.view.ReleaseView()
 }

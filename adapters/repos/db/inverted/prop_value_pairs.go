@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -357,14 +359,50 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 // fetchContainsBatch resolves a batched Contains(Any|All|None) filter whose keys
 // were already encoded into pv.containsValues, folding every key's bitmap
 // through docBitmapContainsBatch under a single consistent view.
-func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (*docBitmap, error) {
+//
+// The annotation's window starts before the reader is opened, so a filter that
+// stalls waiting out an in-flight flush shows that time rather than hiding it.
+func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_ *docBitmap, err error) {
 	bucketName := pv.getBucketName()
 	b := s.store.Bucket(bucketName)
 	if b == nil {
 		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 	}
 
-	dbm, err := s.docBitmapContainsBatch(ctx, b, pv)
+	// A batched Contains always carries at least two keys — extraction does not
+	// batch below that, and every path errors rather than dropping a value. Zero
+	// keys is therefore a caller bug, and answering it here would mean inventing
+	// a result for each operator; the fold rejects it for the same reason.
+	if len(pv.containsValues) == 0 {
+		return nil, fmt.Errorf("contains filter on prop %q carries no keys", pv.prop)
+	}
+
+	before := time.Now()
+	// deferred so a filter that fails after the reader opens is still timed
+	var dbm docBitmap
+	defer func() {
+		took := time.Since(before)
+		helpers.AnnotateSlowQueryLogAppendFunc(ctx, "build_allow_list_doc_bitmap", func() map[string]any {
+			return map[string]any{
+				"prop":           pv.prop,
+				"operator":       pv.operator.Name(),
+				"took":           took,
+				"took_string":    took.String(),
+				"count":          dbm.count(),
+				"failed":         err != nil,
+				"strategy":       lsmkv.StrategyRoaringSet,
+				"batched_values": len(pv.containsValues),
+			}
+		})
+	}()
+
+	reader, err := b.NewRoaringSetBatchReader()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Release()
+
+	dbm, err = s.docBitmapContainsBatch(ctx, reader, pv)
 	if err != nil {
 		return nil, err
 	}
