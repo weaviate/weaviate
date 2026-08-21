@@ -89,6 +89,118 @@ func TestWipedJoinerSelfLeaderReady(t *testing.T) {
 	}
 }
 
+func TestWipedJoinerSnapshotCoversBarrier(t *testing.T) {
+	tests := []struct {
+		name      string
+		joined    bool
+		barrier   uint64
+		snapIndex uint64
+		want      bool
+	}{
+		{name: "snapshot below barrier -> defer", joined: true, barrier: 220, snapIndex: 218, want: false},
+		{name: "snapshot at barrier -> covers", joined: true, barrier: 220, snapIndex: 220, want: true},
+		{name: "snapshot past barrier -> covers", joined: true, barrier: 220, snapIndex: 230, want: true},
+		{name: "no barrier, joined pre-barrier leader -> covers", joined: true, barrier: 0, snapIndex: 10, want: true},
+		{name: "no barrier, join still in flight -> defer", joined: false, barrier: 0, snapIndex: 10, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, wipedJoinerSnapshotCoversBarrier(tt.joined, tt.barrier, tt.snapIndex))
+		})
+	}
+}
+
+// Pins the snapshot-tail divergence: a Restore below the barrier must keep
+// candidacy (schema-only applies) so the barrier path recovers tail classes.
+func TestWipedJoinerRestoreReloadDefersBelowBarrier(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	st := &Store{
+		log:     logger,
+		cfg:     Config{MetadataOnlyVoters: true},
+		metrics: newStoreMetrics("n1", prometheus.NewPedanticRegistry()),
+	}
+	st.wipedJoinerCandidate.Store(true)
+	st.SetJoinBarrier(220)
+
+	require.False(t, st.wipedJoinerRestoreReload(218), "restore below the barrier must not reload")
+	require.True(t, st.wipedJoinerCandidate.Load(), "candidacy survives a below-barrier restore")
+	require.False(t, st.wipedJoinerReloaded.Load())
+	require.True(t, st.wipedJoinerCandidate.Load() && !st.wipedJoinerReloaded.Load(), "applies must stay schemaOnly")
+
+	require.True(t, st.wipedJoinerRestoreReload(220), "a later snapshot reaching the barrier completes")
+	require.True(t, st.wipedJoinerReloaded.Load())
+	require.False(t, st.wipedJoinerCandidate.Load())
+}
+
+func TestWipedJoinerRestoreReloadCompletesWhenCovered(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+
+	t.Run("snapshot at barrier reloads", func(t *testing.T) {
+		st := &Store{
+			log:     logger,
+			cfg:     Config{MetadataOnlyVoters: true},
+			metrics: newStoreMetrics("n1", prometheus.NewPedanticRegistry()),
+		}
+		st.wipedJoinerCandidate.Store(true)
+		st.SetJoinBarrier(116)
+
+		require.True(t, st.wipedJoinerRestoreReload(116))
+		require.True(t, st.wipedJoinerReloaded.Load())
+		require.False(t, st.wipedJoinerCandidate.Load())
+		require.True(t, st.dbLoaded.Load())
+	})
+
+	t.Run("joined pre-barrier leader keeps legacy restore-time reload", func(t *testing.T) {
+		st := &Store{
+			log:     logger,
+			cfg:     Config{MetadataOnlyVoters: true},
+			metrics: newStoreMetrics("n1", prometheus.NewPedanticRegistry()),
+		}
+		st.wipedJoinerCandidate.Store(true)
+		st.SetJoinBarrier(0)
+
+		require.True(t, st.wipedJoinerRestoreReload(50))
+		require.True(t, st.wipedJoinerReloaded.Load())
+	})
+
+	t.Run("join in flight defers until the barrier can arrive", func(t *testing.T) {
+		st := &Store{
+			log:     logger,
+			cfg:     Config{MetadataOnlyVoters: true},
+			metrics: newStoreMetrics("n1", prometheus.NewPedanticRegistry()),
+		}
+		st.wipedJoinerCandidate.Store(true)
+
+		require.False(t, st.wipedJoinerRestoreReload(50))
+		require.True(t, st.wipedJoinerCandidate.Load())
+	})
+}
+
+// Pins the enqueued-vs-consumed skew: the watcher must not reload while LogCommands below the barrier are still draining.
+func TestWipedJoinerFSMCaughtUp(t *testing.T) {
+	t.Run("FSM past the barrier -> caught up", func(t *testing.T) {
+		st := &Store{}
+		st.lastAppliedIndex.Store(220)
+		require.True(t, st.wipedJoinerFSMCaughtUp(220))
+	})
+
+	t.Run("stable below barrier, no pipeline -> config-only gap, caught up", func(t *testing.T) {
+		st := &Store{}
+		st.lastAppliedIndex.Store(100)
+		require.True(t, st.wipedJoinerFSMCaughtUp(220))
+	})
+
+	t.Run("still draining -> not caught up", func(t *testing.T) {
+		st := &Store{}
+		st.lastAppliedIndex.Store(100)
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			st.lastAppliedIndex.Store(150)
+		}()
+		require.False(t, st.wipedJoinerFSMCaughtUp(220))
+	})
+}
+
 func TestNeedsJoinBarrier(t *testing.T) {
 	t.Run("un-joined candidate needs it", func(t *testing.T) {
 		st := &Store{}
