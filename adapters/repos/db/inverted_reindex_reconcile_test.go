@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -59,8 +60,15 @@ type reconcileFixture struct {
 
 func newReconcileFixture(t *testing.T) *reconcileFixture {
 	t.Helper()
+	return newReconcileFixtureAt(t, t.TempDir())
+}
+
+// newReconcileFixtureAt places the fixture at a caller-chosen path, which is
+// what lets one test hold several shards of one collection at once.
+func newReconcileFixtureAt(t *testing.T, lsmPath string) *reconcileFixture {
+	t.Helper()
 	logger, _ := test.NewNullLogger()
-	lsmPath := t.TempDir()
+	require.NoError(t, os.MkdirAll(lsmPath, 0o777))
 	return &reconcileFixture{
 		t:             t,
 		tasksReadable: true,
@@ -93,7 +101,7 @@ func (f *reconcileFixture) reconcileAfterTaskMap() {
 		Class:      func() *models.Class { return f.class },
 		Mirror:     f.mirror,
 		Buckets:    f.buckets,
-	}).ReconcileAfterTaskMap()
+	}).ReconcileAfterTaskMap(context.Background())
 }
 
 func (f *reconcileFixture) mkdirs(names ...string) {
@@ -545,7 +553,18 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			wantRecord: false,
 		},
 		{
+			// The cold-tenant rule's subject: a load can remove directories,
+			// but it can never make an absent cluster fact appear, so a record
+			// in this shape is not work a hydration reclaims.
 			name:       "directories gone but the effect is not visible yet: keep the record",
+			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantRecord: true,
+		},
+		{
+			// The other half of that rule: a directory the record still owns
+			// IS work, and one load settles it whatever the schema says.
+			name:       "a leftover with the effect still not visible: reclaim it and keep the record",
+			leftovers:  []string{"m_42_sidecar"},
 			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
 			wantRecord: true,
 		},
@@ -587,28 +606,6 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			}
 			f.requireMigrationDirsTrackRecords()
 		})
-	}
-}
-
-// TestReconcilePromotedWithoutEffectHasNoDiskWork pins the cold-tenant rule: a
-// load can remove directories, but it can never make an absent cluster fact
-// appear, so a promoted record whose directories are already gone is not work
-// a load could reclaim. Counting it would hydrate the tenant on every pass,
-// forever.
-func TestReconcilePromotedWithoutEffectHasNoDiskWork(t *testing.T) {
-	f := newReconcileFixture(t)
-	f.class = testClassWithTokenization(models.PropertyTokenizationWord, "title")
-
-	subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
-	f.mkdirs("property_title")
-	f.put(NewMigrationRecordPromoted(subject, []string{"title"}, map[string]string{"title": "property_title"}))
-
-	f.reconcile()
-
-	_, present := f.state(subject.Key)
-	require.True(t, present, "the record is retained until its effect is visible")
-	for _, dir := range migrationOwnedDirs(subject) {
-		require.False(t, f.exists(dir), "no owned directory is left, so a load would reclaim nothing")
 	}
 }
 
@@ -682,13 +679,14 @@ func TestReconcileCommitEdgeFiresOnceTheTaskMapArrives(t *testing.T) {
 			wantState: MigrationStateMerged,
 		},
 		{
-			// The discard is a directory removal on buckets that are open by
-			// now, so this pass leaves it to the next load, which runs before
-			// any bucket opens.
-			name:      "the task was cancelled: nothing here discards",
-			task:      testTask(taskID, 42, distributedtask.TaskStatusCancelled),
-			class:     testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			wantState: MigrationStateMerged,
+			// A discard is safe with buckets open because it shuts them down
+			// before it removes anything. Left to the next load it would never
+			// run at all: the sweeps preserve a committed record's directories,
+			// so nothing else reclaims the staged copy of an abandoned
+			// migration.
+			name:  "the task was cancelled: the staged copy goes",
+			task:  testTask(taskID, 42, distributedtask.TaskStatusCancelled),
+			class: testClassWithTokenization(models.PropertyTokenizationWord, "title"),
 		},
 		{
 			name:       "a record this build cannot place withholds the second pass too",
@@ -727,11 +725,19 @@ func TestReconcileCommitEdgeFiresOnceTheTaskMapArrives(t *testing.T) {
 			f.reconcileAfterTaskMap()
 
 			state, present := f.state(subject.Key)
-			require.True(t, present)
+			require.Equal(t, tt.wantState != "", present)
 			require.Equal(t, tt.wantState, state)
+			require.Equal(t, "property_title", f.contentOf("property_title"),
+				"the canonical bucket survives every disposition this pass takes")
+
+			if tt.wantState == "" {
+				require.False(t, f.exists("m_42_title"), "the staged copy of an abandoned migration goes")
+				require.Equal(t, []string{"42/searchable_retokenize/shard-1__node-0/title"}, f.mirror.disarmed,
+					"the mirror is disarmed before its target is removed")
+				return
+			}
 			require.True(t, f.exists("m_42_title"),
 				"promotion renames a directory whose buckets are open by now; it belongs to the next load")
-			require.Equal(t, "property_title", f.contentOf("property_title"))
 
 			if tt.wantState != MigrationStateSwapped {
 				return
@@ -742,6 +748,112 @@ func TestReconcileCommitEdgeFiresOnceTheTaskMapArrives(t *testing.T) {
 			require.Equal(t, MigrationStatePromoted, state)
 			require.False(t, f.exists("m_42_title"))
 			require.Equal(t, "m_42_title", f.contentOf("property_title"))
+		})
+	}
+}
+
+// TestReconcilePerShardDivergentStatesConverge pins that one collection's
+// shards settle independently. A migration reaches each shard at its own pace
+// and a restart can catch them at different points, so the same load has to
+// promote one shard, discard another and touch a third not at all — reading
+// each shard's own records and its own directories, and never one shard's
+// answer for another.
+func TestReconcilePerShardDivergentStatesConverge(t *testing.T) {
+	const taskID = "Books:change-tokenization:title:ab12"
+	root := t.TempDir()
+
+	shards := []struct {
+		name string
+		// arrange plants this shard's state; the task and class are shared
+		// because the cluster fact is one fact for the whole collection.
+		arrange    func(f *reconcileFixture)
+		wantState  MigrationState
+		wantRecord bool
+		wantStaged bool
+		wantLive   string
+	}{
+		{
+			name: "flipped before the restart: promote",
+			arrange: func(f *reconcileFixture) {
+				subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+				subject.TaskID = taskID
+				f.mkdirs("m_42_title", "property_title")
+				f.put(NewMigrationRecordSwapped(subject, []string{"title"},
+					map[string]string{"title": "property_title"}))
+			},
+			wantState:  MigrationStatePromoted,
+			wantRecord: true,
+			wantLive:   "m_42_title",
+		},
+		{
+			name: "still merged when the task finished: commit, then promote",
+			arrange: func(f *reconcileFixture) {
+				subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+				subject.TaskID = taskID
+				f.mkdirs("m_42_title", "property_title")
+				f.put(NewMigrationRecordMerged(subject))
+			},
+			wantState:  MigrationStatePromoted,
+			wantRecord: true,
+			wantLive:   "m_42_title",
+		},
+		{
+			name: "rebuild never finished: the cluster's verdict does not complete it",
+			arrange: func(f *reconcileFixture) {
+				subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+				subject.TaskID = taskID
+				f.mkdirs("m_42_title", "m_42_sidecar", "property_title")
+				f.put(NewMigrationRecordIterating(subject, MigrationCheckpoint{}))
+			},
+			wantState:  MigrationStateIterating,
+			wantRecord: true,
+			wantStaged: true,
+			wantLive:   "property_title",
+		},
+		{
+			name: "the migration never reached this shard",
+			arrange: func(f *reconcileFixture) {
+				f.mkdirs("property_title")
+			},
+			wantLive: "property_title",
+		},
+	}
+
+	fixtures := make([]*reconcileFixture, len(shards))
+	for i, sh := range shards {
+		f := newReconcileFixtureAt(t, filepath.Join(root, fmt.Sprintf("shard-%d", i), "lsm"))
+		f.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")
+		f.tasks = []*distributedtask.Task{testTask(taskID, 42, distributedtask.TaskStatusFinished)}
+		sh.arrange(f)
+		fixtures[i] = f
+	}
+
+	for _, f := range fixtures {
+		f.reconcile()
+	}
+
+	for i, sh := range shards {
+		t.Run(sh.name, func(t *testing.T) {
+			f := fixtures[i]
+			state, present := f.state(MigrationRecordKey{
+				TaskVersion: 42, StrategyCode: StrategyCodeSearchableRetokenize, UnitID: "shard-1__node-0",
+			})
+			require.Equal(t, sh.wantRecord, present)
+			if sh.wantRecord {
+				require.Equal(t, sh.wantState, state)
+			}
+			require.Equal(t, sh.wantStaged, f.exists("m_42_title"))
+			require.Equal(t, sh.wantLive, f.contentOf("property_title"),
+				"each shard serves what its own records and directories say")
+			f.requireMigrationDirsTrackRecords()
+
+			// Nothing from a sibling shard may appear here: the reconciler is
+			// handed one LSM path and must never join another.
+			entries, err := os.ReadDir(f.lsmPath)
+			require.NoError(t, err)
+			for _, entry := range entries {
+				require.NotEqual(t, "shard-0", entry.Name())
+			}
 		})
 	}
 }

@@ -241,41 +241,54 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject, why string)
 	return swapped, nil
 }
 
-// ReconcileAfterTaskMap re-runs the one edge whose disposition is a cluster
-// fact: a shard loaded while this node was still catching up on RAFT read the
-// task map as unavailable and left every Merged record alone. A shard that is
-// not multi-tenant is never loaded again in this process, so without a second
-// pass the record waits for a restart that repeats the same ordering, and a
-// migration the cluster finished serves pre-migration data forever.
+// ReconcileAfterTaskMap re-runs the dispositions that are a cluster fact. A
+// shard loaded while this node was still catching up on RAFT read the task map
+// as unavailable and decided nothing that depends on it. A shard that is not
+// multi-tenant is never loaded again in this process, and the next restart
+// repeats the same ordering — so without a second pass a migration the cluster
+// finished serves pre-migration data forever, and one the cluster abandoned
+// keeps its staged copy forever.
 //
 // It writes the verdict and stops there. Promotion renames a directory and the
 // buckets backing that directory are open by now; the verdict-before-action
-// ordering is exactly what lets the two happen at different times.
+// ordering is exactly what lets the two happen at different times. The discard
+// needs no such deferral because it shuts its buckets down before removing
+// anything.
+//
+// Only the verdict decides here. The reverse edge from Iterated is deliberately
+// left to a load: it clears the checkpoint, and a live task iterating right now
+// would resume from the beginning.
 //
 // It reads the records the shard already holds rather than re-reading disk:
 // the engine writes through the same store, and a reload here would drop what
 // it published since the load.
-func (r *migrationReconciler) ReconcileAfterTaskMap() {
+func (r *migrationReconciler) ReconcileAfterTaskMap(ctx context.Context) {
 	if len(r.store.Unreadable()) > 0 {
 		return
 	}
 	for _, rec := range r.store.Records() {
-		merged, ok := rec.(MigrationRecordMerged)
-		if !ok {
+		if rec.PointerSwapped() {
 			continue
 		}
-		subject := merged.Subject()
+		subject := rec.Subject()
 		verdict, why := r.verdict(subject)
-		if verdict != migrationVerdictCommit {
-			continue
+		switch {
+		case verdict == migrationVerdictDiscard:
+			// Only a terminal task produces this verdict, and a terminal task
+			// has no unit running, so nothing is writing this record now.
+			if err := r.discard(ctx, subject, why); err != nil {
+				r.logger.WithField("record", subject.Key.String()).Errorf(
+					"discard a migration once the task map became readable: %v", err)
+			}
+		case verdict == migrationVerdictCommit && rec.State() == MigrationStateMerged:
+			if _, err := r.commitMerged(subject, why); err != nil {
+				r.logger.WithField("record", subject.Key.String()).Errorf(
+					"commit a merged migration once the task map became readable: %v", err)
+				continue
+			}
+			r.logger.WithField("record", subject.Key.String()).Info(
+				"the staged data is the data; the next shard load promotes it onto the canonical name")
 		}
-		if _, err := r.commitMerged(subject, why); err != nil {
-			r.logger.WithField("record", subject.Key.String()).Errorf(
-				"commit a merged migration once the task map became readable: %v", err)
-			continue
-		}
-		r.logger.WithField("record", subject.Key.String()).Info(
-			"the staged data is the data; the next shard load promotes it onto the canonical name")
 	}
 }
 

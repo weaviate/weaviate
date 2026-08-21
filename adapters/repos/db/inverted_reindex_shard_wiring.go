@@ -57,7 +57,7 @@ func (db *DB) reconcileLoadedMigrationsAfterTaskMap(ctx context.Context) {
 					"reconcile migration records once the task map became readable: %v", err)
 				return nil
 			}
-			concrete.reconcileMigrationRecordsAfterTaskMap()
+			concrete.reconcileMigrationRecordsAfterTaskMap(ctx)
 			return nil
 		})
 	}
@@ -90,11 +90,11 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 
 // reconcileMigrationRecordsAfterTaskMap is the second pass, run once this
 // node's applied task map becomes readable.
-func (s *Shard) reconcileMigrationRecordsAfterTaskMap() {
+func (s *Shard) reconcileMigrationRecordsAfterTaskMap(ctx context.Context) {
 	if s.migrationRecords == nil {
 		return
 	}
-	s.liveMigrationReconciler().ReconcileAfterTaskMap()
+	s.liveMigrationReconciler().ReconcileAfterTaskMap(ctx)
 }
 
 // retireSupersededMigrations runs the supersession relation in the process
