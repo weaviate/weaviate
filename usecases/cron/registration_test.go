@@ -79,7 +79,7 @@ func requireRegisteredAt(t *testing.T, cr *gocron.Cron, name string, delay time.
 // requireNoGoroutine asserts start launched no registration goroutine. wait
 // blocks until one exits, and these tests never trigger the shutdown that
 // would end it, so the helper times out rather than hanging.
-func requireNoGoroutine(t *testing.T, c *cronsRegistration[time.Duration]) {
+func requireNoGoroutine[T comparable](t *testing.T, c *cronsRegistration[T]) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() {
@@ -220,6 +220,7 @@ type stubRegistrant struct {
 func (r stubRegistrant) jobName() string          { return r.name }
 func (r stubRegistrant) hookKey() string          { return r.key }
 func (r stubRegistrant) RuntimeConfigHook() error { return nil }
+func (r stubRegistrant) wait()                    {}
 
 func TestCrons_AddRejects(t *testing.T) {
 	tests := []struct {
@@ -264,7 +265,7 @@ func TestCrons_RuntimeConfigHooks(t *testing.T) {
 			// must already be there without one.
 			name: "both registrants, collected before Init",
 			crons: func(t *testing.T) *Crons {
-				c, _, cancel := newTestCrons(t)
+				c, _, _, cancel := newTestCrons(t)
 				t.Cleanup(cancel)
 				return c
 			},
@@ -501,6 +502,19 @@ func TestCronsRegistration_BadScheduleKeepsRegistration(t *testing.T) {
 	cr.EntryByName(testJobName).Run()
 	require.NotNil(t, tickCtx.Load())
 	assert.NoError(t, (*tickCtx.Load()).Err())
+}
+
+func TestCronsRegistration_TickSkipsADeadContext(t *testing.T) {
+	c, _, _, _ := newTestRegistration(t, time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var ticked bool
+
+	// Drive the job directly: this is the fire the loop cannot prevent, the one
+	// dispatched between its cancel and its swap.
+	c.tickJob(ctx, cron.RunOnEveryNode, func(context.Context) { ticked = true }).Run()
+
+	assert.False(t, ticked, "a fire from the generation being replaced must not run")
 }
 
 func TestCronsRegistration_TickGate(t *testing.T) {
@@ -770,5 +784,83 @@ func TestCrons_RuntimeConfigHookReRegistersTheJob(t *testing.T) {
 	interval.Store(int64(2 * time.Minute))
 	require.NoError(t, hook())
 
+	requireRegisteredAt(t, cr, testJobName, 2*time.Minute)
+}
+
+func TestCronsRegistration_DeadLoopReportsAnError(t *testing.T) {
+	tests := []struct {
+		name    string
+		stopped bool
+		wantErr string
+	}{
+		{
+			name:    "a stopped loop refuses the value it cannot apply",
+			stopped: true,
+			wantErr: "has no registration loop running",
+		},
+		{name: "a live loop takes it"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, cr, _, cancel := newTestRegistration(t, time.Minute)
+			var interval atomic.Int64
+			interval.Store(int64(2 * time.Minute))
+			c.configuredValue = func() time.Duration { return time.Duration(interval.Load()) }
+			if tt.stopped {
+				started, err := c.start(cr, cron.RunOnEveryNode, func(context.Context) {})
+				require.NoError(t, err)
+				require.True(t, started)
+				requireRegisteredAt(t, cr, testJobName, time.Minute)
+				cancel()
+				c.wait()
+			}
+
+			err := c.RuntimeConfigHook()
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				// A refused hook queues nothing, so no value waits for a loop
+				// that will never read it.
+				assert.Empty(t, c.valueCh)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, 2*time.Minute, <-c.valueCh)
+		})
+	}
+}
+
+// TestCronsRegistration_CancelPrecedesTheSwap pins the ordering inside the
+// loop: a cancelOnChange job ends the tick in flight before it waits on the
+// barrier, so a re-registration never waits out a full run.
+func TestCronsRegistration_CancelPrecedesTheSwap(t *testing.T) {
+	c, cr, _, _ := newTestRegistration(t, time.Minute)
+	c.cancelOnChange = true
+	release := make(chan struct{})
+	defer close(release)
+	inTick := make(chan struct{}, 1)
+	// The tick returns on its own context as well as on release, so a cancel
+	// that fires ends it and one that does not leaves it parked.
+	started, err := c.start(cr, cron.RunOnEveryNode, func(ctx context.Context) {
+		select {
+		case inTick <- struct{}{}:
+		default:
+		}
+		select {
+		case <-ctx.Done():
+		case <-release:
+		}
+	})
+	require.NoError(t, err)
+	require.True(t, started)
+	requireRegisteredAt(t, cr, testJobName, time.Minute)
+
+	go cr.EntryByName(testJobName).Run()
+	<-inTick // a tick is in flight and holds runMu
+
+	c.valueCh <- 2 * time.Minute
+
+	// Nothing releases the tick, so the re-registration can only complete if
+	// the cancel ran ahead of the barrier.
 	requireRegisteredAt(t, cr, testJobName, 2*time.Minute)
 }

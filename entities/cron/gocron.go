@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"time"
 
+	gocron "github.com/netresearch/go-cron"
 	"github.com/sirupsen/logrus"
 )
 
@@ -24,6 +25,10 @@ func RunOnEveryNode() bool { return true }
 
 // EverySpec renders d as an `@every` cron descriptor.
 func EverySpec(d time.Duration) string { return fmt.Sprintf("@every %s", d) }
+
+// Parser is the schedule parser both the validator and the scheduler run, so a
+// spec one accepts is one the other can schedule.
+func Parser() gocron.Parser { return gocron.FullParser() }
 
 func NewGoCronLogger(logger logrus.FieldLogger, infoLevel logrus.Level) *GoCronLogger {
 	return &GoCronLogger{logger: logger, infoLevel: infoLevel}
@@ -40,9 +45,12 @@ func (l *GoCronLogger) Info(msg string, keysAndValues ...any) {
 }
 
 func (l *GoCronLogger) Error(err error, msg string, keysAndValues ...any) {
-	l.logger.WithFields(l.toFields(keysAndValues)).
-		WithError(err).
-		Error(msg)
+	logger := l.logger.WithFields(l.toFields(keysAndValues))
+	if err == nil {
+		logger.Error(msg)
+		return
+	}
+	logger.Errorf("%s: %v", msg, err)
 }
 
 func (l *GoCronLogger) toFields(keysAndValues []any) logrus.Fields {

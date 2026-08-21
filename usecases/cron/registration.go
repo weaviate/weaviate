@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	gocron "github.com/netresearch/go-cron"
 	"github.com/sirupsen/logrus"
@@ -60,6 +61,12 @@ type cronsRegistration[T comparable] struct {
 	// registerWG lets shutdown await start's goroutine instead of returning
 	// while it still runs.
 	registerWG sync.WaitGroup
+
+	// stopped reports that the loop goroutine has exited. GoWrapper recovers a
+	// panic in it and returns normally, so without this RuntimeConfigHook would
+	// push a value no loop ever reads. A registrant whose enable gate declined
+	// never had a loop, and still reads as running.
+	stopped atomic.Bool
 
 	// runMu keeps the tick off the job that replaces it: the tick holds it
 	// for its whole body, and the loop Lock/Unlocks it as a barrier before
@@ -144,6 +151,7 @@ func (c *cronsRegistration[T]) start(cr *gocron.Cron, tickGate func() bool,
 	c.registerWG.Add(1)
 	errors.GoWrapper(func() {
 		defer c.registerWG.Done()
+		defer c.stopped.Store(true)
 		c.loop(cr, tickGate, tick)
 	}, c.jobLogger)
 
@@ -230,6 +238,12 @@ func (c *cronsRegistration[T]) tickJob(ctx context.Context, tickGate func() bool
 	return gocron.NewChain(
 		gocron.SkipIfStillRunning(c.gocronLogger),
 	).Then(gocron.FuncJob(func() {
+		// A fire dispatched between the cancel and the swap belongs to the
+		// generation being replaced, and its context is already dead.
+		if ctx.Err() != nil {
+			return
+		}
+
 		c.runMu.Lock()
 		defer c.runMu.Unlock()
 
@@ -257,6 +271,12 @@ func (c *cronsRegistration[T]) RuntimeConfigHook() error {
 	newValue := c.configuredValue()
 	if newValue == c.currentValue {
 		return nil
+	}
+	// Below the no-change return, so a sibling field's change does not report
+	// a failure this hook had nothing to apply. currentValue stays behind, so
+	// the next push of the same value still reports.
+	if c.stopped.Load() {
+		return fmt.Errorf("cron job %q has no registration loop running", c.name)
 	}
 	c.currentValue = newValue
 
