@@ -136,6 +136,36 @@ func (b *AnalyzedBatch) All() iter.Seq2[int, []string] {
 	}
 }
 
+// SingleTokenBytes checks that every value produced exactly one token and
+// reports the tokens' total byte length.
+//
+// A caller building one key per value has no key to stand for a value that
+// tokenized into none or several, so the precondition is checked rather than
+// assumed. FIELD tokenization gives one token per value, but these are query
+// tokens: a stopword detector can empty a value.
+//
+// The total is bounded like [AnalyzeBatch] bounds the token count, since a
+// caller indexing with uint32 offsets needs a byte limit and a token limit does
+// not imply one.
+func (b *AnalyzedBatch) SingleTokenBytes() (int, error) {
+	var total uint64
+	start := uint32(0)
+	for i, end := range b.ends {
+		if end-start != 1 {
+			return 0, fmt.Errorf("value %d produced %d tokens, want exactly 1", i, end-start)
+		}
+		// One token per value, so flat[start] is value i's, and counting it
+		// here saves a second walk of the whole batch.
+		total += uint64(len(b.flat[start]))
+		start = end
+	}
+	if total > math.MaxUint32 {
+		return 0, fmt.Errorf("batch produced %d bytes of tokens, above the uint32 offset limit %d",
+			total, uint32(math.MaxUint32))
+	}
+	return int(total), nil
+}
+
 // AnalyzeBatch analyzes each value independently — the batch equivalent of
 // calling Analyze per value and collecting each result's Query — but reuses
 // buffers across values and records tokenizer metrics once for the whole
