@@ -104,7 +104,7 @@ func (s *FilterableToRangeableStrategy) WriteToReindexBucket(shard ShardLike, bu
 }
 
 func (s *FilterableToRangeableStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	propsByName map[string]struct{},
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — the property may be
@@ -112,7 +112,7 @@ func (s *FilterableToRangeableStrategy) MakeAddCallback(bucketNamer func(string)
 		// rangeable bucket from the live write. Scope is enforced via
 		// propsByName.
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			propsByName, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
@@ -126,12 +126,12 @@ func (s *FilterableToRangeableStrategy) MakeAddCallback(bucketNamer func(string)
 }
 
 func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	propsByName map[string]struct{},
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — see MakeAddCallback.
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			propsByName, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}

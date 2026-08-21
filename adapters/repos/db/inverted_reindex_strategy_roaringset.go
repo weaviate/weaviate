@@ -77,14 +77,14 @@ func (s *RoaringSetRefreshStrategy) WriteToReindexBucket(shard ShardLike, bucket
 }
 
 func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	propsByName map[string]struct{},
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			propsByName, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
@@ -98,14 +98,14 @@ func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) str
 }
 
 func (s *RoaringSetRefreshStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	propsByName map[string]struct{},
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			propsByName, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}

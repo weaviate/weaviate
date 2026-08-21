@@ -416,7 +416,6 @@ func (s migrationDirScope) hasStrategyPrefix(base string) bool {
 // (no payload file, or one naming no property); unreadable=true means a
 // payload exists but couldn't be read, so "recorded nothing" isn't a safe
 // conclusion.
-//
 func (s migrationDirScope) taskProperties(name string) (props []string, ok, unreadable bool) {
 	answer := s.props.lookup(filepath.Join(s.lsmPath, ".migrations", name))
 	return answer.props, answer.ok, answer.unreadable
@@ -499,4 +498,3 @@ func readTaskProps(migDir string) (answer taskProps, readPayload bool) {
 	}
 	return taskProps{props: props, ok: true}, true
 }
-

@@ -195,7 +195,7 @@ type ShardReindexTaskGeneric struct {
 	// (weaviate/weaviate#11688). Always set — no test-only branch runs in
 	// production.
 	registerDoubleWriteCallbacksFn func(shard *Shard, props []string,
-		bucketNamer func(string) string, forTargetStrategy bool) func()
+		bucketNamer func(string) string) func()
 
 	// onPropSwapped runs inside the Phase 2a tight loop right after each
 	// bucket-pointer flip, so a query never observes overlay≠bucket for
@@ -852,7 +852,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 		err = fmt.Errorf("starting ingest buckets:%w", err)
 		return err
 	}
-	disableJustRegistered := t.registerDoubleWriteCallbacksFn(shard, props, t.ingestBucketName, true)
+	disableJustRegistered := t.registerDoubleWriteCallbacksFn(shard, props, t.ingestBucketName)
 
 	if hasRecord {
 		return nil
@@ -1813,28 +1813,20 @@ func dirExists(path string) bool {
 // (idempotent), for failure paths that must not touch other shards'
 // registrations.
 func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, props []string,
-	bucketNamer func(string) string, forTargetStrategy bool,
+	bucketNamer func(string) string,
 ) func() {
 	propsByName := map[string]struct{}{}
 	for i := range props {
 		propsByName[props[i]] = struct{}{}
 	}
 
-	addCb := t.strategy.MakeAddCallback(bucketNamer, propsByName, forTargetStrategy)
-	delCb := t.strategy.MakeDeleteCallback(bucketNamer, propsByName, forTargetStrategy)
+	addCb := t.strategy.MakeAddCallback(bucketNamer, propsByName)
+	delCb := t.strategy.MakeDeleteCallback(bucketNamer, propsByName)
 
-	var disable func()
-	if forTargetStrategy {
-		// Ingest window: arm the scope atomically with the callbacks, or a
-		// concurrent write gets source-tokenized into the ingest bucket
-		// (weaviate/0-weaviate-issues#298).
-		disable = shard.registerDoubleWriteWithScope(addCb, delCb, props, t.strategy.AnalyzerOverlay(props))
-	} else {
-		// Backup window: mirror source-analyzed writes as-is; no scope.
-		disableAdd := shard.registerAddToPropertyValueIndex(addCb)
-		disableDelete := shard.registerDeleteFromPropertyValueIndex(delCb)
-		disable = func() { disableAdd(); disableDelete() }
-	}
+	// The scope is armed atomically with the callbacks, or a concurrent write
+	// gets source-tokenized into the ingest bucket
+	// (weaviate/0-weaviate-issues#298).
+	disable := shard.registerDoubleWriteWithScope(addCb, delCb, props, t.strategy.AnalyzerOverlay(props))
 
 	// Also publish the handle on the shard, keyed per (record, property), so
 	// an actor that did not arm the mirror can still disarm it: a successor's

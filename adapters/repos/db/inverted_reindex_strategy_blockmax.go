@@ -79,23 +79,18 @@ func (s *MapToBlockmaxStrategy) WriteToReindexBucket(shard ShardLike, bucket *ls
 }
 
 func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	propsByName map[string]struct{},
 ) onAddToPropertyValueIndex {
-	calcPropLen := calcPropLenMap
-	if forTargetStrategy {
-		calcPropLen = calcPropLenInverted
-	}
-
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			propsByName, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
-		propLen := calcPropLen(property.Items)
+		propLen := calcPropLenInverted(property.Items)
 		for _, item := range property.Items {
 			pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
 			if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
@@ -107,14 +102,14 @@ func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
 }
 
 func (s *MapToBlockmaxStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	propsByName map[string]struct{},
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			propsByName, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}

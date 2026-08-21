@@ -79,14 +79,12 @@ type MigrationStrategy interface {
 		prop inverted.Property) error
 
 	// MakeAddCallback creates a double-write callback for property additions.
-	// forTargetStrategy=true during ingest phase, false during backup phase.
 	MakeAddCallback(bucketNamer func(string) string, propsByName map[string]struct{},
-		forTargetStrategy bool) onAddToPropertyValueIndex
+	) onAddToPropertyValueIndex
 
 	// MakeDeleteCallback creates a double-write callback for property deletions.
-	// forTargetStrategy=true during ingest phase, false during backup phase.
 	MakeDeleteCallback(bucketNamer func(string) string, propsByName map[string]struct{},
-		forTargetStrategy bool) onDeleteFromPropertyValueIndex
+	) onDeleteFromPropertyValueIndex
 
 	// PreReindexHook is called before the reindex/ingest phase begins on a shard.
 	// e.g. shard.markSearchableBlockmaxProperties(props...)
@@ -258,7 +256,6 @@ func applyPerPropertySchemaUpdate(
 type reindexTaskConfig struct {
 	concurrency                   int
 	memtableOptFactor             int
-	backupMemtableOptFactor       int
 	processingDuration            time.Duration
 	pauseDuration                 time.Duration
 	checkProcessingEveryNoObjects int

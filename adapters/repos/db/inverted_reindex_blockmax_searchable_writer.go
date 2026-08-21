@@ -37,14 +37,14 @@ func writeBlockmaxSearchablePostings(shard ShardLike, bucket *lsmkv.Bucket,
 	return nil
 }
 
-// swapFallbackNamer is the canonical-name fallback passed to
-// resolveDoubleWriteBucket; nil skips on a missing sidecar (backup phase).
+// swapFallbackNamer names the canonical bucket the mirror falls back to once
+// the flip has removed the sidecar's entry from the store.
 func blockmaxSearchableAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
+			propsByName, bucketNamer, swapFallbackNamer)
 		if skip {
 			return nil
 		}
@@ -64,7 +64,7 @@ func blockmaxSearchableDeleteCallback(bucketNamer func(string) string,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
+			propsByName, bucketNamer, swapFallbackNamer)
 		if skip {
 			return nil
 		}
