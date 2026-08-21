@@ -107,10 +107,6 @@ func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 			plantErr = err
 			return
 		}
-		if err := os.WriteFile(filepath.Join(trackerDir, "started.mig"), []byte("x"), 0o644); err != nil {
-			plantErr = err
-			return
-		}
 		for deadline := time.Now().Add(holdFor); !gateReturned.Load() && time.Now().Before(deadline); {
 			time.Sleep(pollEvery)
 		}

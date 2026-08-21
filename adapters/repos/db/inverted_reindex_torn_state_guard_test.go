@@ -165,15 +165,12 @@ func TestTornState_CommittedRecordKeepsItsMissingSidecarDirs(t *testing.T) {
 	ctx := testCtx()
 	className := "TornGuardCommitted_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{tornGuardPropName})
-	shard, idx, _ := runTornStateMigrationToIterated(t, ctx, className, class)
+	shard, idx, task := runTornStateMigrationToIterated(t, ctx, className, class)
 
-	prepTask := newTestTask(idx.logger, &testMigrationStrategy{
-		MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1},
-	})
-	require.NoError(t, prepTask.RunPrepareOnShard(ctx, shard))
-	require.Equal(t, MigrationStateMerged, tornGuardStateOf(t, shard, prepTask))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+	require.Equal(t, MigrationStateMerged, tornGuardStateOf(t, shard, task))
 
-	reindexDir := filepath.Join(shard.pathLSM(), prepTask.reindexBucketName(tornGuardPropName))
+	reindexDir := filepath.Join(shard.pathLSM(), task.reindexBucketName(tornGuardPropName))
 	require.NoDirExists(t, reindexDir,
 		"fixture: the prep must have removed the rebuild's dir; a failure here is the fixture, not the edge")
 

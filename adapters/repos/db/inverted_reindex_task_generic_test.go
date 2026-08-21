@@ -130,8 +130,8 @@ func newTestTaskWithoutIdentity(logger logrus.FieldLogger, strategy MigrationStr
 }
 
 // TestMapToBlockmaxMigration_RuntimeSwap tests the runtime swap path where
-// merge, swap, and tidy all happen inline after the reindex iteration
-// completes — no shard restart needed.
+// merge and swap both happen inline after the reindex iteration completes —
+// no shard restart needed.
 func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	ctx := testCtx()
 	className := "TestMigrationRuntime"
@@ -387,19 +387,21 @@ func TestRunSwapOnShard_RecordAwareDispatch(t *testing.T) {
 	}
 }
 
-// TestRuntimeSwap_Phase2a_AtomicTightLoop pins the architectural
-// contract from https://github.com/weaviate/0-weaviate-issues/issues/216 (per QA-Claude design
-// consideration in PR https://github.com/weaviate/weaviate/pull/11322 comment 4470016252): between consecutive
-// per-prop SwapBucketPointer calls inside runtimeSwap's Phase 2a, NO I/O of
-// any kind is allowed — no Shutdown, no Rename, no RAFT, no compaction wait,
-// and no record write either: the flip decision is made durable before the
-// loop begins, which is what makes the loop legally empty of I/O. The total Phase 2a wall-clock
-// for an N-prop migration MUST stay inside the microseconds-to-low-ms
-// budget at any scale; the per-shard tokenization overlay's
-// "mixed-state" subwindow (some props swapped, others not — queries to
-// not-yet-swapped props during the window would tokenize input with the
-// new value against an old-tokenized bucket and return wrong results)
-// is exactly this wall-clock.
+// TestRuntimeSwap_Phase2a_AtomicTightLoop pins the architectural contract from
+// https://github.com/weaviate/0-weaviate-issues/issues/216 (per QA-Claude
+// design consideration in PR https://github.com/weaviate/weaviate/pull/11322
+// comment 4470016252): between consecutive per-prop SwapBucketPointer calls
+// inside runtimeSwap's Phase 2a, NO I/O of any kind is allowed — no Shutdown,
+// no Rename, no RAFT, no compaction wait, and no record write either. The flip
+// decision is written and fsynced before the loop begins, which is what leaves
+// the loop with no I/O to do.
+//
+// The total Phase 2a wall-clock for an N-prop migration MUST stay inside the
+// microseconds-to-low-ms budget at any scale; the per-shard tokenization
+// overlay's "mixed-state" subwindow (some props swapped, others not — queries
+// to not-yet-swapped props during the window would tokenize input with the new
+// value against an old-tokenized bucket and return wrong results) is exactly
+// this wall-clock.
 //
 // Regression scenarios this guards against:
 //
@@ -464,9 +466,8 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 
-	// Wire the Phase 2a observation hook. Production leaves this nil;
-	// the test reads back the per-prop timestamps to assert the
-	// atomic-phase budget.
+	// Wrap the Phase 2a per-prop body so the test can read back the per-prop
+	// timestamps the atomic-phase budget is asserted against.
 	var (
 		hookMu        sync.Mutex
 		hookCallTimes []time.Time

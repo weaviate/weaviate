@@ -32,6 +32,9 @@ func TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug(t *testing.T) {
 	for gen := 1; gen <= preservedGens; gen++ {
 		dir := migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{propName}) + genSuffix(gen)
 		mkTrackerDir(t, lsm, dir)
+		mkMigrationRecord(t, lsm, dir, MigrationStateSwapped, map[string]string{
+			propName: "property_" + propName + "__enable_filterable_ingest" + genSuffix(gen),
+		})
 	}
 
 	hookLogger, hook := test.NewNullLogger()

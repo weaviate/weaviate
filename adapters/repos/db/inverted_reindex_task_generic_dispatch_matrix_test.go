@@ -277,12 +277,10 @@ func dispatchMatrixRangeableFingerprintAsString(t *testing.T, b *lsmkv.Bucket) m
 }
 
 // dispatchMatrixDriveCell drives the test shard to the requested recorded
-// state.
-//
-// The drive primitives differ by path only where the production route does:
-// inline strategies reach a finished migration through OnAfterLsmInitAsync,
-// semantic ones through the trio. Everything short of that is the trio, whose
-// methods are well-defined for both.
+// state along each strategy's own route: inline strategies iterate through
+// OnAfterLsmInitAsync, semantic ones through the trio. Prep has no inline
+// entry point of its own, so both paths reach Merged through
+// RunPrepareOnShard, which is well-defined for either.
 func dispatchMatrixDriveCell(
 	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
 	path dispatchMatrixPath, state MigrationState,
@@ -352,9 +350,9 @@ func dispatchMatrixDriveToSwapped(
 	}
 }
 
-// dispatchMatrixStateOf reads the state the drive actually landed in, so a
-// broken drive cannot let a downstream pass mask a missed setup.
-func dispatchMatrixStateOf(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric) MigrationRecord {
+// dispatchMatrixRecordOf reads what the migration actually left on the shard,
+// so a broken drive cannot let a downstream pass mask a missed setup.
+func dispatchMatrixRecordOf(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric) MigrationRecord {
 	t.Helper()
 	rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
 	require.True(t, ok, "the migration should have a record on this shard")
@@ -456,7 +454,7 @@ func dispatchMatrixRunCell(
 
 	dispatchMatrixDriveCell(t, ctx, shard, task, sc.path, state)
 
-	require.Equalf(t, state, dispatchMatrixStateOf(t, shard, task).State(),
+	require.Equalf(t, state, dispatchMatrixRecordOf(t, shard, task).State(),
 		"the drive landed somewhere other than the state this cell dispatches from (strategy=%s)",
 		sc.strategyName)
 
@@ -465,7 +463,7 @@ func dispatchMatrixRunCell(
 		"RunSwapOnShard should succeed for (strategy=%s, state=%s)",
 		sc.strategyName, state)
 
-	require.Truef(t, dispatchMatrixStateOf(t, shard, task).PointerSwapped(),
+	require.Truef(t, dispatchMatrixRecordOf(t, shard, task).PointerSwapped(),
 		"every dispatch branch must leave the flip decision durable (strategy=%s state=%s)",
 		sc.strategyName, state)
 
