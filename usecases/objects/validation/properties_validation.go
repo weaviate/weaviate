@@ -451,7 +451,7 @@ func intVal(val interface{}) (float64, error) {
 
 func numberVal(val interface{}) (float64, error) {
 	errInvalidFloat := "requires a float, the given value is '%v'"
-	errInvalidFloatConvertion := "the JSON number '%v' could not be converted to a float."
+	errInvalidFloatConvertion := "the JSON number '%v' could not be converted to a float"
 
 	switch typed := val.(type) {
 	case json.Number:
