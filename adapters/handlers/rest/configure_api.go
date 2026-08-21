@@ -1243,7 +1243,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 		logger.Exit(1)
 	}
 	// Initialize runtime config and load overridden config
-	runtimeConfigManager := initRuntimeOverrides(appState)
+	runtimeConfigManager := initRuntimeOverrides(appState, prometheus.DefaultRegisterer)
 	dataPath := serverConfig.Config.Persistence.DataPath
 	if err := os.MkdirAll(dataPath, 0o777); err != nil {
 		logger.WithField("action", "startup").
@@ -2223,7 +2223,7 @@ func (m membership) LeaderID() string {
 
 // initRuntimeOverrides assumes, Configs from envs are loaded before
 // initializing runtime overrides.
-func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[config.WeaviateRuntimeConfig] {
+func initRuntimeOverrides(appState *state.State, registerer prometheus.Registerer) *configRuntime.ConfigManager[config.WeaviateRuntimeConfig] {
 	// Enable runtime config manager
 	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
 		// Runtimeconfig manager takes of keeping the `registered` config values upto date
@@ -2269,6 +2269,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
+		registered.DisableDimensionMetrics = appState.ServerConfig.Config.DisableDimensionMetrics
 		registered.ObjectsTTLDeleteSchedule = appState.ServerConfig.Config.ObjectsTTLDeleteSchedule
 		registered.ObjectsTTLBatchSize = appState.ServerConfig.Config.ObjectsTTLBatchSize
 		registered.ObjectsTTLPauseEveryNoBatches = appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches
@@ -2300,7 +2301,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
-			prometheus.DefaultRegisterer)
+			registerer)
 		if err != nil {
 			appState.Logger.WithField("action", "runtime_overrides_parse").Errorf("could not create runtime config manager: %v", err)
 		}

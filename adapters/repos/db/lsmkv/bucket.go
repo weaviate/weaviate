@@ -1376,6 +1376,13 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 		Tombstone: true,
 	}
 
+	// The doc-tombstone bitmap must never lead the WAL: replay reconstructs it
+	// from the persisted pair (commitlogger_parser_collection.go), so a failed
+	// append must leave no bitmap change.
+	if err := active.appendMapSorted(rowKey, pair); err != nil {
+		return err
+	}
+
 	if active.getStrategy() == StrategyInverted {
 		docID := binary.BigEndian.Uint64(mapKey)
 		if err := active.SetTombstone(docID); err != nil {
@@ -1383,7 +1390,7 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 		}
 	}
 
-	return active.appendMapSorted(rowKey, pair)
+	return nil
 }
 
 // Delete removes the given row. Note that LSM stores are append only, thus

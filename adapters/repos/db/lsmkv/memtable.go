@@ -596,7 +596,13 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.updateDirtyAt()
 
 	if m.strategy == StrategyInverted && !pair.Tombstone {
-		docID := binary.LittleEndian.Uint64(pair.Key)
+		// Must match SetTombstone's decode (BigEndian): StrategyInverted keys are
+		// always BigEndian, required for byte-wise sortability. A mismatch here
+		// makes propLengthExists.Set/Remove address different bitmap positions for
+		// the same doc, so SetTombstone can't re-arm the dedup gate below — a doc
+		// re-added after being tombstoned in the same memtable (e.g. an update)
+		// has its new prop length silently dropped instead of recounted.
+		docID := binary.BigEndian.Uint64(pair.Key)
 		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
 		// propLengthExists + currPropLength* are shared with SetTombstone, which no
 		// longer holds the tree lock; guard them with invMu (nested inside m.Lock).
