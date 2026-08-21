@@ -2644,11 +2644,11 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 			shard.SetTokenizationOverlay(propName, target)
 		}
 		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
-			rt reindexTracker, propIdx int, propName string,
+			propIdx int, propName string,
 		) (*lsmkv.Bucket, error) {
 			return shard.SwapBucketAndSetOverlay(propName, target,
 				func() (*lsmkv.Bucket, error) {
-					return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+					return task.processOneSwapPropFn(ctx, store, propIdx, propName)
 				})
 		}
 	}

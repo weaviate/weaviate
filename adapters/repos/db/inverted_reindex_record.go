@@ -115,6 +115,14 @@ type MigrationSubject struct {
 	TargetTokenization   string               `json:"targetTokenization,omitempty"`
 	OriginalTokenization string               `json:"originalTokenization,omitempty"`
 
+	// IterationCutoff is the horizon the rebuild iterates up to: an object
+	// last updated at or after it is left to the double-write mirror. It is
+	// captured in the same act as this record's first write, which is what
+	// keeps the window between arming the mirror and fixing the horizon
+	// empty. Every later state carries it unchanged, so a resume never
+	// re-derives a horizon from a clock that has moved on.
+	IterationCutoff time.Time `json:"iterationCutoff"`
+
 	// StagedDirs is the re-derivation's "live-data dir": per property, the
 	// directory holding this migration's own data. The flip makes it live and
 	// promotion renames it onto CanonicalDirs.
