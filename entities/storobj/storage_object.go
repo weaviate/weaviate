@@ -956,6 +956,8 @@ func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {
 const (
 	marshallerV1HeaderLen        = 1 + 8 + 1 + 16 + 8 + 8 // 42
 	marshallerV1UpdateTimeOffset = 1 + 8 + 1 + 16 + 8     // 34
+	marshallerV1UUIDOffset       = 1 + 8 + 1              // 10
+	marshallerV1UUIDLen          = 16
 )
 
 const (
