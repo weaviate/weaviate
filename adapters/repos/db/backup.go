@@ -367,7 +367,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 	// sufficient to prevent concurrent lazy loading.
 	if lazyShard, ok := shard.(*LazyLoadShard); ok {
 		releaseBlock := lazyShard.blockLoading()
-		if !lazyShard.loaded {
+		if !lazyShard.loaded.Load() {
 			// Shard is in the map but not loaded; read from disk.
 			defer releaseBlock()
 			if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot); err != nil {
@@ -547,7 +547,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 		if lazyShard, ok := shard.(*LazyLoadShard); ok {
 			releaseBlock := lazyShard.blockLoading()
 			defer releaseBlock()
-			if !lazyShard.loaded {
+			if !lazyShard.loaded.Load() {
 				// Shard is in the map but not loaded; protect and keep lock held.
 				i.backupProtectedShards.Store(name, struct{}{})
 				unlockOnReturn = false
