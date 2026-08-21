@@ -20,13 +20,19 @@ import (
 // migrationRecordsAt reads one shard's records straight from disk. The sweeps
 // and gates that decide what to do about a cold tenant need the same answers a
 // loaded shard's store gives, and a record is a few hundred bytes.
-func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) []MigrationRecord {
+//
+// frozen reports that at least one record could not be understood. Its
+// property list is exactly what could not be read, so there is no way to scope
+// the withholding to the directories it stands on — the same shard-wide
+// reading reconciliation applies at load. A listing this build cannot read at
+// all freezes the shard for the same reason.
+func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []MigrationRecord, frozen bool) {
 	store := NewMigrationRecordStore(lsmPath, logger)
 	if err := store.Load(); err != nil {
 		logger.WithField("path", store.Dir()).Errorf("read migration records: %v", err)
-		return nil
+		return nil, true
 	}
-	return store.Records()
+	return store.Records(), len(store.Unreadable()) > 0
 }
 
 // migrationCommittedState names what a sweep of one shard must leave alone.
@@ -36,12 +42,18 @@ func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) []MigrationRe
 type migrationCommittedState struct {
 	buckets  map[string]struct{}
 	trackers map[string]struct{}
+
+	// frozen preserves everything on the shard. A record this build cannot
+	// read may name any directory here, and deleting one it names is exactly
+	// the loss the three-outcome loader exists to prevent.
+	frozen bool
 }
 
-func migrationCommittedStateOf(records []MigrationRecord) migrationCommittedState {
+func migrationCommittedStateOf(records []MigrationRecord, frozen bool) migrationCommittedState {
 	state := migrationCommittedState{
 		buckets:  map[string]struct{}{},
 		trackers: map[string]struct{}{},
+		frozen:   frozen,
 	}
 	for _, rec := range records {
 		if !rec.DataCommitted() {
@@ -59,11 +71,17 @@ func migrationCommittedStateOf(records []MigrationRecord) migrationCommittedStat
 }
 
 func (s migrationCommittedState) preservesBucket(dir string) bool {
+	if s.frozen {
+		return true
+	}
 	_, ok := s.buckets[dir]
 	return ok
 }
 
 func (s migrationCommittedState) preservesTracker(dir string) bool {
+	if s.frozen {
+		return true
+	}
 	_, ok := s.trackers[dir]
 	return ok
 }

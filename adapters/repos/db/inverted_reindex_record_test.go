@@ -323,6 +323,14 @@ func TestMigrationRecordStore(t *testing.T) {
 			assert: func(t *testing.T, s *MigrationRecordStore) {
 				require.Len(t, s.Records(), 1)
 				require.Len(t, s.Unreadable(), 1)
+
+				// The unreadable one may name any directory on this shard, so
+				// the sweeps have to keep all of them and not just the ones
+				// the readable record happens to name.
+				logger, _ := test.NewNullLogger()
+				committed := migrationCommittedStateOf(migrationRecordsAt(filepath.Dir(filepath.Dir(s.Dir())), logger))
+				require.True(t, committed.preservesBucket("a directory no readable record names"))
+				require.True(t, committed.preservesTracker("a directory no readable record names"))
 			},
 		},
 		{

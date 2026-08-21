@@ -1914,8 +1914,8 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 		lsmPath := shardPathLSM(idx.path(), shardName)
 		// Memos per shard, not per walk: no two shards name the same path, so
 		// nothing carries over between them anyway.
-		if migrationRecordFor(migrationRecordsAt(lsmPath, p.logger),
-			payload.MigrationType, payload.Properties, MigrationRecord.DataCommitted) {
+		records, _ := migrationRecordsAt(lsmPath, p.logger)
+		if migrationRecordFor(records, payload.MigrationType, payload.Properties, MigrationRecord.DataCommitted) {
 			return true
 		}
 	}
@@ -2205,8 +2205,11 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 		if !isHosted {
 			continue
 		}
-		if migrationRecordFor(migrationRecordsAt(shardPathLSM(idx.path(), shardName), p.logger),
-			payload.MigrationType, payload.Properties, migrationRecordUncommitted) {
+		records, frozen := migrationRecordsAt(shardPathLSM(idx.path(), shardName), p.logger)
+		// A record this build cannot read may be the one still owing
+		// callbacks, so answering "done" on its silence would release the
+		// bootstrap gate over a migration nobody is driving.
+		if frozen || migrationRecordFor(records, payload.MigrationType, payload.Properties, migrationRecordUncommitted) {
 			return false
 		}
 	}

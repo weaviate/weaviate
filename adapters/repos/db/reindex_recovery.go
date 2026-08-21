@@ -105,7 +105,7 @@ func DiscoverInFlightReindexTasks(
 				// Most shards have no .migrations dir; that's the normal path.
 				continue
 			}
-			records := migrationRecordsAt(lsmPath, logger)
+			records, _ := migrationRecordsAt(lsmPath, logger)
 			for _, migEntry := range migs {
 				if !migEntry.IsDir() {
 					continue

@@ -314,6 +314,14 @@ func hasStalePartialReindexState(
 	}
 	scope := migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props)
 	committed := dirs.committedMigrations(lsmPath, logger)
+	if committed.frozen {
+		// Nothing here is removable while a record cannot be read, so a
+		// hydration would reclaim nothing — and reporting otherwise would
+		// wake this tenant on every sweep pass for as long as the record
+		// stays unreadable. The load that surfaces it happens for its own
+		// reasons.
+		return false, false
+	}
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep must preserve.
 	for _, name := range names {
