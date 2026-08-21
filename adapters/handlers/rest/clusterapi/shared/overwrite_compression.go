@@ -13,6 +13,7 @@ package shared
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -30,7 +31,12 @@ const maxDecodedOverwriteRaw = 2 << 30 // 2 GiB
 
 func init() {
 	var err error
-	if overwriteRawZstdEncoder, err = zstd.NewWriter(nil); err != nil {
+	// Sub-encoder state is retained for the process lifetime, so concurrency and
+	// window are capped: defaults hold GOMAXPROCS×~1.5MiB permanently and grow by
+	// 16MiB per sub-encoder on any payload over one block (128KiB).
+	if overwriteRawZstdEncoder, err = zstd.NewWriter(nil,
+		zstd.WithEncoderConcurrency(min(4, runtime.GOMAXPROCS(0))),
+		zstd.WithWindowSize(1<<20)); err != nil {
 		panic(fmt.Sprintf("init overwrite raw zstd encoder: %v", err))
 	}
 	if overwriteRawZstdDecoder, err = zstd.NewReader(nil, zstd.WithDecoderMaxMemory(maxDecodedOverwriteRaw)); err != nil {
