@@ -48,7 +48,7 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 		// closeRequested signals a delete that has not reached teardown yet;
 		// closeCause only answers once teardown cancels closingCtx.
 		closeRequested bool
-		closing bool
+		closing        bool
 		// committed says whether the tenant's migration reached the state
 		// from which its staged data is the data.
 		committed bool
