@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 // nextMigrationGeneration returns the per-node generation `N` a new
@@ -42,8 +44,24 @@ import (
 // per-node — different nodes may pick different generations for the
 // same RAFT task and that's correct: generation is purely a per-node
 // on-disk implementation detail of the deferred-finalize design.
-func nextMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
-	return maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix) + 1
+func nextMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string,
+	logger logrus.FieldLogger,
+) int {
+	highest := maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix)
+
+	// A sweep removes a tracker directory and leaves its record behind, so the
+	// directories alone under-report which generations are still claimed.
+	// Handing one out twice gives a retry the very handles the stale record
+	// names, and that record's discard then removes the retry's directories.
+	records, _, _ := migrationRecordsAt(lsmPath, logger)
+	target := migrationDirPrefix + propNamesSuffix
+	for _, rec := range records {
+		prefix, gen, ok := parseMigrationDirName(rec.Subject().TrackerDir)
+		if ok && prefix == target && gen > highest {
+			highest = gen
+		}
+	}
+	return highest + 1
 }
 
 // maxMigrationGeneration returns the highest existing generation on disk

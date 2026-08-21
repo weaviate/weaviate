@@ -912,7 +912,7 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 			// it is handed back. Removing the tracker is what hands it back,
 			// because the counter reads .migrations and nothing else.
 			assert.Equal(t, tt.wantReissued,
-				nextMigrationGeneration(lsmPath, "enable_filterable_", propName),
+				nextMigrationGeneration(lsmPath, "enable_filterable_", propName, testGenerationLogger()),
 				"the generation the next migration on this property claims")
 		})
 	}

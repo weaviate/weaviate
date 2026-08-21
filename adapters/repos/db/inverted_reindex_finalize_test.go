@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -79,7 +81,7 @@ func fakeMigrationsDir(t *testing.T, dirs []string) string {
 
 func TestNextMigrationGeneration_EmptyDisk(t *testing.T) {
 	lsmPath := fakeMigrationsDir(t, nil)
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
+	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", testGenerationLogger())
 	require.Equal(t, 1, got, "fresh disk should pick gen 1")
 }
 
@@ -91,7 +93,7 @@ func TestNextMigrationGeneration_NoMatchingPrefix(t *testing.T) {
 		"filterable_retokenize_text_2",
 		"enable_filterable_text_5",
 	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
+	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", testGenerationLogger())
 	require.Equal(t, 1, got, "no matching prefix means fresh gen 1")
 }
 
@@ -101,7 +103,7 @@ func TestNextMigrationGeneration_ContiguousGens(t *testing.T) {
 		"searchable_retokenize_text_2",
 		"searchable_retokenize_text_3",
 	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
+	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", testGenerationLogger())
 	require.Equal(t, 4, got, "max+1 across contiguous gens")
 }
 
@@ -113,7 +115,7 @@ func TestNextMigrationGeneration_NonContiguousGens(t *testing.T) {
 		"searchable_retokenize_text_5",
 		"searchable_retokenize_text_7",
 	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
+	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", testGenerationLogger())
 	require.Equal(t, 8, got, "non-contiguous gens still pick max+1")
 }
 
@@ -123,10 +125,10 @@ func TestNextMigrationGeneration_MixedPrefixesScopedCorrectly(t *testing.T) {
 		"searchable_retokenize_other_7", // different prop in same prefix
 		"filterable_retokenize_text_10", // different prefix, same prop
 	})
-	require.Equal(t, 4, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
-	require.Equal(t, 8, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_other"))
-	require.Equal(t, 11, nextMigrationGeneration(lsmPath, MigrationDirPrefixFilterableRetokenize, "_text"))
-	require.Equal(t, 1, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_neverused"))
+	require.Equal(t, 4, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", testGenerationLogger()))
+	require.Equal(t, 8, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_other", testGenerationLogger()))
+	require.Equal(t, 11, nextMigrationGeneration(lsmPath, MigrationDirPrefixFilterableRetokenize, "_text", testGenerationLogger()))
+	require.Equal(t, 1, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_neverused", testGenerationLogger()))
 }
 
 func TestMaxMigrationGeneration_NoExisting(t *testing.T) {
@@ -298,6 +300,62 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 				require.Truef(t, f.exists(staged), "staged directory %q", staged)
 			}
 			f.requireMigrationDirsTrackRecords()
+		})
+	}
+}
+
+func testGenerationLogger() logrus.FieldLogger {
+	logger, _ := test.NewNullLogger()
+	return logger
+}
+
+// TestNextMigrationGenerationHonorsRecords pins the other half of the claim.
+// The sweeps remove a tracker directory without removing its record, so a
+// generation derived from directories alone is handed out a second time — and
+// the retry then gets the handles the stale record still names, whose discard
+// removes the retry's directories.
+func TestNextMigrationGenerationHonorsRecords(t *testing.T) {
+	tests := []struct {
+		name       string
+		dirs       []string
+		trackerDir string
+		want       int
+	}{
+		{
+			name:       "a record whose directory a sweep removed still holds its generation",
+			trackerDir: "searchable_retokenize_text_1",
+			want:       2,
+		},
+		{
+			name:       "a record above the highest surviving directory wins",
+			dirs:       []string{"searchable_retokenize_text_2"},
+			trackerDir: "searchable_retokenize_text_5",
+			want:       6,
+		},
+		{
+			name:       "a record below the highest surviving directory changes nothing",
+			dirs:       []string{"searchable_retokenize_text_9"},
+			trackerDir: "searchable_retokenize_text_3",
+			want:       10,
+		},
+		{
+			name:       "a record on another strategy does not bump this one",
+			trackerDir: "filterable_retokenize_text_7",
+			want:       1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lsmPath := fakeMigrationsDir(t, tt.dirs)
+			logger := testGenerationLogger()
+
+			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "text")
+			subject.TrackerDir = tt.trackerDir
+			require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(NewMigrationRecordMerged(subject)))
+
+			require.Equal(t, tt.want,
+				nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", logger))
 		})
 	}
 }

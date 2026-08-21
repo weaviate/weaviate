@@ -683,7 +683,7 @@ func (p *ReindexProvider) buildReindexTasks(payload *ReindexTaskPayload, lsmPath
 			}
 			return 0, false
 		}
-		return nextMigrationGeneration(lsmPath, prefix, propSuffix), true
+		return nextMigrationGeneration(lsmPath, prefix, propSuffix, p.logger), true
 	}
 
 	// On the normal path (rehydrate=false) genFor always returns ok=true.
