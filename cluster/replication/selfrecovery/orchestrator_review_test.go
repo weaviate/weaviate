@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,6 +24,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -184,6 +187,56 @@ func TestRunOne_GiveUpAfterMaxAttempts(t *testing.T) {
 
 	require.InDelta(t, beforeGiveup+1, testutil.ToFloat64(o.metrics.GiveupTotal), 0.001)
 	require.InDelta(t, beforeFailure+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure")), 0.001)
+}
+
+// Pins the promote-vs-index-publication race: empty-fallback retries the promote until the index appears.
+func TestRunOne_EmptyFallbackRetriesPromoteUntilIndexPublished(t *testing.T) {
+	ns := &stubNodeSelector{addrs: map[string]string{}, ports: map[string]int{}}
+	clientFactory := func(_ context.Context, _ string) (copier.FileReplicationServiceClient, error) {
+		return nil, errors.New("unused")
+	}
+	root := t.TempDir()
+	var calls atomic.Int64
+	o := newOrchestratorForTest(t, &stubRaft{},
+		stubSchema{replicas: []string{"self"}}, ns, clientFactory, stubPathResolver{root: root})
+	o.onRecoveryComplete = func(_ context.Context, _, _ string) error {
+		if calls.Add(1) < 3 {
+			return errors.New("load local shard: index not found")
+		}
+		return nil
+	}
+
+	beforeEmpty := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("empty_fallback"))
+	beforeFailure := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure"))
+
+	o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false)
+
+	require.EqualValues(t, 3, calls.Load(), "promote must retry until the index is published")
+	require.InDelta(t, beforeEmpty+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("empty_fallback")), 0.001)
+	require.InDelta(t, beforeFailure, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure")), 0.001)
+}
+
+// Pins mixed-version diagnosability: an Unimplemented probe answer is not a silent generic unreachable.
+func TestProbePeer_UnimplementedIsDiagnosable(t *testing.T) {
+	ns := &stubNodeSelector{
+		addrs: map[string]string{"peer1": "10.0.0.1"},
+		ports: map[string]int{"peer1": 50051},
+	}
+	clientFactory := func(_ context.Context, _ string) (copier.FileReplicationServiceClient, error) {
+		return &stubFileReplicationClient{
+			probeShardData: func(_ context.Context, _ *protocol.ProbeShardDataRequest) (*protocol.ProbeShardDataResponse, error) {
+				return nil, status.Error(codes.Unimplemented, "unknown method ProbeShardData")
+			},
+		}, nil
+	}
+	o := newOrchestratorForTest(t, &stubRaft{},
+		stubSchema{replicas: []string{"self", "peer1"}}, ns, clientFactory, stubPathResolver{root: t.TempDir()})
+
+	hasData, definitive, err := o.probePeer(context.Background(), "peer1", ShardRef{Collection: "C", Shard: "S"})
+
+	require.False(t, hasData)
+	require.False(t, definitive)
+	require.ErrorContains(t, err, "lacks self-recovery support")
 }
 
 // Pins the delete-during-recovery ghost: a shard gone from the schema settles as cancelled, not retries+give-up.
