@@ -453,6 +453,104 @@ func TestBuildDropsDuplicatesAcrossShapes(t *testing.T) {
 	}
 }
 
+// TestFirstAtOrAfter pins the gallop against a linear scan, over every
+// (from, to, target) the list admits and both layouts, since the two index the
+// slab differently and the search reaches keys by index.
+//
+// to is swept as well as from: it is the caller's window rather than the list's
+// end, and a stride running past it would answer with a key outside the window.
+// So are targets at or before keys[from], which the answer is from — the case a
+// precondition would have made undefined.
+func TestFirstAtOrAfter(t *testing.T) {
+	t.Parallel()
+
+	layouts := []struct {
+		name  string
+		build func(tb testing.TB, keys []string) SortedKeys
+	}{
+		{name: "variable width", build: buildVariable},
+		{name: "fixed width", build: fixedBuilder(1)},
+		// Wider than the keys, so the slab is strided rather than packed and an
+		// index the search reaches has to be scaled by the width to find its key.
+		// The builder zero-pads, and the scan below compares the padded keys the
+		// same way the search does.
+		{name: "fixed width, padded", build: fixedBuilder(8)},
+	}
+	// Every other printable byte: gaps between the keys, so a target can fall on
+	// one or between two, and enough of them that the gallop's stride doubles
+	// several times instead of finding its answer inside the first step.
+	var letters []string
+	for c := byte('!'); c <= '~'; c += 2 {
+		letters = append(letters, string(c))
+	}
+
+	for _, layout := range layouts {
+		t.Run(layout.name, func(t *testing.T) {
+			t.Parallel()
+
+			keys := layout.build(t, letters)
+			n := keys.Len()
+
+			// On the first key, in the gap after it, and the same at the middle and
+			// the end, plus a target before every key and one past all of them.
+			last := len(letters) - 1
+			targets := []string{
+				"", letters[0], next(letters[0]),
+				letters[last/2], next(letters[last/2]),
+				letters[last], next(letters[last]),
+			}
+			for _, target := range targets {
+				for from := 0; from <= n; from++ {
+					for _, to := range []int{from, (from + n) / 2, n} {
+						want := to
+						for i := from; i < to; i++ {
+							if string(keys.At(i)) >= target {
+								want = i
+								break
+							}
+						}
+						assert.Equalf(t, want, keys.FirstAtOrAfter(from, to, []byte(target)),
+							"FirstAtOrAfter(from=%d, to=%d, target=%q)", from, to, target)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestFirstAtOrAfterOutsideItsRange pins what the godoc says the caller must not
+// do, so the documented behaviour is the tested one rather than whatever the
+// arithmetic happens to produce. Both are caller errors that nothing checks: the
+// alternative is trimming them to fit, which answers as if the caller were right.
+func TestFirstAtOrAfterOutsideItsRange(t *testing.T) {
+	t.Parallel()
+
+	letters := []string{"a", "c", "e", "g", "i"}
+
+	t.Run("an inverted range answers from, which is past to", func(t *testing.T) {
+		t.Parallel()
+
+		keys := buildVariable(t, letters)
+		// Every target, since the answer comes from the range and not from the
+		// search: with from past to there is nothing to search.
+		for _, target := range []string{"", "a", "e", "z"} {
+			assert.Equalf(t, 4, keys.FirstAtOrAfter(4, 2, []byte(target)),
+				"target %q", target)
+		}
+	})
+
+	t.Run("a range past the end reads past the keys", func(t *testing.T) {
+		t.Parallel()
+
+		keys := buildVariable(t, letters)
+		// A target past every key makes the gallop walk to to, which the caller
+		// has put beyond what the list holds.
+		require.Panics(t, func() {
+			keys.FirstAtOrAfter(0, keys.Len()+8, []byte("z"))
+		})
+	})
+}
+
 // fixedBuilder adapts buildFixed to the table's build signature, which takes the
 // TB so a builder error fails the case rather than being dropped.
 func fixedBuilder(width int) func(tb testing.TB, keys []string) SortedKeys {
@@ -644,3 +742,7 @@ func TestShrinkKeysReleasesTheDedupedTail(t *testing.T) {
 		})
 	})
 }
+
+// next is the single-byte key after k, which for a list of every other byte is a
+// target sitting in the gap that follows it.
+func next(k string) string { return string(k[0] + 1) }

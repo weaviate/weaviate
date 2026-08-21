@@ -53,6 +53,28 @@ func (l *BitmapLayer) Clone() BitmapLayer {
 	return clone
 }
 
+// CloneDroppingEmpty copies the layer as [BitmapLayer.Clone] does, but leaves a
+// side that holds nothing nil rather than cloning it. A memtable node always
+// allocates both bitmaps, so a key only ever written to would otherwise pay a
+// clone to carry an empty deletion set.
+//
+// nil and empty are interchangeable to [LayerMerger]: its AndNot and Or take
+// either, and the branch that adopts a layer's additions outright is reached
+// only when no older layer contributed, which is when that layer's own
+// deletions have nothing to delete from. Pinned by
+// TestNilAndEmptyBitmapsMergeAlike.
+func (l *BitmapLayer) CloneDroppingEmpty() BitmapLayer {
+	clone := BitmapLayer{}
+	// IsEmpty is nil-safe, so a nil bitmap takes the same path as an empty one.
+	if !l.Additions.IsEmpty() {
+		clone.Additions = l.Additions.Clone()
+	}
+	if !l.Deletions.IsEmpty() {
+		clone.Deletions = l.Deletions.Clone()
+	}
+	return clone
+}
+
 // BitmapLayers are a helper type to perform operations on multiple layers,
 // such as [BitmapLayers.Flatten] or [BitmapLayers.Merge].
 type BitmapLayers []BitmapLayer
@@ -91,9 +113,16 @@ func (bml BitmapLayers) Flatten(clone bool, maxConc int) *sroar.Bitmap {
 		return sroar.NewBitmap()
 	}
 
+	// A first layer that only deletes has nothing to fold into, and every later
+	// layer's deletions would then be applied to a nil receiver. Cloning a nil
+	// bitmap yields an empty one, so a caller that clones never reaches this;
+	// one that does not would panic in sroar's OrConc without it.
 	merged := bml[0].Additions
-	if clone {
+	switch {
+	case clone:
 		merged = merged.Clone()
+	case merged == nil:
+		merged = sroar.NewBitmap()
 	}
 
 	for i := 1; i < len(bml); i++ {
@@ -118,8 +147,9 @@ type LayerMerger struct {
 
 // NewLayerMerger starts a fold from base, which becomes the accumulator and
 // is mutated in place by Add; pass clone=true when base must not be mutated.
-// A nil base means no layer yet: the first Add'd layer's additions are
-// adopted as the accumulator without a copy, as in Flatten.
+// A nil base means no layer yet: the first Add'd layer with non-nil additions
+// has them adopted as the accumulator without a copy, as in Flatten. One
+// holding only deletions is not that layer and leaves the fold unseeded.
 func NewLayerMerger(base *sroar.Bitmap, clone bool, maxConc int) LayerMerger {
 	if clone && base != nil {
 		base = base.Clone()

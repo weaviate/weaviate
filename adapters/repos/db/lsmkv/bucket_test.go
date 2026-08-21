@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -2246,6 +2247,15 @@ type testMemtable struct {
 	// roaringSetGetErr, when set, makes roaringSetGet fail, simulating a
 	// memtable read error mid-way through a consistent-view lookup.
 	roaringSetGetErr error
+	// roaringSetGetWindowErr is the same for the windowed read, which fails a
+	// whole window rather than one key.
+	roaringSetGetWindowErr error
+	// Call counts for the two ways a memtable is read. Each is one acquisition
+	// of its read lock, which is the cost the batch path exists to reduce, so
+	// counting them is how a test states that reduction rather than inferring
+	// it from a timing.
+	roaringSetGetCalls       int
+	roaringSetGetWindowCalls int
 }
 
 func (t *testMemtable) incWriterCount() {
@@ -2253,7 +2263,22 @@ func (t *testMemtable) incWriterCount() {
 	t.Memtable.incWriterCount()
 }
 
+func (t *testMemtable) roaringSetGetWindow(
+	keys inverted.SortedKeys, from, to int, into []roaringset.BitmapLayer, budget int,
+) (windowFill, error) {
+	t.roaringSetGetWindowCalls++
+	if t.roaringSetGetWindowErr != nil {
+		// To as the real walk reports it when a read fails part way: the range it
+		// was asked for, since it cannot say how far it got. The caller discards
+		// the fill on an error, so this only keeps the double from being the looser
+		// of the two.
+		return windowFill{To: to}, t.roaringSetGetWindowErr
+	}
+	return t.Memtable.roaringSetGetWindow(keys, from, to, into, budget)
+}
+
 func (t *testMemtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+	t.roaringSetGetCalls++
 	if t.roaringSetGetErr != nil {
 		return roaringset.BitmapLayer{}, t.roaringSetGetErr
 	}
@@ -2305,6 +2330,19 @@ func newTestMemtableRoaringSet(initialData map[string][]uint64) *testMemtable {
 	}
 
 	return &testMemtable{Memtable: m}
+}
+
+// docsOrNil is ToArray with one difference that matters to a differential test:
+// a bitmap holding nothing reads as nil whether it is nil or merely empty.
+// ToArray keeps those apart, as an empty slice and a nil one, and require.Equal
+// calls them unequal — so a path returning one and a path returning the other
+// would fail over a representation rather than over a document.
+func docsOrNil(bm *sroar.Bitmap) []uint64 {
+	out := bm.ToArray()
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func newTestMemtableRoaringSetRange(initialData map[uint64][]uint64) *testMemtable {
