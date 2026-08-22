@@ -572,14 +572,6 @@ func (p *ReindexProvider) processOneUnit(
 
 	logger.Info("reindex provider: starting unit")
 
-	// Report initial progress to claim the unit.
-	if err := recorder.UpdateDistributedTaskUnitProgress(
-		ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, 0.0,
-	); err != nil {
-		logger.Errorf("reindex provider: failed to report initial progress: %v", err)
-		return
-	}
-
 	// Find the shard.
 	shard, err := lookupShardByName(idx, shardName)
 	if err != nil {
@@ -608,15 +600,23 @@ func (p *ReindexProvider) processOneUnit(
 	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
 	if !entered {
 		// A teardown holds this unit. Nothing is claimed and no progress is
-		// reported beyond the initial claim, which leaves the unit neither
-		// completed nor failed — so the next scheduler tick relaunches it, by
-		// which time the teardown has either released or the task is terminal
-		// and the unit is skipped outright. A task-wide seal is held across a
-		// whole sweep, so this can take several ticks.
+		// reported, which leaves the unit neither completed nor failed — so the
+		// next scheduler tick relaunches it, by which time the teardown has
+		// either released or the task is terminal and the unit is skipped
+		// outright. A task-wide seal is held across a whole sweep, so this can
+		// take several ticks.
 		logger.Warn("reindex provider: a teardown holds this unit, so it is not started; the next tick retries it")
 		return
 	}
 	defer release()
+
+	// Report initial progress to claim the unit.
+	if err := recorder.UpdateDistributedTaskUnitProgress(
+		ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, 0.0,
+	); err != nil {
+		logger.Errorf("reindex provider: failed to report initial progress: %v", err)
+		return
+	}
 
 	// For semantic migrations (change-tokenization, enable-rangeable), use
 	// two-phase execution: reindex only, then swap after all units complete.
