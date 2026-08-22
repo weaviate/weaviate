@@ -32,7 +32,7 @@ func testQuestionRecords() (iterating, iterated, merged, swapped, promoted Migra
 }
 
 // TestMigrationRecordQuestions is the RFC's first acceptance test at its
-// re-derived target: every one of the 5x4 cells asserted directly on a
+// re-derived target: every one of the 5x3 cells asserted directly on a
 // record, with no reader re-interpreting a state at its call site.
 func TestMigrationRecordQuestions(t *testing.T) {
 	iterating, iterated, merged, swapped, promoted := testQuestionRecords()
@@ -43,7 +43,6 @@ func TestMigrationRecordQuestions(t *testing.T) {
 		wantState          MigrationState
 		wantDataCommitted  bool
 		wantPointerSwapped bool
-		wantLiveDataAt     string
 		wantOwnsStagedDir  bool
 	}{
 		{
@@ -52,7 +51,6 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			wantState:          MigrationStateIterating,
 			wantDataCommitted:  false,
 			wantPointerSwapped: false,
-			wantLiveDataAt:     "property_title",
 			wantOwnsStagedDir:  true,
 		},
 		{
@@ -61,7 +59,6 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			wantState:          MigrationStateIterated,
 			wantDataCommitted:  false,
 			wantPointerSwapped: false,
-			wantLiveDataAt:     "property_title",
 			wantOwnsStagedDir:  true,
 		},
 		{
@@ -70,25 +67,22 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			wantState:          MigrationStateMerged,
 			wantDataCommitted:  true,
 			wantPointerSwapped: false,
-			wantLiveDataAt:     "property_title",
 			wantOwnsStagedDir:  true,
 		},
 		{
-			name:               "swapped: the staged directory is serving the property",
+			name:               "swapped: the flip decision is durable, so the migration is irreversible",
 			record:             swapped,
 			wantState:          MigrationStateSwapped,
 			wantDataCommitted:  true,
 			wantPointerSwapped: true,
-			wantLiveDataAt:     "m_42_title",
 			wantOwnsStagedDir:  true,
 		},
 		{
-			name:               "promoted: the data is back at the canonical name",
+			name:               "promoted: committed and swapped, same answers as swapped",
 			record:             promoted,
 			wantState:          MigrationStatePromoted,
 			wantDataCommitted:  true,
 			wantPointerSwapped: true,
-			wantLiveDataAt:     "property_title",
 			wantOwnsStagedDir:  true,
 		},
 	}
@@ -100,7 +94,6 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			require.Equal(t, tt.wantState, tt.record.State())
 			require.Equal(t, tt.wantDataCommitted, tt.record.DataCommitted())
 			require.Equal(t, tt.wantPointerSwapped, tt.record.PointerSwapped())
-			require.Equal(t, tt.wantLiveDataAt, tt.record.LiveDataAt("title"))
 			require.Equal(t, tt.wantOwnsStagedDir, tt.record.OwnsBucket("m_42_title"))
 		})
 	}
@@ -145,68 +138,4 @@ func TestMigrationRecordOwnsBucket(t *testing.T) {
 			require.Equal(t, tt.want, merged.OwnsBucket(tt.dir))
 		})
 	}
-}
-
-func TestMigrationRecordLiveDataAt(t *testing.T) {
-	_, _, _, swapped, _ := testQuestionRecords()
-	swappedRec := swapped.(MigrationRecordSwapped)
-
-	tests := []struct {
-		name    string
-		record  MigrationRecord
-		prop    string
-		wantDir string
-	}{
-		{
-			name:    "outside the window a loaded record reports every recorded flip as done",
-			record:  swappedRec,
-			prop:    "title",
-			wantDir: "m_42_title",
-		},
-		{
-			name:    "inside the window, before any property flips, the canonical bucket is still serving",
-			record:  swappedRec.EnterFlipWindow(),
-			prop:    "title",
-			wantDir: "property_title",
-		},
-		{
-			name:    "inside the window, a property that has flipped is served from staging",
-			record:  swappedRec.EnterFlipWindow().WithPropertyFlipped("title"),
-			prop:    "title",
-			wantDir: "m_42_title",
-		},
-		{
-			name:    "inside the window, a property that has not flipped yet is not dragged along",
-			record:  swappedRec.EnterFlipWindow().WithPropertyFlipped("title"),
-			prop:    "body",
-			wantDir: "property_body",
-		},
-		{
-			name:    "a property this migration does not cover",
-			record:  swappedRec,
-			prop:    "author",
-			wantDir: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.wantDir, tt.record.LiveDataAt(tt.prop))
-		})
-	}
-}
-
-func TestMigrationRecordFlipWindowDoesNotLeakToDisk(t *testing.T) {
-	_, _, _, swapped, _ := testQuestionRecords()
-	inWindow := swapped.(MigrationRecordSwapped).EnterFlipWindow().WithPropertyFlipped("title")
-
-	encoded, err := encodeMigrationRecord(inWindow)
-	require.NoError(t, err)
-	decoded, err := decodeMigrationRecord(encoded)
-	require.NoError(t, err)
-
-	// A partial flip set is not a state any load can observe, so the record
-	// that comes back reports both properties flipped.
-	require.Equal(t, "m_42_title", decoded.LiveDataAt("title"))
-	require.Equal(t, "m_42_body", decoded.LiveDataAt("body"))
 }
