@@ -103,12 +103,13 @@ func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string)
 	return highest
 }
 
-// reindexSuffixForFinalize returns the per-strategy reindex bucket
-// suffix base (e.g. `__retokenize_reindex`) used to identify older-gen
-// reindex sidecar dirs in the finalize cleanup. Kept in lockstep with
-// each strategy's ReindexSuffix() base — when a new strategy is added,
-// extend both this switch and the strategy's ReindexSuffix() method.
-func reindexSuffixForFinalize(namespace string) string {
+// reindexSuffixFor returns the per-strategy reindex bucket suffix base (e.g.
+// `__retokenize_reindex`) for a tracker dir's name. It is how a reader holding
+// only a directory name — the orphan audit, the legacy-marker probe — reaches
+// the sidecars that name owns. Kept in lockstep with each strategy's
+// ReindexSuffix() base: a new strategy extends both this switch and that
+// method.
+func reindexSuffixFor(namespace string) string {
 	switch {
 	case strings.HasPrefix(namespace, MigrationDirSearchableMapToBlockmax):
 		return "__blockmax_reindex"
@@ -135,7 +136,10 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// migrationBucketSuffixes maps a migration dir name to its bucket naming scheme.
+// migrationBucketSuffixes maps a migration dir name to its bucket naming
+// scheme: the canonical bucket each property is migrated from, and the ingest
+// sidecar suffix the migration stages into. [reindexSuffixFor] is the same
+// answer for the reindex sidecar.
 type migrationBucketSuffixes struct {
 	sourceBucketName func(propName string) string
 	ingestSuffix     string
@@ -143,14 +147,13 @@ type migrationBucketSuffixes struct {
 
 func migrationSuffixes(migName string) *migrationBucketSuffixes {
 	// Dir-name constants live in inverted_reindex_strategy_dir_names.go and
-	// are referenced by each strategy's MigrationDirName() — keep finalize
-	// in sync with the writer side by reusing the same constants here.
+	// are referenced by each strategy's MigrationDirName() — reusing the same
+	// constants here is what keeps this in sync with the writer side.
 	//
 	// Every migration dir name carries a `_<gen>` suffix appended by
 	// [genSuffix]. The HasPrefix arms below match the strategy's prefix
-	// regardless of the gen suffix; finalize callers compose the final
-	// gen-suffixed sidecar dir name by appending `_<gen>` to the
-	// ingest suffix base.
+	// regardless of it; callers compose the final sidecar dir name by
+	// appending `_<gen>` to the suffix base.
 	switch {
 	case strings.HasPrefix(migName, MigrationDirSearchableMapToBlockmax):
 		return &migrationBucketSuffixes{

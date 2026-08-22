@@ -455,9 +455,9 @@ func (r *migrationReconciler) promoteProperty(subject MigrationSubject, prop, st
 	return true, r.rename(staged, canonical)
 }
 
-// reconcilePromoted is the closure sweep. The record outlives its data: under
-// opaque naming only its owned-dirs list can attribute a leftover from a
-// retirement step that partly failed.
+// reconcilePromoted is the closure sweep. The record outlives its data: its
+// owned-dirs list is what attributes a leftover from a retirement step that
+// partly failed, so that names carrying no strategy would not change this.
 func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec MigrationRecordPromoted,
 	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {

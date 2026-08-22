@@ -1454,8 +1454,8 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 			return fmt.Errorf("shutting down old main bucket for %q: %w", propName, err)
 		}
 		// Removed at the recorded handle rather than renamed aside. A derived
-		// backup name parks a crash's leftovers where no record points, which
-		// under opaque directory names makes them unattributable.
+		// backup name parks a crash's leftovers where no record points, and
+		// nothing attributes a directory no record names.
 		if err := os.RemoveAll(oldMainBucket.GetDir()); err != nil {
 			return fmt.Errorf("removing displaced dir for %q: %w", propName, err)
 		}

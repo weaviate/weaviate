@@ -49,9 +49,10 @@ func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []Mi
 }
 
 // migrationPreservedState names what a sweep of one shard must leave alone.
-// A record whose staged data is complete owns directories that back a live
-// in-memory bucket pointer: removing one empties the canonical bucket on the
-// node that submitted the migration, and nothing reports it.
+// A record whose staged data is complete holds a complete copy nobody else
+// holds: at Merged the copy the flip is about to make live, from Swapped on
+// the live data itself. Removing a directory it names loses that copy, and
+// nothing reports it.
 type migrationPreservedState struct {
 	// records is the whole understood set, not just the preserved part: the
 	// sweeps also ask an extant record which properties its directory belongs

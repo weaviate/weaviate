@@ -96,8 +96,8 @@ func migrationDirClaimedAsDisplaced(all []MigrationRecord, subject MigrationSubj
 		// record: the removal chain that would reach this directory runs per
 		// property, so a claimer superseded on that one property never runs it
 		// again even while its other properties live on. Honoring a lapsed
-		// claim strands the directory at a name no surviving record holds,
-		// which under opaque naming makes it unattributable and unreclaimable.
+		// claim strands the directory at a name no surviving record holds, so
+		// nothing attributes it and nothing reclaims it.
 		if migrationPropertySuperseded(all, other.Subject(), claimedFor) {
 			continue
 		}

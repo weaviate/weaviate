@@ -852,7 +852,7 @@ func migrationSidecarDirsFor(dirName, prefix string, generation int, properties 
 	if suffixes == nil {
 		return nil
 	}
-	reindexSuffix := reindexSuffixForFinalize(prefix)
+	reindexSuffix := reindexSuffixFor(prefix)
 	genTail := genSuffix(generation)
 	out := make([]string, 0, 2*len(properties))
 	for _, propName := range properties {

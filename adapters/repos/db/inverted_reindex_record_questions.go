@@ -40,8 +40,9 @@ type migrationRecordQuestions interface {
 	// written.
 	IterationComplete() bool
 
-	// OwnsBucket reports whether dir is one this migration created. Directory
-	// names are opaque, so an unattributed directory can never be reclaimed.
+	// OwnsBucket reports whether dir is one this migration created. A
+	// directory no record attributes is never reclaimed, so this list is what
+	// keeps one from being stranded.
 	OwnsBucket(dir string) bool
 }
 

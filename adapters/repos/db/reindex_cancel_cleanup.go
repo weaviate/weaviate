@@ -284,10 +284,11 @@ func (i *Index) cleanStalePartialReindexState(
 // reactivating it changes nothing: the record check runs from the task path,
 // not from a shard load.
 //
-// The second return says the shard holds a completed migration's leftovers:
-// its data still under the ingest sidecar name, or a directory a promoted
-// record still owns. Only a shard load reclaims those, since reconciliation
-// runs before buckets open. It is only meaningful where the first return is
+// The second return says the shard holds the directories of a migration whose
+// staging finished: its data still under the ingest sidecar name, or a
+// directory a promoted record still owns. Only a shard load settles those,
+// since reconciliation runs before buckets open — and it may settle one by
+// discarding it, since staged is not committed. It is only meaningful where the first return is
 // false — a shard already being hydrated finalizes them on the way in either
 // way.
 //
@@ -399,8 +400,9 @@ type dirNamesCache struct {
 // committedMigrations answers, per shard, which directories a committed
 // migration owns. Memoized on the same cache as the listings because one run
 // asks it per (property, index type) tuple over the same shards, and because
-// nothing may change the answer while a sweep holds it: a migration commits
-// only through a load, and a loaded shard leaves the sweep's unloaded path.
+// nothing may change the answer while a sweep holds it: records are written by
+// a shard's own engine and by reconciliation, both of which need the shard
+// loaded, and a loaded shard leaves this sweep's unloaded path.
 func (c *dirNamesCache) committedMigrations(lsmPath string, logger logrus.FieldLogger) migrationPreservedState {
 	if c == nil {
 		return migrationPreservedStateAt(lsmPath, logger)
