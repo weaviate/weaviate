@@ -258,27 +258,41 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 // cluster-wide. A payload names every targeted tenant and unit, so a large
 // multi-tenant migration reaches megabytes.
 //
-// It is a latency bound, not a memory one, so it holds only where refusing is
-// fail-open: over it the payload is refused rather than parsed and reads as
+// It is a latency bound, so it holds only where refusing is fail-open: over it
+// the payload is refused rather than parsed and reads as
 // [errRecoveryPayloadTooLarge] — see [readTaskProps] for what callers
-// conclude. [loadReindexRecoveryRecord] is the reader it does not hold for.
+// conclude.
 const maxRecoveryPayloadBytes = 1 << 20 // 1 MiB
+
+// maxRecoveryWalkPayloadBytes is what [loadReindexRecoveryRecord] reads under
+// instead. Refusing there arms no double-write mirror, so the flip that
+// follows takes the canonical directory away with every write since the
+// restart — which no legitimate payload may be allowed to cause, and an
+// ordinary multi-tenant migration clears a megabyte on tenant names alone.
+//
+// It is a memory bound, not a latency one: the walk runs once at startup, off
+// any RAFT apply, but a corrupt or hostile file would otherwise be one
+// unbounded read during boot, and an OOM there is a crash loop. Roughly 300
+// bytes of the payload go per unit, so this clears a cluster of some 800k
+// units — orders of magnitude past anything Weaviate runs.
+const maxRecoveryWalkPayloadBytes = 256 << 20
 
 // errRecoveryPayloadTooLarge marks a payload.mig [maxRecoveryPayloadBytes]
 // refused. Distinguishable from a payload that was opened and could not be
 // parsed, so a refusal is not counted as a read: it cost a stat.
 var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse bound")
 
-// refuseOversizedRecoveryPayload reports a payload.mig too large to parse
-// where it is being read.
-func refuseOversizedRecoveryPayload(path string) error {
+// refuseOversizedRecoveryPayload reports a payload.mig too large to read where
+// it is being read. The bound travels with the caller because the two readers
+// bound for opposite reasons; see the constants above.
+func refuseOversizedRecoveryPayload(path string, bound int64) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
-	if info.Size() > maxRecoveryPayloadBytes {
+	if info.Size() > bound {
 		return fmt.Errorf("%w: %s holds %d bytes, bound is %d",
-			errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), maxRecoveryPayloadBytes)
+			errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), bound)
 	}
 	return nil
 }
@@ -303,7 +317,7 @@ type recoveryPayloadFacts struct {
 // open.
 func readRecoveryPayloadFacts(migDir string) (recoveryPayloadFacts, error) {
 	path := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	if err := refuseOversizedRecoveryPayload(path); err != nil {
+	if err := refuseOversizedRecoveryPayload(path, maxRecoveryPayloadBytes); err != nil {
 		return recoveryPayloadFacts{}, err
 	}
 	data, err := os.ReadFile(path)

@@ -322,7 +322,7 @@ func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []
 	target := filepath.Join(migDir, reindexRecoveryPayloadFile)
 	// The comparison is a convenience — an identical rewrite would be harmless
 	// — so an oversized file skips it and is overwritten rather than read.
-	if err := refuseOversizedRecoveryPayload(target); err == nil {
+	if err := refuseOversizedRecoveryPayload(target, maxRecoveryPayloadBytes); err == nil {
 		if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, payload) {
 			return nil
 		}

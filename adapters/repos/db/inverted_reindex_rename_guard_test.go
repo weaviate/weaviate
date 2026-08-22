@@ -12,7 +12,6 @@
 package db
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -84,24 +83,25 @@ func matchesAny(name string, patterns ...string) bool {
 	return false
 }
 
-// TestEveryPayloadReadIsBounded pins which readers of payload.mig bound their
-// read and which one must not. The bound is a latency bound for the readers a
-// RAFT apply reaches, where refusing is fail-open and costs a stat. The startup
-// recovery walk is neither: refusing there arms no double-write mirror, and the
-// flip that follows takes the canonical directory away with every write since
-// the restart.
+// TestEveryPayloadReadIsBounded pins that every reader of payload.mig bounds
+// its read, and which of the two bounds each one takes. The apply-path bound is
+// a latency bound and refusing under it is fail-open. The startup recovery walk
+// takes the far larger memory bound instead: refusing there arms no double-write
+// mirror, and the flip that follows takes the canonical directory away with
+// every write since the restart, so only a size no migration can produce may
+// stop it.
 //
 // A guard rather than a behavioral test: nothing in the outcome of a stat and a
 // read distinguishes them.
 func TestEveryPayloadReadIsBounded(t *testing.T) {
-	offTheApplyPath := map[string]bool{"loadReindexRecoveryRecord": true}
+	wantBound := map[string]string{"loadReindexRecoveryRecord": "maxRecoveryWalkPayloadBytes"}
+	const applyPathBound = "maxRecoveryPayloadBytes"
 
 	entries, err := os.ReadDir(".")
 	require.NoError(t, err)
 
 	fset := token.NewFileSet()
-	checked := 0
-	var unbounded []string
+	checked, offTheApplyPath := 0, 0
 
 	for _, entry := range entries {
 		name := entry.Name()
@@ -121,21 +121,25 @@ func TestEveryPayloadReadIsBounded(t *testing.T) {
 				continue
 			}
 			checked++
-			if names["refuseOversizedRecoveryPayload"] {
-				require.Falsef(t, offTheApplyPath[fn.Name.Name],
-					"%s: %s bounds its read of payload.mig, which drops the writes taken since the restart",
-					fset.Position(fn.Pos()), fn.Name.Name)
+			at := fset.Position(fn.Pos())
+			require.Truef(t, names["refuseOversizedRecoveryPayload"],
+				"%s: %s reads payload.mig without bounding it first", at, fn.Name.Name)
+
+			want := wantBound[fn.Name.Name]
+			if want == "" {
+				require.Truef(t, names[applyPathBound],
+					"%s: %s runs where a RAFT apply reaches it, so it takes %s", at, fn.Name.Name, applyPathBound)
 				continue
 			}
-			unbounded = append(unbounded, fmt.Sprintf("%s: %s", fset.Position(fn.Pos()), fn.Name.Name))
-			require.Truef(t, offTheApplyPath[fn.Name.Name],
-				"%s: %s reads payload.mig without bounding it first, and it runs where a RAFT apply "+
-					"can reach it", fset.Position(fn.Pos()), fn.Name.Name)
+			offTheApplyPath++
+			require.Truef(t, names[want],
+				"%s: %s takes the apply-path bound, which drops the writes taken since the restart; "+
+					"it has to take %s", at, fn.Name.Name, want)
 		}
 	}
 
 	require.GreaterOrEqual(t, checked, 3, "the guard has to be finding the readers of this file")
-	require.Len(t, unbounded, len(offTheApplyPath), "every exempt reader has to still be one")
+	require.Equal(t, len(wantBound), offTheApplyPath, "every reader off the apply path has to still be one")
 }
 
 // identsIn collects every identifier named in n, which is all this guard needs:

@@ -25,29 +25,18 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-// RecoveredReindex describes one in-flight reindex task discovered on
-// disk at startup, together with the [ShardReindexTaskGeneric] instances
-// reconstructed from the persisted payload. There is one
-// RecoveredReindex per (TaskDescriptor, unitID, shard) — i.e. per
-// migration directory observed on disk. For semantic migrations
-// (change-tokenization) there are two task instances per unit (one
-// searchable, one filterable); they share the same TaskDescriptor and
-// UnitID.
+// RecoveredReindex describes one in-flight reindex task discovered on disk at
+// startup, with the [ShardReindexTaskGeneric] instances rebuilt from its
+// payload — one per migration directory, and two instances per unit for a
+// change-tokenization, which fans into a searchable and a filterable strategy.
 //
-// Callers use these to:
-//
-//  1. Register the Tasks with the static [ShardReindexerV3] before
-//     [DB.WaitForStartup] runs, so the [OnAfterLsmInit] hook fires
-//     during shard load and re-installs the double-write callbacks
-//     BEFORE any post-restart write can reach the shard. Without this,
-//     writes that arrive between shard init and the swap that completes
-//     a deferred reindex go only to the old main bucket and are lost
-//     when the swap replaces it with the ingest bucket.
-//
-//  2. Pre-populate [ReindexProvider.reindexTasks] so that
-//     [OnGroupCompleted]'s swap phase reuses these same instances rather
-//     than creating fresh ones and re-running [OnAfterLsmInit] (which
-//     would attempt to load already-loaded ingest buckets).
+// Callers register the Tasks with the static [ShardReindexerV3] before
+// [DB.WaitForStartup], so [OnAfterLsmInit] re-installs the double-write
+// callbacks before any post-restart write reaches the shard; without that,
+// writes between shard init and the swap go only to the old main bucket and
+// are lost. They also seed [ReindexProvider.reindexTasks] with the same
+// instances, so the swap phase does not build fresh ones and re-run
+// [OnAfterLsmInit] against already-loaded ingest buckets.
 type RecoveredReindex struct {
 	Descriptor distributedtask.TaskDescriptor
 	UnitID     string
@@ -179,23 +168,20 @@ func DiscoverInFlightReindexTasks(
 // when payload.mig is missing, unreadable, or names a property this build
 // would not turn into a directory.
 //
-// That window is exactly the bug this recovery path fixes: the unit is
-// terminal in RAFT (so the scheduler will NOT call StartTask post-restart)
-// but the swap (driven by OnGroupCompleted on the next scheduler tick) has
-// not yet happened. Any write arriving between shard init and that tick must
-// land in the ingest bucket through a double-write callback, and the only way
-// to have those active that early is to re-register them during shard init.
+// The window is where the unit is terminal in RAFT — so the scheduler will not
+// call StartTask after a restart — while the swap on the next scheduler tick
+// has not run. Every write arriving in between has to reach the ingest bucket
+// through a double-write callback, and only shard init is early enough to
+// register one.
 //
-// A recorded flip stays inside the window until promotion has actually run.
-// The flip that moved the pointers lives only in the process that made it, so
-// after a restart the property is served from the canonical directory again —
-// and promotion removes that directory before renaming the staged one over it.
-// Every write taken between the two would go with it unless it is mirrored.
+// A recorded flip stays inside it until promotion actually runs: the flip
+// lives only in the process that made it, so after a restart the property is
+// served from the canonical directory again, and promotion removes that
+// directory before renaming the staged one over it.
 //
-// Either side of the window is wrong for a different reason. Before it, the
-// scheduler restarts the unit and arms the callbacks itself, so arming here
-// too would leave the write path carrying two. After promotion the staged copy
-// is the canonical one and there is nothing left to mirror into.
+// Either side is wrong for its own reason. Before, the scheduler restarts the
+// unit and arms the callbacks itself, so arming here leaves the write path
+// carrying two. After promotion the staged copy is the canonical one.
 func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 	logger logrus.FieldLogger,
 ) (reindexRecoveryRecord, bool) {
@@ -205,14 +191,18 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 		return rec, false
 	}
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	// Deliberately not [refuseOversizedRecoveryPayload]-bounded. That bound is
-	// sized for the readers a RAFT apply reaches, which fail open when it
-	// refuses; this walk runs once at startup, off any apply, and refusing
-	// here leaves the mirror unarmed so the flip that follows takes the
-	// canonical directory away with every write since the restart. The
-	// payload embeds the cluster-wide tenant and unit maps, so a few thousand
-	// tenants clear a megabyte on their own. Only the few migrations the
-	// record above already placed in the flip window are read at all.
+	// [maxRecoveryWalkPayloadBytes], not the apply-path bound: refusing here
+	// arms no mirror, so the flip that follows takes the canonical directory
+	// away with every write since the restart, and the payload embeds the
+	// cluster-wide tenant and unit maps, which clear a megabyte on a few
+	// thousand tenants. Only the few migrations the record above already
+	// placed in the flip window are read at all.
+	if err := refuseOversizedRecoveryPayload(payloadPath, maxRecoveryWalkPayloadBytes); err != nil {
+		logger.WithField("path", payloadPath).
+			Warnf("reindex recovery: payload.mig is beyond any size a migration can produce, "+
+				"so it is not read and this migration's mirror stays unarmed: %v", err)
+		return rec, false
+	}
 	data, err := os.ReadFile(payloadPath)
 	if err != nil {
 		// The record already placed this tracker in the window, so the
