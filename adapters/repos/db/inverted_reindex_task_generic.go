@@ -149,7 +149,8 @@ type ShardReindexTaskGeneric struct {
 	strategy MigrationStrategy
 
 	// The migration's durable identity. taskVersion is the RAFT log index of
-	// the task's creation, so it is also the generation supersession compares.
+	// the task's creation, which is the order supersession compares — not the
+	// per-node generation counter in the directory names.
 	taskID               string
 	taskVersion          uint64
 	unitID               string

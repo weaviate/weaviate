@@ -674,7 +674,7 @@ func (r *migrationReconciler) removeTrackerDir(subject MigrationSubject) {
 // reclaimOwnedDirs removes every directory the record created and reports the
 // ones that survived. The canonical directory is never among them.
 //
-// A directory a higher-generation record claims as what its own flip displaced
+// A directory a later-versioned record claims as what its own flip displaced
 // belongs to that claimer, not here: a predecessor that flipped and never
 // promoted holds its live data at a staged name, and that name is exactly what
 // the successor displaced. Removing it takes the successor's only copy.

@@ -27,15 +27,15 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestBackToBackGenerationsRetireInProcess drives the sequence the mirror
-// contract exists for: a generation whose swap fails keeps its mirror armed —
+// TestBackToBackMigrationsRetireInProcess drives the sequence the mirror
+// contract exists for: a migration whose swap fails keeps its mirror armed —
 // tearing it down would route every later write into the one directory a
-// restart deletes — and a second generation on the same property then supersedes
+// restart deletes — and a second migration on the same property then supersedes
 // it inside the same process. Without the in-process retirement the failed
-// generation's mirror stays armed past the successor's flip, where its own
+// migration's mirror stays armed past the successor's flip, where its own
 // staged bucket name no longer resolves and the copy falls back onto the
 // successor's live bucket.
-func TestBackToBackGenerationsRetireInProcess(t *testing.T) {
+func TestBackToBackMigrationsRetireInProcess(t *testing.T) {
 	const propName = "title"
 
 	ctx := testCtx()
@@ -79,7 +79,7 @@ func TestBackToBackGenerationsRetireInProcess(t *testing.T) {
 	_, stillRecorded := shard.migrationRecords.Get(failed.migrationRecordKey())
 	require.False(t, stillRecorded, "a fully superseded record has nothing left to answer for")
 	require.NoDirExists(t, filepath.Join(shard.pathLSM(), failedStaged),
-		"the retired generation's staged directory goes with its record")
+		"the retired migration's staged directory goes with its record")
 	require.Nil(t, shard.store.Bucket(failedStaged),
 		"and its bucket is shut down before the directory is removed")
 
@@ -116,7 +116,7 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 		wantDir bool
 	}{
 		{
-			name:       "a record still names the older generation's staged directory",
+			name:       "a record still names the older migration's staged directory",
 			keepRecord: true,
 			wantDir:    true,
 		},
@@ -178,9 +178,9 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 			newer.trimOlderGenerationsLocked(logger, shard, []string{propName})
 
 			require.Equal(t, tt.wantDir, dirExists(t, filepath.Join(shard.pathLSM(), staged)),
-				"staged directory of the older generation")
+				"staged directory of the older migration")
 			require.Equal(t, tt.wantDir, dirExists(t, filepath.Join(shard.pathLSM(), migrationsDir, tracker)),
-				"tracker directory of the older generation")
+				"tracker directory of the older migration")
 		})
 	}
 }

@@ -81,7 +81,7 @@ func TestMigrationMirrorRegistry(t *testing.T) {
 			wantArmed: 1,
 		},
 		{
-			name: "two generations on one property stay separable while both are armed",
+			name: "two migrations on one property stay separable while both are armed",
 			exercise: func(r *migrationMirrorRegistry, arm func(MigrationRecordKey, string)) {
 				arm(gen10, "title")
 				arm(gen20, "title")
@@ -327,7 +327,7 @@ func TestOverlappingMirrorsOnOneProperty(t *testing.T) {
 				models.PropertyTokenizationField, bucketStrategy, 2)
 			require.NoError(t, successor.OnAfterLsmInit(ctx, shard))
 			require.Equal(t, 2, shard.migrationMirrorRegistry().ArmedMigrationMirrors(),
-				"two generations on one property is the steady state under test")
+				"two migrations on one property is the steady state under test")
 
 			tt.journey(t, ctx, shard, className, predecessor, successor)
 

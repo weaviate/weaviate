@@ -39,9 +39,10 @@ func (f migrationFlipBlock) displacedFor(dir string) (string, bool) {
 }
 
 // migrationPropertySuperseded is the supersession predicate. Order comes from
-// the generation alone — a consensus-allocated total order already in every
-// record — so the relation is closed under any retirement order and any crash:
-// removing one record never changes the comparison between two others.
+// the task version alone — a consensus-allocated total order already in every
+// record, unlike the per-node generation counter the directory names carry —
+// so the relation is closed under any retirement order and any crash: removing
+// one record never changes the comparison between two others.
 //
 // The witness bar is Swapped, not Merged. A successor that has staged but not
 // decided may still be cancelled, and treating it as a witness would withhold
@@ -70,7 +71,7 @@ func migrationSupersedes(candidate MigrationRecord, subject MigrationSubject) bo
 	return key != subject.Key && key.TaskVersion > subject.Key.TaskVersion && candidate.PointerSwapped()
 }
 
-// migrationDirClaimedAsDisplaced reports whether a higher-generation record
+// migrationDirClaimedAsDisplaced reports whether a later-versioned record
 // that survives this pass has recorded dir as what its own flip displaced. A
 // predecessor that flipped but never promoted still holds its live data at a
 // staged name, so that name is exactly what a successor displaces — and
@@ -107,7 +108,7 @@ func migrationDirClaimedAsDisplaced(all []MigrationRecord, subject MigrationSubj
 }
 
 // migrationRecordFullySuperseded reports whether every property of rec has a
-// higher-generation witness, which is the condition for removing the record
+// later-versioned witness, which is the condition for removing the record
 // itself rather than just some of its directories.
 func migrationRecordFullySuperseded(all []MigrationRecord, rec MigrationRecord) bool {
 	subject := rec.Subject()
@@ -134,7 +135,7 @@ func (r *migrationReconciler) RetireSuperseded(ctx context.Context) {
 }
 
 // retireSuperseded runs the relation over every record whose staged data is
-// complete. Ascending generation is not needed for correctness — the predicate
+// complete. Ascending task version is not needed for correctness — the predicate
 // makes any order safe — but it leaves the fewest dangling links after a crash
 // and makes the outcome deterministic.
 func (r *migrationReconciler) retireSuperseded(ctx context.Context, all []MigrationRecord) {
@@ -182,7 +183,7 @@ func (r *migrationReconciler) retireSuperseded(ctx context.Context, all []Migrat
 // retireProperty disarms before it removes. Without that order the directory
 // it removes is exactly where the superseded record's still-armed mirror sends
 // its next copy, and a failed mirror copy fails the user's write with it —
-// which is what makes back-to-back generations safe inside one process.
+// which is what makes back-to-back migrations safe inside one process.
 func (r *migrationReconciler) retireProperty(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject, prop string,
 ) error {

@@ -74,9 +74,14 @@ func migrationTypeKnown(t ReindexMigrationType) bool {
 }
 
 // MigrationRecordKey identifies one migration on one shard. TaskVersion is the
-// RAFT log index of the task's creation, so it is also the generation: a total
-// order allocated by consensus, identical on every node, which is what lets
-// two records on one property be compared without chasing links.
+// RAFT log index of the task's creation: a total order allocated by consensus,
+// identical on every node, which is what lets two records on one property be
+// compared without chasing links.
+//
+// It is not the generation. That is a separate, per-node counter, allocated
+// from what a shard's own directories show, and it appears in every migration
+// directory name and in the operator documentation — two nodes running the
+// same migration routinely disagree about it.
 type MigrationRecordKey struct {
 	TaskVersion  uint64                `json:"taskVersion"`
 	StrategyCode MigrationStrategyCode `json:"strategyCode"`

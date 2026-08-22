@@ -145,13 +145,13 @@ func TestMaxMigrationGeneration_Existing(t *testing.T) {
 }
 
 // plantedMigration is one migration on the shard under reconciliation. The
-// generation is the record key's task version, so a row can order two
-// migrations without naming a directory.
+// task version is what orders two of them, so a row can say which is newer
+// without naming a directory.
 type plantedMigration struct {
-	generation uint64
-	code       MigrationStrategyCode
-	prop       string
-	state      MigrationState
+	taskVersion uint64
+	code        MigrationStrategyCode
+	prop        string
+	state       MigrationState
 	// canonical overrides the bucket this migration promotes onto. Two
 	// migrations on one property only stay independent while they name
 	// different ones.
@@ -162,7 +162,7 @@ type plantedMigration struct {
 }
 
 func (p plantedMigration) subject() MigrationSubject {
-	subject := testMigrationSubject(p.generation, p.code, p.prop)
+	subject := testMigrationSubject(p.taskVersion, p.code, p.prop)
 	if p.canonical != "" {
 		subject.CanonicalDirs[p.prop] = p.canonical
 	}
@@ -210,9 +210,9 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 			// migrations and land in separate buckets.
 			name: "two strategies on one property settle into their own buckets",
 			plant: []plantedMigration{
-				{generation: 10, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateMerged},
+				{taskVersion: 10, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateMerged},
 				{
-					generation: 11, code: StrategyCodeFilterableRetokenize, prop: "title",
+					taskVersion: 11, code: StrategyCodeFilterableRetokenize, prop: "title",
 					canonical: "property_title_filterable", state: MigrationStateMerged,
 				},
 			},
@@ -224,9 +224,9 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 		{
 			name: "three properties on three strategies settle together",
 			plant: []plantedMigration{
-				{generation: 20, code: StrategyCodeSearchableRetokenize, prop: "alpha", state: MigrationStateMerged},
-				{generation: 21, code: StrategyCodeEnableFilterable, prop: "beta", state: MigrationStateSwapped},
-				{generation: 22, code: StrategyCodeFilterableToRangeable, prop: "gamma", state: MigrationStateMerged},
+				{taskVersion: 20, code: StrategyCodeSearchableRetokenize, prop: "alpha", state: MigrationStateMerged},
+				{taskVersion: 21, code: StrategyCodeEnableFilterable, prop: "beta", state: MigrationStateSwapped},
+				{taskVersion: 22, code: StrategyCodeFilterableToRangeable, prop: "gamma", state: MigrationStateMerged},
 			},
 			wantCanonical: map[string]string{
 				"property_alpha": "m_20_alpha",
@@ -237,9 +237,9 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 		{
 			name: "a committed migration settles beside one still rebuilding",
 			plant: []plantedMigration{
-				{generation: 30, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateMerged},
+				{taskVersion: 30, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateMerged},
 				{
-					generation: 31, code: StrategyCodeSearchableRetokenize, prop: "body",
+					taskVersion: 31, code: StrategyCodeSearchableRetokenize, prop: "body",
 					state: MigrationStateIterating, running: true,
 				},
 			},
@@ -255,8 +255,8 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 			// bucket to the older one serves data the cluster has moved past.
 			name: "the newer migration wins the bucket even though the older one already flipped",
 			plant: []plantedMigration{
-				{generation: 40, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateSwapped},
-				{generation: 41, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateMerged},
+				{taskVersion: 40, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateSwapped},
+				{taskVersion: 41, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateMerged},
 			},
 			wantCanonical: map[string]string{"property_title": "m_41_title"},
 		},
@@ -280,7 +280,7 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 				props = append(props, planted.prop)
 				if planted.running {
 					f.tasks = append(f.tasks,
-						testTask(subject.TaskID, planted.generation, distributedtask.TaskStatusStarted))
+						testTask(subject.TaskID, planted.taskVersion, distributedtask.TaskStatusStarted))
 				}
 			}
 			// Every task that is not held running is gone from the map, so the

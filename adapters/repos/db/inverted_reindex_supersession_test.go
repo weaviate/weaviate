@@ -32,7 +32,7 @@ func swappedOn(version uint64, props ...string) MigrationRecordSwapped {
 	return NewMigrationRecordSwapped(subject, props, displaced)
 }
 
-// TestReconcileSupersession pins the relation: the order is the generation,
+// TestReconcileSupersession pins the relation: the order is the task version,
 // the witness bar is Swapped, and both are per property.
 func TestReconcileSupersession(t *testing.T) {
 	tests := []struct {
@@ -112,7 +112,7 @@ func TestReconcileSupersession(t *testing.T) {
 			},
 		},
 		{
-			name: "three generations: only the newest survives, whatever order they are processed in",
+			name: "three migrations on one property: only the newest survives, whatever order they are processed in",
 			arrange: func(f *reconcileFixture) {
 				f.mkdirs("m_10_title", "m_20_title", "m_30_title", "property_title")
 				f.put(swappedOn(10, "title"))

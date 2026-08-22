@@ -102,7 +102,7 @@ func (r *migrationMirrorRegistry) DisarmMigrationMirrors(key MigrationRecordKey)
 	}
 }
 
-// ArmedMigrationMirrors reports how many mirrors are armed. Two generations on
+// ArmedMigrationMirrors reports how many mirrors are armed. Two migrations on
 // one property is a steady state while a failed one waits to be superseded, so
 // the count is the one observable that tells a leak from that overlap.
 func (r *migrationMirrorRegistry) ArmedMigrationMirrors() int {
