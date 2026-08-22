@@ -190,7 +190,7 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 ) (reindexRecoveryRecord, bool) {
 	var rec reindexRecoveryRecord
 	state, ok := migrationRecordForTracker(records, filepath.Base(migDir))
-	if !ok || state.State() == MigrationStateIterating || state.State() == MigrationStatePromoted {
+	if !ok || !state.IterationComplete() || state.State() == MigrationStatePromoted {
 		return rec, false
 	}
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)

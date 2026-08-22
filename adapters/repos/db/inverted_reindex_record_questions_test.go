@@ -32,7 +32,7 @@ func testQuestionRecords() (iterating, iterated, merged, swapped, promoted Migra
 }
 
 // TestMigrationRecordQuestions is the RFC's first acceptance test at its
-// re-derived target: every one of the 5x3 cells asserted directly on a
+// re-derived target: every one of the 5x4 cells asserted directly on a
 // record, with no reader re-interpreting a state at its call site.
 func TestMigrationRecordQuestions(t *testing.T) {
 	iterating, iterated, merged, swapped, promoted := testQuestionRecords()
@@ -43,6 +43,7 @@ func TestMigrationRecordQuestions(t *testing.T) {
 		wantState          MigrationState
 		wantDataCommitted  bool
 		wantPointerSwapped bool
+		wantIterationDone  bool
 		wantOwnsStagedDir  bool
 	}{
 		{
@@ -51,6 +52,7 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			wantState:          MigrationStateIterating,
 			wantDataCommitted:  false,
 			wantPointerSwapped: false,
+			wantIterationDone:  false,
 			wantOwnsStagedDir:  true,
 		},
 		{
@@ -59,6 +61,7 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			wantState:          MigrationStateIterated,
 			wantDataCommitted:  false,
 			wantPointerSwapped: false,
+			wantIterationDone:  true,
 			wantOwnsStagedDir:  true,
 		},
 		{
@@ -67,6 +70,7 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			wantState:          MigrationStateMerged,
 			wantDataCommitted:  true,
 			wantPointerSwapped: false,
+			wantIterationDone:  true,
 			wantOwnsStagedDir:  true,
 		},
 		{
@@ -75,6 +79,7 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			wantState:          MigrationStateSwapped,
 			wantDataCommitted:  true,
 			wantPointerSwapped: true,
+			wantIterationDone:  true,
 			wantOwnsStagedDir:  true,
 		},
 		{
@@ -83,6 +88,7 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			wantState:          MigrationStatePromoted,
 			wantDataCommitted:  true,
 			wantPointerSwapped: true,
+			wantIterationDone:  true,
 			wantOwnsStagedDir:  true,
 		},
 	}
@@ -94,6 +100,7 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			require.Equal(t, tt.wantState, tt.record.State())
 			require.Equal(t, tt.wantDataCommitted, tt.record.DataCommitted())
 			require.Equal(t, tt.wantPointerSwapped, tt.record.PointerSwapped())
+			require.Equal(t, tt.wantIterationDone, tt.record.IterationComplete())
 			require.Equal(t, tt.wantOwnsStagedDir, tt.record.OwnsBucket("m_42_title"))
 		})
 	}

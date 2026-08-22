@@ -985,3 +985,49 @@ func TestPromotionWithholdsOnADirectoryItCannotStat(t *testing.T) {
 		})
 	}
 }
+
+// TestMigrationDirExists pins the separation the destructive arms depend on:
+// a stat that fails for a reason other than ENOENT must surface, because
+// reading it as "absent" is what authorizes a removal or a promotion.
+func TestMigrationDirExists(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(root, "adir"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "afile"), []byte("x"), 0o644))
+
+	sealed := filepath.Join(root, "sealed")
+	require.NoError(t, os.Mkdir(sealed, 0o755))
+	require.NoError(t, os.Mkdir(filepath.Join(sealed, "inside"), 0o755))
+	require.NoError(t, os.Chmod(sealed, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(sealed, 0o755) })
+
+	tests := []struct {
+		name    string
+		path    string
+		want    bool
+		wantErr bool
+	}{
+		{name: "a directory that is there", path: filepath.Join(root, "adir"), want: true},
+		{name: "nothing at that name", path: filepath.Join(root, "gone"), want: false},
+		{name: "a regular file is not a directory", path: filepath.Join(root, "afile"), want: false},
+		{
+			name:    "a directory the process may not stat is not an absent one",
+			path:    filepath.Join(sealed, "inside"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.wantErr && os.Geteuid() == 0 {
+				t.Skip("root traverses a 0o000 directory, so the permission error cannot arise")
+			}
+			there, err := migrationDirExists(tt.path)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, there)
+		})
+	}
+}

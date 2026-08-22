@@ -215,14 +215,14 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	assert.Nil(t, shard.store.Bucket(reindexBucketName), "reindex bucket should not exist")
 	assert.Nil(t, shard.store.Bucket(ingestBucketName), "ingest bucket should not exist")
 
-	assert.False(t, dirExists(filepath.Join(shard.pathLSM(), reindexBucketName)),
+	assert.False(t, dirExists(t, filepath.Join(shard.pathLSM(), reindexBucketName)),
 		"reindex dir should not exist on disk (its segments were prepended into ingest)")
 
 	// The displaced copy is removed at the handle the record names. Parking it
 	// under a derived backup name would leave a directory nothing points at.
 	displacedDir, hasDisplaced := rec.(MigrationRecordSwapped).DisplacedDir("title")
 	require.True(t, hasDisplaced, "the flip should record the directory it displaced")
-	assert.False(t, dirExists(filepath.Join(shard.pathLSM(), displacedDir)),
+	assert.False(t, dirExists(t, filepath.Join(shard.pathLSM(), displacedDir)),
 		"the displaced dir should be removed by the end of the swap")
 
 	// New writes should still work after migration

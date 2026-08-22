@@ -13,7 +13,7 @@ package db
 
 import "slices"
 
-// The three questions every passive reader is allowed to ask a record. A
+// The questions every passive reader is allowed to ask a record. A
 // reader that needs something finer is the engine, discovery or
 // reconciliation talking to itself, and switches on the variant instead.
 //
@@ -30,6 +30,12 @@ type migrationRecordQuestions interface {
 	// the migration is irreversible: the new buckets may hold acknowledged
 	// writes the old copy never received.
 	PointerSwapped() bool
+
+	// IterationComplete reports whether the pass over the objects has
+	// finished. False is the only answer a resume may act on: from true
+	// onwards a second pass would re-run the iteration over data already
+	// written.
+	IterationComplete() bool
 
 	// OwnsBucket reports whether dir is one this migration created. Directory
 	// names are opaque, so an unattributed directory can never be reclaimed.
@@ -60,6 +66,12 @@ func (r MigrationRecordIterated) DataCommitted() bool  { return false }
 func (r MigrationRecordMerged) DataCommitted() bool    { return true }
 func (r MigrationRecordSwapped) DataCommitted() bool   { return true }
 func (r MigrationRecordPromoted) DataCommitted() bool  { return true }
+
+func (r MigrationRecordIterating) IterationComplete() bool { return false }
+func (r MigrationRecordIterated) IterationComplete() bool  { return true }
+func (r MigrationRecordMerged) IterationComplete() bool    { return true }
+func (r MigrationRecordSwapped) IterationComplete() bool   { return true }
+func (r MigrationRecordPromoted) IterationComplete() bool  { return true }
 
 func (r MigrationRecordIterating) PointerSwapped() bool { return false }
 func (r MigrationRecordIterated) PointerSwapped() bool  { return false }

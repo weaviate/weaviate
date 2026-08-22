@@ -87,7 +87,7 @@ func TestReconcileAfterTaskMapSkipsAShardShuttingDown(t *testing.T) {
 				}}, true
 			})
 
-			assert.Equal(t, tt.wantSurvives, dirExists(staged), "the staged directory")
+			assert.Equal(t, tt.wantSurvives, dirExists(t, staged), "the staged directory")
 			_, present := shard.migrationRecords.Get(subject.Key)
 			assert.Equal(t, tt.wantSurvives, present, "the migration record")
 		})
@@ -146,7 +146,7 @@ func TestReconcileWithoutADatabaseHandle(t *testing.T) {
 
 			require.NotPanics(t, func() { shard.reconcileMigrationRecords(ctx, class) })
 
-			assert.True(t, dirExists(staged), "the staged directory")
+			assert.True(t, dirExists(t, staged), "the staged directory")
 			_, present := shard.migrationRecords.Get(subject.Key)
 			assert.True(t, present, "the migration record")
 		})

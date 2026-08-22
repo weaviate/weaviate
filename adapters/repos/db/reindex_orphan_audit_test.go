@@ -711,7 +711,7 @@ func TestAuditOrphanReindexTrackersReclaimsTrackersNoRecordNames(t *testing.T) {
 
 			assert.Equal(t, tt.wantStatus, outcome.Status)
 			assert.Equal(t, tt.wantOrphans, outcome.OrphansFound)
-			assert.Equal(t, tt.wantDir, dirExists(dir))
+			assert.Equal(t, tt.wantDir, dirExists(t, dir))
 		})
 	}
 }
@@ -780,7 +780,7 @@ func TestAuditOrphanReindexTrackersHonorsUnreadableRecords(t *testing.T) {
 			assert.Equal(t, AuditStatusRan, outcome.Status)
 			assert.Zero(t, outcome.OrphansFound)
 			trackerPath := filepath.Join(lsmPath, ".migrations", trackerName)
-			assert.True(t, dirExists(trackerPath), "the tracker must survive a shard nothing can classify")
+			assert.True(t, dirExists(t, trackerPath), "the tracker must survive a shard nothing can classify")
 			assert.Equal(t, tt.wantSentinel,
 				fileExists(filepath.Join(trackerPath, reindexAuditQuarantineFile)),
 				"quarantine sentinel")
@@ -903,9 +903,9 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 				func(string, uint64) bool { return false }, auditLogger)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, outcome.Status)
-			assert.Equal(t, tt.wantTracker, dirExists(trackerPath), "the tracker directory")
+			assert.Equal(t, tt.wantTracker, dirExists(t, trackerPath), "the tracker directory")
 			for _, sidecar := range plantedSidecars {
-				assert.Equal(t, tt.wantSidecars, dirExists(filepath.Join(lsmPath, sidecar)), sidecar)
+				assert.Equal(t, tt.wantSidecars, dirExists(t, filepath.Join(lsmPath, sidecar)), sidecar)
 			}
 			// The adoption is the conjunction of the two: a surviving
 			// directory only gets opened again if the generation that names

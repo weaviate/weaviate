@@ -218,7 +218,7 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 		"post-SWAP: runShardSwapPhase decided the flip and moved the bucket pointer")
 	displaced, hasDisplaced := recFinal.(MigrationRecordSwapped).DisplacedDir("title")
 	require.True(t, hasDisplaced, "post-SWAP: the flip records the directory it displaced")
-	assert.False(t, dirExists(filepath.Join(shard.pathLSM(), displaced)),
+	assert.False(t, dirExists(t, filepath.Join(shard.pathLSM(), displaced)),
 		"post-SWAP: the displaced directory is removed at the handle the record names")
 	assert.True(t, strategy.migrationCompleted,
 		"post-SWAP: OnMigrationComplete must have fired (tail of every recovery branch)")

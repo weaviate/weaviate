@@ -155,14 +155,18 @@ func cleanSweep(t *testing.T, ctx context.Context, shard *Shard, propName, index
 	return reads
 }
 
+// dirExists fails the test on a stat it cannot interpret, so an assertion
+// never reads an unreadable directory as an absent one.
+func dirExists(t *testing.T, path string) bool {
+	t.Helper()
+	there, err := migrationDirExists(path)
+	require.NoError(t, err)
+	return there
+}
+
 func dirExistsAt(t *testing.T, lsmPath, name string) bool {
 	t.Helper()
-	info, err := os.Stat(filepath.Join(lsmPath, name))
-	if err != nil {
-		require.True(t, os.IsNotExist(err), "unexpected stat error: %v", err)
-		return false
-	}
-	return info.IsDir()
+	return dirExists(t, filepath.Join(lsmPath, name))
 }
 
 // TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize pins

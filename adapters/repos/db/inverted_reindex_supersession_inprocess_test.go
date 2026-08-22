@@ -162,9 +162,9 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 			newer, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 2, propName)
 			newer.trimOlderGenerationsLocked(logger, shard, []string{propName})
 
-			require.Equal(t, tt.wantDir, dirExists(filepath.Join(shard.pathLSM(), staged)),
+			require.Equal(t, tt.wantDir, dirExists(t, filepath.Join(shard.pathLSM(), staged)),
 				"staged directory of the older generation")
-			require.Equal(t, tt.wantDir, dirExists(filepath.Join(shard.pathLSM(), migrationsDir, tracker)),
+			require.Equal(t, tt.wantDir, dirExists(t, filepath.Join(shard.pathLSM(), migrationsDir, tracker)),
 				"tracker directory of the older generation")
 		})
 	}

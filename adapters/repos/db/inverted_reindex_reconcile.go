@@ -638,23 +638,27 @@ func migrationOwnedDirs(subject MigrationSubject) []string {
 
 func (r *migrationReconciler) path(dir string) string { return filepath.Join(r.lsmPath, dir) }
 
-// dirExists separates "not there" from "could not tell". Every destructive arm
-// here is guarded by a directory's absence, so a stat that fails for any reason
-// other than ENOENT must stop the decision rather than read as absence: the
-// promotion probe would otherwise take a staged directory it cannot see as
-// proof the rename already happened.
-func (r *migrationReconciler) dirExists(dir string) (bool, error) {
-	if dir == "" {
-		return false, nil
-	}
-	info, err := os.Stat(r.path(dir))
+// migrationDirExists separates "not there" from "could not tell". Callers guard
+// destructive and irreversible arms on a directory's absence, so a stat that
+// fails for any reason other than ENOENT must stop the decision rather than
+// read as absence: the promotion probe would otherwise take a staged directory
+// it cannot see as proof the rename already happened.
+func migrationDirExists(path string) (bool, error) {
+	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("stat migration directory %q: %w", dir, err)
+		return false, fmt.Errorf("stat migration directory %q: %w", path, err)
 	}
 	return info.IsDir(), nil
+}
+
+func (r *migrationReconciler) dirExists(dir string) (bool, error) {
+	if dir == "" {
+		return false, nil
+	}
+	return migrationDirExists(r.path(dir))
 }
 
 func (r *migrationReconciler) rename(from, to string) error {

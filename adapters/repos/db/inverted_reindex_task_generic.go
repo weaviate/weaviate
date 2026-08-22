@@ -483,12 +483,12 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 		return &dtmPhaseEntry{shard: concreteShard, logger: logger, rec: rec}, nil
 	}
 
-	if rec.State() == MigrationStateIterating {
+	if !rec.IterationComplete() {
 		logger.Info(method + ": rebuild not yet complete; resuming iteration")
 		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
 			return nil, fmt.Errorf("resume iteration: %w", err)
 		}
-		if rec, ok = t.migrationRecord(concreteShard); !ok || rec.State() == MigrationStateIterating {
+		if rec, ok = t.migrationRecord(concreteShard); !ok || !rec.IterationComplete() {
 			return nil, fmt.Errorf("shard %q: iteration resume returned with the rebuild still incomplete", concreteShard.Name())
 		}
 	}
@@ -605,14 +605,27 @@ func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 	var missingReindex, missingIngest []string
 	for _, propName := range props {
 		reindexName := t.reindexBucketName(propName)
-		if store.Bucket(reindexName) == nil &&
-			dirExists(filepath.Join(lsmPath, reindexName)) {
-			missingReindex = append(missingReindex, propName)
+		if store.Bucket(reindexName) == nil {
+			// A stat that fails for any reason other than ENOENT must not read
+			// as "dir gone": skipping the load here is what produces the
+			// cluster-wide FAILED this function exists to prevent.
+			there, err := migrationDirExists(filepath.Join(lsmPath, reindexName))
+			if err != nil {
+				return fmt.Errorf("probe reindex bucket dir for %q: %w", propName, err)
+			}
+			if there {
+				missingReindex = append(missingReindex, propName)
+			}
 		}
 		ingestName := t.ingestBucketName(propName)
-		if store.Bucket(ingestName) == nil &&
-			dirExists(filepath.Join(lsmPath, ingestName)) {
-			missingIngest = append(missingIngest, propName)
+		if store.Bucket(ingestName) == nil {
+			there, err := migrationDirExists(filepath.Join(lsmPath, ingestName))
+			if err != nil {
+				return fmt.Errorf("probe ingest bucket dir for %q: %w", propName, err)
+			}
+			if there {
+				missingIngest = append(missingIngest, propName)
+			}
 		}
 	}
 
@@ -1846,11 +1859,6 @@ func (t *ShardReindexTaskGeneric) removeBucketsDirs(ctx context.Context, logger 
 		})
 	}
 	return eg.Wait()
-}
-
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
 }
 
 // registerDoubleWriteCallbacks arms the strategy's add/delete mirror callbacks
