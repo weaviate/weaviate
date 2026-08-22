@@ -153,9 +153,13 @@ func TestMigrationEffectStatus(t *testing.T) {
 			want: migrationEffectVisible,
 		},
 		{
-			name: "change-algorithm: every property deleted and no class flag", mtype: ReindexTypeChangeAlgorithm, properties: []string{"title"},
+			// The class flag outlives the properties, so it is still the
+			// schema answering "not landed" rather than the schema falling
+			// silent. Reading it as unobservable lets the closure sweep
+			// retire a record whose effect readably never arrived.
+			name: "change-algorithm: every property deleted but the class flag reads false", mtype: ReindexTypeChangeAlgorithm, properties: []string{"title"},
 			class: &models.Class{Properties: []*models.Property{{Name: "body"}}},
-			want:  migrationEffectUnobservable,
+			want:  migrationEffectPending,
 		},
 		{
 			name: "no properties and a type whose effect is per property: nothing to read", mtype: ReindexTypeEnableFilterable,

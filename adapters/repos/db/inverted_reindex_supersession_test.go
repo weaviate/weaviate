@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -355,6 +356,65 @@ func TestShutdownFailureHoldsBackRemoval(t *testing.T) {
 			assert.True(t, f.exists(tt.dir), "the directory of a bucket that is still open")
 			_, present := f.state(tt.key)
 			assert.True(t, present, "the record that names the directory has to outlive a failed removal")
+		})
+	}
+}
+
+// TestRetirementAsksWhatIsSupersededBeforeItSeals pins that this pass does not
+// seal a record it has no work for. It runs in the process that just flipped,
+// from inside that swap's own live unit, and it walks every record whose
+// staged data is complete — which includes the record the swap just wrote.
+// Sealing before asking refuses against the very worker running the pass, so
+// in-process retirement stopped happening at all and every swap logged a
+// retirement waiting that was never owed.
+func TestRetirementAsksWhatIsSupersededBeforeItSeals(t *testing.T) {
+	tests := []struct {
+		name     string
+		arrange  func(f *reconcileFixture)
+		unitLive bool
+		// retiredDir is the directory this pass must remove, empty when the
+		// row plants nothing for it to remove.
+		retiredDir string
+		wantSeals  int
+	}{
+		{
+			// The swap's own record, walked from inside the swap's unit.
+			name: "nothing supersedes the record the swap just wrote",
+			arrange: func(f *reconcileFixture) {
+				f.mkdirs("m_20_title", "property_title")
+				f.put(swappedOn(20, "title"))
+			},
+			unitLive: true,
+		},
+		{
+			name: "a superseded predecessor is retired from inside the successor's unit",
+			arrange: func(f *reconcileFixture) {
+				f.mkdirs("m_10_title", "m_10_sidecar", "m_20_title", "property_title")
+				f.put(NewMigrationRecordMerged(testMigrationSubject(10, StrategyCodeSearchableRetokenize, "title")))
+				f.put(swappedOn(20, "title"))
+			},
+			retiredDir: "m_10_title",
+			wantSeals:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newReconcileFixture(t)
+			f.unitLive = tt.unitLive
+			tt.arrange(f)
+
+			newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
+				RetireSuperseded(context.Background())
+
+			require.Equal(t, tt.wantSeals, f.sealsTaken,
+				"a record with no superseded property is no teardown and seals nothing")
+			require.Equal(t, f.sealsTaken, f.sealsReleased)
+			require.Equal(t, tt.unitLive && tt.wantSeals > 0, f.logged("waits for the next pass"),
+				"a retirement is only reported as waiting when one was owed and refused")
+			if tt.retiredDir != "" {
+				require.False(t, f.exists(tt.retiredDir), "the superseded directory")
+			}
 		})
 	}
 }

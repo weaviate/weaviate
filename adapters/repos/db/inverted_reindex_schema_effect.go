@@ -42,17 +42,21 @@ const (
 //
 // A new migration type lands here with its own row and its own argument.
 func migrationEffectStatus(class *models.Class, subject MigrationSubject) (migrationEffect, []string) {
+	// classWideCarrier is a flag that survives the deletion of every property
+	// the subject names, so running out of properties below does not mean the
+	// schema has stopped answering.
+	classWideCarrier := false
+
 	switch subject.MigrationType {
 	case ReindexTypeRepairFilterable, ReindexTypeRebuildSearchable:
 		// Post-condition equals pre-condition, so there is no flag to read on
 		// the class or on any property.
 		return migrationEffectUnobservable, nil
 	case ReindexTypeChangeAlgorithm:
-		// A class-wide flag, so it still stands where every property the
-		// subject names has since been deleted.
 		if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
 			return migrationEffectVisible, nil
 		}
+		classWideCarrier = true
 	default:
 		// Every other type's effect is per property, and is read below.
 	}
@@ -82,12 +86,17 @@ func migrationEffectStatus(class *models.Class, subject MigrationSubject) (migra
 		}
 	}
 	switch {
-	case observable == 0:
-		return migrationEffectUnobservable, nil
 	case len(missing) > 0:
 		return migrationEffectPending, missing
-	default:
+	case observable > 0:
 		return migrationEffectVisible, nil
+	case classWideCarrier:
+		// Every property is gone, but the class flag is still there and still
+		// says the effect never landed. That is the schema answering, not the
+		// schema falling silent.
+		return migrationEffectPending, nil
+	default:
+		return migrationEffectUnobservable, nil
 	}
 }
 

@@ -126,7 +126,7 @@ type ReindexProvider struct {
 	//
 	// Guarded by [mu], incremented before the work and decremented from a
 	// defer, so failure, cancellation and panic all release it.
-	liveUnits map[distributedtask.TaskDescriptor]map[string]int
+	liveUnits unitClaims
 
 	// sealedUnits counts the teardowns holding a (task, unit) right now. A
 	// destroyer takes a seal instead of reading [liveUnits] directly, and
@@ -144,7 +144,7 @@ type ReindexProvider struct {
 	// destroyers can hold the same unit.
 	//
 	// Guarded by [mu].
-	sealedUnits map[distributedtask.TaskDescriptor]map[string]int
+	sealedUnits unitClaims
 
 	// cleanupInProgressMu guards [cleanupInProgress]. Held only for the
 	// register/unregister/lookup increment/decrement; never held across
@@ -178,20 +178,20 @@ type reindexCleanupKey struct {
 // → tasks were just instantiated from disk and need RunReindexOnlyOnShard
 // before any phase work.
 type phaseUnitResolution struct {
-	Shard              ShardLike
-	UnitTasks          []*ShardReindexTaskGeneric
-	Rehydrate          bool
-	Errs               []string
-	SawContextCanceled bool
-	Skip               bool
+	Shard     ShardLike
+	UnitTasks []*ShardReindexTaskGeneric
+	Rehydrate bool
+	Errs      []string
+	Transient bool
+	Skip      bool
 }
 
 // phaseResult is the aggregated outcome of a per-unit phase callback:
 // per-task error strings + the shutdown-cancellation signal the scheduler
 // needs for transient-vs-permanent ack routing.
 type phaseResult struct {
-	Errs               []string
-	SawContextCanceled bool
+	Errs      []string
+	Transient bool
 }
 
 // NewReindexProvider creates a new ReindexProvider. The concurrency function
@@ -241,8 +241,6 @@ func NewReindexProvider(
 		payloads:          make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:      make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		activeWorkers:     make(map[distributedtask.TaskDescriptor]map[string]bool),
-		liveUnits:         make(map[distributedtask.TaskDescriptor]map[string]int),
-		sealedUnits:       make(map[distributedtask.TaskDescriptor]map[string]int),
 		cleanupInProgress: make(map[reindexCleanupKey]int),
 	}
 }
@@ -367,27 +365,53 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 // takes bucket pointers into directories mid-delete.
 func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 	p.mu.Lock()
-	if p.sealedUnits[desc][unitID] > 0 {
-		p.mu.Unlock()
+	defer p.mu.Unlock()
+	if p.sealedUnits[desc][unitID] > 0 || p.sealedUnits[desc][sealEveryUnit] > 0 {
 		return nil, false
 	}
-	if p.liveUnits[desc] == nil {
-		p.liveUnits[desc] = map[string]int{}
-	}
-	p.liveUnits[desc][unitID]++
-	p.mu.Unlock()
+	return p.releaseOf(p.liveUnits.take(desc, unitID)), true
+}
 
+// unitClaims is one of the two per-unit registries: the live-worker counts and
+// the teardown seals. Both count rather than flag, and both are built lazily so
+// a provider works however it was constructed.
+type unitClaims map[distributedtask.TaskDescriptor]map[string]int
+
+// take records a claim and returns the drop. The caller holds
+// [ReindexProvider.mu] for both.
+func (c *unitClaims) take(desc distributedtask.TaskDescriptor, unitID string) func() {
+	if *c == nil {
+		*c = unitClaims{}
+	}
+	if (*c)[desc] == nil {
+		(*c)[desc] = map[string]int{}
+	}
+	(*c)[desc][unitID]++
+
+	return func() {
+		if (*c)[desc][unitID]--; (*c)[desc][unitID] <= 0 {
+			delete((*c)[desc], unitID)
+		}
+		if len((*c)[desc]) == 0 {
+			delete(*c, desc)
+		}
+	}
+}
+
+// releaseOf makes a drop safe to call from whichever goroutine finishes the
+// span, which is never guaranteed to be the one that took it.
+func (p *ReindexProvider) releaseOf(drop func()) func() {
 	return func() {
 		p.mu.Lock()
 		defer p.mu.Unlock()
-		if p.liveUnits[desc][unitID]--; p.liveUnits[desc][unitID] <= 0 {
-			delete(p.liveUnits[desc], unitID)
-		}
-		if len(p.liveUnits[desc]) == 0 {
-			delete(p.liveUnits, desc)
-		}
-	}, true
+		drop()
+	}
 }
+
+// sealEveryUnit is the unit ID a task-wide seal is recorded under, so both
+// kinds live in one map and [ReindexProvider.enterLocalUnit] has one place to
+// look. A real unit ID is "<shard>__<node>" and is never empty.
+const sealEveryUnit = ""
 
 // SealLocalUnit reserves this exact (task, unit) for teardown and returns the
 // release, or refuses because a worker of it is running here.
@@ -409,21 +433,7 @@ func (p *ReindexProvider) SealLocalUnit(desc distributedtask.TaskDescriptor, uni
 	if p.liveUnits[desc][unitID] > 0 {
 		return nil, false
 	}
-	if p.sealedUnits[desc] == nil {
-		p.sealedUnits[desc] = map[string]int{}
-	}
-	p.sealedUnits[desc][unitID]++
-
-	return func() {
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		if p.sealedUnits[desc][unitID]--; p.sealedUnits[desc][unitID] <= 0 {
-			delete(p.sealedUnits[desc], unitID)
-		}
-		if len(p.sealedUnits[desc]) == 0 {
-			delete(p.sealedUnits, desc)
-		}
-	}, true
+	return p.releaseOf(p.sealedUnits.take(desc, unitID)), true
 }
 
 // ReindexUnitSeal answers for one (task, unit) pair. Keyed per unit rather
@@ -562,10 +572,12 @@ func (p *ReindexProvider) processOneUnit(
 	// them whatever type it belongs to.
 	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
 	if !entered {
-		// A teardown already holds this unit, so its directories are being
-		// removed. Nothing is claimed and no progress is reported: the task
-		// that would resume this unit is the one being torn down.
-		logger.Warn("reindex provider: a teardown holds this unit, so it is not started")
+		// A teardown holds this unit. Nothing is claimed and no progress is
+		// reported, which leaves the unit neither completed nor failed — so
+		// the next scheduler tick relaunches it, by which time the teardown
+		// has either finished its handful of directory removals or the task
+		// is terminal and the unit is skipped outright.
+		logger.Warn("reindex provider: a teardown holds this unit, so it is not started; the next tick retries it")
 		return
 	}
 	defer release()
@@ -1283,8 +1295,8 @@ func (p *ReindexProvider) resolveUnitForPhase(
 		logger.WithField("unit", unitID).
 			Errorf("reindex provider: resolveUnitForPhase: unwrap shard for rehydrate: %v", unwrapErr)
 		return phaseUnitResolution{
-			Errs:               []string{fmt.Sprintf("unit %s unwrap shard: %v", unitID, unwrapErr)},
-			SawContextCanceled: errors.Is(unwrapErr, context.Canceled),
+			Errs:      []string{fmt.Sprintf("unit %s unwrap shard: %v", unitID, unwrapErr)},
+			Transient: errors.Is(unwrapErr, context.Canceled),
 		}
 	}
 	fresh, err := p.createReindexTasks(task.TaskDescriptor, unitID, payload, concreteShard.pathLSM(), true)
@@ -1292,8 +1304,8 @@ func (p *ReindexProvider) resolveUnitForPhase(
 		logger.WithField("unit", unitID).
 			Errorf("reindex provider: resolveUnitForPhase: creating reindex tasks: %v", err)
 		return phaseUnitResolution{
-			Errs:               []string{fmt.Sprintf("unit %s create tasks: %v", unitID, err)},
-			SawContextCanceled: errors.Is(err, context.Canceled),
+			Errs:      []string{fmt.Sprintf("unit %s create tasks: %v", unitID, err)},
+			Transient: errors.Is(err, context.Canceled),
 		}
 	}
 	if len(fresh) == 0 {
@@ -1333,7 +1345,7 @@ func (p *ReindexProvider) runShardPrepPhase(
 					Errorf("reindex provider: shard prep — rehydrate failed; prep will not run for this task: %v", err)
 				out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s rehydrate: %v", unitID, reindexTask.Name(), err))
 				if errors.Is(err, context.Canceled) {
-					out.SawContextCanceled = true
+					out.Transient = true
 				}
 				ok = false
 				continue
@@ -1344,7 +1356,7 @@ func (p *ReindexProvider) runShardPrepPhase(
 				Errorf("reindex provider: shard prep — prep failed; swap will not run for this task: %v", err)
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s prepare: %v", unitID, reindexTask.Name(), err))
 			if errors.Is(err, context.Canceled) {
-				out.SawContextCanceled = true
+				out.Transient = true
 			}
 			ok = false
 		}
@@ -1382,7 +1394,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 				Errorf("reindex provider: shard swap — swap failed; migration is half-applied on this shard: %v", err)
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
 			if errors.Is(err, context.Canceled) {
-				out.SawContextCanceled = true
+				out.Transient = true
 			}
 			allSwapped = false
 		} else {
@@ -1462,8 +1474,8 @@ func (p *ReindexProvider) runPerUnitPhase(
 				aggMu.Lock()
 				defer aggMu.Unlock()
 				agg.Errs = append(agg.Errs, res.Errs...)
-				if res.SawContextCanceled {
-					agg.SawContextCanceled = true
+				if res.Transient {
+					agg.Transient = true
 				}
 			}()
 			return
@@ -1476,27 +1488,36 @@ func (p *ReindexProvider) runPerUnitPhase(
 		release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
 		if !entered {
 			// The terminal check this phase passed read a task snapshot the
-			// tick froze; a teardown has taken the unit since. Reported as a
-			// failure rather than skipped, so the barrier does not read a
-			// phase that never ran as one that succeeded.
+			// tick froze; a teardown has taken the unit since. Reported rather
+			// than skipped, so the barrier does not read a phase that never
+			// ran as one that succeeded — and transient, because a teardown
+			// holds the unit for the length of a few directory removals and
+			// the next tick either enters or finds the task terminal.
 			func() {
 				aggMu.Lock()
 				defer aggMu.Unlock()
 				agg.Errs = append(agg.Errs,
 					fmt.Sprintf("unit %s: a teardown holds this unit, so the phase did not run", unitID))
+				agg.Transient = true
 			}()
 			return
 		}
-		phase := runPhase(unitID, res.Shard, res.UnitTasks, res.Rehydrate)
-		release()
+		// Deferred rather than released after: under parallel=true this runs
+		// inside a GoWrapper, which recovers panics, and a claim that leaks
+		// makes every later drain of this task wait out its whole timeout and
+		// then skip the cleanup it was drained for.
+		phase := func() phaseResult {
+			defer release()
+			return runPhase(unitID, res.Shard, res.UnitTasks, res.Rehydrate)
+		}()
 		func() {
 			aggMu.Lock()
 			defer aggMu.Unlock()
 			if len(phase.Errs) > 0 {
 				agg.Errs = append(agg.Errs, phase.Errs...)
 			}
-			if phase.SawContextCanceled {
-				agg.SawContextCanceled = true
+			if phase.Transient {
+				agg.Transient = true
 			}
 		}()
 	}
@@ -1522,9 +1543,10 @@ func (p *ReindexProvider) runPerUnitPhase(
 		return nil
 	}
 	// %w-wrap context.Canceled so the scheduler's errors.Is check routes
-	// shutdown-induced failures to the transient (recovery) branch instead
-	// of acking a permanent failure that would flip the task to FAILED.
-	if agg.SawContextCanceled {
+	// these to the transient (recovery) branch instead of acking a permanent
+	// failure that would flip the task to FAILED. context.Canceled is the
+	// signal that check reads; it is not a claim that a context was cancelled.
+	if agg.Transient {
 		return fmt.Errorf("%s: %d unit(s) failed: %s: %w",
 			callbackName, len(agg.Errs), strings.Join(agg.Errs, "; "), context.Canceled)
 	}
@@ -1640,8 +1662,8 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 ) (out phaseResult) {
 	prepOK, prep := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
 	out.Errs = append(out.Errs, prep.Errs...)
-	if prep.SawContextCanceled {
-		out.SawContextCanceled = true
+	if prep.Transient {
+		out.Transient = true
 	}
 
 	if task.NeedsPreparationBarrier {
@@ -1660,8 +1682,8 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	shardName := payload.UnitToShard[unitID]
 	swap := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
 	out.Errs = append(out.Errs, swap.Errs...)
-	if swap.SawContextCanceled {
-		out.SawContextCanceled = true
+	if swap.Transient {
+		out.Transient = true
 	}
 	return out
 }
@@ -1731,8 +1753,8 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	if rehydrate {
 		prepOK, prep := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
 		out.Errs = append(out.Errs, prep.Errs...)
-		if prep.SawContextCanceled {
-			out.SawContextCanceled = true
+		if prep.Transient {
+			out.Transient = true
 		}
 		if !prepOK {
 			shardName := payload.UnitToShard[unitID]
@@ -1745,8 +1767,8 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	shardName := payload.UnitToShard[unitID]
 	swap := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
 	out.Errs = append(out.Errs, swap.Errs...)
-	if swap.SawContextCanceled {
-		out.SawContextCanceled = true
+	if swap.Transient {
+		out.Transient = true
 	}
 	return out
 }
@@ -1873,10 +1895,15 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()
-	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
+	// Held for the whole sweep below, not just until it starts: the scheduler
+	// can relaunch this task's units while the sweep is midway through
+	// removing the directories they open.
+	unseal, err := p.SealLocalTaskDrain(drainCtx, task.TaskDescriptor)
+	if err != nil {
 		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
 		return
 	}
+	defer unseal()
 	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return
@@ -2720,62 +2747,70 @@ func maybeClearTokenizationOverlayOnAllFailed(
 	return true
 }
 
-// WaitForLocalTaskDrain blocks until the local goroutine processing the
-// given task descriptor has exited, or the provided ctx is cancelled,
-// whichever comes first. Returns nil when the goroutine has drained,
-// ctx.Err() if the wait timed out.
+// SealLocalTaskDrain blocks until nothing on this node is working on the given
+// task and then holds it, returning the release. Returns ctx.Err() if the wait
+// timed out, in which case nothing is held.
 //
-// Intended for the cancel→cleanup sequence: a caller that issued
-// [distributedtask.Manager.CancelDistributedTask] cannot safely tear
-// down the __reindex / __ingest sidecar buckets while the worker
-// goroutine is still writing to them. Calling WaitForLocalTaskDrain
-// between CancelDistributedTask and [DB.NewStalePartialReindexSweep]'s sweep
-// closes that race window.
+// Intended for the cancel-then-cleanup sequence: a caller that issued
+// [distributedtask.Manager.CancelDistributedTask] cannot safely tear down the
+// __reindex / __ingest sidecar buckets while a worker is still writing to
+// them. Calling this between CancelDistributedTask and
+// [DB.NewStalePartialReindexSweep]'s sweep closes that window.
 //
-// Returns nil immediately if nothing is running for this descriptor (e.g. the
-// task already terminated, or never ran on this node).
+// It holds rather than merely waits, because waiting answers only about the
+// instant it returned. The scheduler relaunches a task handle tens of
+// milliseconds after the previous one's workers finished, which is the window
+// the re-entry guard in [ReindexProvider.processOneUnit] exists for, and the
+// sweep that follows removes exactly the directories a relaunched worker
+// opens. Release once the teardown is done.
 //
-// The task handle alone does not answer this. It is closed when the
-// iteration's goroutine exits, but the prep and the swap run on the
-// scheduler's own tick goroutine and never had one — so a task whose only
-// live worker is copying segments into the ingest directory drained
-// instantly. It waits on the same per-unit registry reconciliation seals
-// against, which every span that holds a bucket pointer registers in.
-func (p *ReindexProvider) WaitForLocalTaskDrain(
+// The task handle alone does not answer the drain half either. It is closed
+// when the iteration's goroutine exits, but the prep and the swap run on the
+// scheduler's own tick goroutine and never had one, so a task whose only live
+// worker was copying segments into the ingest directory drained instantly.
+// Both halves come from the per-unit registry every span that holds a bucket
+// pointer registers in.
+func (p *ReindexProvider) SealLocalTaskDrain(
 	ctx context.Context,
 	desc distributedtask.TaskDescriptor,
-) error {
+) (func(), error) {
 	if handle, ok := p.runningHandle(desc); ok {
 		select {
 		case <-handle.Done():
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, ctx.Err()
 		}
 	}
 	// Polled rather than signalled: a unit is entered and released from
-	// several goroutines and the wait is a teardown path, not a hot one.
+	// several goroutines and this is a teardown path, not a hot one.
 	ticker := time.NewTicker(localUnitDrainPollInterval)
 	defer ticker.Stop()
 	for {
-		if !p.anyLocalUnitLive(desc) {
-			return nil
+		if release, sealed := p.sealLocalTask(desc); sealed {
+			return release, nil
 		}
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, ctx.Err()
 		}
 	}
 }
 
-// localUnitDrainPollInterval is how often [ReindexProvider.WaitForLocalTaskDrain]
+// localUnitDrainPollInterval is how often [ReindexProvider.SealLocalTaskDrain]
 // re-asks the registry.
 const localUnitDrainPollInterval = 25 * time.Millisecond
 
-func (p *ReindexProvider) anyLocalUnitLive(desc distributedtask.TaskDescriptor) bool {
+// sealLocalTask holds every unit of the task at once, or refuses because one
+// is running. Task-scoped rather than unit-scoped because its caller tears
+// down by (collection, property) and never learns which units it touched.
+func (p *ReindexProvider) sealLocalTask(desc distributedtask.TaskDescriptor) (func(), bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return len(p.liveUnits[desc]) > 0
+	if len(p.liveUnits[desc]) > 0 {
+		return nil, false
+	}
+	return p.releaseOf(p.sealedUnits.take(desc, sealEveryUnit)), true
 }
 
 // reindexTaskHandle implements distributedtask.TaskHandle.

@@ -762,8 +762,13 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 		}
 		logger.WithField("orphan", o.String()).
 			Warn("reindex orphan audit: found tracker for unknown task; quarantining sidecar bucket and tracker dir")
-		err := db.cleanupOrphanTrackerCompactionPaused(ctx, shard, o, logger)
-		release()
+		err := func() error {
+			// Deferred rather than called after: a seal that leaks refuses
+			// this unit for the life of the process, so the migration could
+			// never run here again.
+			defer release()
+			return db.cleanupOrphanTrackerCompactionPaused(ctx, shard, o, logger)
+		}()
 		if err != nil {
 			logger.WithField("orphan", o.String()).
 				Warnf("reindex orphan audit: cleanup failed for tracker: %v", err)
@@ -797,11 +802,15 @@ func (db *DB) cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexT
 		logger.WithField("orphan", o.String()).
 			Warn("reindex orphan audit: found tracker for unknown task on unloaded shard; removing tracker and sidecar dirs from disk")
 		trackerPath := filepath.Join(lsmPath, ".migrations", o.dirName)
-		removeErr := os.RemoveAll(trackerPath)
-		if removeErr == nil {
+		removeErr := func() error {
+			// Deferred rather than called after, for the reason above.
+			defer release()
+			if err := os.RemoveAll(trackerPath); err != nil {
+				return err
+			}
 			removeUnloadedSidecarsForOrphan(lsmPath, o, logger)
-		}
-		release()
+			return nil
+		}()
 		if removeErr != nil {
 			logger.WithField("orphan", o.String()).
 				Warnf("reindex orphan audit: failed to remove orphan tracker dir: %v", removeErr)

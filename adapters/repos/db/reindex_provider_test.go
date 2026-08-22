@@ -713,3 +713,40 @@ func TestSealedUnitRefusesLateEntrants(t *testing.T) {
 		})
 	}
 }
+
+// TestUnitRegistriesWorkOnAZeroValueProvider pins that both per-unit
+// registries build themselves. They are written from a terminal-cleanup path
+// that any provider reaches, and a map left nil by whichever constructor built
+// the provider panics on the first write rather than failing a decision.
+func TestUnitRegistriesWorkOnAZeroValueProvider(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
+
+	tests := []struct {
+		name string
+		take func(p *ReindexProvider) (func(), bool)
+	}{
+		{
+			name: "a worker claims a unit",
+			take: func(p *ReindexProvider) (func(), bool) { return p.enterLocalUnit(desc, "shard-1__node-0") },
+		},
+		{
+			name: "a teardown seals one unit",
+			take: func(p *ReindexProvider) (func(), bool) { return p.SealLocalUnit(desc, "shard-1__node-0") },
+		},
+		{
+			name: "a teardown seals the whole task",
+			take: func(p *ReindexProvider) (func(), bool) { return p.sealLocalTask(desc) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &ReindexProvider{}
+			release, ok := tt.take(p)
+			require.True(t, ok)
+			release()
+			require.Empty(t, p.liveUnits)
+			require.Empty(t, p.sealedUnits)
+		})
+	}
+}

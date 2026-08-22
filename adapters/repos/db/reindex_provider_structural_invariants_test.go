@@ -29,11 +29,11 @@ import (
 // the reindex-provider pieces (see weaviate/0-weaviate-issues#243 for
 // the broader pyramid analysis):
 //
-//   TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone
-//   TestStructuralInvariant_WaitForLocalTaskDrain_NoHandleReturnsNil
-//   TestStructuralInvariant_WaitForLocalTaskDrain_RespectsContextCancel
+//   TestStructuralInvariant_SealLocalTaskDrain_BlocksUntilHandleDone
+//   TestStructuralInvariant_SealLocalTaskDrain_NoHandleReturnsNil
+//   TestStructuralInvariant_SealLocalTaskDrain_RespectsContextCancel
 //
-// Together these pin: WaitForLocalTaskDrain must wait for the per-task
+// Together these pin: SealLocalTaskDrain must wait for the per-task
 // goroutine's doneCh, must not block when no handle is present (the
 // "already drained / never started" case), and must respect the
 // caller's context (so a cancel→cleanup orchestrator can give up
@@ -44,15 +44,13 @@ import (
 // pattern used by reindex_conflict_test.go. The constructor
 // (NewReindexProvider) needs a full *DB which we don't have in unit
 // tests; the maps cover everything we exercise here
-// (runningHandles + the WaitForLocalTaskDrain path).
+// (runningHandles + the SealLocalTaskDrain path).
 func structuralInvariantNewBareProvider() *ReindexProvider {
 	return &ReindexProvider{
 		runningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		activeWorkers:  make(map[distributedtask.TaskDescriptor]map[string]bool),
-		liveUnits:      make(map[distributedtask.TaskDescriptor]map[string]int),
-		sealedUnits:    make(map[distributedtask.TaskDescriptor]map[string]int),
 	}
 }
 
@@ -75,12 +73,12 @@ func structuralInvariantInjectHandle(
 	return handle
 }
 
-// TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone:
+// TestStructuralInvariant_SealLocalTaskDrain_BlocksUntilHandleDone:
 // the safety gate for cancel→drain→cleanup sidecar teardown must not
 // return until the worker's doneCh closes. Otherwise
 // CleanStalePartialReindexState races with the worker still writing
 // to __reindex / __ingest buckets.
-func TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone(t *testing.T) {
+func TestStructuralInvariant_SealLocalTaskDrain_BlocksUntilHandleDone(t *testing.T) {
 	p := structuralInvariantNewBareProvider()
 	desc := distributedtask.TaskDescriptor{ID: "task-blocking", Version: 7}
 	handle := structuralInvariantInjectHandle(p, desc)
@@ -97,7 +95,8 @@ func TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone(t *test
 		// above the deterministic synchronization we use below.
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		returnedC <- p.WaitForLocalTaskDrain(ctx, desc)
+		_, err := p.SealLocalTaskDrain(ctx, desc)
+		returnedC <- err
 	}()
 
 	// Phase 1 — drain must NOT return while doneCh is open. We
@@ -105,7 +104,7 @@ func TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone(t *test
 	// scheduler quantum even on a loaded CI box).
 	select {
 	case err := <-returnedC:
-		t.Fatalf("WaitForLocalTaskDrain returned before handle was done: err=%v", err)
+		t.Fatalf("SealLocalTaskDrain returned before handle was done: err=%v", err)
 	case <-time.After(50 * time.Millisecond):
 		// expected: drain is still blocked
 	}
@@ -118,51 +117,53 @@ func TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone(t *test
 	select {
 	case err := <-returnedC:
 		require.NoError(t, err,
-			"WaitForLocalTaskDrain must return nil once the handle's doneCh is closed")
+			"SealLocalTaskDrain must return nil once the handle's doneCh is closed")
 	case <-time.After(1 * time.Second):
-		t.Fatal("WaitForLocalTaskDrain did not return after doneCh was closed")
+		t.Fatal("SealLocalTaskDrain did not return after doneCh was closed")
 	}
 
 	wg.Wait()
 }
 
-// TestStructuralInvariant_WaitForLocalTaskDrain_NoHandleReturnsNil
+// TestStructuralInvariant_SealLocalTaskDrain_NoHandleReturnsNil
 // pins the no-handle case: when no per-task goroutine is registered
 // for the descriptor (already drained, or never started on this
-// node), WaitForLocalTaskDrain MUST return nil immediately rather
+// node), SealLocalTaskDrain MUST return nil immediately rather
 // than block forever or fall through to ctx.Done().
 //
 // The orchestrator's cancel→drain sequence relies on this: a task
-// that never ran on this node still triggers WaitForLocalTaskDrain
+// that never ran on this node still triggers SealLocalTaskDrain
 // during cleanup, and we must not stall the cleanup goroutine on a
 // non-existent worker.
-func TestStructuralInvariant_WaitForLocalTaskDrain_NoHandleReturnsNil(t *testing.T) {
+func TestStructuralInvariant_SealLocalTaskDrain_NoHandleReturnsNil(t *testing.T) {
 	p := structuralInvariantNewBareProvider()
 	desc := distributedtask.TaskDescriptor{ID: "task-never-ran", Version: 1}
 
 	// Use a context that's already cancelled. If the no-handle
 	// path is correctly short-circuited, we'll see nil (not
-	// ctx.Err()) — proving WaitForLocalTaskDrain didn't fall
+	// ctx.Err()) — proving SealLocalTaskDrain didn't fall
 	// through to the select.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	require.NoError(t, p.WaitForLocalTaskDrain(ctx, desc),
-		"WaitForLocalTaskDrain must short-circuit with nil when no handle is registered; "+
+	release, err := p.SealLocalTaskDrain(ctx, desc)
+	require.NoError(t, err,
+		"SealLocalTaskDrain must short-circuit when no handle is registered; "+
 			"falling through to ctx.Done() would surface a misleading ctx.Err() to the orchestrator")
+	release()
 }
 
-// TestStructuralInvariant_WaitForLocalTaskDrain_RespectsContextCancel
+// TestStructuralInvariant_SealLocalTaskDrain_RespectsContextCancel
 // pins the timeout escape hatch: when the per-task goroutine is
 // stuck (doneCh still open) and the caller's context is cancelled,
-// WaitForLocalTaskDrain MUST return ctx.Err() so the orchestrator
+// SealLocalTaskDrain MUST return ctx.Err() so the orchestrator
 // can give up rather than block indefinitely.
 //
 // The cancel→drain→cleanup sequence wraps the drain in a bounded
 // context for exactly this reason: a runaway worker (e.g. stuck in
 // an inverted-index iteration that ignored ctx) must not pin the
 // shutdown path forever.
-func TestStructuralInvariant_WaitForLocalTaskDrain_RespectsContextCancel(t *testing.T) {
+func TestStructuralInvariant_SealLocalTaskDrain_RespectsContextCancel(t *testing.T) {
 	p := structuralInvariantNewBareProvider()
 	desc := distributedtask.TaskDescriptor{ID: "task-runaway", Version: 42}
 	// Inject a handle whose doneCh will NEVER close (simulates a
@@ -172,9 +173,9 @@ func TestStructuralInvariant_WaitForLocalTaskDrain_RespectsContextCancel(t *test
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	err := p.WaitForLocalTaskDrain(ctx, desc)
+	_, err := p.SealLocalTaskDrain(ctx, desc)
 	require.Error(t, err,
-		"WaitForLocalTaskDrain must surface ctx.Err() when the deadline expires while the handle's doneCh remains open")
+		"SealLocalTaskDrain must surface ctx.Err() when the deadline expires while the handle's doneCh remains open")
 	require.ErrorIs(t, err, context.DeadlineExceeded,
 		"the returned error must be the original ctx.Err() so orchestrator can distinguish "+
 			"timeout from other failures")
@@ -223,7 +224,7 @@ func TestStructuralInvariant_StartTask_HandleTerminateDrainsSpawnedWorker(t *tes
 	}
 
 	// And handle.Done() must be observable (closed). This is
-	// what WaitForLocalTaskDrain and Scheduler.tick's
+	// what SealLocalTaskDrain and Scheduler.tick's
 	// dead-handle reaper depend on.
 	select {
 	case <-handle.Done():
@@ -234,7 +235,7 @@ func TestStructuralInvariant_StartTask_HandleTerminateDrainsSpawnedWorker(t *tes
 	}
 }
 
-// TestStructuralInvariant_WaitForLocalTaskDrain_WaitsForPrepAndSwap pins the
+// TestStructuralInvariant_SealLocalTaskDrain_WaitsForPrepAndSwap pins the
 // half of the drain the task handle cannot answer for. The handle is created
 // around the iteration goroutine and closed when it exits, but the prep that
 // copies segments into the ingest directory and the swap that flips the
@@ -244,7 +245,7 @@ func TestStructuralInvariant_StartTask_HandleTerminateDrainsSpawnedWorker(t *tes
 //
 // It waits on the same per-unit registry reconciliation seals against, which
 // every span that holds a bucket pointer registers in.
-func TestStructuralInvariant_WaitForLocalTaskDrain_WaitsForPrepAndSwap(t *testing.T) {
+func TestStructuralInvariant_SealLocalTaskDrain_WaitsForPrepAndSwap(t *testing.T) {
 	p := structuralInvariantNewBareProvider()
 	desc := distributedtask.TaskDescriptor{ID: "task-in-swap", Version: 1}
 
@@ -254,12 +255,27 @@ func TestStructuralInvariant_WaitForLocalTaskDrain_WaitsForPrepAndSwap(t *testin
 	// No handle is ever registered: that is exactly the prep/swap shape.
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	require.ErrorIs(t, p.WaitForLocalTaskDrain(ctx, desc), context.DeadlineExceeded,
+	_, err := p.SealLocalTaskDrain(ctx, desc)
+	require.ErrorIs(t, err, context.DeadlineExceeded,
 		"a swap holding a bucket pointer has not drained, whatever the task handle says")
 
 	release()
 	drained, cancelDrained := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelDrained()
-	require.NoError(t, p.WaitForLocalTaskDrain(drained, desc),
-		"once the last span releases, the drain returns")
+	unseal, err := p.SealLocalTaskDrain(drained, desc)
+	require.NoError(t, err, "once the last span releases, the drain returns")
+
+	// Held, not merely awaited: the sweep that follows removes the very
+	// directories a relaunched unit opens, and the scheduler relaunches a task
+	// handle tens of milliseconds after its workers finished.
+	_, entered = p.enterLocalUnit(desc, "shard-1__node-0")
+	require.False(t, entered, "a unit may not start again while a teardown holds the task")
+	_, entered = p.enterLocalUnit(desc, "shard-2__node-0")
+	require.False(t, entered, "the hold is task-wide: the sweep never learns which units it touched")
+
+	unseal()
+	release, entered = p.enterLocalUnit(desc, "shard-1__node-0")
+	require.True(t, entered, "once the teardown releases, work may start again")
+	release()
+	require.Empty(t, p.sealedUnits)
 }

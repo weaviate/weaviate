@@ -504,8 +504,14 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 			"index_type": indexType,
 		}).Info("cancel: starting drain+cleanup for cancelled reindex task")
 		drainCtx, drainCancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
-		drainErr := h.appState.ReindexProvider.WaitForLocalTaskDrain(drainCtx, target.TaskDescriptor)
+		// Held until the cleanup below is done, not just until it starts: the
+		// scheduler can relaunch this task's units while the cleanup is
+		// midway through removing the directories they open.
+		unseal, drainErr := h.appState.ReindexProvider.SealLocalTaskDrain(drainCtx, target.TaskDescriptor)
 		drainCancel()
+		if drainErr == nil {
+			defer unseal()
+		}
 		if drainErr != nil {
 			h.appState.Logger.WithFields(logrus.Fields{
 				"taskID":     target.ID,

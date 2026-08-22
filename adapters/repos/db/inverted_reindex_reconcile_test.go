@@ -66,10 +66,14 @@ type reconcileFixture struct {
 	// unitLive is what the local unit registry answers: a worker of this
 	// migration is still iterating on this node, so no teardown may seal it.
 	unitLive bool
-	// sealsTaken counts the teardowns that sealed the unit during the pass.
-	sealsTaken int
-	class      *models.Class
-	logger     *logrus.Logger
+	// sealsTaken and sealsReleased count the teardowns that sealed the unit
+	// during the pass, and the ones that let it go again. A seal that leaks
+	// refuses its unit for the life of the process, so the migration could
+	// never run on this node again.
+	sealsTaken    int
+	sealsReleased int
+	class         *models.Class
+	logger        *logrus.Logger
 	// logs is what the reconciler wrote, for the arms whose whole outcome is
 	// a line an operator has to see.
 	logs *test.Hook
@@ -106,6 +110,19 @@ func newReconcileFixtureAt(t *testing.T, lsmPath string) *reconcileFixture {
 	}
 }
 
+// logged reports whether the reconciler wrote a line containing want at any
+// level. Separate from [reconcileFixture.warned] because an arm that declines
+// its work reports at Info, and asking warned about one of those can only ever
+// answer no.
+func (f *reconcileFixture) logged(want string) bool {
+	for _, entry := range f.logs.AllEntries() {
+		if strings.Contains(entry.Message, want) {
+			return true
+		}
+	}
+	return false
+}
+
 // warned reports whether the reconciler wrote a warning containing want.
 func (f *reconcileFixture) warned(want string) bool {
 	for _, entry := range f.logs.AllEntries() {
@@ -130,7 +147,7 @@ func (f *reconcileFixture) deps() migrationReconcileDeps {
 				return nil, false
 			}
 			f.sealsTaken++
-			return func() {}, true
+			return func() { f.sealsReleased++ }, true
 		},
 		Class:   func() *models.Class { return f.class },
 		Mirror:  f.mirror,
@@ -1409,6 +1426,8 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 					"with no worker running, %s is the arm's own work and must be done", dir)
 			}
 			require.NotZero(t, free.sealsTaken, "the arm holds the unit while it works")
+			require.Equal(t, free.sealsTaken, free.sealsReleased,
+				"and lets it go again: a leaked seal refuses this unit for the life of the process")
 		})
 	}
 }

@@ -148,30 +148,54 @@ func (r *migrationReconciler) retireSuperseded(ctx context.Context, all []Migrat
 			continue
 		}
 
+		// Asked before the seal: this pass walks every record with complete
+		// staged data, and the common one is the record a swap just wrote,
+		// which nothing supersedes. Sealing it first would refuse against the
+		// very worker that is running this pass and report a retirement
+		// waiting that was never owed.
+		superseded := supersededProperties(all, subject)
+		if len(superseded) == 0 {
+			continue
+		}
+
 		// Retirement removes this record's staged and sidecar directories,
 		// which a worker of its own migration may still be writing into
-		// through pointers it took before its phase began. A live one
-		// declines the seal and the next pass retires it.
+		// through pointers it took before its phase began. A live one declines
+		// the seal and the next pass retires it.
 		release, sealed := r.sealUnit(subject)
 		if !sealed {
 			r.logger.WithField("record", subject.Key.String()).Info(
 				"a local unit of this migration is still running, so its retirement waits for the next pass")
 			continue
 		}
-		r.retireOneSealed(ctx, all, rec, subject)
-		release()
+		func() {
+			// Deferred rather than called after: a seal that leaks refuses
+			// this unit for the life of the process, so the migration could
+			// never run here again.
+			defer release()
+			r.retireOneSealed(ctx, all, rec, subject, superseded)
+		}()
 	}
+}
+
+// supersededProperties names the properties of subject a later-versioned
+// record has taken over, which is the whole of what retirement acts on.
+func supersededProperties(all []MigrationRecord, subject MigrationSubject) []string {
+	var out []string
+	for _, prop := range subject.Properties {
+		if migrationPropertySuperseded(all, subject, prop) {
+			out = append(out, prop)
+		}
+	}
+	return out
 }
 
 // retireOneSealed retires one superseded record, under its unit's seal.
 func (r *migrationReconciler) retireOneSealed(ctx context.Context, all []MigrationRecord,
-	rec MigrationRecord, subject MigrationSubject,
+	rec MigrationRecord, subject MigrationSubject, superseded []string,
 ) {
 	retired := true
-	for _, prop := range subject.Properties {
-		if !migrationPropertySuperseded(all, subject, prop) {
-			continue
-		}
+	for _, prop := range superseded {
 		if err := r.retireProperty(ctx, all, subject, prop); err != nil {
 			r.logger.WithField("record", subject.Key.String()).Errorf(
 				"retire a superseded property: %v", err)
