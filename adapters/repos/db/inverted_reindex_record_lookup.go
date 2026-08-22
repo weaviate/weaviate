@@ -74,6 +74,13 @@ type migrationPreservedState struct {
 	// recordSetUnreadable means no record here could be read at all, which no
 	// caller may report as a clean shard. It implies withholdEverything.
 	recordSetUnreadable bool
+	// migrationsDirUnlistable is the same fault one level up: the directory
+	// holding every tracker could not be enumerated. It is kept apart from
+	// withholdEverything because the two call for opposite reporting — a
+	// payload this build cannot parse is a settled fact that must not wake the
+	// tenant on every sweep, while a directory nobody could list is a shard
+	// whose state has not been read at all.
+	migrationsDirUnlistable bool
 }
 
 // migrationPreservedStateAt is the only way to build one, so no sweep can ask
@@ -96,6 +103,7 @@ func migrationPreservedStateAt(lsmPath string, logger logrus.FieldLogger) migrat
 			Warn("the migration directory could not be listed, so nothing on this shard can be shown to be " +
 				"reclaimable; withholding every removal until it can be read")
 		state.withholdEverything = true
+		state.migrationsDirUnlistable = true
 		return state
 	}
 	for _, legacy := range legacyTrackers {

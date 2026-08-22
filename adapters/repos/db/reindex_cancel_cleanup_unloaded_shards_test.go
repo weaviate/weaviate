@@ -377,6 +377,10 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		// unreadable is a dir the gate is denied access to, relative to the
 		// shard's LSM path ("." is the LSM path itself). Empty denies nothing.
 		recordSetUnreadable string
+		// unlistableMigrationsDir takes the read bit off .migrations while
+		// leaving it traversable, so .migrations/records still opens and the
+		// record set reads as clean.
+		unlistableMigrationsDir bool
 		// unreadablePayloadTracker names a tracker whose payload.mig is a
 		// directory instead of a file — unreadable for any user, root
 		// included, unlike unreadable's chmod.
@@ -652,6 +656,16 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			wantStale:           true,
 		},
 		{
+			// Traversable but not readable, so the records underneath still
+			// answer and the record-set arm never fires. The shard's migration
+			// state has still not been read, and a gate that calls it clean
+			// leaves that unsaid.
+			name:                    "a migration directory the gate cannot list while its records answer",
+			indexType:               "filterable",
+			unlistableMigrationsDir: true,
+			wantStale:               true,
+		},
+		{
 			// A load can remove directories, but it can never make an absent
 			// schema effect appear, so a promoted migration whose data is
 			// already at the canonical name is not work a hydration reclaims.
@@ -718,7 +732,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.recordSetUnreadable != "" && os.Geteuid() == 0 {
+			if (tc.recordSetUnreadable != "" || tc.unlistableMigrationsDir) && os.Geteuid() == 0 {
 				t.Skip("root reads a directory whatever its mode says")
 			}
 			propName := tc.propName
@@ -770,6 +784,12 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				// back: defers run in reverse order of registration.
 				defer func() { require.NoError(t, os.Chmod(denied, 0o755)) }()
 				require.NoError(t, os.Chmod(denied, 0o000))
+			}
+			if tc.unlistableMigrationsDir {
+				migrations := filepath.Join(lsm, ".migrations")
+				require.NoError(t, os.MkdirAll(migrations, 0o755))
+				defer func() { require.NoError(t, os.Chmod(migrations, 0o755)) }()
+				require.NoError(t, os.Chmod(migrations, 0o111))
 			}
 			if tc.unreadablePayloadTracker != "" {
 				// See unreadablePayloadTracker above for why a dir, not chmod.

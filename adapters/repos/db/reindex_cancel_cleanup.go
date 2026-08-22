@@ -314,7 +314,7 @@ func hasStalePartialReindexState(
 	}
 	committed := dirs.committedMigrations(lsmPath, logger)
 	switch {
-	case committed.recordSetUnreadable:
+	case committed.recordSetUnreadable, committed.migrationsDirUnlistable:
 		// Nothing about this shard could be read, so reporting it clean would
 		// be a guess. Hydrating is what turns it into an error a caller sees.
 		return true, false
