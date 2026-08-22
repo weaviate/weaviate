@@ -104,6 +104,10 @@ func plantSwappedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose
 		`"flip":{"flipped":["score"],"displacedDirs":{"score":"property_score"}}}`,
 		time.Now().UTC().Format(time.RFC3339Nano), staged)
 
+	// Repoint on every exit path: the restart rebinds the host port, and a
+	// failure in between would otherwise strand the client on the old one.
+	defer func() { helper.SetupClient(compose.GetWeaviate().URI()) }()
+
 	require.NoError(t, compose.StopAt(ctx, 0, nil),
 		"graceful stop before planting the record must succeed")
 
@@ -121,7 +125,6 @@ func plantSwappedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose
 		"CopyDirToContainer must succeed against the stopped container")
 
 	require.NoError(t, compose.StartAt(ctx, 0), "restart after planting must succeed")
-	helper.SetupClient(compose.GetWeaviate().URI())
 }
 
 // testPromotedRecordOutranItsRename is the crash the promotion record can
@@ -187,6 +190,10 @@ func plantPromotedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompos
 		`"flip":{"flipped":["score"],"displacedDirs":{"score":"property_score"}}}`,
 		time.Now().UTC().Format(time.RFC3339Nano), staged)
 
+	// Repoint on every exit path: the restart rebinds the host port, and a
+	// failure in between would otherwise strand the client on the old one.
+	defer func() { helper.SetupClient(compose.GetWeaviate().URI()) }()
+
 	require.NoError(t, compose.StopAt(ctx, 0, nil),
 		"graceful stop before planting the record must succeed")
 
@@ -203,5 +210,4 @@ func plantPromotedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompos
 		"CopyDirToContainer must succeed against the stopped container")
 
 	require.NoError(t, compose.StartAt(ctx, 0), "restart after planting must succeed")
-	helper.SetupClient(compose.GetWeaviate().URI())
 }
