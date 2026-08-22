@@ -666,6 +666,18 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			wantStale:               true,
 		},
 		{
+			// A corrupt record withholds the whole shard, which used to skip
+			// the listing entirely as a saved syscall. The two faults say
+			// different things: one is a settled fact, the other is a shard
+			// whose state was never read, and only the second forbids
+			// reporting it clean.
+			name:                    "an unreadable record on a shard whose migration directory cannot be listed",
+			indexType:               "filterable",
+			unreadableRecord:        true,
+			unlistableMigrationsDir: true,
+			wantStale:               true,
+		},
+		{
 			// A load can remove directories, but it can never make an absent
 			// schema effect appear, so a promoted migration whose data is
 			// already at the canonical name is not work a hydration reclaims.

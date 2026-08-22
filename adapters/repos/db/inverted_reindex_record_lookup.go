@@ -89,19 +89,24 @@ type migrationPreservedState struct {
 func migrationPreservedStateAt(lsmPath string, logger logrus.FieldLogger) migrationPreservedState {
 	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
 	state := migrationPreservedStateFromRecords(records, someRecordsUnreadable, recordSetUnreadable)
-	if someRecordsUnreadable {
-		// Already preserving the whole shard, so the scan would only cost
-		// syscalls to reach the same answer.
+	legacyTrackers, listed := migrationLegacyMarkerTrackersAt(lsmPath, records)
+	if someRecordsUnreadable && listed {
+		// Already preserving the whole shard, so reading the trackers would
+		// only cost syscalls to reach the same answer. The listing still had
+		// to happen: a directory nobody could enumerate is a shard nobody may
+		// report clean, and an unreadable record does not say that on its own.
 		return state
 	}
-	legacyTrackers, listed := migrationLegacyMarkerTrackersAt(lsmPath, records)
 	if !listed {
 		// Nothing here could be enumerated, so the preserve set is missing
 		// names it cannot know. The sweeps read a short set as permission to
 		// delete, and they list a directory that is still readable.
+		//
+		// Said at Debug because a DELETE asks this once per (property, index
+		// type) per shard, inside the RAFT apply. The shard load says it once
+		// at Warn, and the sweep that hits the same fault fails loudly.
 		logger.WithField("path", filepath.Join(lsmPath, ".migrations")).
-			Warn("the migration directory could not be listed, so nothing on this shard can be shown to be " +
-				"reclaimable; withholding every removal until it can be read")
+			Debug("the migration directory could not be listed; withholding every removal on this shard")
 		state.withholdEverything = true
 		state.migrationsDirUnlistable = true
 		return state

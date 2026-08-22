@@ -1539,7 +1539,8 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 	}
 	preserve, ok := trimPreserveSetOf(concrete)
 	if !ok {
-		logger.Warn("runtime swap: trim: migration records could not all be read; trimming nothing")
+		logger.Warn("runtime swap: trim: this shard's migration state could not be read in full — a record, " +
+			"a marker-era payload, or the migration directory listing itself; trimming nothing")
 		return
 	}
 	lsmPath := concrete.pathLSM()
