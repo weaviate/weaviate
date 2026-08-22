@@ -23,6 +23,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // ErrPrependWouldDesyncInMemoryRep is returned by PrependSegmentsFromBucket when
@@ -185,6 +187,12 @@ func discoverDBFiles(dir string) ([]string, error) {
 // the suffix. A crash mid-copy leaves only .tmp files that are ignored by
 // newSegmentGroup on recovery.
 //
+// dstDir is fsynced before returning, because the caller records that the
+// staged data is complete and records it durably. Each rename is a directory
+// entry of its own, and without the sync a machine crash can take the entries
+// while leaving the claim, so the next load promotes a bucket that is missing
+// segments.
+//
 // Returns the list of final .db filenames (without .tmp) in dstDir.
 func copySegmentFiles(srcDir, dstDir string, dbFiles []string, shift int64) ([]string, error) {
 	copiedDBPaths := make([]string, 0, len(dbFiles))
@@ -230,6 +238,10 @@ func copySegmentFiles(srcDir, dstDir string, dbFiles []string, shift int64) ([]s
 		// Record the final .db path.
 		dstDBFile := strings.Replace(dbFile, segPrefix, shiftedPrefix, 1)
 		copiedDBPaths = append(copiedDBPaths, dstDBFile)
+	}
+
+	if err := diskio.Fsync(dstDir); err != nil {
+		return nil, fmt.Errorf("sync %s: %w", dstDir, err)
 	}
 
 	return copiedDBPaths, nil
