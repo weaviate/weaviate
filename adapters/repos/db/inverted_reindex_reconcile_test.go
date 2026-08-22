@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,7 +58,25 @@ type reconcileFixture struct {
 	buckets       *fakeBucketCloser
 	tasks         []*distributedtask.Task
 	tasksReadable bool
-	class         *models.Class
+	// clusterTasks is what the leader answers. Nil means "the same as this
+	// node", which is the ordinary case; clusterTasksErr is the leader being
+	// unreachable.
+	clusterTasks    []*distributedtask.Task
+	clusterTasksSet bool
+	clusterTasksErr error
+	class           *models.Class
+}
+
+// leaderTasks is the source reconciliation confirms a destructive answer
+// against.
+func (f *reconcileFixture) leaderTasks(context.Context) ([]*distributedtask.Task, error) {
+	if f.clusterTasksErr != nil {
+		return nil, f.clusterTasksErr
+	}
+	if f.clusterTasksSet {
+		return f.clusterTasks, nil
+	}
+	return f.tasks, nil
 }
 
 func newReconcileFixture(t *testing.T) *reconcileFixture {
@@ -85,10 +104,11 @@ func (f *reconcileFixture) reconcile() {
 	f.t.Helper()
 	logger, _ := test.NewNullLogger()
 	r := newMigrationReconciler(f.store, f.lsmPath, logger, migrationReconcileDeps{
-		LocalTasks: func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
-		Class:      func() *models.Class { return f.class },
-		Mirror:     f.mirror,
-		Buckets:    f.buckets,
+		LocalTasks:   func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
+		ClusterTasks: f.leaderTasks,
+		Class:        func() *models.Class { return f.class },
+		Mirror:       f.mirror,
+		Buckets:      f.buckets,
 	})
 	require.NoError(f.t, r.Reconcile(context.Background()))
 }
@@ -99,10 +119,11 @@ func (f *reconcileFixture) reconcileAfterTaskMap() {
 	f.t.Helper()
 	logger, _ := test.NewNullLogger()
 	newMigrationReconciler(f.store, f.lsmPath, logger, migrationReconcileDeps{
-		LocalTasks: func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
-		Class:      func() *models.Class { return f.class },
-		Mirror:     f.mirror,
-		Buckets:    f.buckets,
+		LocalTasks:   func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
+		ClusterTasks: f.leaderTasks,
+		Class:        func() *models.Class { return f.class },
+		Mirror:       f.mirror,
+		Buckets:      f.buckets,
 	}).ReconcileAfterTaskMap(context.Background())
 }
 
@@ -219,11 +240,16 @@ func TestReconcileMergedDisposition(t *testing.T) {
 		task            *distributedtask.Task
 		tasksUnreadable bool
 		noStagedDir     bool
-		class           *models.Class
-		wantState       MigrationState
-		wantRecord      bool
-		wantStagedGone  bool
-		wantCanonical   string
+		// leaderTask is what the leader answers when it differs from this
+		// node; leaderUnreachable is the confirmation failing outright.
+		leaderTask        *distributedtask.Task
+		leaderSet         bool
+		leaderUnreachable bool
+		class             *models.Class
+		wantState         MigrationState
+		wantRecord        bool
+		wantStagedGone    bool
+		wantCanonical     string
 	}{
 		{
 			name:          "task still running: record and directories survive the load untouched",
@@ -333,6 +359,37 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			wantRecord:    true,
 			wantCanonical: "property_title",
 		},
+		{
+			// The window this node cannot see on its own: it has applied a
+			// tail in which the task is gone, while the leader still carries
+			// it. Its own answer would delete a migration the cluster owns.
+			name:          "this node reads the task as gone while the leader still has it running",
+			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			leaderTask:    testTask(taskID, 42, distributedtask.TaskStatusStarted),
+			leaderSet:     true,
+			wantState:     MigrationStateMerged,
+			wantRecord:    true,
+			wantCanonical: "property_title",
+		},
+		{
+			name:          "this node reads the task as finished while the leader reports it cancelled",
+			task:          testTask(taskID, 42, distributedtask.TaskStatusFinished),
+			class:         testClassWithTokenization(models.PropertyTokenizationLowercase, "title"),
+			leaderTask:    testTask(taskID, 42, distributedtask.TaskStatusCancelled),
+			leaderSet:     true,
+			wantState:     MigrationStateMerged,
+			wantRecord:    true,
+			wantCanonical: "property_title",
+		},
+		{
+			name:              "the leader cannot be reached, so nothing is acted on",
+			task:              testTask(taskID, 42, distributedtask.TaskStatusCancelled),
+			class:             testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			leaderUnreachable: true,
+			wantState:         MigrationStateMerged,
+			wantRecord:        true,
+			wantCanonical:     "property_title",
+		},
 	}
 
 	for _, tt := range tests {
@@ -342,6 +399,15 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			f.tasksReadable = !tt.tasksUnreadable
 			if tt.task != nil {
 				f.tasks = []*distributedtask.Task{tt.task}
+			}
+			if tt.leaderSet {
+				f.clusterTasksSet = true
+				if tt.leaderTask != nil {
+					f.clusterTasks = []*distributedtask.Task{tt.leaderTask}
+				}
+			}
+			if tt.leaderUnreachable {
+				f.clusterTasksErr = errors.New("leader unreachable")
 			}
 
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")

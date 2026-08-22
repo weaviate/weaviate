@@ -116,6 +116,13 @@ func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }
 
+// FSMHasCaughtUp reports that this node has applied everything it knew about
+// at startup. Until it does, [Raft.LocalDistributedTasks] answers from a
+// partial map, where a task the cluster committed reads as absent.
+func (s *Raft) FSMHasCaughtUp() bool {
+	return s.store.FSMHasCaughtUp()
+}
+
 func (s *Raft) SchemaReader() schema.SchemaReader {
 	return s.store.SchemaReader()
 }

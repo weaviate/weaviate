@@ -25,6 +25,15 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+// installTestMigrationTaskSources installs the pair reconciliation consults,
+// both answering from the same list: the ordinary case where this node has
+// caught up with the leader.
+func installTestMigrationTaskSources(ctx context.Context, database *DB, tasks ...*distributedtask.Task) {
+	database.SetMigrationLocalTaskSource(ctx,
+		func() ([]*distributedtask.Task, bool) { return tasks, true },
+		func(context.Context) ([]*distributedtask.Task, error) { return tasks, nil })
+}
+
 // TestReconcileAfterTaskMapSkipsAShardShuttingDown pins the guard the walk was
 // missing. It holds a shard pointer across a pass that removes directories,
 // and a tenant deactivation, a tenant delete or a collection delete can take
@@ -77,14 +86,12 @@ func TestReconcileAfterTaskMapSkipsAShardShuttingDown(t *testing.T) {
 			require.NotNil(t, idx.db, "the test shard fixture has to wire idx.db")
 			idx.db.indices[indexID(idx.Config.ClassName)] = idx
 
-			idx.db.SetMigrationLocalTaskSource(ctx, func() ([]*distributedtask.Task, bool) {
-				return []*distributedtask.Task{{
-					Namespace: ReindexNamespace,
-					TaskDescriptor: distributedtask.TaskDescriptor{
-						ID: subject.TaskID, Version: subject.Key.TaskVersion,
-					},
-					Status: distributedtask.TaskStatusCancelled,
-				}}, true
+			installTestMigrationTaskSources(ctx, idx.db, &distributedtask.Task{
+				Namespace: ReindexNamespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{
+					ID: subject.TaskID, Version: subject.Key.TaskVersion,
+				},
+				Status: distributedtask.TaskStatusCancelled,
 			})
 
 			assert.Equal(t, tt.wantSurvives, dirExists(t, staged), "the staged directory")

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -53,6 +54,12 @@ type migrationReconcileDeps struct {
 	// an absent task is terminal and licenses a discard, so a source that is
 	// merely not installed yet would read as "every task is gone".
 	LocalTasks func() ([]*distributedtask.Task, bool)
+
+	// ClusterTasks reads the reindex namespace from the leader, so it costs a
+	// round-trip and can fail. It is consulted only where an answer is about
+	// to be acted on destructively, never on the load path's ordinary
+	// decisions.
+	ClusterTasks func(context.Context) ([]*distributedtask.Task, error)
 
 	// Class is the locally applied schema for the migrated collection, or nil
 	// when the collection is not in it.
@@ -164,7 +171,7 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 		return err
 	}
 
-	verdict, why := r.verdict(subject)
+	verdict, why := r.confirmedVerdict(ctx, subject)
 	if verdict == migrationVerdictDiscard {
 		return r.discard(ctx, all, subject, why)
 	}
@@ -235,7 +242,7 @@ func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec Migration
 		return nil
 	}
 	subject := rec.Subject()
-	verdict, why := r.verdict(subject)
+	verdict, why := r.confirmedVerdict(ctx, subject)
 
 	switch verdict {
 	case migrationVerdictLeave:
@@ -323,7 +330,7 @@ func (r *migrationReconciler) ReconcileAfterTaskMap(ctx context.Context) {
 			continue
 		}
 		subject := rec.Subject()
-		verdict, why := r.verdict(subject)
+		verdict, why := r.confirmedVerdict(ctx, subject)
 		switch {
 		case verdict == migrationVerdictDiscard:
 			// This removes directories a unit would be writing through a raw
@@ -527,14 +534,60 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(all []MigrationRecord
 	return nil
 }
 
-// verdict consults the two external facts, in the order that makes the second
-// unnecessary whenever the first is conclusive.
+// migrationVerdictConfirmTimeout bounds the leader round-trip a destructive
+// verdict pays for. Reconciliation runs on the shard-load path, and withholding
+// is always safe, so a slow leader must cost a bounded wait and then a Leave.
+const migrationVerdictConfirmTimeout = 5 * time.Second
+
+// confirmedVerdict is the only way to obtain a verdict, because every arm that
+// acts on one either deletes staged data or commits a flip irreversibly.
+//
+// The local answer comes from this node's own applied task map, which can
+// trail the leader — and a task that has not been applied yet reads as absent,
+// which is exactly what licenses the discard. So an answer that would act is
+// put to the leader, and anything short of agreement — no source, an error, a
+// deadline, a different answer — becomes Leave.
+func (r *migrationReconciler) confirmedVerdict(ctx context.Context, subject MigrationSubject) (migrationVerdict, string) {
+	verdict, why := r.verdict(subject)
+	if verdict == migrationVerdictLeave {
+		return verdict, why
+	}
+
+	if r.deps.ClusterTasks == nil {
+		return migrationVerdictLeave, fmt.Sprintf(
+			"this node says %q and nothing can confirm it with the cluster", why)
+	}
+	ctx, cancel := context.WithTimeout(ctx, migrationVerdictConfirmTimeout)
+	defer cancel()
+	tasks, err := r.deps.ClusterTasks(ctx)
+	if err != nil {
+		return migrationVerdictLeave, fmt.Sprintf("this node says %q and the cluster could not confirm it: %v", why, err)
+	}
+
+	confirmed, confirmedWhy := r.verdictFrom(subject, tasks)
+	if confirmed != verdict {
+		return migrationVerdictLeave, fmt.Sprintf("this node says %q while the cluster says %q", why, confirmedWhy)
+	}
+	return verdict, why
+}
+
+// verdict is the local answer. It is never acted on directly — see
+// confirmedVerdict.
 func (r *migrationReconciler) verdict(subject MigrationSubject) (migrationVerdict, string) {
-	task, mapReadable := r.findTask(subject)
-	if !mapReadable {
+	if r.deps.LocalTasks == nil {
 		return migrationVerdictLeave, "this node's task map cannot be read yet"
 	}
-	if task != nil {
+	tasks, readable := r.deps.LocalTasks()
+	if !readable {
+		return migrationVerdictLeave, "this node's task map cannot be read yet"
+	}
+	return r.verdictFrom(subject, tasks)
+}
+
+// verdictFrom consults the two external facts, in the order that makes the
+// second unnecessary whenever the first is conclusive.
+func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*distributedtask.Task) (migrationVerdict, string) {
+	if task := findMigrationTask(subject, tasks); task != nil {
 		switch task.Status {
 		case distributedtask.TaskStatusFinished:
 			return migrationVerdictCommit, "owning task finished"
@@ -560,22 +613,16 @@ func (r *migrationReconciler) verdict(subject MigrationSubject) (migrationVerdic
 	return migrationVerdictDiscard, "owning task is gone and the schema does not show its effect"
 }
 
-// findTask matches on ID and version together: the same task ID re-submitted
-// is a different run, and its outcome says nothing about this record's.
-func (r *migrationReconciler) findTask(subject MigrationSubject) (*distributedtask.Task, bool) {
-	if r.deps.LocalTasks == nil {
-		return nil, false
-	}
-	tasks, readable := r.deps.LocalTasks()
-	if !readable {
-		return nil, false
-	}
+// findMigrationTask matches on ID and version together: the same task ID
+// re-submitted is a different run, and its outcome says nothing about this
+// record's.
+func findMigrationTask(subject MigrationSubject, tasks []*distributedtask.Task) *distributedtask.Task {
 	for _, task := range tasks {
 		if task != nil && task.ID == subject.TaskID && task.Version == subject.Key.TaskVersion {
-			return task, true
+			return task
 		}
 	}
-	return nil, true
+	return nil
 }
 
 // discard is the cancel edge. The order is load-bearing: a still-armed mirror

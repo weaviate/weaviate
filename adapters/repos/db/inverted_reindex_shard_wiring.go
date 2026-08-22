@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -25,14 +26,25 @@ import (
 // unreadable map must not be mistaken for one.
 type MigrationLocalTaskSource func() ([]*distributedtask.Task, bool)
 
+// MigrationClusterTaskSource reads the reindex task namespace from the leader.
+// It costs a round-trip and can fail, so reconciliation consults it only where
+// a local answer is about to be acted on destructively.
+type MigrationClusterTaskSource func(context.Context) ([]*distributedtask.Task, error)
+
 // SetMigrationLocalTaskSource installs the source reconciliation consults and
 // immediately re-runs the edge that needs it on every shard already loaded.
 // The two are one act: the source arrives post-bootstrap, because the cluster
 // service does not exist when the DB is built, and every shard loaded during
 // RAFT catch-up reconciled with the map unavailable.
-func (db *DB) SetMigrationLocalTaskSource(ctx context.Context, source MigrationLocalTaskSource) {
+// The cluster source is installed in the same act, because reconciliation
+// refuses to act destructively without it — the local map is what can be
+// stale, and the confirmation is what makes acting on it safe.
+func (db *DB) SetMigrationLocalTaskSource(ctx context.Context, source MigrationLocalTaskSource,
+	cluster MigrationClusterTaskSource,
+) {
 	db.reindexAuditMu.Lock()
 	db.migrationLocalTaskSource = source
+	db.migrationClusterTaskSource = cluster
 	db.reindexAuditMu.Unlock()
 
 	db.reconcileLoadedMigrationsAfterTaskMap(ctx)
@@ -96,6 +108,17 @@ func (db *DB) migrationLocalTasks() ([]*distributedtask.Task, bool) {
 	return source()
 }
 
+func (db *DB) migrationClusterTasks(ctx context.Context) ([]*distributedtask.Task, error) {
+	db.reindexAuditMu.RLock()
+	source := db.migrationClusterTaskSource
+	db.reindexAuditMu.RUnlock()
+
+	if source == nil {
+		return nil, fmt.Errorf("no cluster-wide reindex task source is installed on this node")
+	}
+	return source(ctx)
+}
+
 // reconcileMigrationRecords runs the state machine's load-time pass and leaves
 // the shard holding its records. It has to stay ahead of bucket loading: it
 // renames directories, and a bucket opened at a name it is about to move would
@@ -145,10 +168,11 @@ func (s *Shard) liveMigrationReconciler() *migrationReconciler {
 func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconciler {
 	return newMigrationReconciler(s.migrationRecords, s.pathLSM(), s.index.logger,
 		migrationReconcileDeps{
-			LocalTasks: s.migrationLocalTasks,
-			Class:      class,
-			Mirror:     s,
-			Buckets:    s,
+			LocalTasks:   s.migrationLocalTasks,
+			ClusterTasks: s.migrationClusterTasks,
+			Class:        class,
+			Mirror:       s,
+			Buckets:      s,
 		})
 }
 
@@ -162,6 +186,13 @@ func (s *Shard) migrationLocalTasks() ([]*distributedtask.Task, bool) {
 		return nil, false
 	}
 	return s.index.db.migrationLocalTasks()
+}
+
+func (s *Shard) migrationClusterTasks(ctx context.Context) ([]*distributedtask.Task, error) {
+	if s.index == nil || s.index.db == nil {
+		return nil, fmt.Errorf("shard %q has no database handle to reach the leader through", s.Name())
+	}
+	return s.index.db.migrationClusterTasks(ctx)
 }
 
 // ShutdownStagedBuckets closes a record's open buckets for one property so

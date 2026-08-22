@@ -135,6 +135,7 @@ type DB struct {
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
 	migrationLocalTaskSource           MigrationLocalTaskSource
+	migrationClusterTaskSource         MigrationClusterTaskSource
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
