@@ -509,9 +509,6 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 		// midway through removing the directories they open.
 		unseal, drainErr := h.appState.ReindexProvider.SealLocalTaskDrain(drainCtx, target.TaskDescriptor)
 		drainCancel()
-		if drainErr == nil {
-			defer unseal()
-		}
 		if drainErr != nil {
 			h.appState.Logger.WithFields(logrus.Fields{
 				"taskID":     target.ID,
@@ -526,6 +523,9 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 				"property":   propertyName,
 				"index_type": indexType,
 			}).Info("cancel: drain complete, running on-disk cleanup")
+			// Released when the handler returns, which is after the cleanup
+			// below and nothing else.
+			defer unseal()
 			// Goroutine has drained. Wipe the sidecars and migration
 			// directories for every indexType this migration touches —
 			// change-tokenization spawns both a searchable and a
