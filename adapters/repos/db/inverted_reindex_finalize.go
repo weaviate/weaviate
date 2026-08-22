@@ -15,8 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/sirupsen/logrus"
 )
 
 // nextMigrationGeneration returns the per-node generation `N` a new
@@ -34,26 +32,36 @@ import (
 // strategies — pass "" for class-level strategies). The full dir name
 // pattern matched is `<migrationDirPrefix><propNamesSuffix>_<N>`.
 //
-// Returns 1 when no prior generation exists. Returns max(existing)+1
-// otherwise. Non-integer-suffixed dirs (i.e. pre-generation legacy
-// state, which shouldn't exist on this branch but defensive code is
-// cheap) are ignored.
+// records is this shard's understood record set, and the caller must have
+// established that it is the whole set: a generation claimed by a record
+// nobody could read is invisible here, and handing it out again gives the
+// retry the very directories that record names.
 //
-// Called from [ReindexProvider.processOneUnit] before constructing the
+// Called from [ReindexProvider.buildReindexTasks] before constructing the
 // strategy instance, once per shard / prop / indexType tuple. Computed
 // per-node — different nodes may pick different generations for the
 // same RAFT task and that's correct: generation is purely a per-node
 // on-disk implementation detail of the deferred-finalize design.
 func nextMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string,
-	logger logrus.FieldLogger,
+	records []MigrationRecord,
+) int {
+	return highestMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix, records) + 1
+}
+
+// highestMigrationGeneration is the highest generation this shard has already
+// handed out for the tuple, or 0 if it has handed out none. Both the tracker
+// directories on disk and the records that name one count: a sweep removes a
+// tracker directory and leaves its record behind, so the directories alone
+// under-report which generations are still claimed.
+//
+// The allocating caller adds one; the rehydrate caller re-adopts this exact
+// generation, which is why the two must answer from the same evidence — a
+// rehydrate that answers from disk alone attaches to an older migration's
+// directories while a record claims a newer generation's.
+func highestMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string,
+	records []MigrationRecord,
 ) int {
 	highest := maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix)
-
-	// A sweep removes a tracker directory and leaves its record behind, so the
-	// directories alone under-report which generations are still claimed.
-	// Handing one out twice gives a retry the very handles the stale record
-	// names, and that record's discard then removes the retry's directories.
-	records, _, _ := migrationRecordsAt(lsmPath, logger)
 	target := migrationDirPrefix + propNamesSuffix
 	for _, rec := range records {
 		prefix, gen, ok := parseMigrationDirName(rec.Subject().TrackerDir)
@@ -61,16 +69,14 @@ func nextMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string
 			highest = gen
 		}
 	}
-	return highest + 1
+	return highest
 }
 
 // maxMigrationGeneration returns the highest existing generation on disk
-// for the (prefix, propNamesSuffix) tuple, or 0 if none exists.
-//
-// Used by recovery / rehydrate paths that need to construct a strategy
-// instance matching an existing on-disk migration. The recovery path is
-// the only legitimate caller — fresh task starts should always use
-// [nextMigrationGeneration] to claim a new generation.
+// for the (prefix, propNamesSuffix) tuple, or 0 if none exists. It is the
+// disk half of [highestMigrationGeneration], which is what every caller
+// outside this file wants: on its own it under-reports a generation whose
+// directory a sweep removed.
 func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)

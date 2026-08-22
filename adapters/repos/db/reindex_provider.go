@@ -624,14 +624,13 @@ const maxReindexPropertiesPerTask = 1024
 // a per-node generation suffix `_<N>` so back-to-back in-process
 // migrations on the same property don't collide on dir paths.
 //
-// lsmPath is required because the generation is computed per-shard from
-// the shard's local on-disk state. When rehydrate is true (called from
-// [OnGroupCompleted]'s rehydrate path after a process restart lost the
-// in-memory task cache), the generation is the highest existing
-// in-flight one on disk — we want to reconstruct the SAME strategy
-// instance the original processOneUnit constructed. When rehydrate is
-// false (the fresh-task path from processOneUnit), the generation is
-// `max(existing) + 1`.
+// lsmPath is required because the generation is computed per-shard, from the
+// shard's tracker directories and the records that claim one. When rehydrate
+// is true (called from [OnGroupCompleted]'s rehydrate path after a process
+// restart lost the in-memory task cache), the generation is the highest one
+// already claimed — we want to reconstruct the SAME strategy instance the
+// original processOneUnit constructed. When rehydrate is false (the
+// fresh-task path from processOneUnit), it is one past that.
 //
 // See `docs/runtime-reindex.md` for the deferred-finalize + per-migration-
 // generation design rationale.
@@ -665,25 +664,39 @@ func (p *ReindexProvider) buildReindexTasks(payload *ReindexTaskPayload, lsmPath
 			payload.MigrationType, len(payload.Properties), maxReindexPropertiesPerTask)
 	}
 
+	// A generation names directories, and the records are what say which
+	// generations are already claimed. A record this build cannot read claims
+	// one nobody can see, so neither allocating a new generation nor
+	// re-adopting an existing one is safe: the first hands a retry the very
+	// directories the invisible record names, the second attaches this task
+	// to an older migration's. Refused here rather than per strategy, so
+	// every arm below and both allocation modes are covered by one check.
+	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, p.logger)
+	if someRecordsUnreadable || recordSetUnreadable {
+		return nil, fmt.Errorf("migration records at %s could not all be read, "+
+			"so the generations they claim are invisible; refusing to start %s",
+			lsmPath, payload.MigrationType)
+	}
+
 	// genFor returns the generation suffix N to use for this migration on
 	// this shard, given the strategy's dir prefix and its props suffix
 	// (e.g. "_text" or sorted-joined "_p1_p2", or "" for class-level
 	// strategies). The ok return is always true on the normal path
 	// (rehydrate=false). On rehydrate=true, ok=false means there is no
-	// in-flight migration for this strategy on disk — every prior
+	// in-flight migration for this strategy on this shard — every prior
 	// generation's tracker dir was already cleaned up by either
 	// reconciliation (at shard load) or the end-of-swap trim
-	// (in-process). The caller MUST skip task instantiation in that case;
-	// instantiating with a fabricated gen would later try to swap from
-	// reindex bucket dirs that no longer exist.
+	// (in-process), and no record claims one. The caller MUST skip task
+	// instantiation in that case; instantiating with a fabricated gen would
+	// later try to swap from reindex bucket dirs that no longer exist.
 	genFor := func(prefix, propSuffix string) (int, bool) {
 		if rehydrate {
-			if gen := maxMigrationGeneration(lsmPath, prefix, propSuffix); gen > 0 {
+			if gen := highestMigrationGeneration(lsmPath, prefix, propSuffix, records); gen > 0 {
 				return gen, true
 			}
 			return 0, false
 		}
-		return nextMigrationGeneration(lsmPath, prefix, propSuffix, p.logger), true
+		return nextMigrationGeneration(lsmPath, prefix, propSuffix, records), true
 	}
 
 	// On the normal path (rehydrate=false) genFor always returns ok=true.

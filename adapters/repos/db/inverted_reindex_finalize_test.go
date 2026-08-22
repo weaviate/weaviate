@@ -81,7 +81,7 @@ func fakeMigrationsDir(t *testing.T, dirs []string) string {
 
 func TestNextMigrationGeneration_EmptyDisk(t *testing.T) {
 	lsmPath := fakeMigrationsDir(t, nil)
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", testGenerationLogger())
+	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil)
 	require.Equal(t, 1, got, "fresh disk should pick gen 1")
 }
 
@@ -93,7 +93,7 @@ func TestNextMigrationGeneration_NoMatchingPrefix(t *testing.T) {
 		"filterable_retokenize_text_2",
 		"enable_filterable_text_5",
 	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", testGenerationLogger())
+	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil)
 	require.Equal(t, 1, got, "no matching prefix means fresh gen 1")
 }
 
@@ -103,7 +103,7 @@ func TestNextMigrationGeneration_ContiguousGens(t *testing.T) {
 		"searchable_retokenize_text_2",
 		"searchable_retokenize_text_3",
 	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", testGenerationLogger())
+	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil)
 	require.Equal(t, 4, got, "max+1 across contiguous gens")
 }
 
@@ -115,7 +115,7 @@ func TestNextMigrationGeneration_NonContiguousGens(t *testing.T) {
 		"searchable_retokenize_text_5",
 		"searchable_retokenize_text_7",
 	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", testGenerationLogger())
+	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil)
 	require.Equal(t, 8, got, "non-contiguous gens still pick max+1")
 }
 
@@ -125,10 +125,10 @@ func TestNextMigrationGeneration_MixedPrefixesScopedCorrectly(t *testing.T) {
 		"searchable_retokenize_other_7", // different prop in same prefix
 		"filterable_retokenize_text_10", // different prefix, same prop
 	})
-	require.Equal(t, 4, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", testGenerationLogger()))
-	require.Equal(t, 8, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_other", testGenerationLogger()))
-	require.Equal(t, 11, nextMigrationGeneration(lsmPath, MigrationDirPrefixFilterableRetokenize, "_text", testGenerationLogger()))
-	require.Equal(t, 1, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_neverused", testGenerationLogger()))
+	require.Equal(t, 4, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil))
+	require.Equal(t, 8, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_other", nil))
+	require.Equal(t, 11, nextMigrationGeneration(lsmPath, MigrationDirPrefixFilterableRetokenize, "_text", nil))
+	require.Equal(t, 1, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_neverused", nil))
 }
 
 func TestMaxMigrationGeneration_NoExisting(t *testing.T) {
@@ -309,6 +309,16 @@ func testGenerationLogger() logrus.FieldLogger {
 	return logger
 }
 
+// testRecordsAt reads a shard's records the way the allocator's caller does,
+// and refuses a fixture that is accidentally unreadable — an allocation test
+// answering from an empty set would pass for the wrong reason.
+func testRecordsAt(t *testing.T, lsmPath string) []MigrationRecord {
+	t.Helper()
+	records, someUnreadable, setUnreadable := migrationRecordsAt(lsmPath, testGenerationLogger())
+	require.False(t, someUnreadable || setUnreadable, "fixture records must all be readable")
+	return records
+}
+
 // TestNextMigrationGenerationHonorsRecords pins the other half of the claim.
 // The sweeps remove a tracker directory without removing its record, so a
 // generation derived from directories alone is handed out a second time — and
@@ -355,7 +365,8 @@ func TestNextMigrationGenerationHonorsRecords(t *testing.T) {
 			require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(NewMigrationRecordMerged(subject)))
 
 			require.Equal(t, tt.want,
-				nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", logger))
+				nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text",
+					testRecordsAt(t, lsmPath)))
 		})
 	}
 }

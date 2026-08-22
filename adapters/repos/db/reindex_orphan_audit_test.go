@@ -910,10 +910,12 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 			}
 			// The adoption is the conjunction of the two: a surviving
 			// directory only gets opened again if the generation that names
-			// it is handed back. Removing the tracker is what hands it back,
-			// because the counter reads .migrations and nothing else.
+			// it is handed back. Removing the tracker and its record together
+			// is what hands it back, since either one on its own still claims
+			// the generation.
 			assert.Equal(t, tt.wantReissued,
-				nextMigrationGeneration(lsmPath, "enable_filterable_", propName, testGenerationLogger()),
+				nextMigrationGeneration(lsmPath, "enable_filterable_", propName,
+					testRecordsAt(t, lsmPath)),
 				"the generation the next migration on this property claims")
 		})
 	}
