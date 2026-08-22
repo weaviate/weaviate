@@ -249,14 +249,15 @@ func (c *cronsRegistration[T]) tickJob(ctx context.Context, tickGate func() bool
 	return gocron.NewChain(
 		gocron.SkipIfStillRunning(c.gocronLogger),
 	).Then(gocron.FuncJob(func() {
-		// A fire dispatched between the cancel and the swap belongs to the
-		// generation being replaced, and its context is already dead.
+		c.runMu.Lock()
+		defer c.runMu.Unlock()
+
+		// A cancelOnChange job cancels its tick context before the barrier, so
+		// a fire from the replaced generation must not run. The read sits under
+		// runMu so a fire that waited for the lock still sees that cancel.
 		if ctx.Err() != nil {
 			return
 		}
-
-		c.runMu.Lock()
-		defer c.runMu.Unlock()
 
 		if !tickGate() {
 			return

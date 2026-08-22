@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -515,6 +516,44 @@ func TestCronsRegistration_TickSkipsADeadContext(t *testing.T) {
 	c.tickJob(ctx, cron.RunOnEveryNode, func(context.Context) { ticked = true }).Run()
 
 	assert.False(t, ticked, "a fire from the generation being replaced must not run")
+	require.True(t, c.runMu.TryLock(), "the skipped fire must release runMu")
+	c.runMu.Unlock()
+}
+
+// lockProbeCtx cancels itself when a context check reads it while mu is held,
+// and reports the value that cancel leaves. A check made ahead of the lock
+// finds mu free and reads a live context.
+type lockProbeCtx struct {
+	context.Context
+	mu     *sync.Mutex
+	cancel context.CancelFunc
+}
+
+func (c *lockProbeCtx) Err() error {
+	if c.mu.TryLock() {
+		c.mu.Unlock()
+	} else {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
+
+// TestCronsRegistration_TickChecksItsContextUnderRunMu pins where the check
+// sits. The loop cancels the tick context before its barrier, so a check made
+// ahead of runMu misses a cancel that lands while the fire waits for the lock.
+func TestCronsRegistration_TickChecksItsContextUnderRunMu(t *testing.T) {
+	c, _, _, _ := newTestRegistration(t, time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var ticked bool
+
+	// The probe stands in for the loop's cancel, which only a check made under
+	// runMu can see: a fire waiting for the lock reaches its check behind it.
+	tickCtx := &lockProbeCtx{Context: ctx, mu: &c.runMu, cancel: cancel}
+	c.tickJob(tickCtx, cron.RunOnEveryNode, func(context.Context) { ticked = true }).Run()
+
+	assert.False(t, ticked,
+		"a fire whose context died while it waited for runMu must not run")
 }
 
 func TestCronsRegistration_TickGate(t *testing.T) {
