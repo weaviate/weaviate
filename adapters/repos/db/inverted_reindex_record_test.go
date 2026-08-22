@@ -427,6 +427,89 @@ func TestMigrationRecordStore(t *testing.T) {
 			},
 		},
 		{
+			// The directory fault is keyed by the directory's own name, which
+			// no record key can ever render to, so a guard that matches file
+			// names alone is dead on this arm. The fault is cleared before the
+			// write so the write reaches disk and can do the damage.
+			name: "a records directory that could not be read freezes every write, not one file name",
+			arrange: func(t *testing.T, s *MigrationRecordStore) {
+				require.NoError(t, s.Put(merged(42, StrategyCodeEnableFilterable)))
+				require.NoError(t, os.Rename(s.Dir(), s.Dir()+".aside"))
+				require.NoError(t, os.WriteFile(s.Dir(), []byte("not a directory"), 0o600))
+			},
+			wantLoadErr: true,
+			assert: func(t *testing.T, s *MigrationRecordStore) {
+				require.NoError(t, os.Remove(s.Dir()))
+				require.NoError(t, os.Rename(s.Dir()+".aside", s.Dir()))
+
+				before, err := os.ReadFile(filepath.Join(s.Dir(), "42_enable_filterable.json"))
+				require.NoError(t, err)
+
+				require.Error(t, s.Put(NewMigrationRecordIterating(
+					testMigrationSubject(42, StrategyCodeEnableFilterable, "title"), MigrationCheckpoint{})),
+					"a build that cannot tell what is recorded here must not demote a flip record")
+				require.Error(t, s.Remove(MigrationRecordKey{
+					TaskVersion: 42, StrategyCode: StrategyCodeEnableFilterable, UnitID: "shard-1__node-0",
+				}), "the freeze that preserves a record must not be undone by removing it")
+
+				after, err := os.ReadFile(filepath.Join(s.Dir(), "42_enable_filterable.json"))
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+			},
+		},
+		{
+			// A directory that is writable and traversable but not readable is
+			// where the guard earns its keep: the rename inside a write lands
+			// and only the closing directory sync fails, so the write reports
+			// an error with the flip record already replaced.
+			name: "a records directory that cannot be read but can be written keeps its flip record",
+			arrange: func(t *testing.T, s *MigrationRecordStore) {
+				if os.Geteuid() == 0 {
+					t.Skip("root reads a directory whatever its mode says")
+				}
+				require.NoError(t, s.Put(NewMigrationRecordSwapped(
+					testMigrationSubject(42, StrategyCodeEnableFilterable, "title"),
+					[]string{"title"}, map[string]string{"title": "property_title"})))
+				t.Cleanup(func() { require.NoError(t, os.Chmod(s.Dir(), 0o755)) })
+				require.NoError(t, os.Chmod(s.Dir(), 0o300))
+			},
+			wantLoadErr: true,
+			assert: func(t *testing.T, s *MigrationRecordStore) {
+				path := filepath.Join(s.Dir(), "42_enable_filterable.json")
+				before, err := os.ReadFile(path)
+				require.NoError(t, err)
+
+				require.Error(t, s.Put(NewMigrationRecordIterating(
+					testMigrationSubject(42, StrategyCodeEnableFilterable, "title"), MigrationCheckpoint{})))
+
+				after, err := os.ReadFile(path)
+				require.NoError(t, err)
+				require.Equal(t, string(before), string(after))
+			},
+		},
+		{
+			// A file fault is one file, and the shard's other migrations have
+			// to keep making progress under it.
+			name: "a file this build cannot read freezes that key and no other",
+			arrange: func(t *testing.T, s *MigrationRecordStore) {
+				require.NoError(t, os.MkdirAll(s.Dir(), 0o777))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(s.Dir(), "42_enable_filterable.json"), []byte("{torn"), 0o600))
+			},
+			assert: func(t *testing.T, s *MigrationRecordStore) {
+				frozen := MigrationRecordKey{TaskVersion: 42, StrategyCode: StrategyCodeEnableFilterable, UnitID: "shard-1__node-0"}
+				require.Error(t, s.Remove(frozen))
+				require.NoError(t, s.Put(merged(43, StrategyCodeEnableFilterable)))
+				require.NoError(t, s.Remove(MigrationRecordKey{
+					TaskVersion: 43, StrategyCode: StrategyCodeEnableFilterable, UnitID: "shard-1__node-0",
+				}))
+
+				kept, err := os.ReadFile(filepath.Join(s.Dir(), "42_enable_filterable.json"))
+				require.NoError(t, err)
+				require.Equal(t, "{torn", string(kept))
+			},
+		},
+		{
 			name: "records come back in ascending task-version order, then strategy code",
 			arrange: func(t *testing.T, s *MigrationRecordStore) {
 				require.NoError(t, s.Put(merged(43, StrategyCodeEnableFilterable)))

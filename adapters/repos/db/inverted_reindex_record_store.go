@@ -41,12 +41,28 @@ const (
 	MigrationRecordNotUnderstood
 )
 
-// MigrationRecordUnreadable is a file in the records directory that this build
-// could not place. It is kept by file name because the key it would have had
-// is exactly what could not be read.
+// MigrationRecordFaultScope says how much of the store one fault covers. A
+// fault that freezes readers has to freeze writers on the same scope, and the
+// two scopes are keyed differently, so the scope travels with the fault
+// instead of being inferred from its name.
+type MigrationRecordFaultScope uint8
+
+const (
+	// MigrationRecordFaultFile is one file this build could not place. Only
+	// the key that renders to that file name is frozen.
+	MigrationRecordFaultFile MigrationRecordFaultScope = iota
+	// MigrationRecordFaultStore is the records directory itself. Nothing
+	// about any migration could be read, so every key is frozen.
+	MigrationRecordFaultStore
+)
+
+// MigrationRecordUnreadable is something in the records directory that this
+// build could not place. It is kept by file name because the key it would have
+// had is exactly what could not be read.
 type MigrationRecordUnreadable struct {
 	FileName string
 	Reason   string
+	Scope    MigrationRecordFaultScope
 }
 
 // MigrationRecordStore owns one shard's migration records. Disk is durability
@@ -138,6 +154,7 @@ func (s *MigrationRecordStore) Load() error {
 		s.publish(map[MigrationRecordKey]MigrationRecord{}, []MigrationRecordUnreadable{{
 			FileName: migrationRecordsDirName,
 			Reason:   fmt.Sprintf("read migration records dir: %v", err),
+			Scope:    MigrationRecordFaultStore,
 		}})
 		return fmt.Errorf("read migration records dir %q: %w", s.dir, err)
 	}
@@ -200,12 +217,8 @@ func (s *MigrationRecordStore) Put(rec MigrationRecord) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	// The file this would land on may be one this build could not read. That
-	// file is the artifact the freeze exists to preserve, and what would
-	// replace it is a guess about the migration it describes.
-	if reason, blocked := s.unreadableAt(rec.Subject().Key); blocked {
-		return fmt.Errorf("refusing to write migration record %q over a file this build could not read: %s",
-			rec.Subject().Key, reason)
+	if err := s.mayWrite(rec.Subject().Key); err != nil {
+		return err
 	}
 	if err := s.mkdir(); err != nil {
 		return fmt.Errorf("create migration records dir %q: %w", s.dir, err)
@@ -226,6 +239,9 @@ func (s *MigrationRecordStore) Remove(key MigrationRecordKey) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
+	if err := s.mayWrite(key); err != nil {
+		return err
+	}
 	if err := os.Remove(s.path(key)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove migration record %q: %w", key, err)
 	}
@@ -236,18 +252,27 @@ func (s *MigrationRecordStore) Remove(key MigrationRecordKey) error {
 	return nil
 }
 
-// unreadableAt reports whether the file key would be written to is one the
-// last load could not place.
-func (s *MigrationRecordStore) unreadableAt(key MigrationRecordKey) (string, bool) {
+// mayWrite is the one gate every write passes. The artifact a fault covers is
+// exactly what the freeze exists to preserve, and what a write would put in
+// its place is a guess about the migration nobody could read — so both Put and
+// Remove ask here, and both scopes are answered in the same act.
+func (s *MigrationRecordStore) mayWrite(key MigrationRecordKey) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	name := key.fileName()
 	for _, u := range s.unreadable {
-		if u.FileName == name {
-			return u.Reason, true
+		switch u.Scope {
+		case MigrationRecordFaultStore:
+			return fmt.Errorf("refusing to write migration record %q: this build could not read %q, "+
+				"so it cannot tell what is already recorded here: %s", key, u.FileName, u.Reason)
+		case MigrationRecordFaultFile:
+			if u.FileName == name {
+				return fmt.Errorf("refusing to write migration record %q over a file this build could not read: %s",
+					key, u.Reason)
+			}
 		}
 	}
-	return "", false
+	return nil
 }
 
 func (s *MigrationRecordStore) Get(key MigrationRecordKey) (MigrationRecord, bool) {
