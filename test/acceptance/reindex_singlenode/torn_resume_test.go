@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
@@ -342,7 +343,7 @@ func plantTornMigrationAcrossRestart(
 	helper.SetupClient(newRestURI)
 
 	// Diagnostic only: may already be cleaned by shard init.
-	if _, lsReader, lsErr := container.Exec(ctx, []string{"ls", "-la", containerMigDir}); lsErr == nil && lsReader != nil {
+	if _, lsReader, lsErr := container.Exec(ctx, []string{"ls", "-la", containerMigDir}, tcexec.Multiplexed()); lsErr == nil && lsReader != nil {
 		out, _ := io.ReadAll(lsReader)
 		t.Logf("plantTornMigrationAcrossRestart: %s post-restart contents:\n%s", containerMigDir, string(out))
 	}
@@ -359,22 +360,13 @@ func findShardPathInContainer(t *testing.T, container testcontainers.Container, 
 	ctx := context.Background()
 
 	classDir := fmt.Sprintf("/data/%s", strings.ToLower(class))
-	code, reader, err := container.Exec(ctx, []string{"ls", "-1", classDir})
+	code, reader, err := container.Exec(ctx, []string{"ls", "-1", classDir}, tcexec.Multiplexed())
 	require.NoError(t, err)
 	require.Zero(t, code, "ls %s must succeed", classDir)
 
 	out, _ := io.ReadAll(reader)
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// Skip control-character prefixed lines from exec output.
-		if strings.ContainsAny(line[:1], "\x00\x01\x02\x03") {
-			line = strings.TrimLeftFunc(line, func(r rune) bool {
-				return r < 0x20
-			})
-		}
 		if line == "" {
 			continue
 		}

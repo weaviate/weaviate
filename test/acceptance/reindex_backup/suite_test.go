@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/entities/models"
@@ -670,7 +671,7 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 		code, reader, execErr := container.Exec(ctx, []string{
 			"sh", "-c",
 			fmt.Sprintf(`ls -1 %s 2>/dev/null | grep -E '_%s($|_)' | head -10`, migsPath, propName),
-		})
+		}, tcexec.Multiplexed())
 		require.NoError(t, execErr)
 		out := new(strings.Builder)
 		if reader != nil {
@@ -709,7 +710,7 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 	if !removed {
 		_, reader, execErr := container.Exec(ctx, []string{
 			"sh", "-c", fmt.Sprintf("ls -la %s 2>&1", classPath),
-		})
+		}, tcexec.Multiplexed())
 		require.NoError(t, execErr)
 		out := new(strings.Builder)
 		if reader != nil {
@@ -782,7 +783,7 @@ func injectOrphanTrackerOnDisk(t *testing.T, ctx context.Context, container test
 // the test on non-zero exit.
 func execInContainer(t *testing.T, ctx context.Context, c testcontainers.Container, cmd ...string) {
 	t.Helper()
-	code, reader, err := c.Exec(ctx, cmd)
+	code, reader, err := c.Exec(ctx, cmd, tcexec.Multiplexed())
 	require.NoError(t, err, "exec %v", cmd)
 	output := ""
 	if reader != nil {
