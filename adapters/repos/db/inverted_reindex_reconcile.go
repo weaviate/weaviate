@@ -382,8 +382,9 @@ func (r *migrationReconciler) promoteProperty(subject MigrationSubject, prop, st
 		if canonicalThere {
 			return true, nil
 		}
-		// A record must not promote a subject that no longer exists — Restore
-		// can leave empty directories behind mid-migration.
+		// A record must not promote a subject that no longer exists. Restore
+		// materializes a class tree file by file, so a directory that was
+		// empty has nothing to materialize and is gone after it.
 		r.logger.WithField("record", subject.Key.String()).Errorf(
 			"property %q has neither its staged directory %q nor its canonical directory %q; preserving the record and promoting nothing",
 			prop, staged, canonical)
