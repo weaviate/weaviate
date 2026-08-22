@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,12 +59,10 @@ type reconcileFixture struct {
 	buckets       *fakeBucketCloser
 	tasks         []*distributedtask.Task
 	tasksReadable bool
-	// clusterTasks is what the leader answers. Nil means "the same as this
-	// node", which is the ordinary case; clusterTasksErr is the leader being
-	// unreachable.
+	// clusterTasks is what the leader answers. Unset means "the same as this
+	// node", which is the ordinary case.
 	clusterTasks    []*distributedtask.Task
 	clusterTasksSet bool
-	clusterTasksErr error
 	class           *models.Class
 	logger          *logrus.Logger
 	// logs is what the reconciler wrote, for the arms whose whole outcome is
@@ -73,16 +70,12 @@ type reconcileFixture struct {
 	logs *test.Hook
 }
 
-// leaderTasks is the source reconciliation confirms a destructive answer
-// against.
-func (f *reconcileFixture) leaderTasks(context.Context) ([]*distributedtask.Task, error) {
-	if f.clusterTasksErr != nil {
-		return nil, f.clusterTasksErr
-	}
+// leaderTasks is the list the off-load pass is handed.
+func (f *reconcileFixture) leaderTasks() []*distributedtask.Task {
 	if f.clusterTasksSet {
-		return f.clusterTasks, nil
+		return f.clusterTasks
 	}
-	return f.tasks, nil
+	return f.tasks
 }
 
 func newReconcileFixture(t *testing.T) *reconcileFixture {
@@ -120,27 +113,25 @@ func (f *reconcileFixture) warned(want string) bool {
 
 func (f *reconcileFixture) reconcile() {
 	f.t.Helper()
-	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, migrationReconcileDeps{
-		LocalTasks:   func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
-		ClusterTasks: f.leaderTasks,
-		Class:        func() *models.Class { return f.class },
-		Mirror:       f.mirror,
-		Buckets:      f.buckets,
-	})
+	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
 	require.NoError(f.t, r.Reconcile(context.Background()))
 }
 
-// reconcileAfterTaskMap is the second pass: the one this node runs once its
-// applied task map becomes readable, on shards that are already loaded.
-func (f *reconcileFixture) reconcileAfterTaskMap() {
+func (f *reconcileFixture) deps() migrationReconcileDeps {
+	return migrationReconcileDeps{
+		LocalTasks: func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
+		Class:      func() *models.Class { return f.class },
+		Mirror:     f.mirror,
+		Buckets:    f.buckets,
+	}
+}
+
+// reconcileWithClusterTasks is the off-load pass: the one that runs with the
+// leader's own task list, on shards that are already loaded.
+func (f *reconcileFixture) reconcileWithClusterTasks() {
 	f.t.Helper()
-	newMigrationReconciler(f.store, f.lsmPath, f.logger, migrationReconcileDeps{
-		LocalTasks:   func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
-		ClusterTasks: f.leaderTasks,
-		Class:        func() *models.Class { return f.class },
-		Mirror:       f.mirror,
-		Buckets:      f.buckets,
-	}).ReconcileAfterTaskMap(context.Background())
+	newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
+		ReconcileWithClusterTasks(context.Background(), f.leaderTasks())
 }
 
 func (f *reconcileFixture) mkdirs(names ...string) {
@@ -245,9 +236,11 @@ func testClassWithTokenization(tokenization string, props ...string) *models.Cla
 	return class
 }
 
-// TestReconcileMergedDisposition covers the machine's one external-fact edge:
-// the staged data is complete, and only the cluster can say whether it should
-// become live.
+// TestReconcileMergedDisposition covers the machine's one external-fact edge
+// as a shard load sees it: the staged data is complete, and only the cluster
+// can say whether it should become live. A load answers from what this node
+// can see — a task in its own applied map, or the effect in its own schema —
+// and never from a round-trip, because a load must not wait on one.
 func TestReconcileMergedDisposition(t *testing.T) {
 	const taskID = "Books:change-tokenization:title:ab12"
 
@@ -256,16 +249,11 @@ func TestReconcileMergedDisposition(t *testing.T) {
 		task            *distributedtask.Task
 		tasksUnreadable bool
 		noStagedDir     bool
-		// leaderTask is what the leader answers when it differs from this
-		// node; leaderUnreachable is the confirmation failing outright.
-		leaderTask        *distributedtask.Task
-		leaderSet         bool
-		leaderUnreachable bool
-		class             *models.Class
-		wantState         MigrationState
-		wantRecord        bool
-		wantStagedGone    bool
-		wantCanonical     string
+		class           *models.Class
+		wantState       MigrationState
+		wantRecord      bool
+		wantStagedGone  bool
+		wantCanonical   string
 	}{
 		{
 			name:          "task still running: record and directories survive the load untouched",
@@ -325,12 +313,12 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			wantCanonical: "property_title",
 		},
 		{
-			name:           "same task ID at a different version is a different run and says nothing",
-			task:           testTask(taskID, 43, distributedtask.TaskStatusFinished),
-			class:          testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			wantRecord:     false,
-			wantStagedGone: true,
-			wantCanonical:  "property_title",
+			name:          "same task ID at a different version is a different run and says nothing",
+			task:          testTask(taskID, 43, distributedtask.TaskStatusFinished),
+			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantState:     MigrationStateMerged,
+			wantRecord:    true,
+			wantCanonical: "property_title",
 		},
 		{
 			name:           "task gone and the schema shows the effect: commit",
@@ -341,11 +329,15 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			wantCanonical:  "m_42_title",
 		},
 		{
-			name:           "task gone and the schema does not show the effect: discard",
-			class:          testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			wantRecord:     false,
-			wantStagedGone: true,
-			wantCanonical:  "property_title",
+			// Two absences at once, which is the one reading a node still
+			// applying its log cannot trust: a task it has not added yet
+			// looks exactly like one that is gone. Settled off the load path,
+			// against the leader's list.
+			name:          "neither the task nor its effect is visible here: leave it to the pass that asks the leader",
+			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantState:     MigrationStateMerged,
+			wantRecord:    true,
+			wantCanonical: "property_title",
 		},
 		{
 			name:            "the task map is not readable yet, so an absent task proves nothing",
@@ -375,37 +367,6 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			wantRecord:    true,
 			wantCanonical: "property_title",
 		},
-		{
-			// The window this node cannot see on its own: it has applied a
-			// tail in which the task is gone, while the leader still carries
-			// it. Its own answer would delete a migration the cluster owns.
-			name:          "this node reads the task as gone while the leader still has it running",
-			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			leaderTask:    testTask(taskID, 42, distributedtask.TaskStatusStarted),
-			leaderSet:     true,
-			wantState:     MigrationStateMerged,
-			wantRecord:    true,
-			wantCanonical: "property_title",
-		},
-		{
-			name:          "this node reads the task as finished while the leader reports it cancelled",
-			task:          testTask(taskID, 42, distributedtask.TaskStatusFinished),
-			class:         testClassWithTokenization(models.PropertyTokenizationLowercase, "title"),
-			leaderTask:    testTask(taskID, 42, distributedtask.TaskStatusCancelled),
-			leaderSet:     true,
-			wantState:     MigrationStateMerged,
-			wantRecord:    true,
-			wantCanonical: "property_title",
-		},
-		{
-			name:              "the leader cannot be reached, so nothing is acted on",
-			task:              testTask(taskID, 42, distributedtask.TaskStatusCancelled),
-			class:             testClassWithTokenization(models.PropertyTokenizationWord, "title"),
-			leaderUnreachable: true,
-			wantState:         MigrationStateMerged,
-			wantRecord:        true,
-			wantCanonical:     "property_title",
-		},
 	}
 
 	for _, tt := range tests {
@@ -416,16 +377,6 @@ func TestReconcileMergedDisposition(t *testing.T) {
 			if tt.task != nil {
 				f.tasks = []*distributedtask.Task{tt.task}
 			}
-			if tt.leaderSet {
-				f.clusterTasksSet = true
-				if tt.leaderTask != nil {
-					f.clusterTasks = []*distributedtask.Task{tt.leaderTask}
-				}
-			}
-			if tt.leaderUnreachable {
-				f.clusterTasksErr = errors.New("leader unreachable")
-			}
-
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
 			subject.TaskID = taskID
 			if tt.noStagedDir {
@@ -939,19 +890,26 @@ func TestReconcileCommitEdgeWritesItsVerdictFirst(t *testing.T) {
 	require.Equal(t, MigrationStateSwapped, state)
 }
 
-// TestReconcileCommitEdgeFiresOnceTheTaskMapArrives pins the boot ordering.
-// The task map is installed after the cluster service exists, so shards loaded
-// during RAFT catch-up read it as unavailable and leave every merged record
-// alone. A shard that is not multi-tenant is never loaded again in this
-// process, so without a second pass the record stays at Merged and the
-// property serves pre-migration data until a restart that repeats the same
-// ordering.
-func TestReconcileCommitEdgeFiresOnceTheTaskMapArrives(t *testing.T) {
+// TestReconcileWithClusterTasksSettlesWhatTheLoadWithheld pins the off-load
+// pass. A shard loaded during RAFT catch-up reads its own task map as
+// unavailable and leaves every merged record alone, and a shard that is not
+// multi-tenant is never loaded again in this process — so without this pass
+// the record stays at Merged and the property serves pre-migration data until
+// a restart that repeats the same ordering.
+//
+// It is also the only place a task that is absent everywhere licenses a
+// discard, because the leader's list is the only one whose silence proves the
+// task is gone rather than not yet applied here.
+func TestReconcileWithClusterTasksSettlesWhatTheLoadWithheld(t *testing.T) {
 	const taskID = "Books:change-tokenization:title:ab12"
 
 	tests := []struct {
-		name       string
-		task       *distributedtask.Task
+		name string
+		task *distributedtask.Task
+		// leaderTask, when leaderSet, is what the leader answers instead of
+		// this node's own list.
+		leaderTask *distributedtask.Task
+		leaderSet  bool
 		class      *models.Class
 		unreadable bool
 		wantState  MigrationState
@@ -976,12 +934,35 @@ func TestReconcileCommitEdgeFiresOnceTheTaskMapArrives(t *testing.T) {
 		{
 			// Left to the next load the discard would never run at all: the
 			// sweeps preserve a committed record's directories, so nothing
-			// else reclaims the staged copy of an abandoned migration. What
-			// makes acting here safe is startup ordering — no unit has been
-			// resumed yet — which no fixture at this level can observe.
+			// else reclaims the staged copy of an abandoned migration. Acting
+			// here touches a pre-flip record only, whose canonical bucket is
+			// still primary, so this removes a staged copy and nothing else.
 			name:  "the task was cancelled: the staged copy goes",
 			task:  testTask(taskID, 42, distributedtask.TaskStatusCancelled),
 			class: testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+		},
+		{
+			// The reading the load path refuses to make on its own, made here
+			// against the one list entitled to make it.
+			name:  "the leader has no such task and the schema does not show its effect: discard",
+			class: testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+		},
+		{
+			// This node applied a tail in which the task is gone while the
+			// leader still carries it. Its own reading would have deleted a
+			// migration the cluster owns.
+			name:       "this node reads the task as gone while the leader still has it running",
+			leaderTask: testTask(taskID, 42, distributedtask.TaskStatusStarted),
+			leaderSet:  true,
+			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantState:  MigrationStateMerged,
+		},
+		{
+			name:       "this node reads the task as finished while the leader reports it cancelled",
+			task:       testTask(taskID, 42, distributedtask.TaskStatusFinished),
+			leaderTask: testTask(taskID, 42, distributedtask.TaskStatusCancelled),
+			leaderSet:  true,
+			class:      testClassWithTokenization(models.PropertyTokenizationLowercase, "title"),
 		},
 		{
 			name:       "a record this build cannot place withholds the second pass too",
@@ -1017,7 +998,13 @@ func TestReconcileCommitEdgeFiresOnceTheTaskMapArrives(t *testing.T) {
 			if tt.task != nil {
 				f.tasks = []*distributedtask.Task{tt.task}
 			}
-			f.reconcileAfterTaskMap()
+			if tt.leaderSet {
+				f.clusterTasksSet = true
+				if tt.leaderTask != nil {
+					f.clusterTasks = []*distributedtask.Task{tt.leaderTask}
+				}
+			}
+			f.reconcileWithClusterTasks()
 
 			state, present := f.state(subject.Key)
 			require.Equal(t, tt.wantState != "", present)

@@ -326,7 +326,7 @@ func TestShutdownFailureHoldsBackRemoval(t *testing.T) {
 				f.put(NewMigrationRecordMerged(subject))
 				f.tasks = []*distributedtask.Task{testTask(taskID, 42, distributedtask.TaskStatusCancelled)}
 			},
-			drive: (*reconcileFixture).reconcileAfterTaskMap,
+			drive: (*reconcileFixture).reconcileWithClusterTasks,
 			key:   key(42),
 			dir:   "m_42_title",
 		},

@@ -1022,22 +1022,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 
 		// Migration reconciliation runs at shard load and reads this node's
-		// own applied task map. ListDistributedTasks would need a leader
-		// round-trip, which a shard load must never wait on, and the map
-		// cannot be installed at DB construction because the cluster service
-		// does not exist yet. Shards loaded before this point therefore read
-		// the map as unavailable and decide nothing that depends on it, which
-		// is why the setter re-runs that decision on them.
+		// own applied task map, never the leader's: a shard load must not wait
+		// on a round-trip. The map cannot be installed at DB construction
+		// because the cluster service does not exist yet, so shards loaded
+		// before this point decide nothing that depends on it, which is why
+		// installing the sources also starts the pass that revisits them.
 		//
-		// Ahead of Scheduler.Start, which resumes local units synchronously:
-		// that re-run can discard an abandoned migration's directories, and
-		// only before the first unit is resumed is it certain no iterator is
-		// writing through them. The map is complete here for the same reason
-		// the scheduler trusts it to choose what to resume — waitForMetaStore
-		// above. The 60-second DTM-readiness loop below waits on a leader
-		// round-trip that LocalDistributedTasks never makes.
+		// Ahead of Scheduler.Start, which resumes local units synchronously,
+		// so the pass's first run precedes the first resumed iterator. The map
+		// is complete here for the same reason the scheduler trusts it to
+		// choose what to resume — waitForMetaStore above.
 		raft := appState.ClusterService.Raft
-		repo.SetMigrationLocalTaskSource(serverShutdownCtx,
+		repo.SetMigrationTaskSources(serverShutdownCtx,
 			newMigrationLocalTaskSource(raft), newMigrationClusterTaskSource(raft))
 
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {

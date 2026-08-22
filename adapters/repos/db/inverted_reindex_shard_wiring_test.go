@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,28 +26,42 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// installTestMigrationTaskSources installs the pair reconciliation consults,
-// both answering from the same list: the ordinary case where this node has
-// caught up with the leader.
-func installTestMigrationTaskSources(ctx context.Context, database *DB, tasks ...*distributedtask.Task) {
-	database.SetMigrationLocalTaskSource(ctx,
+// installTestMigrationTaskSources installs the pair reconciliation reads, both
+// answering from the same list: the ordinary case where this node has caught
+// up with the leader. A non-nil leaderErr makes the leader unreachable
+// instead.
+func installTestMigrationTaskSources(ctx context.Context, database *DB, leaderErr error,
+	tasks ...*distributedtask.Task,
+) {
+	database.SetMigrationTaskSources(ctx,
 		func() ([]*distributedtask.Task, bool) { return tasks, true },
-		func(context.Context) ([]*distributedtask.Task, error) { return tasks, nil })
+		func(context.Context) ([]*distributedtask.Task, error) {
+			if leaderErr != nil {
+				return nil, leaderErr
+			}
+			return tasks, nil
+		})
 }
 
-// TestReconcileAfterTaskMapSkipsAShardShuttingDown pins the guard the walk was
-// missing. It holds a shard pointer across a pass that removes directories,
-// and a tenant deactivation, a tenant delete or a collection delete can take
-// that shard down underneath it. The teardown then fails a memtable flush into
-// a directory this pass removed, and the failure latches on the shard: every
+// TestReconcileWithClusterWithholdsWhereItCannotAct covers the two things the
+// off-load walk refuses to decide.
+//
+// It holds a shard pointer across a pass that removes directories, and a
+// tenant deactivation, a tenant delete or a collection delete can take that
+// shard down underneath it. The teardown then fails a memtable flush into a
+// directory this pass removed, and the failure latches on the shard: every
 // later activation of that tenant returns the teardown error rather than
 // serving it.
-func TestReconcileAfterTaskMapSkipsAShardShuttingDown(t *testing.T) {
+//
+// And the whole pass rests on the leader's list, so a leader it could not
+// reach leaves every record where it was — the next pass asks again.
+func TestReconcileWithClusterWithholdsWhereItCannotAct(t *testing.T) {
 	const propName = "title"
 
 	tests := []struct {
 		name         string
 		shuttingDown bool
+		leaderErr    error
 		wantSurvives bool
 	}{
 		{
@@ -55,6 +70,11 @@ func TestReconcileAfterTaskMapSkipsAShardShuttingDown(t *testing.T) {
 		{
 			name:         "a shard on its way out is left to its next activation",
 			shuttingDown: true,
+			wantSurvives: true,
+		},
+		{
+			name:         "an unreachable leader decides nothing at all",
+			leaderErr:    errors.New("leader unreachable"),
 			wantSurvives: true,
 		},
 	}
@@ -86,7 +106,7 @@ func TestReconcileAfterTaskMapSkipsAShardShuttingDown(t *testing.T) {
 			require.NotNil(t, idx.db, "the test shard fixture has to wire idx.db")
 			idx.db.indices[indexID(idx.Config.ClassName)] = idx
 
-			installTestMigrationTaskSources(ctx, idx.db, &distributedtask.Task{
+			installTestMigrationTaskSources(ctx, idx.db, tt.leaderErr, &distributedtask.Task{
 				Namespace: ReindexNamespace,
 				TaskDescriptor: distributedtask.TaskDescriptor{
 					ID: subject.TaskID, Version: subject.Key.TaskVersion,

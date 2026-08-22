@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -47,19 +46,16 @@ type migrationStagedBucketCloser interface {
 // shard load.
 type migrationReconcileDeps struct {
 	// LocalTasks is this node's own applied view of the reindex namespace, not
-	// the leader's. Reading it needs no round-trip and cannot block a load.
+	// the leader's. It is the only task list reconciliation can obtain by
+	// itself: the leader's list arrives as an argument to
+	// [migrationReconciler.ReconcileWithClusterTasks], so nothing on the load
+	// path can reach for it and block a shard load on a round-trip.
 	//
 	// The second result reports whether the map could be read at all. It
 	// matters because an unreadable map and an empty one are opposite facts:
 	// an absent task is terminal and licenses a discard, so a source that is
 	// merely not installed yet would read as "every task is gone".
 	LocalTasks func() ([]*distributedtask.Task, bool)
-
-	// ClusterTasks reads the reindex namespace from the leader, so it costs a
-	// round-trip and can fail. It is consulted only where an answer is about
-	// to be acted on destructively, never on the load path's ordinary
-	// decisions.
-	ClusterTasks func(context.Context) ([]*distributedtask.Task, error)
 
 	// Class is the locally applied schema for the migrated collection, or nil
 	// when the collection is not in it.
@@ -171,7 +167,7 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 		return err
 	}
 
-	verdict, why := r.confirmedVerdict(ctx, subject)
+	verdict, why := r.localVerdict(subject)
 	if verdict == migrationVerdictDiscard {
 		return r.discard(ctx, all, subject, why)
 	}
@@ -242,7 +238,7 @@ func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec Migration
 		return nil
 	}
 	subject := rec.Subject()
-	verdict, why := r.confirmedVerdict(ctx, subject)
+	verdict, why := r.localVerdict(subject)
 
 	switch verdict {
 	case migrationVerdictLeave:
@@ -299,19 +295,23 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject, why string)
 	return swapped, nil
 }
 
-// ReconcileAfterTaskMap re-runs the dispositions that are a cluster fact. A
-// shard loaded while this node was still catching up on RAFT read the task map
-// as unavailable and decided nothing that depends on it. A shard that is not
-// multi-tenant is never loaded again in this process, and the next restart
-// repeats the same ordering — so without a second pass a migration the cluster
-// finished serves pre-migration data forever, and one the cluster abandoned
-// keeps its staged copy forever.
+// ReconcileWithClusterTasks settles the dispositions the load path withheld
+// because this node could see neither the owning task nor its effect. The
+// leader's list is the one list whose silence about a task proves the task is
+// gone; every other arm of the machine is decided at load, from disk and from
+// what this node has applied.
+//
+// It takes the list rather than fetching one. Reconciliation is otherwise a
+// shard-load pass, and a load must never wait on a round-trip: passing the
+// answer in is what keeps the round-trip in the caller, where it is paid once
+// for a whole walk instead of once per record.
 //
 // The two arms differ in when they act. The commit arm only records the
 // decision: promotion renames a directory whose buckets are open by now, so it
-// waits for the next load. The discard arm acts immediately, which is safe
-// only because this pass is installed before the scheduler resumes any local
-// unit — see the discard branch below.
+// waits for the next load. The discard arm acts immediately, and touches only
+// records whose pointers have not flipped — the canonical bucket is still
+// primary for those, so every acknowledged write is already in it and this
+// removes a staged copy alone.
 //
 // Only the verdict decides here. The reverse edge is deliberately left to a
 // load: it restarts the rebuild from scratch, and a live task iterating right
@@ -320,7 +320,7 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject, why string)
 // It reads the records the shard already holds rather than re-reading disk:
 // the engine writes through the same store, and a reload here would drop what
 // it published since the load.
-func (r *migrationReconciler) ReconcileAfterTaskMap(ctx context.Context) {
+func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tasks []*distributedtask.Task) {
 	if len(r.store.Unreadable()) > 0 {
 		return
 	}
@@ -330,14 +330,9 @@ func (r *migrationReconciler) ReconcileAfterTaskMap(ctx context.Context) {
 			continue
 		}
 		subject := rec.Subject()
-		verdict, why := r.confirmedVerdict(ctx, subject)
+		verdict, why := r.clusterVerdict(subject, tasks)
 		switch {
 		case verdict == migrationVerdictDiscard:
-			// This removes directories a unit would be writing through a raw
-			// bucket pointer, and a task's cluster status goes terminal
-			// independently of when the local unit exits. What makes it safe
-			// is that the task source is installed before Scheduler.Start, so
-			// no unit has been resumed in this process yet.
 			if err := r.discard(ctx, records, subject, why); err != nil {
 				r.logger.WithField("record", subject.Key.String()).Errorf(
 					"discard a migration once the task map became readable: %v", err)
@@ -542,46 +537,20 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(all []MigrationRecord
 	return nil
 }
 
-// migrationVerdictConfirmTimeout bounds the leader round-trip a destructive
-// verdict pays for. Reconciliation runs on the shard-load path, and withholding
-// is always safe, so a slow leader must cost a bounded wait and then a Leave.
-const migrationVerdictConfirmTimeout = 5 * time.Second
-
-// confirmedVerdict is the only way to obtain a verdict, because every arm that
-// acts on one either deletes staged data or commits a flip irreversibly.
+// localVerdict is the answer this node can reach on its own, and the only one
+// the load path is allowed to act on.
 //
-// The local answer comes from this node's own applied task map, which can
-// trail the leader — and a task that has not been applied yet reads as absent,
-// which is exactly what licenses the discard. So an answer that would act is
-// put to the leader, and anything short of agreement — no source, an error, a
-// deadline, a different answer — becomes Leave.
-func (r *migrationReconciler) confirmedVerdict(ctx context.Context, subject MigrationSubject) (migrationVerdict, string) {
-	verdict, why := r.verdict(subject)
-	if verdict == migrationVerdictLeave {
-		return verdict, why
-	}
-
-	if r.deps.ClusterTasks == nil {
-		return migrationVerdictLeave, fmt.Sprintf(
-			"this node says %q and nothing can confirm it with the cluster", why)
-	}
-	ctx, cancel := context.WithTimeout(ctx, migrationVerdictConfirmTimeout)
-	defer cancel()
-	tasks, err := r.deps.ClusterTasks(ctx)
-	if err != nil {
-		return migrationVerdictLeave, fmt.Sprintf("this node says %q and the cluster could not confirm it: %v", why, err)
-	}
-
-	confirmed, confirmedWhy := r.verdictFrom(subject, tasks)
-	if confirmed != verdict {
-		return migrationVerdictLeave, fmt.Sprintf("this node says %q while the cluster says %q", why, confirmedWhy)
-	}
-	return verdict, why
-}
-
-// verdict is the local answer. It is never acted on directly — see
-// confirmedVerdict.
-func (r *migrationReconciler) verdict(subject MigrationSubject) (migrationVerdict, string) {
+// It is final wherever it rests on something this node can see: a task in its
+// own applied map, or the migration's effect in its own applied schema. Both
+// are positive evidence, and neither can be undone — a terminal task status
+// stays terminal, and the effect is the migration's own committed result.
+//
+// Where it would rest on two absences at once — no task and no effect — it
+// withholds. A node that has not applied a task yet cannot tell it from one
+// that is gone, and "gone" is what would license deleting the staged data.
+// [migrationReconciler.ReconcileWithClusterTasks] settles those against the
+// leader's list, where an absent task really is absent.
+func (r *migrationReconciler) localVerdict(subject MigrationSubject) (migrationVerdict, string) {
 	if r.deps.LocalTasks == nil {
 		return migrationVerdictLeave, "this node's task map cannot be read yet"
 	}
@@ -589,12 +558,22 @@ func (r *migrationReconciler) verdict(subject MigrationSubject) (migrationVerdic
 	if !readable {
 		return migrationVerdictLeave, "this node's task map cannot be read yet"
 	}
-	return r.verdictFrom(subject, tasks)
+	return r.verdictFrom(subject, tasks, false)
+}
+
+// clusterVerdict reads the leader's list, which is the one list whose silence
+// about a task means the task is gone rather than not yet applied.
+func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []*distributedtask.Task) (migrationVerdict, string) {
+	return r.verdictFrom(subject, tasks, true)
 }
 
 // verdictFrom consults the two external facts, in the order that makes the
-// second unnecessary whenever the first is conclusive.
-func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*distributedtask.Task) (migrationVerdict, string) {
+// second unnecessary whenever the first is conclusive. absentTaskIsGone says
+// whether this list is entitled to conclude anything from a task it does not
+// hold.
+func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*distributedtask.Task,
+	absentTaskIsGone bool,
+) (migrationVerdict, string) {
 	if task := findMigrationTask(subject, tasks); task != nil {
 		switch task.Status {
 		case distributedtask.TaskStatusFinished:
@@ -608,7 +587,7 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*dis
 		}
 	}
 
-	// A task absent from the applied task map is terminal: tasks are added
+	// A task absent from a complete task map is terminal: tasks are added
 	// before any unit runs and only cleanup removes them, and cleanup runs
 	// only on terminal tasks. So the migration's own schema effect decides.
 	class := r.deps.Class()
@@ -616,7 +595,13 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*dis
 		return migrationVerdictLeave, "collection is not in the locally applied schema"
 	}
 	if migrationEffectSatisfied(class, subject) {
+		// Committing needs no complete list: the effect is applied after the
+		// task finishes, so a node that can see the effect has applied the
+		// task's own creation too.
 		return migrationVerdictCommit, "owning task is gone and the schema shows its effect"
+	}
+	if !absentTaskIsGone {
+		return migrationVerdictLeave, "this node can see neither the owning task nor its effect, which a node still applying its log cannot tell from a task that is gone"
 	}
 	return migrationVerdictDiscard, "owning task is gone and the schema does not show its effect"
 }

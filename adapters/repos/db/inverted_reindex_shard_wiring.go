@@ -14,32 +14,44 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 // MigrationLocalTaskSource reads this node's own applied view of the reindex
 // task namespace — not the leader's, so it needs no round-trip and cannot
 // block a shard load. The second result reports whether the map could be read
-// at all, which reconciliation needs because an absent task is terminal and an
-// unreadable map must not be mistaken for one.
+// at all, which reconciliation needs because a map that is merely not
+// installed yet would otherwise read as a map in which every task is gone.
 type MigrationLocalTaskSource func() ([]*distributedtask.Task, bool)
 
 // MigrationClusterTaskSource reads the reindex task namespace from the leader.
-// It costs a round-trip and can fail, so reconciliation consults it only where
-// a local answer is about to be acted on destructively.
+// It costs a round-trip and can fail, so it is read once per pass of
+// [DB.reconcileLoadedMigrationsWithCluster] and never from a shard load.
 type MigrationClusterTaskSource func(context.Context) ([]*distributedtask.Task, error)
 
-// SetMigrationLocalTaskSource installs the source reconciliation consults and
-// immediately re-runs the edge that needs it on every shard already loaded.
-// The two are one act: the source arrives post-bootstrap, because the cluster
-// service does not exist when the DB is built, and every shard loaded during
-// RAFT catch-up reconciled with the map unavailable.
-// The cluster source is installed in the same act, because reconciliation
-// refuses to act destructively without it — the local map is what can be
-// stale, and the confirmation is what makes acting on it safe.
-func (db *DB) SetMigrationLocalTaskSource(ctx context.Context, source MigrationLocalTaskSource,
+// migrationClusterQueryTimeout bounds the one leader round-trip a pass makes.
+// Withholding is always safe, so a slow leader must cost a bounded wait and
+// then nothing at all.
+const migrationClusterQueryTimeout = 5 * time.Second
+
+// migrationClusterReconcileInterval is how often the pass repeats. It has to
+// repeat rather than run once: a tenant activated later reconciles at its own
+// load, where the leader is deliberately not consulted, so its records sit
+// undecided until a pass comes back for them.
+const migrationClusterReconcileInterval = time.Minute
+
+// SetMigrationTaskSources installs the two task sources reconciliation reads
+// and starts the pass that needs the leader's one. The sources arrive
+// post-bootstrap, because the cluster service does not exist when the DB is
+// built, and every shard loaded during RAFT catch-up reconciled without them.
+//
+// The first pass runs before this returns, which is what keeps it ahead of the
+// scheduler resuming local units; the repeat runs until ctx ends.
+func (db *DB) SetMigrationTaskSources(ctx context.Context, source MigrationLocalTaskSource,
 	cluster MigrationClusterTaskSource,
 ) {
 	db.reindexAuditMu.Lock()
@@ -47,13 +59,44 @@ func (db *DB) SetMigrationLocalTaskSource(ctx context.Context, source MigrationL
 	db.migrationClusterTaskSource = cluster
 	db.reindexAuditMu.Unlock()
 
-	db.reconcileLoadedMigrationsAfterTaskMap(ctx)
+	db.reconcileLoadedMigrationsWithCluster(ctx)
+	enterrors.GoWrapper(func() { db.reconcileMigrationsWithClusterPeriodically(ctx) }, db.logger)
 }
 
-// reconcileLoadedMigrationsAfterTaskMap walks the shards that are already
-// loaded. An unloaded one needs nothing: its own load runs the full pass with
-// the map readable.
-func (db *DB) reconcileLoadedMigrationsAfterTaskMap(ctx context.Context) {
+// reconcileMigrationsWithClusterPeriodically re-runs the pass for as long as
+// the node lives. A pass that could not reach the leader, and a shard that was
+// not loaded when the last one ran, are both corrected by the next one.
+func (db *DB) reconcileMigrationsWithClusterPeriodically(ctx context.Context) {
+	ticker := time.NewTicker(migrationClusterReconcileInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-db.shutdown:
+			return
+		case <-ticker.C:
+			db.reconcileLoadedMigrationsWithCluster(ctx)
+		}
+	}
+}
+
+// reconcileLoadedMigrationsWithCluster walks the shards that are already
+// loaded. An unloaded one needs nothing until it loads, and its load decides
+// everything a local answer can decide.
+//
+// The leader is asked once, before any lock is taken: the walk holds each
+// index's drop lock, which a collection delete arriving as a RAFT command
+// waits on, so a round-trip inside it would stall the apply loop for as long
+// as the leader is slow.
+func (db *DB) reconcileLoadedMigrationsWithCluster(ctx context.Context) {
+	tasks, err := db.migrationClusterTasksBounded(ctx)
+	if err != nil {
+		db.logger.WithField("action", "reindex_migration_reconcile").Warnf(
+			"the leader's reindex task list is unreachable; deciding nothing this pass: %v", err)
+		return
+	}
+
 	db.indexLock.RLock()
 	indices := make([]*Index, 0, len(db.indices))
 	for _, idx := range db.indices {
@@ -90,7 +133,7 @@ func (db *DB) reconcileLoadedMigrationsAfterTaskMap(ctx context.Context) {
 				}
 				defer release()
 
-				concrete.reconcileMigrationRecordsAfterTaskMap(ctx)
+				concrete.reconcileMigrationRecordsWithCluster(ctx, tasks)
 				return nil
 			})
 		}()
@@ -108,7 +151,7 @@ func (db *DB) migrationLocalTasks() ([]*distributedtask.Task, bool) {
 	return source()
 }
 
-func (db *DB) migrationClusterTasks(ctx context.Context) ([]*distributedtask.Task, error) {
+func (db *DB) migrationClusterTasksBounded(ctx context.Context) ([]*distributedtask.Task, error) {
 	db.reindexAuditMu.RLock()
 	source := db.migrationClusterTaskSource
 	db.reindexAuditMu.RUnlock()
@@ -116,6 +159,8 @@ func (db *DB) migrationClusterTasks(ctx context.Context) ([]*distributedtask.Tas
 	if source == nil {
 		return nil, fmt.Errorf("no cluster-wide reindex task source is installed on this node")
 	}
+	ctx, cancel := context.WithTimeout(ctx, migrationClusterQueryTimeout)
+	defer cancel()
 	return source(ctx)
 }
 
@@ -163,13 +208,13 @@ func (s *Shard) warnAboutLegacyMarkerMigrations() {
 	}
 }
 
-// reconcileMigrationRecordsAfterTaskMap is the second pass, run once this
-// node's applied task map becomes readable.
-func (s *Shard) reconcileMigrationRecordsAfterTaskMap(ctx context.Context) {
+// reconcileMigrationRecordsWithCluster is the off-load pass, run with a task
+// list the caller obtained from the leader.
+func (s *Shard) reconcileMigrationRecordsWithCluster(ctx context.Context, tasks []*distributedtask.Task) {
 	if s.migrationRecords == nil {
 		return
 	}
-	s.liveMigrationReconciler().ReconcileAfterTaskMap(ctx)
+	s.liveMigrationReconciler().ReconcileWithClusterTasks(ctx, tasks)
 }
 
 // retireSupersededMigrations runs the supersession relation in the process
@@ -195,11 +240,10 @@ func (s *Shard) liveMigrationReconciler() *migrationReconciler {
 func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconciler {
 	return newMigrationReconciler(s.migrationRecords, s.pathLSM(), s.index.logger,
 		migrationReconcileDeps{
-			LocalTasks:   s.migrationLocalTasks,
-			ClusterTasks: s.migrationClusterTasks,
-			Class:        class,
-			Mirror:       s,
-			Buckets:      s,
+			LocalTasks: s.migrationLocalTasks,
+			Class:      class,
+			Mirror:     s,
+			Buckets:    s,
 		})
 }
 
@@ -213,13 +257,6 @@ func (s *Shard) migrationLocalTasks() ([]*distributedtask.Task, bool) {
 		return nil, false
 	}
 	return s.index.db.migrationLocalTasks()
-}
-
-func (s *Shard) migrationClusterTasks(ctx context.Context) ([]*distributedtask.Task, error) {
-	if s.index == nil || s.index.db == nil {
-		return nil, fmt.Errorf("shard %q has no database handle to reach the leader through", s.Name())
-	}
-	return s.index.db.migrationClusterTasks(ctx)
 }
 
 // ShutdownStagedBuckets closes a record's open buckets for one property so

@@ -279,7 +279,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			// against the pre-migration bucket instead.
 			subject := rec.Subject()
 			require.NotNil(t, idx.db, "test shard fixture must wire idx.db")
-			installTestMigrationTaskSources(ctx, idx.db, &distributedtask.Task{
+			installTestMigrationTaskSources(ctx, idx.db, nil, &distributedtask.Task{
 				Namespace: ReindexNamespace,
 				TaskDescriptor: distributedtask.TaskDescriptor{
 					ID: subject.TaskID, Version: subject.Key.TaskVersion,

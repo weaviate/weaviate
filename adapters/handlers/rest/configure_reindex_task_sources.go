@@ -44,9 +44,9 @@ func newMigrationLocalTaskSource(raft migrationTaskRaft) db.MigrationLocalTaskSo
 	}
 }
 
-// newMigrationClusterTaskSource routes to the leader, which is the only answer
-// that cannot be behind. Reconciliation consults it where a local answer is
-// about to be acted on destructively.
+// newMigrationClusterTaskSource routes to the leader, which is the only list
+// whose silence about a task proves the task is gone rather than not yet
+// applied here. Read once per reconciliation pass, off the shard-load path.
 func newMigrationClusterTaskSource(raft migrationTaskRaft) db.MigrationClusterTaskSource {
 	return func(ctx context.Context) ([]*distributedtask.Task, error) {
 		tasksByNamespace, err := raft.ListDistributedTasks(ctx)
