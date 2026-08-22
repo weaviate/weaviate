@@ -78,14 +78,16 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 			because: "the staged copy is the canonical one, so there is nothing left to mirror into",
 		},
 		{
-			// This walk runs at shard load, and a shard load happens inside
-			// the RAFT apply of a tenant activation. A payload naming every
-			// tenant of a large migration is megabytes, and parsing it there
-			// holds the FSM loop cluster-wide.
-			name:             "merged, with a payload past the parse bound",
+			// A payload naming every tenant and unit of a large multi-tenant
+			// migration clears a megabyte on its own, which is the bound the
+			// apply-path probes use. Refusing it here would arm no mirror, and
+			// the flip that follows takes the canonical directory away with
+			// every write since the restart.
+			name:             "merged, with a payload past the apply-path parse bound",
 			rec:              func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
 			oversizedPayload: true,
-			because:          "an oversized payload is refused rather than parsed on the apply path",
+			wantIn:           true,
+			because:          "an ordinary large multi-tenant migration still has to recover its mirror",
 		},
 		{
 			// These names are composed into bucket and sidecar directory

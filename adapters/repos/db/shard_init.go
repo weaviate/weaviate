@@ -253,14 +253,15 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	}
 }
 
-// maxRecoveryPayloadBytes bounds every parse of payload.mig. A payload names
-// every targeted tenant, so a large multi-tenant migration reaches megabytes,
-// and the probes that want one field from it run inside a RAFT apply — of a
-// property DELETE for the cleanup probes, of a tenant activation for the
-// recovery walk — holding the FSM loop cluster-wide.
+// maxRecoveryPayloadBytes bounds the probes that want one field of payload.mig
+// and run inside the RAFT apply of a property DELETE, holding the FSM loop
+// cluster-wide. A payload names every targeted tenant and unit, so a large
+// multi-tenant migration reaches megabytes.
 //
-// A payload over the bound is refused, not parsed, and reads as
-// [errRecoveryPayloadTooLarge] — see [readTaskProps] for what callers conclude.
+// It is a latency bound, not a memory one, so it holds only where refusing is
+// fail-open: over it the payload is refused rather than parsed and reads as
+// [errRecoveryPayloadTooLarge] — see [readTaskProps] for what callers
+// conclude. [loadReindexRecoveryRecord] is the reader it does not hold for.
 const maxRecoveryPayloadBytes = 1 << 20 // 1 MiB
 
 // errRecoveryPayloadTooLarge marks a payload.mig [maxRecoveryPayloadBytes]
@@ -269,8 +270,7 @@ const maxRecoveryPayloadBytes = 1 << 20 // 1 MiB
 var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse bound")
 
 // refuseOversizedRecoveryPayload reports a payload.mig too large to parse
-// where it is being read. Every reader of this file is on a path a RAFT apply
-// can reach, so none of them may parse an unbounded one.
+// where it is being read.
 func refuseOversizedRecoveryPayload(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {

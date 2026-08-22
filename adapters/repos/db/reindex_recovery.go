@@ -205,15 +205,14 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 		return rec, false
 	}
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	// Bounded like every other read of this file: discovery runs at shard
-	// load, and a shard load happens inside the RAFT apply of a tenant
-	// activation, where a multi-tenant migration's payload reaches megabytes
-	// and holds the FSM loop cluster-wide while it is parsed.
-	if err := refuseOversizedRecoveryPayload(payloadPath); err != nil {
-		logger.WithField("path", payloadPath).
-			Warnf("reindex recovery: payload.mig is too large to parse here; leaving this migration's mirror unarmed: %v", err)
-		return rec, false
-	}
+	// Deliberately not [refuseOversizedRecoveryPayload]-bounded. That bound is
+	// sized for the readers a RAFT apply reaches, which fail open when it
+	// refuses; this walk runs once at startup, off any apply, and refusing
+	// here leaves the mirror unarmed so the flip that follows takes the
+	// canonical directory away with every write since the restart. The
+	// payload embeds the cluster-wide tenant and unit maps, so a few thousand
+	// tenants clear a megabyte on their own. Only the few migrations the
+	// record above already placed in the flip window are read at all.
 	data, err := os.ReadFile(payloadPath)
 	if err != nil {
 		// The record already placed this tracker in the window, so the
