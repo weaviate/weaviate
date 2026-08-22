@@ -194,6 +194,15 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 		return rec, false
 	}
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
+	// Bounded like every other read of this file: discovery runs at shard
+	// load, and a shard load happens inside the RAFT apply of a tenant
+	// activation, where a multi-tenant migration's payload reaches megabytes
+	// and holds the FSM loop cluster-wide while it is parsed.
+	if err := refuseOversizedRecoveryPayload(payloadPath); err != nil {
+		logger.WithField("path", payloadPath).
+			Warnf("reindex recovery: payload.mig is too large to parse here; leaving this migration's mirror unarmed: %v", err)
+		return rec, false
+	}
 	data, err := os.ReadFile(payloadPath)
 	if err != nil {
 		if !os.IsNotExist(err) {

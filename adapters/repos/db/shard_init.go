@@ -253,22 +253,35 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	}
 }
 
-// maxRecoveryPayloadBytes bounds what [readTaskProps] parses. A payload names
+// maxRecoveryPayloadBytes bounds every parse of payload.mig. A payload names
 // every targeted tenant, so a large multi-tenant migration reaches megabytes,
-// and the cleanup probes that want one field from it run inside the RAFT
-// apply of a property DELETE, holding the FSM loop cluster-wide.
+// and the probes that want one field from it run inside a RAFT apply — of a
+// property DELETE for the cleanup probes, of a tenant activation for the
+// recovery walk — holding the FSM loop cluster-wide.
 //
 // A payload over the bound is refused, not parsed, and reads as
 // [errRecoveryPayloadTooLarge] — see [readTaskProps] for what callers conclude.
 const maxRecoveryPayloadBytes = 1 << 20 // 1 MiB
 
-// unboundedRecoveryPayload parses a payload of any size.
-const unboundedRecoveryPayload = 0
-
 // errRecoveryPayloadTooLarge marks a payload.mig [maxRecoveryPayloadBytes]
 // refused. Distinguishable from a payload that was opened and could not be
 // parsed, so a refusal is not counted as a read: it cost a stat.
 var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse bound")
+
+// refuseOversizedRecoveryPayload reports a payload.mig too large to parse
+// where it is being read. Every reader of this file is on a path a RAFT apply
+// can reach, so none of them may parse an unbounded one.
+func refuseOversizedRecoveryPayload(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Size() > maxRecoveryPayloadBytes {
+		return fmt.Errorf("%w: %s holds %d bytes, bound is %d",
+			errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), maxRecoveryPayloadBytes)
+	}
+	return nil
+}
 
 // readRecoveryPayloadFacts extracts the property list and migration type from
 // a migration tracker dir's payload.mig file (see
@@ -277,20 +290,10 @@ var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse 
 // one: [migrationDirScope.inScopeFailingOpen] treats only the former as "the
 // task recorded nothing", while the latter makes the unloaded-shard gate fail
 // open.
-//
-// maxBytes refuses a larger payload before opening it;
-// [unboundedRecoveryPayload] reads any size.
-func readRecoveryPayloadFacts(migDir string, maxBytes int64) ([]string, ReindexMigrationType, error) {
+func readRecoveryPayloadFacts(migDir string) ([]string, ReindexMigrationType, error) {
 	path := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	if maxBytes > unboundedRecoveryPayload {
-		info, err := os.Stat(path)
-		if err != nil {
-			return nil, "", err
-		}
-		if info.Size() > maxBytes {
-			return nil, "", fmt.Errorf("%w: %s holds %d bytes, bound is %d",
-				errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), maxBytes)
-		}
+	if err := refuseOversizedRecoveryPayload(path); err != nil {
+		return nil, "", err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

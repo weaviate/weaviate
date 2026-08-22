@@ -509,7 +509,7 @@ func (c *taskPropsCache) count() int {
 // readPayload reports whether payload.mig was opened, so the caller's read
 // counter keeps meaning what it says. A refusal opens nothing.
 func readTaskProps(migDir string) (answer taskProps, readPayload bool) {
-	props, migrationType, err := readRecoveryPayloadFacts(migDir, maxRecoveryPayloadBytes)
+	props, migrationType, err := readRecoveryPayloadFacts(migDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return taskProps{}, false

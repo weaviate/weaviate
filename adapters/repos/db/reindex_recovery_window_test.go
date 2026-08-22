@@ -12,6 +12,7 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -38,10 +39,12 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 	const trackerDir = "searchable_retokenize_title_1"
 
 	tests := []struct {
-		name    string
-		rec     func(MigrationSubject) MigrationRecord
-		wantIn  bool
-		because string
+		name string
+		rec  func(MigrationSubject) MigrationRecord
+		// oversizedPayload pads payload.mig past the parse bound.
+		oversizedPayload bool
+		wantIn           bool
+		because          string
 	}{
 		{
 			name:    "iterating",
@@ -72,6 +75,16 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 			},
 			because: "the staged copy is the canonical one, so there is nothing left to mirror into",
 		},
+		{
+			// This walk runs at shard load, and a shard load happens inside
+			// the RAFT apply of a tenant activation. A payload naming every
+			// tenant of a large migration is megabytes, and parsing it there
+			// holds the FSM loop cluster-wide.
+			name:             "merged, with a payload past the parse bound",
+			rec:              func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
+			oversizedPayload: true,
+			because:          "an oversized payload is refused rather than parsed on the apply path",
+		},
 	}
 
 	for _, tt := range tests {
@@ -79,8 +92,11 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			migDir := filepath.Join(t.TempDir(), trackerDir)
 			require.NoError(t, os.MkdirAll(migDir, 0o777))
-			require.NoError(t, os.WriteFile(filepath.Join(migDir, reindexRecoveryPayloadFile),
-				[]byte(`{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":["title"]}}`), 0o600))
+			payload := []byte(`{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":["title"]}}`)
+			if tt.oversizedPayload {
+				payload = append(payload, bytes.Repeat([]byte(" "), maxRecoveryPayloadBytes)...)
+			}
+			require.NoError(t, os.WriteFile(filepath.Join(migDir, reindexRecoveryPayloadFile), payload, 0o600))
 
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
 			subject.TrackerDir = trackerDir
