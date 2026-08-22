@@ -102,7 +102,17 @@ func DiscoverInFlightReindexTasks(
 			migrationsDir := filepath.Join(lsmPath, ".migrations")
 			migs, err := os.ReadDir(migrationsDir)
 			if err != nil {
-				// Most shards have no .migrations dir; that's the normal path.
+				if !os.IsNotExist(err) {
+					// Absent is the normal path — most shards never ran a
+					// migration. A directory that is there and cannot be
+					// listed is the opposite, and it reads the same here: no
+					// mirror is armed, so every write between this shard's
+					// load and promotion goes to the bucket promotion
+					// replaces. Same reason the record arm below withholds.
+					logger.WithField("path", migrationsDir).
+						Warnf("reindex recovery: the migration directory could not be listed, so a migration "+
+							"awaiting its flip would recover unmirrored; recovering nothing on this shard: %v", err)
+				}
 				continue
 			}
 			records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
@@ -166,7 +176,8 @@ func DiscoverInFlightReindexTasks(
 // loadReindexRecoveryRecord reads payload.mig from a migration directory and
 // returns the decoded record, but only for a migration whose rebuild is
 // complete and whose flip is not yet decided. Returns ok=false otherwise, and
-// when payload.mig is missing or unreadable.
+// when payload.mig is missing, unreadable, or names a property this build
+// would not turn into a directory.
 //
 // That window is exactly the bug this recovery path fixes: the unit is
 // terminal in RAFT (so the scheduler will NOT call StartTask post-restart)
@@ -205,16 +216,34 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 	}
 	data, err := os.ReadFile(payloadPath)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			logger.WithField("path", payloadPath).
-				Warnf("reindex recovery: failed to read payload.mig: %v", err)
-		}
+		// The record already placed this tracker in the window, so the
+		// payload is not optional here: without it no mirror is armed, and
+		// every write taken before promotion goes with the directory
+		// promotion removes. Absent says that as loudly as unreadable does,
+		// because at this point neither is the ordinary state.
+		logger.WithField("path", payloadPath).
+			Warnf("reindex recovery: a migration awaiting its flip has no readable payload.mig, "+
+				"so its double-write mirror stays unarmed: %v", err)
 		return rec, false
 	}
 	if err := json.Unmarshal(data, &rec); err != nil {
 		logger.WithField("path", payloadPath).
 			Warnf("reindex recovery: malformed payload.mig; skipping: %v", err)
 		return rec, false
+	}
+	// The same per-element check [readTaskProps] applies to this field of this
+	// file, for the reason its godoc gives: the strategies built from these
+	// names compose bucket and sidecar directories out of them and then create
+	// and remove those. A record's names passed [validateMigrationHandles] on
+	// the way in; a payload's never did, and a restored archive is free to
+	// carry any bytes here.
+	for _, prop := range rec.Payload.Properties {
+		if !migrationHandleIsOneElement(prop) {
+			logger.WithField("path", payloadPath).
+				Warnf("reindex recovery: payload.mig names property %q, which is not a single directory "+
+					"inside the shard; leaving this migration's mirror unarmed", prop)
+			return reindexRecoveryRecord{}, false
+		}
 	}
 	return rec, true
 }

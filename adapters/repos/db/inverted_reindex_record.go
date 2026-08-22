@@ -297,8 +297,39 @@ func (r MigrationRecordPromoted) toEnvelope() migrationRecordEnvelope {
 
 // encodeMigrationRecord indents so an operator can read a record with cat;
 // records are written once per transition, never on a hot path.
+//
+// It applies the same handle check the decoder does, so nothing this build
+// would refuse to read back can be written in the first place. A rejected
+// handle means the caller composed one, which fails the transition loudly
+// instead of persisting a record that reads as not-understood at the next
+// load and freezes every removal on the shard.
 func encodeMigrationRecord(rec MigrationRecord) ([]byte, error) {
-	return json.MarshalIndent(rec.toEnvelope(), "", "  ")
+	env := rec.toEnvelope()
+	if err := validateMigrationEnvelope(env); err != nil {
+		return nil, err
+	}
+	return json.MarshalIndent(env, "", "  ")
+}
+
+// validateMigrationEnvelope holds every reason a record is refused that does
+// not depend on which state it is in. Both directions ask it, because a record
+// only the writer accepts is worse than one neither does: it lands under a
+// name the next load refuses, and the store then declines to write or remove
+// that name ever again, freezing the whole shard on a file nobody wanted.
+func validateMigrationEnvelope(e migrationRecordEnvelope) error {
+	if e.FormatVersion != migrationRecordFormatVersion {
+		return fmt.Errorf("unknown record format version %d", e.FormatVersion)
+	}
+	if !e.Subject.Key.valid() {
+		return fmt.Errorf("record key %q is incomplete or names an unknown strategy", e.Subject.Key)
+	}
+	if e.Subject.TaskID == "" {
+		return fmt.Errorf("record %q has no task ID", e.Subject.Key)
+	}
+	if !migrationTypeKnown(e.Subject.MigrationType) {
+		return fmt.Errorf("record %q names unknown migration type %q", e.Subject.Key, e.Subject.MigrationType)
+	}
+	return validateMigrationHandles(e)
 }
 
 // decodeMigrationRecord rejects anything it cannot place exactly, including a
@@ -309,19 +340,7 @@ func decodeMigrationRecord(data []byte) (MigrationRecord, error) {
 	if err := json.Unmarshal(data, &env); err != nil {
 		return nil, fmt.Errorf("decode record: %w", err)
 	}
-	if env.FormatVersion != migrationRecordFormatVersion {
-		return nil, fmt.Errorf("unknown record format version %d", env.FormatVersion)
-	}
-	if !env.Subject.Key.valid() {
-		return nil, fmt.Errorf("record key %q is incomplete or names an unknown strategy", env.Subject.Key)
-	}
-	if env.Subject.TaskID == "" {
-		return nil, fmt.Errorf("record %q has no task ID", env.Subject.Key)
-	}
-	if !migrationTypeKnown(env.Subject.MigrationType) {
-		return nil, fmt.Errorf("record %q names unknown migration type %q", env.Subject.Key, env.Subject.MigrationType)
-	}
-	if err := validateMigrationHandles(env); err != nil {
+	if err := validateMigrationEnvelope(env); err != nil {
 		return nil, err
 	}
 
@@ -387,7 +406,8 @@ func migrationHandleIsOneElement(h string) bool {
 // kind of string, and the cost of covering them is nothing.
 //
 // Backup restore is the reachable producer: it writes an archive's record
-// bytes into the records directory untouched.
+// bytes into the records directory untouched. The encoder asks the same
+// question so the two directions cannot disagree about what a valid record is.
 func validateMigrationHandles(e migrationRecordEnvelope) error {
 	reject := func(field, handle string) error {
 		return fmt.Errorf("record %q names %s %q, which is not a single directory inside the shard",

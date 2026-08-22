@@ -43,8 +43,10 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 		rec  func(MigrationSubject) MigrationRecord
 		// oversizedPayload pads payload.mig past the parse bound.
 		oversizedPayload bool
-		wantIn           bool
-		because          string
+		// rawPayload replaces the well-formed payload this tracker carries.
+		rawPayload string
+		wantIn     bool
+		because    string
 	}{
 		{
 			name:    "iterating",
@@ -85,6 +87,28 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 			oversizedPayload: true,
 			because:          "an oversized payload is refused rather than parsed on the apply path",
 		},
+		{
+			// These names are composed into bucket and sidecar directory
+			// names, which the strategies then create and remove. A record's
+			// names passed the decoder's check on the way in; a payload's
+			// never did, and a restored archive is free to carry any bytes.
+			name:       "merged, with a property name that escapes the shard",
+			rec:        func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
+			rawPayload: `{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":["../../../etc"]}}`,
+			because:    "a property name that is not one directory inside the shard is not a property list",
+		},
+		{
+			name:       "merged, with a property name carrying a separator",
+			rec:        func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
+			rawPayload: `{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":["a/b"]}}`,
+			because:    "a separator makes the name address a directory the shard does not own",
+		},
+		{
+			name:       "merged, with an empty property name",
+			rec:        func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
+			rawPayload: `{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":[""]}}`,
+			because:    "an empty name composes into another property's sidecar",
+		},
 	}
 
 	for _, tt := range tests {
@@ -93,6 +117,9 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 			migDir := filepath.Join(t.TempDir(), trackerDir)
 			require.NoError(t, os.MkdirAll(migDir, 0o777))
 			payload := []byte(`{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":["title"]}}`)
+			if tt.rawPayload != "" {
+				payload = []byte(tt.rawPayload)
+			}
 			if tt.oversizedPayload {
 				payload = append(payload, bytes.Repeat([]byte(" "), maxRecoveryPayloadBytes)...)
 			}

@@ -762,3 +762,68 @@ func TestDecodeMigrationRecordRejectsEscapingHandles(t *testing.T) {
 		})
 	}
 }
+
+// TestTheWriterRefusesWhatTheLoaderWouldReject pins the two directions on one
+// predicate. A record only the writer accepts is worse than one neither does:
+// it lands under a name the next load refuses, and the store then declines to
+// write or remove that name ever again — a wedged key plus a shard-wide
+// withhold of every removal, clearable only by hand.
+func TestTheWriterRefusesWhatTheLoaderWouldReject(t *testing.T) {
+	tests := []struct {
+		name    string
+		mangle  func(*MigrationSubject)
+		because string
+	}{
+		{
+			name:    "a tracker directory that leaves the shard root",
+			mangle:  func(s *MigrationSubject) { s.TrackerDir = "../../../etc" },
+			because: "the tracker directory is joined onto the shard and handed to a recursive delete",
+		},
+		{
+			name:    "a sidecar directory carrying a separator",
+			mangle:  func(s *MigrationSubject) { s.SidecarDirs = []string{"a/b"} },
+			because: "a sidecar directory is removed by name",
+		},
+		{
+			name:    "a staged directory that resolves back to the shard root",
+			mangle:  func(s *MigrationSubject) { s.StagedDirs["title"] = "x/.." },
+			because: "Join resolves it to the LSM directory, which then reaches os.RemoveAll",
+		},
+		{
+			name:    "an empty property name",
+			mangle:  func(s *MigrationSubject) { s.Properties = []string{""} },
+			because: "an empty name composes into another property's sidecar",
+		},
+		{
+			name:    "a record with no task ID",
+			mangle:  func(s *MigrationSubject) { s.TaskID = "" },
+			because: "nothing could match the record to a task, so no verdict could ever settle it",
+		},
+		{
+			name:    "a strategy code outside the known set",
+			mangle:  func(s *MigrationSubject) { s.Key.StrategyCode = "bogus" },
+			because: "the code is in the file name, so the loader refuses a file the writer chose",
+		},
+		{
+			name:    "a migration type this build does not know",
+			mangle:  func(s *MigrationSubject) { s.MigrationType = "not-a-migration" },
+			because: "the type decides which schema effect answers for the record",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+			tt.mangle(&subject)
+			rec := NewMigrationRecordMerged(subject)
+
+			_, err := encodeMigrationRecord(rec)
+			require.Error(t, err, tt.because)
+
+			logger, _ := test.NewNullLogger()
+			store := NewMigrationRecordStore(t.TempDir(), logger)
+			require.Error(t, store.Put(rec), "and Put refuses it for the same reason")
+			require.Empty(t, store.Records(), "nothing a load would refuse reaches the map either")
+		})
+	}
+}
