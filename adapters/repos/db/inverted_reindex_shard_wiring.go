@@ -194,6 +194,17 @@ func (s *Shard) warnAboutLegacyMarkerMigrations() {
 		return
 	}
 	for _, legacy := range migrationLegacyMarkerTrackersAt(s.pathLSM(), s.migrationRecords.Records()) {
+		if legacy.unreadable {
+			// Nothing names the directories this marker vouches for, so every
+			// sweep on the shard withholds instead. That is a whole shard the
+			// reclaimers stop working on, which no other line reports.
+			s.index.logger.WithField("shard", s.ID()).
+				WithField("tracker", legacy.dirName).
+				WithField("marker", legacy.marker).
+				Warn("a migration completed on an older release names properties this build cannot read; " +
+					"every removal on this shard is withheld until the tracker is repaired or removed by hand")
+			continue
+		}
 		props := legacy.servesEmpty(s.pathLSM())
 		if len(props) == 0 {
 			continue

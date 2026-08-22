@@ -1551,19 +1551,20 @@ type migrationTrimPreserve struct {
 	legacy  map[string]struct{}
 }
 
-// trimPreserveSetOf builds it, or reports that it cannot. The records are the
-// whole protection set for the removals, and a record this build cannot read
-// names directories nothing else will vouch for — so an incomplete set is not
-// a smaller one, it is no answer at all.
+// trimPreserveSetOf builds it, or reports that it cannot. The records and the
+// marker-era payloads are the whole protection set for the removals, and
+// either one this build cannot read names directories nothing else will vouch
+// for — so an incomplete set is not a smaller one, it is no answer at all.
 func trimPreserveSetOf(shard *Shard) (migrationTrimPreserve, bool) {
 	if shard.migrationRecords == nil || len(shard.migrationRecords.Unreadable()) > 0 {
 		return migrationTrimPreserve{}, false
 	}
 	records := shard.migrationRecords.Records()
-	return migrationTrimPreserve{
-		records: records,
-		legacy:  migrationLegacyMarkerDirsAt(shard.pathLSM(), records),
-	}, true
+	legacy, complete := migrationLegacyMarkerDirsAt(shard.pathLSM(), records)
+	if !complete {
+		return migrationTrimPreserve{}, false
+	}
+	return migrationTrimPreserve{records: records, legacy: legacy}, true
 }
 
 func (p migrationTrimPreserve) bucketDir(dir string) bool {

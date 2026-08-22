@@ -499,6 +499,13 @@ func (c *taskPropsCache) count() int {
 // loudly); preservation matches on a name token and so keeps more;
 // the unloaded-shard gate hydrates the shard instead of skipping it.
 //
+// A property name that does not name a single directory entry makes the whole
+// payload unreadable. The sweeps and the orphan audit compose bucket and
+// sidecar directory names out of these names and then remove those
+// directories, and unlike a record's names these never passed
+// [validateMigrationHandles] — a restored archive is free to carry any bytes
+// here.
+//
 // readPayload reports whether payload.mig was opened, so the caller's read
 // counter keeps meaning what it says. A refusal opens nothing.
 func readTaskProps(migDir string) (answer taskProps, readPayload bool) {
@@ -508,6 +515,11 @@ func readTaskProps(migDir string) (answer taskProps, readPayload bool) {
 			return taskProps{}, false
 		}
 		return taskProps{unreadable: true}, !errors.Is(err, errRecoveryPayloadTooLarge)
+	}
+	for _, prop := range props {
+		if !migrationHandleIsOneElement(prop) {
+			return taskProps{unreadable: true}, true
+		}
 	}
 	if len(props) == 0 {
 		return taskProps{migrationType: migrationType}, true

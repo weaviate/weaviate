@@ -318,11 +318,12 @@ func hasStalePartialReindexState(
 		// Nothing about this shard could be read, so reporting it clean would
 		// be a guess. Hydrating is what turns it into an error a caller sees.
 		return true, false
-	case committed.someRecordsUnreadable:
-		// A record this build cannot understand withholds every removal, so a
-		// hydration would reclaim nothing — and reporting otherwise would wake
-		// this tenant on every sweep pass for as long as the record stays
-		// unreadable. The load that surfaces it happens for its own reasons.
+	case committed.withholdEverything:
+		// A record or a marker-era payload this build cannot understand
+		// withholds every removal, so a hydration would reclaim nothing — and
+		// reporting otherwise would wake this tenant on every sweep pass for
+		// as long as it stays unreadable. The load that surfaces it happens
+		// for its own reasons.
 		return false, false
 	}
 	scope := migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props).knownFrom(committed)

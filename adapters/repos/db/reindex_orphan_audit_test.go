@@ -803,9 +803,12 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 	)
 
 	tests := []struct {
-		name         string
-		payload      string
-		marker       string
+		name    string
+		payload string
+		marker  string
+		// escapingProp is the property name the payload uses to reach out of
+		// the shard; the fixture plants what it would resolve to.
+		escapingProp string
 		wantStatus   AuditOutcomeStatus
 		wantTracker  bool
 		wantSidecars bool
@@ -863,6 +866,20 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 			wantSidecars: true,
 			wantReissued: 2,
 		},
+		{
+			// The audit composes a directory name out of each property the
+			// payload names and hands it to a recursive delete. A record's
+			// property names are validated when the record is decoded; these
+			// are not validated anywhere, and a restored archive can carry
+			// any bytes here.
+			name:         "a payload naming a property that escapes the shard is not read as a property list",
+			payload:      `{"payload":{"properties":["../../../victim"],"migrationType":"enable-filterable"}}`,
+			escapingProp: "../../../victim",
+			wantStatus:   AuditStatusRan,
+			wantTracker:  true,
+			wantSidecars: true,
+			wantReissued: 2,
+		},
 	}
 
 	for _, tt := range tests {
@@ -876,6 +893,23 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 			if tt.payload != "" {
 				require.NoError(t, os.WriteFile(
 					filepath.Join(trackerPath, reindexRecoveryPayloadFile), []byte(tt.payload), 0o600))
+			}
+			var escapees []string
+			for _, sidecar := range sidecarDirsForOrphan(&orphanReindexTracker{
+				dirName: trackerName, prefix: "enable_filterable_title",
+				generation: 1, properties: []string{tt.escapingProp},
+			}) {
+				if tt.escapingProp == "" {
+					break
+				}
+				path := filepath.Join(lsmPath, sidecar)
+				require.NotContains(t, path, lsmPath+string(os.PathSeparator),
+					"the fixture only proves something if the name really leaves the shard's LSM directory")
+				require.NoError(t, os.MkdirAll(path, 0o755))
+				escapees = append(escapees, path)
+			}
+			if tt.escapingProp != "" {
+				require.NotEmpty(t, escapees, "the fixture has to plant what the traversal would delete")
 			}
 			plantedSidecars := sidecarDirsForOrphan(&orphanReindexTracker{
 				dirName: trackerName, prefix: "enable_filterable_title",
@@ -907,6 +941,9 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 			assert.Equal(t, tt.wantTracker, dirExists(t, trackerPath), "the tracker directory")
 			for _, sidecar := range plantedSidecars {
 				assert.Equal(t, tt.wantSidecars, dirExists(t, filepath.Join(lsmPath, sidecar)), sidecar)
+			}
+			for _, path := range escapees {
+				assert.True(t, dirExists(t, path), "a directory outside the shard: %s", path)
 			}
 			// The adoption is the conjunction of the two: a surviving
 			// directory only gets opened again if the generation that names

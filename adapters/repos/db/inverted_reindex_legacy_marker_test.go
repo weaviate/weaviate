@@ -33,6 +33,10 @@ import (
 // The Warn is the other half. This build cannot promote marker-era state, and
 // the schema flip it belongs to already committed cluster-wide, so the
 // property answers from an empty bucket and nothing else says so.
+//
+// The payload is the only thing that names those directories, so a payload
+// that cannot be read is the same loss with nothing left to name: the sweep
+// has to withhold on the whole shard instead.
 func TestLegacyMarkerMigrationSurvivesTheSweep(t *testing.T) {
 	tests := []struct {
 		name string
@@ -40,8 +44,12 @@ func TestLegacyMarkerMigrationSurvivesTheSweep(t *testing.T) {
 		// classProp has a canonical bucket dir on disk.
 		propName string
 		marker   string
-		wantDirs bool
-		wantWarn bool
+		// rawPayload replaces the well-formed payload.mig this tracker would
+		// otherwise carry.
+		rawPayload         string
+		wantDirs           bool
+		wantWarn           bool
+		wantUnreadableWarn bool
 	}{
 		{
 			name:     "the canonical bucket is gone, so the staged copy is the only one",
@@ -72,6 +80,27 @@ func TestLegacyMarkerMigrationSurvivesTheSweep(t *testing.T) {
 			wantDirs: false,
 			wantWarn: false,
 		},
+		{
+			// Nothing names the sidecars, so preserving the tracker alone
+			// would hand the only copy of the data to the reclaimers.
+			name:               "a payload that cannot be parsed withholds the whole shard",
+			propName:           "gone",
+			marker:             "merged.mig",
+			rawPayload:         `{"payload": {"properties": [`,
+			wantDirs:           true,
+			wantUnreadableWarn: true,
+		},
+		{
+			// A property name is joined onto the shard root and the result is
+			// handed to a recursive delete, and unlike a record's names these
+			// never passed the decoder's validation.
+			name:               "a payload naming a property that escapes the shard is not read as a property list",
+			propName:           "gone",
+			marker:             "merged.mig",
+			rawPayload:         `{"payload": {"properties": ["../../../etc"]}}`,
+			wantDirs:           true,
+			wantUnreadableWarn: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -90,7 +119,13 @@ func TestLegacyMarkerMigrationSurvivesTheSweep(t *testing.T) {
 			reindex := "property_" + tc.propName + "__enable_filterable_reindex_1"
 
 			mkTrackerDir(t, lsm, tracker)
-			mkRecoveryPayload(t, lsm, tracker, tc.propName)
+			if tc.rawPayload != "" {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(lsm, migrationsDir, tracker, reindexRecoveryPayloadFile),
+					[]byte(tc.rawPayload), 0o644))
+			} else {
+				mkRecoveryPayload(t, lsm, tracker, tc.propName)
+			}
 			mkSidecarDir(t, lsm, ingest)
 			mkSidecarDir(t, lsm, reindex)
 			if tc.marker != "" {
@@ -107,6 +142,8 @@ func TestLegacyMarkerMigrationSurvivesTheSweep(t *testing.T) {
 			shard.reconcileMigrationRecords(ctx, class)
 			require.Equal(t, tc.wantWarn, legacyMarkerWarned(hook, tc.propName),
 				"a warning naming %q on the shard load path", tc.propName)
+			require.Equal(t, tc.wantUnreadableWarn, warnedContaining(hook, "cannot read"),
+				"a warning that the tracker's properties could not be read")
 
 			cleanSweep(t, ctx, shard, tc.propName, "filterable")
 
@@ -118,6 +155,16 @@ func TestLegacyMarkerMigrationSurvivesTheSweep(t *testing.T) {
 				"reindex sidecar %s", reindex)
 		})
 	}
+}
+
+// warnedContaining reports a Warn whose message carries want.
+func warnedContaining(hook *test.Hook, want string) bool {
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func legacyMarkerWarned(hook *test.Hook, propName string) bool {

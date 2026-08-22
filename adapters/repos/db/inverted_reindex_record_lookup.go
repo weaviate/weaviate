@@ -65,12 +65,14 @@ type migrationPreservedState struct {
 	// would still do disk work for it.
 	trackers map[string]bool
 
-	// someRecordsUnreadable preserves everything on the shard. A record this
-	// build cannot read may name any directory here, and deleting one it names
-	// is exactly the loss the three-outcome loader exists to prevent.
-	someRecordsUnreadable bool
-	// recordSetUnreadable means nothing here could be read at all, which no
-	// caller may report as a clean shard. It implies someRecordsUnreadable.
+	// withholdEverything preserves the whole shard. Two things set it, and
+	// they mean the same thing: a record this build cannot read, and a
+	// marker-era tracker whose payload could not be read. Either names
+	// directories nothing else on the shard vouches for, and deleting one is
+	// exactly the loss the three-outcome loader exists to prevent.
+	withholdEverything bool
+	// recordSetUnreadable means no record here could be read at all, which no
+	// caller may report as a clean shard. It implies withholdEverything.
 	recordSetUnreadable bool
 }
 
@@ -86,6 +88,15 @@ func migrationPreservedStateAt(lsmPath string, logger logrus.FieldLogger) migrat
 		return state
 	}
 	for _, legacy := range migrationLegacyMarkerTrackersAt(lsmPath, records) {
+		if legacy.unreadable {
+			// Its payload is the only thing that names the directories holding
+			// the data this marker claims. Preserving the tracker alone would
+			// leave those to the reclaimers, which is the loss the marker
+			// exists to prevent. Said out loud once per shard load, by
+			// Shard.warnAboutLegacyMarkerMigrations; this runs per sweep.
+			state.withholdEverything = true
+			continue
+		}
 		// false: no load can promote marker-era state on this build, so
 		// hydrating the shard for it would do nothing.
 		state.trackers[legacy.dirName] = false
@@ -98,11 +109,11 @@ func migrationPreservedStateAt(lsmPath string, logger logrus.FieldLogger) migrat
 
 func migrationPreservedStateFromRecords(records []MigrationRecord, someRecordsUnreadable, recordSetUnreadable bool) migrationPreservedState {
 	state := migrationPreservedState{
-		records:               records,
-		buckets:               map[string]struct{}{},
-		trackers:              map[string]bool{},
-		someRecordsUnreadable: someRecordsUnreadable,
-		recordSetUnreadable:   recordSetUnreadable,
+		records:             records,
+		buckets:             map[string]struct{}{},
+		trackers:            map[string]bool{},
+		withholdEverything:  someRecordsUnreadable,
+		recordSetUnreadable: recordSetUnreadable,
 	}
 	for _, rec := range records {
 		if !rec.StagedDataComplete() {
@@ -141,7 +152,7 @@ func (s migrationPreservedState) mirrorFor(dir string) (MigrationRecordKey, stri
 }
 
 func (s migrationPreservedState) preservesBucket(dir string) bool {
-	if s.someRecordsUnreadable {
+	if s.withholdEverything {
 		return true
 	}
 	_, ok := s.buckets[dir]
@@ -149,7 +160,7 @@ func (s migrationPreservedState) preservesBucket(dir string) bool {
 }
 
 func (s migrationPreservedState) preservesTracker(dir string) bool {
-	if s.someRecordsUnreadable {
+	if s.withholdEverything {
 		return true
 	}
 	_, ok := s.trackers[dir]
@@ -192,12 +203,16 @@ func migrationRecordForTracker(records []MigrationRecord, trackerDir string) (Mi
 // this build writes records instead, so nothing else on the shard vouches for
 // them.
 type migrationLegacyMarkerTracker struct {
-	dirName  string
-	marker   string
-	prefix   string
-	gen      int
-	props    []string
-	sidecars []string
+	dirName string
+	marker  string
+	prefix  string
+	gen     int
+	// unreadable means the payload naming this tracker's properties could not
+	// be read, so props and sidecars are empty because nothing could be
+	// learned — not because the migration touched nothing.
+	unreadable bool
+	props      []string
+	sidecars   []string
 }
 
 // migrationLegacyMarkerTrackersAt finds them on one shard. A tracker a record
@@ -231,12 +246,13 @@ func migrationLegacyMarkerTrackersAt(lsmPath string, records []MigrationRecord) 
 		}
 		props, _ := readTaskProps(filepath.Join(migsDir, dirName))
 		out = append(out, migrationLegacyMarkerTracker{
-			dirName:  dirName,
-			marker:   marker,
-			prefix:   prefix,
-			gen:      gen,
-			props:    append([]string(nil), props.props...),
-			sidecars: migrationSidecarDirsFor(dirName, prefix, gen, props.props),
+			dirName:    dirName,
+			marker:     marker,
+			prefix:     prefix,
+			gen:        gen,
+			unreadable: props.unreadable,
+			props:      append([]string(nil), props.props...),
+			sidecars:   migrationSidecarDirsFor(dirName, prefix, gen, props.props),
 		})
 	}
 	return out
@@ -244,16 +260,23 @@ func migrationLegacyMarkerTrackersAt(lsmPath string, records []MigrationRecord) 
 
 // migrationLegacyMarkerDirsAt is the same answer as a name set, for the
 // removal loops that keep their own record check rather than the preserve
-// predicate.
-func migrationLegacyMarkerDirsAt(lsmPath string, records []MigrationRecord) map[string]struct{} {
-	dirs := map[string]struct{}{}
+// predicate. complete=false means one tracker's payload could not be read, so
+// the set is missing names it cannot know: a caller that deletes what is not
+// in it has to stop instead.
+func migrationLegacyMarkerDirsAt(lsmPath string, records []MigrationRecord) (dirs map[string]struct{}, complete bool) {
+	dirs = map[string]struct{}{}
+	complete = true
 	for _, legacy := range migrationLegacyMarkerTrackersAt(lsmPath, records) {
+		if legacy.unreadable {
+			complete = false
+			continue
+		}
 		dirs[legacy.dirName] = struct{}{}
 		for _, sidecar := range legacy.sidecars {
 			dirs[sidecar] = struct{}{}
 		}
 	}
-	return dirs
+	return dirs, complete
 }
 
 // servesEmpty reports the properties whose data this tracker still holds under
