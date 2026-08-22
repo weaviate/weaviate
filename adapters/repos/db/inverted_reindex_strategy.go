@@ -79,11 +79,11 @@ type MigrationStrategy interface {
 		prop inverted.Property) error
 
 	// MakeAddCallback creates a double-write callback for property additions.
-	MakeAddCallback(bucketNamer func(string) string, propsByName map[string]struct{},
+	MakeAddCallback(bucketNamer func(string) string, armed armedMirror,
 	) onAddToPropertyValueIndex
 
 	// MakeDeleteCallback creates a double-write callback for property deletions.
-	MakeDeleteCallback(bucketNamer func(string) string, propsByName map[string]struct{},
+	MakeDeleteCallback(bucketNamer func(string) string, armed armedMirror,
 	) onDeleteFromPropertyValueIndex
 
 	// PreReindexHook is called before the reindex/ingest phase begins on a shard.

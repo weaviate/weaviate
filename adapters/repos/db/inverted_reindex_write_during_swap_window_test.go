@@ -182,12 +182,13 @@ func TestResolveScopedDoubleWriteBucket(t *testing.T) {
 	)
 
 	tests := []struct {
-		name        string
-		create      []string
-		swap        bool
-		propsByName map[string]struct{}
-		wantBucket  string
-		wantSkip    bool
+		name         string
+		create       []string
+		swap         bool
+		shutdownName string
+		propsByName  map[string]struct{}
+		wantBucket   string
+		wantSkip     bool
 	}{
 		{
 			name:        "the sidecar is registered, so the mirror writes into it",
@@ -213,6 +214,17 @@ func TestResolveScopedDoubleWriteBucket(t *testing.T) {
 			propsByName: map[string]struct{}{"other": {}},
 			wantSkip:    true,
 		},
+		{
+			// A discard, a supersession retirement and the cancel sweep all
+			// end here: the sidecar is shut down with no flip, so the
+			// canonical name is live source-form data that this mirror would
+			// write target-form rows into.
+			name:         "the sidecar was shut down without a flip, so the canonical name is not this mirror's",
+			create:       []string{sidecarName, canonicalName},
+			shutdownName: sidecarName,
+			propsByName:  map[string]struct{}{propName: {}},
+			wantSkip:     true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -229,15 +241,27 @@ func TestResolveScopedDoubleWriteBucket(t *testing.T) {
 				require.NoError(t, shard.store.CreateOrLoadBucket(ctx, name,
 					lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
 			}
+			// What the mirror armed on, captured before anything moves — the
+			// callbacks capture it at the same point.
+			armed := armedMirror{
+				props:   tt.propsByName,
+				buckets: map[string]*lsmkv.Bucket{propName: shard.store.Bucket(sidecarName)},
+			}
+
 			if tt.swap {
 				_, err := shard.store.SwapBucketPointer(ctx, canonicalName, sidecarName)
 				require.NoError(t, err)
 				require.Nil(t, shard.store.Bucket(sidecarName),
 					"sanity: SwapBucketPointer must unregister the sidecar name")
 			}
+			if tt.shutdownName != "" {
+				require.NoError(t, shard.store.ShutdownBucket(ctx, tt.shutdownName))
+				require.Nil(t, shard.store.Bucket(tt.shutdownName),
+					"sanity: ShutdownBucket must unregister the name")
+			}
 
 			bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard,
-				&inverted.Property{Name: propName}, tt.propsByName,
+				&inverted.Property{Name: propName}, armed,
 				func(string) string { return sidecarName },
 				func(string) string { return canonicalName })
 

@@ -83,13 +83,13 @@ func (s *EnableFilterableStrategy) WriteToReindexBucket(shard ShardLike, bucket 
 }
 
 func (s *EnableFilterableStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	armed armedMirror,
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — it's false on the target
 		// property until OnMigrationComplete flips it.
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
@@ -103,11 +103,11 @@ func (s *EnableFilterableStrategy) MakeAddCallback(bucketNamer func(string) stri
 }
 
 func (s *EnableFilterableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}

@@ -1372,10 +1372,12 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 
 	// Before the flip, not after it. Retirement shuts the predecessor's staged
 	// bucket down, and a write that already read the pre-disarm callback
-	// snapshot can still fire afterwards and fall back to the canonical name.
-	// Running this before the pointers move means that fallback lands in the
-	// bucket this flip is about to discard, not in the new live one. It is
-	// outside the no-I/O rule, which spans the first pointer flip to the last.
+	// snapshot can still fire afterwards. The identity check in the callbacks'
+	// shared prologue already stops that write from reaching the successor's
+	// live data; this ordering keeps it landing somewhere useful instead of
+	// nowhere, by leaving the predecessor's bucket resolvable while stragglers
+	// drain. It is outside the no-I/O rule, which spans the first pointer flip
+	// to the last.
 	// The one directory that must survive until Phase 2b — the predecessor's
 	// live data, which this flip displaces — is held back by this record's own
 	// displaced claim.
@@ -1880,10 +1882,22 @@ func (t *ShardReindexTaskGeneric) removeBucketsDirs(ctx context.Context, logger 
 func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, props []string,
 	bucketNamer func(string) string,
 ) func() {
+	// The staged buckets are open by now (loadIngestBuckets precedes this
+	// call) and each one is this mirror's for the record's whole life, so the
+	// pointers can be captured once. Without them the callbacks cannot tell
+	// their own flip from someone shutting their bucket down.
+	buckets := make(map[string]*lsmkv.Bucket, len(props))
+	for _, propName := range props {
+		if bucket := shard.store.Bucket(bucketNamer(propName)); bucket != nil {
+			buckets[propName] = bucket
+		}
+	}
+
 	disarm := shard.registerDoubleWriteWithScope(props, t.strategy.AnalyzerOverlay(props),
 		func(scope map[string]struct{}) (onAddToPropertyValueIndex, onDeleteFromPropertyValueIndex) {
-			return t.strategy.MakeAddCallback(bucketNamer, scope),
-				t.strategy.MakeDeleteCallback(bucketNamer, scope)
+			armed := armedMirror{props: scope, buckets: buckets}
+			return t.strategy.MakeAddCallback(bucketNamer, armed),
+				t.strategy.MakeDeleteCallback(bucketNamer, armed)
 		})
 
 	registry := shard.migrationMirrorRegistry()

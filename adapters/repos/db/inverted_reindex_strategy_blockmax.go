@@ -79,14 +79,14 @@ func (s *MapToBlockmaxStrategy) WriteToReindexBucket(shard ShardLike, bucket *ls
 }
 
 func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	armed armedMirror,
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
@@ -102,14 +102,14 @@ func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
 }
 
 func (s *MapToBlockmaxStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}

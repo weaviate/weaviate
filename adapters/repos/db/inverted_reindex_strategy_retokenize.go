@@ -96,7 +96,7 @@ func (s *SearchableRetokenizeStrategy) WriteToReindexBucket(shard ShardLike, buc
 // MakeAddCallback returns a callback for adding documents to the searchable
 // index under the migration's target tokenization.
 func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	armed armedMirror,
 ) onAddToPropertyValueIndex {
 	// The analyzer is stateless once constructed (it carries only className
 	// and a function pointer); hoist it out of the per-callback hot path so
@@ -107,7 +107,7 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
@@ -135,7 +135,7 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 // MakeDeleteCallback returns a callback for removing documents from the
 // searchable index under the migration's target tokenization.
 func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {
 	// See the MakeAddCallback comment — same rationale: hoist the analyzer
 	// out of the per-callback hot path.
@@ -145,7 +145,7 @@ func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}

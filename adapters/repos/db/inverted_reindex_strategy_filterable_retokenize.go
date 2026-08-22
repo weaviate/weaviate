@@ -89,7 +89,7 @@ func (s *FilterableRetokenizeStrategy) WriteToReindexBucket(_ ShardLike, bucket 
 // MakeAddCallback returns a callback for adding documents to the filterable
 // (RoaringSet) index under the migration's target tokenization.
 func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	armed armedMirror,
 ) onAddToPropertyValueIndex {
 	// Hoist the analyzer out of the per-callback hot path; see the
 	// corresponding comment in SearchableRetokenizeStrategy.MakeAddCallback.
@@ -99,7 +99,7 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
@@ -123,7 +123,7 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 // MakeDeleteCallback returns a callback for removing documents from the
 // filterable index under the migration's target tokenization.
 func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {
 	// Hoist the analyzer out of the per-callback hot path; see the
 	// corresponding comment in SearchableRetokenizeStrategy.MakeAddCallback.
@@ -133,7 +133,7 @@ func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}

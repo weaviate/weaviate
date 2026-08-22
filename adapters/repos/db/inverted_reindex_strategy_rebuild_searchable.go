@@ -63,15 +63,15 @@ func (s *RebuildSearchableStrategy) WriteToReindexBucket(shard ShardLike, bucket
 }
 
 func (s *RebuildSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	armed armedMirror,
 ) onAddToPropertyValueIndex {
-	return blockmaxSearchableAddCallback(bucketNamer, propsByName, s.SourceBucketName)
+	return blockmaxSearchableAddCallback(bucketNamer, armed, s.SourceBucketName)
 }
 
 func (s *RebuildSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {
-	return blockmaxSearchableDeleteCallback(bucketNamer, propsByName, s.SourceBucketName)
+	return blockmaxSearchableDeleteCallback(bucketNamer, armed, s.SourceBucketName)
 }
 
 // PreReindexHook is a no-op — the target BlockMax bucket already exists

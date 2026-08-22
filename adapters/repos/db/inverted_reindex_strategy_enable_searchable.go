@@ -76,15 +76,15 @@ func (s *EnableSearchableStrategy) WriteToReindexBucket(shard ShardLike, bucket 
 }
 
 func (s *EnableSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	armed armedMirror,
 ) onAddToPropertyValueIndex {
-	return blockmaxSearchableAddCallback(bucketNamer, propsByName, s.SourceBucketName)
+	return blockmaxSearchableAddCallback(bucketNamer, armed, s.SourceBucketName)
 }
 
 func (s *EnableSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {
-	return blockmaxSearchableDeleteCallback(bucketNamer, propsByName, s.SourceBucketName)
+	return blockmaxSearchableDeleteCallback(bucketNamer, armed, s.SourceBucketName)
 }
 
 // PreReindexHook creates empty blockmax searchable buckets for the targeted

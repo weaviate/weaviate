@@ -97,6 +97,22 @@ func migrationPreservedStateOf(records []MigrationRecord, someRecordsUnreadable,
 	return state
 }
 
+// mirrorFor names the (record, property) whose staged directory is dir. Every
+// readable record answers, not just the committed ones: a sweep shuts down the
+// buckets of migrations that are not committed, and those are exactly the ones
+// whose mirror is still armed.
+func (s migrationPreservedState) mirrorFor(dir string) (MigrationRecordKey, string, bool) {
+	for _, rec := range s.records {
+		subject := rec.Subject()
+		for _, prop := range subject.Properties {
+			if subject.StagedDirs[prop] == dir {
+				return subject.Key, prop, true
+			}
+		}
+	}
+	return MigrationRecordKey{}, "", false
+}
+
 func (s migrationPreservedState) preservesBucket(dir string) bool {
 	if s.someRecordsUnreadable {
 		return true

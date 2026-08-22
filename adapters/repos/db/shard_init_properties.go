@@ -403,6 +403,11 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		if committed.preservesBucket(bucketName) {
 			continue
 		}
+		// A mirror aimed at a bucket that is about to go stops being useful
+		// work on every write until the process restarts.
+		if key, prop, ok := committed.mirrorFor(bucketName); ok {
+			s.DisarmMigrationMirror(key, prop)
+		}
 		if err := s.store.ShutdownBucket(ctx, bucketName); err != nil {
 			if errors.Is(err, lsmkv.ErrBucketNotFound) {
 				// Race with another teardown path (in-flight task's own

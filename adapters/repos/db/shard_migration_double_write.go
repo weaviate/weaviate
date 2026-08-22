@@ -327,10 +327,8 @@ func (s *Shard) migrationDoubleWriteDelete(st *propValueIndexState, prevObject *
 //     would double-write through. Removing callback and scope together makes
 //     that torn state unobservable, so the flag is redundant. An in-flight
 //     writer still holding the pre-disarm snapshot lands in this record's own
-//     bucket under either name, because resolveScopedDoubleWriteBucket's
-//     canonical fallback denotes the same physical bucket once this record
-//     flipped. A straggler outliving ANOTHER record's flip is what the
-//     retirement ordering handles, not this.
+//     bucket or in nothing at all: resolveScopedDoubleWriteBucket takes the
+//     canonical name only while it denotes the bucket that mirror armed on.
 //
 // Disarming a subset re-registers the pair over the properties that are left
 // rather than removing it, because the actor that disarms owns one property of
