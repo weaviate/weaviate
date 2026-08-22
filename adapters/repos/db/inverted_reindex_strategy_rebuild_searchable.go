@@ -50,8 +50,6 @@ func (s *RebuildSearchableStrategy) IngestSuffix() string {
 
 func (s *RebuildSearchableStrategy) SourceStrategy() string { return lsmkv.StrategyInverted }
 func (s *RebuildSearchableStrategy) TargetStrategy() string { return lsmkv.StrategyInverted }
-func (s *RebuildSearchableStrategy) BackupStrategy() string { return lsmkv.StrategyInverted }
-
 func (s *RebuildSearchableStrategy) SourceIndexType() PropertyIndexType {
 	return IndexTypePropSearchableValue
 }

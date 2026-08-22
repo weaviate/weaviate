@@ -69,10 +69,6 @@ func (s *SearchableRetokenizeStrategy) TargetStrategy() string {
 	return s.bucketStrategy
 }
 
-func (s *SearchableRetokenizeStrategy) BackupStrategy() string {
-	return s.bucketStrategy
-}
-
 func (s *SearchableRetokenizeStrategy) WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket,
 	docID uint64, prop inverted.Property,
 ) error {

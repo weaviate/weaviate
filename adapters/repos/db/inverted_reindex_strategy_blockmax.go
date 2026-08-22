@@ -61,10 +61,6 @@ func (s *MapToBlockmaxStrategy) TargetStrategy() string {
 	return lsmkv.StrategyInverted
 }
 
-func (s *MapToBlockmaxStrategy) BackupStrategy() string {
-	return lsmkv.StrategyMapCollection
-}
-
 func (s *MapToBlockmaxStrategy) WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket,
 	docID uint64, prop inverted.Property,
 ) error {

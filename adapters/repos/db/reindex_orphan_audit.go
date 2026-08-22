@@ -794,23 +794,24 @@ func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, l
 }
 
 // removeUnloadedSidecarsForOrphan removes per-property sidecar bucket
-// directories owned by the orphan tracker. Routes through the strategy
-// registry (migrationSuffixes) keyed by the orphan's tracker dirName
-// — the strategy's MigrationDirName() and IngestSuffix/ReindexSuffix
-// methods are the single source of truth for the on-disk
-// dir layout (S3 fix). Falls back to no-op if the tracker dirName does
-// not match any registered strategy: defensive, but it also means a
-// future strategy added to migrationSuffixes will be picked up here
-// automatically.
+// directories owned by the orphan tracker, derived from the strategy registry
+// (migrationSuffixes) keyed by the tracker dirName rather than matched by
+// string prefix.
+//
+// The registry, not the record: an orphan that reached here from the
+// record-less arm has only its payload, and the two derivations agree for the
+// rest because the writers compose their names the same way. A record's own
+// [MigrationSubject.SidecarDirs] would be the stronger evidence, and moving to
+// it is the open work — until then the two must not drift apart.
 //
 // Sidecar dir names that this consults:
 //   - <main>__<ingestSuffix>_<gen>      (ingest sidecar)
 //   - <main>__<reindexSuffix>_<gen>     (reindex sidecar)
 //
 // where `<main>` is the strategy's sourceBucketName(propName) for the
-// canonical bucket the migration writes back to. The strategy decides
-// what those names are — the audit MUST NOT re-derive them by string
-// prefix.
+// canonical bucket the migration writes back to. A tracker dirName matching no
+// registered strategy is a no-op, which also means a future strategy added to
+// migrationSuffixes is picked up here automatically.
 func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, logger logrus.FieldLogger) {
 	for _, sidecar := range sidecarDirsForOrphan(o) {
 		path := filepath.Join(lsmPath, sidecar)

@@ -65,10 +65,6 @@ func (s *EnableSearchableStrategy) TargetStrategy() string {
 	return lsmkv.StrategyInverted
 }
 
-func (s *EnableSearchableStrategy) BackupStrategy() string {
-	return lsmkv.StrategyInverted
-}
-
 func (s *EnableSearchableStrategy) WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket,
 	docID uint64, prop inverted.Property,
 ) error {

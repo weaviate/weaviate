@@ -1529,121 +1529,153 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 		logger.Warnf("runtime swap: trim: failed to unwrap shard; skipping cleanup: %v", err)
 		return
 	}
-	lsmPath := concrete.pathLSM()
-	// The records are the whole protection set for the removals below, and a
-	// record this build cannot read names directories nothing else will
-	// vouch for. Every other destructive sweep withholds on that; so does
-	// this one, rather than reading "not in the set" as "nobody owns it".
-	if concrete.migrationRecords == nil || len(concrete.migrationRecords.Unreadable()) > 0 {
+	preserve, ok := trimPreserveSetOf(concrete)
+	if !ok {
 		logger.Warn("runtime swap: trim: migration records could not all be read; trimming nothing")
 		return
 	}
-	records := concrete.migrationRecords.Records()
-	// The release before the records marked a completed migration in the
-	// tracker dir instead. Nothing on this build vouches for those
-	// directories, so without this the trim removes the only copy.
-	legacyPreserved := migrationLegacyMarkerDirsAt(lsmPath, records)
-	preservedBucketDir := func(dir string) bool {
-		if _, ok := legacyPreserved[dir]; ok {
+	lsmPath := concrete.pathLSM()
+	for _, path := range t.obsoleteSidecarDirs(logger, lsmPath, props, preserve) {
+		t.removeAllSafe(logger, path)
+	}
+	for _, path := range t.obsoleteTrackerDirs(logger, lsmPath, preserve) {
+		t.removeAllSafe(logger, path)
+	}
+}
+
+// migrationTrimPreserve answers what this trim may not remove: anything a
+// readable record names, and anything the release before the records marked
+// as completed. Everything else on the shard is what no record can attribute.
+type migrationTrimPreserve struct {
+	records []MigrationRecord
+	legacy  map[string]struct{}
+}
+
+// trimPreserveSetOf builds it, or reports that it cannot. The records are the
+// whole protection set for the removals, and a record this build cannot read
+// names directories nothing else will vouch for — so an incomplete set is not
+// a smaller one, it is no answer at all.
+func trimPreserveSetOf(shard *Shard) (migrationTrimPreserve, bool) {
+	if shard.migrationRecords == nil || len(shard.migrationRecords.Unreadable()) > 0 {
+		return migrationTrimPreserve{}, false
+	}
+	records := shard.migrationRecords.Records()
+	return migrationTrimPreserve{
+		records: records,
+		legacy:  migrationLegacyMarkerDirsAt(shard.pathLSM(), records),
+	}, true
+}
+
+func (p migrationTrimPreserve) bucketDir(dir string) bool {
+	if _, ok := p.legacy[dir]; ok {
+		return true
+	}
+	for _, rec := range p.records {
+		if rec.OwnsBucket(dir) {
 			return true
 		}
-		for _, rec := range records {
-			if rec.OwnsBucket(dir) {
-				return true
-			}
-		}
-		return false
 	}
-	currentGen := t.strategy.MigrationDirName()
-	currentReindex := t.strategy.ReindexSuffix()
-	currentIngest := t.strategy.IngestSuffix()
+	return false
+}
 
-	// Reverse the gen suffix off each current suffix to get the
-	// suffix-without-gen base for prefix matching against older
-	// generations on disk. genSuffix = "_<N>"; everything before the last
-	// "_<digits>" is the base. parseMigrationDirName does this for the
-	// migration dir name; for the bucket suffixes we extract the same way.
-	currentReindexBase, _, _ := parseMigrationDirName(currentReindex)
-	currentIngestBase, _, _ := parseMigrationDirName(currentIngest)
-	currentMigBase, currentGenN, _ := parseMigrationDirName(currentGen)
+func (p migrationTrimPreserve) trackerDir(dir string) bool {
+	if _, ok := p.legacy[dir]; ok {
+		return true
+	}
+	for _, rec := range p.records {
+		if rec.Subject().TrackerDir == dir {
+			return true
+		}
+	}
+	return false
+}
 
-	// Bucket sidecar dirs live at the top of the LSM dir. Match by
-	// "_<base>_<M>" suffix on names that start with the prop's main
-	// bucket name. The current gen's ingest dir is intentionally kept.
+// obsoleteSidecarDirs names the sidecar bucket directories this trim owns.
+// They live at the top of the LSM directory and are matched by an
+// "_<base>_<M>" suffix on a name starting with the property's main bucket.
+// The current generation's ingest directory is deliberately kept: it is the
+// data the flip just made live.
+func (t *ShardReindexTaskGeneric) obsoleteSidecarDirs(logger logrus.FieldLogger,
+	lsmPath string, props []string, preserve migrationTrimPreserve,
+) []string {
 	entries, err := os.ReadDir(lsmPath)
 	if err != nil {
 		logger.Warnf("runtime swap: trim: failed to read LSM dir; skipping cleanup: %v", err)
-	} else {
-		for _, propName := range props {
-			mainBucket := t.strategy.SourceBucketName(propName)
-			for _, entry := range entries {
-				if !entry.IsDir() {
-					continue
-				}
-				name := entry.Name()
-				if !strings.HasPrefix(name, mainBucket) {
-					continue
-				}
-				// Strip the mainBucket prefix to inspect the suffix.
-				rest := name[len(mainBucket):]
-				if len(rest) == 0 {
-					continue // the live main bucket itself
-				}
-				suffixBase, suffixGen, ok := parseMigrationDirName(rest)
-				if !ok || preservedBucketDir(name) {
-					continue
-				}
-				switch suffixBase {
-				case currentReindexBase:
-					// Already removed during runtimeSwap step 2; this is
-					// the leftover of a run that did not get that far.
-					t.removeAllSafe(logger, filepath.Join(lsmPath, name))
-				case currentIngestBase:
-					if suffixGen < currentGenN {
-						t.removeAllSafe(logger, filepath.Join(lsmPath, name))
-					}
+		return nil
+	}
+	// Reverse the gen suffix off each current suffix to get the
+	// suffix-without-gen base for prefix matching against older generations
+	// on disk. genSuffix = "_<N>"; everything before the last "_<digits>" is
+	// the base.
+	currentReindexBase, _, _ := parseMigrationDirName(t.strategy.ReindexSuffix())
+	currentIngestBase, _, _ := parseMigrationDirName(t.strategy.IngestSuffix())
+	_, currentGenN, _ := parseMigrationDirName(t.strategy.MigrationDirName())
+
+	var out []string
+	for _, propName := range props {
+		mainBucket := t.strategy.SourceBucketName(propName)
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if !strings.HasPrefix(name, mainBucket) {
+				continue
+			}
+			// Strip the mainBucket prefix to inspect the suffix.
+			rest := name[len(mainBucket):]
+			if len(rest) == 0 {
+				continue // the live main bucket itself
+			}
+			suffixBase, suffixGen, ok := parseMigrationDirName(rest)
+			if !ok || preserve.bucketDir(name) {
+				continue
+			}
+			switch suffixBase {
+			case currentReindexBase:
+				// Already removed during runtimeSwap step 2; this is the
+				// leftover of a run that did not get that far.
+				out = append(out, filepath.Join(lsmPath, name))
+			case currentIngestBase:
+				if suffixGen < currentGenN {
+					out = append(out, filepath.Join(lsmPath, name))
 				}
 			}
 		}
 	}
+	return out
+}
 
-	// Migration tracker dirs: remove all for older gens of THIS strategy
-	// + prop tuple.
+// obsoleteTrackerDirs names the tracker directories this trim owns: older
+// generations of this strategy and property tuple.
+func (t *ShardReindexTaskGeneric) obsoleteTrackerDirs(logger logrus.FieldLogger,
+	lsmPath string, preserve migrationTrimPreserve,
+) []string {
 	migsDir := filepath.Join(lsmPath, ".migrations")
-	migEntries, err := os.ReadDir(migsDir)
+	entries, err := os.ReadDir(migsDir)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			logger.Warnf("runtime swap: trim: failed to read .migrations dir; skipping cleanup: %v", err)
 		}
-		return
+		return nil
 	}
-	preservedTrackerDir := func(dir string) bool {
-		if _, ok := legacyPreserved[dir]; ok {
-			return true
-		}
-		for _, rec := range records {
-			if rec.Subject().TrackerDir == dir {
-				return true
-			}
-		}
-		return false
-	}
-	for _, entry := range migEntries {
+	currentMigBase, currentGenN, _ := parseMigrationDirName(t.strategy.MigrationDirName())
+
+	var out []string
+	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		base, gen, ok := parseMigrationDirName(entry.Name())
-		if !ok || preservedTrackerDir(entry.Name()) {
+		if !ok || preserve.trackerDir(entry.Name()) {
 			continue
 		}
-		if base != currentMigBase {
+		if base != currentMigBase || gen >= currentGenN {
 			continue
 		}
-		if gen >= currentGenN {
-			continue
-		}
-		t.removeAllSafe(logger, filepath.Join(migsDir, entry.Name()))
+		out = append(out, filepath.Join(migsDir, entry.Name()))
 	}
+	return out
 }
 
 func (t *ShardReindexTaskGeneric) removeAllSafe(logger logrus.FieldLogger, path string) {

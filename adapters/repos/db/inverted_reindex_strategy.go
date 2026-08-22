@@ -69,10 +69,6 @@ type MigrationStrategy interface {
 	// e.g. lsmkv.StrategyInverted
 	TargetStrategy() string
 
-	// BackupStrategy returns the LSM strategy for backup buckets.
-	// Usually the same as SourceStrategy.
-	BackupStrategy() string
-
 	// WriteToReindexBucket writes a single property's data for one object
 	// into the reindex bucket during the async reindex loop.
 	WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket, docID uint64,

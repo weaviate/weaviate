@@ -64,10 +64,6 @@ func (s *FilterableRetokenizeStrategy) TargetStrategy() string {
 	return lsmkv.StrategyRoaringSet
 }
 
-func (s *FilterableRetokenizeStrategy) BackupStrategy() string {
-	return lsmkv.StrategyRoaringSet
-}
-
 func (s *FilterableRetokenizeStrategy) WriteToReindexBucket(_ ShardLike, bucket *lsmkv.Bucket,
 	docID uint64, prop inverted.Property,
 ) error {

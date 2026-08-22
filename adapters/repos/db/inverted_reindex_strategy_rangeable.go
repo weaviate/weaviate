@@ -84,10 +84,6 @@ func (s *FilterableToRangeableStrategy) TargetStrategy() string {
 	return lsmkv.StrategyRoaringSetRange
 }
 
-func (s *FilterableToRangeableStrategy) BackupStrategy() string {
-	return lsmkv.StrategyRoaringSetRange
-}
-
 func (s *FilterableToRangeableStrategy) WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket,
 	docID uint64, prop inverted.Property,
 ) error {
