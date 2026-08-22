@@ -310,8 +310,8 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 				"a backup copy from a release before this one is reclaimed here or never")
 
 			logger, _ := test.NewNullLogger()
-			records, frozen, _ := migrationRecordsAt(residueLSM, logger)
-			require.False(t, frozen)
+			records, someRecordsUnreadable, _ := migrationRecordsAt(residueLSM, logger)
+			require.False(t, someRecordsUnreadable)
 			rec, ok := migrationRecordForTracker(records, tc.tracker)
 			require.True(t, ok, "the record outlives the rename that answers it")
 			assert.Equal(t, MigrationStatePromoted, rec.State())
@@ -376,7 +376,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		sidecars []string
 		// unreadable is a dir the gate is denied access to, relative to the
 		// shard's LSM path ("." is the LSM path itself). Empty denies nothing.
-		unreadable string
+		recordSetUnreadable string
 		// unreadablePayloadTracker names a tracker whose payload.mig is a
 		// directory instead of a file — unreadable for any user, root
 		// included, unlike unreadable's chmod.
@@ -646,10 +646,10 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		},
 		// An unreadable dir fails open, not "nothing to clean".
 		{
-			name:       "an LSM dir the gate cannot enumerate",
-			indexType:  "filterable",
-			unreadable: ".",
-			wantStale:  true,
+			name:                "an LSM dir the gate cannot enumerate",
+			indexType:           "filterable",
+			recordSetUnreadable: ".",
+			wantStale:           true,
 		},
 		{
 			// A load can remove directories, but it can never make an absent
@@ -681,12 +681,12 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			// which is a stronger fault than a record this build cannot
 			// understand: that one withholds removals, this one hides them.
 			// The gate fails open and the sweep says so loudly.
-			name:           "a .migrations dir the gate cannot enumerate",
-			indexType:      "filterable",
-			unreadable:     ".migrations",
-			trackers:       []string{"enable_filterable_category_1"},
-			wantStale:      true,
-			wantSweepFails: true,
+			name:                "a .migrations dir the gate cannot enumerate",
+			indexType:           "filterable",
+			recordSetUnreadable: ".migrations",
+			trackers:            []string{"enable_filterable_category_1"},
+			wantStale:           true,
+			wantSweepFails:      true,
 		},
 		// A payload this sweep can't read could name this property; answering
 		// from the name alone would report a shard this sweep owns as clean.
@@ -718,7 +718,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.unreadable != "" && os.Geteuid() == 0 {
+			if tc.recordSetUnreadable != "" && os.Geteuid() == 0 {
 				t.Skip("root reads a directory whatever its mode says")
 			}
 			propName := tc.propName
@@ -764,8 +764,8 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 					filepath.Join(lsm, ".migrations", tc.corruptPayload, reindexRecoveryPayloadFile),
 					[]byte("not a recovery record"), 0o644))
 			}
-			if tc.unreadable != "" {
-				denied := filepath.Join(lsm, tc.unreadable)
+			if tc.recordSetUnreadable != "" {
+				denied := filepath.Join(lsm, tc.recordSetUnreadable)
 				// Restored before the shard shuts down, which needs the dir
 				// back: defers run in reverse order of registration.
 				defer func() { require.NoError(t, os.Chmod(denied, 0o755)) }()

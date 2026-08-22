@@ -313,11 +313,11 @@ func hasStalePartialReindexState(
 	}
 	committed := dirs.committedMigrations(lsmPath, logger)
 	switch {
-	case committed.unreadable:
+	case committed.recordSetUnreadable:
 		// Nothing about this shard could be read, so reporting it clean would
 		// be a guess. Hydrating is what turns it into an error a caller sees.
 		return true, false
-	case committed.frozen:
+	case committed.someRecordsUnreadable:
 		// A record this build cannot understand withholds every removal, so a
 		// hydration would reclaim nothing — and reporting otherwise would wake
 		// this tenant on every sweep pass for as long as the record stays
@@ -393,7 +393,7 @@ type dirNamesCache struct {
 	props taskPropsCache
 	// committed memoizes each shard's committed migrations; see
 	// [dirNamesCache.committedMigrations].
-	committed map[string]migrationCommittedState
+	committed map[string]migrationPreservedState
 }
 
 // committedMigrations answers, per shard, which directories a committed
@@ -401,16 +401,16 @@ type dirNamesCache struct {
 // asks it per (property, index type) tuple over the same shards, and because
 // nothing may change the answer while a sweep holds it: a migration commits
 // only through a load, and a loaded shard leaves the sweep's unloaded path.
-func (c *dirNamesCache) committedMigrations(lsmPath string, logger logrus.FieldLogger) migrationCommittedState {
+func (c *dirNamesCache) committedMigrations(lsmPath string, logger logrus.FieldLogger) migrationPreservedState {
 	if c == nil {
-		return migrationCommittedStateOf(migrationRecordsAt(lsmPath, logger))
+		return migrationPreservedStateOf(migrationRecordsAt(lsmPath, logger))
 	}
 	if state, ok := c.committed[lsmPath]; ok {
 		return state
 	}
-	state := migrationCommittedStateOf(migrationRecordsAt(lsmPath, logger))
+	state := migrationPreservedStateOf(migrationRecordsAt(lsmPath, logger))
 	if c.committed == nil {
-		c.committed = map[string]migrationCommittedState{}
+		c.committed = map[string]migrationPreservedState{}
 	}
 	c.committed[lsmPath] = state
 	return state

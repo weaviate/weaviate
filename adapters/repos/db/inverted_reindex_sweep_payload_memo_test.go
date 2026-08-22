@@ -298,7 +298,7 @@ func TestSweepMemoLeavesTheDeletedSetAlone(t *testing.T) {
 			for _, f := range sweepMemoFixtures {
 				names = append(names, f.dir)
 			}
-			committed := migrationCommittedStateOf(migrationRecordsAt(refLSM, logger))
+			committed := migrationPreservedStateOf(migrationRecordsAt(refLSM, logger))
 			want := sweepSurvivors(names, committed, refScope.inScope)
 
 			lsm := writeSweepMemoFixtures(t)
@@ -312,7 +312,7 @@ func TestSweepMemoLeavesTheDeletedSetAlone(t *testing.T) {
 // rejects, plus the ones a committed migration owns. It is the reference the
 // real sweep is diffed against, so the two can only differ where inScope or
 // the committed set does.
-func sweepSurvivors(names []string, committed migrationCommittedState, inScope func(string) bool) []string {
+func sweepSurvivors(names []string, committed migrationPreservedState, inScope func(string) bool) []string {
 	survivors := []string{}
 	for _, name := range names {
 		if !inScope(name) || committed.preservesTracker(name) {

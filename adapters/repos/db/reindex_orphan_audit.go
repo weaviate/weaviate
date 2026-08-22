@@ -425,8 +425,8 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 	if err != nil {
 		return nil
 	}
-	records, frozen, unreadable := migrationRecordsAt(lsmPath, logger)
-	if frozen || unreadable {
+	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
+	if someRecordsUnreadable || recordSetUnreadable {
 		// A record this build cannot read may name any tracker here, and the
 		// record-less arm below has no liveness check to fall back on. This
 		// withholds shard-wide like every other consumer of an unreadable
@@ -507,7 +507,7 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 			})
 			continue
 		}
-		if rec.DataCommitted() {
+		if rec.StagedDataComplete() {
 			continue
 		}
 		subject := rec.Subject()
@@ -675,7 +675,7 @@ func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLoo
 	if err != nil {
 		return
 	}
-	records, frozen, unreadable := migrationRecordsAt(lsmPath, logger)
+	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -686,7 +686,7 @@ func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLoo
 		if !fileExists(sentinelPath) {
 			continue
 		}
-		if frozen || unreadable {
+		if someRecordsUnreadable || recordSetUnreadable {
 			// A matured sentinel is stored destructive intent. Leaving it on a
 			// shard nothing can classify means the first sweep after the
 			// records read again deletes with no fresh grace period, so clear

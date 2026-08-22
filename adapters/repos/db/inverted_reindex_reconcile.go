@@ -100,21 +100,21 @@ func (r *migrationReconciler) Reconcile(ctx context.Context) error {
 	// so there is no way to scope the withholding to the properties it stands
 	// on. Withholding shard-wide is the only sound reading of "never retire,
 	// never witness" when the subject is unknown.
-	frozen := len(r.store.Unreadable()) > 0
-	if frozen {
+	someRecordsUnreadable := len(r.store.Unreadable()) > 0
+	if someRecordsUnreadable {
 		r.logger.WithField("path", r.store.Dir()).Warnf(
 			"%d migration record(s) not understood: withholding every destructive and promoting action on this shard",
 			len(r.store.Unreadable()))
 	}
 
 	records := r.store.Records()
-	if !frozen {
+	if !someRecordsUnreadable {
 		r.retireSuperseded(ctx, records)
 		records = r.store.Records()
 	}
 
 	for _, rec := range records {
-		if err := r.reconcileOne(ctx, rec, records, frozen); err != nil {
+		if err := r.reconcileOne(ctx, rec, records, someRecordsUnreadable); err != nil {
 			// One migration must not be able to keep a shard from loading.
 			r.logger.WithField("record", rec.Subject().Key.String()).Errorf("reconcile migration record: %v", err)
 		}
@@ -123,19 +123,19 @@ func (r *migrationReconciler) Reconcile(ctx context.Context) error {
 }
 
 func (r *migrationReconciler) reconcileOne(ctx context.Context, rec MigrationRecord,
-	all []MigrationRecord, frozen bool,
+	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {
 	switch typed := rec.(type) {
 	case MigrationRecordIterating:
-		return r.reconcileUncommitted(ctx, typed, all, frozen)
+		return r.reconcileUncommitted(ctx, typed, all, someRecordsUnreadable)
 	case MigrationRecordIterated:
-		return r.reconcileIterated(ctx, typed, all, frozen)
+		return r.reconcileIterated(ctx, typed, all, someRecordsUnreadable)
 	case MigrationRecordMerged:
-		return r.reconcileMerged(ctx, typed, all, frozen)
+		return r.reconcileMerged(ctx, typed, all, someRecordsUnreadable)
 	case MigrationRecordSwapped:
-		return r.reconcileSwapped(ctx, typed, all, frozen)
+		return r.reconcileSwapped(ctx, typed, all, someRecordsUnreadable)
 	case MigrationRecordPromoted:
-		return r.reconcilePromoted(ctx, typed, all, frozen)
+		return r.reconcilePromoted(ctx, typed, all, someRecordsUnreadable)
 	default:
 		return fmt.Errorf("no reconciliation for record variant %T", rec)
 	}
@@ -144,9 +144,9 @@ func (r *migrationReconciler) reconcileOne(ctx context.Context, rec MigrationRec
 // reconcileUncommitted handles Iterating: the rebuild is in flight, nothing is
 // staged completely, and the canonical bucket has never stopped being primary.
 func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec MigrationRecord,
-	all []MigrationRecord, frozen bool,
+	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {
-	if frozen {
+	if someRecordsUnreadable {
 		return nil
 	}
 	subject := rec.Subject()
@@ -184,10 +184,10 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 // outrun its data, and resuming from a checkpoint against data that is gone
 // would silently skip every object at or below the stale key.
 func (r *migrationReconciler) reconcileIterated(ctx context.Context, rec MigrationRecordIterated,
-	all []MigrationRecord, frozen bool,
+	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {
 	subject := rec.Subject()
-	if !frozen {
+	if !someRecordsUnreadable {
 		if verdict, why := r.verdict(subject); verdict == migrationVerdictDiscard {
 			return r.discard(ctx, all, subject, why)
 		}
@@ -197,7 +197,7 @@ func (r *migrationReconciler) reconcileIterated(ctx context.Context, rec Migrati
 	if err != nil || restarted {
 		return err
 	}
-	return r.reconcileUncommitted(ctx, rec, all, frozen)
+	return r.reconcileUncommitted(ctx, rec, all, someRecordsUnreadable)
 }
 
 // restartIfRebuiltDataGone is the machine's one reverse edge. Every directory
@@ -238,9 +238,9 @@ func (r *migrationReconciler) restartIfRebuiltDataGone(subject MigrationSubject)
 // is complete; whether it should ever become live is a cluster fact the
 // record deliberately does not hold.
 func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec MigrationRecordMerged,
-	all []MigrationRecord, frozen bool,
+	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {
-	if frozen {
+	if someRecordsUnreadable {
 		return nil
 	}
 	subject := rec.Subject()
@@ -264,7 +264,7 @@ func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec Migration
 	if err != nil {
 		return err
 	}
-	return r.reconcileSwapped(ctx, swapped, all, frozen)
+	return r.reconcileSwapped(ctx, swapped, all, someRecordsUnreadable)
 }
 
 // commitMerged writes the flip decision and nothing else. The verdict is
@@ -359,9 +359,9 @@ func (r *migrationReconciler) ReconcileAfterTaskMap(ctx context.Context) {
 // reconcileSwapped promotes. Every arm is decided by probing the handles the
 // record already carries, never by parsing a directory name.
 func (r *migrationReconciler) reconcileSwapped(ctx context.Context, rec MigrationRecordSwapped,
-	all []MigrationRecord, frozen bool,
+	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {
-	if frozen {
+	if someRecordsUnreadable {
 		return nil
 	}
 	subject := rec.Subject()
@@ -461,9 +461,9 @@ func (r *migrationReconciler) promoteProperty(subject MigrationSubject, prop, st
 // opaque naming only its owned-dirs list can attribute a leftover from a
 // retirement step that partly failed.
 func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec MigrationRecordPromoted,
-	all []MigrationRecord, frozen bool,
+	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {
-	if frozen {
+	if someRecordsUnreadable {
 		return nil
 	}
 	subject := rec.Subject()

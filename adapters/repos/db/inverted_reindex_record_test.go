@@ -316,7 +316,7 @@ func TestMigrationRecordStore(t *testing.T) {
 				// the sweeps have to keep all of them and not just the ones
 				// the readable record happens to name.
 				logger, _ := test.NewNullLogger()
-				committed := migrationCommittedStateOf(migrationRecordsAt(filepath.Dir(filepath.Dir(s.Dir())), logger))
+				committed := migrationPreservedStateOf(migrationRecordsAt(filepath.Dir(filepath.Dir(s.Dir())), logger))
 				require.True(t, committed.preservesBucket("a directory no readable record names"))
 				require.True(t, committed.preservesTracker("a directory no readable record names"))
 			},
@@ -374,8 +374,8 @@ func TestMigrationRecordStore(t *testing.T) {
 				// A reader over someone else's directory removing this file is
 				// what makes that writer's rename fail.
 				logger, _ := test.NewNullLogger()
-				_, _, unreadable := migrationRecordsAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
-				require.False(t, unreadable)
+				_, _, recordSetUnreadable := migrationRecordsAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.False(t, recordSetUnreadable)
 				_, err := os.Stat(scratch)
 				require.NoError(t, err, "a foreign reader must not delete a scratch file it does not own")
 
@@ -411,7 +411,7 @@ func TestMigrationRecordStore(t *testing.T) {
 			// A caller logs the error and carries on with the shard load, so
 			// an empty store here reads as "no migration on this shard" and
 			// licenses every sweep to reclaim.
-			name: "a records directory that cannot be read leaves the shard frozen, not clean",
+			name: "a records directory that cannot be read leaves the whole set unreadable, not clean",
 			arrange: func(t *testing.T, s *MigrationRecordStore) {
 				require.NoError(t, os.MkdirAll(filepath.Dir(s.Dir()), 0o777))
 				require.NoError(t, os.WriteFile(s.Dir(), []byte("not a directory"), 0o600))

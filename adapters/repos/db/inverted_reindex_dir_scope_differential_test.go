@@ -216,7 +216,7 @@ type divergence struct {
 // Narrower than the whole space a writer can produce: every record here
 // carries one strategy code and one index type whatever its directory's real
 // strategy is, and only the Iterating and Swapped states appear, so
-// migrationCommittedStateOf's promoted-tracker arm is never reached.
+// migrationPreservedStateOf's promoted-tracker arm is never reached.
 func TestWidenedMatchesAgreesWithTheNarrowGate(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -228,7 +228,7 @@ func TestWidenedMatchesAgreesWithTheNarrowGate(t *testing.T) {
 				continue
 			}
 			lsm, dirs := writeDiffTree(t, mode, committed)
-			state := migrationCommittedStateOf(migrationRecordsAt(lsm, logger))
+			state := migrationPreservedStateOf(migrationRecordsAt(lsm, logger))
 			var diverged []divergence
 
 			for _, propName := range diffPropNames {
@@ -310,7 +310,7 @@ func TestWidenedSweepLeavesTheSameDirsBehind(t *testing.T) {
 			for _, propName := range diffPropNames {
 				for _, indexType := range diffIndexTypes {
 					refLSM, dirs := writeDiffTree(t, mode, committed)
-					refState := migrationCommittedStateOf(migrationRecordsAt(refLSM, logger))
+					refState := migrationPreservedStateOf(migrationRecordsAt(refLSM, logger))
 					refScope := migrationDirsOf(refLSM, nil, propName, indexType).
 						cachingProps(&taskPropsCache{}).knownFrom(refState)
 					var names []string

@@ -111,7 +111,7 @@ func migrationDirClaimedAsDisplaced(all []MigrationRecord, subject MigrationSubj
 // itself rather than just some of its directories.
 func migrationRecordFullySuperseded(all []MigrationRecord, rec MigrationRecord) bool {
 	subject := rec.Subject()
-	if !rec.DataCommitted() || len(subject.Properties) == 0 {
+	if !rec.StagedDataComplete() || len(subject.Properties) == 0 {
 		return false
 	}
 	for _, prop := range subject.Properties {
@@ -133,13 +133,13 @@ func (r *migrationReconciler) RetireSuperseded(ctx context.Context) {
 	r.retireSuperseded(ctx, r.store.Records())
 }
 
-// retireSuperseded runs the relation over every committed record. Ascending
-// generation is not needed for correctness — the predicate makes any order
-// safe — but it leaves the fewest dangling links after a crash and makes the
-// outcome deterministic.
+// retireSuperseded runs the relation over every record whose staged data is
+// complete. Ascending generation is not needed for correctness — the predicate
+// makes any order safe — but it leaves the fewest dangling links after a crash
+// and makes the outcome deterministic.
 func (r *migrationReconciler) retireSuperseded(ctx context.Context, all []MigrationRecord) {
 	for _, rec := range all {
-		if !rec.DataCommitted() {
+		if !rec.StagedDataComplete() {
 			continue
 		}
 		subject := rec.Subject()

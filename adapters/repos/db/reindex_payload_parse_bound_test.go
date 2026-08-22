@@ -235,7 +235,7 @@ func TestStaleMigrationDirCleanupStopsOnCancelledContext(t *testing.T) {
 	cancel()
 
 	props := &taskPropsCache{}
-	committed := migrationCommittedStateOf(migrationRecordsAt(lsm, logger))
+	committed := migrationPreservedStateOf(migrationRecordsAt(lsm, logger))
 	scope := migrationDirsOf(lsm, nil, "a", "filterable").cachingProps(props).knownFrom(committed)
 	err := cleanStaleMigrationDirsIn(ctx, scope, committed, logger)
 

@@ -429,7 +429,7 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	// Idempotent fast-path: committed means prep already completed, either
 	// by an earlier call in this process or by a previous boot's
 	// runtimePrepare.
-	if entry.rec.DataCommitted() {
+	if entry.rec.StagedDataComplete() {
 		logger.Debug("RunPrepareOnShard: already merged on disk; no-op")
 		return nil
 	}
@@ -479,7 +479,7 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 	// the iteration completed, so resuming would re-run it against a
 	// migration whose data is already staged. Both callers handle it
 	// downstream.
-	if rec.DataCommitted() {
+	if rec.StagedDataComplete() {
 		return &dtmPhaseEntry{shard: concreteShard, logger: logger, rec: rec}, nil
 	}
 
@@ -533,7 +533,7 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		logger.WithField("props", props).Info("RunSwapOnShard: flip already decided; running OnMigrationComplete only")
 		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, props)
 
-	case entry.rec.DataCommitted():
+	case entry.rec.StagedDataComplete():
 		// The staged data is complete; the flip is what is left. The ingest
 		// buckets are open by this point on every route — the load hook opens
 		// them for a committed record, and the guard below covers a bucket
@@ -854,7 +854,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 
 	// Committed means the prepend loop finished, so the rebuild's own buckets
 	// have served their purpose and their directories may already be gone.
-	committed := hasRecord && rec.DataCommitted()
+	committed := hasRecord && rec.StagedDataComplete()
 	if committed {
 		logger.Debug("merged, not swapped. starting ingest buckets")
 	} else {

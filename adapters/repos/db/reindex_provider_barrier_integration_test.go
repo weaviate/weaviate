@@ -88,7 +88,7 @@ func barrierIntegrationDrivenToReindexed(
 	require.True(t, ok, "helper precondition: iteration must leave a record")
 	require.Equal(t, MigrationStateIterated, rec.State(),
 		"helper precondition: iteration must reach Iterated under skipSwapOnFinish=true")
-	require.False(t, rec.DataCommitted(),
+	require.False(t, rec.StagedDataComplete(),
 		"helper precondition: runtimePrepare must NOT run under skipSwapOnFinish=true")
 	return task, strategy
 }
@@ -300,8 +300,8 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 
 	// Sanity: no record was written (the crash beat the iteration to it).
 	// This is the invariant the discover path keys off.
-	records, frozen, _ := migrationRecordsAt(shard.pathLSM(), idx.logger)
-	require.False(t, frozen)
+	records, someRecordsUnreadable, _ := migrationRecordsAt(shard.pathLSM(), idx.logger)
+	require.False(t, someRecordsUnreadable)
 	require.Empty(t, records, "no record may exist — iteration never ran")
 
 	// Now simulate process restart: DiscoverInFlightReindexTasks walks
@@ -401,11 +401,11 @@ func TestReindexProviderBarrierIntegration_IteratedRecordDurabilityBarrier(t *te
 	// Re-read the record the way a real startup does. This pins the
 	// end-to-end contract: the barrier persisted, and the recovery path sees
 	// the state that dispatches RunSwapOnShard into its resume branch.
-	recovered, frozen, _ := migrationRecordsAt(shard.pathLSM(), idx.logger)
-	require.False(t, frozen)
+	recovered, someRecordsUnreadable, _ := migrationRecordsAt(shard.pathLSM(), idx.logger)
+	require.False(t, someRecordsUnreadable)
 	require.Len(t, recovered, 1)
 	assert.Equal(t, MigrationStateIterated, recovered[0].State(),
 		"the recovered record must still say Iterated: the barrier means the state never outruns its data")
-	assert.False(t, recovered[0].DataCommitted(),
+	assert.False(t, recovered[0].StagedDataComplete(),
 		"the barrier path stops at Iterated; nothing is staged yet")
 }

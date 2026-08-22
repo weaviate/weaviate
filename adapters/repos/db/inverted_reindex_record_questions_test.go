@@ -41,7 +41,7 @@ func TestMigrationRecordQuestions(t *testing.T) {
 		name               string
 		record             MigrationRecord
 		wantState          MigrationState
-		wantDataCommitted  bool
+		wantStagedComplete bool
 		wantPointerSwapped bool
 		wantIterationDone  bool
 		wantOwnsStagedDir  bool
@@ -50,7 +50,7 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			name:               "iterating: rebuilding into staging, canonical still primary",
 			record:             iterating,
 			wantState:          MigrationStateIterating,
-			wantDataCommitted:  false,
+			wantStagedComplete: false,
 			wantPointerSwapped: false,
 			wantIterationDone:  false,
 			wantOwnsStagedDir:  true,
@@ -59,16 +59,16 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			name:               "iterated: rebuild durable, still discardable",
 			record:             iterated,
 			wantState:          MigrationStateIterated,
-			wantDataCommitted:  false,
+			wantStagedComplete: false,
 			wantPointerSwapped: false,
 			wantIterationDone:  true,
 			wantOwnsStagedDir:  true,
 		},
 		{
-			name:               "merged: the committed boolean flips, the flip decision has not",
+			name:               "merged: the staged data is complete, the flip decision has not been made",
 			record:             merged,
 			wantState:          MigrationStateMerged,
-			wantDataCommitted:  true,
+			wantStagedComplete: true,
 			wantPointerSwapped: false,
 			wantIterationDone:  true,
 			wantOwnsStagedDir:  true,
@@ -77,7 +77,7 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			name:               "swapped: the flip decision is durable, so the migration is irreversible",
 			record:             swapped,
 			wantState:          MigrationStateSwapped,
-			wantDataCommitted:  true,
+			wantStagedComplete: true,
 			wantPointerSwapped: true,
 			wantIterationDone:  true,
 			wantOwnsStagedDir:  true,
@@ -86,7 +86,7 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			name:               "promoted: committed and swapped, same answers as swapped",
 			record:             promoted,
 			wantState:          MigrationStatePromoted,
-			wantDataCommitted:  true,
+			wantStagedComplete: true,
 			wantPointerSwapped: true,
 			wantIterationDone:  true,
 			wantOwnsStagedDir:  true,
@@ -99,7 +99,7 @@ func TestMigrationRecordQuestions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.wantState, tt.record.State())
-			require.Equal(t, tt.wantDataCommitted, tt.record.DataCommitted())
+			require.Equal(t, tt.wantStagedComplete, tt.record.StagedDataComplete())
 			require.Equal(t, tt.wantPointerSwapped, tt.record.PointerSwapped())
 			require.Equal(t, tt.wantIterationDone, tt.record.IterationComplete())
 			require.Equal(t, tt.wantOwnsStagedDir, tt.record.OwnsBucket("m_42_title"))

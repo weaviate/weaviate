@@ -1914,14 +1914,14 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 		lsmPath := shardPathLSM(idx.path(), shardName)
 		// Memos per shard, not per walk: no two shards name the same path, so
 		// nothing carries over between them anyway.
-		records, frozen, unreadable := migrationRecordsAt(lsmPath, p.logger)
-		if frozen || unreadable {
+		records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, p.logger)
+		if someRecordsUnreadable || recordSetUnreadable {
 			// Cannot rule this shard out, and the answer decides only whether
 			// the operator is pointed at it. Pointing them at a shard that
 			// turns out to be clean costs a log line.
 			return true
 		}
-		if migrationRecordFor(records, payload.MigrationType, payload.Properties, MigrationRecord.DataCommitted) {
+		if migrationRecordFor(records, payload.MigrationType, payload.Properties, MigrationRecord.StagedDataComplete) {
 			return true
 		}
 	}
@@ -2214,12 +2214,12 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 		if !isHosted {
 			continue
 		}
-		records, frozen, unreadable := migrationRecordsAt(shardPathLSM(idx.path(), shardName), p.logger)
+		records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(shardPathLSM(idx.path(), shardName), p.logger)
 		// A record this build cannot read may be the one still owing
 		// callbacks, so answering "done" on its silence would release the
 		// bootstrap gate over a migration nobody is driving.
-		if frozen || unreadable ||
-			migrationRecordFor(records, payload.MigrationType, payload.Properties, migrationRecordUncommitted) {
+		if someRecordsUnreadable || recordSetUnreadable ||
+			migrationRecordFor(records, payload.MigrationType, payload.Properties, migrationRecordStagingIncomplete) {
 			return false
 		}
 	}

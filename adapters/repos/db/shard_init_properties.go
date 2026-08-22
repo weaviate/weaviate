@@ -254,7 +254,7 @@ func (s *Shard) cleanStaleMigrationDirs(ctx context.Context, propName, indexType
 func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType string,
 	logger logrus.FieldLogger, props *taskPropsCache,
 ) {
-	committed := migrationCommittedStateOf(migrationRecordsAt(lsmPath, logger))
+	committed := migrationPreservedStateOf(migrationRecordsAt(lsmPath, logger))
 	scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props).knownFrom(committed)
 	if err := cleanStaleMigrationDirsIn(ctx, scope, committed, logger); err != nil && ctx.Err() == nil {
 		// Logged and dropped here only: the DELETE this serves has already
@@ -279,7 +279,7 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 // too, for the same reason and so the sweep path can report it as a run that
 // stopped rather than a shard that failed ([truncatedByCancellation]).
 func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
-	committed migrationCommittedState, logger logrus.FieldLogger,
+	committed migrationPreservedState, logger logrus.FieldLogger,
 ) error {
 	migrationsRoot := filepath.Join(scope.lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsRoot)
@@ -388,7 +388,7 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	props := &taskPropsCache{}
 	// Preserve the directories of completed-but-deferred migrations: they back
 	// the live in-memory bucket pointer; wiping them is #10675-shape data loss.
-	committed := migrationCommittedStateOf(migrationRecordsAt(s.pathLSM(), s.index.logger))
+	committed := migrationPreservedStateOf(migrationRecordsAt(s.pathLSM(), s.index.logger))
 	scope := migrationDirsOf(s.pathLSM(), nil, propName, indexType).cachingProps(props).knownFrom(committed)
 
 	loaded := s.store.GetBucketsByName()
@@ -487,14 +487,14 @@ func (s *Shard) cleanStaleSidecarDirs(mainBucketName string) {
 	// Nothing is preserved: the caller has just removed the property's main
 	// bucket, so a migration still staging data for it has nothing left to
 	// become.
-	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, migrationCommittedState{})
+	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, migrationPreservedState{})
 }
 
 // cleanStaleSidecarDirsWithPreserved removes matching sidecar dirs except
 // those a committed migration owns: they back live completed-but-deferred
 // migrations; wiping them is #10675-shape silent data loss. The zero value
 // preserves nothing.
-func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, committed migrationCommittedState) {
+func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, committed migrationPreservedState) {
 	entries, err := os.ReadDir(s.pathLSM())
 	if err != nil {
 		s.index.logger.WithField("path", s.pathLSM()).

@@ -209,7 +209,7 @@ func (s migrationDirScope) cachingProps(c *taskPropsCache) migrationDirScope {
 
 // knownFrom hands the scope the shard's records, which the sweep has already
 // read to decide what it must preserve.
-func (s migrationDirScope) knownFrom(state migrationCommittedState) migrationDirScope {
+func (s migrationDirScope) knownFrom(state migrationPreservedState) migrationDirScope {
 	s.records = state.records
 	return s
 }

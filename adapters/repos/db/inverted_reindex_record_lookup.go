@@ -21,15 +21,17 @@ import (
 // and gates that decide what to do about a cold tenant need the same answers a
 // loaded shard's store gives, and a record is a few hundred bytes.
 //
-// frozen reports that at least one record could not be understood. Its
-// property list is exactly what could not be read, so there is no way to scope
-// the withholding to the directories it stands on — the same shard-wide
-// reading reconciliation applies at load.
+// someRecordsUnreadable reports that at least one record could not be
+// understood. Its property list is exactly what could not be read, so there is
+// no way to scope the withholding to the directories it stands on — the same
+// shard-wide reading reconciliation applies at load.
 //
-// unreadable is the stronger fault: the record set could not be read at all,
-// so this shard's state is not merely undecidable but invisible. A caller that
-// would otherwise report the shard clean has to fail open on it.
-func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []MigrationRecord, frozen, unreadable bool) {
+// recordSetUnreadable is the strictly stronger fault: the record set could not
+// be read at all, so this shard's state is not merely undecidable but
+// invisible, and a caller that would otherwise report the shard clean has to
+// fail open on it. It never comes back true on its own, because a set nothing
+// could read is also a set some record could not be read from.
+func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []MigrationRecord, someRecordsUnreadable, recordSetUnreadable bool) {
 	store := NewMigrationRecordStore(lsmPath, logger)
 	if err := store.Load(); err != nil {
 		logger.WithField("path", store.Dir()).Errorf("read migration records: %v", err)
@@ -44,12 +46,12 @@ func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []Mi
 	return store.Records(), len(store.Unreadable()) > 0, false
 }
 
-// migrationCommittedState names what a sweep of one shard must leave alone.
-// A record whose data is committed owns directories that back a live
+// migrationPreservedState names what a sweep of one shard must leave alone.
+// A record whose staged data is complete owns directories that back a live
 // in-memory bucket pointer: removing one empties the canonical bucket on the
 // node that submitted the migration, and nothing reports it.
-type migrationCommittedState struct {
-	// records is the whole understood set, not just the committed part: the
+type migrationPreservedState struct {
+	// records is the whole understood set, not just the preserved part: the
 	// sweeps also ask an extant record which properties its directory belongs
 	// to, which is a subject fact and true in every state.
 	records []MigrationRecord
@@ -58,25 +60,25 @@ type migrationCommittedState struct {
 	// would still do disk work for it.
 	trackers map[string]bool
 
-	// frozen preserves everything on the shard. A record this build cannot
-	// read may name any directory here, and deleting one it names is exactly
-	// the loss the three-outcome loader exists to prevent.
-	frozen bool
-	// unreadable means nothing here could be read at all, which no caller may
-	// report as a clean shard.
-	unreadable bool
+	// someRecordsUnreadable preserves everything on the shard. A record this
+	// build cannot read may name any directory here, and deleting one it names
+	// is exactly the loss the three-outcome loader exists to prevent.
+	someRecordsUnreadable bool
+	// recordSetUnreadable means nothing here could be read at all, which no
+	// caller may report as a clean shard. It implies someRecordsUnreadable.
+	recordSetUnreadable bool
 }
 
-func migrationCommittedStateOf(records []MigrationRecord, frozen, unreadable bool) migrationCommittedState {
-	state := migrationCommittedState{
-		records:    records,
-		buckets:    map[string]struct{}{},
-		trackers:   map[string]bool{},
-		frozen:     frozen,
-		unreadable: unreadable,
+func migrationPreservedStateOf(records []MigrationRecord, someRecordsUnreadable, recordSetUnreadable bool) migrationPreservedState {
+	state := migrationPreservedState{
+		records:               records,
+		buckets:               map[string]struct{}{},
+		trackers:              map[string]bool{},
+		someRecordsUnreadable: someRecordsUnreadable,
+		recordSetUnreadable:   recordSetUnreadable,
 	}
 	for _, rec := range records {
-		if !rec.DataCommitted() {
+		if !rec.StagedDataComplete() {
 			continue
 		}
 		subject := rec.Subject()
@@ -95,16 +97,16 @@ func migrationCommittedStateOf(records []MigrationRecord, frozen, unreadable boo
 	return state
 }
 
-func (s migrationCommittedState) preservesBucket(dir string) bool {
-	if s.frozen {
+func (s migrationPreservedState) preservesBucket(dir string) bool {
+	if s.someRecordsUnreadable {
 		return true
 	}
 	_, ok := s.buckets[dir]
 	return ok
 }
 
-func (s migrationCommittedState) preservesTracker(dir string) bool {
-	if s.frozen {
+func (s migrationPreservedState) preservesTracker(dir string) bool {
+	if s.someRecordsUnreadable {
 		return true
 	}
 	_, ok := s.trackers[dir]
@@ -112,13 +114,13 @@ func (s migrationCommittedState) preservesTracker(dir string) bool {
 }
 
 // trackerNeedsLoad reports whether hydrating this shard would reclaim dir.
-func (s migrationCommittedState) trackerNeedsLoad(dir string) bool {
+func (s migrationPreservedState) trackerNeedsLoad(dir string) bool {
 	return s.trackers[dir]
 }
 
 // bucketsOf names the preserved sidecars of one main bucket, sorted, for a
 // log line that would otherwise report every migration on the shard.
-func (s migrationCommittedState) bucketsOf(mainBucketName string) []string {
+func (s migrationPreservedState) bucketsOf(mainBucketName string) []string {
 	out := make([]string, 0, len(s.buckets))
 	for dir := range s.buckets {
 		if isSidecarDirOf(dir, mainBucketName) {
@@ -141,10 +143,10 @@ func migrationRecordForTracker(records []MigrationRecord, trackerDir string) (Mi
 	return nil, false
 }
 
-// migrationRecordUncommitted is the want-predicate for the readers asking the
-// opposite of DataCommitted: a migration whose staged data is not yet the
-// data, and whose double-write mirror therefore still has to be armed.
-func migrationRecordUncommitted(rec MigrationRecord) bool { return !rec.DataCommitted() }
+// migrationRecordStagingIncomplete is the want-predicate for the readers
+// asking the opposite of StagedDataComplete: a migration whose staged data is
+// not yet the data, and whose double-write mirror still has to be armed.
+func migrationRecordStagingIncomplete(rec MigrationRecord) bool { return !rec.StagedDataComplete() }
 
 // migrationRecordFor reports whether any record on the shard belongs to the
 // named migration and satisfies want. Matching on the migration's own type
