@@ -341,18 +341,27 @@ func validateMigrationEnvelope(e migrationRecordEnvelope) error {
 }
 
 // validateDisplacedAreNotStaged refuses a record whose flip claims to have
-// displaced the very directory it staged. Promotion removes the displaced
-// directory and then renames the staged one onto the canonical name, so with
-// the two equal it removes the only copy and the rename finds nothing: both
-// copies are gone. A restored archive is free to carry either handle.
+// displaced a directory this record staged, for that property or any other.
+// Promotion removes the displaced directory and then renames the staged one
+// onto the canonical name, so a collision destroys the only copy the property
+// owning that handle has. A restored archive is free to carry any handle.
 func validateDisplacedAreNotStaged(e migrationRecordEnvelope) error {
 	if e.Flip == nil {
 		return nil
 	}
+	stagedBy := make(map[string]string, len(e.Subject.StagedDirs))
+	for prop, staged := range e.Subject.StagedDirs {
+		if staged != "" {
+			stagedBy[staged] = prop
+		}
+	}
 	for prop, displaced := range e.Flip.DisplacedDirs {
-		if displaced != "" && displaced == e.Subject.StagedDirs[prop] {
-			return fmt.Errorf("record %q says property %q displaced the directory it staged, %q",
-				e.Subject.Key, prop, displaced)
+		if displaced == "" {
+			continue
+		}
+		if owner, ok := stagedBy[displaced]; ok {
+			return fmt.Errorf("record %q says property %q displaced %q, the directory staged for property %q",
+				e.Subject.Key, prop, displaced, owner)
 		}
 	}
 	return nil

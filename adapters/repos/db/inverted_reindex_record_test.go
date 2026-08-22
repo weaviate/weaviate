@@ -207,6 +207,24 @@ func TestMigrationRecordNotUnderstood(t *testing.T) {
 			}),
 		},
 		{
+			// Promoting title removes body's only staged copy, and body then
+			// reads staged-absent plus canonical-present as an already-run
+			// promotion, settling on the empty canonical arming pre-created.
+			name: "a flip that displaced another property's staged directory",
+			data: valid(func(env map[string]any) {
+				subject := env["subject"].(map[string]any)
+				subject["properties"] = []string{"title", "body"}
+				staged := subject["stagedDirs"].(map[string]any)
+				staged["body"] = "m_42_body"
+				subject["canonicalDirs"].(map[string]any)["body"] = "property_body"
+				env["state"] = string(MigrationStateSwapped)
+				env["flip"] = map[string]any{
+					"flipped":       []string{"title", "body"},
+					"displacedDirs": map[string]any{"title": staged["body"]},
+				}
+			}),
+		},
+		{
 			name: "a unit the record file name could not carry",
 			data: valid(func(env map[string]any) {
 				env["subject"].(map[string]any)["key"].(map[string]any)["unitID"] = "../shard-2__node-0"
