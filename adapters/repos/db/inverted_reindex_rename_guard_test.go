@@ -190,7 +190,12 @@ func TestLocalUnitSealIsNotTheReEntryGuard(t *testing.T) {
 			"task snapshot frozen at the start of a tick, so the teardown can have started since")
 
 	// processOneUnit is the iteration; runPerUnitPhase drives both the prep
-	// and the swap for every callback that reaches a shard.
+	// and the swap for every callback that reaches a shard. resolvedBy names
+	// the call each one gets its shard from, which may hydrate it.
+	resolvedBy := map[string]string{
+		"processOneUnit":  "unwrapShard",
+		"runPerUnitPhase": "resolveUnitForPhase",
+	}
 	for _, fn := range []string{"processOneUnit", "runPerUnitPhase"} {
 		decl, ok := bodies[fn]
 		require.Truef(t, ok, "%s is where a span that writes migration directories lives", fn)
@@ -199,7 +204,33 @@ func TestLocalUnitSealIsNotTheReEntryGuard(t *testing.T) {
 		require.Falsef(t, callIsGuardedBySemantic(decl.Body),
 			"%s registers the unit only for semantic migrations; the other four types write "+
 				"into the same directories", fn)
+
+		// A hydration runs reconciliation, and reconciliation seals this very
+		// unit to promote it. Claiming first refuses that seal, so promotion
+		// is declined and the property keeps answering from the empty bucket
+		// the migration pre-created.
+		claim := firstUse(decl.Body, "enterLocalUnit")
+		resolve := firstUse(decl.Body, resolvedBy[fn])
+		require.NotEqualf(t, token.NoPos, resolve, "%s must resolve its shard through %s", fn, resolvedBy[fn])
+		require.Greaterf(t, claim, resolve,
+			"%s claims the unit before %s hydrates the shard, which refuses the seal reconciliation "+
+				"needs to promote this same migration", fn, resolvedBy[fn])
 	}
+}
+
+// firstUse is the position of the first mention of name in body, or
+// [token.NoPos] when it is not mentioned at all.
+func firstUse(body *ast.BlockStmt, name string) token.Pos {
+	at := token.NoPos
+	ast.Inspect(body, func(n ast.Node) bool {
+		ident, ok := n.(*ast.Ident)
+		if !ok || ident.Name != name || at != token.NoPos {
+			return true
+		}
+		at = ident.Pos()
+		return true
+	})
+	return at
 }
 
 // callIsGuardedBySemantic reports an enterLocalUnit call reachable only when a

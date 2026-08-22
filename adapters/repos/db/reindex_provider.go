@@ -570,23 +570,6 @@ func (p *ReindexProvider) processOneUnit(
 	logger := p.logger.WithField("taskID", task.ID).
 		WithField("unit", unitID).WithField("shard", shardName)
 
-	// Ahead of the re-entry guard below, and unconditional where that one is
-	// semantic-only: reconciliation may discard this migration's directories
-	// the moment the task goes terminal, and the iteration is writing into
-	// them whatever type it belongs to.
-	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
-	if !entered {
-		// A teardown holds this unit. Nothing is claimed and no progress is
-		// reported, which leaves the unit neither completed nor failed — so
-		// the next scheduler tick relaunches it, by which time the teardown
-		// has either released or the task is terminal and the unit is skipped
-		// outright. A task-wide seal is held across a whole sweep, so this can
-		// take several ticks.
-		logger.Warn("reindex provider: a teardown holds this unit, so it is not started; the next tick retries it")
-		return
-	}
-	defer release()
-
 	logger.Info("reindex provider: starting unit")
 
 	// Report initial progress to claim the unit.
@@ -614,6 +597,26 @@ func (p *ReindexProvider) processOneUnit(
 			fmt.Sprintf("unwrap shard: %v", unwrapErr))
 		return
 	}
+
+	// After the shard is resolved, the way the phase callbacks order it. A
+	// hydration runs reconciliation, and reconciliation seals this very unit
+	// to promote it — a claim taken first refuses that seal, so the promotion
+	// is declined and the property goes on being served from the empty bucket
+	// the migration pre-created. From here on the claim covers everything that
+	// holds a bucket pointer or writes into the migration's directories, which
+	// reconciliation may otherwise discard the moment the task goes terminal.
+	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
+	if !entered {
+		// A teardown holds this unit. Nothing is claimed and no progress is
+		// reported beyond the initial claim, which leaves the unit neither
+		// completed nor failed — so the next scheduler tick relaunches it, by
+		// which time the teardown has either released or the task is terminal
+		// and the unit is skipped outright. A task-wide seal is held across a
+		// whole sweep, so this can take several ticks.
+		logger.Warn("reindex provider: a teardown holds this unit, so it is not started; the next tick retries it")
+		return
+	}
+	defer release()
 
 	// For semantic migrations (change-tokenization, enable-rangeable), use
 	// two-phase execution: reindex only, then swap after all units complete.
