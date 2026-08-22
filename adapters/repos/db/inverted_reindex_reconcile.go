@@ -494,9 +494,11 @@ func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec Migrati
 			"a promoted migration's collection is not in the schema, so nothing here can confirm its effect; keeping the record")
 		return nil
 	}
-	// Sweeping before the effect is visible would delete the answer to the one
-	// question a promoted record still exists to answer.
-	if satisfied, missing := migrationEffectStatus(class, subject); !satisfied {
+	// Sweeping while the effect is still pending would delete the answer to
+	// the one question a promoted record still exists to answer. An effect no
+	// schema read can ever show is not pending and never will be, so waiting
+	// on that one keeps the record for the life of the shard.
+	if effect, missing := migrationEffectStatus(class, subject); effect == migrationEffectPending {
 		// The one arm that can persist across loads: this node promoted, but
 		// the schema change the migration exists to deliver is not there. No
 		// load can make it appear, so it is silent unless said here.
@@ -637,7 +639,7 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*dis
 	if class == nil {
 		return migrationVerdictLeave, "collection is not in the locally applied schema"
 	}
-	if migrationEffectSatisfied(class, subject) {
+	if migrationEffectConfirmsCommit(class, subject) {
 		// Committing needs no complete list. Schema changes and task changes
 		// travel one replicated log, so the effect is committed after the
 		// entry that created the task, and a node that applied the effect
@@ -649,6 +651,12 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*dis
 		// still running. It is only ever read where promoting is safe anyway —
 		// before Merged this verdict does nothing but warn, and at Merged the
 		// staged data is already complete.
+		//
+		// Only a visible effect gets here. Two migration types carry no flag,
+		// and a subject whose properties were all deleted carries none any
+		// more; reading either as a commit promotes staged data on the
+		// replicas that took this path while the ones that saw the cancel
+		// discarded it, and the two never converge again.
 		return migrationVerdictCommit, "owning task is gone and the schema shows its effect"
 	}
 	if !absentTaskIsGone {

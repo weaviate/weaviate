@@ -918,8 +918,12 @@ func TestReconcileWithClusterTasksSettlesWhatTheLoadWithheld(t *testing.T) {
 		class      *models.Class
 		unreadable bool
 		// unitLive is a worker of this migration still iterating here.
-		unitLive  bool
-		wantState MigrationState
+		unitLive bool
+		// migrationType and strategyCode override the change-tokenization
+		// subject the rows otherwise share.
+		migrationType ReindexMigrationType
+		strategyCode  MigrationStrategyCode
+		wantState     MigrationState
 	}{
 		{
 			name:      "the task finished while this node was down: commit",
@@ -1001,6 +1005,30 @@ func TestReconcileWithClusterTasksSettlesWhatTheLoadWithheld(t *testing.T) {
 			wantState: MigrationStateMerged,
 		},
 		{
+			// Nothing in the schema changes for a repair, so there is no flag
+			// to read and never will be. Reading its absence as a commit
+			// promotes here what the replicas that saw the cancel discarded,
+			// and no later load reconciles the two.
+			name:          "a repair-filterable whose task aged out is not committed on a flag it never had",
+			migrationType: ReindexTypeRepairFilterable,
+			strategyCode:  StrategyCodeFilterableRoaringsetRefresh,
+			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+		},
+		{
+			name:          "a rebuild-searchable whose task aged out is not committed either",
+			migrationType: ReindexTypeRebuildSearchable,
+			strategyCode:  StrategyCodeRebuildSearchable,
+			class:         testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+		},
+		{
+			// The property that carried the effect is gone, so the schema
+			// answers nothing about this migration. Committing would rename
+			// the staged data onto a canonical name the collection no longer
+			// has a property for.
+			name:  "the subject's only property was deleted while the migration sat merged",
+			class: testClassWithTokenization(models.PropertyTokenizationLowercase, "other"),
+		},
+		{
 			name:       "a record this build cannot place withholds the second pass too",
 			task:       testTask(taskID, 42, distributedtask.TaskStatusFinished),
 			class:      testClassWithTokenization(models.PropertyTokenizationLowercase, "title"),
@@ -1014,8 +1042,15 @@ func TestReconcileWithClusterTasksSettlesWhatTheLoadWithheld(t *testing.T) {
 			f := newReconcileFixture(t)
 			f.class = tt.class
 
-			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+			strategyCode := tt.strategyCode
+			if strategyCode == "" {
+				strategyCode = StrategyCodeSearchableRetokenize
+			}
+			subject := testMigrationSubject(42, strategyCode, "title")
 			subject.TaskID = taskID
+			if tt.migrationType != "" {
+				subject.MigrationType = tt.migrationType
+			}
 			f.mkdirs("m_42_title", "m_42_sidecar", "property_title")
 			f.put(NewMigrationRecordMerged(subject))
 			if tt.unreadable {
@@ -1051,7 +1086,7 @@ func TestReconcileWithClusterTasksSettlesWhatTheLoadWithheld(t *testing.T) {
 
 			if tt.wantState == "" {
 				require.False(t, f.exists("m_42_title"), "the staged copy of an abandoned migration goes")
-				require.Equal(t, []string{"42/searchable_retokenize/shard-1__node-0/title"}, f.mirror.disarmed,
+				require.Equal(t, []string{subject.Key.String() + "/title"}, f.mirror.disarmed,
 					"the mirror is disarmed before its target is removed")
 				return
 			}

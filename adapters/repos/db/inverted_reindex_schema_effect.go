@@ -13,43 +13,52 @@ package db
 
 import "github.com/weaviate/weaviate/entities/models"
 
-// migrationEffectSatisfied reports whether the locally applied schema shows
-// this migration's effect. It is not one rule: five of the six type groups
-// commit their effect only on whole-task success, so for them a visible flag
-// proves the task committed. The rangeable row does not, and carries its own
-// argument below.
+// migrationEffect is what the locally applied schema says about a migration's
+// effect. Three answers, because "not shown yet" and "nothing here can ever
+// show it" license different things: the first is a migration still waiting
+// on a schema change, the second is a migration whose outcome no schema read
+// decides at all.
+type migrationEffect int
+
+const (
+	// migrationEffectPending: the schema can carry this effect and does not.
+	migrationEffectPending migrationEffect = iota
+	// migrationEffectVisible: the schema carries it.
+	migrationEffectVisible
+	// migrationEffectUnobservable: no schema read can settle this migration.
+	// Two migration types have no flag at all, and a subject whose properties
+	// have all been deleted took its flags away with them.
+	migrationEffectUnobservable
+)
+
+// migrationEffectStatus reads a migration's effect out of the locally applied
+// schema, and names the properties it is still waiting on for the caller that
+// has to tell an operator which one. That list is empty unless the answer is
+// pending.
 //
-// A property that is gone from the class counts as satisfied. A property
-// deleted after promotion takes the effect's carrier with it, the predicate
-// would otherwise be permanently false, and no successor can ever cover a
-// property that no longer exists.
+// It is not one rule: five of the six type groups commit their effect only on
+// whole-task success, so for them a visible flag proves the task committed.
+// The rangeable row does not, and carries its own argument below.
 //
 // A new migration type lands here with its own row and its own argument.
-func migrationEffectSatisfied(class *models.Class, subject MigrationSubject) bool {
-	satisfied, _ := migrationEffectStatus(class, subject)
-	return satisfied
-}
-
-// migrationEffectStatus is [migrationEffectSatisfied] plus what it refused on,
-// for the caller that has to tell an operator which property is still waiting.
-// The property list is empty when the schema shows nothing per-property about
-// the refusal — a class-wide flag, or a subject naming no property at all.
-func migrationEffectStatus(class *models.Class, subject MigrationSubject) (satisfied bool, missing []string) {
+func migrationEffectStatus(class *models.Class, subject MigrationSubject) (migrationEffect, []string) {
 	switch subject.MigrationType {
 	case ReindexTypeRepairFilterable, ReindexTypeRebuildSearchable:
-		// Post-condition equals pre-condition: there is no flag to read, so
-		// the task-status rows carry the disposition alone.
-		return true, nil
+		// Post-condition equals pre-condition, so there is no flag to read on
+		// the class or on any property.
+		return migrationEffectUnobservable, nil
 	case ReindexTypeChangeAlgorithm:
+		// A class-wide flag, so it still stands where every property the
+		// subject names has since been deleted.
 		if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
-			return true, nil
+			return migrationEffectVisible, nil
 		}
 	default:
 		// Every other type's effect is per property, and is read below.
 	}
 
 	if len(subject.Properties) == 0 {
-		return false, nil
+		return migrationEffectPending, nil
 	}
 
 	byName := make(map[string]*models.Property, len(class.Properties))
@@ -57,16 +66,39 @@ func migrationEffectStatus(class *models.Class, subject MigrationSubject) (satis
 		byName[prop.Name] = prop
 	}
 
+	var missing []string
+	observable := 0
 	for _, name := range subject.Properties {
 		prop, present := byName[name]
 		if !present {
+			// A property deleted after the migration took the effect's only
+			// carrier with it, so it is evidence in neither direction: it
+			// cannot refuse the answer and it cannot supply one.
 			continue
 		}
+		observable++
 		if !migrationPropertyEffectVisible(subject, prop) {
 			missing = append(missing, name)
 		}
 	}
-	return len(missing) == 0, missing
+	switch {
+	case observable == 0:
+		return migrationEffectUnobservable, nil
+	case len(missing) > 0:
+		return migrationEffectPending, missing
+	default:
+		return migrationEffectVisible, nil
+	}
+}
+
+// migrationEffectConfirmsCommit reports that the schema is positive evidence
+// this migration's task committed, which only a visible effect is. An effect
+// nothing in the schema can show proves nothing, and a caller that reads it
+// as proof promotes a migration an operator cancelled — permanently, and only
+// on the replicas that took this path.
+func migrationEffectConfirmsCommit(class *models.Class, subject MigrationSubject) bool {
+	effect, _ := migrationEffectStatus(class, subject)
+	return effect == migrationEffectVisible
 }
 
 func migrationPropertyEffectVisible(subject MigrationSubject, prop *models.Property) bool {
@@ -89,9 +121,9 @@ func migrationPropertyEffectVisible(subject MigrationSubject, prop *models.Prope
 		// shard that has not swapped serves range queries from the filterable
 		// bucket, so every mixed state stays query-correct.
 		return prop.IndexRangeFilters != nil && *prop.IndexRangeFilters
-	case ReindexTypeRepairFilterable, ReindexTypeRebuildSearchable:
-		return true
 	default:
+		// The two flagless types never reach here: [migrationEffectStatus]
+		// answers for them before any property is read.
 		return false
 	}
 }
