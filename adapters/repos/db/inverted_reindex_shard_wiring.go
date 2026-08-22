@@ -90,6 +90,12 @@ func (db *DB) reconcileMigrationsWithClusterPeriodically(ctx context.Context) {
 // waits on, so a round-trip inside it would stall the apply loop for as long
 // as the leader is slow.
 func (db *DB) reconcileLoadedMigrationsWithCluster(ctx context.Context) {
+	if !db.hasUndecidedMigrationRecords() {
+		// Asked before the leader is, and from memory: this repeats for the
+		// life of the node, and a node with no migration to settle must not
+		// put a query on the leader every interval to be told so.
+		return
+	}
 	tasks, err := db.migrationClusterTasksBounded(ctx)
 	if err != nil {
 		db.logger.WithField("action", "reindex_migration_reconcile").Warnf(
@@ -138,6 +144,43 @@ func (db *DB) reconcileLoadedMigrationsWithCluster(ctx context.Context) {
 			})
 		}()
 	}
+}
+
+// hasUndecidedMigrationRecords reports whether any loaded shard holds a record
+// whose disposition is still a cluster fact. Flipped records are excluded for
+// the same reason the pass skips them: their disposition is decided.
+//
+// It reads the stores the shards already hold, so it costs no disk and no
+// round-trip. A shard that appears or changes right after it answers is
+// reconciled by its own load or by the next pass.
+func (db *DB) hasUndecidedMigrationRecords() bool {
+	db.indexLock.RLock()
+	indices := make([]*Index, 0, len(db.indices))
+	for _, idx := range db.indices {
+		indices = append(indices, idx)
+	}
+	db.indexLock.RUnlock()
+
+	undecided := false
+	for _, idx := range indices {
+		idx.ForEachLoadedShard(func(_ string, shard ShardLike) error {
+			store := shard.migrationRecordStore()
+			if store == nil {
+				return nil
+			}
+			for _, rec := range store.Records() {
+				if !rec.PointerSwapped() {
+					undecided = true
+					return nil
+				}
+			}
+			return nil
+		})
+		if undecided {
+			return true
+		}
+	}
+	return false
 }
 
 func (db *DB) migrationLocalTasks() ([]*distributedtask.Task, bool) {
