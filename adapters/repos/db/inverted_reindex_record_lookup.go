@@ -21,7 +21,9 @@ import (
 
 // migrationRecordsAt reads one shard's records straight from disk. The sweeps
 // and gates that decide what to do about a cold tenant need the same answers a
-// loaded shard's store gives, and a record is a few hundred bytes.
+// loaded shard's store gives. A record scales with the property count of the
+// migration it belongs to, so the read is bounded by
+// [maxMigrationRecordBytes].
 //
 // someRecordsUnreadable reports that at least one record could not be
 // understood. Its property list is exactly what could not be read, so there is

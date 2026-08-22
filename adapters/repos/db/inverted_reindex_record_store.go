@@ -309,7 +309,38 @@ func (s *MigrationRecordStore) Unreadable() []MigrationRecordUnreadable {
 	return slices.Clone(s.unreadable)
 }
 
+// maxMigrationRecordBytes bounds what [loadMigrationRecordFile] reads. Every
+// Load runs it, and a Load sits inside the RAFT apply of a property DELETE,
+// which holds the FSM loop cluster-wide — the same argument
+// [maxRecoveryPayloadBytes] makes about payload.mig, whose read is the other
+// half of the same function.
+//
+// The ceiling it has to clear is a record at [maxReindexPropertiesPerTask]
+// properties. Each contributes its own name plus an entry in the staged,
+// canonical and displaced directory maps, plus a sidecar and a flipped entry.
+// A property name is at most 231 characters and a directory handle is a
+// strategy prefix plus one of those, so a property costs well under 4 KiB of
+// JSON and 1024 of them under 4 MiB. The bound is twice that: refusing a
+// legitimate record freezes migrations on the shard, which is worse than
+// reading a large file.
+const maxMigrationRecordBytes = 8 << 20
+
 func loadMigrationRecordFile(path string) (MigrationRecord, MigrationRecordLoadOutcome, error) {
+	// Stat before read: an over-bound file is refused rather than parsed, and
+	// refused reads as not-understood rather than absent, because a record
+	// nobody read may name directories that must not be reclaimed.
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, MigrationRecordAbsent, nil
+		}
+		return nil, MigrationRecordNotUnderstood, fmt.Errorf("stat %q: %w", filepath.Base(path), err)
+	}
+	if info.Size() > maxMigrationRecordBytes {
+		return nil, MigrationRecordNotUnderstood, fmt.Errorf(
+			"record %q holds %d bytes, bound is %d", filepath.Base(path), info.Size(), maxMigrationRecordBytes)
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
