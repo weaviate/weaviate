@@ -64,10 +64,12 @@ type reconcileFixture struct {
 	clusterTasks    []*distributedtask.Task
 	clusterTasksSet bool
 	// unitLive is what the local unit registry answers: a worker of this
-	// migration is still iterating on this node.
+	// migration is still iterating on this node, so no teardown may seal it.
 	unitLive bool
-	class    *models.Class
-	logger   *logrus.Logger
+	// sealsTaken counts the teardowns that sealed the unit during the pass.
+	sealsTaken int
+	class      *models.Class
+	logger     *logrus.Logger
 	// logs is what the reconciler wrote, for the arms whose whole outcome is
 	// a line an operator has to see.
 	logs *test.Hook
@@ -123,10 +125,16 @@ func (f *reconcileFixture) reconcile() {
 func (f *reconcileFixture) deps() migrationReconcileDeps {
 	return migrationReconcileDeps{
 		LocalTasks: func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
-		UnitLive:   func(distributedtask.TaskDescriptor, string) bool { return f.unitLive },
-		Class:      func() *models.Class { return f.class },
-		Mirror:     f.mirror,
-		Buckets:    f.buckets,
+		SealUnit: func(distributedtask.TaskDescriptor, string) (func(), bool) {
+			if f.unitLive {
+				return nil, false
+			}
+			f.sealsTaken++
+			return func() {}, true
+		},
+		Class:   func() *models.Class { return f.class },
+		Mirror:  f.mirror,
+		Buckets: f.buckets,
 	}
 }
 
@@ -1308,6 +1316,99 @@ func TestMigrationDirExists(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tt.want, there)
+		})
+	}
+}
+
+// TestEveryTeardownArmSealsTheUnit pins that the per-unit interlock covers
+// every arm that removes one of a migration's directories, not just the
+// discard it was written for. A cancel marks a task and signals the worker on
+// a later scheduler tick without waiting for it, so every one of these arms
+// can reach a directory a worker on this node is still writing through
+// pointers it took before its phase began.
+//
+// Each row is one arm, run twice on the same fixture shape: once with a live
+// worker, where nothing may be touched, and once without, where the arm has to
+// actually do its work — otherwise a row that withholds for some unrelated
+// reason would pass the first half and prove nothing.
+func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
+	const taskID = "Books:change-tokenization:title:ab12"
+	subjectOf := func(version uint64) MigrationSubject {
+		subject := testMigrationSubject(version, StrategyCodeSearchableRetokenize, "title")
+		subject.TaskID = taskID
+		return subject
+	}
+
+	tests := []struct {
+		name    string
+		arrange func(f *reconcileFixture)
+		// heldDirs must survive while a worker is live and be gone once it is
+		// not. For the promotion row it is the directory promotion consumes.
+		heldDirs []string
+	}{
+		{
+			name: "the discard arm",
+			arrange: func(f *reconcileFixture) {
+				f.tasks = []*distributedtask.Task{testTask(taskID, 42, distributedtask.TaskStatusCancelled)}
+				f.mkdirs("m_42_title", "m_42_sidecar", "property_title")
+				f.put(NewMigrationRecordMerged(subjectOf(42)))
+			},
+			heldDirs: []string{"m_42_title", "m_42_sidecar"},
+		},
+		{
+			name: "the promotion arm, which removes the displaced directory before it renames",
+			arrange: func(f *reconcileFixture) {
+				subject := subjectOf(42)
+				f.mkdirs("m_42_title", "property_title")
+				f.put(NewMigrationRecordSwapped(subject, []string{"title"},
+					map[string]string{"title": "property_title"}))
+			},
+			heldDirs: []string{"m_42_title"},
+		},
+		{
+			name: "the promoted closure sweep",
+			arrange: func(f *reconcileFixture) {
+				subject := subjectOf(42)
+				f.mkdirs("m_42_sidecar", "property_title")
+				f.put(NewMigrationRecordPromoted(subject, []string{"title"},
+					map[string]string{"title": "property_title"}))
+			},
+			heldDirs: []string{"m_42_sidecar"},
+		},
+		{
+			name: "supersession's per-property retirement",
+			arrange: func(f *reconcileFixture) {
+				f.tasks = []*distributedtask.Task{testTask(taskID, 10, distributedtask.TaskStatusStarted)}
+				f.mkdirs("m_10_title", "m_10_sidecar", "m_20_title", "property_title")
+				f.put(NewMigrationRecordMerged(subjectOf(10)))
+				f.put(swappedOn(20, "title"))
+			},
+			heldDirs: []string{"m_10_title", "m_10_sidecar"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			live := newReconcileFixture(t)
+			live.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")
+			live.unitLive = true
+			tt.arrange(live)
+			live.reconcile()
+			for _, dir := range tt.heldDirs {
+				require.True(t, live.exists(dir),
+					"a live worker writes into %s through a pointer it already holds", dir)
+			}
+			require.Zero(t, live.sealsTaken, "a live unit grants no seal")
+
+			free := newReconcileFixture(t)
+			free.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")
+			tt.arrange(free)
+			free.reconcile()
+			for _, dir := range tt.heldDirs {
+				require.False(t, free.exists(dir),
+					"with no worker running, %s is the arm's own work and must be done", dir)
+			}
+			require.NotZero(t, free.sealsTaken, "the arm holds the unit while it works")
 		})
 	}
 }

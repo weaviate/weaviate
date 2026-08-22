@@ -51,6 +51,8 @@ func structuralInvariantNewBareProvider() *ReindexProvider {
 		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		activeWorkers:  make(map[distributedtask.TaskDescriptor]map[string]bool),
+		liveUnits:      make(map[distributedtask.TaskDescriptor]map[string]int),
+		sealedUnits:    make(map[distributedtask.TaskDescriptor]map[string]int),
 	}
 }
 
@@ -230,4 +232,34 @@ func TestStructuralInvariant_StartTask_HandleTerminateDrainsSpawnedWorker(t *tes
 		t.Fatal("handle.Done() did not close after worker exited; " +
 			"Scheduler tick's dead-handle reaper would never observe this task as terminated")
 	}
+}
+
+// TestStructuralInvariant_WaitForLocalTaskDrain_WaitsForPrepAndSwap pins the
+// half of the drain the task handle cannot answer for. The handle is created
+// around the iteration goroutine and closed when it exits, but the prep that
+// copies segments into the ingest directory and the swap that flips the
+// pointers run on the scheduler's own tick goroutine and never had one — so a
+// task whose only live worker was in either of them drained instantly, and the
+// cancel sweep and the terminal cleanup both tore down sidecars under it.
+//
+// It waits on the same per-unit registry reconciliation seals against, which
+// every span that holds a bucket pointer registers in.
+func TestStructuralInvariant_WaitForLocalTaskDrain_WaitsForPrepAndSwap(t *testing.T) {
+	p := structuralInvariantNewBareProvider()
+	desc := distributedtask.TaskDescriptor{ID: "task-in-swap", Version: 1}
+
+	release, entered := p.enterLocalUnit(desc, "shard-1__node-0")
+	require.True(t, entered)
+
+	// No handle is ever registered: that is exactly the prep/swap shape.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, p.WaitForLocalTaskDrain(ctx, desc), context.DeadlineExceeded,
+		"a swap holding a bucket pointer has not drained, whatever the task handle says")
+
+	release()
+	drained, cancelDrained := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelDrained()
+	require.NoError(t, p.WaitForLocalTaskDrain(drained, desc),
+		"once the last span releases, the drain returns")
 }

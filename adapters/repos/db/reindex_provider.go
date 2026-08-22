@@ -128,6 +128,24 @@ type ReindexProvider struct {
 	// defer, so failure, cancellation and panic all release it.
 	liveUnits map[distributedtask.TaskDescriptor]map[string]int
 
+	// sealedUnits counts the teardowns holding a (task, unit) right now. A
+	// destroyer takes a seal instead of reading [liveUnits] directly, and
+	// while it holds one [ReindexProvider.enterLocalUnit] refuses.
+	//
+	// Reading the count alone answers only about the instant it was read.
+	// Every phase decides to run from a task snapshot the scheduler froze at
+	// the start of its tick, and the gap between that decision and the claim
+	// is unbounded -- resolving a unit can hydrate a cold tenant and rebuild
+	// its tasks from disk. So a phase can enter after a destroyer read
+	// "nothing running" and flip live bucket pointers onto directories it is
+	// midway through deleting, which serves the property empty.
+	//
+	// A count, not a flag: one task's units are sealed independently, and two
+	// destroyers can hold the same unit.
+	//
+	// Guarded by [mu].
+	sealedUnits map[distributedtask.TaskDescriptor]map[string]int
+
 	// cleanupInProgressMu guards [cleanupInProgress]. Held only for the
 	// register/unregister/lookup increment/decrement; never held across
 	// the actual sidecar-teardown call (that runs unlocked, the registry
@@ -224,6 +242,7 @@ func NewReindexProvider(
 		reindexTasks:      make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		activeWorkers:     make(map[distributedtask.TaskDescriptor]map[string]bool),
 		liveUnits:         make(map[distributedtask.TaskDescriptor]map[string]int),
+		sealedUnits:       make(map[distributedtask.TaskDescriptor]map[string]int),
 		cleanupInProgress: make(map[reindexCleanupKey]int),
 	}
 }
@@ -336,13 +355,22 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
-// enterLocalUnit records that this goroutine is doing the node's own work for
-// one (task, unit), and returns the release. Every span that holds a bucket
-// pointer or writes into a migration's directories has to be inside one: the
-// iteration, the prep that copies segments into the ingest directory, and the
-// swap that flips the pointers.
-func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, unitID string) func() {
+// enterLocalUnit claims the node's own work for one (task, unit) and returns
+// the release. Every span that holds a bucket pointer or writes into a
+// migration's directories has to be inside one: the iteration, the prep that
+// copies segments into the ingest directory, and the swap that flips the
+// pointers.
+//
+// It refuses while a teardown holds the unit. The caller decided to run from
+// a task snapshot frozen at the start of a scheduler tick, so by the time it
+// gets here the migration may already be being reclaimed; entering anyway
+// takes bucket pointers into directories mid-delete.
+func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 	p.mu.Lock()
+	if p.sealedUnits[desc][unitID] > 0 {
+		p.mu.Unlock()
+		return nil, false
+	}
 	if p.liveUnits[desc] == nil {
 		p.liveUnits[desc] = map[string]int{}
 	}
@@ -358,37 +386,58 @@ func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, un
 		if len(p.liveUnits[desc]) == 0 {
 			delete(p.liveUnits, desc)
 		}
-	}
+	}, true
 }
 
-// IsLocalUnitLive reports whether this node is doing work for this exact
-// (task, unit) right now. It exists because a task's cluster status goes
-// terminal without waiting for the local unit to exit: cancelling marks the
-// task and wakes the scheduler, which signals the worker on a later tick and
-// never awaits it.
+// SealLocalUnit reserves this exact (task, unit) for teardown and returns the
+// release, or refuses because a worker of it is running here.
 //
-// A live worker writes through bucket pointers it captured before its phase
-// began, so removing those directories loses every row it has written since —
-// silently, because a shut-down bucket accepts writes into a memtable that
-// will never be flushed.
-func (p *ReindexProvider) IsLocalUnitLive(desc distributedtask.TaskDescriptor, unitID string) bool {
+// It exists because a task's cluster status goes terminal without waiting for
+// the local unit to exit: cancelling marks the task and wakes the scheduler,
+// which signals the worker on a later tick and never awaits it. A live worker
+// writes through bucket pointers it captured before its phase began, so
+// removing those directories loses every row it has written since — silently,
+// because a shut-down bucket accepts writes into a memtable that will never
+// be flushed.
+//
+// Sealing rather than asking is what makes the answer hold for the length of
+// the teardown instead of for the instant it was asked: entrants that arrive
+// after the seal is taken are refused rather than admitted alongside it.
+func (p *ReindexProvider) SealLocalUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.liveUnits[desc][unitID] > 0
+	if p.liveUnits[desc][unitID] > 0 {
+		return nil, false
+	}
+	if p.sealedUnits[desc] == nil {
+		p.sealedUnits[desc] = map[string]int{}
+	}
+	p.sealedUnits[desc][unitID]++
+
+	return func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.sealedUnits[desc][unitID]--; p.sealedUnits[desc][unitID] <= 0 {
+			delete(p.sealedUnits[desc], unitID)
+		}
+		if len(p.sealedUnits[desc]) == 0 {
+			delete(p.sealedUnits, desc)
+		}
+	}, true
 }
 
-// ReindexUnitLivenessLookup answers for one (task, unit) pair. Keyed per unit
-// rather than per task because a task's other units run on other shards, and
+// ReindexUnitSeal answers for one (task, unit) pair. Keyed per unit rather
+// than per task because a task's other units run on other shards, and
 // withholding a shard's own decision on a sibling's account would strand it.
-type ReindexUnitLivenessLookup func(desc distributedtask.TaskDescriptor, unitID string) bool
+type ReindexUnitSeal func(desc distributedtask.TaskDescriptor, unitID string) (func(), bool)
 
-// ReindexUnitLivenessLookupBuilder returns a fresh probe. Same shape as
+// ReindexUnitSealBuilder returns a fresh seal. Same shape as
 // [CleanupInProgressLookupBuilder] so the wiring installs both the same way.
-type ReindexUnitLivenessLookupBuilder func() ReindexUnitLivenessLookup
+type ReindexUnitSealBuilder func() ReindexUnitSeal
 
-func (p *ReindexProvider) ReindexUnitLivenessLookupBuilder() ReindexUnitLivenessLookupBuilder {
-	return func() ReindexUnitLivenessLookup {
-		return p.IsLocalUnitLive
+func (p *ReindexProvider) ReindexUnitSealBuilder() ReindexUnitSealBuilder {
+	return func() ReindexUnitSeal {
+		return p.SealLocalUnit
 	}
 }
 
@@ -511,7 +560,15 @@ func (p *ReindexProvider) processOneUnit(
 	// semantic-only: reconciliation may discard this migration's directories
 	// the moment the task goes terminal, and the iteration is writing into
 	// them whatever type it belongs to.
-	defer p.enterLocalUnit(task.TaskDescriptor, unitID)()
+	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
+	if !entered {
+		// A teardown already holds this unit, so its directories are being
+		// removed. Nothing is claimed and no progress is reported: the task
+		// that would resume this unit is the one being torn down.
+		logger.Warn("reindex provider: a teardown holds this unit, so it is not started")
+		return
+	}
+	defer release()
 
 	logger.Info("reindex provider: starting unit")
 
@@ -1416,7 +1473,20 @@ func (p *ReindexProvider) runPerUnitPhase(
 		// pointers, both through handles taken before they start, and both
 		// run here rather than in the iteration's goroutine — so the
 		// iteration's own registration has already been released by now.
-		release := p.enterLocalUnit(task.TaskDescriptor, unitID)
+		release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
+		if !entered {
+			// The terminal check this phase passed read a task snapshot the
+			// tick froze; a teardown has taken the unit since. Reported as a
+			// failure rather than skipped, so the barrier does not read a
+			// phase that never ran as one that succeeded.
+			func() {
+				aggMu.Lock()
+				defer aggMu.Unlock()
+				agg.Errs = append(agg.Errs,
+					fmt.Sprintf("unit %s: a teardown holds this unit, so the phase did not run", unitID))
+			}()
+			return
+		}
 		phase := runPhase(unitID, res.Shard, res.UnitTasks, res.Rehydrate)
 		release()
 		func() {
@@ -2662,22 +2732,50 @@ func maybeClearTokenizationOverlayOnAllFailed(
 // between CancelDistributedTask and [DB.NewStalePartialReindexSweep]'s sweep
 // closes that race window.
 //
-// Returns nil immediately if no goroutine is running for this descriptor
-// (e.g. the task already terminated, or never ran on this node).
+// Returns nil immediately if nothing is running for this descriptor (e.g. the
+// task already terminated, or never ran on this node).
+//
+// The task handle alone does not answer this. It is closed when the
+// iteration's goroutine exits, but the prep and the swap run on the
+// scheduler's own tick goroutine and never had one — so a task whose only
+// live worker is copying segments into the ingest directory drained
+// instantly. It waits on the same per-unit registry reconciliation seals
+// against, which every span that holds a bucket pointer registers in.
 func (p *ReindexProvider) WaitForLocalTaskDrain(
 	ctx context.Context,
 	desc distributedtask.TaskDescriptor,
 ) error {
-	handle, ok := p.runningHandle(desc)
-	if !ok {
-		return nil
+	if handle, ok := p.runningHandle(desc); ok {
+		select {
+		case <-handle.Done():
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	select {
-	case <-handle.Done():
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	// Polled rather than signalled: a unit is entered and released from
+	// several goroutines and the wait is a teardown path, not a hot one.
+	ticker := time.NewTicker(localUnitDrainPollInterval)
+	defer ticker.Stop()
+	for {
+		if !p.anyLocalUnitLive(desc) {
+			return nil
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
+}
+
+// localUnitDrainPollInterval is how often [ReindexProvider.WaitForLocalTaskDrain]
+// re-asks the registry.
+const localUnitDrainPollInterval = 25 * time.Millisecond
+
+func (p *ReindexProvider) anyLocalUnitLive(desc distributedtask.TaskDescriptor) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.liveUnits[desc]) > 0
 }
 
 // reindexTaskHandle implements distributedtask.TaskHandle.

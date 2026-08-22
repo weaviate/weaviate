@@ -513,13 +513,13 @@ func TestClassifyCleanupSweep(t *testing.T) {
 	}
 }
 
-// TestLocalUnitLivenessSpansEveryWorkerOfEveryType pins the probe
-// reconciliation asks before it removes a migration's directories. It answered
-// from the re-entry guard once, which is claimed only for semantic migrations
-// and only around the iteration — so four migration types never appeared in it
-// and neither did the prep or the swap of any type, and the discard it gates
-// went ahead under a running worker.
-func TestLocalUnitLivenessSpansEveryWorkerOfEveryType(t *testing.T) {
+// TestLocalUnitSealSpansEveryWorkerOfEveryType pins the registry every
+// teardown seals before it removes a migration's directories. It answered from
+// the re-entry guard once, which is claimed only for semantic migrations and
+// only around the iteration — so four migration types never appeared in it and
+// neither did the prep or the swap of any type, and the discard it gates went
+// ahead under a running worker.
+func TestLocalUnitSealSpansEveryWorkerOfEveryType(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
 	other := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 8}
 
@@ -565,38 +565,151 @@ func TestLocalUnitLivenessSpansEveryWorkerOfEveryType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &ReindexProvider{
-				liveUnits: map[distributedtask.TaskDescriptor]map[string]int{},
-			}
+			p := structuralInvariantNewBareProvider()
 			var releases []func()
 			for i := 0; i < tt.hold; i++ {
-				releases = append(releases, p.enterLocalUnit(desc, "shard-1__node-0"))
+				release, entered := p.enterLocalUnit(desc, "shard-1__node-0")
+				require.True(t, entered)
+				releases = append(releases, release)
 			}
 			for i := 0; i < tt.release; i++ {
 				releases[i]()
 			}
 
-			require.Equal(t, tt.wantLive, p.IsLocalUnitLive(tt.askDesc, tt.askUnit))
+			// A live worker is exactly what refuses the seal, so the seal is
+			// how the liveness answer is observed.
+			unseal, sealed := p.SealLocalUnit(tt.askDesc, tt.askUnit)
+			require.Equal(t, tt.wantLive, !sealed)
+			if sealed {
+				unseal()
+			}
 
 			for i := tt.release; i < len(releases); i++ {
 				releases[i]()
 			}
 			require.Empty(t, p.liveUnits, "a released unit leaves no entry behind")
+			require.Empty(t, p.sealedUnits, "a released seal leaves no entry behind")
 		})
 	}
 }
 
 // A worker that panics still has to release: reconciliation would otherwise
 // treat the unit as live forever and never reclaim its directories.
-func TestLocalUnitLivenessSurvivesAPanickingWorker(t *testing.T) {
-	p := &ReindexProvider{liveUnits: map[distributedtask.TaskDescriptor]map[string]int{}}
+func TestLocalUnitSealSurvivesAPanickingWorker(t *testing.T) {
+	p := structuralInvariantNewBareProvider()
 	desc := distributedtask.TaskDescriptor{ID: "t", Version: 1}
 
 	func() {
 		defer func() { _ = recover() }()
-		defer p.enterLocalUnit(desc, "shard-1__node-0")()
+		release, entered := p.enterLocalUnit(desc, "shard-1__node-0")
+		require.True(t, entered)
+		defer release()
 		panic("the iteration failed")
 	}()
 
-	require.False(t, p.IsLocalUnitLive(desc, "shard-1__node-0"))
+	_, sealed := p.SealLocalUnit(desc, "shard-1__node-0")
+	require.True(t, sealed)
+}
+
+// TestSealedUnitRefusesLateEntrants pins the half of the interlock a probe
+// cannot have. Every phase decides to run from a task snapshot the scheduler
+// froze at the start of its tick, and resolving the unit in between can
+// hydrate a cold tenant and rebuild its tasks from disk — so a phase can
+// arrive after a teardown read "nothing running" and take bucket pointers into
+// directories it is midway through deleting.
+func TestSealedUnitRefusesLateEntrants(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
+	other := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 8}
+	const unit = "shard-1__node-0"
+
+	tests := []struct {
+		name string
+		// seals are the units a teardown holds when the entrant arrives.
+		seals []struct {
+			desc distributedtask.TaskDescriptor
+			unit string
+		}
+		// releaseSeals is how many of them have finished by then.
+		releaseSeals int
+		enterDesc    distributedtask.TaskDescriptor
+		enterUnit    string
+		wantEntered  bool
+	}{
+		{
+			name: "nothing is being torn down", enterDesc: desc, enterUnit: unit, wantEntered: true,
+		},
+		{
+			name: "a teardown holds this very unit",
+			seals: []struct {
+				desc distributedtask.TaskDescriptor
+				unit string
+			}{{desc, unit}},
+			enterDesc: desc, enterUnit: unit,
+		},
+		{
+			name: "the teardown has finished",
+			seals: []struct {
+				desc distributedtask.TaskDescriptor
+				unit string
+			}{{desc, unit}},
+			releaseSeals: 1,
+			enterDesc:    desc, enterUnit: unit, wantEntered: true,
+		},
+		{
+			// Two arms of one reconcile pass can hold the same unit, and the
+			// first to finish must not open it under the second.
+			name: "two teardowns hold it and one has finished",
+			seals: []struct {
+				desc distributedtask.TaskDescriptor
+				unit string
+			}{
+				{desc, unit}, {desc, unit},
+			},
+			releaseSeals: 1,
+			enterDesc:    desc, enterUnit: unit,
+		},
+		{
+			name: "a teardown holds another unit of the same task",
+			seals: []struct {
+				desc distributedtask.TaskDescriptor
+				unit string
+			}{{desc, "shard-2__node-0"}},
+			enterDesc: desc, enterUnit: unit, wantEntered: true,
+		},
+		{
+			name: "a teardown holds the same unit of another version of the task",
+			seals: []struct {
+				desc distributedtask.TaskDescriptor
+				unit string
+			}{{other, unit}},
+			enterDesc: desc, enterUnit: unit, wantEntered: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := structuralInvariantNewBareProvider()
+			var unseals []func()
+			for _, seal := range tt.seals {
+				unseal, sealed := p.SealLocalUnit(seal.desc, seal.unit)
+				require.True(t, sealed, "nothing is running, so every seal is granted")
+				unseals = append(unseals, unseal)
+			}
+			for i := 0; i < tt.releaseSeals; i++ {
+				unseals[i]()
+			}
+
+			release, entered := p.enterLocalUnit(tt.enterDesc, tt.enterUnit)
+			require.Equal(t, tt.wantEntered, entered)
+			if entered {
+				release()
+			}
+
+			for i := tt.releaseSeals; i < len(unseals); i++ {
+				unseals[i]()
+			}
+			require.Empty(t, p.liveUnits)
+			require.Empty(t, p.sealedUnits)
+		})
+	}
 }

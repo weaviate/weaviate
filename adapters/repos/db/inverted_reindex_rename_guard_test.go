@@ -138,15 +138,17 @@ func identsIn(n ast.Node) map[string]bool {
 }
 
 // Reconciliation removes a migration's directories once its task goes
-// terminal, and it asks IsLocalUnitLive first. That probe once answered from
-// the re-entry guard, which is claimed under `if semantic` and only around the
+// terminal, and it seals the unit first. That interlock once answered from the
+// re-entry guard, which is claimed under `if semantic` and only around the
 // iteration — so it read false for four migration types and for the prep and
 // swap of all nine, and the removal went ahead under a running worker.
 //
-// Two things keep it honest, and neither is observable at runtime without a
-// full cluster: the probe must not read the re-entry guard's map, and every
-// span that writes into those directories must register unconditionally.
-func TestLocalUnitLivenessIsNotTheReEntryGuard(t *testing.T) {
+// Three things keep it honest, and none is observable at runtime without a
+// full cluster: the seal must not read the re-entry guard's map, every span
+// that writes into those directories must register unconditionally, and
+// entering must consult the seals so a late entrant is refused rather than
+// admitted alongside a teardown.
+func TestLocalUnitSealIsNotTheReEntryGuard(t *testing.T) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "reindex_provider.go", nil, 0)
 	require.NoError(t, err)
@@ -158,13 +160,20 @@ func TestLocalUnitLivenessIsNotTheReEntryGuard(t *testing.T) {
 		}
 	}
 
-	probe, ok := bodies["IsLocalUnitLive"]
-	require.True(t, ok, "the probe reconciliation gates its removals on")
-	names := identsIn(probe.Body)
-	require.True(t, names["liveUnits"], "IsLocalUnitLive must answer from the liveness registry")
+	seal, ok := bodies["SealLocalUnit"]
+	require.True(t, ok, "the seal reconciliation gates its removals on")
+	names := identsIn(seal.Body)
+	require.True(t, names["liveUnits"], "SealLocalUnit must answer from the liveness registry")
+	require.True(t, names["sealedUnits"], "SealLocalUnit must record the seal it granted")
 	require.False(t, names["activeWorkers"],
-		"IsLocalUnitLive must not answer from the re-entry guard: that map is claimed only "+
+		"SealLocalUnit must not answer from the re-entry guard: that map is claimed only "+
 			"for semantic migrations and only around the iteration")
+
+	enter, ok := bodies["enterLocalUnit"]
+	require.True(t, ok, "the claim every writing span takes")
+	require.True(t, identsIn(enter.Body)["sealedUnits"],
+		"enterLocalUnit must refuse a unit a teardown holds: the phase decided to run from a "+
+			"task snapshot frozen at the start of a tick, so the teardown can have started since")
 
 	// processOneUnit is the iteration; runPerUnitPhase drives both the prep
 	// and the swap for every callback that reaches a shard.

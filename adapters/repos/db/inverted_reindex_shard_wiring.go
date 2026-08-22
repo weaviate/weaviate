@@ -200,39 +200,39 @@ func (db *DB) migrationLocalTasks() ([]*distributedtask.Task, bool) {
 	return source()
 }
 
-// SetReindexUnitLivenessLookup installs the probe reconciliation asks before
-// it removes a migration's directories. Wired post-bootstrap next to the other
-// reindex lookups.
-func (db *DB) SetReindexUnitLivenessLookup(builder ReindexUnitLivenessLookupBuilder) {
+// SetReindexUnitSeal installs the seal every teardown takes before it removes
+// a migration's directories. Wired post-bootstrap next to the other reindex
+// lookups.
+func (db *DB) SetReindexUnitSeal(builder ReindexUnitSealBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
-	db.reindexUnitLivenessLookupBuilder = builder
+	db.reindexUnitSealBuilder = builder
 }
 
-// migrationUnitLive answers false where nothing is wired, which is every test
-// fixture and every path that builds a DB without the provider. That is the
-// pre-existing behavior: the probe narrows when a discard may run, it is not
-// what authorizes one.
-func (db *DB) migrationUnitLive(desc distributedtask.TaskDescriptor, unitID string) bool {
+// migrationSealUnit seals successfully where nothing is wired, which is every
+// test fixture and every path that builds a DB without the provider. That is
+// the pre-existing behavior: the seal narrows when a teardown may run, it is
+// not what authorizes one.
+func (db *DB) migrationSealUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 	db.reindexAuditMu.RLock()
-	builder := db.reindexUnitLivenessLookupBuilder
+	builder := db.reindexUnitSealBuilder
 	db.reindexAuditMu.RUnlock()
 
 	if builder == nil {
-		return false
+		return func() {}, true
 	}
-	lookup := builder()
-	if lookup == nil {
-		return false
+	seal := builder()
+	if seal == nil {
+		return func() {}, true
 	}
-	return lookup(desc, unitID)
+	return seal(desc, unitID)
 }
 
-func (s *Shard) migrationUnitLive(desc distributedtask.TaskDescriptor, unitID string) bool {
+func (s *Shard) migrationSealUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 	if s.index == nil || s.index.db == nil {
-		return false
+		return func() {}, true
 	}
-	return s.index.db.migrationUnitLive(desc, unitID)
+	return s.index.db.migrationSealUnit(desc, unitID)
 }
 
 func (db *DB) migrationClusterTasksBounded(ctx context.Context) ([]*distributedtask.Task, error) {
@@ -346,7 +346,7 @@ func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconc
 	return newMigrationReconciler(s.migrationRecords, s.pathLSM(), s.index.logger,
 		migrationReconcileDeps{
 			LocalTasks: s.migrationLocalTasks,
-			UnitLive:   s.migrationUnitLive,
+			SealUnit:   s.migrationSealUnit,
 			Class:      class,
 			Mirror:     s,
 			Buckets:    s,

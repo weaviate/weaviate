@@ -57,15 +57,20 @@ type migrationReconcileDeps struct {
 	// merely not installed yet would read as "every task is gone".
 	LocalTasks func() ([]*distributedtask.Task, bool)
 
-	// UnitLive reports that this node is doing work for this exact (task,
-	// unit) right now — the iteration, the prep that copies segments into the
-	// ingest directory, or the swap that flips the pointers. A terminal
-	// cluster status does not imply any of them has stopped: cancelling marks
-	// the task and signals the worker on a later scheduler tick, and nothing
-	// waits for it, while the worker writes through handles it took before its
-	// phase began. Only the discard arm asks, because only it removes those
-	// directories.
-	UnitLive func(distributedtask.TaskDescriptor, string) bool
+	// SealUnit reserves this exact (task, unit) for teardown, or refuses
+	// because this node is doing work for it right now — the iteration, the
+	// prep that copies segments into the ingest directory, or the swap that
+	// flips the pointers. A terminal cluster status does not imply any of
+	// them has stopped: cancelling marks the task and signals the worker on a
+	// later scheduler tick, and nothing waits for it, while the worker writes
+	// through handles it took before its phase began.
+	//
+	// A seal rather than a question, because a question is only about the
+	// instant it is asked: every phase decides to run from a task snapshot
+	// frozen at the start of a tick, so one can enter after the answer came
+	// back and flip live bucket pointers onto directories mid-delete. Held by
+	// every arm that removes a directory, for as long as it works.
+	SealUnit func(distributedtask.TaskDescriptor, string) (func(), bool)
 
 	// Class is the locally applied schema for the migrated collection, or nil
 	// when the collection is not in it.
@@ -364,12 +369,23 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 
 // reconcileSwapped promotes. Every arm is decided by probing the handles the
 // record already carries, never by parsing a directory name.
+//
+// Promotion removes the displaced and canonical directories before it renames,
+// so it is as destructive as the discard and is sealed the same way.
 func (r *migrationReconciler) reconcileSwapped(ctx context.Context, rec MigrationRecordSwapped,
 	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {
 	if someRecordsUnreadable {
 		return nil
 	}
+	return r.withSealedUnit(rec.Subject(), "its promotion", func() error {
+		return r.promoteSealed(ctx, rec, all)
+	})
+}
+
+func (r *migrationReconciler) promoteSealed(_ context.Context, rec MigrationRecordSwapped,
+	all []MigrationRecord,
+) error {
 	subject := rec.Subject()
 	settled := true
 
@@ -472,6 +488,14 @@ func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec Migrati
 	if someRecordsUnreadable {
 		return nil
 	}
+	return r.withSealedUnit(rec.Subject(), "its closure sweep", func() error {
+		return r.reconcilePromotedSealed(rec, all)
+	})
+}
+
+func (r *migrationReconciler) reconcilePromotedSealed(rec MigrationRecordPromoted,
+	all []MigrationRecord,
+) error {
 	subject := rec.Subject()
 
 	// The record is durable the instant it is written; the rename it vouches
@@ -605,16 +629,32 @@ func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []*
 	return r.verdictFrom(subject, tasks, true)
 }
 
-// localUnitLive reports a worker of this migration still running here. No
-// probe installed reads as not running, which is what every path did before
-// there was one.
-func (r *migrationReconciler) localUnitLive(subject MigrationSubject) bool {
-	if r.deps.UnitLive == nil {
-		return false
+// sealUnit holds this migration's unit for the length of a teardown, or
+// refuses because a worker of it is still running here. No registry installed
+// seals successfully, which is what every path did before there was one.
+func (r *migrationReconciler) sealUnit(subject MigrationSubject) (func(), bool) {
+	if r.deps.SealUnit == nil {
+		return func() {}, true
 	}
-	return r.deps.UnitLive(
+	return r.deps.SealUnit(
 		distributedtask.TaskDescriptor{ID: subject.TaskID, Version: subject.Key.TaskVersion},
 		subject.Key.UnitID)
+}
+
+// withSealedUnit runs a teardown under the unit's seal, or declines it because
+// a worker is live and logs why. Every arm that removes one of a migration's
+// directories goes through here: they all remove directories a live worker
+// writes into through pointers it took before its phase began, and the next
+// pass runs the declined one again.
+func (r *migrationReconciler) withSealedUnit(subject MigrationSubject, what string, run func() error) error {
+	release, sealed := r.sealUnit(subject)
+	if !sealed {
+		r.logger.WithField("record", subject.Key.String()).Infof(
+			"a local unit of this migration is still running, so %s waits for the next pass", what)
+		return nil
+	}
+	defer release()
+	return run()
 }
 
 // verdictFrom consults the two external facts, in the order that makes the
@@ -702,18 +742,22 @@ func findMigrationTask(subject MigrationSubject, tasks []*distributedtask.Task) 
 // terminal independently of when that unit exits. What used to make this safe
 // was that the only caller ran once, before the scheduler resumed anything, so
 // no unit had started in this process — an argument the periodic pass ends,
-// since it runs for the life of the node. So the unit is asked about directly,
-// and a live one withholds until the next pass. The two blocking drains that
-// guard the other teardown paths are not available here: this walk holds each
-// index's drop lock, where waiting would stall the RAFT apply loop.
+// since it runs for the life of the node. So it seals the unit first, and a
+// live one declines the seal and withholds until the next pass. The two
+// blocking drains that guard the other teardown paths are not available here:
+// this walk holds each index's drop lock, where waiting would stall the RAFT
+// apply loop.
 func (r *migrationReconciler) discard(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject, why string,
 ) error {
-	if r.localUnitLive(subject) {
-		r.logger.WithField("record", subject.Key.String()).Infof(
-			"a local unit of this migration is still running, so its directories stay: %s", why)
-		return nil
-	}
+	return r.withSealedUnit(subject, "the discard of its staged data", func() error {
+		return r.discardSealed(ctx, all, subject, why)
+	})
+}
+
+func (r *migrationReconciler) discardSealed(ctx context.Context, all []MigrationRecord,
+	subject MigrationSubject, why string,
+) error {
 	r.logger.WithField("record", subject.Key.String()).Infof("discarding staged migration data: %s", why)
 
 	ec := errorcompounder.New()

@@ -1173,9 +1173,9 @@ func initReindexAndDistributedTasks(
 
 	// Installed here rather than with the other reindex lookups below, because
 	// those are wired from the post-bootstrap goroutine and reconciliation's
-	// first pass runs there too. A pass that ran without this probe could
+	// first pass runs there too. A pass that ran without this seal could
 	// remove a running unit's directories.
-	repo.SetReindexUnitLivenessLookup(reindexProvider.ReindexUnitLivenessLookupBuilder())
+	repo.SetReindexUnitSeal(reindexProvider.ReindexUnitSealBuilder())
 
 	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
 	// [db.ReindexProvider.RunSearchableBlockmaxRepair].

@@ -148,35 +148,53 @@ func (r *migrationReconciler) retireSuperseded(ctx context.Context, all []Migrat
 			continue
 		}
 
-		retired := true
-		for _, prop := range subject.Properties {
-			if !migrationPropertySuperseded(all, subject, prop) {
-				continue
-			}
-			if err := r.retireProperty(ctx, all, subject, prop); err != nil {
-				r.logger.WithField("record", subject.Key.String()).Errorf(
-					"retire a superseded property: %v", err)
-				retired = false
-			}
-		}
-		// A directory whose removal did not happen must keep the record that
-		// names it, or nothing can attribute it afterwards. The next load
-		// re-derives this pass and tries again.
-		if !retired || !migrationRecordFullySuperseded(all, rec) {
+		// Retirement removes this record's staged and sidecar directories,
+		// which a worker of its own migration may still be writing into
+		// through pointers it took before its phase began. A live one
+		// declines the seal and the next pass retires it.
+		release, sealed := r.sealUnit(subject)
+		if !sealed {
+			r.logger.WithField("record", subject.Key.String()).Info(
+				"a local unit of this migration is still running, so its retirement waits for the next pass")
 			continue
 		}
+		r.retireOneSealed(ctx, all, rec, subject)
+		release()
+	}
+}
 
-		// Every property is gone or has become a successor's responsibility,
-		// so the record has nothing left to answer for.
-		for _, dir := range subject.SidecarDirs {
-			if err := os.RemoveAll(r.path(dir)); err != nil {
-				r.logger.WithField("dir", dir).Errorf("remove sidecar directory of a superseded migration: %v", err)
-			}
+// retireOneSealed retires one superseded record, under its unit's seal.
+func (r *migrationReconciler) retireOneSealed(ctx context.Context, all []MigrationRecord,
+	rec MigrationRecord, subject MigrationSubject,
+) {
+	retired := true
+	for _, prop := range subject.Properties {
+		if !migrationPropertySuperseded(all, subject, prop) {
+			continue
 		}
-		r.removeTrackerDir(subject)
-		if err := r.store.Remove(subject.Key); err != nil {
-			r.logger.WithField("record", subject.Key.String()).Errorf("remove superseded migration record: %v", err)
+		if err := r.retireProperty(ctx, all, subject, prop); err != nil {
+			r.logger.WithField("record", subject.Key.String()).Errorf(
+				"retire a superseded property: %v", err)
+			retired = false
 		}
+	}
+	// A directory whose removal did not happen must keep the record that
+	// names it, or nothing can attribute it afterwards. The next load
+	// re-derives this pass and tries again.
+	if !retired || !migrationRecordFullySuperseded(all, rec) {
+		return
+	}
+
+	// Every property is gone or has become a successor's responsibility,
+	// so the record has nothing left to answer for.
+	for _, dir := range subject.SidecarDirs {
+		if err := os.RemoveAll(r.path(dir)); err != nil {
+			r.logger.WithField("dir", dir).Errorf("remove sidecar directory of a superseded migration: %v", err)
+		}
+	}
+	r.removeTrackerDir(subject)
+	if err := r.store.Remove(subject.Key); err != nil {
+		r.logger.WithField("record", subject.Key.String()).Errorf("remove superseded migration record: %v", err)
 	}
 }
 

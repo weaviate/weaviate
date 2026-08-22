@@ -354,7 +354,7 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				if shard != nil {
 					cleaned, failed = db.cleanLoadedShardOrphans(ctx, shard, confirmed, auditLogger)
 				} else {
-					cleaned, failed = cleanUnloadedShardOrphans(lsmPath, confirmed, auditLogger)
+					cleaned, failed = db.cleanUnloadedShardOrphans(lsmPath, confirmed, auditLogger)
 				}
 				outcome.OrphansClean += cleaned
 				outcome.FailedDirs = append(outcome.FailedDirs, failed...)
@@ -753,9 +753,18 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 	var failed []string
 	for i := range orphans {
 		o := &orphans[i]
+		release, sealed := db.sealOrphanUnit(o)
+		if !sealed {
+			logger.WithField("orphan", o.String()).
+				Warn("reindex orphan audit: a local unit of this migration is still running; leaving its tracker for the next audit")
+			failed = append(failed, o.dirName)
+			continue
+		}
 		logger.WithField("orphan", o.String()).
 			Warn("reindex orphan audit: found tracker for unknown task; quarantining sidecar bucket and tracker dir")
-		if err := db.cleanupOrphanTrackerCompactionPaused(ctx, shard, o, logger); err != nil {
+		err := db.cleanupOrphanTrackerCompactionPaused(ctx, shard, o, logger)
+		release()
+		if err != nil {
 			logger.WithField("orphan", o.String()).
 				Warnf("reindex orphan audit: cleanup failed for tracker: %v", err)
 			failed = append(failed, o.dirName)
@@ -773,24 +782,45 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 //
 // Returns (cleanedCount, failedDirs) so the audit driver can roll up
 // per-shard results into the typed [AuditOutcome] (S4).
-func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, logger logrus.FieldLogger) (int, []string) {
+func (db *DB) cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, logger logrus.FieldLogger) (int, []string) {
 	cleaned := 0
 	var failed []string
 	for i := range orphans {
 		o := &orphans[i]
-		logger.WithField("orphan", o.String()).
-			Warn("reindex orphan audit: found tracker for unknown task on unloaded shard; removing tracker and sidecar dirs from disk")
-		trackerPath := filepath.Join(lsmPath, ".migrations", o.dirName)
-		if err := os.RemoveAll(trackerPath); err != nil {
+		release, sealed := db.sealOrphanUnit(o)
+		if !sealed {
 			logger.WithField("orphan", o.String()).
-				Warnf("reindex orphan audit: failed to remove orphan tracker dir: %v", err)
+				Warn("reindex orphan audit: a local unit of this migration is still running; leaving its tracker for the next audit")
 			failed = append(failed, o.dirName)
 			continue
 		}
-		removeUnloadedSidecarsForOrphan(lsmPath, o, logger)
+		logger.WithField("orphan", o.String()).
+			Warn("reindex orphan audit: found tracker for unknown task on unloaded shard; removing tracker and sidecar dirs from disk")
+		trackerPath := filepath.Join(lsmPath, ".migrations", o.dirName)
+		removeErr := os.RemoveAll(trackerPath)
+		if removeErr == nil {
+			removeUnloadedSidecarsForOrphan(lsmPath, o, logger)
+		}
+		release()
+		if removeErr != nil {
+			logger.WithField("orphan", o.String()).
+				Warnf("reindex orphan audit: failed to remove orphan tracker dir: %v", removeErr)
+			failed = append(failed, o.dirName)
+			continue
+		}
 		cleaned++
 	}
 	return cleaned, failed
+}
+
+// sealOrphanUnit holds the orphan's own (task, unit) for the length of its
+// cleanup. The audit classifies an orphan from the task's cluster status
+// alone, and a status goes terminal without waiting for the local unit to
+// exit -- so the tracker it is about to delete can be one a worker on this
+// node is still writing through pointers it took before its phase began.
+func (db *DB) sealOrphanUnit(o *orphanReindexTracker) (func(), bool) {
+	return db.migrationSealUnit(
+		distributedtask.TaskDescriptor{ID: o.taskID, Version: o.taskVersion}, o.unitID)
 }
 
 // removeUnloadedSidecarsForOrphan removes per-property sidecar bucket

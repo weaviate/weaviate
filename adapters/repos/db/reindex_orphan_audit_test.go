@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
 func TestAuditOrphanReindexTrackers_NilLookup_Refuses(t *testing.T) {
@@ -954,6 +955,85 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 				nextGenerationAt(t, lsmPath, "enable_filterable_", propName,
 					testRecordsAt(t, lsmPath)),
 				"the generation the next migration on this property claims")
+		})
+	}
+}
+
+// TestOrphanCleanupSealsTheUnit pins that the audit's destructive arms hold
+// the migration's own unit while they work. The audit classifies an orphan
+// from the owning task's cluster status alone, and a status goes terminal
+// without waiting for the local unit to exit — so the tracker and sidecars it
+// deletes can be ones a worker on this node is still writing into through
+// bucket pointers it took before its phase began.
+func TestOrphanCleanupSealsTheUnit(t *testing.T) {
+	const (
+		taskID      = "task-orphan"
+		taskVersion = 9
+		unitID      = "unit-orphan"
+	)
+
+	tests := []struct {
+		name string
+		// unitLive is a worker of the orphan's own migration running here.
+		unitLive bool
+		// loaded runs the arm that goes through the shard, rather than the
+		// one that removes directories from disk directly.
+		loaded      bool
+		wantCleaned int
+	}{
+		{name: "unloaded shard, nothing running", wantCleaned: 1},
+		{name: "unloaded shard, a worker of this migration is running", unitLive: true},
+		{name: "loaded shard, nothing running", loaded: true, wantCleaned: 1},
+		{name: "loaded shard, a worker of this migration is running", loaded: true, unitLive: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shd, idx := testShard(t, ctx, "AuditSealClass")
+			shard := shd.(*Shard)
+			lsmPath := shard.pathLSM()
+			trackerDir := mkAuditTracker(t, lsmPath, "searchable_retokenize_orphan_1",
+				taskID, taskVersion, unitID, MigrationStateIterating, "orphan")
+
+			db := &DB{
+				indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+				config:  Config{RootPath: idx.Config.RootPath},
+			}
+			db.SetReindexUnitSeal(func() ReindexUnitSeal {
+				return func(desc distributedtask.TaskDescriptor, unit string) (func(), bool) {
+					if tt.unitLive && desc.ID == taskID && desc.Version == taskVersion && unit == unitID {
+						return nil, false
+					}
+					return func() {}, true
+				}
+			})
+
+			orphans := []orphanReindexTracker{{
+				collection: "AuditSealClass", shardName: shard.name,
+				dirName: "searchable_retokenize_orphan_1", prefix: "searchable_retokenize_orphan",
+				generation: 1, taskID: taskID, taskVersion: taskVersion, unitID: unitID,
+				properties: []string{"orphan"}, indexTypes: []string{"searchable"},
+			}}
+
+			logger := logrus.New()
+			var cleaned int
+			var failed []string
+			if tt.loaded {
+				cleaned, failed = db.cleanLoadedShardOrphans(ctx, shard, orphans, logger)
+			} else {
+				cleaned, failed = db.cleanUnloadedShardOrphans(lsmPath, orphans, logger)
+			}
+
+			assert.Equal(t, tt.wantCleaned, cleaned)
+			assert.Equal(t, tt.wantCleaned == 1, !dirExists(t, trackerDir),
+				"the orphan's tracker directory")
+			if tt.unitLive {
+				assert.Equal(t, []string{"searchable_retokenize_orphan_1"}, failed,
+					"a tracker left behind is work the next audit still owes")
+			} else {
+				assert.Empty(t, failed)
+			}
 		})
 	}
 }
