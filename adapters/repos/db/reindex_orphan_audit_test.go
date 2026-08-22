@@ -951,7 +951,7 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 			// is what hands it back, since either one on its own still claims
 			// the generation.
 			assert.Equal(t, tt.wantReissued,
-				nextMigrationGeneration(lsmPath, "enable_filterable_", propName,
+				nextGenerationAt(t, lsmPath, "enable_filterable_", propName,
 					testRecordsAt(t, lsmPath)),
 				"the generation the next migration on this property claims")
 		})

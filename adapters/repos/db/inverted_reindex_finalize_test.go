@@ -79,9 +79,33 @@ func fakeMigrationsDir(t *testing.T, dirs []string) string {
 	return lsmPath
 }
 
+// makeMigrationsUnlistable leaves the tracker directory traversable but not
+// readable, so .migrations/records still answers and only the listing fails.
+// That is the state this branch has to survive: a shard whose migration
+// directory exists and whose contents nothing can enumerate.
+func makeMigrationsUnlistable(t *testing.T, lsmPath string) {
+	t.Helper()
+	migrations := filepath.Join(lsmPath, migrationsDir)
+	require.NoError(t, os.Chmod(migrations, 0o111))
+	t.Cleanup(func() { os.Chmod(migrations, 0o755) })
+	if _, err := os.ReadDir(migrations); err == nil {
+		t.Skip("this user can list an unreadable directory, so the failure cannot be staged")
+	}
+}
+
+// nextGenerationAt is the allocation the provider makes on a shard it could
+// read: it asserts the listing was visible, because the generation callers
+// below assert is only meaningful once it is.
+func nextGenerationAt(t *testing.T, lsmPath, prefix, propNamesSuffix string, records []MigrationRecord) int {
+	t.Helper()
+	trackerDirs, visible := migrationTrackerDirNames(lsmPath)
+	require.True(t, visible, "the tracker directory should be listable")
+	return nextMigrationGeneration(trackerDirs, prefix, propNamesSuffix, records)
+}
+
 func TestNextMigrationGeneration_EmptyDisk(t *testing.T) {
 	lsmPath := fakeMigrationsDir(t, nil)
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil)
+	got := nextGenerationAt(t, lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil)
 	require.Equal(t, 1, got, "fresh disk should pick gen 1")
 }
 
@@ -93,7 +117,7 @@ func TestNextMigrationGeneration_NoMatchingPrefix(t *testing.T) {
 		"filterable_retokenize_text_2",
 		"enable_filterable_text_5",
 	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil)
+	got := nextGenerationAt(t, lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil)
 	require.Equal(t, 1, got, "no matching prefix means fresh gen 1")
 }
 
@@ -103,7 +127,7 @@ func TestNextMigrationGeneration_ContiguousGens(t *testing.T) {
 		"searchable_retokenize_text_2",
 		"searchable_retokenize_text_3",
 	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil)
+	got := nextGenerationAt(t, lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil)
 	require.Equal(t, 4, got, "max+1 across contiguous gens")
 }
 
@@ -115,7 +139,7 @@ func TestNextMigrationGeneration_NonContiguousGens(t *testing.T) {
 		"searchable_retokenize_text_5",
 		"searchable_retokenize_text_7",
 	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil)
+	got := nextGenerationAt(t, lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil)
 	require.Equal(t, 8, got, "non-contiguous gens still pick max+1")
 }
 
@@ -125,15 +149,17 @@ func TestNextMigrationGeneration_MixedPrefixesScopedCorrectly(t *testing.T) {
 		"searchable_retokenize_other_7", // different prop in same prefix
 		"filterable_retokenize_text_10", // different prefix, same prop
 	})
-	require.Equal(t, 4, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil))
-	require.Equal(t, 8, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_other", nil))
-	require.Equal(t, 11, nextMigrationGeneration(lsmPath, MigrationDirPrefixFilterableRetokenize, "_text", nil))
-	require.Equal(t, 1, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_neverused", nil))
+	require.Equal(t, 4, nextGenerationAt(t, lsmPath, MigrationDirPrefixSearchableRetokenize, "_text", nil))
+	require.Equal(t, 8, nextGenerationAt(t, lsmPath, MigrationDirPrefixSearchableRetokenize, "_other", nil))
+	require.Equal(t, 11, nextGenerationAt(t, lsmPath, MigrationDirPrefixFilterableRetokenize, "_text", nil))
+	require.Equal(t, 1, nextGenerationAt(t, lsmPath, MigrationDirPrefixSearchableRetokenize, "_neverused", nil))
 }
 
 func TestMaxMigrationGeneration_NoExisting(t *testing.T) {
 	lsmPath := fakeMigrationsDir(t, nil)
-	require.Equal(t, 0, maxMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
+	trackerDirs, visible := migrationTrackerDirNames(lsmPath)
+	require.True(t, visible)
+	require.Equal(t, 0, maxMigrationGeneration(trackerDirs, MigrationDirPrefixSearchableRetokenize, "_text"))
 }
 
 func TestMaxMigrationGeneration_Existing(t *testing.T) {
@@ -141,7 +167,9 @@ func TestMaxMigrationGeneration_Existing(t *testing.T) {
 		"searchable_retokenize_text_2",
 		"searchable_retokenize_text_5",
 	})
-	require.Equal(t, 5, maxMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
+	trackerDirs, visible := migrationTrackerDirNames(lsmPath)
+	require.True(t, visible)
+	require.Equal(t, 5, maxMigrationGeneration(trackerDirs, MigrationDirPrefixSearchableRetokenize, "_text"))
 }
 
 // plantedMigration is one migration on the shard under reconciliation. The
@@ -365,7 +393,7 @@ func TestNextMigrationGenerationHonorsRecords(t *testing.T) {
 			require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(NewMigrationRecordMerged(subject)))
 
 			require.Equal(t, tt.want,
-				nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text",
+				nextGenerationAt(t, lsmPath, MigrationDirPrefixSearchableRetokenize, "_text",
 					testRecordsAt(t, lsmPath)))
 		})
 	}

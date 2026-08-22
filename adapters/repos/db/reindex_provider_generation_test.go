@@ -42,7 +42,9 @@ func TestBuildReindexTasksGenerationAllocation(t *testing.T) {
 		recordGen int
 		// undecodable plants a record file this build cannot read.
 		undecodable bool
-		rehydrate   bool
+		// unlistable leaves the tracker directory there but unreadable.
+		unlistable bool
+		rehydrate  bool
 
 		wantErr bool
 		// wantDir is the migration dir name of the task that came back;
@@ -94,6 +96,19 @@ func TestBuildReindexTasksGenerationAllocation(t *testing.T) {
 			rehydrate:   true,
 			wantErr:     true,
 		},
+		{
+			name:       "a tracker directory nobody can list refuses a fresh allocation",
+			dirs:       []string{"enable_filterable_title_2"},
+			unlistable: true,
+			wantErr:    true,
+		},
+		{
+			name:       "a tracker directory nobody can list refuses a rehydrate too",
+			dirs:       []string{"enable_filterable_title_2"},
+			unlistable: true,
+			rehydrate:  true,
+			wantErr:    true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -112,6 +127,10 @@ func TestBuildReindexTasksGenerationAllocation(t *testing.T) {
 				require.NoError(t, os.MkdirAll(recordsDir, 0o755))
 				require.NoError(t, os.WriteFile(
 					filepath.Join(recordsDir, "99_enable_filterable.json"), []byte("{"), 0o600))
+			}
+
+			if tc.unlistable {
+				makeMigrationsUnlistable(t, lsmPath)
 			}
 
 			p := &ReindexProvider{logger: logger}

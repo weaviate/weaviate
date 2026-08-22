@@ -743,17 +743,24 @@ func (p *ReindexProvider) buildReindexTasks(payload *ReindexTaskPayload, lsmPath
 			payload.MigrationType, len(payload.Properties), maxReindexPropertiesPerTask)
 	}
 
-	// A generation names directories, and the records are what say which
-	// generations are already claimed. A record this build cannot read claims
-	// one nobody can see, so neither allocating a new generation nor
-	// re-adopting an existing one is safe: the first hands a retry the very
-	// directories the invisible record names, the second attaches this task
-	// to an older migration's. Refused here rather than per strategy, so
-	// every arm below and both allocation modes are covered by one check.
+	// A generation names directories, and two things say which generations are
+	// already claimed: the records, and the tracker directory listing. Either
+	// one falling short of the whole set leaves a claim invisible, and then
+	// neither allocating a new generation nor re-adopting an existing one is
+	// safe: the first hands a retry the very directories the invisible claim
+	// names, the second attaches this task to an older migration's. Refused
+	// here rather than per strategy, so every arm below and both allocation
+	// modes are covered by one check.
 	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, p.logger)
 	if someRecordsUnreadable || recordSetUnreadable {
 		return nil, fmt.Errorf("migration records at %s could not all be read, "+
 			"so the generations they claim are invisible; refusing to start %s",
+			lsmPath, payload.MigrationType)
+	}
+	trackerDirs, trackerDirsVisible := migrationTrackerDirNames(lsmPath)
+	if !trackerDirsVisible {
+		return nil, fmt.Errorf("the migration directory under %s could not be listed, "+
+			"so the generations its directories claim are invisible; refusing to start %s",
 			lsmPath, payload.MigrationType)
 	}
 
@@ -770,12 +777,12 @@ func (p *ReindexProvider) buildReindexTasks(payload *ReindexTaskPayload, lsmPath
 	// later try to swap from reindex bucket dirs that no longer exist.
 	genFor := func(prefix, propSuffix string) (int, bool) {
 		if rehydrate {
-			if gen := highestMigrationGeneration(lsmPath, prefix, propSuffix, records); gen > 0 {
+			if gen := highestMigrationGeneration(trackerDirs, prefix, propSuffix, records); gen > 0 {
 				return gen, true
 			}
 			return 0, false
 		}
-		return nextMigrationGeneration(lsmPath, prefix, propSuffix, records), true
+		return nextMigrationGeneration(trackerDirs, prefix, propSuffix, records), true
 	}
 
 	// On the normal path (rehydrate=false) genFor always returns ok=true.

@@ -17,6 +17,25 @@ import (
 	"strings"
 )
 
+// migrationTrackerDirNames lists the tracker directories on this shard.
+// visible is false when the directory is there but could not be read, which
+// is a different answer from an empty listing: a caller that reads the two
+// the same way concludes nothing is claimed on evidence it never saw. An
+// absent directory is visible and empty — most shards never ran a migration.
+func migrationTrackerDirNames(lsmPath string) (names []string, visible bool) {
+	entries, err := os.ReadDir(filepath.Join(lsmPath, migrationsDir))
+	if err != nil {
+		return nil, os.IsNotExist(err)
+	}
+	names = make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	return names, true
+}
+
 // nextMigrationGeneration returns the per-node generation `N` a new
 // migration on (migrationDirPrefix, propNamesSuffix) should use on this
 // shard's LSM directory. The new migration writes to dirs suffixed
@@ -32,20 +51,21 @@ import (
 // strategies — pass "" for class-level strategies). The full dir name
 // pattern matched is `<migrationDirPrefix><propNamesSuffix>_<N>`.
 //
-// records is this shard's understood record set, and the caller must have
-// established that it is the whole set: a generation claimed by a record
-// nobody could read is invisible here, and handing it out again gives the
-// retry the very directories that record names.
+// trackerDirs and records are the two things that say which generations are
+// already claimed, and the caller must have established that each is the
+// whole set. A generation claimed by a record nobody could read, or by a
+// directory nobody could list, is invisible here, and handing it out again
+// gives the retry the very directories that claim names.
 //
 // Called from [ReindexProvider.buildReindexTasks] before constructing the
 // strategy instance, once per shard / prop / indexType tuple. Computed
 // per-node — different nodes may pick different generations for the
 // same RAFT task and that's correct: generation is purely a per-node
 // on-disk implementation detail of the deferred-finalize design.
-func nextMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string,
+func nextMigrationGeneration(trackerDirs []string, migrationDirPrefix, propNamesSuffix string,
 	records []MigrationRecord,
 ) int {
-	return highestMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix, records) + 1
+	return highestMigrationGeneration(trackerDirs, migrationDirPrefix, propNamesSuffix, records) + 1
 }
 
 // highestMigrationGeneration is the highest generation this shard has already
@@ -58,10 +78,10 @@ func nextMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string
 // generation, which is why the two must answer from the same evidence — a
 // rehydrate that answers from disk alone attaches to an older migration's
 // directories while a record claims a newer generation's.
-func highestMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string,
+func highestMigrationGeneration(trackerDirs []string, migrationDirPrefix, propNamesSuffix string,
 	records []MigrationRecord,
 ) int {
-	highest := maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix)
+	highest := maxMigrationGeneration(trackerDirs, migrationDirPrefix, propNamesSuffix)
 	target := migrationDirPrefix + propNamesSuffix
 	for _, rec := range records {
 		prefix, gen, ok := parseMigrationDirName(rec.Subject().TrackerDir)
@@ -72,24 +92,16 @@ func highestMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix str
 	return highest
 }
 
-// maxMigrationGeneration returns the highest existing generation on disk
-// for the (prefix, propNamesSuffix) tuple, or 0 if none exists. It is the
-// disk half of [highestMigrationGeneration], which is what every caller
-// outside this file wants: on its own it under-reports a generation whose
-// directory a sweep removed.
-func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
-	migrationsDir := filepath.Join(lsmPath, ".migrations")
-	entries, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		return 0
-	}
+// maxMigrationGeneration returns the highest generation named in trackerDirs
+// for the (prefix, propNamesSuffix) tuple, or 0 if none is. It is the disk
+// half of [highestMigrationGeneration], which is what every caller outside
+// this file wants: on its own it under-reports a generation whose directory a
+// sweep removed.
+func maxMigrationGeneration(trackerDirs []string, migrationDirPrefix, propNamesSuffix string) int {
 	target := migrationDirPrefix + propNamesSuffix
 	highest := 0
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		prefix, gen, ok := parseMigrationDirName(entry.Name())
+	for _, name := range trackerDirs {
+		prefix, gen, ok := parseMigrationDirName(name)
 		if !ok {
 			continue
 		}

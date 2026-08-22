@@ -155,15 +155,10 @@ func TestLegacyMarkerMigrationSurvivesTheSweep(t *testing.T) {
 
 			migrations := filepath.Join(lsm, migrationsDir)
 			if tc.unlistableMigrations {
-				// Traversable but not readable, so .migrations/records still
-				// answers and the record set stays clean. That is the state
-				// an upgrading shard is in: it has marker-era trackers and no
-				// records directory at all.
-				require.NoError(t, os.Chmod(migrations, 0o111))
-				t.Cleanup(func() { os.Chmod(migrations, 0o755) })
-				if _, err := os.ReadDir(migrations); err == nil {
-					t.Skip("this user can list an unreadable directory, so the failure cannot be staged")
-				}
+				// An upgrading shard has marker-era trackers and no records
+				// directory at all, so the record set stays clean and the
+				// listing is the only thing that fails.
+				makeMigrationsUnlistable(t, lsm)
 			}
 
 			logger, ok := shard.index.logger.(*logrus.Logger)
