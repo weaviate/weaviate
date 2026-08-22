@@ -116,9 +116,10 @@ func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }
 
-// FSMHasCaughtUp reports that this node has applied everything it knew about
-// at startup. Until it does, [Raft.LocalDistributedTasks] answers from a
-// partial map, where a task the cluster committed reads as absent.
+// FSMHasCaughtUp reports that this node has replayed the log it already held
+// when the store opened. It compares against an index frozen at open, so it is
+// true for good once the replay finishes and says nothing about how far behind
+// the leader this node is now.
 func (s *Raft) FSMHasCaughtUp() bool {
 	return s.store.FSMHasCaughtUp()
 }

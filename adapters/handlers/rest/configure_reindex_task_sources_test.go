@@ -111,11 +111,9 @@ func TestMigrationClusterTaskSourceReadsTheLeader(t *testing.T) {
 			because: "an unreachable leader must not read as an empty task map",
 		},
 		{
-			// The query short-circuits into the local FSM when this node is
-			// the leader, with no read barrier. A node that just won an
-			// election would answer from a map it is still applying into, and
-			// a task not applied yet reads exactly like one the cluster
-			// removed — which is what licenses deleting staged data.
+			// The window the gate does cover: the startup replay, where a task
+			// the cluster committed is genuinely not in this node's map yet
+			// and reads exactly like one the cluster removed.
 			name: "still applying its tail: this node must not answer for the cluster",
 			raft: &fakeMigrationTaskRaft{
 				list: map[string][]*distributedtask.Task{db.ReindexNamespace: tasks},

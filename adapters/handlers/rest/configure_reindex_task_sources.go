@@ -31,11 +31,13 @@ type migrationTaskRaft interface {
 // newMigrationLocalTaskSource answers from this node's own applied FSM, so it
 // costs no round-trip and cannot block a shard load.
 //
-// Whether the answer is usable is measured, not asserted. A node still
-// applying its RAFT tail — one restored from a leader-sent snapshot, or one
-// with no local state of its own — holds a partial map in which a task the
-// cluster committed reads as absent, and absent is what licenses
-// reconciliation's discard.
+// The gate covers the startup replay only: [Raft.FSMHasCaughtUp] compares
+// against an index frozen when the store opened, so it goes true for good once
+// the tail this node already held is applied. Before that the map is genuinely
+// partial and a committed task reads as absent, which is what licenses
+// reconciliation's discard. After it, what keeps a lagging map from licensing
+// one is reconciliation itself: its load-time verdict withholds wherever it
+// would rest on two absences at once, an absent task and an absent effect.
 func newMigrationLocalTaskSource(raft migrationTaskRaft) db.MigrationLocalTaskSource {
 	return func() ([]*distributedtask.Task, bool) {
 		if !raft.FSMHasCaughtUp() {
@@ -49,13 +51,14 @@ func newMigrationLocalTaskSource(raft migrationTaskRaft) db.MigrationLocalTaskSo
 // this node has not applied yet. Read once per reconciliation pass, off the
 // shard-load path.
 //
-// It is not a linearizable read. The query short-circuits into the local FSM
-// when this node is the leader, with no barrier, so a node that has just won
-// an election answers from a map it is still applying into — and a task that
-// is merely not applied yet reads exactly like one that is gone, which is what
-// licenses deleting a migration's staged data. Requiring catch-up here is what
-// keeps that answer off the wire. Withholding costs a minute; the next pass
-// asks again.
+// It is not a linearizable read: the query short-circuits into the local FSM
+// when this node is the leader, with no barrier. The gate below only keeps the
+// startup replay off the wire, and no predicate here can tell a freshly
+// elected leader's map from a settled one. What answers that is the order
+// reconciliation asks in — this node's own applied map first, where the task
+// is bound to be, because the record only exists at all because a unit started
+// from that map. Finding it there is positive evidence no snapshot age
+// spoils.
 func newMigrationClusterTaskSource(raft migrationTaskRaft) db.MigrationClusterTaskSource {
 	return func(ctx context.Context) ([]*distributedtask.Task, error) {
 		if !raft.FSMHasCaughtUp() {
