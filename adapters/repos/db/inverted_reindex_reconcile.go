@@ -57,12 +57,14 @@ type migrationReconcileDeps struct {
 	// merely not installed yet would read as "every task is gone".
 	LocalTasks func() ([]*distributedtask.Task, bool)
 
-	// UnitLive reports that a worker for this exact (task, unit) is iterating
-	// on this node right now. A terminal cluster status does not imply it has
-	// stopped — cancelling marks the task and signals the worker on a later
-	// scheduler tick, and nothing waits for it — while the worker writes
-	// through bucket pointers it captured before the iteration started. Only
-	// the discard arm asks, because only it removes those directories.
+	// UnitLive reports that this node is doing work for this exact (task,
+	// unit) right now — the iteration, the prep that copies segments into the
+	// ingest directory, or the swap that flips the pointers. A terminal
+	// cluster status does not imply any of them has stopped: cancelling marks
+	// the task and signals the worker on a later scheduler tick, and nothing
+	// waits for it, while the worker writes through handles it took before its
+	// phase began. Only the discard arm asks, because only it removes those
+	// directories.
 	UnitLive func(distributedtask.TaskDescriptor, string) bool
 
 	// Class is the locally applied schema for the migrated collection, or nil

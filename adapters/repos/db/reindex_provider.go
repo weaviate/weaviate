@@ -112,6 +112,22 @@ type ReindexProvider struct {
 	// return path (failure, context.Canceled, panic) releases the slot.
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
 
+	// liveUnits counts the goroutines doing this node's own work for a
+	// (task, unit) right now. It is deliberately not [activeWorkers]: that
+	// one is a re-entry guard, claimed only for semantic migrations and only
+	// around the iteration, so four migration types never appear in it and
+	// neither does the prep or the swap of any type. Reconciliation asks this
+	// before removing a migration's directories, and a gap in it is a
+	// directory removed under a goroutine still writing to it.
+	//
+	// A count, not a flag: nothing prevents two workers on one unit for the
+	// types the re-entry guard skips, and with a flag the first to finish
+	// would clear the second's claim.
+	//
+	// Guarded by [mu], incremented before the work and decremented from a
+	// defer, so failure, cancellation and panic all release it.
+	liveUnits map[distributedtask.TaskDescriptor]map[string]int
+
 	// cleanupInProgressMu guards [cleanupInProgress]. Held only for the
 	// register/unregister/lookup increment/decrement; never held across
 	// the actual sidecar-teardown call (that runs unlocked, the registry
@@ -207,6 +223,7 @@ func NewReindexProvider(
 		payloads:          make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:      make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		activeWorkers:     make(map[distributedtask.TaskDescriptor]map[string]bool),
+		liveUnits:         make(map[distributedtask.TaskDescriptor]map[string]int),
 		cleanupInProgress: make(map[reindexCleanupKey]int),
 	}
 }
@@ -319,21 +336,45 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
-// IsLocalUnitLive reports whether a worker for this exact (task, unit) is
-// running on this node right now. It is the read-only half of
-// [ReindexProvider.claimActiveWorker], and it exists because a task's cluster
-// status goes terminal without waiting for the local unit to exit: cancelling
-// marks the task and wakes the scheduler, which signals the worker on a later
-// tick and never awaits it.
+// enterLocalUnit records that this goroutine is doing the node's own work for
+// one (task, unit), and returns the release. Every span that holds a bucket
+// pointer or writes into a migration's directories has to be inside one: the
+// iteration, the prep that copies segments into the ingest directory, and the
+// swap that flips the pointers.
+func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, unitID string) func() {
+	p.mu.Lock()
+	if p.liveUnits[desc] == nil {
+		p.liveUnits[desc] = map[string]int{}
+	}
+	p.liveUnits[desc][unitID]++
+	p.mu.Unlock()
+
+	return func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.liveUnits[desc][unitID]--; p.liveUnits[desc][unitID] <= 0 {
+			delete(p.liveUnits[desc], unitID)
+		}
+		if len(p.liveUnits[desc]) == 0 {
+			delete(p.liveUnits, desc)
+		}
+	}
+}
+
+// IsLocalUnitLive reports whether this node is doing work for this exact
+// (task, unit) right now. It exists because a task's cluster status goes
+// terminal without waiting for the local unit to exit: cancelling marks the
+// task and wakes the scheduler, which signals the worker on a later tick and
+// never awaits it.
 //
-// A live worker writes through bucket pointers it captured before the
-// iteration began, so removing those directories loses every row it has
-// written since — silently, because a shut-down bucket accepts writes into a
-// memtable that will never be flushed.
+// A live worker writes through bucket pointers it captured before its phase
+// began, so removing those directories loses every row it has written since —
+// silently, because a shut-down bucket accepts writes into a memtable that
+// will never be flushed.
 func (p *ReindexProvider) IsLocalUnitLive(desc distributedtask.TaskDescriptor, unitID string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.activeWorkers[desc][unitID]
+	return p.liveUnits[desc][unitID] > 0
 }
 
 // ReindexUnitLivenessLookup answers for one (task, unit) pair. Keyed per unit
@@ -465,6 +506,12 @@ func (p *ReindexProvider) processOneUnit(
 	shardName := payload.UnitToShard[unitID]
 	logger := p.logger.WithField("taskID", task.ID).
 		WithField("unit", unitID).WithField("shard", shardName)
+
+	// Ahead of the re-entry guard below, and unconditional where that one is
+	// semantic-only: reconciliation may discard this migration's directories
+	// the moment the task goes terminal, and the iteration is writing into
+	// them whatever type it belongs to.
+	defer p.enterLocalUnit(task.TaskDescriptor, unitID)()
 
 	logger.Info("reindex provider: starting unit")
 
@@ -1358,7 +1405,13 @@ func (p *ReindexProvider) runPerUnitPhase(
 			return
 		}
 
+		// Prep copies segments into the ingest directory and swap flips the
+		// pointers, both through handles taken before they start, and both
+		// run here rather than in the iteration's goroutine — so the
+		// iteration's own registration has already been released by now.
+		release := p.enterLocalUnit(task.TaskDescriptor, unitID)
 		phase := runPhase(unitID, res.Shard, res.UnitTasks, res.Rehydrate)
+		release()
 		func() {
 			aggMu.Lock()
 			defer aggMu.Unlock()

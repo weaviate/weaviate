@@ -20,6 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
 // Wave 2 S1: cleanup-vs-status-visibility race in
@@ -509,4 +511,92 @@ func TestClassifyCleanupSweep(t *testing.T) {
 					"the same sweep reported")
 		})
 	}
+}
+
+// TestLocalUnitLivenessSpansEveryWorkerOfEveryType pins the probe
+// reconciliation asks before it removes a migration's directories. It answered
+// from the re-entry guard once, which is claimed only for semantic migrations
+// and only around the iteration — so four migration types never appeared in it
+// and neither did the prep or the swap of any type, and the discard it gates
+// went ahead under a running worker.
+func TestLocalUnitLivenessSpansEveryWorkerOfEveryType(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
+	other := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 8}
+
+	tests := []struct {
+		name string
+		// hold is how many workers enter the unit before the probe is asked.
+		hold int
+		// release is how many of them leave again.
+		release  int
+		askDesc  distributedtask.TaskDescriptor
+		askUnit  string
+		wantLive bool
+	}{
+		{
+			name: "nobody is working on it", askDesc: desc, askUnit: "shard-1__node-0",
+		},
+		{
+			name: "one worker holds it", hold: 1,
+			askDesc: desc, askUnit: "shard-1__node-0", wantLive: true,
+		},
+		{
+			// Nothing stops two workers on one unit for the types the
+			// re-entry guard skips, and a flag would let the first to
+			// finish clear the second's claim.
+			name: "two workers, one has finished", hold: 2, release: 1,
+			askDesc: desc, askUnit: "shard-1__node-0", wantLive: true,
+		},
+		{
+			name: "every worker has finished", hold: 2, release: 2,
+			askDesc: desc, askUnit: "shard-1__node-0",
+		},
+		{
+			name: "a worker on another unit of the same task", hold: 1,
+			askDesc: desc, askUnit: "shard-2__node-0",
+		},
+		{
+			// The same task re-submitted is a different run, and its worker
+			// says nothing about this record's directories.
+			name: "a worker on another version of the same task", hold: 1,
+			askDesc: other, askUnit: "shard-1__node-0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &ReindexProvider{
+				liveUnits: map[distributedtask.TaskDescriptor]map[string]int{},
+			}
+			var releases []func()
+			for i := 0; i < tt.hold; i++ {
+				releases = append(releases, p.enterLocalUnit(desc, "shard-1__node-0"))
+			}
+			for i := 0; i < tt.release; i++ {
+				releases[i]()
+			}
+
+			require.Equal(t, tt.wantLive, p.IsLocalUnitLive(tt.askDesc, tt.askUnit))
+
+			for i := tt.release; i < len(releases); i++ {
+				releases[i]()
+			}
+			require.Empty(t, p.liveUnits, "a released unit leaves no entry behind")
+		})
+	}
+}
+
+// A worker that panics still has to release: reconciliation would otherwise
+// treat the unit as live forever and never reclaim its directories.
+func TestLocalUnitLivenessSurvivesAPanickingWorker(t *testing.T) {
+	p := &ReindexProvider{liveUnits: map[distributedtask.TaskDescriptor]map[string]int{}}
+	desc := distributedtask.TaskDescriptor{ID: "t", Version: 1}
+
+	func() {
+		defer func() { _ = recover() }()
+		defer p.enterLocalUnit(desc, "shard-1__node-0")()
+		panic("the iteration failed")
+	}()
+
+	require.False(t, p.IsLocalUnitLive(desc, "shard-1__node-0"))
 }
