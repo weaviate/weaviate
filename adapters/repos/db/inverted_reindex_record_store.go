@@ -331,10 +331,7 @@ func writeFileAtomic(dir, name string, content []byte) (err error) {
 	if err = tmp.Close(); err != nil {
 		return err
 	}
-	if err = os.Rename(tmpPath, filepath.Join(dir, name)); err != nil {
-		return err
-	}
 	// The rename is itself a directory entry, and survives a machine crash
 	// only once the directory holding it is synced.
-	return diskio.Fsync(dir)
+	return diskio.RenameAndSync(tmpPath, filepath.Join(dir, name))
 }

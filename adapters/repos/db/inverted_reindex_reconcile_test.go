@@ -677,6 +677,84 @@ func TestReconcilePromotedClosure(t *testing.T) {
 	}
 }
 
+// TestReconcilePromotedRepairsATornPromotion covers what a Promoted record can
+// find on disk. The record is durable the instant it is written and the rename
+// it vouches for reaches disk separately, so a crash can leave the data at the
+// staged name under a record that says otherwise — and the sweep that follows
+// would delete the only copy.
+func TestReconcilePromotedRepairsATornPromotion(t *testing.T) {
+	tests := []struct {
+		name           string
+		stagedThere    bool
+		canonicalThere bool
+		wantContentAt  string
+		wantStagedGone bool
+		wantRecordGone bool
+	}{
+		{
+			name:           "the rename never reached disk: re-promote, do not reclaim",
+			stagedThere:    true,
+			wantContentAt:  "m_42_title",
+			wantStagedGone: true,
+			wantRecordGone: true,
+		},
+		{
+			name:           "both names present: the canonical one is the promoted data",
+			stagedThere:    true,
+			canonicalThere: true,
+			wantContentAt:  "property_title",
+			wantStagedGone: true,
+			wantRecordGone: true,
+		},
+		{
+			name:           "the ordinary aftermath of a promotion that completed",
+			canonicalThere: true,
+			wantContentAt:  "property_title",
+			wantStagedGone: true,
+			wantRecordGone: true,
+		},
+		{
+			// Nothing to repair and nothing to promote onto. Preserving the
+			// record is the only reading that keeps the divergence visible.
+			name:           "neither name present",
+			wantStagedGone: true,
+			wantRecordGone: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newReconcileFixture(t)
+			f.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")
+
+			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
+			var planted []string
+			if tt.stagedThere {
+				planted = append(planted, "m_42_title")
+			}
+			if tt.canonicalThere {
+				planted = append(planted, "property_title")
+			}
+			f.mkdirs(planted...)
+			f.put(NewMigrationRecordPromoted(subject, []string{"title"}, map[string]string{"title": "property_title"}))
+
+			f.reconcile()
+
+			require.Equal(t, !tt.wantStagedGone, f.exists("m_42_title"))
+			if tt.wantContentAt == "" {
+				require.False(t, f.exists("property_title"))
+			} else {
+				require.True(t, f.exists("property_title"), "the promoted property must have its data")
+				require.Equal(t, tt.wantContentAt, f.contentOf("property_title"),
+					"the canonical name must hold the data the record promoted")
+			}
+
+			_, present := f.state(subject.Key)
+			require.Equal(t, !tt.wantRecordGone, present)
+		})
+	}
+}
+
 // TestReconcileCommitEdgeWritesItsVerdictFirst pins that the commit edge is
 // never one procedure whose delete-or-promote arm a disk probe chooses: the
 // Swapped variant is durable before any destructive step, so a crash between

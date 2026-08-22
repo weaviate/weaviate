@@ -268,6 +268,10 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testPromotionRunsOnRecordedHandles(t, compose)
 	})
 
+	t.Run("PromotedRecordOutranItsRename", func(t *testing.T) {
+		testPromotedRecordOutranItsRename(t, compose)
+	})
+
 	// --- Shared restart: verify all deferred finalizations ---
 	t.Run("PostRestartFinalize", func(t *testing.T) {
 		t.Log("restarting weaviate container for deferred finalize verification")

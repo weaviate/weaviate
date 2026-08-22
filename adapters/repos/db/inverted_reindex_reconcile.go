@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -468,6 +469,13 @@ func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec Migrati
 	}
 	subject := rec.Subject()
 
+	// The record is durable the instant it is written; the rename it vouches
+	// for reaches disk separately. Repairing before the sweep is what keeps
+	// the reclaim from deleting the only copy of the data.
+	if err := r.repromoteWhatTheRecordOutran(all, subject); err != nil {
+		return err
+	}
+
 	remaining := r.reclaimOwnedDirs(all, subject)
 	if len(remaining) > 0 {
 		r.logger.WithField("record", subject.Key.String()).Warnf(
@@ -486,6 +494,47 @@ func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec Migrati
 	}
 	r.removeTrackerDir(subject)
 	return r.store.Remove(subject.Key)
+}
+
+// repromoteWhatTheRecordOutran re-runs a promotion the record already claims.
+// Two guards, both narrow. Canonical present means the canonical name already
+// holds the promoted data and the staged one is a leftover the sweep reclaims,
+// so re-promoting would put a stale copy over a good one. A surviving
+// successor claiming the staged directory as displaced means the property was
+// superseded rather than promoted, and that directory is the successor's only
+// live copy — the same claim the closure sweep honors, asked the same way.
+func (r *migrationReconciler) repromoteWhatTheRecordOutran(all []MigrationRecord, subject MigrationSubject) error {
+	for _, prop := range subject.Properties {
+		staged, canonical := subject.StagedDirs[prop], subject.CanonicalDirs[prop]
+		if staged == "" || canonical == "" {
+			continue
+		}
+		if migrationDirClaimedAsDisplaced(all, subject, staged) {
+			continue
+		}
+		stagedThere, err := r.dirExists(staged)
+		if err != nil {
+			return err
+		}
+		if !stagedThere {
+			continue
+		}
+		canonicalThere, err := r.dirExists(canonical)
+		if err != nil {
+			return err
+		}
+		if canonicalThere {
+			continue
+		}
+
+		r.logger.WithField("record", subject.Key.String()).Errorf(
+			"property %q is recorded as promoted but its data is still at the staged name %q "+
+				"and %q does not exist; re-running the promotion", prop, staged, canonical)
+		if err := r.rename(staged, canonical); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // verdict consults the two external facts, in the order that makes the second
@@ -661,8 +710,11 @@ func (r *migrationReconciler) dirExists(dir string) (bool, error) {
 	return migrationDirExists(r.path(dir))
 }
 
+// rename is the only promoting filesystem step, and the Promoted record
+// written on its strength is durable — so the rename has to be durable too,
+// or a crash leaves a record vouching for a name the filesystem never kept.
 func (r *migrationReconciler) rename(from, to string) error {
-	if err := os.Rename(r.path(from), r.path(to)); err != nil {
+	if err := diskio.RenameAndSync(r.path(from), r.path(to)); err != nil {
 		return fmt.Errorf("promote %q to %q: %w", from, to, err)
 	}
 	return nil

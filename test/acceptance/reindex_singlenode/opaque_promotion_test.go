@@ -123,3 +123,85 @@ func plantSwappedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose
 	require.NoError(t, compose.StartAt(ctx, 0), "restart after planting must succeed")
 	helper.SetupClient(compose.GetWeaviate().URI())
 }
+
+// testPromotedRecordOutranItsRename is the crash the promotion record can
+// outlive: the record is durable while the rename it vouches for is not, so a
+// machine crash can leave the data at the staged name under a record that says
+// it is already canonical. The closure sweep then reclaims the staged
+// directory — the only copy there is.
+func testPromotedRecordOutranItsRename(t *testing.T, compose *docker.DockerCompose) {
+	const class = "PromotedTornRename"
+	ctx := context.Background()
+	trueVal := true
+
+	helper.CreateClass(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{Name: "score", DataType: []string{"int"}, IndexFilterable: &trueVal},
+		},
+		Vectorizer: "none",
+	})
+	defer helper.DeleteClass(t, class)
+
+	for i := 0; i < opaquePromotionObjectCount; i++ {
+		score := 10
+		if i%2 == 0 {
+			score = 100
+		}
+		require.NoError(t, helper.CreateObject(t, &models.Object{
+			Class: class, Properties: map[string]interface{}{"score": score},
+		}))
+	}
+	require.Equal(t, opaquePromotionObjectCount/2, rangeFilterHits(t, class, "score", 50),
+		"the fixture must serve before anything is moved")
+
+	container := compose.GetWeaviate().Container()
+	lsmPath := findShardPathInContainer(t, container, class) + "/lsm"
+
+	staged := "m_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	code, _, err := container.Exec(ctx, []string{
+		"mv", lsmPath + "/property_score", lsmPath + "/" + staged,
+	})
+	require.NoError(t, err)
+	require.Zero(t, code, "moving the live bucket aside must succeed")
+
+	plantPromotedRecordAcrossRestart(t, compose, lsmPath, staged)
+
+	require.Equal(t, opaquePromotionObjectCount/2, rangeFilterHits(t, class, "score", 50),
+		"a promoted record whose rename never landed must be repaired, not reclaimed: "+
+			"the staged directory %q held the only copy of the property's data", staged)
+}
+
+// plantPromotedRecordAcrossRestart writes a Promoted record while the data is
+// still at the staged name — the exact state a crash between the rename and
+// its parent-directory sync leaves behind.
+func plantPromotedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose, lsmPath, staged string) {
+	t.Helper()
+	ctx := context.Background()
+
+	record := fmt.Sprintf(`{"formatVersion":1,"state":"promoted","subject":{`+
+		`"key":{"taskVersion":4712,"strategyCode":"filterable_roaringset_refresh","unitID":"u0"},`+
+		`"taskID":"promoted-torn-rename","migrationType":"repair-filterable",`+
+		`"properties":["score"],"iterationCutoff":%q,"trackerDir":"promoted_torn_tracker",`+
+		`"stagedDirs":{"score":%q},"canonicalDirs":{"score":"property_score"}},`+
+		`"flip":{"flipped":["score"],"displacedDirs":{"score":"property_score"}}}`,
+		time.Now().UTC().Format(time.RFC3339Nano), staged)
+
+	require.NoError(t, compose.StopAt(ctx, 0, nil),
+		"graceful stop before planting the record must succeed")
+
+	stagedRoot := t.TempDir()
+	dotMigrations := filepath.Join(stagedRoot, ".migrations")
+	require.NoError(t, os.MkdirAll(filepath.Join(dotMigrations, "records"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dotMigrations, "promoted_torn_tracker"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dotMigrations, "records", "4712_filterable_roaringset_refresh.json"),
+		[]byte(record), 0o666))
+
+	require.NoError(t,
+		compose.GetWeaviate().Container().CopyDirToContainer(ctx, dotMigrations, lsmPath+"/.migrations", 0o755),
+		"CopyDirToContainer must succeed against the stopped container")
+
+	require.NoError(t, compose.StartAt(ctx, 0), "restart after planting must succeed")
+	helper.SetupClient(compose.GetWeaviate().URI())
+}
