@@ -283,33 +283,53 @@ func refuseOversizedRecoveryPayload(path string) error {
 	return nil
 }
 
-// readRecoveryPayloadFacts extracts the property list and migration type from
-// a migration tracker dir's payload.mig file (see
+// recoveryPayloadFacts is what a tracker's payload.mig says about the
+// migration that wrote it: what it touches, and which task and unit own it.
+// The identity is what lets a reader ask whether that task is still live
+// before it reclaims the directory.
+type recoveryPayloadFacts struct {
+	properties    []string
+	migrationType ReindexMigrationType
+	taskID        string
+	taskVersion   uint64
+	unitID        string
+}
+
+// readRecoveryPayloadFacts reads them from a migration tracker dir (see
 // ShardReindexTaskGeneric.SaveRecoveryPayload). The error keeps a missing
 // payload (os.IsNotExist) distinguishable from an unreadable or unparseable
 // one: [migrationDirScope.inScopeFailingOpen] treats only the former as "the
 // task recorded nothing", while the latter makes the unloaded-shard gate fail
 // open.
-func readRecoveryPayloadFacts(migDir string) ([]string, ReindexMigrationType, error) {
+func readRecoveryPayloadFacts(migDir string) (recoveryPayloadFacts, error) {
 	path := filepath.Join(migDir, reindexRecoveryPayloadFile)
 	if err := refuseOversizedRecoveryPayload(path); err != nil {
-		return nil, "", err
+		return recoveryPayloadFacts{}, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, "", err
+		return recoveryPayloadFacts{}, err
 	}
 	// Anonymous shape: only the fields we need. Avoids depending on
 	// ReindexTaskPayload here (no import cycle risk, but keeping shard
 	// init lean).
 	var rec struct {
-		Payload struct {
+		TaskID      string `json:"taskID"`
+		TaskVersion uint64 `json:"taskVersion"`
+		UnitID      string `json:"unitID"`
+		Payload     struct {
 			Properties    []string             `json:"properties"`
 			MigrationType ReindexMigrationType `json:"migrationType"`
 		} `json:"payload"`
 	}
 	if err := json.Unmarshal(data, &rec); err != nil {
-		return nil, "", fmt.Errorf("parse %s: %w", reindexRecoveryPayloadFile, err)
+		return recoveryPayloadFacts{}, fmt.Errorf("parse %s: %w", reindexRecoveryPayloadFile, err)
 	}
-	return rec.Payload.Properties, rec.Payload.MigrationType, nil
+	return recoveryPayloadFacts{
+		properties:    rec.Payload.Properties,
+		migrationType: rec.Payload.MigrationType,
+		taskID:        rec.TaskID,
+		taskVersion:   rec.TaskVersion,
+		unitID:        rec.UnitID,
+	}, nil
 }

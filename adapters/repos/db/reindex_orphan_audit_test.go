@@ -645,18 +645,43 @@ func mkAuditTracker(t *testing.T, lsmPath, trackerName, taskID string, taskVersi
 // second kind of orphan: a tracker directory no record names. Every cluster
 // that upgrades into this build brings a set of them, and this audit is the
 // only thing that reclaims one. Age separates it from a directory this
-// process created and has not yet written a record for, and the sentinel the
+// process created and has not yet written a record for, the sentinel the
 // audit itself writes has to not turn a reclaimable directory into a fresh
-// one forever.
+// one forever, and payload.mig is what still answers whether the task that
+// wrote the directory is alive.
 func TestAuditOrphanReindexTrackersReclaimsTrackersNoRecordNames(t *testing.T) {
 	tests := []struct {
 		name        string
 		mtimeOffset time.Duration
 		quarantined bool
-		wantStatus  AuditOutcomeStatus
-		wantOrphans int
-		wantDir     bool
+		// payloadTaskID, when set, gives the tracker a payload.mig naming
+		// that task; liveTasks names the ones DTM still reports.
+		payloadTaskID string
+		liveTasks     []string
+		wantStatus    AuditOutcomeStatus
+		wantOrphans   int
+		wantDir       bool
 	}{
+		{
+			// A record is written once the migration's buckets are open, so a
+			// run that crashed before that leaves a tracker with no record
+			// while its task is still live and about to resume on it.
+			name:          "no record but its payload names a live task",
+			mtimeOffset:   -time.Hour,
+			quarantined:   true,
+			payloadTaskID: "Books:change-tokenization:title:ab12",
+			liveTasks:     []string{"Books:change-tokenization:title:ab12"},
+			wantStatus:    AuditStatusRan,
+			wantDir:       true,
+		},
+		{
+			name:          "no record and its payload names a task that is gone",
+			mtimeOffset:   -time.Hour,
+			quarantined:   true,
+			payloadTaskID: "Books:change-tokenization:title:ab12",
+			wantStatus:    AuditStatusOrphansFound,
+			wantOrphans:   1,
+		},
 		{
 			name:        "older than this process: reclaimed",
 			mtimeOffset: -time.Hour,
@@ -696,6 +721,14 @@ func TestAuditOrphanReindexTrackersReclaimsTrackersNoRecordNames(t *testing.T) {
 
 			dir := filepath.Join(shd.(*Shard).pathLSM(), ".migrations", "searchable_retokenize_legacy_1")
 			require.NoError(t, os.MkdirAll(dir, 0o755))
+			if tt.payloadTaskID != "" {
+				// No properties: this row is about the identity, and a
+				// property list would route the cleanup through the
+				// per-property sweep instead of the tracker removal.
+				require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile),
+					[]byte(fmt.Sprintf(`{"taskID":%q,"taskVersion":7,"unitID":"u-1","payload":{"collection":"Books"}}`,
+						tt.payloadTaskID)), 0o600))
+			}
 			if tt.quarantined {
 				writePreAgedQuarantineSentinel(t, dir)
 			}
@@ -703,12 +736,16 @@ func TestAuditOrphanReindexTrackersReclaimsTrackersNoRecordNames(t *testing.T) {
 			mtime := processStartTime.Add(tt.mtimeOffset)
 			require.NoError(t, os.Chtimes(dir, mtime, mtime))
 
+			live := map[string]bool{}
+			for _, id := range tt.liveTasks {
+				live[id] = true
+			}
 			db := &DB{
 				indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
 				config:  Config{RootPath: idx.Config.RootPath},
 			}
 			outcome, err := db.AuditOrphanReindexTrackers(ctx,
-				func(string, uint64) bool { return false }, logrus.New())
+				func(taskID string, _ uint64) bool { return live[taskID] }, logrus.New())
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantStatus, outcome.Status)
@@ -721,8 +758,9 @@ func TestAuditOrphanReindexTrackersReclaimsTrackersNoRecordNames(t *testing.T) {
 // TestAuditOrphanReindexTrackersHonorsUnreadableRecords covers the shard the
 // audit cannot classify: at least one record on it does not decode, so any
 // tracker here may belong to a live migration whose record is the thing that
-// went unreadable. The record-less arm has no liveness check to fall back on,
-// so the only safe answer is to reclaim nothing until the records read again.
+// went unreadable. The record-less arm's own liveness check reads payload.mig,
+// which an upgraded tracker need not have, so the only safe answer is to
+// reclaim nothing until the records read again.
 // Withholding recovery on such a shard is already the behavior everywhere
 // else, and it is reversible; a deletion is not.
 func TestAuditOrphanReindexTrackersHonorsUnreadableRecords(t *testing.T) {

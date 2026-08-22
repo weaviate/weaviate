@@ -454,6 +454,12 @@ type taskProps struct {
 	migrationType ReindexMigrationType
 	ok            bool
 	unreadable    bool
+	// taskID, taskVersion and unitID are the migration's identity, which the
+	// orphan audit needs to ask whether the task owning a record-less tracker
+	// is still live before it reclaims one.
+	taskID      string
+	taskVersion uint64
+	unitID      string
 }
 
 // lookup answers for one tracker dir. The memo is keyed by dir alone —
@@ -509,20 +515,28 @@ func (c *taskPropsCache) count() int {
 // readPayload reports whether payload.mig was opened, so the caller's read
 // counter keeps meaning what it says. A refusal opens nothing.
 func readTaskProps(migDir string) (answer taskProps, readPayload bool) {
-	props, migrationType, err := readRecoveryPayloadFacts(migDir)
+	facts, err := readRecoveryPayloadFacts(migDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return taskProps{}, false
 		}
 		return taskProps{unreadable: true}, !errors.Is(err, errRecoveryPayloadTooLarge)
 	}
-	for _, prop := range props {
+	answer = taskProps{
+		migrationType: facts.migrationType,
+		taskID:        facts.taskID,
+		taskVersion:   facts.taskVersion,
+		unitID:        facts.unitID,
+	}
+	for _, prop := range facts.properties {
 		if !migrationHandleIsOneElement(prop) {
 			return taskProps{unreadable: true}, true
 		}
 	}
-	if len(props) == 0 {
-		return taskProps{migrationType: migrationType}, true
+	if len(facts.properties) == 0 {
+		return answer, true
 	}
-	return taskProps{props: props, migrationType: migrationType, ok: true}, true
+	answer.props = facts.properties
+	answer.ok = true
+	return answer, true
 }

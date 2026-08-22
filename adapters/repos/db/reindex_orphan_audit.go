@@ -413,12 +413,14 @@ const reindexAuditQuarantineWindow = 5 * time.Minute
 // A directory no record names is the second kind of orphan, and the only
 // reclaimer it has. Every cluster that upgrades into this build brings a set
 // of them, and a run whose record was already removed can leave one behind.
-// Those upgrade trackers still carry payload.mig, so the property list comes
-// from there and the cleanup reclaims the sidecar directories too. A tracker
-// whose payload is absent has no properties to name and gives up its directory
-// alone; one whose payload is present but unreadable is left entirely, because
-// only absence proves the list is empty. Age is what separates any of them
-// from a directory this process is still writing.
+// Those upgrade trackers still carry payload.mig, so the property list and the
+// task identity both come from there: the identity because a record is written
+// only once the migration's buckets are open, so a run that crashed before
+// that has a live task and no record. A tracker whose payload is absent has no
+// properties to name and gives up its directory alone; one whose payload is
+// present but unreadable is left entirely, because only absence proves the
+// list is empty. Age is what separates any of them from a directory this
+// process is still writing.
 func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -492,18 +494,32 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 					Warn("reindex orphan audit: tracker names no migration record and its payload could not be read; reclaiming nothing for it")
 				continue
 			}
+			if knownTask(payload.taskID, payload.taskVersion) {
+				// The record is written after the migration's buckets open, so
+				// a tracker whose run crashed before that has none while its
+				// task is still live and about to resume. payload.mig is
+				// written before the iteration and carries the identity that
+				// answers.
+				logger.WithField("collection", collection).WithField("shard", shardName).
+					WithField("tracker", dirName).WithField("taskID", payload.taskID).
+					Info("reindex orphan audit: tracker names no migration record but its task is still live; leaving it alone")
+				continue
+			}
 			logger.WithField("collection", collection).WithField("shard", shardName).
 				WithField("tracker", dirName).WithField("tracker_mtime", mtime).
 				WithField("props", payload.props).
 				Warn("reindex orphan audit: tracker predating this process names no migration record; quarantining it as a class-level orphan")
 			orphans = append(orphans, orphanReindexTracker{
-				collection: collection,
-				shardName:  shardName,
-				dirName:    dirName,
-				prefix:     prefix,
-				generation: generation,
-				properties: append([]string(nil), payload.props...),
-				indexTypes: semanticMigrationIndexTypesForAudit(payload.migrationType),
+				collection:  collection,
+				shardName:   shardName,
+				dirName:     dirName,
+				prefix:      prefix,
+				generation:  generation,
+				taskID:      payload.taskID,
+				taskVersion: payload.taskVersion,
+				unitID:      payload.unitID,
+				properties:  append([]string(nil), payload.props...),
+				indexTypes:  semanticMigrationIndexTypesForAudit(payload.migrationType),
 			})
 			continue
 		}
