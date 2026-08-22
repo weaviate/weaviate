@@ -170,5 +170,4 @@ func TestRecoveryConvergence_FilterableRetokenize_Baseline(t *testing.T) {
 		require.Lenf(t, ids, 1,
 			"post-migration field-tokenized term %q should have exactly 1 docID, got %d", term, len(ids))
 	}
-
 }

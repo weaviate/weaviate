@@ -171,5 +171,4 @@ func TestRecoveryConvergence_EnableFilterable_Baseline(t *testing.T) {
 		require.NotEmptyf(t, docIDs,
 			"post-migration filterable token %q has no docIDs (posting list is empty)", tok)
 	}
-
 }

@@ -169,7 +169,6 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 		require.Equalf(t, preIDs, postIDs,
 			"term %q posting list changed across same-strategy refresh", term)
 	}
-
 }
 
 // TestRecoveryConvergence_RoaringSetRefresh_FromEachState pins the

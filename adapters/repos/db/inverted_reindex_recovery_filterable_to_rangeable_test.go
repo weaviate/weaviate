@@ -289,5 +289,4 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 		require.Lenf(t, ids, expectedPerValue,
 			"term %d should have %d docIDs, got %d", term, expectedPerValue, len(ids))
 	}
-
 }

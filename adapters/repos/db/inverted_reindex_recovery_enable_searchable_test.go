@@ -194,5 +194,4 @@ func TestRecoveryConvergence_EnableSearchable_Baseline(t *testing.T) {
 		require.NotEmptyf(t, docIDs,
 			"baseline fingerprint token %q has no docIDs (posting list is empty)", tok)
 	}
-
 }

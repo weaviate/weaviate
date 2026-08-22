@@ -213,7 +213,6 @@ func TestRecoveryConvergence_RebuildSearchable_Baseline(t *testing.T) {
 			"term %q post-migration doc-id list diverges from pre-migration\n  pre  (%d): %v\n  post (%d): %v",
 			term, len(preIDs), preIDs, len(postIDs), postIDs)
 	}
-
 }
 
 // TestRecoveryConvergence_RebuildSearchable_FromEachState pins the
