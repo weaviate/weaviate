@@ -341,6 +341,36 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 	return refusable, refusablePayload
 }
 
+// reindexTaskDescriptorsForProperty names every reindex task in the snapshot
+// that targets this (collection, property), whatever its status. Terminal is
+// what the callers care about: a task goes terminal cluster-wide without
+// waiting for the local unit to exit, so its worker can still be writing
+// through bucket pointers it took before its phase began.
+//
+// A task whose payload does not decode is skipped, the same way the cancel
+// path skips it: nothing here can tell which property it targets.
+func reindexTaskDescriptorsForProperty(tasks []*distributedtask.Task, collection, propertyName string,
+	logger logrus.FieldLogger,
+) []distributedtask.TaskDescriptor {
+	var out []distributedtask.TaskDescriptor
+	for _, task := range tasks {
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			logger.WithField("task_id", task.ID).
+				Warnf("skipping reindex task with an undecodable payload: %v", err)
+			continue
+		}
+		if !strings.EqualFold(payload.Collection, collection) {
+			continue
+		}
+		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
+			continue
+		}
+		out = append(out, task.TaskDescriptor)
+	}
+	return out
+}
+
 // cancelPreflight answers a cancel that owes no RAFT apply: there is
 // nothing to cancel, or DTM would refuse it. It reads the predicate the
 // FSM guard applies, so the two answers cannot drift.
