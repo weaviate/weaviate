@@ -309,7 +309,8 @@ const reindexRecoveryPayloadFile = "payload.mig"
 // SaveRecoveryPayload writes the given JSON-encoded recovery record to
 // payload.mig inside the migration directory of this task on the given
 // shard LSM path. It is idempotent: if the file already exists with the
-// same content, the call is a no-op; otherwise it is overwritten.
+// same content, and is small enough to compare, the call is a no-op;
+// otherwise it is overwritten.
 // Callers are expected to ensure the migration directory exists; this
 // function will [os.MkdirAll] it just in case to keep startup recovery
 // robust against partial state.
@@ -319,8 +320,14 @@ func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []
 		return fmt.Errorf("mkdir migration dir %q: %w", migDir, err)
 	}
 	target := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, payload) {
-		return nil
+	// The comparison is a convenience — an identical rewrite would be
+	// harmless — so an oversized file skips it and is overwritten rather than
+	// read. [refuseOversizedRecoveryPayload] holds for every reader of this
+	// file, and this is one.
+	if err := refuseOversizedRecoveryPayload(target); err == nil {
+		if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, payload) {
+			return nil
+		}
 	}
 	return os.WriteFile(target, payload, 0o600)
 }
