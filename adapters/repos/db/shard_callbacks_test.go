@@ -527,6 +527,37 @@ func TestDeriveScope(t *testing.T) {
 			wantConflicts: []string{"title"},
 		},
 		{
+			// The registration carrying no overlay is asking for the schema's
+			// own analysis, so the two disagree and each needs its own.
+			name: "an arm with no overlay disagrees with one that forces a flag",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+			},
+			wantProps:     []string{"title"},
+			wantOverlay:   map[string]inverted.PropertyOverlay{"title": filterable},
+			wantConflicts: []string{"title"},
+		},
+		{
+			name: "the arm with no overlay is the more recent one",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+				{id: 2, props: map[string]struct{}{"title": {}}},
+			},
+			wantProps:     []string{"title"},
+			wantOverlay:   map[string]inverted.PropertyOverlay{"title": filterable},
+			wantConflicts: []string{"title"},
+		},
+		{
+			name: "an arm with no overlay on a property it does not share is nobody's disagreement",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"body": {}}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+			},
+			wantProps:   []string{"body", "title"},
+			wantOverlay: map[string]inverted.PropertyOverlay{"title": filterable},
+		},
+		{
 			name: "three registrations disagreeing on one property report it once",
 			regs: []migrationScopeReg{
 				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},

@@ -39,9 +39,12 @@ func TestMirrorAnalyzesPerArmedMigration(t *testing.T) {
 	const propName = "title"
 
 	tests := []struct {
-		name        string
-		older       inverted.PropertyOverlay
-		newer       inverted.PropertyOverlay
+		name string
+		// A nil overlay is what five of the eight strategies register with. It
+		// asks for the live schema's own analysis, which is an answer like any
+		// other and has to be compared like one.
+		older       map[string]inverted.PropertyOverlay
+		newer       map[string]inverted.PropertyOverlay
 		wantOlder   []string
 		wantNewer   []string
 		wantOlderIx func(inverted.Property) bool
@@ -49,22 +52,22 @@ func TestMirrorAnalyzesPerArmedMigration(t *testing.T) {
 	}{
 		{
 			name:      "the two agree, so one analysis is every mirror's answer",
-			older:     inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord},
-			newer:     inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord},
+			older:     overlayOn(propName, inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord}),
+			newer:     overlayOn(propName, inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord}),
 			wantOlder: []string{"alpha", "beta"},
 			wantNewer: []string{"alpha", "beta"},
 		},
 		{
 			name:      "same family, different tokenization",
-			older:     inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord},
-			newer:     inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField},
+			older:     overlayOn(propName, inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord}),
+			newer:     overlayOn(propName, inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField}),
 			wantOlder: []string{"alpha", "beta"},
 			wantNewer: []string{"Alpha Beta"},
 		},
 		{
 			name:      "the older arm is the one with the finer tokenization",
-			older:     inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField},
-			newer:     inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord},
+			older:     overlayOn(propName, inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField}),
+			newer:     overlayOn(propName, inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord}),
 			wantOlder: []string{"Alpha Beta"},
 			wantNewer: []string{"alpha", "beta"},
 		},
@@ -73,12 +76,31 @@ func TestMirrorAnalyzesPerArmedMigration(t *testing.T) {
 			// analysis, so a single one leaves the loser with a property it
 			// cannot write.
 			name:        "different families",
-			older:       inverted.PropertyOverlay{ForceFilterable: true},
-			newer:       inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord},
+			older:       overlayOn(propName, inverted.PropertyOverlay{ForceFilterable: true}),
+			newer:       overlayOn(propName, inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord}),
 			wantOlder:   []string{"alpha", "beta"},
 			wantNewer:   []string{"alpha", "beta"},
 			wantOlderIx: func(p inverted.Property) bool { return p.HasFilterableIndex },
 			wantNewerIx: func(p inverted.Property) bool { return p.HasSearchableIndex },
+		},
+		{
+			// A retokenize or rebuild migration next to one that forces an
+			// index on. Neither index is on in the schema, so the arm asking
+			// for the schema's own analysis must receive the property with
+			// neither flag, and gets no terms at all.
+			name:      "one arm wants the schema's own analysis and the other forces an index on",
+			newer:     overlayOn(propName, inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord}),
+			wantNewer: []string{"alpha", "beta"},
+		},
+		{
+			name:      "the arm wanting the schema's own analysis is the newer one",
+			older:     overlayOn(propName, inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord}),
+			wantOlder: []string{"alpha", "beta"},
+		},
+		{
+			// Both ask for the schema's own analysis, which is agreement, not
+			// divergence: one analysis still serves them both.
+			name: "neither arm carries an overlay",
 		},
 	}
 
@@ -151,10 +173,16 @@ func (m *recordingMirror) terms() []string {
 	return out
 }
 
-func armRecordingMirror(shard *Shard, propName string, overlay inverted.PropertyOverlay) *recordingMirror {
+// overlayOn is the one-property overlay map a strategy that needs an override
+// returns; the strategies that do not return nil, which a row expresses by
+// leaving its column out.
+func overlayOn(propName string, overlay inverted.PropertyOverlay) map[string]inverted.PropertyOverlay {
+	return map[string]inverted.PropertyOverlay{propName: overlay}
+}
+
+func armRecordingMirror(shard *Shard, propName string, overlay map[string]inverted.PropertyOverlay) *recordingMirror {
 	m := &recordingMirror{}
-	shard.registerDoubleWriteWithScope([]string{propName},
-		map[string]inverted.PropertyOverlay{propName: overlay},
+	shard.registerDoubleWriteWithScope([]string{propName}, overlay,
 		func(scope map[string]struct{}) (onAddToPropertyValueIndex, onDeleteFromPropertyValueIndex) {
 			record := func(_ *Shard, _ uint64, property *inverted.Property) error {
 				if _, ok := scope[property.Name]; !ok {

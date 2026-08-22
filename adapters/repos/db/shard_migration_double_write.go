@@ -51,19 +51,29 @@ func deriveScope(regs []migrationScopeReg) (migrationDoubleWriteScope, []string)
 		next      migrationDoubleWriteScope
 		conflicts []string
 	)
+	// A registration that carries no overlay entry for a property it mirrors
+	// is not abstaining from the question: it is asking for the property to be
+	// analyzed exactly as the live schema describes it, which is a different
+	// answer from any forced one — and five of the eight strategies ask for
+	// nothing else. Comparing over the mirrored properties rather than over
+	// the overlay entries is what puts that answer into the comparison.
+	wanted := map[string]inverted.PropertyOverlay{}
 	for _, reg := range regs {
 		for prop := range reg.props {
 			if next.props == nil {
 				next.props = make(map[string]struct{}, len(reg.props))
 			}
 			next.props[prop] = struct{}{}
-		}
-		for prop, overlay := range reg.overlay {
+
+			overlay := reg.overlay[prop]
 			// Once per property, not once per disagreeing pair: three
 			// registrations that all differ are still one thing to report.
-			if prev, ok := next.overlay[prop]; ok && prev != overlay && !slices.Contains(conflicts, prop) {
+			if prev, ok := wanted[prop]; ok && prev != overlay && !slices.Contains(conflicts, prop) {
 				conflicts = append(conflicts, prop)
 			}
+			wanted[prop] = overlay
+		}
+		for prop, overlay := range reg.overlay {
 			if next.overlay == nil {
 				next.overlay = make(map[string]inverted.PropertyOverlay, len(reg.overlay))
 			}
