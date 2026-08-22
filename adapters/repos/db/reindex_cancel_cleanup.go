@@ -36,7 +36,7 @@ import (
 // Caller MUST ensure no local reindex goroutine is touching the tuple —
 // otherwise the cleanup races the worker's writes to the __reindex/__ingest
 // buckets. The cancel handler enforces this via
-// [ReindexProvider.WaitForLocalTaskDrain].
+// [ReindexProvider.SealLocalTaskDrain].
 type StalePartialReindexSweep func(ctx context.Context, collection, propName, indexType string) error
 
 // NewStalePartialReindexSweep returns the CANCEL→retry counterpart to the

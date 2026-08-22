@@ -714,28 +714,37 @@ func TestSealedUnitRefusesLateEntrants(t *testing.T) {
 	}
 }
 
-// TestUnitRegistriesWorkOnAZeroValueProvider pins that both per-unit
-// registries build themselves. They are written from a terminal-cleanup path
-// that any provider reaches, and a map left nil by whichever constructor built
-// the provider panics on the first write rather than failing a decision.
+// TestUnitRegistriesWorkOnAZeroValueProvider pins that all three registries
+// build themselves. Sealing runs on a terminal-cleanup path that any provider
+// reaches, and a map left nil by whichever constructor built the provider
+// panics on the first write rather than failing a decision.
+//
+// Each row asserts on the map its own claim writes: asking about the others
+// would hold whatever the code did.
 func TestUnitRegistriesWorkOnAZeroValueProvider(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
 
 	tests := []struct {
 		name string
 		take func(p *ReindexProvider) (func(), bool)
+		// held reports the registry the claim is recorded in, which must be
+		// non-empty while it is held and empty once it is dropped.
+		held func(p *ReindexProvider) int
 	}{
 		{
 			name: "a worker claims a unit",
 			take: func(p *ReindexProvider) (func(), bool) { return p.enterLocalUnit(desc, "shard-1__node-0") },
+			held: func(p *ReindexProvider) int { return len(p.liveUnits) },
 		},
 		{
 			name: "a teardown seals one unit",
 			take: func(p *ReindexProvider) (func(), bool) { return p.SealLocalUnit(desc, "shard-1__node-0") },
+			held: func(p *ReindexProvider) int { return len(p.sealedUnits) },
 		},
 		{
 			name: "a teardown seals the whole task",
 			take: func(p *ReindexProvider) (func(), bool) { return p.sealLocalTask(desc) },
+			held: func(p *ReindexProvider) int { return len(p.sealedTasks) },
 		},
 	}
 
@@ -744,9 +753,9 @@ func TestUnitRegistriesWorkOnAZeroValueProvider(t *testing.T) {
 			p := &ReindexProvider{}
 			release, ok := tt.take(p)
 			require.True(t, ok)
+			require.Equal(t, 1, tt.held(p), "the claim is recorded while it is held")
 			release()
-			require.Empty(t, p.liveUnits)
-			require.Empty(t, p.sealedUnits)
+			require.Zero(t, tt.held(p), "and gone once it is dropped")
 		})
 	}
 }

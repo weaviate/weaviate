@@ -363,19 +363,28 @@ func TestShutdownFailureHoldsBackRemoval(t *testing.T) {
 // TestRetirementAsksWhatIsSupersededBeforeItSeals pins that this pass does not
 // seal a record it has no work for. It runs in the process that just flipped,
 // from inside that swap's own live unit, and it walks every record whose
-// staged data is complete — which includes the record the swap just wrote.
-// Sealing before asking refuses against the very worker running the pass, so
-// in-process retirement stopped happening at all and every swap logged a
-// retirement waiting that was never owed.
+// staged data is complete — which includes the record the swap just wrote and
+// which nothing supersedes. Sealing before asking refuses against the very
+// worker running the pass, and reports a retirement waiting that was never
+// owed.
+//
+// The rows also separate the two things that look alike in a log: a seal
+// declined for a record that had nothing to retire, and one declined for a
+// record that did.
 func TestRetirementAsksWhatIsSupersededBeforeItSeals(t *testing.T) {
+	predecessor := testMigrationSubject(10, StrategyCodeSearchableRetokenize, "title")
+
 	tests := []struct {
-		name     string
-		arrange  func(f *reconcileFixture)
-		unitLive bool
-		// retiredDir is the directory this pass must remove, empty when the
-		// row plants nothing for it to remove.
-		retiredDir string
-		wantSeals  int
+		name    string
+		arrange func(f *reconcileFixture)
+		// liveFor, when set, is the record whose worker is running here.
+		liveFor *MigrationSubject
+		// dir is the staged directory whose fate this row is about, and
+		// wantGone says whether the pass must have removed it.
+		dir         string
+		wantGone    bool
+		wantSeals   int
+		wantWaiting bool
 	}{
 		{
 			// The swap's own record, walked from inside the swap's unit.
@@ -384,37 +393,57 @@ func TestRetirementAsksWhatIsSupersededBeforeItSeals(t *testing.T) {
 				f.mkdirs("m_20_title", "property_title")
 				f.put(swappedOn(20, "title"))
 			},
-			unitLive: true,
+			liveFor: subjectPtr(swappedOn(20, "title").Subject()),
+			dir:     "m_20_title",
 		},
 		{
 			name: "a superseded predecessor is retired from inside the successor's unit",
 			arrange: func(f *reconcileFixture) {
 				f.mkdirs("m_10_title", "m_10_sidecar", "m_20_title", "property_title")
-				f.put(NewMigrationRecordMerged(testMigrationSubject(10, StrategyCodeSearchableRetokenize, "title")))
+				f.put(NewMigrationRecordMerged(predecessor))
 				f.put(swappedOn(20, "title"))
 			},
-			retiredDir: "m_10_title",
-			wantSeals:  1,
+			liveFor:   subjectPtr(swappedOn(20, "title").Subject()),
+			dir:       "m_10_title",
+			wantGone:  true,
+			wantSeals: 1,
+		},
+		{
+			// The one case the log line is for: something is superseded and
+			// its own worker is still writing into what retirement removes.
+			name: "the superseded record's own worker is still running",
+			arrange: func(f *reconcileFixture) {
+				f.mkdirs("m_10_title", "m_10_sidecar", "m_20_title", "property_title")
+				f.put(NewMigrationRecordMerged(predecessor))
+				f.put(swappedOn(20, "title"))
+			},
+			liveFor:     subjectPtr(predecessor),
+			dir:         "m_10_title",
+			wantWaiting: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newReconcileFixture(t)
-			f.unitLive = tt.unitLive
 			tt.arrange(f)
+			if tt.liveFor != nil {
+				f.liveUnit = liveUnitOf(*tt.liveFor)
+			}
 
 			newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
 				RetireSuperseded(context.Background())
 
-			require.Equal(t, tt.wantSeals, f.sealsTaken,
+			require.Len(t, f.sealed, tt.wantSeals,
 				"a record with no superseded property is no teardown and seals nothing")
-			require.Equal(t, f.sealsTaken, f.sealsReleased)
-			require.Equal(t, tt.unitLive && tt.wantSeals > 0, f.logged("waits for the next pass"),
-				"a retirement is only reported as waiting when one was owed and refused")
-			if tt.retiredDir != "" {
-				require.False(t, f.exists(tt.retiredDir), "the superseded directory")
-			}
+			require.Equal(t, len(f.sealed), f.sealsReleased)
+			require.Equal(t, tt.wantWaiting, f.logged("waits for the next pass"),
+				"a retirement is reported as waiting only when one was owed and refused")
+			require.Equal(t, !tt.wantGone, f.exists(tt.dir), "the staged directory %s", tt.dir)
 		})
 	}
 }
+
+// subjectPtr is the address of a subject, for the rows that name which
+// migration's worker is running.
+func subjectPtr(subject MigrationSubject) *MigrationSubject { return &subject }

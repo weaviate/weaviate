@@ -50,6 +50,21 @@ func (f *fakeBucketCloser) ShutdownStagedBuckets(_ context.Context, key Migratio
 	return f.err
 }
 
+// liveUnitKey is the pair the registry answers about, so a fixture can say a
+// worker is running on one migration without saying it about every migration.
+type liveUnitKey struct {
+	desc   distributedtask.TaskDescriptor
+	unitID string
+}
+
+// liveUnitOf is the key a record's own worker would register under.
+func liveUnitOf(subject MigrationSubject) *liveUnitKey {
+	return &liveUnitKey{
+		desc:   distributedtask.TaskDescriptor{ID: subject.TaskID, Version: subject.Key.TaskVersion},
+		unitID: subject.Key.UnitID,
+	}
+}
+
 type reconcileFixture struct {
 	t             *testing.T
 	lsmPath       string
@@ -63,14 +78,16 @@ type reconcileFixture struct {
 	// node", which is the ordinary case.
 	clusterTasks    []*distributedtask.Task
 	clusterTasksSet bool
-	// unitLive is what the local unit registry answers: a worker of this
-	// migration is still iterating on this node, so no teardown may seal it.
-	unitLive bool
-	// sealsTaken and sealsReleased count the teardowns that sealed the unit
-	// during the pass, and the ones that let it go again. A seal that leaks
-	// refuses its unit for the life of the process, so the migration could
-	// never run on this node again.
-	sealsTaken    int
+	// liveUnit, when set, is the one (task, unit) a worker is running on this
+	// node, so no teardown may seal that one. Nil means nothing is running.
+	liveUnit *liveUnitKey
+	// sealed names every unit a teardown sealed during the pass, and
+	// sealsReleased counts the ones it let go again. Named rather than
+	// counted, because one pass runs several arms over several records and
+	// only the arm under test is the subject. A seal that leaks refuses its
+	// unit for the life of the process, so the migration could never run on
+	// this node again.
+	sealed        []liveUnitKey
 	sealsReleased int
 	class         *models.Class
 	logger        *logrus.Logger
@@ -142,11 +159,14 @@ func (f *reconcileFixture) reconcile() {
 func (f *reconcileFixture) deps() migrationReconcileDeps {
 	return migrationReconcileDeps{
 		LocalTasks: func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
-		SealUnit: func(distributedtask.TaskDescriptor, string) (func(), bool) {
-			if f.unitLive {
+		SealUnit: func(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
+			// Keyed on the descriptor the arm actually passes, not on the
+			// flag alone: a seal taken for the wrong migration would
+			// otherwise look exactly like one taken for the right one.
+			if f.liveUnit != nil && *f.liveUnit == (liveUnitKey{desc, unitID}) {
 				return nil, false
 			}
-			f.sealsTaken++
+			f.sealed = append(f.sealed, liveUnitKey{desc, unitID})
 			return func() { f.sealsReleased++ }, true
 		},
 		Class:   func() *models.Class { return f.class },
@@ -1091,7 +1111,9 @@ func TestReconcileWithClusterTasksSettlesWhatTheLoadWithheld(t *testing.T) {
 				"an unreadable task map decides nothing")
 
 			f.tasksReadable = true
-			f.unitLive = tt.unitLive
+			if tt.unitLive {
+				f.liveUnit = liveUnitOf(subject)
+			}
 			if tt.task != nil {
 				f.tasks = []*distributedtask.Task{tt.task}
 			}
@@ -1408,14 +1430,15 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			live := newReconcileFixture(t)
 			live.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")
-			live.unitLive = true
 			tt.arrange(live)
+			live.liveUnit = liveUnitOf(live.planted[0])
 			live.reconcile()
 			for _, dir := range tt.heldDirs {
 				require.True(t, live.exists(dir),
 					"a live worker writes into %s through a pointer it already holds", dir)
 			}
-			require.Zero(t, live.sealsTaken, "a live unit grants no seal")
+			require.NotContains(t, live.sealed, *live.liveUnit,
+				"the unit a worker is running on grants no seal")
 
 			free := newReconcileFixture(t)
 			free.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")
@@ -1425,8 +1448,9 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 				require.False(t, free.exists(dir),
 					"with no worker running, %s is the arm's own work and must be done", dir)
 			}
-			require.NotZero(t, free.sealsTaken, "the arm holds the unit while it works")
-			require.Equal(t, free.sealsTaken, free.sealsReleased,
+			require.Contains(t, free.sealed, *liveUnitOf(free.planted[0]),
+				"the arm holds the unit while it works")
+			require.Equal(t, len(free.sealed), free.sealsReleased,
 				"and lets it go again: a leaked seal refuses this unit for the life of the process")
 		})
 	}

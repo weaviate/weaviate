@@ -643,11 +643,14 @@ func (r *migrationReconciler) sealUnit(subject MigrationSubject) (func(), bool) 
 
 // withSealedUnit runs a teardown under the unit's seal, or declines it because
 // a worker is live and logs why. Every arm of this module that removes one of
-// a migration's directories goes through here or through the same seal taken
-// by hand: they all remove directories a live worker writes into through
-// pointers it took before its phase began, and the next pass runs the declined
-// one again. The teardowns outside this module take the same seal task-wide,
-// through [ReindexProvider.SealLocalTaskDrain].
+// a migration's directories goes through here or takes the same seal by hand:
+// they all remove directories a live worker writes into through pointers it
+// took before its phase began, and the next pass runs the declined one again.
+//
+// Two teardowns outside this module take the same seal in their own scope: the
+// orphan audit per unit, and the cancel and terminal sweeps task-wide through
+// [ReindexProvider.SealLocalTaskDrain], which tear down by property and never
+// learn which units they touched.
 func (r *migrationReconciler) withSealedUnit(subject MigrationSubject, what string, run func() error) error {
 	release, sealed := r.sealUnit(subject)
 	if !sealed {

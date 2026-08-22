@@ -128,7 +128,9 @@ type ReindexProvider struct {
 	// defer, so failure, cancellation and panic all release it.
 	liveUnits unitClaims
 
-	// sealedUnits counts the teardowns holding a (task, unit) right now. A
+	// sealedUnits counts the teardowns holding one (task, unit) right now, and
+	// sealedTasks the ones holding a whole task because they tear down by
+	// (collection, property) and never learn which units they touched. A
 	// destroyer takes a seal instead of reading [liveUnits] directly, and
 	// while it holds one [ReindexProvider.enterLocalUnit] refuses.
 	//
@@ -140,11 +142,14 @@ type ReindexProvider struct {
 	// "nothing running" and flip live bucket pointers onto directories it is
 	// midway through deleting, which serves the property empty.
 	//
-	// A count, not a flag: one task's units are sealed independently, and two
-	// destroyers can hold the same unit.
+	// Counts, not flags: one task's units are sealed independently, and two
+	// destroyers can hold the same unit or the same task. Two maps rather than
+	// a reserved unit ID, so no real unit can ever be mistaken for the
+	// task-wide scope.
 	//
 	// Guarded by [mu].
 	sealedUnits unitClaims
+	sealedTasks map[distributedtask.TaskDescriptor]int
 
 	// cleanupInProgressMu guards [cleanupInProgress]. Held only for the
 	// register/unregister/lookup increment/decrement; never held across
@@ -366,7 +371,7 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.sealedUnits[desc][unitID] > 0 || p.sealedUnits[desc][sealEveryUnit] > 0 {
+	if p.sealedUnits[desc][unitID] > 0 || p.sealedTasks[desc] > 0 {
 		return nil, false
 	}
 	return p.releaseOf(p.liveUnits.take(desc, unitID)), true
@@ -377,8 +382,10 @@ func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, un
 // a provider works however it was constructed.
 type unitClaims map[distributedtask.TaskDescriptor]map[string]int
 
-// take records a claim and returns the drop. The caller holds
-// [ReindexProvider.mu] for both.
+// take records a claim and returns the drop, which undoes exactly that one
+// claim and must be called exactly once. Neither takes a lock: the caller
+// holds [ReindexProvider.mu] for the take, and hands the drop to
+// [ReindexProvider.releaseOf] so whoever finishes the span does not have to.
 func (c *unitClaims) take(desc distributedtask.TaskDescriptor, unitID string) func() {
 	if *c == nil {
 		*c = unitClaims{}
@@ -398,8 +405,10 @@ func (c *unitClaims) take(desc distributedtask.TaskDescriptor, unitID string) fu
 	}
 }
 
-// releaseOf makes a drop safe to call from whichever goroutine finishes the
-// span, which is never guaranteed to be the one that took it.
+// releaseOf puts a drop under [ReindexProvider.mu], so whichever goroutine
+// finishes the span can call it -- never guaranteed to be the one that took
+// the claim. It does not make the drop repeatable: a second call decrements a
+// claim it does not hold.
 func (p *ReindexProvider) releaseOf(drop func()) func() {
 	return func() {
 		p.mu.Lock()
@@ -407,11 +416,6 @@ func (p *ReindexProvider) releaseOf(drop func()) func() {
 		drop()
 	}
 }
-
-// sealEveryUnit is the unit ID a task-wide seal is recorded under, so both
-// kinds live in one map and [ReindexProvider.enterLocalUnit] has one place to
-// look. A real unit ID is "<shard>__<node>" and is never empty.
-const sealEveryUnit = ""
 
 // SealLocalUnit reserves this exact (task, unit) for teardown and returns the
 // release, or refuses because a worker of it is running here.
@@ -575,8 +579,9 @@ func (p *ReindexProvider) processOneUnit(
 		// A teardown holds this unit. Nothing is claimed and no progress is
 		// reported, which leaves the unit neither completed nor failed — so
 		// the next scheduler tick relaunches it, by which time the teardown
-		// has either finished its handful of directory removals or the task
-		// is terminal and the unit is skipped outright.
+		// has either released or the task is terminal and the unit is skipped
+		// outright. A task-wide seal is held across a whole sweep, so this can
+		// take several ticks.
 		logger.Warn("reindex provider: a teardown holds this unit, so it is not started; the next tick retries it")
 		return
 	}
@@ -1491,8 +1496,8 @@ func (p *ReindexProvider) runPerUnitPhase(
 			// tick froze; a teardown has taken the unit since. Reported rather
 			// than skipped, so the barrier does not read a phase that never
 			// ran as one that succeeded — and transient, because a teardown
-			// holds the unit for the length of a few directory removals and
-			// the next tick either enters or finds the task terminal.
+			// releases when it is done and the next tick either enters or
+			// finds the task terminal.
 			func() {
 				aggMu.Lock()
 				defer aggMu.Unlock()
@@ -2810,7 +2815,16 @@ func (p *ReindexProvider) sealLocalTask(desc distributedtask.TaskDescriptor) (fu
 	if len(p.liveUnits[desc]) > 0 {
 		return nil, false
 	}
-	return p.releaseOf(p.sealedUnits.take(desc, sealEveryUnit)), true
+	if p.sealedTasks == nil {
+		p.sealedTasks = map[distributedtask.TaskDescriptor]int{}
+	}
+	p.sealedTasks[desc]++
+
+	return p.releaseOf(func() {
+		if p.sealedTasks[desc]--; p.sealedTasks[desc] <= 0 {
+			delete(p.sealedTasks, desc)
+		}
+	}), true
 }
 
 // reindexTaskHandle implements distributedtask.TaskHandle.

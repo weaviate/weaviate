@@ -95,7 +95,10 @@ func TestStructuralInvariant_SealLocalTaskDrain_BlocksUntilHandleDone(t *testing
 		// above the deterministic synchronization we use below.
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err := p.SealLocalTaskDrain(ctx, desc)
+		release, err := p.SealLocalTaskDrain(ctx, desc)
+		if release != nil {
+			release()
+		}
 		returnedC <- err
 	}()
 
