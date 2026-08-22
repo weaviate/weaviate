@@ -33,9 +33,13 @@ import (
 // node does not hold — which the record loop below skips, landing on true.
 //
 // The rows that signal a close therefore fail if the walk is swapped back to
-// [Index.ForEachShard]: the two committed ones have nothing uncommitted on
-// disk, so the only thing that can produce false is the walk refusing to
-// answer.
+// [Index.ForEachShard]: their migration is committed on disk, so the only
+// thing that can produce false is the walk refusing to answer. The open row is
+// the converse, and is what gives the record gate teeth: it can only answer
+// true because a committed record is there to answer with.
+//
+// The two close signals are raised independently here so each row names the
+// one it tests. Teardown raises both, in the order the last row has them.
 func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 	const (
 		prop   = "title"
@@ -45,8 +49,10 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 
 	for _, tc := range []struct {
 		name string
-		// closeRequested signals a delete that has not reached teardown yet;
-		// closeCause only answers once teardown cancels closingCtx.
+		// closeRequested is a delete committed against the collection;
+		// closing is teardown having cancelled the index's context. In
+		// production the first precedes the second, and each guard answers on
+		// its own.
 		closeRequested bool
 		closing        bool
 		// committed says whether the tenant's migration reached the state
@@ -69,7 +75,7 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 			want:    false,
 		},
 		{
-			name:      "a closing index whose committed migration is still unanswerable",
+			name:      "teardown cancelled the index while its migration was committed",
 			closing:   true,
 			committed: true,
 			want:      false,
@@ -77,6 +83,13 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 		{
 			name:           "a delete committed before teardown reached the index",
 			closeRequested: true,
+			committed:      true,
+			want:           false,
+		},
+		{
+			name:           "both signals, which is what a drop actually raises",
+			closeRequested: true,
+			closing:        true,
 			committed:      true,
 			want:           false,
 		},
@@ -101,11 +114,14 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 			idx.shards.Store(tenant, &LazyLoadShard{
 				shardOpts: &deferredShardOpts{name: tenant, index: idx},
 			})
-			mkTrackerDir(t, shardPathLSM(idx.path(), tenant), postMergeTrackerDir(t, prop))
+			state := MigrationStateIterating
+			if tc.committed {
+				state = MigrationStateMerged
+			}
+			mkMigrationRecordFor(t, shardPathLSM(idx.path(), tenant), postMergeTrackerDir(t, prop),
+				"T_bootstrap", 1, "u1", ReindexTypeChangeTokenization, state, prop)
 
-			// Drop order: the delete is committed first, teardown cancels
-			// closingCtx after it has queued behind the index locks.
-			if tc.closeRequested || tc.closing {
+			if tc.closeRequested {
 				signalCloseRequested(errIndexDropped)
 			}
 			if tc.closing {
