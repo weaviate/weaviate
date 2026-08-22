@@ -46,10 +46,16 @@ func TestLegacyMarkerMigrationSurvivesTheSweep(t *testing.T) {
 		marker   string
 		// rawPayload replaces the well-formed payload.mig this tracker would
 		// otherwise carry.
-		rawPayload         string
-		wantDirs           bool
-		wantWarn           bool
-		wantUnreadableWarn bool
+		rawPayload string
+		// unlistableMigrations takes the read bit off .migrations while
+		// leaving it traversable, so the records directory underneath still
+		// answers and only the marker-era scan fails.
+		unlistableMigrations bool
+		wantDirs             bool
+		wantWarn             bool
+		wantUnreadableWarn   bool
+		wantWithholdWarn     bool
+		wantSweepErr         bool
 	}{
 		{
 			name:     "the canonical bucket is gone, so the staged copy is the only one",
@@ -101,6 +107,20 @@ func TestLegacyMarkerMigrationSurvivesTheSweep(t *testing.T) {
 			wantDirs:           true,
 			wantUnreadableWarn: true,
 		},
+		{
+			// The scan that finds marker-era trackers reads .migrations; the
+			// sidecar sweep reads the LSM root and succeeds on the same
+			// fault. A listing nobody could read must therefore withhold, or
+			// the sweep takes the only copy on the evidence of an empty set
+			// it never built.
+			name:                 "a migration directory that cannot be listed withholds the whole shard",
+			propName:             "gone",
+			marker:               "merged.mig",
+			unlistableMigrations: true,
+			wantDirs:             true,
+			wantWithholdWarn:     true,
+			wantSweepErr:         true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -133,6 +153,19 @@ func TestLegacyMarkerMigrationSurvivesTheSweep(t *testing.T) {
 					filepath.Join(lsm, migrationsDir, tracker, tc.marker), nil, 0o600))
 			}
 
+			migrations := filepath.Join(lsm, migrationsDir)
+			if tc.unlistableMigrations {
+				// Traversable but not readable, so .migrations/records still
+				// answers and the record set stays clean. That is the state
+				// an upgrading shard is in: it has marker-era trackers and no
+				// records directory at all.
+				require.NoError(t, os.Chmod(migrations, 0o111))
+				t.Cleanup(func() { os.Chmod(migrations, 0o755) })
+				if _, err := os.ReadDir(migrations); err == nil {
+					t.Skip("this user can list an unreadable directory, so the failure cannot be staged")
+				}
+			}
+
 			logger, ok := shard.index.logger.(*logrus.Logger)
 			require.True(t, ok, "the shard's logger must be hookable for the Warn assertion")
 			hook := test.NewLocal(logger)
@@ -144,10 +177,18 @@ func TestLegacyMarkerMigrationSurvivesTheSweep(t *testing.T) {
 				"a warning naming %q on the shard load path", tc.propName)
 			require.Equal(t, tc.wantUnreadableWarn, warnedContaining(hook, "cannot read"),
 				"a warning that the tracker's properties could not be read")
+			require.Equal(t, tc.wantWithholdWarn, warnedContaining(hook, "could not be listed"),
+				"a warning that the migration directory could not be listed")
 
-			cleanSweep(t, ctx, shard, tc.propName, "filterable")
+			if tc.wantSweepErr {
+				_, err := shard.CleanStalePartialReindexState(ctx, tc.propName, "filterable")
+				require.Error(t, err, "a sweep that could not read the directory must not report success")
+				require.NoError(t, os.Chmod(migrations, 0o755))
+			} else {
+				cleanSweep(t, ctx, shard, tc.propName, "filterable")
+			}
 
-			require.Equal(t, tc.wantDirs, dirExistsAt(t, filepath.Join(lsm, migrationsDir), tracker),
+			require.Equal(t, tc.wantDirs, dirExistsAt(t, migrations, tracker),
 				"tracker dir %s", tracker)
 			require.Equal(t, tc.wantDirs, dirExistsAt(t, lsm, ingest),
 				"ingest sidecar %s, which holds the data", ingest)

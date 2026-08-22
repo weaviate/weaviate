@@ -87,7 +87,18 @@ func migrationPreservedStateAt(lsmPath string, logger logrus.FieldLogger) migrat
 		// syscalls to reach the same answer.
 		return state
 	}
-	for _, legacy := range migrationLegacyMarkerTrackersAt(lsmPath, records) {
+	legacyTrackers, listed := migrationLegacyMarkerTrackersAt(lsmPath, records)
+	if !listed {
+		// Nothing here could be enumerated, so the preserve set is missing
+		// names it cannot know. The sweeps read a short set as permission to
+		// delete, and they list a directory that is still readable.
+		logger.WithField("path", filepath.Join(lsmPath, ".migrations")).
+			Warn("the migration directory could not be listed, so nothing on this shard can be shown to be " +
+				"reclaimable; withholding every removal until it can be read")
+		state.withholdEverything = true
+		return state
+	}
+	for _, legacy := range legacyTrackers {
 		if legacy.unreadable {
 			// Its payload is the only thing that names the directories holding
 			// the data this marker claims. Preserving the tracker alone would
@@ -218,14 +229,20 @@ type migrationLegacyMarkerTracker struct {
 // migrationLegacyMarkerTrackersAt finds them on one shard. A tracker a record
 // names is this build's own and answers from the record; only a record-less
 // one can be marker-era.
-func migrationLegacyMarkerTrackersAt(lsmPath string, records []MigrationRecord) []migrationLegacyMarkerTracker {
+//
+// listed=false is the third outcome, and it is not the same as finding none.
+// The sweeps that delete on this answer list the shard's LSM root, not the
+// directory read here, so a fault that hides every marker-era tracker — fd
+// exhaustion on a many-tenant node is the reachable one — leaves them free to
+// remove an upgraded property's only surviving copy. A caller that cannot
+// tell has to withhold, the same way the record loader's NotUnderstood does.
+func migrationLegacyMarkerTrackersAt(lsmPath string, records []MigrationRecord) (trackers []migrationLegacyMarkerTracker, listed bool) {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
 	if err != nil {
-		// Unreadable reads the same as absent on purpose: every caller uses
-		// this to preserve more, and the sweeps that would delete on the
-		// strength of it fail on the same listing for themselves.
-		return nil
+		// Absent is the ordinary case — most shards never ran a migration —
+		// and it really does mean there is nothing marker-era here.
+		return nil, os.IsNotExist(err)
 	}
 	var out []migrationLegacyMarkerTracker
 	for _, entry := range entries {
@@ -255,18 +272,23 @@ func migrationLegacyMarkerTrackersAt(lsmPath string, records []MigrationRecord) 
 			sidecars:   migrationSidecarDirsFor(dirName, prefix, gen, props.props),
 		})
 	}
-	return out
+	return out, true
 }
 
 // migrationLegacyMarkerDirsAt is the same answer as a name set, for the
 // removal loops that keep their own record check rather than the preserve
-// predicate. complete=false means one tracker's payload could not be read, so
-// the set is missing names it cannot know: a caller that deletes what is not
-// in it has to stop instead.
+// predicate. complete=false means the set is missing names it cannot know —
+// one tracker's payload could not be read, or the directory holding all of
+// them could not be listed — and a caller that deletes what is not in it has
+// to stop instead.
 func migrationLegacyMarkerDirsAt(lsmPath string, records []MigrationRecord) (dirs map[string]struct{}, complete bool) {
 	dirs = map[string]struct{}{}
+	trackers, listed := migrationLegacyMarkerTrackersAt(lsmPath, records)
+	if !listed {
+		return dirs, false
+	}
 	complete = true
-	for _, legacy := range migrationLegacyMarkerTrackersAt(lsmPath, records) {
+	for _, legacy := range trackers {
 		if legacy.unreadable {
 			complete = false
 			continue

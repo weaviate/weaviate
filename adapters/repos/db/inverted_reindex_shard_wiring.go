@@ -236,7 +236,17 @@ func (s *Shard) warnAboutLegacyMarkerMigrations() {
 		// which would make the marker a leftover rather than the live claim.
 		return
 	}
-	for _, legacy := range migrationLegacyMarkerTrackersAt(s.pathLSM(), s.migrationRecords.Records()) {
+	trackers, listed := migrationLegacyMarkerTrackersAt(s.pathLSM(), s.migrationRecords.Records())
+	if !listed {
+		// Said here as well as at each sweep: this is the one line an operator
+		// sees at load, and a shard whose migration directory cannot be listed
+		// has every removal withheld until it can.
+		s.index.logger.WithField("shard", s.ID()).
+			Warn("the migration directory could not be listed, so a migration completed on an older release " +
+				"cannot be ruled out; every removal on this shard is withheld until it can be read")
+		return
+	}
+	for _, legacy := range trackers {
 		if legacy.unreadable {
 			// Nothing names the directories this marker vouches for, so every
 			// sweep on the shard withholds instead. That is a whole shard the

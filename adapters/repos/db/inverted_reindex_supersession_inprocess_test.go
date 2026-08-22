@@ -112,8 +112,12 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 		unreadable bool
 		// marker plants the completion marker the release before the records
 		// used, along with the payload naming the properties it covers.
-		marker  bool
-		wantDir bool
+		marker bool
+		// unlistable takes the read bit off .migrations, so the scan for
+		// marker-era trackers fails while this trim's own listing of the LSM
+		// root still succeeds.
+		unlistable bool
+		wantDir    bool
 	}{
 		{
 			name:       "a record still names the older migration's staged directory",
@@ -136,6 +140,15 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 			// I could read" is not "nobody owns it".
 			name:       "a record that does not decode withholds the whole trim",
 			unreadable: true,
+			wantDir:    true,
+		},
+		{
+			// The marker scan is the other half of the protection set, and it
+			// reads a directory this trim never lists for itself. A scan that
+			// could not run leaves an empty set, which reads as "nobody owns
+			// it" — the one conclusion an unread directory cannot support.
+			name:       "a migration directory that cannot be listed withholds the whole trim",
+			unlistable: true,
 			wantDir:    true,
 		},
 	}
@@ -173,9 +186,21 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 				require.NoError(t, shard.migrationRecords.Load())
 			}
 
+			migrations := filepath.Join(shard.pathLSM(), migrationsDir)
+			if tt.unlistable {
+				require.NoError(t, os.Chmod(migrations, 0o111))
+				t.Cleanup(func() { os.Chmod(migrations, 0o755) })
+				if _, err := os.ReadDir(migrations); err == nil {
+					t.Skip("this user can list an unreadable directory, so the failure cannot be staged")
+				}
+			}
+
 			logger, _ := test.NewNullLogger()
 			newer, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 2, propName)
 			newer.trimOlderGenerationsLocked(logger, shard, []string{propName})
+			if tt.unlistable {
+				require.NoError(t, os.Chmod(migrations, 0o755))
+			}
 
 			require.Equal(t, tt.wantDir, dirExists(t, filepath.Join(shard.pathLSM(), staged)),
 				"staged directory of the older migration")
