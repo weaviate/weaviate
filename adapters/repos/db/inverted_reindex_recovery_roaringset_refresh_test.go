@@ -170,12 +170,6 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 			"term %q posting list changed across same-strategy refresh", term)
 	}
 
-	// Swapped rather than Promoted: the flip is durable, and the
-	// staged-to-canonical rename is deliberately left to the next load.
-	rec, ok := task.migrationRecord(shard)
-	require.True(t, ok, "the migration must have left a record")
-	require.Equal(t, MigrationStateSwapped, rec.State())
-	require.Equal(t, []string{propName}, rec.(MigrationRecordSwapped).Flipped())
 }
 
 // TestRecoveryConvergence_RoaringSetRefresh_FromEachState pins the

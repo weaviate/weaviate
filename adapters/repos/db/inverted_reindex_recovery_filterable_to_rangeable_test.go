@@ -290,10 +290,4 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 			"term %d should have %d docIDs, got %d", term, expectedPerValue, len(ids))
 	}
 
-	// Swapped rather than Promoted: the flip is durable, and the
-	// staged-to-canonical rename is deliberately left to the next load.
-	rec, ok := task.migrationRecord(shard)
-	require.True(t, ok, "the migration must have left a record")
-	require.Equal(t, MigrationStateSwapped, rec.State())
-	require.Equal(t, []string{propName}, rec.(MigrationRecordSwapped).Flipped())
 }

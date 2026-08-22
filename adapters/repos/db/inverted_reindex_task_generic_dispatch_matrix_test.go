@@ -381,6 +381,12 @@ func dispatchMatrixComputeBaseline(
 	task := sc.buildTask(t, idx, className, propName)
 	dispatchMatrixDriveToSwapped(t, ctx, shard, task, sc.path)
 
+	// Swapped rather than Promoted: the flip is durable, and the
+	// staged-to-canonical rename is deliberately left to the next load.
+	rec := dispatchMatrixRecordOf(t, shard, task)
+	require.Equal(t, MigrationStateSwapped, rec.State())
+	require.Equal(t, []string{propName}, rec.(MigrationRecordSwapped).Flipped())
+
 	return sc.fingerprint(t, shard, sc.fingerprintBucketName(propName))
 }
 
@@ -463,8 +469,8 @@ func dispatchMatrixRunCell(
 		"RunSwapOnShard should succeed for (strategy=%s, state=%s)",
 		sc.strategyName, state)
 
-	require.Truef(t, dispatchMatrixRecordOf(t, shard, task).PointerSwapped(),
-		"every dispatch branch must leave the flip decision durable (strategy=%s state=%s)",
+	require.Equalf(t, MigrationStateSwapped, dispatchMatrixRecordOf(t, shard, task).State(),
+		"every dispatch branch must leave the flip durable and the promotion to the next load (strategy=%s state=%s)",
 		sc.strategyName, state)
 
 	// Fingerprint convergence: every term in the baseline must appear

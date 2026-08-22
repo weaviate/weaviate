@@ -41,11 +41,10 @@ import (
 //
 // T1: PREP boundary — Iterated to Merged via runShardPrepPhase.
 // T2: SWAP boundary — Merged to Swapped via runShardSwapPhase.
-// T3: Crash between persistRecoveryRecord and markStarted — discover
-//     must skip the dir; payload.mig survives intact for retry.
-// T4: markReindexed durability — sentinel survives process death
-//     without fsync from the test (foundation of issue #214 / commit
-//     073d47b460's IsReindexed dispatch).
+// T3: Crash before the first record write — discover must skip the dir;
+//     payload.mig survives intact for retry.
+// T4: Record durability at Iterated — the record survives process death
+//     without the test fsyncing (foundation of issue #214).
 
 // barrierIntegrationProvider builds the minimal ReindexProvider these
 // tests need — runShardPrepPhase / runShardSwapPhase only touch
@@ -62,7 +61,7 @@ func barrierIntegrationProvider(t *testing.T) (*ReindexProvider, *logrustest.Hoo
 	return p, hook
 }
 
-// barrierIntegrationDrivenToReindexed halts iteration at markReindexed
+// barrierIntegrationDrivenToReindexed halts iteration at the Iterated record
 // (the FINALIZING-barrier handoff) via skipSwapOnFinish=true.
 func barrierIntegrationDrivenToReindexed(
 	t *testing.T,
@@ -83,7 +82,7 @@ func barrierIntegrationDrivenToReindexed(
 			break
 		}
 	}
-	// Sanity: iteration must have halted at the barrier (markReindexed
+	// Sanity: iteration must have halted at the barrier (the Iterated record
 	// written, runtimePrepare NOT called).
 	rec, ok := task.migrationRecord(shard)
 	require.True(t, ok, "helper precondition: iteration must leave a record")
@@ -110,11 +109,10 @@ func barrierIntegrationSeedObjects(t *testing.T, ctx context.Context, shard *Sha
 // TestReindexProviderBarrierIntegration_OnGroupCompletedPrep pins the
 // PREP-phase contract: given a unit at IsReindexed (the post-iteration,
 // pre-merge state that OnGroupCompleted lands in for barrier-mode tasks),
-// the provider's runShardPrepPhase must advance the on-disk sentinels
-// to IsMerged. This is the "OnGroupCompleted → RunPrepareOnShard boundary"
-// gap T2.3 was scoped against — it has no direct unit-test coverage
-// today (the existing unit tests cover RunSwapOnShard's sentinel-aware
-// dispatch, not the PREP-phase boundary).
+// the provider's runShardPrepPhase must advance the record to Merged.
+// This is the "OnGroupCompleted → RunPrepareOnShard boundary" gap T2.3 was
+// scoped against; the other unit tests cover RunSwapOnShard's dispatch, not
+// the PREP-phase boundary.
 func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 	ctx := testCtx()
 	className := "BarrierIntegPrep"
@@ -144,11 +142,9 @@ func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 	require.True(t, ok, "PREP must succeed: %v", res.Errs)
 	require.Empty(t, res.Errs, "PREP must not accumulate errors")
 
-	// Post-PREP invariants: the record advances from Iterated to Merged.
-	// IsPrepended is the intermediate sentinel runtimePrepare writes
-	// between the per-prop PrependSegmentsFromBucket loop and
-	// markMerged — its presence pins that runtimePrepare ran to
-	// completion.
+	// Post-PREP invariants: the record advances from Iterated to Merged,
+	// which is what pins that runtimePrepare ran the per-prop
+	// PrependSegmentsFromBucket loop to completion.
 	recPost, ok := task.migrationRecord(shard)
 	require.True(t, ok)
 	assert.Equal(t, MigrationStateMerged, recPost.State(),
@@ -159,13 +155,13 @@ func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 
 // TestReindexProviderBarrierIntegration_OnSwapRequestedSwap pins the
 // SWAP-phase contract: given a unit at Merged (the state the PREP
-// barrier produces), the provider's runShardSwapPhase must produce
-// IsSwapped + IsTidied sentinels. This is the
+// barrier produces), the provider's runShardSwapPhase must record the flip
+// and remove the directory it displaced. This is the
 // "OnSwapRequested arrival after Phase A.5 transition" gap T2.3 was
 // scoped against.
 //
 // The test runs PREP first (via runShardPrepPhase) to stage the
-// IsMerged state, then runs SWAP — mirroring the cluster-wide barrier:
+// Merged state, then runs SWAP — mirroring the cluster-wide barrier:
 // PREP per node → cluster-wide PreparationCompleteAck → OnSwapRequested
 // per node.
 func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
@@ -208,10 +204,11 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 		[]*ShardReindexTaskGeneric{task}, p.logger)
 	require.Empty(t, swapRes.Errs, "SWAP must succeed")
 
-	// Post-SWAP invariants: IsSwapped + IsTidied. In runtimeSwap the
-	// per-prop swap → markSwapped → tidy sequence is atomic (Phase 2a
-	// pins this contract — see TestRuntimeSwap_Phase2a_AtomicTightLoop)
-	// so both sentinels appear together once swap+tidy returns clean.
+	// Post-SWAP invariants: the flip is recorded and the displaced directory
+	// is gone. In runtimeSwap the per-prop swap and the record write are
+	// atomic (Phase 2a pins this contract — see
+	// TestRuntimeSwap_Phase2a_AtomicTightLoop), so both hold together once
+	// the swap returns clean.
 	recFinal, ok := task.migrationRecord(shard)
 	require.True(t, ok)
 	assert.Equal(t, MigrationStateSwapped, recFinal.State(),
@@ -334,12 +331,12 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 		"idempotent persist must leave the file bit-identical (no rewrite)")
 }
 
-// TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier
+// TestReindexProviderBarrierIntegration_IteratedRecordDurabilityBarrier
 // pins commit 073d47b460 (weaviate/0-weaviate-issues#214):
 // FlushAndSwitch happens BEFORE the Iterated record, so a restart that
 // dispatches on that record never sees it without the data behind it. A
 // refactor that moved FlushAndSwitch after the record write would fail here.
-func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *testing.T) {
+func TestReindexProviderBarrierIntegration_IteratedRecordDurabilityBarrier(t *testing.T) {
 	ctx := testCtx()
 	className := "BarrierIntegDurability"
 	class := newTestClass(className)

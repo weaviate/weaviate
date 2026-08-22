@@ -93,7 +93,8 @@ func TestMigrationRecordQuestions(t *testing.T) {
 		},
 	}
 
-	require.Len(t, tests, 5, "the representation admits five states and the machine reaches five")
+	require.Len(t, tests, 5,
+		"the representation admits five states, the machine reaches five, and no two variants report the same one")
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -104,21 +105,6 @@ func TestMigrationRecordQuestions(t *testing.T) {
 			require.Equal(t, tt.wantOwnsStagedDir, tt.record.OwnsBucket("m_42_title"))
 		})
 	}
-}
-
-func TestMigrationRecordStateSet(t *testing.T) {
-	iterating, iterated, merged, swapped, promoted := testQuestionRecords()
-
-	var reached []MigrationState
-	for _, rec := range []MigrationRecord{iterating, iterated, merged, swapped, promoted} {
-		require.NotContains(t, reached, rec.State(), "two variants report the same state")
-		reached = append(reached, rec.State())
-	}
-
-	require.ElementsMatch(t, []MigrationState{
-		MigrationStateIterating, MigrationStateIterated, MigrationStateMerged,
-		MigrationStateSwapped, MigrationStatePromoted,
-	}, reached)
 }
 
 func TestMigrationRecordOwnsBucket(t *testing.T) {

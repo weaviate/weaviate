@@ -189,13 +189,6 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	require.NotNil(t, postBucket, "post-migration searchable bucket must exist")
 	require.Equal(t, lsmkv.StrategyInverted, postBucket.Strategy())
 
-	// Swapped rather than Promoted: the flip is durable, and the
-	// staged-to-canonical rename is deliberately left to the next load.
-	rec, ok := task.migrationRecord(shard)
-	require.True(t, ok, "the migration must have left a record")
-	require.Equal(t, MigrationStateSwapped, rec.State())
-	require.Equal(t, []string{propName}, rec.(MigrationRecordSwapped).Flipped())
-
 	fp := fingerprintInvertedBucket(t, postBucket)
 	require.NotEmpty(t, fp, "baseline fingerprint must have at least one term")
 

@@ -172,10 +172,4 @@ func TestRecoveryConvergence_EnableFilterable_Baseline(t *testing.T) {
 			"post-migration filterable token %q has no docIDs (posting list is empty)", tok)
 	}
 
-	// Swapped rather than Promoted: the flip is durable, and the
-	// staged-to-canonical rename is deliberately left to the next load.
-	rec, ok := task.migrationRecord(shard)
-	require.True(t, ok, "the migration must have left a record")
-	require.Equal(t, MigrationStateSwapped, rec.State())
-	require.Equal(t, []string{propName}, rec.(MigrationRecordSwapped).Flipped())
 }

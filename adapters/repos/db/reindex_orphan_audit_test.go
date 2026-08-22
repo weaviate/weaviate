@@ -621,6 +621,7 @@ func mkAuditTracker(t *testing.T, lsmPath, trackerName, taskID string, taskVersi
 	for _, prop := range props {
 		subject.StagedDirs[prop] = "property_" + prop + "_searchable__retokenize_ingest_1"
 		subject.CanonicalDirs[prop] = "property_" + prop + "_searchable"
+		subject.SidecarDirs = append(subject.SidecarDirs, fixtureSidecarFor(subject.StagedDirs[prop]))
 	}
 
 	var rec MigrationRecord

@@ -380,14 +380,7 @@ func TestReconcileSwappedProbe(t *testing.T) {
 		wantCanonicalDir bool
 	}{
 		{
-			name:             "both present: the canonical name still holds the displaced data, replace it",
-			present:          []string{"m_42_title", "property_title"},
-			wantState:        MigrationStatePromoted,
-			wantCanonical:    "m_42_title",
-			wantCanonicalDir: true,
-		},
-		{
-			name:             "the flip decision was durable but the crash beat the first flip: same outcome",
+			name:             "both present: whether or not the crash beat the first flip, the probe reads the same two handles",
 			present:          []string{"m_42_title", "property_title"},
 			wantState:        MigrationStatePromoted,
 			wantCanonical:    "m_42_title",

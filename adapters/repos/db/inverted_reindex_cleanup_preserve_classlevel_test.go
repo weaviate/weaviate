@@ -65,7 +65,9 @@ func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
 		subject.Properties = append(subject.Properties, prop)
 		subject.StagedDirs[prop] = dir
 		subject.CanonicalDirs[prop] = "property_" + prop
+		subject.SidecarDirs = append(subject.SidecarDirs, fixtureSidecarFor(dir))
 	}
+	sort.Strings(subject.SidecarDirs)
 	sort.Strings(subject.Properties)
 
 	var rec MigrationRecord
@@ -155,6 +157,17 @@ func cleanSweep(t *testing.T, ctx context.Context, shard *Shard, propName, index
 	return reads
 }
 
+// fixtureSidecarFor mirrors what every production writer records: alongside the
+// ingest directory a flip stages into, the migration also owns the reindex
+// sidecar it built that data in. A fixture without one exercises no part of
+// the preservation and reclamation that reads MigrationSubject.SidecarDirs.
+func fixtureSidecarFor(staged string) string {
+	if reindex := strings.Replace(staged, "_ingest_", "_reindex_", 1); reindex != staged {
+		return reindex
+	}
+	return staged + "__reindex"
+}
+
 // dirExists fails the test on a stat it cannot interpret, so an assertion
 // never reads an unreadable directory as an absent one.
 func dirExists(t *testing.T, path string) bool {
@@ -227,18 +240,21 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 			mkMigrationRecord(t, lsm, tc.classTracker, MigrationStateSwapped,
 				map[string]string{tc.propName: tc.liveSidecar})
 			mkSidecarDir(t, lsm, tc.liveSidecar)
+			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.liveSidecar))
 
 			// Completed per-prop migration awaiting promotion.
 			mkTrackerDir(t, lsm, tc.propTracker)
 			mkMigrationRecord(t, lsm, tc.propTracker, MigrationStateSwapped,
 				map[string]string{tc.propName: tc.propLiveSidecar})
 			mkSidecarDir(t, lsm, tc.propLiveSidecar)
+			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.propLiveSidecar))
 
 			// Cancelled (partial) class-level attempt: stale, must be wiped.
 			mkTrackerDir(t, lsm, tc.staleTracker)
 			mkMigrationRecord(t, lsm, tc.staleTracker, MigrationStateIterating,
 				map[string]string{tc.propName: tc.staleSidecar})
 			mkSidecarDir(t, lsm, tc.staleSidecar)
+			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.staleSidecar))
 
 			cleanSweep(t, ctx, shard, tc.propName, tc.indexType)
 
@@ -251,6 +267,16 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 				tc.propLiveSidecar)
 			require.False(t, dirExistsAt(t, lsm, tc.staleSidecar),
 				"stale sidecar %s of a cancelled attempt must be wiped", tc.staleSidecar)
+
+			// The reindex sidecar the rebuild wrote into is the migration's
+			// too, and it is preserved and reclaimed on the same evidence as
+			// the ingest one.
+			require.True(t, dirExistsAt(t, lsm, fixtureSidecarFor(tc.liveSidecar)),
+				"the reindex sidecar of the live class-level migration must survive with its ingest dir")
+			require.True(t, dirExistsAt(t, lsm, fixtureSidecarFor(tc.propLiveSidecar)),
+				"the reindex sidecar of the live per-prop migration must survive with its ingest dir")
+			require.False(t, dirExistsAt(t, lsm, fixtureSidecarFor(tc.staleSidecar)),
+				"the reindex sidecar of the cancelled attempt must be wiped with its ingest dir")
 
 			// Tracker-deletion semantics must be unchanged by the fix.
 			require.True(t,
