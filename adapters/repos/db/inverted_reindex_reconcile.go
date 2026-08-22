@@ -482,11 +482,19 @@ func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec Migrati
 
 	class := r.deps.Class()
 	if class == nil {
+		r.logger.WithField("record", subject.Key.String()).Warn(
+			"a promoted migration's collection is not in the schema, so nothing here can confirm its effect; keeping the record")
 		return nil
 	}
 	// Sweeping before the effect is visible would delete the answer to the one
 	// question a promoted record still exists to answer.
-	if !migrationEffectSatisfied(class, subject) {
+	if satisfied, missing := migrationEffectStatus(class, subject); !satisfied {
+		// The one arm that can persist across loads: this node promoted, but
+		// the schema change the migration exists to deliver is not there. No
+		// load can make it appear, so it is silent unless said here.
+		r.logger.WithField("record", subject.Key.String()).WithField("properties", missing).Warn(
+			"this shard promoted a migration whose effect is not in the schema; keeping the record, " +
+				"which is what answers for the property until the effect lands")
 		return nil
 	}
 	r.removeTrackerDir(subject)

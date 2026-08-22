@@ -17,9 +17,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,6 +67,10 @@ type reconcileFixture struct {
 	clusterTasksSet bool
 	clusterTasksErr error
 	class           *models.Class
+	logger          *logrus.Logger
+	// logs is what the reconciler wrote, for the arms whose whole outcome is
+	// a line an operator has to see.
+	logs *test.Hook
 }
 
 // leaderTasks is the source reconciliation confirms a destructive answer
@@ -88,7 +94,7 @@ func newReconcileFixture(t *testing.T) *reconcileFixture {
 // what lets one test hold several shards of one collection at once.
 func newReconcileFixtureAt(t *testing.T, lsmPath string) *reconcileFixture {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
+	logger, hook := test.NewNullLogger()
 	require.NoError(t, os.MkdirAll(lsmPath, 0o777))
 	return &reconcileFixture{
 		t:             t,
@@ -97,13 +103,24 @@ func newReconcileFixtureAt(t *testing.T, lsmPath string) *reconcileFixture {
 		store:         NewMigrationRecordStore(lsmPath, logger),
 		mirror:        &fakeMirrorRegistry{},
 		buckets:       &fakeBucketCloser{},
+		logger:        logger,
+		logs:          hook,
 	}
+}
+
+// warned reports whether the reconciler wrote a warning containing want.
+func (f *reconcileFixture) warned(want string) bool {
+	for _, entry := range f.logs.AllEntries() {
+		if entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *reconcileFixture) reconcile() {
 	f.t.Helper()
-	logger, _ := test.NewNullLogger()
-	r := newMigrationReconciler(f.store, f.lsmPath, logger, migrationReconcileDeps{
+	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, migrationReconcileDeps{
 		LocalTasks:   func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
 		ClusterTasks: f.leaderTasks,
 		Class:        func() *models.Class { return f.class },
@@ -117,8 +134,7 @@ func (f *reconcileFixture) reconcile() {
 // applied task map becomes readable, on shards that are already loaded.
 func (f *reconcileFixture) reconcileAfterTaskMap() {
 	f.t.Helper()
-	logger, _ := test.NewNullLogger()
-	newMigrationReconciler(f.store, f.lsmPath, logger, migrationReconcileDeps{
+	newMigrationReconciler(f.store, f.lsmPath, f.logger, migrationReconcileDeps{
 		LocalTasks:   func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
 		ClusterTasks: f.leaderTasks,
 		Class:        func() *models.Class { return f.class },
@@ -734,6 +750,9 @@ func TestReconcilePromotedClosure(t *testing.T) {
 		leftovers  []string
 		class      *models.Class
 		wantRecord bool
+		// wantWarn is what the operator has to be told, since no load can
+		// resolve these arms and nothing else reports them.
+		wantWarn string
 	}{
 		{
 			name:       "directories gone and the effect visible: the record has nothing left to answer",
@@ -747,6 +766,7 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			name:       "directories gone but the effect is not visible yet: keep the record",
 			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
 			wantRecord: true,
+			wantWarn:   "effect is not in the schema",
 		},
 		{
 			// The other half of that rule: a directory the record still owns
@@ -755,6 +775,7 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			leftovers:  []string{"m_42_sidecar"},
 			class:      testClassWithTokenization(models.PropertyTokenizationWord, "title"),
 			wantRecord: true,
+			wantWarn:   "effect is not in the schema",
 		},
 		{
 			name:       "a leftover from a retirement that partly failed is reclaimed, then the record goes",
@@ -771,6 +792,7 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			name:       "the collection is not in the applied schema: decide nothing",
 			class:      nil,
 			wantRecord: true,
+			wantWarn:   "collection is not in the schema",
 		},
 	}
 
@@ -791,6 +813,13 @@ func TestReconcilePromotedClosure(t *testing.T) {
 			require.Equal(t, "property_title", f.contentOf("property_title"))
 			for _, leftover := range tt.leftovers {
 				require.False(t, f.exists(leftover), "an owned leftover has to be reclaimed")
+			}
+			if tt.wantWarn == "" {
+				require.False(t, f.warned("promoted"),
+					"an arm that settles cleanly has nothing to tell an operator")
+			} else {
+				require.True(t, f.warned(tt.wantWarn),
+					"a promoted record kept for a reason no load can resolve has to say so")
 			}
 			f.requireMigrationDirsTrackRecords()
 		})

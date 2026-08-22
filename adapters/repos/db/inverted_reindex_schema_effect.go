@@ -26,21 +26,30 @@ import "github.com/weaviate/weaviate/entities/models"
 //
 // A new migration type lands here with its own row and its own argument.
 func migrationEffectSatisfied(class *models.Class, subject MigrationSubject) bool {
+	satisfied, _ := migrationEffectStatus(class, subject)
+	return satisfied
+}
+
+// migrationEffectStatus is [migrationEffectSatisfied] plus what it refused on,
+// for the caller that has to tell an operator which property is still waiting.
+// The property list is empty when the schema shows nothing per-property about
+// the refusal — a class-wide flag, or a subject naming no property at all.
+func migrationEffectStatus(class *models.Class, subject MigrationSubject) (satisfied bool, missing []string) {
 	switch subject.MigrationType {
 	case ReindexTypeRepairFilterable, ReindexTypeRebuildSearchable:
 		// Post-condition equals pre-condition: there is no flag to read, so
 		// the task-status rows carry the disposition alone.
-		return true
+		return true, nil
 	case ReindexTypeChangeAlgorithm:
 		if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
-			return true
+			return true, nil
 		}
 	default:
 		// Every other type's effect is per property, and is read below.
 	}
 
 	if len(subject.Properties) == 0 {
-		return false
+		return false, nil
 	}
 
 	byName := make(map[string]*models.Property, len(class.Properties))
@@ -54,10 +63,10 @@ func migrationEffectSatisfied(class *models.Class, subject MigrationSubject) boo
 			continue
 		}
 		if !migrationPropertyEffectVisible(subject, prop) {
-			return false
+			missing = append(missing, name)
 		}
 	}
-	return true
+	return len(missing) == 0, missing
 }
 
 func migrationPropertyEffectVisible(subject MigrationSubject, prop *models.Property) bool {
