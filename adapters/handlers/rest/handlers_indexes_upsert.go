@@ -791,7 +791,7 @@ func (h *indexesHandlers) reindexDrainSealer() localReindexDrainSealer {
 // property already refused this submit with a 409. A worker that will not
 // drain refuses it too, rather than letting the sweep remove directories from
 // under writes it already acknowledged.
-func (h *indexesHandlers) sealLocalReindexWorkers(principal *models.Principal,
+func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal *models.Principal,
 	sealer localReindexDrainSealer, collection, propertyName string,
 	reindexTasks []*distributedtask.Task,
 ) (func(), middleware.Responder) {
@@ -805,7 +805,7 @@ func (h *indexesHandlers) sealLocalReindexWorkers(principal *models.Principal,
 		}
 	}
 	for _, desc := range reindexTaskDescriptorsForProperty(reindexTasks, collection, propertyName, h.appState.Logger) {
-		drainCtx, cancel := context.WithTimeout(context.Background(), reindexCancelDrainTimeout)
+		drainCtx, cancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
 		unseal, err := sealer.SealLocalTaskDrain(drainCtx, desc)
 		cancel()
 		if err != nil {
@@ -852,7 +852,7 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			"internal error: unknown migration type; refusing submit (would skip stale-state cleanup)"))
 	}
-	release, resp := h.sealLocalReindexWorkers(principal, sealer, collection, propertyName, reindexTasks)
+	release, resp := h.sealLocalReindexWorkers(ctx, principal, sealer, collection, propertyName, reindexTasks)
 	if resp != nil {
 		return resp
 	}
