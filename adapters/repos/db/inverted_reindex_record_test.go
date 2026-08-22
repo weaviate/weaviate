@@ -319,7 +319,7 @@ func TestMigrationRecordStore(t *testing.T) {
 				// the sweeps have to keep all of them and not just the ones
 				// the readable record happens to name.
 				logger, _ := test.NewNullLogger()
-				committed := migrationPreservedStateOf(migrationRecordsAt(filepath.Dir(filepath.Dir(s.Dir())), logger))
+				committed := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
 				require.True(t, committed.preservesBucket("a directory no readable record names"))
 				require.True(t, committed.preservesTracker("a directory no readable record names"))
 			},

@@ -403,12 +403,12 @@ type dirNamesCache struct {
 // only through a load, and a loaded shard leaves the sweep's unloaded path.
 func (c *dirNamesCache) committedMigrations(lsmPath string, logger logrus.FieldLogger) migrationPreservedState {
 	if c == nil {
-		return migrationPreservedStateOf(migrationRecordsAt(lsmPath, logger))
+		return migrationPreservedStateAt(lsmPath, logger)
 	}
 	if state, ok := c.committed[lsmPath]; ok {
 		return state
 	}
-	state := migrationPreservedStateOf(migrationRecordsAt(lsmPath, logger))
+	state := migrationPreservedStateAt(lsmPath, logger)
 	if c.committed == nil {
 		c.committed = map[string]migrationPreservedState{}
 	}

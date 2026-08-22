@@ -838,17 +838,24 @@ func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, lo
 // Closes S3 by routing through the strategy registry instead of
 // re-deriving sidecar names by hard-coded string prefix.
 func sidecarDirsForOrphan(o *orphanReindexTracker) []string {
-	if len(o.properties) == 0 {
+	return migrationSidecarDirsFor(o.dirName, o.prefix, o.generation, o.properties)
+}
+
+// migrationSidecarDirsFor names the sidecar bucket dirs one tracker owns.
+// Shared with the legacy-marker preserve pass so a directory the audit would
+// reclaim and a directory a sweep must keep are never derived two ways.
+func migrationSidecarDirsFor(dirName, prefix string, generation int, properties []string) []string {
+	if len(properties) == 0 {
 		return nil
 	}
-	suffixes := migrationSuffixes(o.dirName)
+	suffixes := migrationSuffixes(dirName)
 	if suffixes == nil {
 		return nil
 	}
-	reindexSuffix := reindexSuffixForFinalize(o.prefix)
-	genTail := genSuffix(o.generation)
-	out := make([]string, 0, 2*len(o.properties))
-	for _, propName := range o.properties {
+	reindexSuffix := reindexSuffixForFinalize(prefix)
+	genTail := genSuffix(generation)
+	out := make([]string, 0, 2*len(properties))
+	for _, propName := range properties {
 		main := suffixes.sourceBucketName(propName)
 		out = append(out, main+suffixes.ingestSuffix+genTail)
 		if reindexSuffix != "" {

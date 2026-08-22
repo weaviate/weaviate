@@ -12,6 +12,8 @@
 package db
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 
 	"github.com/sirupsen/logrus"
@@ -69,7 +71,29 @@ type migrationPreservedState struct {
 	recordSetUnreadable bool
 }
 
-func migrationPreservedStateOf(records []MigrationRecord, someRecordsUnreadable, recordSetUnreadable bool) migrationPreservedState {
+// migrationPreservedStateAt is the only way to build one, so no sweep can ask
+// what it must leave alone and be told about records but not about the
+// marker-era directories of the release before them.
+func migrationPreservedStateAt(lsmPath string, logger logrus.FieldLogger) migrationPreservedState {
+	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
+	state := migrationPreservedStateFromRecords(records, someRecordsUnreadable, recordSetUnreadable)
+	if someRecordsUnreadable {
+		// Already preserving the whole shard, so the scan would only cost
+		// syscalls to reach the same answer.
+		return state
+	}
+	for _, legacy := range migrationLegacyMarkerTrackersAt(lsmPath, records) {
+		// false: no load can promote marker-era state on this build, so
+		// hydrating the shard for it would do nothing.
+		state.trackers[legacy.dirName] = false
+		for _, dir := range legacy.sidecars {
+			state.buckets[dir] = struct{}{}
+		}
+	}
+	return state
+}
+
+func migrationPreservedStateFromRecords(records []MigrationRecord, someRecordsUnreadable, recordSetUnreadable bool) migrationPreservedState {
 	state := migrationPreservedState{
 		records:               records,
 		buckets:               map[string]struct{}{},
@@ -157,6 +181,100 @@ func migrationRecordForTracker(records []MigrationRecord, trackerDir string) (Mi
 		}
 	}
 	return nil, false
+}
+
+// migrationLegacyMarkerTracker is a tracker directory the release before the
+// migration records left behind carrying its completion marker. The marker
+// means the staged directories under it are the property's live data, and
+// this build writes records instead, so nothing else on the shard vouches for
+// them.
+type migrationLegacyMarkerTracker struct {
+	dirName  string
+	marker   string
+	prefix   string
+	gen      int
+	props    []string
+	sidecars []string
+}
+
+// migrationLegacyMarkerTrackersAt finds them on one shard. A tracker a record
+// names is this build's own and answers from the record; only a record-less
+// one can be marker-era.
+func migrationLegacyMarkerTrackersAt(lsmPath string, records []MigrationRecord) []migrationLegacyMarkerTracker {
+	migsDir := filepath.Join(lsmPath, ".migrations")
+	entries, err := os.ReadDir(migsDir)
+	if err != nil {
+		// Unreadable reads the same as absent on purpose: every caller uses
+		// this to preserve more, and the sweeps that would delete on the
+		// strength of it fail on the same listing for themselves.
+		return nil
+	}
+	var out []migrationLegacyMarkerTracker
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dirName := entry.Name()
+		prefix, gen, ok := parseMigrationDirName(dirName)
+		if !ok {
+			continue
+		}
+		if _, named := migrationRecordForTracker(records, dirName); named {
+			continue
+		}
+		marker, found := migrationCompletionMarker(filepath.Join(migsDir, dirName))
+		if !found {
+			continue
+		}
+		props, _ := readTaskProps(filepath.Join(migsDir, dirName))
+		out = append(out, migrationLegacyMarkerTracker{
+			dirName:  dirName,
+			marker:   marker,
+			prefix:   prefix,
+			gen:      gen,
+			props:    append([]string(nil), props.props...),
+			sidecars: migrationSidecarDirsFor(dirName, prefix, gen, props.props),
+		})
+	}
+	return out
+}
+
+// migrationLegacyMarkerDirsAt is the same answer as a name set, for the
+// removal loops that keep their own record check rather than the preserve
+// predicate.
+func migrationLegacyMarkerDirsAt(lsmPath string, records []MigrationRecord) map[string]struct{} {
+	dirs := map[string]struct{}{}
+	for _, legacy := range migrationLegacyMarkerTrackersAt(lsmPath, records) {
+		dirs[legacy.dirName] = struct{}{}
+		for _, sidecar := range legacy.sidecars {
+			dirs[sidecar] = struct{}{}
+		}
+	}
+	return dirs
+}
+
+// servesEmpty reports the properties whose data this tracker still holds under
+// its staged name while the canonical bucket dir is gone. That is the state an
+// operator has to act on: the schema flip already committed cluster-wide, and
+// no path on this build renames the staged directory back.
+func (t migrationLegacyMarkerTracker) servesEmpty(lsmPath string) []string {
+	suffixes := migrationSuffixes(t.dirName)
+	if suffixes == nil {
+		return nil
+	}
+	genTail := genSuffix(t.gen)
+	var out []string
+	for _, prop := range t.props {
+		canonical := suffixes.sourceBucketName(prop)
+		if fileExists(filepath.Join(lsmPath, canonical)) {
+			continue
+		}
+		if !fileExists(filepath.Join(lsmPath, canonical+suffixes.ingestSuffix+genTail)) {
+			continue
+		}
+		out = append(out, prop)
+	}
+	return out
 }
 
 // migrationRecordStagingIncomplete is the want-predicate for the readers

@@ -134,6 +134,33 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 		// individual disposition already fails toward doing nothing.
 		s.index.logger.WithField("shard", s.ID()).Errorf("reconcile migration records: %v", err)
 	}
+	s.warnAboutLegacyMarkerMigrations()
+}
+
+// warnAboutLegacyMarkerMigrations reports migrations that completed on the
+// release before the migration records. This build preserves their data but
+// cannot promote it, and the schema flip they belong to already committed
+// cluster-wide, so the property answers queries from an empty bucket until the
+// operator restores it or downgrades. Nothing else says so.
+func (s *Shard) warnAboutLegacyMarkerMigrations() {
+	if s.migrationRecords == nil || len(s.migrationRecords.Unreadable()) > 0 {
+		// A record this build cannot read may be the one naming that tracker,
+		// which would make the marker a leftover rather than the live claim.
+		return
+	}
+	for _, legacy := range migrationLegacyMarkerTrackersAt(s.pathLSM(), s.migrationRecords.Records()) {
+		props := legacy.servesEmpty(s.pathLSM())
+		if len(props) == 0 {
+			continue
+		}
+		s.index.logger.WithField("shard", s.ID()).
+			WithField("tracker", legacy.dirName).
+			WithField("marker", legacy.marker).
+			WithField("properties", props).
+			Warn("a migration completed on an older release holds these properties' only copy under its staged " +
+				"directory; this build preserves it but cannot promote it, so they serve empty until the data is " +
+				"restored or the node is downgraded")
+	}
 }
 
 // reconcileMigrationRecordsAfterTaskMap is the second pass, run once this

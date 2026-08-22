@@ -298,7 +298,7 @@ func TestSweepMemoLeavesTheDeletedSetAlone(t *testing.T) {
 			for _, f := range sweepMemoFixtures {
 				names = append(names, f.dir)
 			}
-			committed := migrationPreservedStateOf(migrationRecordsAt(refLSM, logger))
+			committed := migrationPreservedStateAt(refLSM, logger)
 			want := sweepSurvivors(names, committed, refScope.inScope)
 
 			lsm := writeSweepMemoFixtures(t)

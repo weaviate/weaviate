@@ -110,7 +110,10 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 		name       string
 		keepRecord bool
 		unreadable bool
-		wantDir    bool
+		// marker plants the completion marker the release before the records
+		// used, along with the payload naming the properties it covers.
+		marker  bool
+		wantDir bool
 	}{
 		{
 			name:       "a record still names the older generation's staged directory",
@@ -119,6 +122,13 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 		},
 		{
 			name: "no record names it, so nothing else will ever reclaim it",
+		},
+		{
+			// An upgraded node brings these instead of a record, and the
+			// staged directory under one is the property's only copy.
+			name:    "a marker from the release before the records names it",
+			marker:  true,
+			wantDir: true,
 		},
 		{
 			// The records are the whole protection set here. One that does not
@@ -150,6 +160,11 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 			if tt.keepRecord {
 				subject := older.migrationSubject(shard, []string{propName}, time.Now())
 				require.NoError(t, shard.migrationRecords.Put(NewMigrationRecordMerged(subject)))
+			}
+			if tt.marker {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(shard.pathLSM(), migrationsDir, tracker, "merged.mig"), nil, 0o600))
+				mkRecoveryPayload(t, shard.pathLSM(), tracker, propName)
 			}
 			if tt.unreadable {
 				require.NoError(t, os.MkdirAll(shard.migrationRecords.Dir(), 0o755))

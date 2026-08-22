@@ -1539,7 +1539,14 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 		return
 	}
 	records := concrete.migrationRecords.Records()
-	ownedByARecord := func(dir string) bool {
+	// The release before the records marked a completed migration in the
+	// tracker dir instead. Nothing on this build vouches for those
+	// directories, so without this the trim removes the only copy.
+	legacyPreserved := migrationLegacyMarkerDirsAt(lsmPath, records)
+	preservedBucketDir := func(dir string) bool {
+		if _, ok := legacyPreserved[dir]; ok {
+			return true
+		}
 		for _, rec := range records {
 			if rec.OwnsBucket(dir) {
 				return true
@@ -1583,7 +1590,7 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 					continue // the live main bucket itself
 				}
 				suffixBase, suffixGen, ok := parseMigrationDirName(rest)
-				if !ok || ownedByARecord(name) {
+				if !ok || preservedBucketDir(name) {
 					continue
 				}
 				switch suffixBase {
@@ -1610,7 +1617,10 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 		}
 		return
 	}
-	namedByARecord := func(dir string) bool {
+	preservedTrackerDir := func(dir string) bool {
+		if _, ok := legacyPreserved[dir]; ok {
+			return true
+		}
 		for _, rec := range records {
 			if rec.Subject().TrackerDir == dir {
 				return true
@@ -1623,7 +1633,7 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 			continue
 		}
 		base, gen, ok := parseMigrationDirName(entry.Name())
-		if !ok || namedByARecord(entry.Name()) {
+		if !ok || preservedTrackerDir(entry.Name()) {
 			continue
 		}
 		if base != currentMigBase {

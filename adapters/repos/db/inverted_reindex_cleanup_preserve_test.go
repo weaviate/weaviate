@@ -30,6 +30,9 @@ type plantedTracker struct {
 	// state empty leaves the directory with no record, which is a migration
 	// that never reached its first record write.
 	state MigrationState
+	// marker names the completion marker the release before the records
+	// wrote into a tracker dir whose staged data had become the live data.
+	marker string
 }
 
 // TestCleanStaleMigrationDirsAt_PreservesCompletedGens pins the R2/R2b
@@ -97,6 +100,35 @@ func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 			wantSurvivors: []string{"filterable_retokenize_text_1"},
 		},
 		{
+			// Upgrade path: the release before the records said "this
+			// migration completed" with a marker file instead of a record,
+			// and its staged directory is the property's only copy. The
+			// record-less row above is the same fixture without the marker.
+			name:          "a marker-era tracker no record names survives",
+			propName:      "text",
+			idxType:       "searchable",
+			trackers:      []plantedTracker{{dir: "searchable_retokenize_text_1", prop: "text", marker: "merged.mig"}},
+			wantSurvivors: []string{"searchable_retokenize_text_1"},
+		},
+		{
+			name:          "the other marker name counts too",
+			propName:      "text",
+			idxType:       "searchable",
+			trackers:      []plantedTracker{{dir: "searchable_retokenize_text_1", prop: "text", marker: "tidied.mig"}},
+			wantSurvivors: []string{"searchable_retokenize_text_1"},
+		},
+		{
+			// A record is this build's own claim on the directory, so the
+			// marker underneath it is a leftover and decides nothing.
+			name:     "a record outranks a marker left in the same dir",
+			propName: "text",
+			idxType:  "searchable",
+			trackers: []plantedTracker{
+				{dir: "searchable_retokenize_text_1", prop: "text", state: MigrationStateIterating, marker: "merged.mig"},
+			},
+			wantSurvivors: []string{},
+		},
+		{
 			// The R2 repro: two back-to-back migrations both completed, and
 			// both still hold their data under their own generation's name.
 			name:     "two committed generations both survive",
@@ -122,6 +154,10 @@ func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 			require.NoError(t, os.MkdirAll(filepath.Join(lsm, ".migrations"), 0o755))
 			for _, tracker := range tc.trackers {
 				mkTrackerDir(t, lsm, tracker.dir)
+				if tracker.marker != "" {
+					require.NoError(t, os.WriteFile(
+						filepath.Join(lsm, ".migrations", tracker.dir, tracker.marker), nil, 0o600))
+				}
 				if tracker.state == "" {
 					continue
 				}
