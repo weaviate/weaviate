@@ -245,8 +245,11 @@ func (r MigrationRecordSwapped) State() MigrationState   { return MigrationState
 func (r MigrationRecordPromoted) State() MigrationState  { return MigrationStatePromoted }
 
 // migrationRecordFormatVersion is bumped only for a change a previous release
-// cannot read correctly. An older node treats an unknown version as
-// NotUnderstood, which withholds destructive work rather than guessing.
+// cannot read correctly. The gate is exact equality in both directions, so a
+// bump makes every record written by either version read as NotUnderstood on
+// the other — which freezes every write and every removal on that shard, not
+// just the record itself. One version exists today, so nothing is frozen; a
+// second one is a rolling-upgrade decision, not an additive one.
 const migrationRecordFormatVersion = 1
 
 type migrationFlipEnvelope struct {
@@ -331,7 +334,28 @@ func validateMigrationEnvelope(e migrationRecordEnvelope) error {
 	if !migrationTypeKnown(e.Subject.MigrationType) {
 		return fmt.Errorf("record %q names unknown migration type %q", e.Subject.Key, e.Subject.MigrationType)
 	}
-	return validateMigrationHandles(e)
+	if err := validateMigrationHandles(e); err != nil {
+		return err
+	}
+	return validateDisplacedAreNotStaged(e)
+}
+
+// validateDisplacedAreNotStaged refuses a record whose flip claims to have
+// displaced the very directory it staged. Promotion removes the displaced
+// directory and then renames the staged one onto the canonical name, so with
+// the two equal it removes the only copy and the rename finds nothing: both
+// copies are gone. A restored archive is free to carry either handle.
+func validateDisplacedAreNotStaged(e migrationRecordEnvelope) error {
+	if e.Flip == nil {
+		return nil
+	}
+	for prop, displaced := range e.Flip.DisplacedDirs {
+		if displaced != "" && displaced == e.Subject.StagedDirs[prop] {
+			return fmt.Errorf("record %q says property %q displaced the directory it staged, %q",
+				e.Subject.Key, prop, displaced)
+		}
+	}
+	return nil
 }
 
 // decodeMigrationRecord rejects anything it cannot place exactly, including a

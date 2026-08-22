@@ -192,6 +192,26 @@ func TestMigrationRecordNotUnderstood(t *testing.T) {
 			name: "promoted without its flip block",
 			data: valid(func(env map[string]any) { env["state"] = string(MigrationStatePromoted) }),
 		},
+		{
+			// Promotion removes the displaced directory and then renames the
+			// staged one onto the canonical name. With the two equal it
+			// removes the only copy and the rename finds nothing.
+			name: "a flip that displaced the directory it staged",
+			data: valid(func(env map[string]any) {
+				subject := env["subject"].(map[string]any)
+				env["state"] = string(MigrationStateSwapped)
+				env["flip"] = map[string]any{
+					"flipped":       []string{"title"},
+					"displacedDirs": map[string]any{"title": subject["stagedDirs"].(map[string]any)["title"]},
+				}
+			}),
+		},
+		{
+			name: "a unit the record file name could not carry",
+			data: valid(func(env map[string]any) {
+				env["subject"].(map[string]any)["key"].(map[string]any)["unitID"] = "../shard-2__node-0"
+			}),
+		},
 	}
 
 	for _, tt := range tests {

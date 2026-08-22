@@ -1585,6 +1585,22 @@ list as before, so a downgrade does not corrupt data. The residual is only
 that a partial-class property seeded solely by the stamp (its FINISHED task
 already GC'd) resolves as WAND on the older binary until a re-migration.
 
+**Migration records, both directions.** Drain and promote every reindex before
+you change the binary, up or down. Neither direction is enforced.
+
+Upgrading past a migration a previous release completed but did not promote is
+already the accepted limitation: this build preserves that data but cannot
+promote it, so the property answers from an empty bucket until an operator
+restores or downgrades (`migrationCompletionMarker`).
+
+Downgrading is the mirror of it. A migration this build flipped and has not yet
+promoted keeps its live data under the staged name, and the record in
+`<shard>/lsm/.migrations/records/` is the only thing that says so. An older
+release does not read records: it never renames the staged directory onto the
+canonical name, and the three strategies that pre-create an empty canonical
+bucket when the migration arms then serve queries from it. The data is on disk
+throughout; the fix is to upgrade again and let reconciliation promote.
+
 ## 15. Files of interest
 
 **REST**

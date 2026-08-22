@@ -505,6 +505,14 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 					Info("reindex orphan audit: tracker names no migration record but its task is still live; leaving it alone")
 				continue
 			}
+			indexTypes, known := semanticMigrationIndexTypesForAudit(payload.migrationType)
+			if !known {
+				logger.WithField("collection", collection).WithField("shard", shardName).
+					WithField("tracker", dirName).WithField("migration_type", payload.migrationType).
+					Warn("reindex orphan audit: tracker names a migration type this build does not know, " +
+						"so what it owns cannot be composed; reclaiming nothing for it")
+				continue
+			}
 			logger.WithField("collection", collection).WithField("shard", shardName).
 				WithField("tracker", dirName).WithField("tracker_mtime", mtime).
 				WithField("props", payload.props).
@@ -519,7 +527,7 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 				taskVersion: payload.taskVersion,
 				unitID:      payload.unitID,
 				properties:  append([]string(nil), payload.props...),
-				indexTypes:  semanticMigrationIndexTypesForAudit(payload.migrationType),
+				indexTypes:  indexTypes,
 			})
 			continue
 		}
@@ -530,6 +538,9 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 		if knownTask(subject.TaskID, subject.Key.TaskVersion) {
 			continue
 		}
+		// The decoder refuses a record naming a type this build does not know,
+		// so the second result cannot be false here.
+		indexTypes, _ := semanticMigrationIndexTypesForAudit(subject.MigrationType)
 		orphans = append(orphans, orphanReindexTracker{
 			collection:  collection,
 			shardName:   shardName,
@@ -540,7 +551,7 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 			taskVersion: subject.Key.TaskVersion,
 			unitID:      subject.Key.UnitID,
 			properties:  append([]string(nil), subject.Properties...),
-			indexTypes:  semanticMigrationIndexTypesForAudit(subject.MigrationType),
+			indexTypes:  indexTypes,
 		})
 	}
 	return orphans
@@ -557,6 +568,13 @@ var processStartTime = time.Now()
 // required to drain and promote before upgrading; this only decides that
 // someone who did not gets a property serving empty until they restore,
 // instead of data that is gone.
+//
+// The downgrade direction has the same requirement and no guard at all. A
+// migration this build flipped but has not promoted keeps its live data under
+// the staged name, and the older release neither reads the record that says so
+// nor renames the directory back — so the three strategies that pre-create an
+// empty canonical bucket serve queries from it. Drain and promote before
+// downgrading too; nothing in either build enforces it.
 func migrationCompletionMarker(trackerPath string) (string, bool) {
 	for _, marker := range []string{"tidied.mig", "merged.mig"} {
 		if fileExists(filepath.Join(trackerPath, marker)) {
@@ -958,20 +976,28 @@ func (db *DB) cleanupOrphanTrackerCompactionPaused(ctx context.Context, shard *S
 // semanticMigrationIndexTypesForAudit returns the indexType fan-out
 // the audit's CleanStalePartialReindexState loop iterates over for a
 // given migration type. Mirrors [indexTypesFromMigrationType] in the
-// REST handler. Returns nil for class-level migrations; the audit then
-// falls back to direct tracker-dir removal.
-func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
+// REST handler.
+//
+// An empty type is a tracker from a release that recorded none, and the audit
+// removes its directory whole. A type this build does not know is the
+// opposite: it names a fan-out that exists and that nothing here can compose,
+// so the second result is false and the caller reclaims nothing. Both used to
+// answer nil, which meant a payload naming a future type had its tracker
+// removed on the strength of a list this build could not read.
+func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) (indexTypes []string, known bool) {
 	switch mt {
+	case "":
+		return nil, true
 	case ReindexTypeChangeTokenization:
-		return []string{"searchable", "filterable"}
+		return []string{"searchable", "filterable"}, true
 	case ReindexTypeChangeTokenizationFilterable:
-		return []string{"filterable"}
+		return []string{"filterable"}, true
 	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable:
-		return []string{"searchable"}
+		return []string{"searchable"}, true
 	case ReindexTypeEnableFilterable, ReindexTypeRepairFilterable:
-		return []string{"filterable"}
+		return []string{"filterable"}, true
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-		return []string{"rangeable"}
+		return []string{"rangeable"}, true
 	}
-	return nil
+	return nil, false
 }

@@ -1912,7 +1912,9 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		return
 	}
 	defer unseal()
-	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
+	// An unknown type answers with an empty fan-out, which this returns on:
+	// nothing here can compose what such a migration owns.
+	indexTypes, _ := semanticMigrationIndexTypesForAudit(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return
 	}

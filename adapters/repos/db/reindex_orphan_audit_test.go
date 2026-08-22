@@ -40,21 +40,25 @@ func TestSemanticMigrationIndexTypesForAudit_Coverage(t *testing.T) {
 	cases := []struct {
 		mt         ReindexMigrationType
 		wantTypes  []string
+		wantKnown  bool
 		wantPolicy string
 	}{
-		{ReindexTypeChangeTokenization, []string{"searchable", "filterable"}, "two strategies per task"},
-		{ReindexTypeChangeTokenizationFilterable, []string{"filterable"}, "filterable-only retokenize"},
-		{ReindexTypeEnableSearchable, []string{"searchable"}, "schema-flip on searchable"},
-		{ReindexTypeEnableFilterable, []string{"filterable"}, "schema-flip on filterable"},
-		{ReindexTypeEnableRangeable, []string{"rangeable"}, "from-scratch rangeable build"},
-		{ReindexTypeRepairRangeable, []string{"rangeable"}, "rebuild of existing rangeable"},
-		{ReindexTypeChangeAlgorithm, []string{"searchable"}, "class-level Map to Blockmax"},
-		{ReindexTypeRebuildSearchable, []string{"searchable"}, "rebuild of existing blockmax"},
-		{ReindexTypeRepairFilterable, []string{"filterable"}, "class-level roaringset refresh"},
+		{ReindexTypeChangeTokenization, []string{"searchable", "filterable"}, true, "two strategies per task"},
+		{ReindexTypeChangeTokenizationFilterable, []string{"filterable"}, true, "filterable-only retokenize"},
+		{ReindexTypeEnableSearchable, []string{"searchable"}, true, "schema-flip on searchable"},
+		{ReindexTypeEnableFilterable, []string{"filterable"}, true, "schema-flip on filterable"},
+		{ReindexTypeEnableRangeable, []string{"rangeable"}, true, "from-scratch rangeable build"},
+		{ReindexTypeRepairRangeable, []string{"rangeable"}, true, "rebuild of existing rangeable"},
+		{ReindexTypeChangeAlgorithm, []string{"searchable"}, true, "class-level Map to Blockmax"},
+		{ReindexTypeRebuildSearchable, []string{"searchable"}, true, "rebuild of existing blockmax"},
+		{ReindexTypeRepairFilterable, []string{"filterable"}, true, "class-level roaringset refresh"},
+		{"", nil, true, "a release that recorded no type; its tracker is removed whole"},
+		{"reticulate-splines", nil, false, "a type this build cannot compose a fan-out for"},
 	}
 	for _, c := range cases {
-		got := semanticMigrationIndexTypesForAudit(c.mt)
+		got, known := semanticMigrationIndexTypesForAudit(c.mt)
 		assert.Equal(t, c.wantTypes, got, "migration type %q (%s)", c.mt, c.wantPolicy)
+		assert.Equal(t, c.wantKnown, known, "migration type %q (%s)", c.mt, c.wantPolicy)
 	}
 }
 
@@ -655,12 +659,14 @@ func TestAuditOrphanReindexTrackersReclaimsTrackersNoRecordNames(t *testing.T) {
 		mtimeOffset time.Duration
 		quarantined bool
 		// payloadTaskID, when set, gives the tracker a payload.mig naming
-		// that task; liveTasks names the ones DTM still reports.
-		payloadTaskID string
-		liveTasks     []string
-		wantStatus    AuditOutcomeStatus
-		wantOrphans   int
-		wantDir       bool
+		// that task and payloadMigrType; liveTasks names the ones DTM still
+		// reports.
+		payloadTaskID   string
+		payloadMigrType string
+		liveTasks       []string
+		wantStatus      AuditOutcomeStatus
+		wantOrphans     int
+		wantDir         bool
 	}{
 		{
 			// A record is written once the migration's buckets are open, so a
@@ -681,6 +687,18 @@ func TestAuditOrphanReindexTrackersReclaimsTrackersNoRecordNames(t *testing.T) {
 			payloadTaskID: "Books:change-tokenization:title:ab12",
 			wantStatus:    AuditStatusOrphansFound,
 			wantOrphans:   1,
+		},
+		{
+			// Composing what such a migration owns would be a guess, and the
+			// class-level arm reclaims the directory whole on the strength of
+			// it.
+			name:            "no record and its payload names a migration type this build cannot place",
+			mtimeOffset:     -time.Hour,
+			quarantined:     true,
+			payloadTaskID:   "Books:reticulate-splines:title:ab12",
+			payloadMigrType: "reticulate-splines",
+			wantStatus:      AuditStatusRan,
+			wantDir:         true,
 		},
 		{
 			name:        "older than this process: reclaimed",
@@ -726,8 +744,9 @@ func TestAuditOrphanReindexTrackersReclaimsTrackersNoRecordNames(t *testing.T) {
 				// property list would route the cleanup through the
 				// per-property sweep instead of the tracker removal.
 				require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile),
-					[]byte(fmt.Sprintf(`{"taskID":%q,"taskVersion":7,"unitID":"u-1","payload":{"collection":"Books"}}`,
-						tt.payloadTaskID)), 0o600))
+					[]byte(fmt.Sprintf(
+						`{"taskID":%q,"taskVersion":7,"unitID":"u-1","payload":{"collection":"Books","migrationType":%q}}`,
+						tt.payloadTaskID, tt.payloadMigrType)), 0o600))
 			}
 			if tt.quarantined {
 				writePreAgedQuarantineSentinel(t, dir)
