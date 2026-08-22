@@ -33,11 +33,11 @@ import (
 // default (no-scope) index state. Production code fires callbacks via
 // fire{Add,Delete}FromPropertyValueIndex directly with an explicit scope state.
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
-	return s.fireAddToPropertyValueIndex(s.loadPropValueIndexState(), docID, property)
+	return s.fireAddToPropertyValueIndex(s.loadPropValueIndexState().add, docID, property)
 }
 
 func (s *Shard) onDeleteFromPropertyValueIndex(docID uint64, property *inverted.Property) error {
-	return s.fireDeleteFromPropertyValueIndex(s.loadPropValueIndexState(), docID, property)
+	return s.fireDeleteFromPropertyValueIndex(s.loadPropValueIndexState().del, docID, property)
 }
 
 func TestShardCallbacks_AddToPropertyValueIndex(t *testing.T) {
@@ -441,8 +441,8 @@ func TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth(t *testing.T) {
 		assert.Empty(t, st.scope.props, "disarm must collapse the scope back to the idle fast path")
 
 		// Firing must invoke nothing — all pairs were removed, not just flagged.
-		require.NoError(t, s.fireAddToPropertyValueIndex(st, 1, &inverted.Property{Name: "p"}))
-		require.NoError(t, s.fireDeleteFromPropertyValueIndex(st, 1, &inverted.Property{Name: "p"}))
+		require.NoError(t, s.fireAddToPropertyValueIndex(st.add, 1, &inverted.Property{Name: "p"}))
+		require.NoError(t, s.fireDeleteFromPropertyValueIndex(st.del, 1, &inverted.Property{Name: "p"}))
 		assert.Equal(t, int64(0), addInvocations.Load(),
 			"all add closures must be removed on disarm; a leak would fire %d of them", numMigrations)
 		assert.Equal(t, int64(0), delInvocations.Load(),

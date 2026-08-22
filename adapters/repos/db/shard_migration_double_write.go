@@ -104,6 +104,11 @@ type propValueIndexState struct {
 	scope          migrationDoubleWriteScope
 	scopeRegs      []migrationScopeReg
 	nextCallbackID uint64
+	// overlaysDiverge is set while two registrations analyze one property
+	// differently, which is the only state in which the derived scope's
+	// overlay is not every mirror's answer. Checked once per mirrored write,
+	// so the normal path stays at one analysis.
+	overlaysDiverge bool
 }
 
 // emptyPropValueIndexState is returned by loadPropValueIndexState before any
@@ -221,37 +226,130 @@ func replaceDeleteCallback(cur []deleteCallbackEntry, id uint64, cb onDeleteFrom
 
 // fireAddToPropertyValueIndex invokes every add callback, bypassing the
 // inline write path's scope suppression (the migration pass needs it fired).
-func (s *Shard) fireAddToPropertyValueIndex(st *propValueIndexState, docID uint64, property *inverted.Property) error {
+func (s *Shard) fireAddToPropertyValueIndex(callbacks []addCallbackEntry, docID uint64, property *inverted.Property) error {
 	ec := errorcompounder.New()
-	for _, cb := range st.add {
+	for _, cb := range callbacks {
 		ec.Add(cb.fn(s, docID, property))
 	}
 	return ec.ToError()
 }
 
-func (s *Shard) fireDeleteFromPropertyValueIndex(st *propValueIndexState, docID uint64, property *inverted.Property) error {
+func (s *Shard) fireDeleteFromPropertyValueIndex(callbacks []deleteCallbackEntry, docID uint64, property *inverted.Property) error {
 	ec := errorcompounder.New()
-	for _, cb := range st.del {
+	for _, cb := range callbacks {
 		ec.Add(cb.fn(s, docID, property))
 	}
 	return ec.ToError()
+}
+
+// doubleWriteAnalysis is one TARGET-schema analysis and the callbacks it is
+// the right answer for.
+type doubleWriteAnalysis struct {
+	props   map[string]struct{}
+	overlay map[string]inverted.PropertyOverlay
+	add     []addCallbackEntry
+	del     []deleteCallbackEntry
+}
+
+// doubleWriteAnalyses names the analyses one mirrored write owes. Normally
+// one: every registration analyzes each property the same way, so a single
+// analysis serves them all. Two migrations that overlay one property
+// differently need one each, because the terms the older one's staged copy
+// must receive are not the terms the newer one's must, and the derived scope
+// carries only the most recent arm's answer.
+func (st *propValueIndexState) doubleWriteAnalyses() []doubleWriteAnalysis {
+	if len(st.scope.props) == 0 {
+		// Nothing is armed, so an analysis would be filtered down to nothing.
+		return nil
+	}
+	if !st.overlaysDiverge {
+		return []doubleWriteAnalysis{{
+			props:   st.scope.props,
+			overlay: st.scope.overlay,
+			add:     st.add,
+			del:     st.del,
+		}}
+	}
+	out := make([]doubleWriteAnalysis, 0, len(st.scopeRegs))
+	for _, reg := range st.scopeRegs {
+		out = append(out, doubleWriteAnalysis{
+			props:   reg.props,
+			overlay: reg.overlay,
+			add:     addCallbacksWithID(st.add, reg.id),
+			del:     deleteCallbacksWithID(st.del, reg.id),
+		})
+	}
+	return out
+}
+
+// addCallbacksWithID is the one registration's add callback as a slice, so
+// the firing loop takes the same shape either way. Nothing is copied.
+func addCallbacksWithID(cur []addCallbackEntry, id uint64) []addCallbackEntry {
+	if i := slices.IndexFunc(cur, func(e addCallbackEntry) bool { return e.id == id }); i >= 0 {
+		return cur[i : i+1]
+	}
+	return nil
+}
+
+func deleteCallbacksWithID(cur []deleteCallbackEntry, id uint64) []deleteCallbackEntry {
+	if i := slices.IndexFunc(cur, func(e deleteCallbackEntry) bool { return e.id == id }); i >= 0 {
+		return cur[i : i+1]
+	}
+	return nil
 }
 
 // analyzeForDoubleWrite filters AnalyzeObjectForMigrationWithOverlay's result
-// to scope properties, so the migration pass never touches a bucket it does
-// not own.
-func (s *Shard) analyzeForDoubleWrite(obj *storobj.Object, st *propValueIndexState) ([]inverted.Property, error) {
-	props, _, err := s.AnalyzeObjectForMigrationWithOverlay(obj, st.scope.overlay)
+// to the analysis's own properties, so the migration pass never touches a
+// bucket it does not own.
+func (s *Shard) analyzeForDoubleWrite(obj *storobj.Object, a doubleWriteAnalysis) ([]inverted.Property, error) {
+	props, _, err := s.AnalyzeObjectForMigrationWithOverlay(obj, a.overlay)
 	if err != nil {
 		return nil, err
 	}
 	filtered := props[:0]
 	for i := range props {
-		if _, ok := st.scope.props[props[i].Name]; ok {
+		if _, ok := a.props[props[i].Name]; ok {
 			filtered = append(filtered, props[i])
 		}
 	}
 	return filtered, nil
+}
+
+// mirrorAddToIngest analyzes obj once per armed mirror that needs its own
+// answer and fires that mirror's add callback with it. Analysis and firing are
+// one operation on purpose: analyzing once and firing everything is how the
+// older mirror ends up with the newer arm's terms.
+func (s *Shard) mirrorAddToIngest(st *propValueIndexState, docID uint64, obj *storobj.Object) error {
+	for _, analysis := range st.doubleWriteAnalyses() {
+		props, err := s.analyzeForDoubleWrite(obj, analysis)
+		if err != nil {
+			return err
+		}
+		for i := range props {
+			if err := s.fireAddToPropertyValueIndex(analysis.add, docID, &props[i]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// mirrorDeleteFromIngest is [Shard.mirrorAddToIngest]'s delete leg. It has to
+// analyze the same way: a stale term the mirror never removes outlives the
+// migration in the staged copy.
+func (s *Shard) mirrorDeleteFromIngest(st *propValueIndexState, docID uint64, obj *storobj.Object) error {
+	for _, analysis := range st.doubleWriteAnalyses() {
+		props, err := s.analyzeForDoubleWrite(obj, analysis)
+		if err != nil {
+			return err
+		}
+		for i := range props {
+			if err := s.fireDeleteFromPropertyValueIndex(analysis.del, docID, &props[i]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // migrationDoubleWrite mirrors a write into the ingest bucket under TARGET
@@ -266,27 +364,11 @@ func (s *Shard) migrationDoubleWrite(st *propValueIndexState, object, prevObject
 	}
 
 	if prevObject != nil {
-		migDel, err := s.analyzeForDoubleWrite(prevObject, st)
-		if err != nil {
-			return err
-		}
-		for i := range migDel {
-			if err := s.fireDeleteFromPropertyValueIndex(st, status.oldDocID, &migDel[i]); err != nil {
-				return err
-			}
-		}
-	}
-
-	migAdd, err := s.analyzeForDoubleWrite(object, st)
-	if err != nil {
-		return err
-	}
-	for i := range migAdd {
-		if err := s.fireAddToPropertyValueIndex(st, status.docID, &migAdd[i]); err != nil {
+		if err := s.mirrorDeleteFromIngest(st, status.oldDocID, prevObject); err != nil {
 			return err
 		}
 	}
-	return nil
+	return s.mirrorAddToIngest(st, status.docID, object)
 }
 
 // migrationDoubleWriteDelete is migrationDoubleWrite's delete-only
@@ -295,16 +377,7 @@ func (s *Shard) migrationDoubleWriteDelete(st *propValueIndexState, prevObject *
 	if len(st.scope.props) == 0 || prevObject == nil {
 		return nil
 	}
-	migDel, err := s.analyzeForDoubleWrite(prevObject, st)
-	if err != nil {
-		return err
-	}
-	for i := range migDel {
-		if err := s.fireDeleteFromPropertyValueIndex(st, docID, &migDel[i]); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.mirrorDeleteFromIngest(st, docID, prevObject)
 }
 
 // registerDoubleWriteWithScope arms the scope and registers the add+delete
@@ -403,12 +476,15 @@ func (s *Shard) mutateScopeRegs(fn func(cur propValueIndexState) propValueIndexS
 	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
 		cur = fn(cur)
 		cur.scope, conflicts = deriveScope(cur.scopeRegs)
+		cur.overlaysDiverge = len(conflicts) > 0
 		return cur
 	})
 	for _, prop := range conflicts {
-		// One analysis runs per property, so the older mirror is served the
-		// newer arm's overlay. Only a cross-family overlap loses a flag.
+		// Each mirror is served its own analysis from here on, so this costs
+		// an extra analysis per write rather than wrong terms. Still worth
+		// telling an operator: it means two migrations are live on one
+		// property with incompatible ideas of what its terms are.
 		s.index.logger.WithField("property", prop).Warn(
-			"two migrations mirror this property with different analyzer overlays; the most recent arm wins")
+			"two migrations mirror this property with different analyzer overlays; each is mirrored under its own")
 	}
 }
