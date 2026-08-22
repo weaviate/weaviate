@@ -88,20 +88,22 @@ type MigrationRecordKey struct {
 	UnitID       string                `json:"unitID"`
 }
 
-// fileName omits the unit because a unit is "<shard>__<node>": every record
-// under one shard directory carries the same one, so the pair left is unique
-// there. A change-tokenization payload fans into two strategies, which is why
-// the code has to be in the name at all.
+// fileName carries the whole key, unit included. A backup walks the migrations
+// directory recursively and shard copy ships the files under it, so a foreign
+// unit's record does land here; a name that left the unit out collided with the
+// local record's, and the next local write destroyed it.
 func (k MigrationRecordKey) fileName() string {
-	return fmt.Sprintf("%d_%s.json", k.TaskVersion, k.StrategyCode)
+	return fmt.Sprintf("%d_%s_%s.json", k.TaskVersion, k.StrategyCode, k.UnitID)
 }
 
 func (k MigrationRecordKey) String() string {
 	return fmt.Sprintf("%d/%s/%s", k.TaskVersion, k.StrategyCode, k.UnitID)
 }
 
+// valid also rejects a unit the file name could not carry, since the name is
+// now built from it.
 func (k MigrationRecordKey) valid() bool {
-	return k.TaskVersion > 0 && k.StrategyCode.valid() && k.UnitID != ""
+	return k.TaskVersion > 0 && k.StrategyCode.valid() && migrationHandleIsOneElement(k.UnitID)
 }
 
 // MigrationCheckpoint is the iteration resume point.

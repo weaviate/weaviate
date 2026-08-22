@@ -173,8 +173,8 @@ func (s *MigrationRecordStore) Load() error {
 		rec, outcome, err := loadMigrationRecordFile(filepath.Join(s.dir, name))
 		switch outcome {
 		case MigrationRecordLoaded:
-			// The name is derived from the content, so a disagreement means
-			// one of the two was tampered with or torn.
+			// The name is derived from the whole key, so a disagreement means
+			// the file was tampered with, torn, or belongs to another unit.
 			if got := rec.Subject().Key.fileName(); got != name {
 				unreadable = append(unreadable, MigrationRecordUnreadable{
 					FileName: name,

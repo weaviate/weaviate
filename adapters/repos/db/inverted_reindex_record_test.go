@@ -213,37 +213,51 @@ func TestMigrationRecordKey(t *testing.T) {
 		{
 			name:      "searchable half of a change-tokenization fan-out",
 			key:       MigrationRecordKey{TaskVersion: 42, StrategyCode: StrategyCodeSearchableRetokenize, UnitID: "shard-1__node-0"},
-			wantFile:  "42_searchable_retokenize.json",
+			wantFile:  "42_searchable_retokenize_shard-1__node-0.json",
 			wantValid: true,
 		},
 		{
 			name:      "filterable half of the same fan-out, same task and unit",
 			key:       MigrationRecordKey{TaskVersion: 42, StrategyCode: StrategyCodeFilterableRetokenize, UnitID: "shard-1__node-0"},
-			wantFile:  "42_filterable_retokenize.json",
+			wantFile:  "42_filterable_retokenize_shard-1__node-0.json",
 			wantValid: true,
 		},
 		{
 			name:      "a later generation on the same strategy",
 			key:       MigrationRecordKey{TaskVersion: 43, StrategyCode: StrategyCodeSearchableRetokenize, UnitID: "shard-1__node-0"},
-			wantFile:  "43_searchable_retokenize.json",
+			wantFile:  "43_searchable_retokenize_shard-1__node-0.json",
 			wantValid: true,
 		},
 		{
 			name:      "generation zero is never allocated by raft",
 			key:       MigrationRecordKey{TaskVersion: 0, StrategyCode: StrategyCodeEnableSearchable, UnitID: "shard-1__node-0"},
-			wantFile:  "0_enable_searchable.json",
+			wantFile:  "0_enable_searchable_shard-1__node-0.json",
 			wantValid: false,
 		},
 		{
 			name:      "unknown strategy code",
 			key:       MigrationRecordKey{TaskVersion: 42, StrategyCode: "quantum_reindex", UnitID: "shard-1__node-0"},
-			wantFile:  "42_quantum_reindex.json",
+			wantFile:  "42_quantum_reindex_shard-1__node-0.json",
 			wantValid: false,
 		},
 		{
 			name:      "no unit",
 			key:       MigrationRecordKey{TaskVersion: 42, StrategyCode: StrategyCodeRebuildSearchable},
-			wantFile:  "42_rebuild_searchable.json",
+			wantFile:  "42_rebuild_searchable_.json",
+			wantValid: false,
+		},
+		{
+			// The same migration on the node next door. A backup or a shard
+			// copy brings its record here, and it must not name our file.
+			name:      "the same task and strategy on another unit",
+			key:       MigrationRecordKey{TaskVersion: 42, StrategyCode: StrategyCodeSearchableRetokenize, UnitID: "shard-1__node-1"},
+			wantFile:  "42_searchable_retokenize_shard-1__node-1.json",
+			wantValid: true,
+		},
+		{
+			name:      "a unit that would escape the records directory",
+			key:       MigrationRecordKey{TaskVersion: 42, StrategyCode: StrategyCodeEnableFilterable, UnitID: "../shard-2__node-0"},
+			wantFile:  "42_enable_filterable_../shard-2__node-0.json",
 			wantValid: false,
 		},
 	}
@@ -329,8 +343,8 @@ func TestMigrationRecordStore(t *testing.T) {
 			arrange: func(t *testing.T, s *MigrationRecordStore) {
 				require.NoError(t, s.Put(merged(42, StrategyCodeEnableFilterable)))
 				require.NoError(t, os.Rename(
-					filepath.Join(s.Dir(), "42_enable_filterable.json"),
-					filepath.Join(s.Dir(), "43_enable_filterable.json")))
+					filepath.Join(s.Dir(), "42_enable_filterable_shard-1__node-0.json"),
+					filepath.Join(s.Dir(), "43_enable_filterable_shard-1__node-0.json")))
 			},
 			assert: func(t *testing.T, s *MigrationRecordStore) {
 				require.Empty(t, s.Records())
@@ -396,13 +410,13 @@ func TestMigrationRecordStore(t *testing.T) {
 			arrange: func(t *testing.T, s *MigrationRecordStore) {
 				require.NoError(t, os.MkdirAll(s.Dir(), 0o777))
 				require.NoError(t, os.WriteFile(
-					filepath.Join(s.Dir(), "42_enable_filterable.json"), []byte("{torn"), 0o600))
+					filepath.Join(s.Dir(), "42_enable_filterable_shard-1__node-0.json"), []byte("{torn"), 0o600))
 			},
 			assert: func(t *testing.T, s *MigrationRecordStore) {
 				require.Len(t, s.Unreadable(), 1)
 				require.Error(t, s.Put(merged(42, StrategyCodeEnableFilterable)))
 
-				kept, err := os.ReadFile(filepath.Join(s.Dir(), "42_enable_filterable.json"))
+				kept, err := os.ReadFile(filepath.Join(s.Dir(), "42_enable_filterable_shard-1__node-0.json"))
 				require.NoError(t, err)
 				require.Equal(t, "{torn", string(kept))
 
@@ -442,7 +456,7 @@ func TestMigrationRecordStore(t *testing.T) {
 				require.NoError(t, os.Remove(s.Dir()))
 				require.NoError(t, os.Rename(s.Dir()+".aside", s.Dir()))
 
-				before, err := os.ReadFile(filepath.Join(s.Dir(), "42_enable_filterable.json"))
+				before, err := os.ReadFile(filepath.Join(s.Dir(), "42_enable_filterable_shard-1__node-0.json"))
 				require.NoError(t, err)
 
 				require.Error(t, s.Put(NewMigrationRecordIterating(
@@ -452,7 +466,7 @@ func TestMigrationRecordStore(t *testing.T) {
 					TaskVersion: 42, StrategyCode: StrategyCodeEnableFilterable, UnitID: "shard-1__node-0",
 				}), "the freeze that preserves a record must not be undone by removing it")
 
-				after, err := os.ReadFile(filepath.Join(s.Dir(), "42_enable_filterable.json"))
+				after, err := os.ReadFile(filepath.Join(s.Dir(), "42_enable_filterable_shard-1__node-0.json"))
 				require.NoError(t, err)
 				require.Equal(t, before, after)
 			},
@@ -475,7 +489,7 @@ func TestMigrationRecordStore(t *testing.T) {
 			},
 			wantLoadErr: true,
 			assert: func(t *testing.T, s *MigrationRecordStore) {
-				path := filepath.Join(s.Dir(), "42_enable_filterable.json")
+				path := filepath.Join(s.Dir(), "42_enable_filterable_shard-1__node-0.json")
 				before, err := os.ReadFile(path)
 				require.NoError(t, err)
 
@@ -494,7 +508,7 @@ func TestMigrationRecordStore(t *testing.T) {
 			arrange: func(t *testing.T, s *MigrationRecordStore) {
 				require.NoError(t, os.MkdirAll(s.Dir(), 0o777))
 				require.NoError(t, os.WriteFile(
-					filepath.Join(s.Dir(), "42_enable_filterable.json"), []byte("{torn"), 0o600))
+					filepath.Join(s.Dir(), "42_enable_filterable_shard-1__node-0.json"), []byte("{torn"), 0o600))
 			},
 			assert: func(t *testing.T, s *MigrationRecordStore) {
 				frozen := MigrationRecordKey{TaskVersion: 42, StrategyCode: StrategyCodeEnableFilterable, UnitID: "shard-1__node-0"}
@@ -504,9 +518,32 @@ func TestMigrationRecordStore(t *testing.T) {
 					TaskVersion: 43, StrategyCode: StrategyCodeEnableFilterable, UnitID: "shard-1__node-0",
 				}))
 
-				kept, err := os.ReadFile(filepath.Join(s.Dir(), "42_enable_filterable.json"))
+				kept, err := os.ReadFile(filepath.Join(s.Dir(), "42_enable_filterable_shard-1__node-0.json"))
 				require.NoError(t, err)
 				require.Equal(t, "{torn", string(kept))
+			},
+		},
+		{
+			// A backup walks the migrations directory recursively and shard
+			// copy ships the files under it, so another unit's record does
+			// land here. It has to survive this unit's own write of the same
+			// task and strategy.
+			name: "a foreign unit's record is neither answered for nor overwritten",
+			arrange: func(t *testing.T, s *MigrationRecordStore) {
+				foreign := testMigrationSubject(42, StrategyCodeEnableFilterable, "title")
+				foreign.Key.UnitID = "shard-1__node-9"
+				require.NoError(t, s.Put(NewMigrationRecordMerged(foreign)))
+				require.NoError(t, s.Put(merged(42, StrategyCodeEnableFilterable)))
+			},
+			assert: func(t *testing.T, s *MigrationRecordStore) {
+				require.Empty(t, s.Unreadable(), "a foreign unit's record is a record, not a torn file")
+				require.Len(t, s.Records(), 2)
+				for _, unit := range []string{"shard-1__node-0", "shard-1__node-9"} {
+					_, ok := s.Get(MigrationRecordKey{
+						TaskVersion: 42, StrategyCode: StrategyCodeEnableFilterable, UnitID: unit,
+					})
+					require.True(t, ok, "unit %q lost its record", unit)
+				}
 			},
 		},
 		{
@@ -523,10 +560,10 @@ func TestMigrationRecordStore(t *testing.T) {
 					got = append(got, rec.Subject().Key.fileName())
 				}
 				require.Equal(t, []string{
-					"7_enable_filterable.json",
-					"42_enable_filterable.json",
-					"42_filterable_retokenize.json",
-					"43_enable_filterable.json",
+					"7_enable_filterable_shard-1__node-0.json",
+					"42_enable_filterable_shard-1__node-0.json",
+					"42_filterable_retokenize_shard-1__node-0.json",
+					"43_enable_filterable_shard-1__node-0.json",
 				}, got)
 			},
 		},
