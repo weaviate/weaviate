@@ -47,13 +47,13 @@ func TestEndpointParsing(t *testing.T) {
 			name:           "HTTP without prefix",
 			endpoint:       "localhost:4318",
 			protocol:       "http",
-			expectedResult: "http://localhost:4318",
+			expectedResult: "localhost:4318",
 		},
 		{
 			name:           "HTTP with prefix",
 			endpoint:       "http://localhost:4318",
 			protocol:       "http",
-			expectedResult: "http://localhost:4318",
+			expectedResult: "localhost:4318",
 		},
 	}
 
@@ -63,9 +63,11 @@ func TestEndpointParsing(t *testing.T) {
 			os.Setenv("EXPERIMENTAL_OTEL_ENABLED", "true")
 			os.Setenv("EXPERIMENTAL_OTEL_EXPORTER_OTLP_ENDPOINT", tt.endpoint)
 			os.Setenv("EXPERIMENTAL_OTEL_EXPORTER_OTLP_PROTOCOL", tt.protocol)
+			os.Setenv("EXPERIMENTAL_OTEL_TLS_INSECURE", "true")
 
 			// Create config from environment
-			cfg := FromEnvironment()
+			cfg, err := FromEnvironment()
+			assert.NoError(t, err)
 
 			// Verify the endpoint was parsed correctly
 			assert.Equal(t, tt.expectedResult, cfg.ExporterEndpoint)
@@ -75,12 +77,13 @@ func TestEndpointParsing(t *testing.T) {
 			os.Unsetenv("EXPERIMENTAL_OTEL_ENABLED")
 			os.Unsetenv("EXPERIMENTAL_OTEL_EXPORTER_OTLP_ENDPOINT")
 			os.Unsetenv("EXPERIMENTAL_OTEL_EXPORTER_OTLP_PROTOCOL")
+			os.Unsetenv("EXPERIMENTAL_OTEL_TLS_INSECURE")
 		})
 	}
 }
 
 func TestDefaultConfig(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := defaultConfig()
 
 	assert.False(t, cfg.Enabled)
 	assert.Equal(t, "weaviate", cfg.ServiceName)
@@ -92,7 +95,7 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestConfigValidation(t *testing.T) {
 	// Test valid config
-	cfg := DefaultConfig()
+	cfg := defaultConfig()
 	cfg.Enabled = true
 	err := cfg.IsValid()
 	assert.NoError(t, err)
