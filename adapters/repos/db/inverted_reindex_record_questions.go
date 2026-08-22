@@ -13,20 +13,16 @@ package db
 
 import "slices"
 
-// The questions every passive reader is allowed to ask a record. A
-// reader that needs something finer is the engine, discovery or
-// reconciliation talking to itself, and switches on the variant instead.
+// The questions every passive reader may ask a record; a reader needing
+// something finer switches on the variant instead.
 //
-// Composition stays out of call sites: the one rule that needs two answers
-// (StagedDataComplete and not PointerSwapped means the staged data is
-// discardable) lives inside reconciliation's cancel edge.
+// Composition stays out of call sites: the rule needing two answers
+// (StagedDataComplete and not PointerSwapped means discardable) lives in
+// reconciliation's cancel edge.
 type migrationRecordQuestions interface {
 	// StagedDataComplete reports whether this migration's output is fully
-	// staged: nothing more will be written to its ingest buckets. It is not a
-	// commitment. Until PointerSwapped is also true the canonical bucket is
-	// still primary and a cancelled task discards the staged copy whole.
-	// False means the directories are still filling and a sweep may reclaim
-	// them.
+	// staged. Not a commitment: until PointerSwapped, the canonical bucket is
+	// still primary, and a cancelled task discards the staged copy whole.
 	StagedDataComplete() bool
 
 	// PointerSwapped reports whether the flip decision is durable. From here
@@ -34,22 +30,19 @@ type migrationRecordQuestions interface {
 	// writes the old copy never received.
 	PointerSwapped() bool
 
-	// IterationComplete reports whether the pass over the objects has
-	// finished. False is the only answer a resume may act on: from true
-	// onwards a second pass would re-run the iteration over data already
-	// written.
+	// IterationComplete reports whether the pass over objects has finished.
+	// False is the only answer a resume may act on; past true, a second pass
+	// would re-run iteration over data already written.
 	IterationComplete() bool
 
-	// OwnsBucket reports whether dir is one this migration created. A
-	// directory no record attributes is never reclaimed, so this list is what
-	// keeps one from being stranded.
+	// OwnsBucket reports whether dir is one this migration created; a
+	// directory no record attributes is never reclaimed.
 	OwnsBucket(dir string) bool
 }
 
-// OwnsBucket is a subject fact, not a state fact: a migration owns the
-// directories it created from the moment it creates them until they are gone.
-// The canonical directory is deliberately not among them — it predates the
-// migration and outlives it.
+// OwnsBucket is a subject fact, not a state fact: a migration owns directories
+// it created from creation until they are gone. The canonical directory is
+// deliberately not among them — it predates the migration and outlives it.
 func (b migrationRecordBase) OwnsBucket(dir string) bool {
 	if dir == "" {
 		return false

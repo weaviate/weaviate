@@ -19,92 +19,65 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// migrationRecordsAt reads one shard's records straight from disk. The sweeps
-// and gates that decide what to do about a cold tenant need the same answers a
-// loaded shard's store gives. A record scales with the property count of the
-// migration it belongs to, so the read is bounded by
-// [maxMigrationRecordBytes].
-//
-// someRecordsUnreadable reports that at least one record could not be
-// understood. Its property list is exactly what could not be read, so there is
-// no way to scope the withholding to the directories it stands on — the same
-// shard-wide reading reconciliation applies at load.
-//
-// recordSetUnreadable is the strictly stronger fault: the record set could not
-// be read at all, so this shard's state is not merely undecidable but
-// invisible, and a caller that would otherwise report the shard clean has to
-// fail open on it. It never comes back true on its own, because a set nothing
-// could read is also a set some record could not be read from.
+// migrationRecordsAt reads one shard's records straight from disk, for sweeps
+// and gates deciding about a cold tenant. someRecordsUnreadable scopes
+// withholding to the whole shard; recordSetUnreadable is the stronger fault
+// (nothing could be read), so a caller that would report clean must fail open.
 func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []MigrationRecord, someRecordsUnreadable, recordSetUnreadable bool) {
 	store := NewMigrationRecordStore(lsmPath, logger)
 	if err := store.Load(); err != nil {
 		logger.WithField("path", store.Dir()).Errorf("read migration records: %v", err)
 		return nil, true, true
 	}
-	// One line per read, on the healthy path too: several gates ask this
-	// question once per shard while the payload names many (property, index
-	// type) tuples, and a regression to one read per tuple is otherwise
-	// invisible until it shows up as startup latency.
+	// One line per read, even on the healthy path — a per-tuple read
+	// regression would otherwise be invisible until startup latency shows it.
 	logger.WithField("path", store.Dir()).WithField("records", len(store.Records())).
 		Debug("read migration records")
 	return store.Records(), len(store.Unreadable()) > 0, false
 }
 
-// migrationPreservedState names what a sweep of one shard must leave alone.
-// A record whose staged data is complete holds a complete copy nobody else
-// holds: at Merged the copy the flip is about to make live, from Swapped on
-// the live data itself. Removing a directory it names loses that copy, and
-// nothing reports it.
+// migrationPreservedState names what a sweep of one shard must leave alone: a
+// record with complete staged data holds a copy nobody else holds, and
+// removing a directory it names loses that copy silently.
 type migrationPreservedState struct {
-	// records is the whole understood set, not just the preserved part: the
-	// sweeps also ask an extant record which properties its directory belongs
-	// to, which is a subject fact and true in every state.
+	// records is the whole understood set, not just the preserved part:
+	// sweeps also ask an extant record which properties it belongs to.
 	records []MigrationRecord
 	buckets map[string]struct{}
 	// trackers maps each preserved migration directory to whether a load
 	// would still do disk work for it.
 	trackers map[string]bool
 
-	// withholdEverything preserves the whole shard. Two things set it, and
-	// they mean the same thing: a record this build cannot read, and a
-	// marker-era tracker whose payload could not be read. Either names
-	// directories nothing else on the shard vouches for, and deleting one is
-	// exactly the loss the three-outcome loader exists to prevent.
+	// withholdEverything preserves the whole shard: a record this build
+	// cannot read, or a marker-era tracker whose payload could not be read,
+	// names directories nothing else accounts for.
 	withholdEverything bool
-	// recordSetUnreadable means no record here could be read at all, which no
-	// caller may report as a clean shard. It implies withholdEverything.
+	// recordSetUnreadable means no record here could be read at all, so no
+	// caller may report the shard clean. It implies withholdEverything.
 	recordSetUnreadable bool
-	// migrationsDirUnlistable is the same fault one level up: the directory
-	// holding every tracker could not be enumerated. It is kept apart from
-	// withholdEverything because the two call for opposite reporting — a
-	// payload this build cannot parse is a settled fact that must not wake the
-	// tenant on every sweep, while a directory nobody could list is a shard
-	// whose state has not been read at all.
+	// migrationsDirUnlistable is the same fault one level up: the tracker
+	// directory itself could not be enumerated. Kept apart from
+	// withholdEverything since an unlistable shard has not been read at all.
 	migrationsDirUnlistable bool
 }
 
-// migrationPreservedStateAt is the only way to build one, so no sweep can ask
-// what it must leave alone and be told about records but not about the
-// marker-era directories of the release before them.
+// migrationPreservedStateAt is the only way to build a migrationPreservedState,
+// so no sweep can learn about records but not about marker-era directories.
 func migrationPreservedStateAt(lsmPath string, logger logrus.FieldLogger) migrationPreservedState {
 	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
 	state := migrationPreservedStateFromRecords(records, someRecordsUnreadable, recordSetUnreadable)
 	legacyTrackers, listed := migrationLegacyMarkerTrackersAt(lsmPath, records)
 	if someRecordsUnreadable && listed {
-		// Already preserving the whole shard, so reading the trackers would
-		// only cost syscalls to reach the same answer. The listing still had
-		// to happen: a directory nobody could enumerate is a shard nobody may
-		// report clean, and an unreadable record does not say that on its own.
+		// Already preserving the whole shard, so reading trackers would only
+		// cost syscalls; listing still had to happen to catch an unlistable
+		// directory.
 		return state
 	}
 	if !listed {
 		// Nothing here could be enumerated, so the preserve set is missing
-		// names it cannot know. The sweeps read a short set as permission to
-		// delete, and they list a directory that is still readable.
-		//
-		// Said at Debug because a DELETE asks this once per (property, index
-		// type) per shard, inside the RAFT apply. The shard load says it once
-		// at Warn, and the sweep that hits the same fault fails loudly.
+		// names sweeps could read as permission to delete. Debug here since a
+		// DELETE asks this per (property, index type) per shard inside the
+		// RAFT apply; the shard load warns once.
 		logger.WithField("path", filepath.Join(lsmPath, ".migrations")).
 			Debug("the migration directory could not be listed; withholding every removal on this shard")
 		state.withholdEverything = true
@@ -113,11 +86,8 @@ func migrationPreservedStateAt(lsmPath string, logger logrus.FieldLogger) migrat
 	}
 	for _, legacy := range legacyTrackers {
 		if legacy.unreadable {
-			// Its payload is the only thing that names the directories holding
-			// the data this marker claims. Preserving the tracker alone would
-			// leave those to the reclaimers, which is the loss the marker
-			// exists to prevent. Said out loud once per shard load, by
-			// Shard.warnAboutLegacyMarkerMigrations; this runs per sweep.
+			// Its payload names the directories holding this marker's data;
+			// preserving only the tracker would strand them from the reclaimers.
 			state.withholdEverything = true
 			continue
 		}
@@ -148,11 +118,9 @@ func migrationPreservedStateFromRecords(records []MigrationRecord, someRecordsUn
 			state.buckets[dir] = struct{}{}
 		}
 		if subject.TrackerDir != "" {
-			// A promoted record's own directory waits on the schema effect
-			// becoming visible, which no load can make happen, so it never
-			// justifies a hydration on its own. The directories it still owns
-			// are a load's work, and the caller counts those from the buckets
-			// above.
+			// A promoted record's own directory waits on the schema effect, which
+			// no load can force, so it never justifies hydration alone; its owned
+			// directories still do, counted from buckets above.
 			state.trackers[subject.TrackerDir] = rec.State() != MigrationStatePromoted
 		}
 	}
@@ -160,9 +128,7 @@ func migrationPreservedStateFromRecords(records []MigrationRecord, someRecordsUn
 }
 
 // mirrorFor names the (record, property) whose staged directory is dir. Every
-// readable record answers, not just the committed ones: a sweep shuts down the
-// buckets of migrations that are not committed, and those are exactly the ones
-// whose mirror is still armed.
+// readable record answers, not just committed ones.
 func (s migrationPreservedState) mirrorFor(dir string) (MigrationRecordKey, string, bool) {
 	for _, rec := range s.records {
 		subject := rec.Subject()
@@ -209,9 +175,8 @@ func (s migrationPreservedState) bucketsOf(mainBucketName string) []string {
 	return out
 }
 
-// migrationRecordForTracker finds the record that owns one tracker directory.
-// It is how a reader still holding a directory name — the orphan audit, the
-// startup discovery walk — reaches the state that directory is in.
+// migrationRecordForTracker finds the record owning one tracker directory,
+// for a reader holding just the directory name.
 func migrationRecordForTracker(records []MigrationRecord, trackerDir string) (MigrationRecord, bool) {
 	for _, rec := range records {
 		if rec.Subject().TrackerDir == trackerDir {
@@ -221,34 +186,27 @@ func migrationRecordForTracker(records []MigrationRecord, trackerDir string) (Mi
 	return nil, false
 }
 
-// migrationLegacyMarkerTracker is a tracker directory the release before the
-// migration records left behind carrying its completion marker. The marker
-// means the staged directories under it are the property's live data, and
-// this build writes records instead, so nothing else on the shard vouches for
-// them.
+// migrationLegacyMarkerTracker is a tracker directory a pre-migration-records
+// release left behind, with a completion marker naming the property's live
+// data at that staged name; this build writes records instead.
 type migrationLegacyMarkerTracker struct {
 	dirName string
 	marker  string
 	prefix  string
 	gen     int
-	// unreadable means the payload naming this tracker's properties could not
-	// be read, so props and sidecars are empty because nothing could be
-	// learned — not because the migration touched nothing.
+	// unreadable means the payload could not be read, so props and sidecars
+	// are empty because nothing could be learned, not because there is none.
 	unreadable bool
 	props      []string
 	sidecars   []string
 }
 
-// migrationLegacyMarkerTrackersAt finds them on one shard. A tracker a record
-// names is this build's own and answers from the record; only a record-less
-// one can be marker-era.
+// migrationLegacyMarkerTrackersAt finds legacy trackers on one shard; only a
+// record-less tracker can be marker-era.
 //
-// listed=false is the third outcome, and it is not the same as finding none.
-// The sweeps that delete on this answer list the shard's LSM root, not the
-// directory read here, so a fault that hides every marker-era tracker — fd
-// exhaustion on a many-tenant node is the reachable one — leaves them free to
-// remove an upgraded property's only surviving copy. A caller that cannot
-// tell has to withhold, the same way the record loader's NotUnderstood does.
+// listed=false is distinct from finding none: a fault hiding every
+// marker-era tracker (fd exhaustion on a many-tenant node) would otherwise
+// free an upgraded property's only surviving copy to be removed.
 func migrationLegacyMarkerTrackersAt(lsmPath string, records []MigrationRecord) (trackers []migrationLegacyMarkerTracker, listed bool) {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -288,12 +246,9 @@ func migrationLegacyMarkerTrackersAt(lsmPath string, records []MigrationRecord) 
 	return out, true
 }
 
-// migrationLegacyMarkerDirsAt is the same answer as a name set, for the
-// removal loops that keep their own record check rather than the preserve
-// predicate. complete=false means the set is missing names it cannot know —
-// one tracker's payload could not be read, or the directory holding all of
-// them could not be listed — and a caller that deletes what is not in it has
-// to stop instead.
+// migrationLegacyMarkerDirsAt is the same answer as a name set, for removal
+// loops keeping their own record check. complete=false means names are
+// missing (unreadable payload, or unlistable directory), so callers must stop.
 func migrationLegacyMarkerDirsAt(lsmPath string, records []MigrationRecord) (dirs map[string]struct{}, complete bool) {
 	dirs = map[string]struct{}{}
 	trackers, listed := migrationLegacyMarkerTrackersAt(lsmPath, records)
@@ -314,10 +269,9 @@ func migrationLegacyMarkerDirsAt(lsmPath string, records []MigrationRecord) (dir
 	return dirs, complete
 }
 
-// servesEmpty reports the properties whose data this tracker still holds under
-// its staged name while the canonical bucket dir is gone. That is the state an
-// operator has to act on: the schema flip already committed cluster-wide, and
-// no path on this build renames the staged directory back.
+// servesEmpty reports properties whose data is still under this tracker's
+// staged name while the canonical directory is gone — the schema flip already
+// committed cluster-wide, and no path on this build renames it back.
 func (t migrationLegacyMarkerTracker) servesEmpty(lsmPath string) []string {
 	suffixes := migrationSuffixes(t.dirName)
 	if suffixes == nil {
@@ -338,15 +292,13 @@ func (t migrationLegacyMarkerTracker) servesEmpty(lsmPath string) []string {
 	return out
 }
 
-// migrationRecordStagingIncomplete is the want-predicate for the readers
-// asking the opposite of StagedDataComplete: a migration whose staged data is
-// not yet the data, and whose double-write mirror still has to be armed.
+// migrationRecordStagingIncomplete is the want-predicate for readers asking
+// the opposite of StagedDataComplete.
 func migrationRecordStagingIncomplete(rec MigrationRecord) bool { return !rec.StagedDataComplete() }
 
 // migrationRecordFor reports whether any record on the shard belongs to the
-// named migration and satisfies want. Matching on the migration's own type
-// and property list rather than on directory names is what lets one payload
-// answer for both strategies a change-tokenization fans a property into.
+// named migration and satisfies want. Matching on type and property list,
+// not directory names, covers both strategies a change-tokenization fans into.
 func migrationRecordFor(records []MigrationRecord, migrationType ReindexMigrationType,
 	properties []string, want func(MigrationRecord) bool,
 ) bool {

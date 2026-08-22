@@ -26,50 +26,33 @@ import (
 )
 
 // migrationMirrorDisarmer disarms one record's double-write mirror for one
-// property. The actor that disarms is never the actor that armed — a
-// successor's engine, this module, terminal cleanup — which is why the
-// handles cannot live on the arming task instance. Disarming a pair that is
-// not armed is a no-op: every edge here is re-derived at each load.
+// property. The disarming actor is never the arming one, so the handle
+// cannot live on the arming task; disarming an unarmed pair is a no-op.
 type migrationMirrorDisarmer interface {
 	DisarmMigrationMirror(key MigrationRecordKey, prop string)
 }
 
 // migrationStagedBucketCloser shuts a record's staged buckets down before
-// their directory is removed. Removing an open bucket's directory leaves
-// mmaps, in-flight compactions and a registry entry behind.
+// their directory is removed, so mmaps, in-flight compactions, and the
+// registry entry don't leak.
 type migrationStagedBucketCloser interface {
 	ShutdownStagedBuckets(ctx context.Context, key MigrationRecordKey, prop string) error
 }
 
 // migrationReconcileDeps are the facts and collaborators reconciliation needs
-// from outside itself. The shard supplies them when this module is wired into
-// shard load.
+// from outside itself, wired in when the shard loads.
 type migrationReconcileDeps struct {
-	// LocalTasks is this node's own applied view of the reindex namespace, not
-	// the leader's. It is the only task list reconciliation can obtain by
-	// itself: the leader's list arrives as an argument to
-	// [migrationReconciler.ReconcileWithClusterTasks], so nothing on the load
-	// path can reach for it and block a shard load on a round-trip.
-	//
-	// The second result reports whether the map could be read at all. It
-	// matters because an unreadable map and an empty one are opposite facts:
-	// an absent task is terminal and licenses a discard, so a source that is
-	// merely not installed yet would read as "every task is gone".
+	// LocalTasks is this node's own applied view of the reindex namespace.
+	// Fetching the leader's list here would block a shard load on a
+	// round-trip, so it arrives separately via
+	// [migrationReconciler.ReconcileWithClusterTasks]. The second result
+	// distinguishes "not readable yet" from "read and empty" — only the
+	// latter licenses a discard.
 	LocalTasks func() ([]*distributedtask.Task, bool)
 
-	// SealUnit reserves this exact (task, unit) for teardown, or refuses
-	// because this node is doing work for it right now — the iteration, the
-	// prep that copies segments into the ingest directory, or the swap that
-	// flips the pointers. A terminal cluster status does not imply any of
-	// them has stopped: cancelling marks the task and signals the worker on a
-	// later scheduler tick, and nothing waits for it, while the worker writes
-	// through handles it took before its phase began.
-	//
-	// A seal rather than a question, because a question is only about the
-	// instant it is asked: every phase decides to run from a task snapshot
-	// frozen at the start of a tick, so one can enter after the answer came
-	// back and flip live bucket pointers onto directories mid-delete. Held by
-	// every arm that removes a directory, for as long as it works.
+	// SealUnit reserves a (task, unit) for teardown, or refuses because a
+	// worker is running for it — writing through handles taken before its
+	// phase began, even after the cluster status goes terminal.
 	SealUnit func(distributedtask.TaskDescriptor, string) (func(), bool)
 
 	// Class is the locally applied schema for the migrated collection, or nil
@@ -80,10 +63,9 @@ type migrationReconcileDeps struct {
 	Buckets migrationStagedBucketCloser
 }
 
-// migrationReconciler is the state machine's single load-time owner. One pass
-// per shard load, before any bucket opens — it renames directories — and
-// before any question is answered. It is the only place external facts enter
-// and the only place disk may override the record.
+// migrationReconciler runs one reconciliation pass per shard load, before any
+// bucket opens (it renames directories) and before any question is answered.
+// It is the only place external facts enter and disk may override the record.
 type migrationReconciler struct {
 	store   *MigrationRecordStore
 	lsmPath string
@@ -102,8 +84,8 @@ func newMigrationReconciler(store *MigrationRecordStore, lsmPath string,
 type migrationVerdict uint8
 
 const (
-	// migrationVerdictLeave means a live task still owns this migration, or
-	// the evidence is too thin to act on. Doing nothing is always safe.
+	// migrationVerdictLeave means a live task still owns this migration, or the
+	// evidence is too thin to act on; doing nothing is always safe.
 	migrationVerdictLeave migrationVerdict = iota
 	migrationVerdictCommit
 	migrationVerdictDiscard
@@ -115,10 +97,8 @@ func (r *migrationReconciler) Reconcile(ctx context.Context) error {
 		return fmt.Errorf("load migration records: %w", err)
 	}
 
-	// An unreadable record's property list is exactly what could not be read,
-	// so there is no way to scope the withholding to the properties it stands
-	// on. Withholding shard-wide is the only sound reading of "never retire,
-	// never witness" when the subject is unknown.
+	// An unreadable record's properties are exactly what could not be read, so
+	// the withholding cannot be scoped to them; it must cover the whole shard.
 	someRecordsUnreadable := len(r.store.Unreadable()) > 0
 	if someRecordsUnreadable {
 		r.logger.WithField("path", r.store.Dir()).Warnf(
@@ -160,23 +140,18 @@ func (r *migrationReconciler) reconcileOne(ctx context.Context, rec MigrationRec
 	}
 }
 
-// reconcileUncommitted handles Iterating and Iterated: the rebuild has not
-// been merged, and the canonical bucket has never stopped being primary. Both
-// variants take the same three decisions in the same order, in one place, so
-// the two cannot drift apart.
-//
-// Discard comes before the reverse edge. A cancelled migration whose
-// directories are gone would otherwise be restarted with a live mirror, and
-// nothing recreates the directories of a unit the cluster will never resume,
-// so the restart would repeat at every load and the record would never be
-// reclaimed.
+// reconcileUncommitted handles Iterating and Iterated together, since both
+// take the same three decisions in the same order. Discard runs before the
+// reverse edge: a cancelled migration whose directories are gone must not be
+// restarted with a live mirror, since nothing recreates directories for a
+// unit the cluster will never resume.
 func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec MigrationRecord,
 	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {
 	subject := rec.Subject()
 
-	// The shard-wide withholding covers destructive and promoting action. The
-	// reverse edge is neither: it takes work back that nothing else covers.
+	// Withholding covers destructive and promoting action only; the reverse
+	// edge takes back work nothing else covers, so it still runs.
 	if someRecordsUnreadable {
 		_, err := r.restartIfRebuiltDataGone(subject)
 		return err
@@ -194,9 +169,8 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 
 	switch verdict {
 	case migrationVerdictCommit:
-		// The cluster considers the task done while this shard never finished
-		// its rebuild. Nothing here can complete it and nothing may be
-		// deleted on the strength of a guess.
+		// The cluster reports the task done, but this shard never finished its
+		// rebuild; nothing here may complete it or delete on a guess.
 		r.logger.WithField("record", subject.Key.String()).Warnf(
 			"migration is %s locally but the cluster reports it committed (%s)", rec.State(), why)
 		return nil
@@ -207,14 +181,11 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 	}
 }
 
-// restartIfRebuiltDataGone is the machine's one reverse edge, and it is gated
-// on nothing but the directories. From its first durable write a record has a
-// horizon, and the horizon delegates every object updated at or after it to
-// the mirror — the iterator skips those. So every extant record vouches for
-// postings that live only in the directories it owns, whether or not it has
-// recorded a checkpoint. A missing directory means the rebuild never reached
-// disk or was reclaimed, and resuming would swap in a bucket holding only
-// what the surviving copy happens to contain.
+// restartIfRebuiltDataGone is reconciliation's one reverse edge, gated only on
+// the directories. A record's horizon delegates every object updated at or
+// after it to the mirror, so only directories the record owns account for
+// postings from that point on. A missing directory means the rebuild never
+// reached disk or was reclaimed, so resuming would swap in an incomplete bucket.
 func (r *migrationReconciler) restartIfRebuiltDataGone(subject MigrationSubject) (bool, error) {
 	for _, dir := range migrationOwnedDirs(subject) {
 		there, err := r.dirExists(dir)
@@ -225,14 +196,11 @@ func (r *migrationReconciler) restartIfRebuiltDataGone(subject MigrationSubject)
 			continue
 		}
 
-		// The horizon delegated every object updated at or after it to the
-		// mirror, and the mirror's own directory is among the ones that just
-		// went missing — so this rebuild has to take all of them back. Raised
-		// rather than cleared: the predicate processes an object only when it
-		// is older than the horizon, so a zero value would skip every object
-		// instead of none. Re-indexing an object the mirror also covers
-		// converges, because reindex segments precede ingest in merge order
-		// and the writes are per-key idempotent.
+		// The mirror's own directory is among those missing, so this rebuild
+		// must take back everything it delegated to the mirror. The cutoff is
+		// raised, not cleared, since the predicate only processes objects older
+		// than the horizon; re-indexing what the mirror also covers converges,
+		// since writes are per-key idempotent.
 		restarted := subject
 		restarted.IterationCutoff = migrationHorizonEverything
 
@@ -243,9 +211,9 @@ func (r *migrationReconciler) restartIfRebuiltDataGone(subject MigrationSubject)
 	return false, nil
 }
 
-// reconcileMerged owns the machine's one external-fact edge. The staged data
-// is complete; whether it should ever become live is a cluster fact the
-// record deliberately does not hold.
+// reconcileMerged owns reconciliation's one external-fact edge. Staged data
+// is complete; whether it should go live is a cluster fact the record
+// deliberately does not hold.
 func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec MigrationRecordMerged,
 	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {
@@ -259,10 +227,8 @@ func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec Migration
 	case migrationVerdictLeave:
 		return nil
 	case migrationVerdictDiscard:
-		// Provably safe here: the flip record is written ahead of the first
-		// flip, so a Merged record proves no flip was decided, and before the
-		// flip every acknowledged write landed in the canonical bucket
-		// natively. This removes only the staged copy.
+		// Safe: the flip record is written before the first flip, so a
+		// Merged record proves the canonical bucket still has every write.
 		return r.discard(ctx, all, subject, why)
 	case migrationVerdictCommit:
 	default:
@@ -276,16 +242,13 @@ func (r *migrationReconciler) reconcileMerged(ctx context.Context, rec Migration
 	return r.reconcileSwapped(ctx, swapped, all, someRecordsUnreadable)
 }
 
-// commitMerged writes the flip decision and nothing else. The verdict is
-// durable before anything acts on it, so a crash between the two resumes from
-// Swapped and re-runs idempotent directory work instead of re-deciding a
-// question whose inputs may have changed.
+// commitMerged writes the flip decision and nothing else, before acting on it,
+// so a crash between the two resumes from Swapped and re-runs idempotent
+// directory work instead of re-deciding on inputs that may have changed.
 func (r *migrationReconciler) commitMerged(subject MigrationSubject, why string) (MigrationRecordSwapped, error) {
-	// No flip has happened yet, so every staged directory this decision
-	// promotes must still be there. Recording the decision without it would
-	// leave promotion probing an absent staged directory, which it reads as
-	// proof the rename already ran — stamping the migration complete over the
-	// pre-migration data still sitting at the canonical name.
+	// No flip has happened yet, so every staged directory this promotes must
+	// still exist, or promotion would mistake an absent one for an
+	// already-run rename.
 	for _, prop := range subject.Properties {
 		staged := subject.StagedDirs[prop]
 		there, err := r.dirExists(staged)
@@ -310,34 +273,14 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject, why string)
 	return swapped, nil
 }
 
-// ReconcileWithClusterTasks settles the dispositions the load path withheld
-// because this node could see neither the owning task nor its effect. The
-// leader's list sees tasks this node has not applied; every other arm of the
-// machine is decided at load, from disk and from what this node has applied.
+// ReconcileWithClusterTasks decides dispositions the load path withheld
+// because it could see neither a record's owning task nor its effect. It
+// takes the leader's list as an argument, so a shard load never blocks on a
+// round-trip, and reads in-memory records rather than reloading disk.
 //
-// It takes the list rather than fetching one. Reconciliation is otherwise a
-// shard-load pass, and a load must never wait on a round-trip: passing the
-// answer in is what keeps the round-trip in the caller, where it is paid once
-// for a whole walk instead of once per record. The cost is that the list ages
-// while the walk runs, which is why [migrationReconciler.clusterVerdict] reads
-// this node's own map first.
-//
-// The two arms differ in when they act. The commit arm only records the
-// decision: promotion renames a directory whose buckets are open by now, so it
-// waits for the next load. The discard arm acts immediately, and touches only
-// records whose pointers have not flipped — the canonical bucket is still
-// primary for those, so every acknowledged write is already in it and this
-// removes a staged copy alone. What it does remove is what a local unit would
-// still be writing into, and this pass runs for the life of the node, so
-// [migrationReconciler.discard] asks whether one is running before it acts.
-//
-// Only the verdict decides here. The reverse edge is deliberately left to a
-// load: it restarts the rebuild from scratch, and a live task iterating right
-// now would be reset under it.
-//
-// It reads the records the shard already holds rather than re-reading disk:
-// the engine writes through the same store, and a reload here would drop what
-// it published since the load.
+// Commit only records the decision; promotion waits for the next load.
+// Discard acts immediately but only pre-flip, under the unit's seal. The
+// reverse edge is left to a load, since it would reset live iteration.
 func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tasks []*distributedtask.Task) {
 	if len(r.store.Unreadable()) > 0 {
 		return
@@ -368,10 +311,9 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 }
 
 // reconcileSwapped promotes. Every arm is decided by probing the handles the
-// record already carries, never by parsing a directory name.
-//
-// Promotion removes the displaced and canonical directories before it renames,
-// so it is as destructive as the discard and is sealed the same way.
+// record already carries, never by parsing a directory name. Promotion
+// removes the displaced and canonical directories before renaming, so it is
+// as destructive as discard and is sealed the same way.
 func (r *migrationReconciler) reconcileSwapped(ctx context.Context, rec MigrationRecordSwapped,
 	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {
@@ -390,7 +332,7 @@ func (r *migrationReconciler) promoteSealed(_ context.Context, rec MigrationReco
 	settled := true
 
 	for _, prop := range subject.Properties {
-		// A superseded property is retired by the relation. Probing it here
+		// A superseded property is retired by supersession; probing it here
 		// would read a successor's removal as a promotion that already ran.
 		if migrationPropertySuperseded(all, subject, prop) {
 			continue
@@ -422,13 +364,11 @@ func (r *migrationReconciler) promoteSealed(_ context.Context, rec MigrationReco
 	return r.store.Put(NewMigrationRecordPromoted(subject, rec.Flipped(), rec.displacedDirs))
 }
 
-// promoteProperty is the handle probe. Every destructive arm is guarded by the
-// presence of the staged directory, and that guard is the whole soundness
-// argument: within a record's chain only the promotion rename removes the
-// staged directory, so a missing one proves the canonical name already holds
-// the renamed data. Nothing here inspects a directory's contents — three
-// strategies pre-create an empty canonical bucket when the migration arms, so
-// an empty canonical directory is the normal armed state and means nothing.
+// promoteProperty guards every destructive arm on the presence of the staged
+// directory: only the promotion rename removes it, so a missing one proves
+// the canonical name already holds the renamed data. Directory contents are
+// never inspected, since strategies pre-create an empty canonical bucket when
+// arming.
 func (r *migrationReconciler) promoteProperty(subject MigrationSubject, prop, staged, canonical, displaced string) (bool, error) {
 	stagedThere, err := r.dirExists(staged)
 	if err != nil {
@@ -442,20 +382,17 @@ func (r *migrationReconciler) promoteProperty(subject MigrationSubject, prop, st
 		if canonicalThere {
 			return true, nil
 		}
-		// A record must not promote a subject that does not exist. Restore is
-		// the one known producer: it materializes a class tree file by file,
-		// so empty directories vanish, and its in-flight interlock does not
-		// cover the committed-awaiting-promotion window.
+		// A record must not promote a subject that no longer exists — Restore
+		// can leave empty directories behind mid-migration.
 		r.logger.WithField("record", subject.Key.String()).Errorf(
 			"property %q has neither its staged directory %q nor its canonical directory %q; preserving the record and promoting nothing",
 			prop, staged, canonical)
 		return false, nil
 	}
 
-	// The flip pushed this directory aside, and displaced directories have
-	// exactly one owner: the record that displaced them. It is usually the
-	// canonical path, but a predecessor that flipped and never promoted still
-	// holds its live data at a staged name, so it can be that instead.
+	// Displaced directories have exactly one owner: the record that displaced
+	// them. Usually the canonical path, but a predecessor that flipped and
+	// never promoted still holds live data at a staged name instead.
 	if displaced != "" && displaced != canonical {
 		displacedThere, err := r.dirExists(displaced)
 		if err != nil {
@@ -480,8 +417,8 @@ func (r *migrationReconciler) promoteProperty(subject MigrationSubject, prop, st
 }
 
 // reconcilePromoted is the closure sweep. The record outlives its data: its
-// owned-dirs list is what attributes a leftover from a retirement step that
-// partly failed, so that names carrying no strategy would not change this.
+// owned-dirs list is what attributes a leftover from a partly failed
+// retirement step back to this record.
 func (r *migrationReconciler) reconcilePromoted(ctx context.Context, rec MigrationRecordPromoted,
 	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {
@@ -498,9 +435,8 @@ func (r *migrationReconciler) reconcilePromotedSealed(rec MigrationRecordPromote
 ) error {
 	subject := rec.Subject()
 
-	// The record is durable the instant it is written; the rename it vouches
-	// for reaches disk separately. Repairing before the sweep is what keeps
-	// the reclaim from deleting the only copy of the data.
+	// The record is durable before the rename it records reaches disk;
+	// repairing first keeps the reclaim from deleting the only copy.
 	if err := r.repromoteWhatTheRecordOutran(all, subject); err != nil {
 		return err
 	}
@@ -518,14 +454,11 @@ func (r *migrationReconciler) reconcilePromotedSealed(rec MigrationRecordPromote
 			"a promoted migration's collection is not in the schema, so nothing here can confirm its effect; keeping the record")
 		return nil
 	}
-	// Sweeping while the effect is still pending would delete the answer to
-	// the one question a promoted record still exists to answer. An effect no
-	// schema read can ever show is not pending and never will be, so waiting
-	// on that one keeps the record for the life of the shard.
+	// Sweeping while the effect is pending would delete the answer a promoted
+	// record exists to give; an unobservable effect is never pending.
 	if effect, missing := migrationEffectStatus(class, subject); effect == migrationEffectPending {
-		// The one arm that can persist across loads: this node promoted, but
-		// the schema change the migration exists to deliver is not there. No
-		// load can make it appear, so it is silent unless said here.
+		// The one state that persists across loads: promoted here, but the
+		// schema change never landed. No load will fix that.
 		r.logger.WithField("record", subject.Key.String()).WithField("properties", missing).Warn(
 			"this shard promoted a migration whose effect is not in the schema; keeping the record, " +
 				"which is what answers for the property until the effect lands")
@@ -536,12 +469,10 @@ func (r *migrationReconciler) reconcilePromotedSealed(rec MigrationRecordPromote
 }
 
 // repromoteWhatTheRecordOutran re-runs a promotion the record already claims.
-// Two guards, both narrow. Canonical present means the canonical name already
-// holds the promoted data and the staged one is a leftover the sweep reclaims,
-// so re-promoting would put a stale copy over a good one. A surviving
-// successor claiming the staged directory as displaced means the property was
-// superseded rather than promoted, and that directory is the successor's only
-// live copy — the same claim the closure sweep honors, asked the same way.
+// Canonical present means the staged copy is a stale leftover the sweep
+// reclaims. A surviving successor claiming the staged directory as displaced
+// means the property was superseded, not promoted, and that directory is the
+// successor's only live copy.
 func (r *migrationReconciler) repromoteWhatTheRecordOutran(all []MigrationRecord, subject MigrationSubject) error {
 	for _, prop := range subject.Properties {
 		staged, canonical := subject.StagedDirs[prop], subject.CanonicalDirs[prop]
@@ -576,19 +507,13 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(all []MigrationRecord
 	return nil
 }
 
-// localVerdict is the answer this node can reach on its own, and the only one
-// the load path is allowed to act on.
+// localVerdict is the answer this node can reach on its own, the only one the
+// load path may act on: a task in its own applied map, or the effect in its
+// own applied schema, both positive evidence that cannot be undone.
 //
-// It is final wherever it rests on something this node can see: a task in its
-// own applied map, or the migration's effect in its own applied schema. Both
-// are positive evidence, and neither can be undone — a terminal task status
-// stays terminal, and the effect is the migration's own committed result.
-//
-// Where it would rest on two absences at once — no task and no effect — it
-// withholds. A node that has not applied a task yet cannot tell it from one
-// that is gone, and "gone" is what would license deleting the staged data.
-// [migrationReconciler.ReconcileWithClusterTasks] settles those against the
-// leader's list, where an absent task really is absent.
+// Two absences at once (no task, no effect) cannot be told apart from "not
+// applied yet", so it withholds instead of guessing;
+// [migrationReconciler.ReconcileWithClusterTasks] settles those cases.
 func (r *migrationReconciler) localVerdict(subject MigrationSubject) (migrationVerdict, string) {
 	if r.deps.LocalTasks == nil {
 		return migrationVerdictLeave, "this node's task map cannot be read yet"
@@ -600,21 +525,14 @@ func (r *migrationReconciler) localVerdict(subject MigrationSubject) (migrationV
 	return r.verdictFrom(subject, tasks, false)
 }
 
-// clusterVerdict settles what the load path withheld. It asks this node's own
-// applied map first and the leader's list only after.
+// clusterVerdict decides what the load path withheld, checking this node's
+// own applied map first: a task found there is positive evidence no snapshot
+// age can spoil, since a unit only starts from this node's applied map. The
+// leader's list is checked only after, since it is fetched once per walk and
+// can go stale while the walk runs.
 //
-// The order is what makes the answer about now rather than about whenever the
-// list was fetched. One list is fetched per walk, before any lock is taken,
-// and the walk that follows can take a while; a reindex started inside that
-// window is absent from the list through no fault of its own, and absence is
-// what licenses deleting its staged data. Its record exists here only because
-// a unit started on this shard, and a unit starts from this node's applied
-// map — so the task is in that map, and finding it there is positive evidence
-// no snapshot age can spoil.
-//
-// A map that cannot be read yet withholds outright rather than falling
-// through. The fall-through reads an absent task as gone, and this node not
-// having applied the task is precisely what it cannot distinguish from that.
+// A map that cannot be read yet withholds outright, since falling through
+// would read an absent task as gone.
 func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []*distributedtask.Task) (migrationVerdict, string) {
 	if r.deps.LocalTasks == nil {
 		return migrationVerdictLeave, "this node's task map cannot be read yet"
@@ -630,8 +548,8 @@ func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []*
 }
 
 // sealUnit holds this migration's unit for the length of a teardown, or
-// refuses because a worker of it is still running here. No registry installed
-// seals successfully, which is what every path did before there was one.
+// refuses because a worker is still running here. No registry installed
+// always succeeds.
 func (r *migrationReconciler) sealUnit(subject MigrationSubject) (func(), bool) {
 	if r.deps.SealUnit == nil {
 		return func() {}, true
@@ -641,16 +559,13 @@ func (r *migrationReconciler) sealUnit(subject MigrationSubject) (func(), bool) 
 		subject.Key.UnitID)
 }
 
-// withSealedUnit runs a teardown under the unit's seal, or declines it because
-// a worker is live and logs why. Every arm of this module that removes one of
-// a migration's directories goes through here or takes the same seal by hand:
-// they all remove directories a live worker writes into through pointers it
-// took before its phase began, and the next pass runs the declined one again.
+// withSealedUnit runs a teardown under the unit's seal, or declines and logs
+// why: every directory-removing arm here writes through pointers a worker
+// took before its phase began, so a declined teardown just runs again later.
 //
-// Two teardowns outside this module take the same seal in their own scope: the
-// orphan audit per unit, and the cancel and terminal sweeps task-wide through
-// [ReindexProvider.SealLocalTaskDrain], which tear down by property and never
-// learn which units they touched.
+// Two teardowns outside this module take the same seal separately: the
+// per-unit orphan audit, and the cancel/terminal sweeps in
+// [ReindexProvider.SealLocalTaskDrain].
 func (r *migrationReconciler) withSealedUnit(subject MigrationSubject, what string, run func() error) error {
 	release, sealed := r.sealUnit(subject)
 	if !sealed {
@@ -662,10 +577,9 @@ func (r *migrationReconciler) withSealedUnit(subject MigrationSubject, what stri
 	return run()
 }
 
-// verdictFrom consults the two external facts, in the order that makes the
-// second unnecessary whenever the first is conclusive. absentTaskIsGone says
-// whether this list is entitled to conclude anything from a task it does not
-// hold.
+// verdictFrom consults the two external facts, in an order that skips the
+// second whenever the first is conclusive. absentTaskIsGone says whether this
+// list may conclude anything from a task it does not hold.
 func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*distributedtask.Task,
 	absentTaskIsGone bool,
 ) (migrationVerdict, string) {
@@ -673,35 +587,24 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*dis
 		return migrationVerdictForTask(task)
 	}
 
-	// A task absent from a complete task map is one no unit will resume. It
-	// is not necessarily terminal: the completed-task sweep is the ordinary
-	// remover and only takes terminal tasks, but a collection delete removes
-	// the class's tasks outright, a re-submitted version replaces its
-	// predecessor, and a snapshot restore replaces the map wholesale. What
-	// they share is that the run this record belongs to is over, which is what
-	// the migration's own schema effect then decides between.
+	// A task absent from a complete map is one no unit will resume, whether it
+	// went terminal or its class/task-map entry was removed outright (delete,
+	// re-submit, snapshot restore). Either way, the schema effect below
+	// decides what the run left behind.
 	class := r.deps.Class()
 	if class == nil {
 		return migrationVerdictLeave, "collection is not in the locally applied schema"
 	}
 	if migrationEffectConfirmsCommit(class, subject) {
-		// Committing needs no complete list. Schema changes and task changes
-		// travel one replicated log, so the effect is committed after the
-		// entry that created the task, and a node that applied the effect
-		// applied that entry too — an absence here is therefore a removal,
-		// not a lag.
+		// Committing needs no complete list: schema and task changes travel
+		// one replicated log, so a node that applied the effect applied the
+		// task-creating entry too, making an absent task here a removal, not
+		// a lag.
 		//
-		// The effect is not proof that THIS shard swapped: the rangeable
-		// family commits its flag from the first shard's swap, with the task
-		// still running. It is only ever read where promoting is safe anyway —
-		// before Merged this verdict does nothing but warn, and at Merged the
-		// staged data is already complete.
-		//
-		// Only a visible effect gets here. Two migration types carry no flag,
-		// and a subject whose properties were all deleted carries none any
-		// more; reading either as a commit promotes staged data on the
-		// replicas that took this path while the ones that saw the cancel
-		// discarded it, and the two never converge again.
+		// The effect is not proof THIS shard swapped (the rangeable family
+		// commits its flag from the first shard's swap while the task runs),
+		// but reading either an absent or unobservable effect as a commit
+		// would diverge replicas that saw the same cancel differently.
 		return migrationVerdictCommit, "owning task is gone and the schema shows its effect"
 	}
 	if !absentTaskIsGone {
@@ -710,10 +613,9 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*dis
 	return migrationVerdictDiscard, "owning task is gone and the schema does not show its effect"
 }
 
-// migrationVerdictForTask is what a task this node can actually see says. Both
-// lists read it the same way, because a status is positive evidence wherever
-// it is found: terminal stays terminal, and an active task resumes the
-// migration itself.
+// migrationVerdictForTask reads a task's status as positive evidence wherever
+// found, by either list: terminal stays terminal, and an active task resumes
+// the migration itself.
 func migrationVerdictForTask(task *distributedtask.Task) (migrationVerdict, string) {
 	switch task.Status {
 	case distributedtask.TaskStatusFinished:
@@ -726,9 +628,8 @@ func migrationVerdictForTask(task *distributedtask.Task) (migrationVerdict, stri
 	}
 }
 
-// findMigrationTask matches on ID and version together: the same task ID
-// re-submitted is a different run, and its outcome says nothing about this
-// record's.
+// findMigrationTask matches ID and version together: a re-submitted task ID
+// is a different run whose outcome says nothing about this record's.
 func findMigrationTask(subject MigrationSubject, tasks []*distributedtask.Task) *distributedtask.Task {
 	for _, task := range tasks {
 		if task != nil && task.ID == subject.TaskID && task.Version == subject.Key.TaskVersion {
@@ -738,20 +639,12 @@ func findMigrationTask(subject MigrationSubject, tasks []*distributedtask.Task) 
 	return nil
 }
 
-// discard is the cancel edge. The order is load-bearing: a still-armed mirror
-// whose staged bucket has been removed fails the next user write, because a
-// mirror copy that fails fails the write with it.
-//
-// It removes directories a local unit may be writing through a bucket pointer
-// it captured before the iteration started, and a task's cluster status goes
-// terminal independently of when that unit exits. What used to make this safe
-// was that the only caller ran once, before the scheduler resumed anything, so
-// no unit had started in this process — an argument the periodic pass ends,
-// since it runs for the life of the node. So it seals the unit first, and a
-// live one declines the seal and withholds until the next pass. The two
-// blocking drains that guard the other teardown paths are not available here:
-// this walk holds each index's drop lock, where waiting would stall the RAFT
-// apply loop.
+// discard is the cancel edge. A still-armed mirror whose staged bucket has
+// been removed fails the next user write, so it seals the unit first (a live
+// one declines and withholds until the next pass) before removing directories
+// a worker may still write through. The blocking drains other teardown paths
+// use are unavailable here: this walk holds each index's drop lock, where
+// waiting would stall the RAFT apply loop.
 func (r *migrationReconciler) discard(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject, why string,
 ) error {
@@ -779,9 +672,9 @@ func (r *migrationReconciler) discardSealed(ctx context.Context, all []Migration
 	return r.store.Remove(subject.Key)
 }
 
-// disarmAndClose reports a shutdown failure rather than logging it away: every
-// caller removes the property's directory next, and removing an open bucket's
-// directory leaves mmaps, in-flight compactions and a registry entry behind.
+// disarmAndClose reports shutdown failure rather than logging it away: every
+// caller removes the property's directory next, and an open bucket's
+// directory leaves mmaps, in-flight compactions, and a registry entry behind.
 func (r *migrationReconciler) disarmAndClose(ctx context.Context, key MigrationRecordKey, prop string) error {
 	if r.deps.Mirror != nil {
 		r.deps.Mirror.DisarmMigrationMirror(key, prop)
@@ -796,10 +689,9 @@ func (r *migrationReconciler) disarmAndClose(ctx context.Context, key MigrationR
 }
 
 // removeTrackerDir removes the migration's own directory under .migrations,
-// which holds the recovery payload. It is deliberately not one of the owned
-// dirs: those are bucket directories at the LSM root, and the Iterated probe
-// reads their presence as proof the rebuild reached disk, which this one says
-// nothing about.
+// holding the recovery payload. Deliberately not an owned dir: those are
+// bucket directories the Iterated probe reads as proof the rebuild reached
+// disk.
 func (r *migrationReconciler) removeTrackerDir(subject MigrationSubject) {
 	if subject.TrackerDir == "" {
 		return
@@ -811,12 +703,9 @@ func (r *migrationReconciler) removeTrackerDir(subject MigrationSubject) {
 }
 
 // reclaimOwnedDirs removes every directory the record created and reports the
-// ones that survived. The canonical directory is never among them.
-//
-// A directory a later-versioned record claims as what its own flip displaced
-// belongs to that claimer, not here: a predecessor that flipped and never
-// promoted holds its live data at a staged name, and that name is exactly what
-// the successor displaced. Removing it takes the successor's only copy.
+// ones that survived; the canonical directory is never among them. A
+// directory a later-versioned record claims as displaced belongs to that
+// claimer, not here — removing it would take the successor's only copy.
 func (r *migrationReconciler) reclaimOwnedDirs(all []MigrationRecord, subject MigrationSubject) []string {
 	var remaining []string
 	for _, dir := range migrationOwnedDirs(subject) {
@@ -839,10 +728,9 @@ func (r *migrationReconciler) reclaimOwnedDirs(all []MigrationRecord, subject Mi
 	return remaining
 }
 
-// migrationOwnedDirs lists what the migration created, which is what a sweep
-// may reclaim. Canonical and displaced directories are deliberately absent:
-// the canonical name predates the migration and, after promotion, holds the
-// live data.
+// migrationOwnedDirs lists what the migration created and a sweep may
+// reclaim. Canonical and displaced directories are deliberately absent: the
+// canonical name predates the migration and, after promotion, holds live data.
 func migrationOwnedDirs(subject MigrationSubject) []string {
 	dirs := make([]string, 0, len(subject.StagedDirs)+len(subject.SidecarDirs))
 	for _, prop := range subject.Properties {
@@ -856,11 +744,10 @@ func migrationOwnedDirs(subject MigrationSubject) []string {
 
 func (r *migrationReconciler) path(dir string) string { return filepath.Join(r.lsmPath, dir) }
 
-// migrationDirExists separates "not there" from "could not tell". Callers guard
-// destructive and irreversible arms on a directory's absence, so a stat that
-// fails for any reason other than ENOENT must stop the decision rather than
-// read as absence: the promotion probe would otherwise take a staged directory
-// it cannot see as proof the rename already happened.
+// migrationDirExists separates "not there" from "could not tell". Destructive
+// arms guard on absence, so any stat failure other than ENOENT must stop the
+// decision — otherwise the promotion probe would take "cannot see it" as
+// proof the rename already happened.
 func migrationDirExists(path string) (bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -879,9 +766,9 @@ func (r *migrationReconciler) dirExists(dir string) (bool, error) {
 	return migrationDirExists(r.path(dir))
 }
 
-// rename is the only promoting filesystem step, and the Promoted record
-// written on its strength is durable — so the rename has to be durable too,
-// or a crash leaves a record vouching for a name the filesystem never kept.
+// rename is the only promoting filesystem step. The Promoted record written on
+// its strength is durable, so the rename must be durable too, or a crash
+// leaves a record naming a path the filesystem never created.
 func (r *migrationReconciler) rename(from, to string) error {
 	if err := diskio.RenameAndSync(r.path(from), r.path(to)); err != nil {
 		return fmt.Errorf("promote %q to %q: %w", from, to, err)

@@ -416,24 +416,17 @@ func migrationHandleIsOneElement(h string) bool {
 	return !strings.ContainsRune(h, '/') && !strings.ContainsRune(h, os.PathSeparator)
 }
 
-// validateMigrationHandles rejects any recorded string that a reader turns
-// into a path component and that does not name a single entry under the shard
-// root. Two families reach one:
+// validateMigrationHandles rejects any recorded string a reader turns into a
+// path component that does not name a single entry under the shard root:
+// directory handles, joined onto the shard's LSM directory and removed with
+// os.RemoveAll, and property names, from which the sweeps compose bucket and
+// sidecar directory names and then remove those.
 //
-//   - directory handles, joined onto the shard's LSM directory and removed
-//     with os.RemoveAll;
-//   - property names, from which the sweeps compose bucket and sidecar
-//     directory names and then remove those.
-//
-// Property names carry no separator and no dot in the schema, and every
-// handle a writer emits is a strategy prefix plus sorted property names, so
-// the rule refuses nothing legitimate. The property-name lists that no reader
-// turns into a path today are validated on the same rule: they are the same
-// kind of string, and the cost of covering them is nothing.
-//
-// Backup restore is the reachable producer: it writes an archive's record
-// bytes into the records directory untouched. The encoder asks the same
-// question so the two directions cannot disagree about what a valid record is.
+// Nothing legitimate is refused — a schema property name carries no separator,
+// and every handle a writer emits is a strategy prefix plus sorted property
+// names. Backup restore is the reachable producer of anything else: it writes
+// an archive's record bytes into the records directory untouched. Both
+// directions ask, so they cannot disagree on what a valid record is.
 func validateMigrationHandles(e migrationRecordEnvelope) error {
 	reject := func(field, handle string) error {
 		return fmt.Errorf("record %q names %s %q, which is not a single directory inside the shard",

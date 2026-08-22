@@ -22,35 +22,27 @@ import (
 )
 
 // MigrationLocalTaskSource reads this node's own applied view of the reindex
-// task namespace — not the leader's, so it needs no round-trip and cannot
-// block a shard load. The second result reports whether the map could be read
-// at all, which reconciliation needs because a map that is merely not
-// installed yet would otherwise read as a map in which every task is gone.
+// task namespace. The second result distinguishes "not installed" from "read
+// and empty" — only the latter licenses a discard.
 type MigrationLocalTaskSource func() ([]*distributedtask.Task, bool)
 
-// MigrationClusterTaskSource reads the reindex task namespace from the leader.
-// It costs a round-trip and can fail, so it is read once per pass of
-// [DB.reconcileLoadedMigrationsWithCluster] and never from a shard load.
+// MigrationClusterTaskSource reads the reindex task namespace from the
+// leader; costs a round-trip, read once per pass, never from a shard load.
 type MigrationClusterTaskSource func(context.Context) ([]*distributedtask.Task, error)
 
 // migrationClusterQueryTimeout bounds the one leader round-trip a pass makes.
-// Withholding is always safe, so a slow leader must cost a bounded wait and
-// then nothing at all.
+// Withholding is always safe, so a slow leader costs a bounded wait, not more.
 const migrationClusterQueryTimeout = 5 * time.Second
 
-// migrationClusterReconcileInterval is how often the pass repeats. It has to
-// repeat rather than run once: a tenant activated later reconciles at its own
-// load, where the leader is deliberately not consulted, so its records sit
-// undecided until a pass comes back for them.
+// migrationClusterReconcileInterval is how often the pass repeats. A tenant
+// activated later reconciles at its own load without consulting the leader,
+// so its records sit undecided until a pass comes back for them.
 const migrationClusterReconcileInterval = time.Minute
 
 // SetMigrationTaskSources installs the two task sources reconciliation reads
-// and starts the pass that needs the leader's one. The sources arrive
-// post-bootstrap, because the cluster service does not exist when the DB is
-// built, and every shard loaded during RAFT catch-up reconciled without them.
-//
-// The first pass runs before this returns, which is what keeps it ahead of the
-// scheduler resuming local units; the repeat runs until ctx ends.
+// and starts the pass needing the leader's one. Sources arrive post-bootstrap
+// since the cluster service does not exist when the DB is built. The first
+// pass runs before this returns; the repeat runs until ctx ends.
 func (db *DB) SetMigrationTaskSources(ctx context.Context, source MigrationLocalTaskSource,
 	cluster MigrationClusterTaskSource,
 ) {
@@ -63,9 +55,9 @@ func (db *DB) SetMigrationTaskSources(ctx context.Context, source MigrationLocal
 	enterrors.GoWrapper(func() { db.reconcileMigrationsWithClusterPeriodically(ctx) }, db.logger)
 }
 
-// reconcileMigrationsWithClusterPeriodically re-runs the pass for as long as
-// the node lives. A pass that could not reach the leader, and a shard that was
-// not loaded when the last one ran, are both corrected by the next one.
+// reconcileMigrationsWithClusterPeriodically re-runs the pass for the life of
+// the node: an unreachable leader or a not-yet-loaded shard is corrected by
+// the next run.
 func (db *DB) reconcileMigrationsWithClusterPeriodically(ctx context.Context) {
 	ticker := time.NewTicker(migrationClusterReconcileInterval)
 	defer ticker.Stop()
@@ -81,19 +73,14 @@ func (db *DB) reconcileMigrationsWithClusterPeriodically(ctx context.Context) {
 	}
 }
 
-// reconcileLoadedMigrationsWithCluster walks the shards that are already
-// loaded. An unloaded one needs nothing until it loads, and its load decides
-// everything a local answer can decide.
-//
-// The leader is asked once, before any lock is taken: the walk holds each
-// index's drop lock, which a collection delete arriving as a RAFT command
-// waits on, so a round-trip inside it would stall the apply loop for as long
-// as the leader is slow.
+// reconcileLoadedMigrationsWithCluster walks shards already loaded; an
+// unloaded one's own load decides everything a local answer can. The leader
+// is asked once, before any lock is taken: the walk holds each index's drop
+// lock, which a RAFT collection-delete command waits on.
 func (db *DB) reconcileLoadedMigrationsWithCluster(ctx context.Context) {
 	if !db.hasUndecidedMigrationRecords() {
-		// Asked before the leader is, and from memory: this repeats for the
-		// life of the node, and a node with no migration to settle must not
-		// put a query on the leader every interval to be told so.
+		// Checked before the leader is, from memory: a node with nothing to
+		// settle must not query the leader every interval to be told so.
 		return
 	}
 	tasks, err := db.migrationClusterTasksBounded(ctx)
@@ -111,12 +98,8 @@ func (db *DB) reconcileLoadedMigrationsWithCluster(ctx context.Context) {
 	db.indexLock.RUnlock()
 
 	for _, idx := range indices {
-		// A tenant deactivation, a tenant delete and a collection delete each
-		// take a shard out of the map and tear it down while this walk holds
-		// the pointer. The pass removes directories, so a teardown racing it
-		// fails a memtable flush after the shard is already marked shut, and
-		// that failure latches: every later reactivation of the tenant
-		// returns the teardown error.
+		// A tenant/collection delete can tear a shard down while this walk
+		// holds it; a racing teardown fails a memtable flush that latches.
 		func() {
 			idx.dropIndex.RLock()
 			defer idx.dropIndex.RUnlock()
@@ -130,9 +113,8 @@ func (db *DB) reconcileLoadedMigrationsWithCluster(ctx context.Context) {
 				}
 				release, err := concrete.preventShutdown()
 				if err != nil {
-					// Multi-tenant by construction — nothing else deactivates
-					// a shard — so its next activation runs the full pass with
-					// the map readable.
+					// Multi-tenant by construction: nothing else deactivates a
+					// shard, so its next activation runs the full pass again.
 					idx.logger.WithField("shard", shard.Name()).Infof(
 						"skipping migration reconciliation on a shard that is shutting down: %v", err)
 					return nil
@@ -146,13 +128,9 @@ func (db *DB) reconcileLoadedMigrationsWithCluster(ctx context.Context) {
 	}
 }
 
-// hasUndecidedMigrationRecords reports whether any loaded shard holds a record
-// whose disposition is still a cluster fact. Flipped records are excluded for
-// the same reason the pass skips them: their disposition is decided.
-//
-// It reads the stores the shards already hold, so it costs no disk and no
-// round-trip. A shard that appears or changes right after it answers is
-// reconciled by its own load or by the next pass.
+// hasUndecidedMigrationRecords reports whether any loaded shard holds a
+// record whose disposition is still a cluster fact. It reads stores shards
+// already hold, so it costs no disk and no round-trip.
 func (db *DB) hasUndecidedMigrationRecords() bool {
 	db.indexLock.RLock()
 	indices := make([]*Index, 0, len(db.indices))
@@ -169,9 +147,8 @@ func (db *DB) hasUndecidedMigrationRecords() bool {
 				return nil
 			}
 			if len(store.Unreadable()) > 0 {
-				// The pass withholds on this shard whatever the leader says,
-				// so counting it as waiting would buy a round-trip per
-				// interval for an answer nothing will act on.
+				// The pass withholds on this shard regardless of the leader, so
+				// counting it as waiting would buy a round-trip nothing will use.
 				return nil
 			}
 			for _, rec := range store.Records() {
@@ -201,18 +178,16 @@ func (db *DB) migrationLocalTasks() ([]*distributedtask.Task, bool) {
 }
 
 // SetReindexUnitSeal installs the seal every teardown takes before it removes
-// a migration's directories. Wired post-bootstrap next to the other reindex
-// lookups.
+// a migration's directories.
 func (db *DB) SetReindexUnitSeal(builder ReindexUnitSealBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
 	db.reindexUnitSealBuilder = builder
 }
 
-// migrationSealUnit seals successfully where nothing is wired, which is every
-// test fixture and every path that builds a DB without the provider. That is
-// the pre-existing behavior: the seal narrows when a teardown may run, it is
-// not what authorizes one.
+// migrationSealUnit seals successfully where nothing is wired (every test
+// fixture, every DB built without the provider): the seal narrows when a
+// teardown may run, it does not authorize one.
 func (db *DB) migrationSealUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 	db.reindexAuditMu.RLock()
 	builder := db.reindexUnitSealBuilder
@@ -248,10 +223,9 @@ func (db *DB) migrationClusterTasksBounded(ctx context.Context) ([]*distributedt
 	return source(ctx)
 }
 
-// reconcileMigrationRecords runs the state machine's load-time pass and leaves
-// the shard holding its records. It has to stay ahead of bucket loading: it
-// renames directories, and a bucket opened at a name it is about to move would
-// be serving the wrong data.
+// reconcileMigrationRecords runs the load-time reconciliation pass. It must
+// stay ahead of bucket loading: it renames directories, and a bucket opened
+// at a name it is about to move would serve the wrong data.
 func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Class) {
 	s.migrationRecords = NewMigrationRecordStore(s.pathLSM(), s.index.logger)
 	// The owning store is the only one that may sweep: the same directory is
@@ -266,11 +240,9 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 	s.warnAboutLegacyMarkerMigrations()
 }
 
-// warnAboutLegacyMarkerMigrations reports migrations that completed on the
-// release before the migration records. This build preserves their data but
-// cannot promote it, and the schema flip they belong to already committed
-// cluster-wide, so the property answers queries from an empty bucket until the
-// operator restores it or downgrades. Nothing else says so.
+// warnAboutLegacyMarkerMigrations reports migrations completed on a
+// pre-migration-records release: this build preserves their data but cannot
+// promote it, so affected properties serve empty until restored or downgraded.
 func (s *Shard) warnAboutLegacyMarkerMigrations() {
 	if s.migrationRecords == nil || len(s.migrationRecords.Unreadable()) > 0 {
 		// A record this build cannot read may be the one naming that tracker,
@@ -279,9 +251,8 @@ func (s *Shard) warnAboutLegacyMarkerMigrations() {
 	}
 	trackers, listed := migrationLegacyMarkerTrackersAt(s.pathLSM(), s.migrationRecords.Records())
 	if !listed {
-		// Said here as well as at each sweep: this is the one line an operator
-		// sees at load, and a shard whose migration directory cannot be listed
-		// has every removal withheld until it can.
+		// This is the one line an operator sees at load; every removal on this
+		// shard stays withheld until the directory can be listed.
 		s.index.logger.WithField("shard", s.ID()).
 			Warn("the migration directory could not be listed, so a migration completed on an older release " +
 				"cannot be ruled out; every removal on this shard is withheld until it can be read")
@@ -289,9 +260,8 @@ func (s *Shard) warnAboutLegacyMarkerMigrations() {
 	}
 	for _, legacy := range trackers {
 		if legacy.unreadable {
-			// Nothing names the directories this marker vouches for, so every
-			// sweep on the shard withholds instead. That is a whole shard the
-			// reclaimers stop working on, which no other line reports.
+			// Nothing accounts for the directories this marker names, so every
+			// sweep on the shard withholds — a whole shard reclaimers stop on.
 			s.index.logger.WithField("shard", s.ID()).
 				WithField("tracker", legacy.dirName).
 				WithField("marker", legacy.marker).
@@ -322,10 +292,9 @@ func (s *Shard) reconcileMigrationRecordsWithCluster(ctx context.Context, tasks 
 	s.liveMigrationReconciler().ReconcileWithClusterTasks(ctx, tasks)
 }
 
-// retireSupersededMigrations runs the supersession relation in the process
-// that just flipped, which is the only place a predecessor's mirror is armed
-// and its staged buckets are open. Reconciliation re-derives the same outcome
-// at any later load, where there is nothing armed and nothing open.
+// retireSupersededMigrations runs supersession in the process that just
+// flipped, the only place a predecessor's mirror is armed and staged buckets
+// are open; reconciliation re-derives the same outcome at any later load.
 func (s *Shard) retireSupersededMigrations(ctx context.Context) {
 	if s.migrationRecords == nil {
 		return
@@ -353,11 +322,9 @@ func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconc
 		})
 }
 
-// migrationLocalTasks reads the handle at call time rather than at wiring time.
-// The index is given its database handle only after NewIndex returns, and an
-// eagerly loaded shard reconciles inside that call — so at wiring there may be
-// no handle to bind. No handle reads as an unreadable task map, which withholds
-// every disposition until the second pass runs it with the map installed.
+// migrationLocalTasks reads the handle at call time, not wiring time: an
+// eagerly loaded shard reconciles before the index has its database handle.
+// No handle reads as an unreadable task map, withholding until the next pass.
 func (s *Shard) migrationLocalTasks() ([]*distributedtask.Task, bool) {
 	if s.index == nil || s.index.db == nil {
 		return nil, false
@@ -366,10 +333,8 @@ func (s *Shard) migrationLocalTasks() ([]*distributedtask.Task, bool) {
 }
 
 // ShutdownStagedBuckets closes a record's open buckets for one property so
-// their directories can be removed. At shard load nothing is open yet and this
-// is a no-op; it earns its keep when a successor retires a predecessor inside
-// one process, where removing an open bucket's directory would leave mmaps, an
-// in-flight compaction and a registry entry behind.
+// their directories can be removed — a no-op at shard load, but needed when
+// a successor retires a predecessor within one process.
 func (s *Shard) ShutdownStagedBuckets(ctx context.Context, key MigrationRecordKey, prop string) error {
 	if s.store == nil || s.migrationRecords == nil {
 		return nil

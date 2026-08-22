@@ -20,9 +20,8 @@ import (
 // migrationDisplacer is the part of a flipped record that names what its flip
 // pushed aside. Only Swapped and Promoted have one.
 type migrationDisplacer interface {
-	// displacedFor names the property whose flip pushed dir aside. The
-	// property, not just the fact, because a claim lapses with that one
-	// property rather than with the whole record.
+	// displacedFor names the property whose flip pushed dir aside — the
+	// property, not just the fact, since a claim lapses per property.
 	displacedFor(dir string) (string, bool)
 }
 
@@ -39,20 +38,16 @@ func (f migrationFlipBlock) displacedFor(dir string) (string, bool) {
 }
 
 // migrationPropertySuperseded is the supersession predicate. Order comes from
-// the task version alone — a consensus-allocated total order already in every
-// record, unlike the per-node generation counter the directory names carry —
-// so the relation is closed under any retirement order and any crash: removing
-// one record never changes the comparison between two others.
+// the task version alone (a total order already in every record) so
+// supersession is closed under any retirement order or crash.
 //
-// The witness bar is Swapped, not Merged. A successor that has staged but not
-// decided may still be cancelled, and treating it as a witness would withhold
-// promotion of a record whose own flip already retired the old canonical data,
-// leaving the canonical name empty while the successor idles.
+// The bar to supersede is Swapped, not Merged: a successor that has staged
+// but not decided may still be cancelled, and treating it as settled would
+// withhold promotion of a record whose own flip already retired the old data.
 //
-// "Covers the same property" is decided by comparing the two records' recorded
-// canonical directories rather than by classifying index types: a searchable
-// and a filterable migration on one property stage into different canonical
-// buckets and do not displace each other.
+// "Covers the same property" compares recorded canonical directories, not
+// index types — a searchable and a filterable migration on one property stage
+// into different buckets and do not displace each other.
 func migrationPropertySuperseded(all []MigrationRecord, subject MigrationSubject, prop string) bool {
 	canonical := subject.CanonicalDirs[prop]
 	if canonical == "" {
@@ -71,15 +66,11 @@ func migrationSupersedes(candidate MigrationRecord, subject MigrationSubject) bo
 	return key != subject.Key && key.TaskVersion > subject.Key.TaskVersion && candidate.PointerSwapped()
 }
 
-// migrationDirClaimedAsDisplaced reports whether a later-versioned record
-// that survives this pass has recorded dir as what its own flip displaced. A
-// predecessor that flipped but never promoted still holds its live data at a
-// staged name, so that name is exactly what a successor displaces — and
-// displaced directories have one owner: the record that displaced them.
-//
-// Deferring matters most where the successor cannot promote: while it sits in
-// the preserve-and-surface arm, the directory it displaced is the only copy
-// of that property left on disk.
+// migrationDirClaimedAsDisplaced reports whether a surviving later-versioned
+// record has recorded dir as what its own flip displaced. A predecessor that
+// flipped but never promoted still holds live data at that staged name, which
+// is exactly what a successor displaces — the directory it displaced is then
+// the only copy of that property left on disk.
 func migrationDirClaimedAsDisplaced(all []MigrationRecord, subject MigrationSubject, dir string) bool {
 	for _, other := range all {
 		if !migrationSupersedes(other, subject) {
@@ -93,12 +84,8 @@ func migrationDirClaimedAsDisplaced(all []MigrationRecord, subject MigrationSubj
 		if !ok {
 			continue
 		}
-		// The claim lapses with the claimer's own property, not with its whole
-		// record: the removal chain that would reach this directory runs per
-		// property, so a claimer superseded on that one property never runs it
-		// again even while its other properties live on. Honoring a lapsed
-		// claim strands the directory at a name no surviving record holds, so
-		// nothing attributes it and nothing reclaims it.
+		// The claim lapses with the claimer's own property, not its whole
+		// record, since a lapsed claim would strand the directory unreclaimed.
 		if migrationPropertySuperseded(all, other.Subject(), claimedFor) {
 			continue
 		}
@@ -107,9 +94,9 @@ func migrationDirClaimedAsDisplaced(all []MigrationRecord, subject MigrationSubj
 	return false
 }
 
-// migrationRecordFullySuperseded reports whether every property of rec has a
-// later-versioned witness, which is the condition for removing the record
-// itself rather than just some of its directories.
+// migrationRecordFullySuperseded reports whether every property of rec has
+// been superseded, the condition for removing the record itself rather than
+// just some of its directories.
 func migrationRecordFullySuperseded(all []MigrationRecord, rec MigrationRecord) bool {
 	subject := rec.Subject()
 	if !rec.StagedDataComplete() || len(subject.Properties) == 0 {
@@ -123,10 +110,9 @@ func migrationRecordFullySuperseded(all []MigrationRecord, rec MigrationRecord) 
 	return true
 }
 
-// RetireSuperseded is the engine's entry into the relation, run in the process
-// that flipped. An unreadable record never retires anything and never
-// witnesses for anything, so it withholds this pass exactly as it withholds
-// reconciliation's.
+// RetireSuperseded runs supersession in the process that flipped. An
+// unreadable record never retires anything and never supersedes anything, so
+// it withholds this pass exactly as it withholds reconciliation's.
 func (r *migrationReconciler) RetireSuperseded(ctx context.Context) {
 	if len(r.store.Unreadable()) > 0 {
 		return
@@ -134,10 +120,9 @@ func (r *migrationReconciler) RetireSuperseded(ctx context.Context) {
 	r.retireSuperseded(ctx, r.store.Records())
 }
 
-// retireSuperseded runs the relation over every record whose staged data is
-// complete. Ascending task version is not needed for correctness — the predicate
-// makes any order safe — but it leaves the fewest dangling links after a crash
-// and makes the outcome deterministic.
+// retireSuperseded runs supersession over every record whose staged data is
+// complete. Order is not needed for correctness, but ascending task version
+// leaves the fewest dangling links after a crash.
 func (r *migrationReconciler) retireSuperseded(ctx context.Context, all []MigrationRecord) {
 	for _, rec := range all {
 		if !rec.StagedDataComplete() {
@@ -148,20 +133,15 @@ func (r *migrationReconciler) retireSuperseded(ctx context.Context, all []Migrat
 			continue
 		}
 
-		// Asked before the seal: this pass walks every record with complete
-		// staged data, and the common one is the record a swap just wrote,
-		// which nothing supersedes. Sealing it first would refuse against the
-		// very worker that is running this pass and report a retirement
-		// waiting that was never owed.
+		// Asked before the seal: the common record here is the swap that just
+		// wrote, which sealing first would refuse against.
 		superseded := supersededProperties(all, subject)
 		if len(superseded) == 0 {
 			continue
 		}
 
-		// Retirement removes this record's staged and sidecar directories,
-		// which a worker of its own migration may still be writing into
-		// through pointers it took before its phase began. A live one declines
-		// the seal and the next pass retires it.
+		// Retirement removes directories a worker may still write into; a
+		// live one declines the seal and the next pass retires it.
 		release, sealed := r.sealUnit(subject)
 		if !sealed {
 			r.logger.WithField("record", subject.Key.String()).Info(
@@ -169,9 +149,8 @@ func (r *migrationReconciler) retireSuperseded(ctx context.Context, all []Migrat
 			continue
 		}
 		func() {
-			// Deferred rather than called after: a seal that leaks refuses
-			// this unit for the life of the process, so the migration could
-			// never run here again.
+			// Deferred, not called after: a leaked seal would refuse this
+			// unit for the life of the process.
 			defer release()
 			r.retireOneSealed(ctx, all, rec, subject, superseded)
 		}()
@@ -202,9 +181,8 @@ func (r *migrationReconciler) retireOneSealed(ctx context.Context, all []Migrati
 			retired = false
 		}
 	}
-	// A directory whose removal did not happen must keep the record that
-	// names it, or nothing can attribute it afterwards. The next load
-	// re-derives this pass and tries again.
+	// A directory whose removal failed must keep the record naming it, or
+	// nothing can attribute it; the next load retries.
 	if !retired || !migrationRecordFullySuperseded(all, rec) {
 		return
 	}
@@ -222,10 +200,9 @@ func (r *migrationReconciler) retireOneSealed(ctx context.Context, all []Migrati
 	}
 }
 
-// retireProperty disarms before it removes. Without that order the directory
-// it removes is exactly where the superseded record's still-armed mirror sends
-// its next copy, and a failed mirror copy fails the user's write with it —
-// which is what makes back-to-back migrations safe inside one process.
+// retireProperty disarms before it removes: without that order the directory
+// removed is exactly where the superseded record's still-armed mirror sends
+// its next copy, and a failed mirror copy fails the user's write with it.
 func (r *migrationReconciler) retireProperty(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject, prop string,
 ) error {

@@ -430,7 +430,8 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
 	if someRecordsUnreadable || recordSetUnreadable {
 		// A record this build cannot read may name any tracker here, and the
-		// record-less arm below has no liveness check to fall back on. This
+		// record-less arm below can only fall back on a payload.mig an upgraded
+		// tracker need not have. This
 		// withholds shard-wide like every other consumer of an unreadable
 		// record set, and it costs disk rather than data.
 		logger.WithField("collection", collection).WithField("shard", shardName).
@@ -569,12 +570,13 @@ var processStartTime = time.Now()
 // someone who did not gets a property serving empty until they restore,
 // instead of data that is gone.
 //
-// The downgrade direction has the same requirement and no guard at all. A
-// migration this build flipped but has not promoted keeps its live data under
-// the staged name, and the older release neither reads the record that says so
-// nor renames the directory back — so the three strategies that pre-create an
-// empty canonical bucket serve queries from it. Drain and promote before
-// downgrading too; nothing in either build enforces it.
+// Downgrading needs the same drain and has no guard at all, in either build.
+// A migration this build flipped but has not promoted keeps its live data
+// under the staged name; the older release reads no record, so it neither
+// renames that directory back nor counts it as preserved — its preserve set
+// comes from the markers above, which this build never writes. Queries then
+// answer from the empty canonical bucket three strategies pre-create, and
+// disabling the index to fix that is what removes the staged copy for good.
 func migrationCompletionMarker(trackerPath string) (string, bool) {
 	for _, marker := range []string{"tidied.mig", "merged.mig"} {
 		if fileExists(filepath.Join(trackerPath, marker)) {
@@ -604,28 +606,18 @@ func migrationDirPredatesThisProcess(trackerPath string) (bool, time.Time, error
 	return !mtime.After(processStartTime), mtime, nil
 }
 
-// partitionOrphansByQuarantine implements the S2 two-pass safeguard:
-//   - For each orphan, if audit_quarantined.mig is absent → write it
-//     and skip cleanup this sweep. Operator-visible WARN emitted.
-//   - If audit_quarantined.mig is present but its mtime is younger than
-//     reindexAuditQuarantineWindow → still inside the quarantine
-//     window; skip cleanup this sweep. WARN emitted.
-//   - If audit_quarantined.mig is present and its mtime is at or older
-//     than reindexAuditQuarantineWindow → quarantine confirmed; orphan
-//     passes through to destructive cleanup.
+// partitionOrphansByQuarantine passes through only the orphans whose
+// audit_quarantined.mig has been on disk for [reindexAuditQuarantineWindow];
+// the rest get a sentinel written and wait for a later sweep.
 //
-// Effect: a stale single-node DTM snapshot (e.g. a follower that has
-// not caught up RAFT) causes the audit to QUARANTINE on the first
-// sweep but NOT delete; a future audit running with fresh DTM state
-// will either confirm (truly an orphan) or clear the sentinel
-// (lookup flipped to "known live", handled by
-// clearStaleQuarantineSentinels).
+// It exists because one node's DTM snapshot can be stale — a follower that has
+// not caught up reports a live task as gone. The second sweep runs against
+// fresh state and either confirms the orphan or clears the sentinel through
+// [clearStaleQuarantineSentinels].
 //
-// Per-orphan disk writes are best-effort; a sentinel-write failure
-// passes the orphan through to cleanup (the legacy behavior) on the
-// theory that a permanently-broken disk path is worse than a missed
-// quarantine. Audit logs include the failure so operators can spot a
-// pattern of disk failures.
+// A sentinel this cannot stat or write passes the orphan straight through, on
+// the view that a permanently broken disk path is worse than a missed
+// quarantine. The log line names which happened.
 func partitionOrphansByQuarantine(lsmPath string, orphans []orphanReindexTracker, logger logrus.FieldLogger) []orphanReindexTracker {
 	confirmed := make([]orphanReindexTracker, 0, len(orphans))
 	for i := range orphans {
@@ -866,25 +858,17 @@ func (db *DB) sealOrphanUnit(o *orphanReindexTracker) (func(), bool) {
 		distributedtask.TaskDescriptor{ID: o.taskID, Version: o.taskVersion}, o.unitID)
 }
 
-// removeUnloadedSidecarsForOrphan removes per-property sidecar bucket
-// directories owned by the orphan tracker, derived from the strategy registry
-// (migrationSuffixes) keyed by the tracker dirName rather than matched by
-// string prefix.
+// removeUnloadedSidecarsForOrphan removes the per-property sidecar bucket
+// directories the orphan tracker owns: <main>__<ingestSuffix>_<gen> and
+// <main>__<reindexSuffix>_<gen>, composed through [migrationSuffixes] keyed by
+// the tracker's own dir name rather than matched by string prefix. A dir name
+// matching no registered strategy is a no-op, so a new strategy is picked up
+// here automatically.
 //
-// The registry, not the record: an orphan that reached here from the
-// record-less arm has only its payload, and the two derivations agree for the
-// rest because the writers compose their names the same way. A record's own
-// [MigrationSubject.SidecarDirs] would be the stronger evidence, and moving to
-// it is the open work — until then the two must not drift apart.
-//
-// Sidecar dir names that this consults:
-//   - <main>__<ingestSuffix>_<gen>      (ingest sidecar)
-//   - <main>__<reindexSuffix>_<gen>     (reindex sidecar)
-//
-// where `<main>` is the strategy's sourceBucketName(propName) for the
-// canonical bucket the migration writes back to. A tracker dirName matching no
-// registered strategy is a no-op, which also means a future strategy added to
-// migrationSuffixes is picked up here automatically.
+// The registry rather than the record, because an orphan from the record-less
+// arm has only its payload. A record's own [MigrationSubject.SidecarDirs]
+// would be stronger evidence and moving to it is open work; until then the two
+// derivations must not drift apart.
 func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, logger logrus.FieldLogger) {
 	for _, sidecar := range sidecarDirsForOrphan(o) {
 		path := filepath.Join(lsmPath, sidecar)

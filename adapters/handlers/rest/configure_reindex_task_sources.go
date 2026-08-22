@@ -20,8 +20,8 @@ import (
 )
 
 // migrationTaskRaft is the slice of RAFT the two reindex task sources read.
-// Naming it is what makes the sources testable: as a literal inside the
-// post-bootstrap goroutine neither could be reached from a test.
+// Named so a test can reach them; as a literal inside the post-bootstrap
+// goroutine neither could be.
 type migrationTaskRaft interface {
 	LocalDistributedTasks() map[string][]*distributedtask.Task
 	FSMHasCaughtUp() bool
@@ -31,13 +31,12 @@ type migrationTaskRaft interface {
 // newMigrationLocalTaskSource answers from this node's own applied FSM, so it
 // costs no round-trip and cannot block a shard load.
 //
-// The gate covers the startup replay only: [Raft.FSMHasCaughtUp] compares
-// against an index frozen when the store opened, so it goes true for good once
-// the tail this node already held is applied. Before that the map is genuinely
-// partial and a committed task reads as absent, which is what licenses
-// reconciliation's discard. After it, what keeps a lagging map from licensing
-// one is reconciliation itself: its load-time verdict withholds wherever it
-// would rest on two absences at once, an absent task and an absent effect.
+// The gate covers the startup replay only: FSMHasCaughtUp compares against an
+// index frozen when the store opened, so it goes true for good once the tail
+// this node already held is applied. Before that a committed task really does
+// read as absent, which is what licenses reconciliation's discard. After it,
+// what stops a lagging map licensing one is reconciliation's own load-time
+// verdict, which does nothing when both the task and its effect are missing.
 func newMigrationLocalTaskSource(raft migrationTaskRaft) db.MigrationLocalTaskSource {
 	return func() ([]*distributedtask.Task, bool) {
 		if !raft.FSMHasCaughtUp() {
@@ -52,13 +51,11 @@ func newMigrationLocalTaskSource(raft migrationTaskRaft) db.MigrationLocalTaskSo
 // shard-load path.
 //
 // It is not a linearizable read: the query short-circuits into the local FSM
-// when this node is the leader, with no barrier. The gate below only keeps the
-// startup replay off the wire, and no predicate here can tell a freshly
-// elected leader's map from a settled one. What answers that is the order
-// reconciliation asks in — this node's own applied map first, where the task
-// is bound to be, because the record only exists at all because a unit started
-// from that map. Finding it there is positive evidence no snapshot age
-// spoils.
+// when this node is the leader, with no barrier, and no predicate here can
+// tell a freshly elected leader's map from a caught-up one. The gate below
+// only keeps the startup replay off the wire. What covers the rest is that
+// reconciliation asks this node's own applied map first, where the task is
+// bound to be: the record exists only because a unit started from that map.
 func newMigrationClusterTaskSource(raft migrationTaskRaft) db.MigrationClusterTaskSource {
 	return func(ctx context.Context) ([]*distributedtask.Task, error) {
 		if !raft.FSMHasCaughtUp() {

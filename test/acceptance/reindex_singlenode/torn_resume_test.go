@@ -320,7 +320,7 @@ func plantTornMigrationAcrossRestart(
 	stagedRecordsDir := filepath.Join(stagedDotMigrations, "records")
 	require.NoError(t, os.MkdirAll(stagedRecordsDir, 0o755))
 	for path, content := range map[string]string{
-		filepath.Join(stagedMigDir, "payload.mig"):                              payload,
+		filepath.Join(stagedMigDir, "payload.mig"):                                 payload,
 		filepath.Join(stagedRecordsDir, fmt.Sprintf("1_%s_u0.json", strategyCode)): record,
 	} {
 		require.NoError(t, os.WriteFile(path, []byte(content), 0o666),
