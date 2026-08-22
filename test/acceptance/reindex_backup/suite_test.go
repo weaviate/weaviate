@@ -357,7 +357,8 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 	stagedBucket := "property_body_searchable__retokenize_ingest_999"
 	injectOrphanTrackerOnDisk(t, ctx, container, lsmPath, orphanDir, sidecarBucket,
 		`{"taskID":"orphan-from-prefix-backup","taskVersion":1,"unitID":"u0","payload":{"collection":"`+className+`","migrationType":"change-tokenization","properties":["body"],"targetTokenization":"lowercase","bucketStrategy":"map_collection"}}`,
-		"1_searchable_retokenize.json",
+		// The record file name carries the whole key, unit included.
+		"1_searchable_retokenize_u0.json",
 		// Iterating: nothing is staged completely, so no reader may treat the
 		// canonical bucket as replaceable, and the target tokenization the
 		// subject names is one the collection's schema does not show.
@@ -742,7 +743,7 @@ func backupAndRestoreRoundTrip(t *testing.T, className, backupID string, preCoun
 // injectOrphanTrackerOnDisk crafts the on-disk shape that a pre-fix
 // backup-restore would leave on a restored shard:
 //
-//   - .migrations/records/<taskVersion>_<strategyCode>.json (the state)
+//   - .migrations/records/<taskVersion>_<strategyCode>_<unitID>.json (the state)
 //   - .migrations/<orphanDir>/payload.mig (with the supplied JSON body)
 //   - .migrations/<orphanDir>/audit_quarantined.mig (mtime pre-aged
 //     well past `reindexAuditQuarantineWindow` so the audit's S2

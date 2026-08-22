@@ -258,7 +258,7 @@ func testTornResumeEnableFilterable(t *testing.T, compose *docker.DockerCompose)
 // crashed mid-rebuild, then restarts the container. Layout:
 //
 //	.migrations/<migDir>/payload.mig                        — the task payload
-//	.migrations/records/<version>_<strategyCode>.json       — the state
+//	.migrations/records/<version>_<strategyCode>_<unit>.json — the state
 //
 // The record is Iterating: the rebuild never reported complete, so nothing
 // staged is a candidate for becoming live and a submit that lands afterwards
@@ -321,7 +321,7 @@ func plantTornMigrationAcrossRestart(
 	require.NoError(t, os.MkdirAll(stagedRecordsDir, 0o755))
 	for path, content := range map[string]string{
 		filepath.Join(stagedMigDir, "payload.mig"):                              payload,
-		filepath.Join(stagedRecordsDir, fmt.Sprintf("1_%s.json", strategyCode)): record,
+		filepath.Join(stagedRecordsDir, fmt.Sprintf("1_%s_u0.json", strategyCode)): record,
 	} {
 		require.NoError(t, os.WriteFile(path, []byte(content), 0o666),
 			"plantTornMigrationAcrossRestart: staging %s on host must succeed", path)

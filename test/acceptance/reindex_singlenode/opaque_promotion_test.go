@@ -113,7 +113,7 @@ func plantSwappedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose
 	require.NoError(t, os.MkdirAll(filepath.Join(dotMigrations, "records"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(dotMigrations, "opaque_promotion_tracker"), 0o755))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(dotMigrations, "records", "4711_filterable_roaringset_refresh.json"),
+		filepath.Join(dotMigrations, "records", "4711_filterable_roaringset_refresh_u0.json"),
 		[]byte(record), 0o666))
 
 	require.NoError(t,
@@ -195,7 +195,7 @@ func plantPromotedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompos
 	require.NoError(t, os.MkdirAll(filepath.Join(dotMigrations, "records"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(dotMigrations, "promoted_torn_tracker"), 0o755))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(dotMigrations, "records", "4712_filterable_roaringset_refresh.json"),
+		filepath.Join(dotMigrations, "records", "4712_filterable_roaringset_refresh_u0.json"),
 		[]byte(record), 0o666))
 
 	require.NoError(t,

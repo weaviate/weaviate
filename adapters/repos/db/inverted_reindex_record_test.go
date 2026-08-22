@@ -556,7 +556,6 @@ func TestMigrationRecordStore(t *testing.T) {
 				require.NoError(t, s.Put(merged(42, StrategyCodeEnableFilterable)))
 			},
 			assert: func(t *testing.T, s *MigrationRecordStore) {
-				require.Empty(t, s.Unreadable(), "a foreign unit's record is a record, not a torn file")
 				require.Len(t, s.Records(), 2)
 				for _, unit := range []string{"shard-1__node-0", "shard-1__node-9"} {
 					_, ok := s.Get(MigrationRecordKey{
@@ -564,6 +563,30 @@ func TestMigrationRecordStore(t *testing.T) {
 					})
 					require.True(t, ok, "unit %q lost its record", unit)
 				}
+			},
+		},
+		{
+			// A teardown seals the unit its record names, and a foreign unit
+			// is one no local worker claims — so that seal is always granted
+			// and the teardown would remove directories a live local worker
+			// is writing into.
+			name: "two units on one shard freeze it rather than being acted on",
+			arrange: func(t *testing.T, s *MigrationRecordStore) {
+				foreign := testMigrationSubject(42, StrategyCodeEnableFilterable, "title")
+				foreign.Key.UnitID = "shard-1__node-9"
+				require.NoError(t, s.Put(NewMigrationRecordMerged(foreign)))
+				require.NoError(t, s.Put(merged(42, StrategyCodeEnableFilterable)))
+			},
+			assert: func(t *testing.T, s *MigrationRecordStore) {
+				require.Len(t, s.Unreadable(), 1)
+				require.Equal(t, MigrationRecordFaultStore, s.Unreadable()[0].Scope)
+				require.Contains(t, s.Unreadable()[0].Reason, "shard-1__node-9")
+
+				logger, _ := test.NewNullLogger()
+				committed := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.True(t, committed.preservesBucket("a directory no record names"))
+				require.Error(t, s.Put(merged(43, StrategyCodeEnableFilterable)),
+					"a frozen store must not take a write it cannot place among the records it could not attribute")
 			},
 		},
 		{

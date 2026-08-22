@@ -190,6 +190,8 @@ func (s *MigrationRecordStore) Load() error {
 		}
 	}
 
+	unreadable = append(unreadable, refuseRecordsOfSeveralUnits(records)...)
+
 	for _, u := range unreadable {
 		s.logger.WithField("file", u.FileName).Warnf(
 			"migration record not understood, preserving it and withholding destructive work: %s", u.Reason)
@@ -197,6 +199,43 @@ func (s *MigrationRecordStore) Load() error {
 
 	s.publish(records, unreadable)
 	return nil
+}
+
+// refuseRecordsOfSeveralUnits freezes a shard holding records from more than
+// one unit. A unit is "<shard>__<node>", so every record this node ever wrote
+// here carries the same one: a second means a backup restore or a shard copy
+// brought another node's record along, and nothing on this shard can say which
+// of the two is ours.
+//
+// It has to be a fault rather than a preference, because a teardown seals the
+// unit its record names. A foreign unit is one no local worker ever claims, so
+// that seal is always granted, and the teardown then removes directories a
+// live local worker may be writing into.
+//
+// The whole store is frozen rather than the foreign records dropped: dropping
+// them would leave the directories they name attributed to nothing, which is
+// what the reclaimers delete.
+func refuseRecordsOfSeveralUnits(records map[MigrationRecordKey]MigrationRecord) []MigrationRecordUnreadable {
+	units := map[string]struct{}{}
+	for key := range records {
+		units[key.UnitID] = struct{}{}
+	}
+	if len(units) < 2 {
+		return nil
+	}
+	named := make([]string, 0, len(units))
+	for unit := range units {
+		named = append(named, unit)
+	}
+	slices.Sort(named)
+	return []MigrationRecordUnreadable{{
+		FileName: migrationRecordsDirName,
+		Reason: fmt.Sprintf(
+			"records of %d units are here (%s); this node cannot tell which is its own, "+
+				"and sealing a foreign one would not hold back a live local worker",
+			len(named), strings.Join(named, ", ")),
+		Scope: MigrationRecordFaultStore,
+	}}
 }
 
 func (s *MigrationRecordStore) publish(records map[MigrationRecordKey]MigrationRecord, unreadable []MigrationRecordUnreadable) {
@@ -309,20 +348,15 @@ func (s *MigrationRecordStore) Unreadable() []MigrationRecordUnreadable {
 	return slices.Clone(s.unreadable)
 }
 
-// maxMigrationRecordBytes bounds what [loadMigrationRecordFile] reads. Every
-// Load runs it, and a Load sits inside the RAFT apply of a property DELETE,
-// which holds the FSM loop cluster-wide — the same argument
-// [maxRecoveryPayloadBytes] makes about payload.mig, whose read is the other
-// half of the same function.
+// maxMigrationRecordBytes bounds what [loadMigrationRecordFile] reads, for the
+// reason [maxRecoveryPayloadBytes] gives: a Load sits inside the RAFT apply of
+// a property DELETE, which holds the FSM loop cluster-wide.
 //
-// The ceiling it has to clear is a record at [maxReindexPropertiesPerTask]
-// properties. Each contributes its own name plus an entry in the staged,
-// canonical and displaced directory maps, plus a sidecar and a flipped entry.
-// A property name is at most 231 characters and a directory handle is a
-// strategy prefix plus one of those, so a property costs well under 4 KiB of
-// JSON and 1024 of them under 4 MiB. The bound is twice that: refusing a
-// legitimate record freezes migrations on the shard, which is worse than
-// reading a large file.
+// A record at [maxReindexPropertiesPerTask] properties is the ceiling to
+// clear. Each property costs its name, three directory-map entries, a sidecar
+// and a flipped entry — well under 4 KiB of JSON, so 1024 of them stay under
+// 4 MiB. The bound is twice that, because refusing a legitimate record freezes
+// migrations on the shard and reading a large file does not.
 const maxMigrationRecordBytes = 8 << 20
 
 func loadMigrationRecordFile(path string) (MigrationRecord, MigrationRecordLoadOutcome, error) {

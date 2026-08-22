@@ -98,10 +98,12 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 
 	lsmPath := shd.(*Shard).pathLSM()
 
+	// One unit for both: a unit is "<shard>__<node>", so every record on one
+	// shard carries the same one however many tasks wrote them.
 	knownDir := mkAuditTracker(t, lsmPath, "searchable_retokenize_known_1",
-		"task-known", 5, "unit-known", MigrationStateIterated, "known")
+		"task-known", 5, auditFixtureUnit, MigrationStateIterated, "known")
 	orphanDir := mkAuditTracker(t, lsmPath, "searchable_retokenize_orphan_1",
-		"task-orphan", 9, "unit-orphan", MigrationStateIterating, "orphan")
+		"task-orphan", 9, auditFixtureUnit, MigrationStateIterating, "orphan")
 	// S2: pre-age the quarantine sentinel so this single sweep exercises
 	// the post-quarantine destructive-cleanup path. The first sweep
 	// would otherwise only quarantine and defer cleanup.
@@ -151,7 +153,7 @@ func TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard(t *testing.T) {
 	}
 	for i, o := range orphans {
 		dir := mkAuditTracker(t, lsmPath, o.dir, fmt.Sprintf("task-orphan-%d", i),
-			uint64(i+1), fmt.Sprintf("unit-orphan-%d", i), MigrationStateIterating, o.prop)
+			uint64(i+1), auditFixtureUnit, MigrationStateIterating, o.prop)
 		// S2: pre-age the quarantine sentinel so this single sweep
 		// runs the destructive cleanup path.
 		writePreAgedQuarantineSentinel(t, dir)
@@ -605,6 +607,11 @@ func writePreAgedQuarantineSentinel(t *testing.T, trackerDir string) {
 // state decides whether the tracker is a candidate at all. The audit exempts a
 // migration whose data is committed, because from there the directories back
 // live buckets.
+// auditFixtureUnit is the one unit every record on a fixture shard carries. A
+// real unit is "<shard>__<node>", so records of two units on one shard are a
+// restore or a shard copy, and the store freezes on them.
+const auditFixtureUnit = "shard-1__node-0"
+
 func mkAuditTracker(t *testing.T, lsmPath, trackerName, taskID string, taskVersion uint64,
 	unitID string, state MigrationState, props ...string,
 ) string {
