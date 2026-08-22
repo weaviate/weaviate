@@ -63,8 +63,11 @@ type reconcileFixture struct {
 	// node", which is the ordinary case.
 	clusterTasks    []*distributedtask.Task
 	clusterTasksSet bool
-	class           *models.Class
-	logger          *logrus.Logger
+	// unitLive is what the local unit registry answers: a worker of this
+	// migration is still iterating on this node.
+	unitLive bool
+	class    *models.Class
+	logger   *logrus.Logger
 	// logs is what the reconciler wrote, for the arms whose whole outcome is
 	// a line an operator has to see.
 	logs *test.Hook
@@ -120,6 +123,7 @@ func (f *reconcileFixture) reconcile() {
 func (f *reconcileFixture) deps() migrationReconcileDeps {
 	return migrationReconcileDeps{
 		LocalTasks: func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
+		UnitLive:   func(distributedtask.TaskDescriptor, string) bool { return f.unitLive },
 		Class:      func() *models.Class { return f.class },
 		Mirror:     f.mirror,
 		Buckets:    f.buckets,
@@ -898,8 +902,9 @@ func TestReconcileCommitEdgeWritesItsVerdictFirst(t *testing.T) {
 // a restart that repeats the same ordering.
 //
 // It is also the only place a task that is absent everywhere licenses a
-// discard, because the leader's list is the only one whose silence proves the
-// task is gone rather than not yet applied here.
+// discard. Absence has to be established twice for that: in this node's own
+// applied map, and in a leader's list that may have been fetched before the
+// walk began.
 func TestReconcileWithClusterTasksSettlesWhatTheLoadWithheld(t *testing.T) {
 	const taskID = "Books:change-tokenization:title:ab12"
 
@@ -912,7 +917,9 @@ func TestReconcileWithClusterTasksSettlesWhatTheLoadWithheld(t *testing.T) {
 		leaderSet  bool
 		class      *models.Class
 		unreadable bool
-		wantState  MigrationState
+		// unitLive is a worker of this migration still iterating here.
+		unitLive  bool
+		wantState MigrationState
 	}{
 		{
 			name:      "the task finished while this node was down: commit",
@@ -958,11 +965,40 @@ func TestReconcileWithClusterTasksSettlesWhatTheLoadWithheld(t *testing.T) {
 			wantState:  MigrationStateMerged,
 		},
 		{
+			// The leader's list is fetched once, before the walk, and served
+			// without a read barrier; this node's map is what its own unit
+			// ran from. A task found in it is positive evidence, and both
+			// statuses here are terminal, so they cannot both describe this
+			// run — the local one is the one this node applied.
 			name:       "this node reads the task as finished while the leader reports it cancelled",
 			task:       testTask(taskID, 42, distributedtask.TaskStatusFinished),
 			leaderTask: testTask(taskID, 42, distributedtask.TaskStatusCancelled),
 			leaderSet:  true,
 			class:      testClassWithTokenization(models.PropertyTokenizationLowercase, "title"),
+			wantState:  MigrationStateSwapped,
+		},
+		{
+			// The window between fetching the leader's list and reaching this
+			// shard. A reindex started inside it is absent from a list that
+			// predates it, and absence is what licenses deleting staged data.
+			// The record exists here only because a unit started on this
+			// shard, and a unit starts from this node's own map.
+			name:      "a migration started after the leader's list was fetched is not read as gone",
+			task:      testTask(taskID, 42, distributedtask.TaskStatusStarted),
+			leaderSet: true,
+			class:     testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			wantState: MigrationStateMerged,
+		},
+		{
+			// A cancel marks the task and signals the worker on a later
+			// scheduler tick; nothing waits for it. The worker writes through
+			// bucket pointers it captured before the iteration began, so
+			// removing those directories loses every row it has written.
+			name:      "a cancelled task whose local unit is still running keeps its directories",
+			task:      testTask(taskID, 42, distributedtask.TaskStatusCancelled),
+			class:     testClassWithTokenization(models.PropertyTokenizationWord, "title"),
+			unitLive:  true,
+			wantState: MigrationStateMerged,
 		},
 		{
 			name:       "a record this build cannot place withholds the second pass too",
@@ -995,6 +1031,7 @@ func TestReconcileWithClusterTasksSettlesWhatTheLoadWithheld(t *testing.T) {
 				"an unreadable task map decides nothing")
 
 			f.tasksReadable = true
+			f.unitLive = tt.unitLive
 			if tt.task != nil {
 				f.tasks = []*distributedtask.Task{tt.task}
 			}

@@ -125,7 +125,7 @@ func (db *DB) reconcileLoadedMigrationsWithCluster(ctx context.Context) {
 				concrete, err := unwrapShard(ctx, shard)
 				if err != nil {
 					idx.logger.WithField("shard", shard.Name()).Errorf(
-						"reconcile migration records once the task map became readable: %v", err)
+						"skipping migration reconciliation on a shard that could not be resolved: %v", err)
 					return nil
 				}
 				release, err := concrete.preventShutdown()
@@ -168,6 +168,12 @@ func (db *DB) hasUndecidedMigrationRecords() bool {
 			if store == nil {
 				return nil
 			}
+			if len(store.Unreadable()) > 0 {
+				// The pass withholds on this shard whatever the leader says,
+				// so counting it as waiting would buy a round-trip per
+				// interval for an answer nothing will act on.
+				return nil
+			}
 			for _, rec := range store.Records() {
 				if !rec.PointerSwapped() {
 					undecided = true
@@ -192,6 +198,41 @@ func (db *DB) migrationLocalTasks() ([]*distributedtask.Task, bool) {
 		return nil, false
 	}
 	return source()
+}
+
+// SetReindexUnitLivenessLookup installs the probe reconciliation asks before
+// it removes a migration's directories. Wired post-bootstrap next to the other
+// reindex lookups.
+func (db *DB) SetReindexUnitLivenessLookup(builder ReindexUnitLivenessLookupBuilder) {
+	db.reindexAuditMu.Lock()
+	defer db.reindexAuditMu.Unlock()
+	db.reindexUnitLivenessLookupBuilder = builder
+}
+
+// migrationUnitLive answers false where nothing is wired, which is every test
+// fixture and every path that builds a DB without the provider. That is the
+// pre-existing behavior: the probe narrows when a discard may run, it is not
+// what authorizes one.
+func (db *DB) migrationUnitLive(desc distributedtask.TaskDescriptor, unitID string) bool {
+	db.reindexAuditMu.RLock()
+	builder := db.reindexUnitLivenessLookupBuilder
+	db.reindexAuditMu.RUnlock()
+
+	if builder == nil {
+		return false
+	}
+	lookup := builder()
+	if lookup == nil {
+		return false
+	}
+	return lookup(desc, unitID)
+}
+
+func (s *Shard) migrationUnitLive(desc distributedtask.TaskDescriptor, unitID string) bool {
+	if s.index == nil || s.index.db == nil {
+		return false
+	}
+	return s.index.db.migrationUnitLive(desc, unitID)
 }
 
 func (db *DB) migrationClusterTasksBounded(ctx context.Context) ([]*distributedtask.Task, error) {
@@ -305,6 +346,7 @@ func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconc
 	return newMigrationReconciler(s.migrationRecords, s.pathLSM(), s.index.logger,
 		migrationReconcileDeps{
 			LocalTasks: s.migrationLocalTasks,
+			UnitLive:   s.migrationUnitLive,
 			Class:      class,
 			Mirror:     s,
 			Buckets:    s,

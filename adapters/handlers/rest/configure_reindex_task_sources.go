@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -44,11 +45,23 @@ func newMigrationLocalTaskSource(raft migrationTaskRaft) db.MigrationLocalTaskSo
 	}
 }
 
-// newMigrationClusterTaskSource routes to the leader, which is the only list
-// whose silence about a task proves the task is gone rather than not yet
-// applied here. Read once per reconciliation pass, off the shard-load path.
+// newMigrationClusterTaskSource routes to the leader, whose list sees tasks
+// this node has not applied yet. Read once per reconciliation pass, off the
+// shard-load path.
+//
+// It is not a linearizable read. The query short-circuits into the local FSM
+// when this node is the leader, with no barrier, so a node that has just won
+// an election answers from a map it is still applying into — and a task that
+// is merely not applied yet reads exactly like one that is gone, which is what
+// licenses deleting a migration's staged data. Requiring catch-up here is what
+// keeps that answer off the wire. Withholding costs a minute; the next pass
+// asks again.
 func newMigrationClusterTaskSource(raft migrationTaskRaft) db.MigrationClusterTaskSource {
 	return func(ctx context.Context) ([]*distributedtask.Task, error) {
+		if !raft.FSMHasCaughtUp() {
+			return nil, fmt.Errorf("this node is still applying its RAFT log, so it cannot tell a task " +
+				"it has not added yet from one the cluster removed")
+		}
 		tasksByNamespace, err := raft.ListDistributedTasks(ctx)
 		if err != nil {
 			return nil, err

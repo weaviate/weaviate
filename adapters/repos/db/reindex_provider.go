@@ -319,6 +319,38 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
+// IsLocalUnitLive reports whether a worker for this exact (task, unit) is
+// running on this node right now. It is the read-only half of
+// [ReindexProvider.claimActiveWorker], and it exists because a task's cluster
+// status goes terminal without waiting for the local unit to exit: cancelling
+// marks the task and wakes the scheduler, which signals the worker on a later
+// tick and never awaits it.
+//
+// A live worker writes through bucket pointers it captured before the
+// iteration began, so removing those directories loses every row it has
+// written since — silently, because a shut-down bucket accepts writes into a
+// memtable that will never be flushed.
+func (p *ReindexProvider) IsLocalUnitLive(desc distributedtask.TaskDescriptor, unitID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.activeWorkers[desc][unitID]
+}
+
+// ReindexUnitLivenessLookup answers for one (task, unit) pair. Keyed per unit
+// rather than per task because a task's other units run on other shards, and
+// withholding a shard's own decision on a sibling's account would strand it.
+type ReindexUnitLivenessLookup func(desc distributedtask.TaskDescriptor, unitID string) bool
+
+// ReindexUnitLivenessLookupBuilder returns a fresh probe. Same shape as
+// [CleanupInProgressLookupBuilder] so the wiring installs both the same way.
+type ReindexUnitLivenessLookupBuilder func() ReindexUnitLivenessLookup
+
+func (p *ReindexProvider) ReindexUnitLivenessLookupBuilder() ReindexUnitLivenessLookupBuilder {
+	return func() ReindexUnitLivenessLookup {
+		return p.IsLocalUnitLive
+	}
+}
+
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

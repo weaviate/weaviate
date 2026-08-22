@@ -89,14 +89,51 @@ func TestMigrationClusterTaskSourceReadsTheLeader(t *testing.T) {
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "t", Version: 7},
 	}}
 
-	got, err := newMigrationClusterTaskSource(&fakeMigrationTaskRaft{
-		list: map[string][]*distributedtask.Task{db.ReindexNamespace: tasks},
-	})(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, tasks, got)
+	tests := []struct {
+		name      string
+		raft      *fakeMigrationTaskRaft
+		wantErr   bool
+		wantTasks []*distributedtask.Task
+		because   string
+	}{
+		{
+			name: "caught up, leader answers",
+			raft: &fakeMigrationTaskRaft{
+				caughtUp: true,
+				list:     map[string][]*distributedtask.Task{db.ReindexNamespace: tasks},
+			},
+			wantTasks: tasks,
+		},
+		{
+			name:    "the leader is unreachable",
+			raft:    &fakeMigrationTaskRaft{caughtUp: true, listErr: errors.New("leader unreachable")},
+			wantErr: true,
+			because: "an unreachable leader must not read as an empty task map",
+		},
+		{
+			// The query short-circuits into the local FSM when this node is
+			// the leader, with no read barrier. A node that just won an
+			// election would answer from a map it is still applying into, and
+			// a task not applied yet reads exactly like one the cluster
+			// removed — which is what licenses deleting staged data.
+			name: "still applying its tail: this node must not answer for the cluster",
+			raft: &fakeMigrationTaskRaft{
+				list: map[string][]*distributedtask.Task{db.ReindexNamespace: tasks},
+			},
+			wantErr: true,
+			because: "a partial map must not be served as the cluster's list",
+		},
+	}
 
-	_, err = newMigrationClusterTaskSource(&fakeMigrationTaskRaft{
-		listErr: errors.New("leader unreachable"),
-	})(context.Background())
-	require.Error(t, err, "an unreachable leader must not read as an empty task map")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := newMigrationClusterTaskSource(tt.raft)(context.Background())
+			if tt.wantErr {
+				require.Error(t, err, tt.because)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantTasks, got)
+		})
+	}
 }

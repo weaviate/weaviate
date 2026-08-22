@@ -57,6 +57,14 @@ type migrationReconcileDeps struct {
 	// merely not installed yet would read as "every task is gone".
 	LocalTasks func() ([]*distributedtask.Task, bool)
 
+	// UnitLive reports that a worker for this exact (task, unit) is iterating
+	// on this node right now. A terminal cluster status does not imply it has
+	// stopped — cancelling marks the task and signals the worker on a later
+	// scheduler tick, and nothing waits for it — while the worker writes
+	// through bucket pointers it captured before the iteration started. Only
+	// the discard arm asks, because only it removes those directories.
+	UnitLive func(distributedtask.TaskDescriptor, string) bool
+
 	// Class is the locally applied schema for the migrated collection, or nil
 	// when the collection is not in it.
 	Class func() *models.Class
@@ -297,21 +305,24 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject, why string)
 
 // ReconcileWithClusterTasks settles the dispositions the load path withheld
 // because this node could see neither the owning task nor its effect. The
-// leader's list is the one list whose silence about a task proves the task is
-// gone; every other arm of the machine is decided at load, from disk and from
-// what this node has applied.
+// leader's list sees tasks this node has not applied; every other arm of the
+// machine is decided at load, from disk and from what this node has applied.
 //
 // It takes the list rather than fetching one. Reconciliation is otherwise a
 // shard-load pass, and a load must never wait on a round-trip: passing the
 // answer in is what keeps the round-trip in the caller, where it is paid once
-// for a whole walk instead of once per record.
+// for a whole walk instead of once per record. The cost is that the list ages
+// while the walk runs, which is why [migrationReconciler.clusterVerdict] reads
+// this node's own map first.
 //
 // The two arms differ in when they act. The commit arm only records the
 // decision: promotion renames a directory whose buckets are open by now, so it
 // waits for the next load. The discard arm acts immediately, and touches only
 // records whose pointers have not flipped — the canonical bucket is still
 // primary for those, so every acknowledged write is already in it and this
-// removes a staged copy alone.
+// removes a staged copy alone. What it does remove is what a local unit would
+// still be writing into, and this pass runs for the life of the node, so
+// [migrationReconciler.discard] asks whether one is running before it acts.
 //
 // Only the verdict decides here. The reverse edge is deliberately left to a
 // load: it restarts the rebuild from scratch, and a live task iterating right
@@ -335,12 +346,12 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 		case verdict == migrationVerdictDiscard:
 			if err := r.discard(ctx, records, subject, why); err != nil {
 				r.logger.WithField("record", subject.Key.String()).Errorf(
-					"discard a migration once the task map became readable: %v", err)
+					"discard a migration the leader's task list settled: %v", err)
 			}
 		case verdict == migrationVerdictCommit && rec.State() == MigrationStateMerged:
 			if _, err := r.commitMerged(subject, why); err != nil {
 				r.logger.WithField("record", subject.Key.String()).Errorf(
-					"commit a merged migration once the task map became readable: %v", err)
+					"commit a merged migration the leader's task list settled: %v", err)
 				continue
 			}
 			r.logger.WithField("record", subject.Key.String()).Info(
@@ -561,10 +572,45 @@ func (r *migrationReconciler) localVerdict(subject MigrationSubject) (migrationV
 	return r.verdictFrom(subject, tasks, false)
 }
 
-// clusterVerdict reads the leader's list, which is the one list whose silence
-// about a task means the task is gone rather than not yet applied.
+// clusterVerdict settles what the load path withheld. It asks this node's own
+// applied map first and the leader's list only after.
+//
+// The order is what makes the answer about now rather than about whenever the
+// list was fetched. One list is fetched per walk, before any lock is taken,
+// and the walk that follows can take a while; a reindex started inside that
+// window is absent from the list through no fault of its own, and absence is
+// what licenses deleting its staged data. Its record exists here only because
+// a unit started on this shard, and a unit starts from this node's applied
+// map — so the task is in that map, and finding it there is positive evidence
+// no snapshot age can spoil.
+//
+// A map that cannot be read yet withholds outright rather than falling
+// through. The fall-through reads an absent task as gone, and this node not
+// having applied the task is precisely what it cannot distinguish from that.
 func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []*distributedtask.Task) (migrationVerdict, string) {
+	if r.deps.LocalTasks == nil {
+		return migrationVerdictLeave, "this node's task map cannot be read yet"
+	}
+	local, readable := r.deps.LocalTasks()
+	if !readable {
+		return migrationVerdictLeave, "this node's task map cannot be read yet"
+	}
+	if task := findMigrationTask(subject, local); task != nil {
+		return migrationVerdictForTask(task)
+	}
 	return r.verdictFrom(subject, tasks, true)
+}
+
+// localUnitLive reports a worker of this migration still running here. No
+// probe installed reads as not running, which is what every path did before
+// there was one.
+func (r *migrationReconciler) localUnitLive(subject MigrationSubject) bool {
+	if r.deps.UnitLive == nil {
+		return false
+	}
+	return r.deps.UnitLive(
+		distributedtask.TaskDescriptor{ID: subject.TaskID, Version: subject.Key.TaskVersion},
+		subject.Key.UnitID)
 }
 
 // verdictFrom consults the two external facts, in the order that makes the
@@ -575,35 +621,54 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*dis
 	absentTaskIsGone bool,
 ) (migrationVerdict, string) {
 	if task := findMigrationTask(subject, tasks); task != nil {
-		switch task.Status {
-		case distributedtask.TaskStatusFinished:
-			return migrationVerdictCommit, "owning task finished"
-		case distributedtask.TaskStatusCancelled, distributedtask.TaskStatusFailed:
-			return migrationVerdictDiscard, fmt.Sprintf("owning task %s", task.Status)
-		default:
-			// Active, or a status this build does not recognize. The task that
-			// discovery finds in flight resumes the migration itself.
-			return migrationVerdictLeave, fmt.Sprintf("owning task is %s", task.Status)
-		}
+		return migrationVerdictForTask(task)
 	}
 
-	// A task absent from a complete task map is terminal: tasks are added
-	// before any unit runs and only cleanup removes them, and cleanup runs
-	// only on terminal tasks. So the migration's own schema effect decides.
+	// A task absent from a complete task map is one no unit will resume. It
+	// is not necessarily terminal: the completed-task sweep is the ordinary
+	// remover and only takes terminal tasks, but a collection delete removes
+	// the class's tasks outright, a re-submitted version replaces its
+	// predecessor, and a snapshot restore replaces the map wholesale. What
+	// they share is that the run this record belongs to is over, which is what
+	// the migration's own schema effect then decides between.
 	class := r.deps.Class()
 	if class == nil {
 		return migrationVerdictLeave, "collection is not in the locally applied schema"
 	}
 	if migrationEffectSatisfied(class, subject) {
-		// Committing needs no complete list: the effect is applied after the
-		// task finishes, so a node that can see the effect has applied the
-		// task's own creation too.
+		// Committing needs no complete list. Schema changes and task changes
+		// travel one replicated log, so the effect is committed after the
+		// entry that created the task, and a node that applied the effect
+		// applied that entry too — an absence here is therefore a removal,
+		// not a lag.
+		//
+		// The effect is not proof that THIS shard swapped: the rangeable
+		// family commits its flag from the first shard's swap, with the task
+		// still running. It is only ever read where promoting is safe anyway —
+		// before Merged this verdict does nothing but warn, and at Merged the
+		// staged data is already complete.
 		return migrationVerdictCommit, "owning task is gone and the schema shows its effect"
 	}
 	if !absentTaskIsGone {
 		return migrationVerdictLeave, "this node can see neither the owning task nor its effect, which a node still applying its log cannot tell from a task that is gone"
 	}
 	return migrationVerdictDiscard, "owning task is gone and the schema does not show its effect"
+}
+
+// migrationVerdictForTask is what a task this node can actually see says. Both
+// lists read it the same way, because a status is positive evidence wherever
+// it is found: terminal stays terminal, and an active task resumes the
+// migration itself.
+func migrationVerdictForTask(task *distributedtask.Task) (migrationVerdict, string) {
+	switch task.Status {
+	case distributedtask.TaskStatusFinished:
+		return migrationVerdictCommit, "owning task finished"
+	case distributedtask.TaskStatusCancelled, distributedtask.TaskStatusFailed:
+		return migrationVerdictDiscard, fmt.Sprintf("owning task %s", task.Status)
+	default:
+		// Active, or a status this build does not recognize.
+		return migrationVerdictLeave, fmt.Sprintf("owning task is %s", task.Status)
+	}
 }
 
 // findMigrationTask matches on ID and version together: the same task ID
@@ -621,9 +686,24 @@ func findMigrationTask(subject MigrationSubject, tasks []*distributedtask.Task) 
 // discard is the cancel edge. The order is load-bearing: a still-armed mirror
 // whose staged bucket has been removed fails the next user write, because a
 // mirror copy that fails fails the write with it.
+//
+// It removes directories a local unit may be writing through a bucket pointer
+// it captured before the iteration started, and a task's cluster status goes
+// terminal independently of when that unit exits. What used to make this safe
+// was that the only caller ran once, before the scheduler resumed anything, so
+// no unit had started in this process — an argument the periodic pass ends,
+// since it runs for the life of the node. So the unit is asked about directly,
+// and a live one withholds until the next pass. The two blocking drains that
+// guard the other teardown paths are not available here: this walk holds each
+// index's drop lock, where waiting would stall the RAFT apply loop.
 func (r *migrationReconciler) discard(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject, why string,
 ) error {
+	if r.localUnitLive(subject) {
+		r.logger.WithField("record", subject.Key.String()).Infof(
+			"a local unit of this migration is still running, so its directories stay: %s", why)
+		return nil
+	}
 	r.logger.WithField("record", subject.Key.String()).Infof("discarding staged migration data: %s", why)
 
 	ec := errorcompounder.New()

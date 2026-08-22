@@ -134,6 +134,7 @@ type DB struct {
 	reindexAuditDeferredRequests       int
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
+	reindexUnitLivenessLookupBuilder   ReindexUnitLivenessLookupBuilder
 	migrationLocalTaskSource           MigrationLocalTaskSource
 	migrationClusterTaskSource         MigrationClusterTaskSource
 
