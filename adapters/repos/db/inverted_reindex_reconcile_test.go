@@ -81,12 +81,14 @@ type reconcileFixture struct {
 	// liveUnit, when set, is the one (task, unit) a worker is running on this
 	// node, so no teardown may seal that one. Nil means nothing is running.
 	liveUnit *liveUnitKey
-	// sealed names every unit a teardown sealed during the pass, and
-	// sealsReleased counts the ones it let go again. Named rather than
-	// counted, because one pass runs several arms over several records and
-	// only the arm under test is the subject. A seal that leaks refuses its
-	// unit for the life of the process, so the migration could never run on
-	// this node again.
+	// asked names every unit a teardown tried to seal and sealed the ones it
+	// was granted. Both are needed: what the registry granted is decided by
+	// liveUnit, so only what was asked for says which unit an arm believes it
+	// is tearing down. Named rather than counted, because one pass runs
+	// several arms over several records and only the arm under test is the
+	// subject. sealsReleased counts what was let go again; a seal that leaks
+	// refuses its unit for the life of the process.
+	asked         []liveUnitKey
 	sealed        []liveUnitKey
 	sealsReleased int
 	class         *models.Class
@@ -163,6 +165,7 @@ func (f *reconcileFixture) deps() migrationReconcileDeps {
 			// Keyed on the descriptor the arm actually passes, not on the
 			// flag alone: a seal taken for the wrong migration would
 			// otherwise look exactly like one taken for the right one.
+			f.asked = append(f.asked, liveUnitKey{desc, unitID})
 			if f.liveUnit != nil && *f.liveUnit == (liveUnitKey{desc, unitID}) {
 				return nil, false
 			}
@@ -1437,8 +1440,11 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 				require.True(t, live.exists(dir),
 					"a live worker writes into %s through a pointer it already holds", dir)
 			}
-			require.NotContains(t, live.sealed, *live.liveUnit,
-				"the unit a worker is running on grants no seal")
+			// Not that live.sealed lacks this unit: the registry is what
+			// refuses it, so that would hold however the arm behaved. What it
+			// has to have done is ask, for this unit and not another.
+			require.Contains(t, live.asked, *live.liveUnit,
+				"the arm must take the seal of the unit whose directories it is about to remove")
 
 			free := newReconcileFixture(t)
 			free.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")

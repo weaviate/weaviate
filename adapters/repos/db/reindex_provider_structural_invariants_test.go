@@ -280,5 +280,8 @@ func TestStructuralInvariant_SealLocalTaskDrain_WaitsForPrepAndSwap(t *testing.T
 	release, entered = p.enterLocalUnit(desc, "shard-1__node-0")
 	require.True(t, entered, "once the teardown releases, work may start again")
 	release()
-	require.Empty(t, p.sealedUnits)
+	// The task-wide registry, which is the one this drain writes; a leaked
+	// entry there refuses every unit of the task for the life of the process.
+	require.Empty(t, p.sealedTasks)
+	require.Empty(t, p.liveUnits)
 }
