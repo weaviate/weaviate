@@ -452,54 +452,23 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 		{"category", "equal", categories[0], expectedCatCount},
 		{"path", "equal", paths[0], expectedPathCount},
 	} {
-		histogram := make(map[string]map[int]int) // nodeID -> count -> N
-		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-			nodeKey := fmt.Sprintf("node-%d", nodeIdx)
-			histogram[nodeKey] = map[int]int{}
-			for i := 0; i < pollsPerReplica; i++ {
-				postURI := restURIOf(compose, nodeIdx)
-				var got int
-				var err error
+		ok, rendered := pollPerReplicaHistogram(compose, pollsPerReplica, prop.expected,
+			func(postURI string) (int, error) {
 				switch prop.kind {
 				case "range":
-					got, err = rangeCount(postURI, className, prop.name, priceLo, priceHi)
+					return rangeCount(postURI, className, prop.name, priceLo, priceHi)
 				case "equal":
-					got, err = equalCount(postURI, className, prop.name, prop.value)
+					return equalCount(postURI, className, prop.name, prop.value)
+				default:
+					return 0, fmt.Errorf("unknown prop kind %q", prop.kind)
 				}
-				if err != nil {
-					// Treat a query error as a distinct histogram bucket
-					// at -1 so it's visible in the failure log.
-					histogram[nodeKey][-1]++
-					continue
-				}
-				histogram[nodeKey][got]++
-			}
-		}
-
-		// Pass condition: every (node, poll) returned the expected count.
-		allCorrect := true
-		for _, perNode := range histogram {
-			for value, n := range perNode {
-				if value != prop.expected || n != pollsPerReplica {
-					allCorrect = false
-				}
-			}
-		}
-
-		if !allCorrect {
-			// Render histogram in the failure message so the per-replica
-			// flap shape is visible — this is the smoking gun for
-			// per-replica bucket-pointer divergence.
-			lines := []string{
-				fmt.Sprintf("GH #212 per-replica divergence on %q (expected %d, %d polls/replica):",
-					prop.name, prop.expected, pollsPerReplica),
-			}
-			for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-				nodeKey := fmt.Sprintf("node-%d", nodeIdx)
-				lines = append(lines,
-					fmt.Sprintf("  %s: %+v", nodeKey, histogram[nodeKey]))
-			}
-			assert.Fail(t, "per-replica divergence", "%s", joinLines(lines))
+			})
+		if !ok {
+			// rendered shows the per-replica flap shape — the smoking gun
+			// for per-replica bucket-pointer divergence.
+			assert.Fail(t, "per-replica divergence",
+				"GH #212 per-replica divergence on %q (expected %d, %d polls/replica):%s",
+				prop.name, prop.expected, pollsPerReplica, rendered)
 		}
 	}
 
@@ -517,15 +486,4 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 			"GH #212 LB-side path query #%d (node %d) = %d, expected %d",
 			i+1, nodeIdx, gotPath, expectedPathCount)
 	}
-}
-
-func joinLines(lines []string) string {
-	var b []byte
-	for i, l := range lines {
-		if i > 0 {
-			b = append(b, '\n')
-		}
-		b = append(b, l...)
-	}
-	return string(b)
 }
