@@ -176,7 +176,7 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 				require.Equal(t, tt.wantCode, code, tt.because)
 			}
 			require.Equal(t, tt.wantCalls, cleaner.calls, tt.because)
-			require.Equal(t, tt.wantSealed, nilIfEmpty(sealer.sealed))
+			require.Equal(t, tt.wantSealed, sealer.sealed)
 			require.Equal(t, len(sealer.sealed), sealer.released,
 				"a leaked seal refuses this task for the life of the process")
 			for _, swept := range sealer.sweptWhileSealed {
@@ -185,11 +185,4 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 			}
 		})
 	}
-}
-
-func nilIfEmpty(s []string) []string {
-	if len(s) == 0 {
-		return nil
-	}
-	return s
 }

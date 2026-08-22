@@ -320,10 +320,8 @@ func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []
 		return fmt.Errorf("mkdir migration dir %q: %w", migDir, err)
 	}
 	target := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	// The comparison is a convenience — an identical rewrite would be
-	// harmless — so an oversized file skips it and is overwritten rather than
-	// read. [refuseOversizedRecoveryPayload] holds for every reader of this
-	// file, and this is one.
+	// The comparison is a convenience — an identical rewrite would be harmless
+	// — so an oversized file skips it and is overwritten rather than read.
 	if err := refuseOversizedRecoveryPayload(target); err == nil {
 		if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, payload) {
 			return nil

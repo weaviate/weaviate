@@ -1596,10 +1596,15 @@ restores or downgrades (`migrationCompletionMarker`).
 Downgrading is the mirror of it. A migration this build flipped and has not yet
 promoted keeps its live data under the staged name, and the record in
 `<shard>/lsm/.migrations/records/` is the only thing that says so. An older
-release does not read records: it never renames the staged directory onto the
-canonical name, and the three strategies that pre-create an empty canonical
-bucket when the migration arms then serve queries from it. The data is on disk
-throughout; the fix is to upgrade again and let reconciliation promote.
+release does not read records, so it never renames the staged directory onto
+the canonical name, and the three strategies that pre-create an empty canonical
+bucket when the migration arms then serve queries from it.
+
+The staged directory itself survives an ordinary downgrade — the older
+release's sidecar sweep runs on an index DELETE, not on load. But that sweep
+derives its preserve set from the `tidied.mig` / `merged.mig` markers, which
+this build never writes, so **disabling the index to fix the empty results is
+what destroys the data**. Upgrade again instead and let reconciliation promote.
 
 ## 15. Files of interest
 

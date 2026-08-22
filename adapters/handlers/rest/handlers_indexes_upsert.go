@@ -810,12 +810,19 @@ func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal
 		cancel()
 		if err != nil {
 			release()
-			h.appState.Logger.WithFields(logrus.Fields{
+			entry := h.appState.Logger.WithFields(logrus.Fields{
 				"collection": collection,
 				"property":   propertyName,
 				"taskID":     desc.ID,
-			}).Errorf("submit: a local worker of an earlier task on this property has not exited, "+
-				"so pre-submit cleanup would race it; refusing submit: %v", err)
+			})
+			if errors.Is(err, context.Canceled) {
+				// The caller hung up. Nothing is wrong with the worker, and
+				// the responder below never reaches anyone.
+				entry.Infof("submit: the request ended while waiting for an earlier task's local worker: %v", err)
+			} else {
+				entry.Errorf("submit: a local worker of an earlier task on this property has not exited, "+
+					"so pre-submit cleanup would race it; refusing submit: %v", err)
+			}
 			return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 				"a local worker of an earlier reindex task on this property has not exited yet; "+
 					"pre-submit cleanup cannot run without racing it — retry shortly"))
