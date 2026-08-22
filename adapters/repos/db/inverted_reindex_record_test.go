@@ -657,14 +657,82 @@ func TestDecodeMigrationRecordRejectsEscapingHandles(t *testing.T) {
 			handle: "m_42_..title",
 		},
 		{
-			name:   "a legitimate nested handle is accepted",
+			// No writer emits a nested handle: every one is a strategy prefix
+			// plus sorted property names, none of which can carry a separator.
+			// Accepting one is what lets the rest of this table be evaded.
+			name:   "a nested handle names no directory a writer can produce",
 			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.SidecarDirs = []string{h} },
-			handle: "m_42_tracker/searchable/title",
+			handle: "m_42_tracker/searchable/title", wantErr: true,
 		},
 		{
 			name:   "an empty handle is the ordinary names-none",
 			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.TrackerDir = h },
 			handle: "",
+		},
+		// The four handles a join resolves back to the shard root itself,
+		// which is then what os.RemoveAll is handed. filepath.IsLocal accepts
+		// every one of them.
+		{
+			name:   "the current directory",
+			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.SidecarDirs = []string{h} },
+			handle: ".", wantErr: true,
+		},
+		{
+			name: "the current directory, spelled with a separator",
+			place: func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) {
+				s.StagedDirs = map[string]string{"title": h}
+			},
+			handle: "./", wantErr: true,
+		},
+		{
+			name:   "a descent and an ascent that cancel",
+			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.TrackerDir = h },
+			handle: "x/..", wantErr: true,
+		},
+		{
+			name: "two descents and two ascents that cancel",
+			place: func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) {
+				s.CanonicalDirs = map[string]string{"title": h}
+			},
+			handle: "a/b/../..", wantErr: true,
+		},
+		// Property names are the other family: the sweeps compose bucket and
+		// sidecar directory names out of them and then remove those.
+		{
+			name:   "a property name that escapes",
+			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.Properties = []string{h} },
+			handle: "x/../../../../etc", wantErr: true,
+		},
+		{
+			name:   "an empty property name, which composes into another property's bucket",
+			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.Properties = []string{h} },
+			handle: "", wantErr: true,
+		},
+		{
+			name: "a poisoned staged-dirs key",
+			place: func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) {
+				s.StagedDirs = map[string]string{h: "m_42_title"}
+			},
+			handle: "../../evil", wantErr: true,
+		},
+		{
+			name: "a poisoned displaced-dirs key",
+			place: func(_ *MigrationSubject, f *migrationFlipEnvelope, h string) {
+				f.DisplacedDirs = map[string]string{h: "m_42_title"}
+			},
+			handle: "../../evil", wantErr: true,
+		},
+		{
+			name: "a poisoned flipped-properties entry",
+			place: func(_ *MigrationSubject, f *migrationFlipEnvelope, h string) {
+				f.Flipped = []string{h}
+			},
+			handle: "../../evil", wantErr: true,
+		},
+		{
+			name:   "an ordinary property name decodes",
+			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.Properties = []string{h} },
+			handle: "title_2",
 		},
 	}
 

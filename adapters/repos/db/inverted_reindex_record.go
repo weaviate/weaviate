@@ -14,7 +14,9 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -349,44 +351,77 @@ func decodeMigrationRecord(data []byte) (MigrationRecord, error) {
 	}
 }
 
-// validateMigrationHandles rejects a directory handle that does not stay under
-// the shard root. Every handle is joined onto that root and the result reaches
-// os.RemoveAll, and a join cleans "../" without containing it — so a crafted
-// handle deletes outside the shard. Backup restore is the reachable producer:
-// it writes an archive's record bytes into the records directory untouched.
+// migrationHandleIsOneElement reports whether h names a single entry of the
+// directory it is joined onto. [filepath.IsLocal] is not that test: it accepts
+// ".", "x/.." and "a/b/../..", each of which a Join resolves back to the very
+// root it started from — and that root is the shard's LSM directory, which
+// then reaches os.RemoveAll.
+func migrationHandleIsOneElement(h string) bool {
+	if h == "" || h == "." || h == ".." || filepath.IsAbs(h) {
+		return false
+	}
+	if h != filepath.Clean(h) {
+		return false
+	}
+	return !strings.ContainsRune(h, '/') && !strings.ContainsRune(h, os.PathSeparator)
+}
+
+// validateMigrationHandles rejects any recorded string that a reader turns
+// into a path component and that does not name a single entry under the shard
+// root. Two families reach one:
+//
+//   - directory handles, joined onto the shard's LSM directory and removed
+//     with os.RemoveAll;
+//   - property names, from which the sweeps compose bucket and sidecar
+//     directory names and then remove those.
+//
+// Property names carry no separator and no dot in the schema, and every
+// handle a writer emits is a strategy prefix plus sorted property names, so
+// the rule refuses nothing legitimate. The property-name lists that no reader
+// turns into a path today are validated on the same rule: they are the same
+// kind of string, and the cost of covering them is nothing.
+//
+// Backup restore is the reachable producer: it writes an archive's record
+// bytes into the records directory untouched.
 func validateMigrationHandles(e migrationRecordEnvelope) error {
 	reject := func(field, handle string) error {
-		return fmt.Errorf("record %q names %s %q, which is not a directory inside the shard",
+		return fmt.Errorf("record %q names %s %q, which is not a single directory inside the shard",
 			e.Subject.Key, field, handle)
 	}
 
 	named := map[string][]string{
 		"tracker directory": {e.Subject.TrackerDir},
 		"sidecar directory": e.Subject.SidecarDirs,
+		"property":          e.Subject.Properties,
 	}
 	for field, dirs := range map[string]map[string]string{
 		"staged directory":    e.Subject.StagedDirs,
 		"canonical directory": e.Subject.CanonicalDirs,
 	} {
-		for _, dir := range dirs {
+		for prop, dir := range dirs {
 			named[field] = append(named[field], dir)
+			named["property"] = append(named["property"], prop)
 		}
 	}
 	if e.Flip != nil {
-		for _, dir := range e.Flip.DisplacedDirs {
+		for prop, dir := range e.Flip.DisplacedDirs {
 			named["displaced directory"] = append(named["displaced directory"], dir)
+			named["property"] = append(named["property"], prop)
 		}
+		named["property"] = append(named["property"], e.Flip.Flipped...)
 	}
 
-	for field, dirs := range named {
-		for _, dir := range dirs {
+	for field, handles := range named {
+		for _, handle := range handles {
 			// An empty handle is the ordinary "this record names none", and
-			// every reader already guards on it.
-			if dir == "" {
+			// every reader already guards on it. An empty property name is
+			// not: nothing legitimate emits one, and it composes into a
+			// bucket name that names another property's sidecar.
+			if handle == "" && field != "property" {
 				continue
 			}
-			if !filepath.IsLocal(dir) {
-				return reject(field, dir)
+			if !migrationHandleIsOneElement(handle) {
+				return reject(field, handle)
 			}
 		}
 	}

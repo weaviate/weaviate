@@ -1172,13 +1172,14 @@ func TestPromotionWithholdsOnADirectoryItCannotStat(t *testing.T) {
 			wantState: MigrationStatePromoted,
 		},
 		{
-			// A non-directory in the path makes the stat fail with something
-			// other than ENOENT, which is what a permission or I/O fault on
-			// the real path looks like to the probe.
+			// A name longer than any filesystem component makes the stat fail
+			// with something other than ENOENT, which is what a permission or
+			// I/O fault on the real path looks like to the probe. It has to be
+			// a single element: a handle with a separator in it no longer
+			// decodes, since a join is what carries one out of the shard.
 			name: "a staged directory that cannot be stat'd promotes nothing",
-			stagedDir: func(f *reconcileFixture) string {
-				require.NoError(t, os.WriteFile(filepath.Join(f.lsmPath, "blocked"), nil, 0o600))
-				return "blocked/m_20_title"
+			stagedDir: func(*reconcileFixture) string {
+				return strings.Repeat("m", 300)
 			},
 			wantState: MigrationStateSwapped,
 		},
