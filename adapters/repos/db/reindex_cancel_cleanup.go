@@ -281,8 +281,8 @@ func (i *Index) cleanStalePartialReindexState(
 // directory and skips it (which offload is about to make true anyway), or
 // races the other way into a spurious [ErrCleanupShardFailed] — never
 // corruption. A deactivated (COLD) tenant is absent from the map too, and
-// reactivating it changes nothing: the stale-sentinel check runs from the
-// task path, not from a shard load.
+// reactivating it changes nothing: the record check runs from the task path,
+// not from a shard load.
 //
 // The second return says the shard holds a completed migration's leftovers:
 // its data still under the ingest sidecar name, or a directory a promoted

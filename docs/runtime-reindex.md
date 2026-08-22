@@ -25,9 +25,12 @@ godoc wins — and that's a bug in this doc.
 > five states (Iterating, Iterated, Merged, Swapped, Promoted), and
 > reconciliation at shard load owns every load-time decision the finalizer
 > used to make. Read `inverted_reindex_record.go` and
-> `inverted_reindex_reconcile.go` for the current shape. The rest of this
-> document — the API, the strategy catalogue, the phase contract, the
-> concurrency model, multi-tenancy and the tokenization overlay — is
+> `inverted_reindex_reconcile.go` for the current shape. The phase contract
+> is stale for the same reason: the displaced directory is now removed at the
+> handle the record names, not renamed to a derived backup name, so every
+> mention below of a rename-to-backup or of a "tidied" state describes the
+> retired representation too. The API, the strategy catalogue, the
+> concurrency model, multi-tenancy and the tokenization overlay are
 > unaffected.
 
 ## 1. Overview
@@ -1609,7 +1612,9 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 - [`adapters/repos/db/inverted_reindex_strategy_*.go`](../adapters/repos/db/) — one per strategy.
 - [`adapters/repos/db/inverted_reindex_strategy_dir_names.go`](../adapters/repos/db/inverted_reindex_strategy_dir_names.go) — `genSuffix`, `parseMigrationDirName`, strategy dir prefix constants.
 - [`adapters/repos/db/inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go) — `ShardReindexTaskGeneric`, the **phase-contract godoc** at the top of the file is the authoritative spec.
-- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `FinalizeCompletedMigrations`, `nextMigrationGeneration`, `maxMigrationGeneration`, `completedMigrationGens`.
+- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `nextMigrationGeneration`, `maxMigrationGeneration`, `migrationSuffixes`.
+- [`adapters/repos/db/inverted_reindex_record.go`](../adapters/repos/db/inverted_reindex_record.go) — `MigrationRecord` and its five variants, `MigrationStrategyCode`.
+- [`adapters/repos/db/inverted_reindex_reconcile.go`](../adapters/repos/db/inverted_reindex_reconcile.go) — `migrationReconciler`, the load-time owner of every state transition.
 
 **LSM primitives**
 

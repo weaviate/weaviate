@@ -103,8 +103,8 @@ type MigrationStrategy interface {
 	// map→blockmax, roaring-set refresh) should return nil.
 	AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay
 
-	// OnMigrationComplete is called when the migration is fully tidied on a
-	// single shard. Implementations can read the shard's current bucket state
+	// OnMigrationComplete is called once this shard's flip is durable.
+	// Implementations can read the shard's current bucket state
 	// to decide whether collection-level finalization (e.g. flipping the
 	// UsingBlockMaxWAND class flag) is safe — important for per-property
 	// migrations, where the flag must only flip once every searchable property
@@ -113,7 +113,7 @@ type MigrationStrategy interface {
 	// Phase contract (see inverted_reindex_task_generic.go file-level
 	// godoc): OnMigrationComplete fires in Phase 2c — AFTER the per-prop
 	// SwapBucketPointer tight loop (Phase 2a) and AFTER the inline
-	// oldMain.Shutdown + oldMain→backup rename loop (Phase 2b), but still
+	// oldMain.Shutdown + removal of the displaced dirs (Phase 2b), but still
 	// INSIDE the per-shard tokenization-overlay window for migrations
 	// that use one (change-tokenization-{searchable,filterable},
 	// enable-filterable, enable-searchable). The overlay is cleared

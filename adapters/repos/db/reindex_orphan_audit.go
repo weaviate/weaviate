@@ -387,9 +387,8 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 // reindexAuditQuarantineFile is the sentinel file the audit writes
 // into a tracker dir on first orphan detection (S2 quarantine).
 // Subsequent audits read its mtime to gate the destructive cleanup
-// behind the quarantine window. Concrete file name lives here so the
-// inverted_reindex_finalize.go startup finalizer (which also iterates
-// .migrations/) cannot accidentally consume it as a sentinel.
+// behind the quarantine window. The concrete name lives here so it stays
+// distinct from the tracker payload the audit reads beside it.
 const reindexAuditQuarantineFile = "audit_quarantined.mig"
 
 // reindexAuditQuarantineWindow is the minimum age (mtime) of
@@ -429,9 +428,9 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 	records, frozen, unreadable := migrationRecordsAt(lsmPath, logger)
 	if frozen || unreadable {
 		// A record this build cannot read may name any tracker here, and the
-		// record-less arm below has no liveness check to fall back on. Same
-		// shard-wide withholding every other consumer of an unreadable record
-		// set applies, and it costs disk rather than data.
+		// record-less arm below has no liveness check to fall back on. This
+		// withholds shard-wide like every other consumer of an unreadable
+		// record set, and it costs disk rather than data.
 		logger.WithField("collection", collection).WithField("shard", shardName).
 			Warn("reindex orphan audit: migration records could not be read; reclaiming nothing on this shard")
 		return nil

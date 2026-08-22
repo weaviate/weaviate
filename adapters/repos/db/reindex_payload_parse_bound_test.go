@@ -143,7 +143,7 @@ func TestOversizedTrackerPayloadIsRefusedNotParsed(t *testing.T) {
 // handler concludes once the bound refuses a payload: it stops deleting the
 // trackers only a payload could attribute, and keeps deleting the ones their
 // own name proves. Under-deleting leaves the next re-enable to fail loudly on
-// the stale sentinel; over-deleting would lose another property's tracker.
+// the migration record; over-deleting would lose another property's tracker.
 func TestOversizedTrackerPayloadKeepsTheDeleteSweepSafe(t *testing.T) {
 	ambiguous := migrationDirWithProps(MigrationDirPrefixEnableFilterable, multiPropTrackerProps) + genSuffix(1)
 	unambiguous := migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{"cat"}) + genSuffix(1)
@@ -168,7 +168,7 @@ func TestOversizedTrackerPayloadKeepsTheDeleteSweepSafe(t *testing.T) {
 			tenants:  payloadTenantsUnderBound,
 		},
 		{
-			name:         "payload settles it and is refused: left for the stale-sentinel check",
+			name:         "payload settles it and is refused: left for the record check",
 			dirName:      ambiguous,
 			propName:     "a",
 			tenants:      payloadTenantsOverBound,

@@ -424,7 +424,7 @@ func TestMigrationRecordStore(t *testing.T) {
 			},
 		},
 		{
-			name: "records come back in ascending generation order",
+			name: "records come back in ascending task-version order, then strategy code",
 			arrange: func(t *testing.T, s *MigrationRecordStore) {
 				require.NoError(t, s.Put(merged(43, StrategyCodeEnableFilterable)))
 				require.NoError(t, s.Put(merged(7, StrategyCodeEnableFilterable)))

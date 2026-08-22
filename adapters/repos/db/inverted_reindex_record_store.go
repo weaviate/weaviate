@@ -257,8 +257,9 @@ func (s *MigrationRecordStore) Get(key MigrationRecordKey) (MigrationRecord, boo
 	return rec, ok
 }
 
-// Records snapshots every understood record in ascending generation order,
-// which is the order the supersession retirement has to run in.
+// Records snapshots every understood record in a fixed order: ascending task
+// version, then strategy code. Retirement does not need that order to be
+// correct, but a fixed one makes two passes over the same store agree.
 func (s *MigrationRecordStore) Records() []MigrationRecord {
 	s.mu.RLock()
 	out := make([]MigrationRecord, 0, len(s.records))

@@ -1426,15 +1426,15 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
 
-	// Phase 2b (post-atomic, slow but inline): shutdown + rename of the
-	// OLD (now-dead) main buckets. The load-bearing rule is: rename
-	// only shut-down buckets; never rename a live bucket that is
+	// Phase 2b (post-atomic, slow but inline): shutdown + removal of the
+	// OLD (now-dead) main buckets. The load-bearing rule is: remove
+	// only shut-down buckets; never remove a live bucket that is
 	// serving queries. The OLD bucket is no longer in the store's
 	// bucketsByName map (SwapBucketPointer deleted it), so it's not
 	// serving queries; Shutdown drains any in-flight compaction and
-	// closes mmaps cleanly. The rename moves its dir off the canonical
-	// name so the LIVE bucket (still at ingest_<gen> on disk) is the
-	// only candidate for the canonical name on next restart.
+	// closes mmaps cleanly. Removing its dir leaves the LIVE bucket
+	// (still at ingest_<gen> on disk) as the only candidate for the
+	// canonical name on next restart.
 	//
 	// This work is OUTSIDE the mixed-state window — every prop has
 	// already had its in-memory pointer swapped. Queries during this
@@ -1489,9 +1489,9 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 
 	// Trim older generations on disk (best-effort cleanup of sidecar
-	// dirs from completed-and-tidied prior migrations on this prop).
-	// Independent of the atomic window — operates on _bak / .migrations
-	// dirs whose owning gen is strictly older than this gen.
+	// dirs from prior migrations on this prop). Independent of the atomic
+	// window: operates on sidecar and .migrations dirs whose owning gen is
+	// strictly older than this gen.
 	t.trimOlderGenerationsLocked(logger, shard, props)
 
 	logger.Info("runtime swap: migration complete (ingest→main rename deferred to next restart)")
@@ -1637,7 +1637,7 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 func (t *ShardReindexTaskGeneric) removeAllSafe(logger logrus.FieldLogger, path string) {
 	if err := os.RemoveAll(path); err != nil {
 		logger.WithField("path", path).
-			Warnf("runtime swap: trim: failed to remove obsolete dir; next-restart finalize will sweep: %v", err)
+			Warnf("runtime swap: trim: failed to remove obsolete dir; the orphan audit reclaims it: %v", err)
 	}
 }
 

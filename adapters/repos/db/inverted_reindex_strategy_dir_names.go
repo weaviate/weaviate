@@ -107,10 +107,11 @@ func migrationDirWithProps(prefix string, propNames []string) string {
 // same (prop, indexType) tuple don't collide on dir paths. Generation is
 // computed per-node at task start by [nextMigrationGeneration]; the
 // previous live main bucket lives at `…_ingest_<N-1>` (the in-memory
-// pointer was already swapped to it; on-disk rename is deferred to the
-// next-restart finalize), and the new migration writes to `…_ingest_<N>`.
+// pointer was already swapped to it; the on-disk rename onto the canonical
+// name is deferred to the next load's reconciliation), and the new migration
+// writes to `…_ingest_<N>`.
 //
-// Generation 0 is reserved for the canonical (post-finalize) bucket at
+// Generation 0 is reserved for the canonical (post-promotion) bucket at
 // `property_<prop>_<index>`, which has no suffix. Live migrations always
 // use generation ≥ 1.
 func genSuffix(generation int) string {
@@ -494,8 +495,8 @@ func (c *taskPropsCache) count() int {
 // A payload over [maxRecoveryPayloadBytes] is refused rather than parsed, and
 // reads the same as one that could not be parsed: fail-open, never
 // fail-wrong. Deletion falls back to matching the dir's own name (removing
-// only what the name proves, else leaving it for the stale-sentinel check to
-// refuse loudly); preservation matches on a name token and so keeps more;
+// only what the name proves, else leaving it for the record check to refuse
+// loudly); preservation matches on a name token and so keeps more;
 // the unloaded-shard gate hydrates the shard instead of skipping it.
 //
 // readPayload reports whether payload.mig was opened, so the caller's read

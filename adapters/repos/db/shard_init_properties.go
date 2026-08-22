@@ -210,11 +210,10 @@ func disabledIndexTypes(prop *models.Property) []string {
 }
 
 // cleanStaleMigrationDirs removes the per-property runtime-reindex
-// migration directories whose tidied sentinel would lie now that the
-// (propName, indexType) bucket has been removed. Without this, a
-// subsequent re-enable of the same index would short-circuit on the
-// stale sentinel, re-flip the schema flag to true, and report success
-// while leaving the underlying bucket empty.
+// migration directories whose record would still claim the (propName,
+// indexType) bucket is live now that it has been removed. Without this a
+// subsequent re-enable short-circuits on that record, re-flips the schema
+// flag to true, and reports success against an empty bucket.
 //
 // Errors are logged but not propagated: the bucket has already been
 // removed by the time we get here, so the user's DELETE has succeeded
@@ -259,8 +258,8 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 	scope := migrationDirsOf(lsmPath, nil, propName, indexType).cachingProps(props).knownFrom(committed)
 	if err := cleanStaleMigrationDirsIn(ctx, scope, committed, logger); err != nil && ctx.Err() == nil {
 		// Logged and dropped here only: the DELETE this serves has already
-		// removed the bucket, and the next re-enable fails loudly on the stale
-		// sentinel. The sweep path propagates it instead.
+		// removed the bucket, and the next re-enable fails loudly on the
+		// record. The sweep path propagates it instead.
 		//
 		// A run the context stopped is not logged at all: the apply it serves
 		// already fails with that same cause, and a line per shard would follow
@@ -323,7 +322,7 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 		if err := os.RemoveAll(path); err != nil {
 			logger.WithField("path", path).
 				Errorf("failed to clean up stale migration directory after index DELETE: %v; "+
-					"subsequent re-enable will fail loudly via the stale-sentinel check until "+
+					"subsequent re-enable will fail loudly on the migration record until "+
 					"this directory is removed manually", err)
 		}
 	}
@@ -334,8 +333,8 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 // cancelled (or otherwise abandoned) runtime-reindex for the named
 // (propName, indexType) on this shard. Mirrors the DELETE-handler cleanup
 // (updatePropertyBuckets) on the CANCEL→retry axis: after a cancel, the
-// next submit must start from a clean slate, otherwise the retry sees the
-// a stale record + partial __reindex/__ingest sidecars from the
+// next submit must start from a clean slate, otherwise the retry sees a
+// stale record + partial __reindex/__ingest sidecars from the
 // cancelled run, short-circuits the iteration to a 50-entry no-op, flips
 // the schema flag, and reports success against an empty-or-partial bucket.
 // Same Sev 1 family as the DELETE-then-re-enable silent failure fixed in
@@ -350,15 +349,16 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 //
 //  2. Sidecar directories on disk are removed.
 //
-//  3. The .migrations/<dir>/ for this (prop, indexType) tuple is removed —
-//     the migration record and the
-//     payload.mig recovery record vanish in one call.
+//  3. The .migrations/<dir>/ tracker for this (prop, indexType) tuple is
+//     removed, taking its payload.mig with it. The record in
+//     .migrations/records/ deliberately survives, so a retry cannot be
+//     handed the generation the abandoned run still claims.
 //
 // Failures to remove an individual directory at steps 2/3 are logged but not
 // propagated: the caller (cancel handler / submit handler) cannot meaningfully
-// recover, and the defense in depth in OnAfterLsmInitAsync
-// (stale-tidied-sentinel check) will still fail loudly rather than silently
-// report success if a partial directory survives. Step 1 errors ARE propagated
+// recover, and the defense in depth in OnAfterLsmInitAsync (the record check)
+// will still fail loudly rather than silently report success if a partial
+// directory survives. Step 1 errors ARE propagated
 // because they indicate a bucket can't be cleanly disconnected from the LSM
 // layer — proceeding to remove its files would corrupt the store. So is a
 // .migrations that cannot be listed at all: the preserve pass reads that same
