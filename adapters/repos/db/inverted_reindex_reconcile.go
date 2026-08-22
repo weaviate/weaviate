@@ -130,7 +130,7 @@ func (r *migrationReconciler) reconcileOne(ctx context.Context, rec MigrationRec
 	case MigrationRecordIterating:
 		return r.reconcileUncommitted(ctx, typed, all, someRecordsUnreadable)
 	case MigrationRecordIterated:
-		return r.reconcileIterated(ctx, typed, all, someRecordsUnreadable)
+		return r.reconcileUncommitted(ctx, typed, all, someRecordsUnreadable)
 	case MigrationRecordMerged:
 		return r.reconcileMerged(ctx, typed, all, someRecordsUnreadable)
 	case MigrationRecordSwapped:
@@ -142,31 +142,39 @@ func (r *migrationReconciler) reconcileOne(ctx context.Context, rec MigrationRec
 	}
 }
 
-// reconcileUncommitted handles Iterating: the rebuild is in flight, nothing is
-// staged completely, and the canonical bucket has never stopped being primary.
+// reconcileUncommitted handles Iterating and Iterated: the rebuild has not
+// been merged, and the canonical bucket has never stopped being primary. Both
+// variants take the same three decisions in the same order, in one place, so
+// the two cannot drift apart.
+//
+// Discard comes before the reverse edge. A cancelled migration whose
+// directories are gone would otherwise be restarted with a live mirror, and
+// nothing recreates the directories of a unit the cluster will never resume,
+// so the restart would repeat at every load and the record would never be
+// reclaimed.
 func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec MigrationRecord,
 	all []MigrationRecord, someRecordsUnreadable bool,
 ) error {
-	if someRecordsUnreadable {
-		return nil
-	}
 	subject := rec.Subject()
 
-	// A checkpoint vouches for postings, so it is subject to the same reverse
-	// edge Iterated is. This is the wide window: Iterated lasts an instant near
-	// the end of a rebuild, while a large migration carries a checkpoint for
-	// its whole runtime, and the sweeps remove a not-yet-committed record's
-	// directories without removing the record.
-	if iterating, ok := rec.(MigrationRecordIterating); ok && len(iterating.Checkpoint().LastProcessedKey) > 0 {
-		restarted, err := r.restartIfRebuiltDataGone(subject)
-		if err != nil || restarted {
-			return err
-		}
+	// The shard-wide withholding covers destructive and promoting action. The
+	// reverse edge is neither: it takes work back that nothing else covers.
+	if someRecordsUnreadable {
+		_, err := r.restartIfRebuiltDataGone(subject)
+		return err
 	}
 
-	switch verdict, why := r.verdict(subject); verdict {
-	case migrationVerdictDiscard:
+	verdict, why := r.verdict(subject)
+	if verdict == migrationVerdictDiscard {
 		return r.discard(ctx, all, subject, why)
+	}
+
+	restarted, err := r.restartIfRebuiltDataGone(subject)
+	if err != nil || restarted {
+		return err
+	}
+
+	switch verdict {
 	case migrationVerdictCommit:
 		// The cluster considers the task done while this shard never finished
 		// its rebuild. Nothing here can complete it and nothing may be
@@ -181,32 +189,14 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 	}
 }
 
-// reconcileIterated adds the one reverse edge in the machine: a record can
-// outrun its data, and resuming from a checkpoint against data that is gone
-// would silently skip every object at or below the stale key.
-func (r *migrationReconciler) reconcileIterated(ctx context.Context, rec MigrationRecordIterated,
-	all []MigrationRecord, someRecordsUnreadable bool,
-) error {
-	subject := rec.Subject()
-	if !someRecordsUnreadable {
-		if verdict, why := r.verdict(subject); verdict == migrationVerdictDiscard {
-			return r.discard(ctx, all, subject, why)
-		}
-	}
-
-	restarted, err := r.restartIfRebuiltDataGone(subject)
-	if err != nil || restarted {
-		return err
-	}
-	return r.reconcileUncommitted(ctx, rec, all, someRecordsUnreadable)
-}
-
-// restartIfRebuiltDataGone is the machine's one reverse edge. Every directory
-// the record owns has to be present while it vouches for rebuilt postings: the
-// rebuild wrote into the sidecars and the mirror into the staged ones. A
-// missing one means the rebuild never reached disk or was reclaimed, and a
-// resume would then swap in a bucket holding only the objects that happen to
-// sort above the stale key.
+// restartIfRebuiltDataGone is the machine's one reverse edge, and it is gated
+// on nothing but the directories. From its first durable write a record has a
+// horizon, and the horizon delegates every object updated at or after it to
+// the mirror — the iterator skips those. So every extant record vouches for
+// postings that live only in the directories it owns, whether or not it has
+// recorded a checkpoint. A missing directory means the rebuild never reached
+// disk or was reclaimed, and resuming would swap in a bucket holding only
+// what the surviving copy happens to contain.
 func (r *migrationReconciler) restartIfRebuiltDataGone(subject MigrationSubject) (bool, error) {
 	for _, dir := range migrationOwnedDirs(subject) {
 		there, err := r.dirExists(dir)
@@ -316,9 +306,9 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject, why string)
 // only because this pass is installed before the scheduler resumes any local
 // unit — see the discard branch below.
 //
-// Only the verdict decides here. The reverse edge from Iterated is deliberately
-// left to a load: it clears the checkpoint, and a live task iterating right now
-// would resume from the beginning.
+// Only the verdict decides here. The reverse edge is deliberately left to a
+// load: it restarts the rebuild from scratch, and a live task iterating right
+// now would be reset under it.
 //
 // It reads the records the shard already holds rather than re-reading disk:
 // the engine writes through the same store, and a reload here would drop what

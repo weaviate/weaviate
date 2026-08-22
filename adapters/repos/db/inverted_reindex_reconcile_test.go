@@ -484,12 +484,19 @@ func TestReconcileReverseEdge(t *testing.T) {
 		})
 	}
 
+	uncheckpointed := func(subject MigrationSubject) MigrationRecord {
+		return NewMigrationRecordIterating(subject, MigrationCheckpoint{})
+	}
+
 	tests := []struct {
-		name        string
-		plant       func(MigrationSubject) MigrationRecord
-		present     []string
-		wantState   MigrationState
-		wantRestart bool
+		name              string
+		plant             func(MigrationSubject) MigrationRecord
+		present           []string
+		taskStatus        distributedtask.TaskStatus
+		unreadableSibling bool
+		wantState         MigrationState
+		wantRestart       bool
+		wantGone          bool
 	}{
 		{
 			name:      "iterated with every owned directory on disk: stay iterated",
@@ -539,12 +546,47 @@ func TestReconcileReverseEdge(t *testing.T) {
 			wantRestart: true,
 		},
 		{
-			// Nothing is vouched for yet, so a missing directory is just a
-			// bucket the load is about to create.
-			name:      "an iteration that has recorded no checkpoint has nothing to restart",
-			plant:     func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
-			present:   []string{"property_title"},
+			name:      "no checkpoint with every owned directory on disk keeps its place",
+			plant:     uncheckpointed,
+			present:   []string{"m_42_title", "m_42_sidecar", "property_title"},
 			wantState: MigrationStateIterating,
+		},
+		{
+			// The checkpoint vouches for nothing yet, but the horizon has
+			// delegated to the mirror since the record's first write, and the
+			// mirror's directory is the one that went missing.
+			name:        "no checkpoint and the directory the mirror writes into is gone",
+			plant:       uncheckpointed,
+			present:     []string{"m_42_sidecar", "property_title"},
+			wantState:   MigrationStateIterating,
+			wantRestart: true,
+		},
+		{
+			name:        "no checkpoint and the directory the rebuild writes into is gone",
+			plant:       uncheckpointed,
+			present:     []string{"m_42_title", "property_title"},
+			wantState:   MigrationStateIterating,
+			wantRestart: true,
+		},
+		{
+			// The shard-wide withholding stops destructive and promoting
+			// action. Taking rebuild work back is neither.
+			name:              "an unreadable sibling record does not withhold the reverse edge",
+			plant:             uncheckpointed,
+			present:           []string{"property_title"},
+			unreadableSibling: true,
+			wantState:         MigrationStateIterating,
+			wantRestart:       true,
+		},
+		{
+			// Nothing recreates the directories of a unit the cluster will
+			// never resume, so a restart here repeats at every load and the
+			// record is never reclaimed.
+			name:       "a cancelled migration whose directories are gone is discarded, not restarted",
+			plant:      uncheckpointed,
+			present:    []string{"property_title"},
+			taskStatus: distributedtask.TaskStatusCancelled,
+			wantGone:   true,
 		},
 	}
 
@@ -554,13 +596,25 @@ func TestReconcileReverseEdge(t *testing.T) {
 			f.class = testClassWithTokenization(models.PropertyTokenizationWord, "title")
 
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
-			f.tasks = []*distributedtask.Task{testTask(subject.TaskID, 42, distributedtask.TaskStatusStarted)}
+			status := tt.taskStatus
+			if status == "" {
+				status = distributedtask.TaskStatusStarted
+			}
+			f.tasks = []*distributedtask.Task{testTask(subject.TaskID, 42, status)}
 			f.mkdirs(tt.present...)
 			f.put(tt.plant(subject))
+			if tt.unreadableSibling {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(f.store.Dir(), "99_enable_searchable.json"), []byte("{"), 0o600))
+			}
 
 			f.reconcile()
 
 			state, present := f.state(subject.Key)
+			if tt.wantGone {
+				require.False(t, present, "a cancelled migration with no data left has nothing to resume")
+				return
+			}
 			require.True(t, present)
 			require.Equal(t, tt.wantState, state)
 

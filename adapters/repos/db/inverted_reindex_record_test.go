@@ -36,6 +36,9 @@ func testMigrationSubject(version uint64, code MigrationStrategyCode, props ...s
 		OriginalTokenization: models.PropertyTokenizationWord,
 		TrackerDir:           fmt.Sprintf("m_%d_tracker", version),
 		SidecarDirs:          []string{fmt.Sprintf("m_%d_sidecar", version)},
+		// A real past horizon: with a zero one, an assertion that a horizon
+		// was kept or raised compares zero against zero and cannot fail.
+		IterationCutoff: time.Date(2026, 8, 21, 9, 0, 0, 0, time.UTC),
 	}
 	if len(props) == 0 {
 		return subject

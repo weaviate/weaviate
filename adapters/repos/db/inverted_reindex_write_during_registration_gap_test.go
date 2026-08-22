@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -32,6 +34,40 @@ import (
 // arming. Fixed before it, the backfill skips the same write
 // (LastUpdateTimeUnix >= horizon) and it is lost for good.
 func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
+	// The horizon's other half: it delegates everything at or after it to the
+	// mirror, so a mirror directory that a sweep removed takes exactly those
+	// writes with it. The reverse edge has to take them back, and it has to
+	// fire on a record that has no checkpoint to vouch for anything yet.
+	sweepTheMirrorDirectory := func(t *testing.T, ctx context.Context, shard *Shard,
+		task *ShardReindexTaskGeneric, class *models.Class, propName string,
+	) {
+		t.Helper()
+		ingest := task.ingestBucketName(propName)
+		require.NoError(t, shard.store.ShutdownBucket(ctx, ingest))
+		require.NoError(t, os.RemoveAll(filepath.Join(shard.pathLSM(), ingest)))
+
+		shard.reconcileMigrationRecords(ctx, class)
+		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	}
+
+	tests := []struct {
+		name    string
+		disrupt func(*testing.T, context.Context, *Shard, *ShardReindexTaskGeneric, *models.Class, string)
+	}{
+		{name: "the rebuild runs with everything the mirror staged still on disk"},
+		{name: "the mirror's directory is swept before the rebuild runs", disrupt: sweepTheMirrorDirectory},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testRegistrationGapWritesSurvive(t, tt.disrupt)
+		})
+	}
+}
+
+func testRegistrationGapWritesSurvive(t *testing.T,
+	disrupt func(*testing.T, context.Context, *Shard, *ShardReindexTaskGeneric, *models.Class, string),
+) {
 	const (
 		numObjects        = 25
 		numGapUpdates     = 10 // updated inside the (old) gap via the hook
@@ -93,6 +129,10 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 	// bucket via the double-write path (the iterator will skip them).
 	for i := numGapUpdates; i < numGapUpdates+numPostInitUpdate; i++ {
 		update(i, postValueBase+int64(i))
+	}
+
+	if disrupt != nil {
+		disrupt(t, ctx, shard, task, class, propName)
 	}
 
 	for {
