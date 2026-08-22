@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -70,13 +71,24 @@ func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint6
 // each shard, not the inline runtimeSwap used by MapToBlockmax.
 func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, bucketStrategy string) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
 	t.Helper()
+	return newSearchableRetokenizeTaskAtGeneration(t, idx, className, propName, targetTokenization, bucketStrategy, 1)
+}
+
+// newSearchableRetokenizeTaskAtGeneration is newSearchableRetokenizeTask for
+// the back-to-back case, where a second migration on the same property carries
+// a higher generation and a higher task version — the pair the supersession
+// relation orders by, and what gives the two their own staged buckets.
+func newSearchableRetokenizeTaskAtGeneration(t *testing.T, idx *Index, className, propName,
+	targetTokenization, bucketStrategy string, generation int,
+) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
+	t.Helper()
 	wrapped := &testSearchableRetokenizeStrategyWrapper{
 		SearchableRetokenizeStrategy: SearchableRetokenizeStrategy{
 			propName:           propName,
 			targetTokenization: targetTokenization,
 			className:          className,
 			bucketStrategy:     bucketStrategy,
-			generation:         1,
+			generation:         generation,
 		},
 	}
 	task := NewShardReindexTaskGeneric(
@@ -84,12 +96,21 @@ func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 		reindexTaskConfig{
 			concurrency:                   2,
 			memtableOptFactor:             4,
-			backupMemtableOptFactor:       1,
 			processingDuration:            10 * time.Minute,
 			pauseDuration:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+	)
+	// Without an identity the task's record key is incomplete and every
+	// transition would refuse to write itself.
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-searchable-retokenize", Version: uint64(generation)},
+		"shard-1__node-0",
+		&ReindexTaskPayload{
+			MigrationType:      ReindexTypeChangeTokenization,
+			TargetTokenization: targetTokenization,
+		},
 	)
 	return task, wrapped
 }
@@ -168,13 +189,6 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	require.NotNil(t, postBucket, "post-migration searchable bucket must exist")
 	require.Equal(t, lsmkv.StrategyInverted, postBucket.Strategy())
 
-	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
-
 	fp := fingerprintInvertedBucket(t, postBucket)
 	require.NotEmpty(t, fp, "baseline fingerprint must have at least one term")
 
@@ -226,11 +240,12 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 	return fingerprintInvertedBucket(t, shard.store.Bucket(bucketName))
 }
 
-// recoveryConvergenceCase: drive the shard to a specific on-disk state,
+// recoveryConvergenceCase: drive the shard to a specific recorded state,
 // then restart with a fresh task and assert post-recovery fingerprint
 // matches the baseline.
 type recoveryConvergenceCase struct {
-	name                       string
-	driveToState               func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric)
-	expectedPostStateSentinels map[string]bool // sanity-check the drive-to actually halted there
+	name         string
+	driveToState func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric)
+	// expectedState sanity-checks that the drive-to actually halted there.
+	expectedState MigrationState
 }

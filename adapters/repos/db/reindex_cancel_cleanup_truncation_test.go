@@ -290,8 +290,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			}
 			for _, name := range tc.shards {
 				if tc.staleOnDisk {
-					mkTrackerDir(t, shardPathLSM(idx.path(), name),
-						"enable_filterable_title_1", "started.mig")
+					mkTrackerDir(t, shardPathLSM(idx.path(), name), "enable_filterable_title_1")
 				}
 				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
 					shardOpts:        &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
@@ -409,8 +408,7 @@ func TestCleanStalePartialReindexStateRefusesAnAlreadyRequestedClose(t *testing.
 
 			monitor := &loadAttemptMonitor{}
 			for _, name := range []string{"shard-a", "shard-b"} {
-				mkTrackerDir(t, shardPathLSM(idx.path(), name),
-					"enable_filterable_title_1", "started.mig")
+				mkTrackerDir(t, shardPathLSM(idx.path(), name), "enable_filterable_title_1")
 				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
 					shardOpts:  &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
 					memMonitor: monitor,
@@ -770,8 +768,7 @@ func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) 
 
 			for _, name := range []string{"tenant-a", "tenant-b"} {
 				if tc.staleOnDisk {
-					mkTrackerDir(t, shardPathLSM(idx.path(), name),
-						"enable_filterable_title_1", "started.mig")
+					mkTrackerDir(t, shardPathLSM(idx.path(), name), "enable_filterable_title_1")
 				}
 				storeUnloadableTenant(idx, name)
 			}
@@ -802,7 +799,7 @@ func TestIndexCleanStalePartialReindexStateReportsGatePayloadReads(t *testing.T)
 	// ["cat","dog"] sorts to exactly this name, so only the payload can say
 	// whether the dir belongs to the swept property.
 	lsm := shardPathLSM(idx.path(), "tenant-a")
-	mkTrackerDir(t, lsm, "enable_filterable_cat_dog_1", "started.mig")
+	mkTrackerDir(t, lsm, "enable_filterable_cat_dog_1")
 	mkRecoveryPayload(t, lsm, "enable_filterable_cat_dog_1", "cat", "dog")
 	storeUnloadableTenant(idx, "tenant-a")
 
@@ -835,7 +832,7 @@ func TestIndexCleanStalePartialReindexStateFailsOnAnUnknownShardImplementation(t
 // else reports.
 func TestDirNamesCacheReportsRefusedListings(t *testing.T) {
 	lsm := t.TempDir()
-	mkTrackerDir(t, lsm, "enable_filterable_title_1", "started.mig")
+	mkTrackerDir(t, lsm, "enable_filterable_title_1")
 
 	full := &dirNamesCache{cost: maxCachedDirNames}
 	names, err := full.list(filepath.Join(lsm, ".migrations"))
@@ -874,8 +871,7 @@ func TestIndexCleanStalePartialReindexStateReportsRefusedListingsPerSweep(t *tes
 	logger, hook := test.NewNullLogger()
 	idx, _, closeIndex := newSweepTestIndex(t, logger)
 	defer closeIndex()
-	mkTrackerDir(t, shardPathLSM(idx.path(), "tenant-a"),
-		"enable_filterable_title_1", "started.mig")
+	mkTrackerDir(t, shardPathLSM(idx.path(), "tenant-a"), "enable_filterable_title_1")
 	storeUnloadableTenant(idx, "tenant-a")
 
 	full := &dirNamesCache{cost: maxCachedDirNames}

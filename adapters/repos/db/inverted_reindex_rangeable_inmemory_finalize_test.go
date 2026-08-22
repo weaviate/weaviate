@@ -215,7 +215,7 @@ func TestRangeableFinalize_DataWorkFailure_StillFAILED(t *testing.T) {
 	putRangeableTestObjects(t, ctx, shard, className, 5)
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
+	task.processOneSwapPropFn = func(_ context.Context, _ *lsmkv.Store, _ int, _ string) (*lsmkv.Bucket, error) {
 		return nil, fmt.Errorf("injected data-work swap failure")
 	}
 
@@ -282,13 +282,22 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 
 	// Restart replica B: boot-time population rebuilds the rep from disk,
 	// restoring acceleration without any repair action.
+	//
+	// The class carries the flag the migration's completion commits
+	// cluster-wide. Reconciliation promotes the staged directory onto the
+	// canonical name before any bucket opens, and the schema is what says
+	// there is a rangeable index to open there at all.
 	shardName := shardB.Name()
 	require.NoError(t, shardB.Shutdown(ctxB))
 
 	taskB2, _ := newFilterableToRangeableTask(t, idxB, classNameB, propName)
 	idxB.shardReindexer = &testShardReindexer{task: taskB2}
 
-	shdB2, err := idxB.initShard(ctxB, shardName, newFilterableToRangeableTestClass(classNameB), nil, true, true)
+	migratedClass := newFilterableToRangeableTestClass(classNameB)
+	rangeable := true
+	migratedClass.Properties[0].IndexRangeFilters = &rangeable
+
+	shdB2, err := idxB.initShard(ctxB, shardName, migratedClass, nil, true, true)
 	require.NoError(t, err)
 	shardB2 := shdB2.(*Shard)
 	idxB.shards.Store(shardName, shdB2)

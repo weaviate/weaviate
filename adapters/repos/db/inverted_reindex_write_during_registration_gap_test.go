@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -27,10 +29,45 @@ import (
 )
 
 // TestReindex_ConcurrentWriteInRegistrationGap_NotLost pins
-// weaviate/weaviate#11688: a write landing in the markStarted→register gap is
-// skipped by the backfill iterator (LastUpdateTimeUnix >= reindexStarted) and
-// unmirrored by the not-yet-registered double-write — permanently lost.
+// weaviate/weaviate#11688: a write that lands before the double-write mirror is
+// armed reaches no mirror, so the iteration horizon has to be fixed after the
+// arming. Fixed before it, the backfill skips the same write
+// (LastUpdateTimeUnix >= horizon) and it is lost for good.
 func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
+	// The horizon's other half: it delegates everything at or after it to the
+	// mirror, so a mirror directory that a sweep removed takes exactly those
+	// writes with it. The reverse edge has to take them back, and it has to
+	// fire on a record that has no checkpoint to vouch for anything yet.
+	sweepTheMirrorDirectory := func(t *testing.T, ctx context.Context, shard *Shard,
+		task *ShardReindexTaskGeneric, class *models.Class, propName string,
+	) {
+		t.Helper()
+		ingest := task.ingestBucketName(propName)
+		require.NoError(t, shard.store.ShutdownBucket(ctx, ingest))
+		require.NoError(t, os.RemoveAll(filepath.Join(shard.pathLSM(), ingest)))
+
+		shard.reconcileMigrationRecords(ctx, class)
+		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	}
+
+	tests := []struct {
+		name    string
+		disrupt func(*testing.T, context.Context, *Shard, *ShardReindexTaskGeneric, *models.Class, string)
+	}{
+		{name: "the rebuild runs with everything the mirror staged still on disk"},
+		{name: "the mirror's directory is swept before the rebuild runs", disrupt: sweepTheMirrorDirectory},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testRegistrationGapWritesSurvive(t, tt.disrupt)
+		})
+	}
+}
+
+func testRegistrationGapWritesSurvive(t *testing.T,
+	disrupt func(*testing.T, context.Context, *Shard, *ShardReindexTaskGeneric, *models.Class, string),
+) {
 	const (
 		numObjects        = 25
 		numGapUpdates     = 10 // updated inside the (old) gap via the hook
@@ -71,19 +108,18 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
 
-	// Wrap the ingest-window registration to land the gap writes at exactly
-	// the markStarted→register seam #11688 is about — right before callbacks
-	// arm, so only the fixed markStarted ordering keeps them.
+	// Land the gap writes exactly where #11688 loses them: after the ingest
+	// buckets exist but before the mirror is armed.
 	gapWritesDone := false
 	origRegister := task.registerDoubleWriteCallbacksFn
 	task.registerDoubleWriteCallbacksFn = func(shard *Shard, props []string,
-		bucketNamer func(string) string, forTargetStrategy bool,
+		bucketNamer func(string) string,
 	) func() {
 		for i := 0; i < numGapUpdates; i++ {
 			update(i, gapValueBase+int64(i))
 		}
 		gapWritesDone = true
-		return origRegister(shard, props, bucketNamer, forTargetStrategy)
+		return origRegister(shard, props, bucketNamer)
 	}
 
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
@@ -93,6 +129,10 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 	// bucket via the double-write path (the iterator will skip them).
 	for i := numGapUpdates; i < numGapUpdates+numPostInitUpdate; i++ {
 		update(i, postValueBase+int64(i))
+	}
+
+	if disrupt != nil {
+		disrupt(t, ctx, shard, task, class, propName)
 	}
 
 	for {
@@ -110,12 +150,12 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 	require.NotEmptyf(t, readRangeableIDs(t, rangeBucket, 0),
 		"positive control: iterator-backfilled corpus value 0 must be present")
 
-	// Gap writes: served via the fixed markStarted ordering.
+	// Gap writes: kept only because the horizon is fixed after the arming.
 	for i := 0; i < numGapUpdates; i++ {
 		val := gapValueBase + int64(i)
 		assert.Lenf(t, readRangeableIDs(t, rangeBucket, val), 1,
 			"gap-updated object %d must survive under value %d — a miss means "+
-				"the markStarted→registerDoubleWriteCallbacks gap lost it", i, val)
+				"the arm-to-horizon gap lost it", i, val)
 	}
 
 	// Post-registration writes: served only via the double-write path.

@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -260,6 +261,18 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testTornResumeReindexedNotTidied(t, compose)
 	})
 
+	// Pins that promotion runs on the directory the record names and never on
+	// one derived from a strategy prefix, a property name or a generation
+	// suffix. If RED, a completed migration's data is stranded at a name
+	// nothing can attribute while the schema reports the property ready.
+	t.Run("PromotionRunsOnRecordedHandles", func(t *testing.T) {
+		testPromotionRunsOnRecordedHandles(t, compose)
+	})
+
+	t.Run("PromotedRecordOutranItsRename", func(t *testing.T) {
+		testPromotedRecordOutranItsRename(t, compose)
+	})
+
 	// --- Shared restart: verify all deferred finalizations ---
 	t.Run("PostRestartFinalize", func(t *testing.T) {
 		t.Log("restarting weaviate container for deferred finalize verification")
@@ -384,7 +397,7 @@ func runGraphQLQuery(t *testing.T, className, gqlQuery string) ([]string, error)
 func listLSMDirs(ctx context.Context, t *testing.T, c testcontainers.Container, col, shard string) []string {
 	t.Helper()
 	path := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(col), shard)
-	code, reader, err := c.Exec(ctx, []string{"ls", "-1", path})
+	code, reader, err := c.Exec(ctx, []string{"ls", "-1", path}, tcexec.Multiplexed())
 	require.NoError(t, err, "exec ls on container")
 	require.Equal(t, 0, code, "ls returned non-zero exit code")
 	buf := new(strings.Builder)

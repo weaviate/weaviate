@@ -22,13 +22,14 @@ import (
 	"strings"
 
 	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 )
 
 // ListBucketFiles executes `ls -1` inside the container for the given bucket
 // directory and returns plain filenames (basenames).
 func ListBucketFiles(ctx context.Context, c testcontainers.Container, col, shard, bucket string) []string {
 	path := fmt.Sprintf("/data/%s/%s/lsm/%s", strings.ToLower(col), shard, bucket)
-	code, reader, err := c.Exec(ctx, []string{"ls", "-1", path})
+	code, reader, err := c.Exec(ctx, []string{"ls", "-1", path}, tcexec.Multiplexed())
 	if err != nil || code != 0 {
 		return nil
 	}
@@ -48,7 +49,7 @@ func ListBucketFiles(ctx context.Context, c testcontainers.Container, col, shard
 
 func ListLSMBuckets(ctx context.Context, c testcontainers.Container, col, shard string) []string {
 	path := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(col), shard)
-	code, reader, err := c.Exec(ctx, []string{"ls", "-1", path})
+	code, reader, err := c.Exec(ctx, []string{"ls", "-1", path}, tcexec.Multiplexed())
 	if err != nil || code != 0 {
 		return nil
 	}

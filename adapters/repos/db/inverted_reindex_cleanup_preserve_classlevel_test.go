@@ -14,23 +14,118 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"hash/fnv"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func mkTrackerDir(t *testing.T, lsmPath, name string, sentinels ...string) {
+// mkTrackerDir creates a migration's own directory under .migrations. On its
+// own it describes a migration that never got as far as its first record
+// write; mkMigrationRecord is what gives it a state.
+func mkTrackerDir(t *testing.T, lsmPath, name string) {
 	t.Helper()
-	dir := filepath.Join(lsmPath, ".migrations", name)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	for _, s := range sentinels {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, s), []byte("x"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, ".migrations", name), 0o755))
+}
+
+// mkMigrationRecord plants the record for the tracker dir called trackerName,
+// which is what every sweep and gate now reads. staged maps each property to
+// the directory this migration writes its data into; from Merged on those
+// directories back a live bucket pointer and no sweep may remove them.
+//
+// The key is derived from the tracker name so that several fixtures on one
+// shard stay distinct — no reader compares a key to anything but another
+// record's key.
+func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
+	state MigrationState, staged map[string]string,
+) {
+	t.Helper()
+	code, migrationType := fixtureStrategyOf(t, trackerName)
+	subject := MigrationSubject{
+		Key: MigrationRecordKey{
+			TaskVersion:  fixtureRecordVersion(trackerName),
+			StrategyCode: code,
+			UnitID:       "shard-1__node-0",
+		},
+		TaskID:        "fixture:" + trackerName,
+		MigrationType: migrationType,
+		TrackerDir:    trackerName,
+		StagedDirs:    map[string]string{},
+		CanonicalDirs: map[string]string{},
 	}
+	for prop, dir := range staged {
+		subject.Properties = append(subject.Properties, prop)
+		subject.StagedDirs[prop] = dir
+		subject.CanonicalDirs[prop] = "property_" + prop
+		subject.SidecarDirs = append(subject.SidecarDirs, fixtureSidecarFor(dir))
+	}
+	sort.Strings(subject.SidecarDirs)
+	sort.Strings(subject.Properties)
+
+	var rec MigrationRecord
+	switch state {
+	case MigrationStateIterating:
+		rec = NewMigrationRecordIterating(subject, MigrationCheckpoint{})
+	case MigrationStateIterated:
+		rec = NewMigrationRecordIterated(subject)
+	case MigrationStateMerged:
+		rec = NewMigrationRecordMerged(subject)
+	case MigrationStateSwapped:
+		rec = NewMigrationRecordSwapped(subject, subject.Properties, subject.CanonicalDirs)
+	case MigrationStatePromoted:
+		rec = NewMigrationRecordPromoted(subject, subject.Properties, subject.CanonicalDirs)
+	default:
+		require.FailNowf(t, "unknown migration state", "%q", state)
+	}
+
+	logger, _ := test.NewNullLogger()
+	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
+}
+
+// fixtureStrategyOf reads the strategy a tracker dir belongs to off its name,
+// which is what the writer of that name did. Production never holds a record
+// whose code disagrees with the directory it points at, so neither does a
+// fixture.
+func fixtureStrategyOf(t *testing.T, trackerName string) (MigrationStrategyCode, ReindexMigrationType) {
+	t.Helper()
+	for _, known := range []struct {
+		prefix string
+		code   MigrationStrategyCode
+		mType  ReindexMigrationType
+	}{
+		{MigrationDirSearchableMapToBlockmax, StrategyCodeSearchableMapToBlockmax, ReindexTypeChangeAlgorithm},
+		{MigrationDirFilterableRoaringsetRefresh, StrategyCodeFilterableRoaringsetRefresh, ReindexTypeRepairFilterable},
+		{MigrationDirPrefixFilterableToRangeable, StrategyCodeFilterableToRangeable, ReindexTypeEnableRangeable},
+		{MigrationDirPrefixSearchableRetokenize, StrategyCodeSearchableRetokenize, ReindexTypeChangeTokenization},
+		{MigrationDirPrefixFilterableRetokenize, StrategyCodeFilterableRetokenize, ReindexTypeChangeTokenizationFilterable},
+		{MigrationDirPrefixEnableFilterable, StrategyCodeEnableFilterable, ReindexTypeEnableFilterable},
+		{MigrationDirPrefixEnableSearchable, StrategyCodeEnableSearchable, ReindexTypeEnableSearchable},
+		{MigrationDirPrefixRebuildSearchable, StrategyCodeRebuildSearchable, ReindexTypeRebuildSearchable},
+	} {
+		if strings.HasPrefix(trackerName, known.prefix) {
+			return known.code, known.mType
+		}
+	}
+	require.FailNowf(t, "no strategy owns this tracker dir name", "%q", trackerName)
+	return "", ""
+}
+
+func fixtureRecordVersion(trackerName string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(trackerName))
+	// Zero is not a valid generation, and the record loader rejects it.
+	if v := h.Sum64(); v != 0 {
+		return v
+	}
+	return 1
 }
 
 // mkRecoveryPayload writes the payload.mig a task persists before it starts,
@@ -62,14 +157,29 @@ func cleanSweep(t *testing.T, ctx context.Context, shard *Shard, propName, index
 	return reads
 }
 
+// fixtureSidecarFor mirrors what every production writer records: alongside the
+// ingest directory a flip stages into, the migration also owns the reindex
+// sidecar it built that data in. A fixture without one exercises no part of
+// the preservation and reclamation that reads MigrationSubject.SidecarDirs.
+func fixtureSidecarFor(staged string) string {
+	if reindex := strings.Replace(staged, "_ingest_", "_reindex_", 1); reindex != staged {
+		return reindex
+	}
+	return staged + "__reindex"
+}
+
+// dirExists fails the test on a stat it cannot interpret, so an assertion
+// never reads an unreadable directory as an absent one.
+func dirExists(t *testing.T, path string) bool {
+	t.Helper()
+	there, err := migrationDirExists(path)
+	require.NoError(t, err)
+	return there
+}
+
 func dirExistsAt(t *testing.T, lsmPath, name string) bool {
 	t.Helper()
-	info, err := os.Stat(filepath.Join(lsmPath, name))
-	if err != nil {
-		require.True(t, os.IsNotExist(err), "unexpected stat error: %v", err)
-		return false
-	}
-	return info.IsDir()
+	return dirExists(t, filepath.Join(lsmPath, name))
 }
 
 // TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize pins
@@ -125,19 +235,26 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
 
-			// Completed class-level migration in deferred-finalize state.
-			mkTrackerDir(t, lsm, tc.classTracker,
-				"started.mig", "merged.mig", "swapped.mig", "tidied.mig", "properties.mig")
+			// Completed class-level migration awaiting promotion.
+			mkTrackerDir(t, lsm, tc.classTracker)
+			mkMigrationRecord(t, lsm, tc.classTracker, MigrationStateSwapped,
+				map[string]string{tc.propName: tc.liveSidecar})
 			mkSidecarDir(t, lsm, tc.liveSidecar)
+			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.liveSidecar))
 
-			// Completed per-prop migration in deferred-finalize state.
-			mkTrackerDir(t, lsm, tc.propTracker,
-				"started.mig", "merged.mig", "swapped.mig", "tidied.mig")
+			// Completed per-prop migration awaiting promotion.
+			mkTrackerDir(t, lsm, tc.propTracker)
+			mkMigrationRecord(t, lsm, tc.propTracker, MigrationStateSwapped,
+				map[string]string{tc.propName: tc.propLiveSidecar})
 			mkSidecarDir(t, lsm, tc.propLiveSidecar)
+			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.propLiveSidecar))
 
 			// Cancelled (partial) class-level attempt: stale, must be wiped.
-			mkTrackerDir(t, lsm, tc.staleTracker, "started.mig")
+			mkTrackerDir(t, lsm, tc.staleTracker)
+			mkMigrationRecord(t, lsm, tc.staleTracker, MigrationStateIterating,
+				map[string]string{tc.propName: tc.staleSidecar})
 			mkSidecarDir(t, lsm, tc.staleSidecar)
+			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.staleSidecar))
 
 			cleanSweep(t, ctx, shard, tc.propName, tc.indexType)
 
@@ -150,6 +267,16 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 				tc.propLiveSidecar)
 			require.False(t, dirExistsAt(t, lsm, tc.staleSidecar),
 				"stale sidecar %s of a cancelled attempt must be wiped", tc.staleSidecar)
+
+			// The reindex sidecar the rebuild wrote into is the migration's
+			// too, and it is preserved and reclaimed on the same evidence as
+			// the ingest one.
+			require.True(t, dirExistsAt(t, lsm, fixtureSidecarFor(tc.liveSidecar)),
+				"the reindex sidecar of the live class-level migration must survive with its ingest dir")
+			require.True(t, dirExistsAt(t, lsm, fixtureSidecarFor(tc.propLiveSidecar)),
+				"the reindex sidecar of the live per-prop migration must survive with its ingest dir")
+			require.False(t, dirExistsAt(t, lsm, fixtureSidecarFor(tc.staleSidecar)),
+				"the reindex sidecar of the cancelled attempt must be wiped with its ingest dir")
 
 			// Tracker-deletion semantics must be unchanged by the fix.
 			require.True(t,
@@ -168,31 +295,28 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 // (suffix-base, gen), not the generation int alone.
 func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T) {
 	cases := []struct {
-		name                 string
-		completedTracker     string
-		completedTrackerMigs []string
-		liveSidecar          string
-		staleTracker         string
-		staleSidecar         string
-		wipeReason           string
+		name             string
+		completedTracker string
+		liveSidecar      string
+		staleTracker     string
+		staleSidecar     string
+		wipeReason       string
 	}{
 		{
-			name:                 "completed enable_filterable gen 1 must not preserve stale roaringset ingest_1",
-			completedTracker:     "enable_filterable_category_1",
-			completedTrackerMigs: []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig"},
-			liveSidecar:          "property_category__enable_filterable_ingest_1",
-			staleTracker:         "filterable_roaringset_refresh_1",
-			staleSidecar:         "property_category__roaringset_ingest_1",
+			name:             "completed enable_filterable gen 1 must not preserve stale roaringset ingest_1",
+			completedTracker: "enable_filterable_category_1",
+			liveSidecar:      "property_category__enable_filterable_ingest_1",
+			staleTracker:     "filterable_roaringset_refresh_1",
+			staleSidecar:     "property_category__roaringset_ingest_1",
 			wipeReason: "stale roaringset ingest_1 must be wiped even though an unrelated " +
 				"completed migration shares gen 1 (bare-int keying bug, issue #295)",
 		},
 		{
-			name:                 "completed roaringset gen 2 must not preserve stale enable_filterable ingest_2",
-			completedTracker:     "filterable_roaringset_refresh_2",
-			completedTrackerMigs: []string{"started.mig", "merged.mig", "swapped.mig", "tidied.mig", "properties.mig"},
-			liveSidecar:          "property_category__roaringset_ingest_2",
-			staleTracker:         "enable_filterable_category_2",
-			staleSidecar:         "property_category__enable_filterable_ingest_2",
+			name:             "completed roaringset gen 2 must not preserve stale enable_filterable ingest_2",
+			completedTracker: "filterable_roaringset_refresh_2",
+			liveSidecar:      "property_category__roaringset_ingest_2",
+			staleTracker:     "enable_filterable_category_2",
+			staleSidecar:     "property_category__enable_filterable_ingest_2",
 			wipeReason: "stale enable_filterable ingest_2 must be wiped even though the " +
 				"completed roaringset migration shares gen 2",
 		},
@@ -209,9 +333,13 @@ func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
 
-			mkTrackerDir(t, lsm, tc.completedTracker, tc.completedTrackerMigs...)
+			mkTrackerDir(t, lsm, tc.completedTracker)
+			mkMigrationRecord(t, lsm, tc.completedTracker, MigrationStateSwapped,
+				map[string]string{"category": tc.liveSidecar})
 			mkSidecarDir(t, lsm, tc.liveSidecar)
-			mkTrackerDir(t, lsm, tc.staleTracker, "started.mig")
+			mkTrackerDir(t, lsm, tc.staleTracker)
+			mkMigrationRecord(t, lsm, tc.staleTracker, MigrationStateIterating,
+				map[string]string{"category": tc.staleSidecar})
 			mkSidecarDir(t, lsm, tc.staleSidecar)
 
 			cleanSweep(t, ctx, shard, "category", "filterable")
@@ -236,14 +364,15 @@ func TestCleanStalePartialReindexState_ShutdownSkipKeyedBySuffix(t *testing.T) {
 	lsm := shard.pathLSM()
 
 	// Completed class-level migration at gen 2 with its ingest bucket loaded.
-	mkTrackerDir(t, lsm, "filterable_roaringset_refresh_2",
-		"started.mig", "merged.mig", "swapped.mig", "tidied.mig", "properties.mig")
+	mkTrackerDir(t, lsm, "filterable_roaringset_refresh_2")
 	liveName := "property_category__roaringset_ingest_2"
+	mkMigrationRecord(t, lsm, "filterable_roaringset_refresh_2", MigrationStateSwapped,
+		map[string]string{"category": liveName})
 	require.NoError(t, shard.store.CreateOrLoadBucket(ctx, liveName,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
 
 	// Cancelled per-prop attempt at the same gen; its bucket is stale.
-	mkTrackerDir(t, lsm, "enable_filterable_category_2", "started.mig")
+	mkTrackerDir(t, lsm, "enable_filterable_category_2")
 	staleName := "property_category__enable_filterable_ingest_2"
 	require.NoError(t, shard.store.CreateOrLoadBucket(ctx, staleName,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))

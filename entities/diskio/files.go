@@ -67,6 +67,24 @@ func Fsync(path string) error {
 	return f.Sync()
 }
 
+// RenameAndSync makes a rename durable. The new name is a directory entry, so
+// a machine crash keeps it only once the directory holding it is synced —
+// which is what a caller needs when something else durably records the rename
+// as done.
+func RenameAndSync(from, to string) error {
+	if err := os.Rename(from, to); err != nil {
+		return err
+	}
+	toDir := filepath.Dir(to)
+	if err := Fsync(toDir); err != nil {
+		return err
+	}
+	if fromDir := filepath.Dir(from); fromDir != toDir {
+		return Fsync(fromDir)
+	}
+	return nil
+}
+
 // GetFileWithSizes gets all files in a directory including their filesize. Symlinks are not
 // followed. Callers that only need the subdirectory names should use GetSubdirNames, which
 // avoids a stat per entry.

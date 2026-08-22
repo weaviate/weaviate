@@ -41,6 +41,10 @@ func (s *SearchableRetokenizeStrategy) MigrationDirName() string {
 	return MigrationDirPrefixSearchableRetokenize + "_" + s.propName + genSuffix(s.generation)
 }
 
+func (s *SearchableRetokenizeStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeSearchableRetokenize
+}
+
 func (s *SearchableRetokenizeStrategy) SourceBucketName(_ string) string {
 	return helpers.BucketSearchableFromPropNameLSM(s.propName)
 }
@@ -53,10 +57,6 @@ func (s *SearchableRetokenizeStrategy) IngestSuffix() string {
 	return "__retokenize_ingest" + genSuffix(s.generation)
 }
 
-func (s *SearchableRetokenizeStrategy) BackupSuffix() string {
-	return "__retokenize_backup" + genSuffix(s.generation)
-}
-
 func (s *SearchableRetokenizeStrategy) SourceStrategy() string {
 	return s.bucketStrategy
 }
@@ -66,10 +66,6 @@ func (s *SearchableRetokenizeStrategy) SourceIndexType() PropertyIndexType {
 }
 
 func (s *SearchableRetokenizeStrategy) TargetStrategy() string {
-	return s.bucketStrategy
-}
-
-func (s *SearchableRetokenizeStrategy) BackupStrategy() string {
 	return s.bucketStrategy
 }
 
@@ -93,34 +89,27 @@ func (s *SearchableRetokenizeStrategy) WriteToReindexBucket(shard ShardLike, buc
 	return nil
 }
 
-// MakeAddCallback returns a callback for adding documents to the searchable index.
-// forTargetStrategy controls which tokenization is used: true uses the new target
-// tokenization (for the reindex bucket), false uses the existing tokenization
-// (for the ingest/double-write bucket that must match the currently live index).
+// MakeAddCallback returns a callback for adding documents to the searchable
+// index under the migration's target tokenization.
 func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	armed armedMirror,
 ) onAddToPropertyValueIndex {
 	// The analyzer is stateless once constructed (it carries only className
 	// and a function pointer); hoist it out of the per-callback hot path so
 	// we don't allocate a fresh struct on every Add to a reindexed prop.
-	// Skip the allocation entirely when forTargetStrategy is false — the
-	// closure won't touch the analyzer in that branch.
-	var analyzer *inverted.Analyzer
-	if forTargetStrategy {
-		analyzer = inverted.NewAnalyzer(nil, s.className)
-	}
+	analyzer := inverted.NewAnalyzer(nil, s.className)
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
 
 		var items []inverted.Countable
-		if forTargetStrategy && len(property.RawValues) > 0 {
+		if len(property.RawValues) > 0 {
 			// Re-tokenize with the target tokenization for the new index.
 			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
 		} else {
@@ -139,29 +128,26 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 	}
 }
 
-// MakeDeleteCallback returns a callback for removing documents from the searchable index.
-// forTargetStrategy has the same semantics as in MakeAddCallback.
+// MakeDeleteCallback returns a callback for removing documents from the
+// searchable index under the migration's target tokenization.
 func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {
 	// See the MakeAddCallback comment — same rationale: hoist the analyzer
 	// out of the per-callback hot path.
-	var analyzer *inverted.Analyzer
-	if forTargetStrategy {
-		analyzer = inverted.NewAnalyzer(nil, s.className)
-	}
+	analyzer := inverted.NewAnalyzer(nil, s.className)
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
 
 		var items []inverted.Countable
-		if forTargetStrategy && len(property.RawValues) > 0 {
+		if len(property.RawValues) > 0 {
 			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
 		} else {
 			items = property.Items

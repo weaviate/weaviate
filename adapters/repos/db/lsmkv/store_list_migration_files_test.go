@@ -24,8 +24,10 @@ import (
 )
 
 // TestStoreListFilesMigrationDir pins what an active shard's backup takes from
-// .migrations: every tracker sentinel, but none of the scratch files an
-// interrupted atomic write leaves behind.
+// .migrations: the migration state records and the recovery payloads beside
+// them, but none of the scratch files an interrupted atomic write leaves
+// behind. A backup that drops the records restores a shard whose directories
+// nothing can attribute.
 func TestStoreListFilesMigrationDir(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
@@ -39,14 +41,15 @@ func TestStoreListFilesMigrationDir(t *testing.T) {
 	t.Cleanup(func() { _ = store.Shutdown(ctx) })
 
 	trackerDir := filepath.Join(dir, ".migrations", "searchable_retokenize_text_1")
+	recordsDir := filepath.Join(dir, ".migrations", "records")
 	require.NoError(t, os.MkdirAll(trackerDir, 0o755))
-	for _, name := range []string{"started.mig", "properties.mig", "progress.mig.000000001"} {
-		require.NoError(t, os.WriteFile(filepath.Join(trackerDir, name), []byte("x"), 0o644))
-	}
+	require.NoError(t, os.MkdirAll(recordsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(trackerDir, "payload.mig"), []byte("x"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(recordsDir, "7_searchable_retokenize.json"), []byte("{}"), 0o644))
 
-	// Same call the tracker's atomic properties.mig write makes, so the name
-	// carries the real random infix rather than one the test picked.
-	leftover, err := os.CreateTemp(trackerDir, "properties.mig.*.tmp")
+	// Same call the record store's atomic write makes, so the name carries the
+	// real random infix rather than one the test picked.
+	leftover, err := os.CreateTemp(recordsDir, "7_searchable_retokenize.json.*.tmp")
 	require.NoError(t, err)
 	require.NoError(t, leftover.Close())
 
@@ -55,8 +58,7 @@ func TestStoreListFilesMigrationDir(t *testing.T) {
 	sort.Strings(got)
 
 	require.Equal(t, []string{
-		filepath.Join(".migrations", "searchable_retokenize_text_1", "progress.mig.000000001"),
-		filepath.Join(".migrations", "searchable_retokenize_text_1", "properties.mig"),
-		filepath.Join(".migrations", "searchable_retokenize_text_1", "started.mig"),
+		filepath.Join(".migrations", "records", "7_searchable_retokenize.json"),
+		filepath.Join(".migrations", "searchable_retokenize_text_1", "payload.mig"),
 	}, got)
 }

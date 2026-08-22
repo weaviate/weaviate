@@ -279,7 +279,7 @@ func tryFetchTaskStatusAndProgress(restURI, taskID string) (status, progress str
 //
 // A failure here would mean the post-restart re-apply has a separate
 // bug beyond the FlushAndSwitch race — likely something restart-
-// specific in the recovery / FinalizeCompletedMigrations path.
+// specific in the recovery / reconciliation path.
 //
 // Shape:
 //
@@ -300,7 +300,7 @@ func tryFetchTaskStatusAndProgress(restURI, taskID string) (status, progress str
 // A failure here with my Cursor() fix already in place would mean the
 // post-restart re-apply has a separate bug beyond the FlushAndSwitch
 // race — likely something restart-specific in the recovery /
-// FinalizeCompletedMigrations path.
+// reconciliation path.
 func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)

@@ -33,6 +33,10 @@ func (s *MapToBlockmaxStrategy) MigrationDirName() string {
 	return MigrationDirSearchableMapToBlockmax + genSuffix(s.generation)
 }
 
+func (s *MapToBlockmaxStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeSearchableMapToBlockmax
+}
+
 func (s *MapToBlockmaxStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketSearchableFromPropNameLSM(propName)
 }
@@ -45,10 +49,6 @@ func (s *MapToBlockmaxStrategy) IngestSuffix() string {
 	return "__blockmax_ingest" + genSuffix(s.generation)
 }
 
-func (s *MapToBlockmaxStrategy) BackupSuffix() string {
-	return "__blockmax_map" + genSuffix(s.generation)
-}
-
 func (s *MapToBlockmaxStrategy) SourceStrategy() string {
 	return lsmkv.StrategyMapCollection
 }
@@ -59,10 +59,6 @@ func (s *MapToBlockmaxStrategy) SourceIndexType() PropertyIndexType {
 
 func (s *MapToBlockmaxStrategy) TargetStrategy() string {
 	return lsmkv.StrategyInverted
-}
-
-func (s *MapToBlockmaxStrategy) BackupStrategy() string {
-	return lsmkv.StrategyMapCollection
 }
 
 func (s *MapToBlockmaxStrategy) WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket,
@@ -79,23 +75,18 @@ func (s *MapToBlockmaxStrategy) WriteToReindexBucket(shard ShardLike, bucket *ls
 }
 
 func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	armed armedMirror,
 ) onAddToPropertyValueIndex {
-	calcPropLen := calcPropLenMap
-	if forTargetStrategy {
-		calcPropLen = calcPropLenInverted
-	}
-
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
-		propLen := calcPropLen(property.Items)
+		propLen := calcPropLenInverted(property.Items)
 		for _, item := range property.Items {
 			pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
 			if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
@@ -107,14 +98,14 @@ func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
 }
 
 func (s *MapToBlockmaxStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}

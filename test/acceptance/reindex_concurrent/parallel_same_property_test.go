@@ -33,7 +33,7 @@ import (
 // TestParallelEnableFilterableAndRangeable mirrors the frontend repro on
 // https://github.com/weaviate/weaviate/issues/10675: parallel enable-filterable + enable-rangeFilters
 // on the same numeric property both end up FAILED with
-// "progress.mig.000000001: no such file or directory".
+// a missing per-migration checkpoint.
 //
 // Root cause. Once a property has IndexFilterable=false and
 // IndexRangeFilters=false (e.g. after DELETE filterable + DELETE

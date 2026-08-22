@@ -80,7 +80,7 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 	fieldBucketName := helpers.BucketSearchableFromPropNameLSM(fieldProp)
 	wordBucketName := helpers.BucketSearchableFromPropNameLSM(wordProp)
 	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store,
-		_ reindexTracker, _ int, _ string,
+		_ int, _ string,
 	) (*lsmkv.Bucket, error) {
 		return store.SwapBucketPointer(ctx, fieldBucketName, wordBucketName)
 	}
@@ -99,9 +99,9 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 		// Two-step reproduction: flip, gap, then set the overlay as a
 		// SEPARATE step (composed test-side; production has no such branch).
 		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
-			rt reindexTracker, propIdx int, propName string,
+			propIdx int, propName string,
 		) (*lsmkv.Bucket, error) {
-			oldMainBucket, err := task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+			oldMainBucket, err := task.processOneSwapPropFn(ctx, store, propIdx, propName)
 			if err != nil {
 				return nil, err
 			}
@@ -113,11 +113,11 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 		// Drives the real atomic critical section (Shard.SwapBucketAndSetOverlay),
 		// widening the flip↔overlay window INSIDE the lock to prove it covers the gap.
 		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
-			rt reindexTracker, propIdx int, propName string,
+			propIdx int, propName string,
 		) (*lsmkv.Bucket, error) {
 			return shard.SwapBucketAndSetOverlay(propName, models.PropertyTokenizationWord,
 				func() (*lsmkv.Bucket, error) {
-					oldMainBucket, err := task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+					oldMainBucket, err := task.processOneSwapPropFn(ctx, store, propIdx, propName)
 					if err != nil {
 						return nil, err
 					}
@@ -181,7 +181,7 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 	// Head start so the loop is actively reading when the swap window opens.
 	time.Sleep(5 * time.Millisecond)
 
-	oldBucket, err := task.swapPropAtomic(ctx, shard.store, nil, 0, fieldProp)
+	oldBucket, err := task.swapPropAtomic(ctx, shard.store, 0, fieldProp)
 	require.NoError(t, err)
 	require.NotNil(t, oldBucket, "swap must return the displaced old FIELD bucket")
 

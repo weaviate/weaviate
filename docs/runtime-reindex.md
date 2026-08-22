@@ -16,6 +16,23 @@ source of truth; this doc is the navigable overview that ties them
 together. If a section here disagrees with a godoc in source, the
 godoc wins — and that's a bug in this doc.
 
+> **Out of date: how migration state is stored.** Everywhere below that
+> describes per-migration marker files (`started.mig`, `reindexed.mig`,
+> `prepended.mig`, `merged.mig`, `swapped.mig`, `tidied.mig`,
+> `properties.mig`) or `FinalizeCompletedMigrations` describes a
+> representation that no longer exists. One JSON record per (shard,
+> migration) at `<shard>/lsm/.migrations/records/` holds the state now, in
+> five states (Iterating, Iterated, Merged, Swapped, Promoted), and
+> reconciliation at shard load owns every load-time decision the finalizer
+> used to make. Read `inverted_reindex_record.go` and
+> `inverted_reindex_reconcile.go` for the current shape. The phase contract
+> is stale for the same reason: the displaced directory is now removed at the
+> handle the record names, not renamed to a derived backup name, so every
+> mention below of a rename-to-backup or of a "tidied" state describes the
+> retired representation too. The API, the strategy catalogue, the
+> concurrency model, multi-tenancy and the tokenization overlay are
+> unaffected.
+
 ## 1. Overview
 
 A runtime reindex rebuilds one or more inverted-index buckets on a
@@ -1568,6 +1585,27 @@ list as before, so a downgrade does not corrupt data. The residual is only
 that a partial-class property seeded solely by the stamp (its FINISHED task
 already GC'd) resolves as WAND on the older binary until a re-migration.
 
+**Migration records, both directions.** Drain and promote every reindex before
+you change the binary, up or down. Neither direction is enforced.
+
+Upgrading past a migration a previous release completed but did not promote is
+already the accepted limitation: this build preserves that data but cannot
+promote it, so the property answers from an empty bucket until an operator
+restores or downgrades (`migrationCompletionMarker`).
+
+Downgrading is the mirror of it. A migration this build flipped and has not yet
+promoted keeps its live data under the staged name, and the record in
+`<shard>/lsm/.migrations/records/` is the only thing that says so. An older
+release does not read records, so it never renames the staged directory onto
+the canonical name, and the three strategies that pre-create an empty canonical
+bucket when the migration arms then serve queries from it.
+
+The staged directory itself survives an ordinary downgrade — the older
+release's sidecar sweep runs on an index DELETE, not on load. But that sweep
+derives its preserve set from the `tidied.mig` / `merged.mig` markers, which
+this build never writes, so **disabling the index to fix the empty results is
+what destroys the data**. Upgrade again instead and let reconciliation promote.
+
 ## 15. Files of interest
 
 **REST**
@@ -1595,7 +1633,9 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 - [`adapters/repos/db/inverted_reindex_strategy_*.go`](../adapters/repos/db/) — one per strategy.
 - [`adapters/repos/db/inverted_reindex_strategy_dir_names.go`](../adapters/repos/db/inverted_reindex_strategy_dir_names.go) — `genSuffix`, `parseMigrationDirName`, strategy dir prefix constants.
 - [`adapters/repos/db/inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go) — `ShardReindexTaskGeneric`, the **phase-contract godoc** at the top of the file is the authoritative spec.
-- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `FinalizeCompletedMigrations`, `nextMigrationGeneration`, `maxMigrationGeneration`, `completedMigrationGens`.
+- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `nextMigrationGeneration`, `maxMigrationGeneration`, `migrationSuffixes`.
+- [`adapters/repos/db/inverted_reindex_record.go`](../adapters/repos/db/inverted_reindex_record.go) — `MigrationRecord` and its five variants, `MigrationStrategyCode`.
+- [`adapters/repos/db/inverted_reindex_reconcile.go`](../adapters/repos/db/inverted_reindex_reconcile.go) — `migrationReconciler`, the load-time owner of every state transition.
 
 **LSM primitives**
 

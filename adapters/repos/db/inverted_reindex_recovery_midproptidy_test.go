@@ -14,10 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -29,97 +26,39 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// midPropTidyPhase identifies which per-prop loop in the runtime
-// swap/tidy code path the test halts inside.
-type midPropTidyPhase int
+// midPropSwapHaltPanicPrefix is the sentinel string every hook-driven
+// panic carries, so the recover() handler can tell the expected halt
+// apart from an unrelated panic that would otherwise be swallowed and
+// mask a real bug.
+const midPropSwapHaltPanicPrefix = "mid-prop-swap halt: simulated crash"
 
-const (
-	midPropTidyPhaseSwap midPropTidyPhase = iota
-	midPropTidyPhaseTidy
-)
-
-func (p midPropTidyPhase) String() string {
-	switch p {
-	case midPropTidyPhaseSwap:
-		return "swap"
-	case midPropTidyPhaseTidy:
-		return "tidy"
-	default:
-		return "unknown"
-	}
-}
-
-// midPropTidyCase is one cell of the (phase, haltAfter) matrix that
-// TestRecoveryConvergence_MidPropSwapOrTidy_Loop iterates over. See
-// the test godoc for the per-cell semantics.
-type midPropTidyCase struct {
-	phase     midPropTidyPhase
-	haltAfter int
-}
-
-// midPropTidyHaltPanicPrefix is the sentinel string that every hook-
-// driven panic carries so the recover() handler can reliably tell our
-// expected halt apart from an unrelated panic that would otherwise be
-// silently swallowed and mask a real bug.
-const midPropTidyHaltPanicPrefix = "mid-prop-tidy halt: simulated crash"
-
-// midPropTidyInstallSwapFault wraps the production
-// processOneSwapProp method so it panics after haltAfter props have
-// been swapped+marked. A haltAfter of 0 is a no-op pass-through.
-// Injected via processOneSwapPropFn — the production method stays
-// untouched.
-func midPropTidyInstallSwapFault(task *ShardReindexTaskGeneric, haltAfter int) {
+// midPropSwapInstallFault wraps the production processOneSwapProp
+// method so it panics once haltAfter properties have flipped. A
+// haltAfter of 0 is a pass-through. Injected via processOneSwapPropFn,
+// so the production method stays untouched.
+func midPropSwapInstallFault(task *ShardReindexTaskGeneric, haltAfter int) {
 	prod := task.processOneSwapProp
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
-		bucket, err := prod(ctx, store, rt, propIdx, propName)
+	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error) {
+		bucket, err := prod(ctx, store, propIdx, propName)
 		if err != nil {
 			return nil, err
 		}
 		if haltAfter > 0 && propIdx == haltAfter-1 {
-			panic(fmt.Sprintf("%s (phase=swap, propIdx=%d, haltAfter=%d)",
-				midPropTidyHaltPanicPrefix, propIdx, haltAfter))
+			panic(fmt.Sprintf("%s (propIdx=%d, haltAfter=%d)",
+				midPropSwapHaltPanicPrefix, propIdx, haltAfter))
 		}
 		return bucket, nil
 	}
 }
 
-// midPropTidyInstallTidyFault wraps the production
-// processOneTidyProp method so it panics after haltAfter completions.
-// Concurrency MUST be 1 — otherwise the parallel goroutines race
-// for the count and halt order becomes non-deterministic. The
-// error-group wrapper recovers panics per-goroutine and surfaces
-// them via eg.Wait(); subsequent SetLimit(1)-FIFO goroutines still
-// run to completion. Injected via processOneTidyPropFn.
-func midPropTidyInstallTidyFault(task *ShardReindexTaskGeneric, haltAfter int, fireCount *atomic.Int64) {
-	prod := task.processOneTidyProp
-	task.processOneTidyPropFn = func(propIdx int, propName, lsmPath string) error {
-		if err := prod(propIdx, propName, lsmPath); err != nil {
-			return err
-		}
-		n := fireCount.Add(1)
-		if haltAfter <= 0 {
-			return nil
-		}
-		// Panic exactly once, after the haltAfter-th completion. Without
-		// the once-only guard, every subsequent goroutine would also
-		// trigger the wrapper's recovery path; the resulting error
-		// message races are harmless but make assertion harder to read.
-		if n == int64(haltAfter) {
-			panic(fmt.Sprintf("%s (phase=tidy, propIdx=%d, haltAfter=%d, fireOrdinal=%d)",
-				midPropTidyHaltPanicPrefix, propIdx, haltAfter, n))
-		}
-		return nil
-	}
-}
-
-// midPropTidyRunSwapWithRecover runs runtimeSwap inside a defer-recover
+// midPropSwapRunWithRecover runs runtimeSwap inside a defer-recover
 // frame, returning (panicked, panicValue, swapReturned, swapErr).
 //
-// Phase 2a runs as a sequential per-prop loop in the calling goroutine
-// — a panic from testHookPostPropSwap propagates straight up the stack
-// and the deferred recover() catches it.
-func midPropTidyRunSwapWithRecover(ctx context.Context, task *ShardReindexTaskGeneric,
-	shard *Shard, rt reindexTracker, props []string,
+// Phase 2a is a sequential per-prop loop in the calling goroutine, so a
+// panic from the injected fault propagates straight up the stack and the
+// deferred recover() catches it.
+func midPropSwapRunWithRecover(ctx context.Context, task *ShardReindexTaskGeneric,
+	shard *Shard, props []string,
 ) (panicked bool, panicValue interface{}, swapReturned bool, swapErr error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -127,61 +66,32 @@ func midPropTidyRunSwapWithRecover(ctx context.Context, task *ShardReindexTaskGe
 			panicValue = r
 		}
 	}()
-	swapErr = task.runtimeSwap(ctx, task.logger, shard, rt, props)
+	swapErr = task.runtimeSwap(ctx, task.logger, shard, props)
 	swapReturned = true
 	return
 }
 
-// midPropTidyRunTidyExpectingPanicError runs tidyBackupBuckets and
-// returns the error it surfaces. When the testHookPostPropTidy hook
-// panics inside one of the goroutines, the wrapper's deferFunc recovers
-// and the error returned from eg.Wait() carries the substring "panic
-// occurred" (see [entities/errors/error_group_wrapper.go] line ~92).
-func midPropTidyRunTidyExpectingPanicError(ctx context.Context, task *ShardReindexTaskGeneric,
-	shard *Shard, rt reindexTracker, props []string,
-) error {
-	return task.tidyBackupBuckets(ctx, task.logger, shard, rt, props)
-}
-
-// TestRecoveryConvergence_MidPropSwapOrTidy_Loop pins recovery
-// convergence when the per-prop swap or tidy loop is interrupted
-// after K of N props. Matrix: (phase ∈ {swap, tidy}) × (haltAfter ∈
-// {0..3}) on a 4-prop class; haltAfter=0 is the no-halt baseline.
+// TestRecoveryConvergence_MidPropSwap_HaltMatrix pins recovery
+// convergence when the per-prop flip loop is interrupted after K of N
+// props, for every K on a 4-prop class. K=0 is the no-halt baseline.
 //
-// Tidy "halt" is via the errgroup wrapper surfacing a recovered
-// panic as eg.Wait()'s error, which short-circuits the aggregate
-// markTidied() write. Recovery branch exercised is identical to a
-// crash between markSwapped() and markTidied().
-func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
-	// CI integration sets DISABLE_RECOVERY_ON_PANIC=true. We rely on
-	// the wrapper recovering the deliberate tidy-hook panic into an
-	// eg.Wait() error — the swap-phase helper has its own recover.
-	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
-
+// The retirement of the displaced directories runs inline right after
+// the flip loop, on the same goroutine, so a halt inside the flip loop
+// is also a halt before any of that retirement has run.
+func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 	const numObjects = 25
 	propNames := []string{"title", "subtitle", "description", "keywords"}
 
 	baseline := computeMultiPropBaseline(t, propNames, numObjects)
 	for _, propName := range propNames {
 		require.NotEmptyf(t, baseline[propName],
-			"mid-prop-tidy baseline must have non-empty fingerprint for prop %q", propName)
+			"baseline must have a non-empty fingerprint for prop %q", propName)
 	}
 
-	cases := []midPropTidyCase{
-		{midPropTidyPhaseSwap, 0},
-		{midPropTidyPhaseSwap, 1},
-		{midPropTidyPhaseSwap, 2},
-		{midPropTidyPhaseSwap, 3},
-		{midPropTidyPhaseTidy, 0},
-		{midPropTidyPhaseTidy, 1},
-		{midPropTidyPhaseTidy, 2},
-		{midPropTidyPhaseTidy, 3},
-	}
-
-	for _, tc := range cases {
-		t.Run(fmt.Sprintf("phase=%s_haltAfter=%d", tc.phase, tc.haltAfter), func(t *testing.T) {
+	for _, haltAfter := range []int{0, 1, 2, 3} {
+		t.Run(fmt.Sprintf("haltAfter=%d", haltAfter), func(t *testing.T) {
 			ctx := testCtx()
-			className := fmt.Sprintf("MidPropTidy_%s_%d_%s", tc.phase, tc.haltAfter, uuid.NewString()[:8])
+			className := fmt.Sprintf("MidPropSwap_%d_%s", haltAfter, uuid.NewString()[:8])
 			class := newTestClassWithProps(className, propNames)
 
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
@@ -195,16 +105,8 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task := newTestTask(idx.logger, strategy)
-			// Force sequential tidy so the per-prop hook fires in
-			// deterministic propIdx order. Has no effect on swap (Phase
-			// 2a is already strictly sequential).
-			task.config.concurrency = 1
 
-			// Phase 1: drive iteration to markReindexed, then
-			// runtimePrepare to markMerged. After this, the next step
-			// is runtimeSwap. For tidy cells, we additionally run
-			// runtimeSwap so that markSwapped is set and tidy is the
-			// next thing to run.
+			// Drive the rebuild and the prep, so the flip loop is next.
 			task.skipSwapOnFinish.Store(true)
 			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 			for {
@@ -214,123 +116,56 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 					break
 				}
 			}
-			rt, err := task.newReindexTracker(shard.pathLSM())
-			require.NoError(t, err)
-			props, err := task.readPropsToReindex(rt)
-			require.NoError(t, err)
-			require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+			rec, ok := task.migrationRecord(shard)
+			require.True(t, ok, "the rebuild must have left a record")
+			props := rec.Subject().Properties
+			require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, props))
 
-			switch tc.phase {
-			case midPropTidyPhaseSwap:
-				midPropTidyInstallSwapFault(task, tc.haltAfter)
+			midPropSwapInstallFault(task, haltAfter)
 
-				panicked, panicValue, swapReturned, swapErr := midPropTidyRunSwapWithRecover(
-					ctx, task, shard, rt, props)
+			panicked, panicValue, swapReturned, swapErr := midPropSwapRunWithRecover(
+				ctx, task, shard, props)
 
-				if tc.haltAfter == 0 {
-					// Baseline cell: hook never panics, swap must
-					// complete cleanly.
-					require.Falsef(t, panicked,
-						"haltAfter=0 must not panic (got panicValue=%v)", panicValue)
-					require.Truef(t, swapReturned, "haltAfter=0 must reach swap-return")
-					require.NoErrorf(t, swapErr, "haltAfter=0 must succeed")
-				} else {
-					require.Falsef(t, swapReturned,
-						"runtimeSwap returned without panicking (err=%v); hook did not fire — test harness invalid",
-						swapErr)
-					require.Truef(t, panicked,
-						"expected panic from testHookPostPropSwap; got swapErr=%v", swapErr)
-					panicStr, ok := panicValue.(string)
-					require.Truef(t, ok && strings.HasPrefix(panicStr, midPropTidyHaltPanicPrefix),
-						"recovered panic was not from the hook (want prefix %q; got %T %v)",
-						midPropTidyHaltPanicPrefix, panicValue, panicValue)
+			if haltAfter == 0 {
+				require.Falsef(t, panicked,
+					"haltAfter=0 must not panic (got panicValue=%v)", panicValue)
+				require.Truef(t, swapReturned, "haltAfter=0 must reach swap-return")
+				require.NoErrorf(t, swapErr, "haltAfter=0 must succeed")
+			} else {
+				require.Falsef(t, swapReturned,
+					"runtimeSwap returned without panicking (err=%v); the fault did not fire — test harness invalid",
+					swapErr)
+				require.Truef(t, panicked,
+					"expected panic from the injected fault; got swapErr=%v", swapErr)
+				panicStr, ok := panicValue.(string)
+				require.Truef(t, ok && strings.HasPrefix(panicStr, midPropSwapHaltPanicPrefix),
+					"recovered panic was not from the fault (want prefix %q; got %T %v)",
+					midPropSwapHaltPanicPrefix, panicValue, panicValue)
 
-					// Verify partial state: exactly `haltAfter`
-					// markSwappedProp sentinels should be on disk.
-					swappedCount := 0
-					for _, p := range props {
-						if rt.IsSwappedProp(p) {
-							swappedCount++
-						}
+				// A flipped property has no ingest-name entry left in the
+				// store, which is the same fact the flip loop reads to skip
+				// one it already flipped.
+				flippedCount := 0
+				for _, p := range props {
+					if shard.store.Bucket(task.ingestBucketName(p)) == nil {
+						flippedCount++
 					}
-					assert.GreaterOrEqualf(t, swappedCount, tc.haltAfter,
-						"after Phase 2a halt, expected ≥%d markSwappedProp sentinels (got %d)",
-						tc.haltAfter, swappedCount)
-					assert.Lessf(t, swappedCount, len(propNames),
-						"after Phase 2a halt, expected <%d markSwappedProp sentinels (got %d) — halt didn't fire",
-						len(propNames), swappedCount)
 				}
-
-			case midPropTidyPhaseTidy:
-				// runtimeSwap inlines markSwapped + markTidied
-				// (Phase 2b/2c) and then trimOlderGenerationsLocked
-				// removes the per-prop backup dirs. tidyBackupBuckets
-				// is therefore dead code on the inline happy path;
-				// it's only ever called from the recovery branches
-				// in RunSwapOnShard. To exercise
-				// the per-prop tidy hook explicitly we drive
-				// runtimeSwap to completion, then reset the tidied
-				// sentinel (leaving IsSwapped=true, IsTidied=false),
-				// then call tidyBackupBuckets directly. The
-				// RemoveAll calls land on already-missing dirs and
-				// are OS-level no-ops, but the hook still fires
-				// per-prop, which is what we need.
-				require.NoError(t, task.runtimeSwap(ctx, task.logger, shard, rt, props),
-					"runtimeSwap must succeed before tidy phase test")
-				require.True(t, rt.IsTidied(),
-					"runtimeSwap must have set tidied on completion")
-
-				// Reset the tidied sentinel so tidyBackupBuckets
-				// runs the markTidied call again (idempotent on
-				// the bucket-removal side because RemoveAll is
-				// OS-level idempotent). The hook can then fire.
-				// There is no unmarkTidied, so we remove the
-				// tidied.mig file directly.
-				ftr := rt.(*fileReindexTracker)
-				tidiedPath := filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)
-				require.NoError(t, os.Remove(tidiedPath),
-					"reset tidied sentinel for tidy-hook exercise")
-				require.False(t, rt.IsTidied(), "tidied sentinel must be reset")
-
-				var tidyFireCount atomic.Int64
-				midPropTidyInstallTidyFault(task, tc.haltAfter, &tidyFireCount)
-
-				tidyErr := midPropTidyRunTidyExpectingPanicError(
-					ctx, task, shard, rt, props)
-
-				if tc.haltAfter == 0 {
-					// Baseline cell: hook never panics, tidy must
-					// complete cleanly.
-					require.NoErrorf(t, tidyErr,
-						"haltAfter=0 must succeed (got %v)", tidyErr)
-					require.True(t, rt.IsTidied(),
-						"haltAfter=0 must end with IsTidied=true")
-					// Hook fired exactly len(props) times.
-					assert.Equalf(t, int64(len(propNames)), tidyFireCount.Load(),
-						"haltAfter=0 hook must fire once per prop (got %d)",
-						tidyFireCount.Load())
-				} else {
-					require.Errorf(t, tidyErr,
-						"haltAfter=%d must surface a panic-recovered error", tc.haltAfter)
-					require.Containsf(t, tidyErr.Error(), "panic occurred",
-						"err must be the wrapper's recovered-panic error; got %v", tidyErr)
-					// markTidied must NOT have run.
-					require.False(t, rt.IsTidied(),
-						"haltAfter=%d: markTidied must not have run", tc.haltAfter)
-				}
+				assert.GreaterOrEqualf(t, flippedCount, haltAfter,
+					"after the halt, expected >=%d props flipped (got %d)", haltAfter, flippedCount)
+				assert.Lessf(t, flippedCount, len(propNames),
+					"after the halt, expected <%d props flipped (got %d) — the fault did not fire",
+					len(propNames), flippedCount)
 			}
 
-			// Phase 3: restart, drive recovery.
+			// Restart and drive recovery.
 			shardName := shard.Name()
 			shardLSMPath := shard.pathLSM()
 			require.NoError(t, shard.Shutdown(ctx))
 
 			// Same orphan-bucket cleanup rationale as
-			// TestRecoveryConvergence_MidPropSwap_Loop — see that
-			// test's comment for the full reasoning. For tidy cells
-			// the call is a no-op (no orphan buckets) but it's
-			// harmless and keeps the recovery path identical across
-			// cells.
+			// TestRecoveryConvergence_MidPropSwap_Loop — see that test's
+			// comment for the full reasoning.
 			simulateProcessRestartBucketCleanup(t, shardLSMPath)
 
 			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
@@ -339,8 +174,7 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 			idx.shardReindexer = &testShardReindexer{task: task2}
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
-			require.NoErrorf(t, err, "mid-prop-tidy shard re-init (phase=%s, haltAfter=%d)",
-				tc.phase, tc.haltAfter)
+			require.NoErrorf(t, err, "mid-prop-swap shard re-init (haltAfter=%d)", haltAfter)
 			shard2 := shd2.(*Shard)
 			defer shard2.Shutdown(ctx)
 			idx.shards.Store(shardName, shd2)
@@ -348,42 +182,40 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 			for {
 				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
 				require.NoErrorf(t, err,
-					"mid-prop-tidy recovery OnAfterLsmInitAsync (phase=%s, haltAfter=%d)",
-					tc.phase, tc.haltAfter)
+					"mid-prop-swap recovery OnAfterLsmInitAsync (haltAfter=%d)", haltAfter)
 				if rerunAt.IsZero() {
 					break
 				}
 			}
 
-			// Phase 4: per-prop convergence — every prop must converge
-			// to baseline.
+			// Every prop must converge to baseline.
 			for _, propName := range propNames {
 				bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
 				bucket := shard2.store.Bucket(bucketName)
 				require.NotNilf(t, bucket,
-					"mid-prop-tidy bucket %q must exist post-recovery (phase=%s, haltAfter=%d)",
-					propName, tc.phase, tc.haltAfter)
+					"mid-prop-swap bucket %q must exist post-recovery (haltAfter=%d)",
+					propName, haltAfter)
 				require.Equalf(t, lsmkv.StrategyInverted, bucket.Strategy(),
-					"mid-prop-tidy bucket %q must be StrategyInverted post-recovery (phase=%s, haltAfter=%d)",
-					propName, tc.phase, tc.haltAfter)
+					"mid-prop-swap bucket %q must be StrategyInverted post-recovery (haltAfter=%d)",
+					propName, haltAfter)
 
 				got := fingerprintInvertedBucket(t, bucket)
 				expected := baseline[propName]
 
 				assert.Equalf(t, len(expected), len(got),
-					"mid-prop-tidy term count for %q diverges (phase=%s, haltAfter=%d)",
-					propName, tc.phase, tc.haltAfter)
+					"mid-prop-swap term count for %q diverges (haltAfter=%d)",
+					propName, haltAfter)
 				for term, expectedIDs := range expected {
 					gotIDs, ok := got[term]
 					if !ok {
-						assert.Failf(t, "mid-prop-tidy missing term",
-							"term %q on prop %q present in baseline but missing post-recovery (phase=%s, haltAfter=%d)",
-							term, propName, tc.phase, tc.haltAfter)
+						assert.Failf(t, "mid-prop-swap missing term",
+							"term %q on prop %q present in baseline but missing post-recovery (haltAfter=%d)",
+							term, propName, haltAfter)
 						continue
 					}
 					assert.Equalf(t, expectedIDs, gotIDs,
-						"mid-prop-tidy term %q on prop %q diverges (phase=%s, haltAfter=%d)\n  baseline (%d): %v\n  got      (%d): %v",
-						term, propName, tc.phase, tc.haltAfter, len(expectedIDs), expectedIDs, len(gotIDs), gotIDs)
+						"mid-prop-swap term %q on prop %q diverges (haltAfter=%d)\n  baseline (%d): %v\n  got      (%d): %v",
+						term, propName, haltAfter, len(expectedIDs), expectedIDs, len(gotIDs), gotIDs)
 				}
 			}
 		})

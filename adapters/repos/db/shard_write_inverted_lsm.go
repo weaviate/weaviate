@@ -129,7 +129,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	// Scope props are suppressed here; migrationDoubleWrite fires them under
 	// the TARGET analysis instead of this source-schema view.
 	if _, migrating := st.scope.props[property.Name]; !migrating {
-		if err := s.fireAddToPropertyValueIndex(st, docID, &property); err != nil {
+		if err := s.fireAddToPropertyValueIndex(st.add, docID, &property); err != nil {
 			return err
 		}
 	}

@@ -12,6 +12,7 @@
 package db
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -31,7 +32,10 @@ func TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug(t *testing.T) {
 	const preservedGens = 3
 	for gen := 1; gen <= preservedGens; gen++ {
 		dir := migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{propName}) + genSuffix(gen)
-		mkTrackerDir(t, lsm, dir, "started.mig", "merged.mig", "tidied.mig")
+		mkTrackerDir(t, lsm, dir)
+		mkMigrationRecord(t, lsm, dir, MigrationStateSwapped, map[string]string{
+			propName: "property_" + propName + "__enable_filterable_ingest" + genSuffix(gen),
+		})
 	}
 
 	hookLogger, hook := test.NewNullLogger()
@@ -39,17 +43,18 @@ func TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug(t *testing.T) {
 
 	cleanStaleMigrationDirsAt(t.Context(), lsm, propName, indexType, hookLogger, nil)
 
-	var infoCount, debugCount int
+	var infoCount, preservedCount int
 	for _, e := range hook.AllEntries() {
-		switch e.Level {
-		case logrus.InfoLevel:
+		if e.Level == logrus.InfoLevel {
 			infoCount++
-		case logrus.DebugLevel:
-			debugCount++
-		default:
+		}
+		// By message: the sweep reads the records first, and that read has a
+		// Debug line of its own that says nothing about preservation.
+		if e.Level == logrus.DebugLevel && strings.Contains(e.Message, "preserving a tracker dir") {
+			preservedCount++
 		}
 	}
 	require.Equal(t, 0, infoCount,
 		"preserving a deferred-finalize tracker dir must not log at Info inside the RAFT apply loop")
-	require.Equal(t, preservedGens, debugCount, "one Debug line per preserved generation")
+	require.Equal(t, preservedGens, preservedCount, "one Debug line per preserved generation")
 }

@@ -89,7 +89,7 @@ func TestTerminalCleanupRanksATupleFailureLikeTheSweepDoes(t *testing.T) {
 
 			// Every tuple the migration sweeps fails on the same broken shard,
 			// so each one has to report the outcome the summary folds them into.
-			indexTypes := semanticMigrationIndexTypesForAudit(ReindexTypeChangeTokenization)
+			indexTypes, _ := semanticMigrationIndexTypesForAudit(ReindexTypeChangeTokenization)
 			require.Len(t, perTuple, len(indexTypes),
 				"every (property, index type) failure reaches the operator on its own")
 			require.Len(t, summary, 1)

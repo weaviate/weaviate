@@ -135,25 +135,25 @@ func TestListInactiveLSMFiles(t *testing.T) {
 			},
 		},
 		{
-			name: "migrations tmp leftovers are excluded, checkpoints are not",
+			name: "migrations tmp leftovers are excluded, records are not",
 			setup: func(t *testing.T, lsmDir string) {
 				trackerDir := filepath.Join(lsmDir, migrationsDir, "searchable_retokenize_text_1")
+				recordsDir := filepath.Join(lsmDir, migrationsDir, "records")
 				require.NoError(t, os.MkdirAll(trackerDir, 0o755))
-				for _, name := range []string{"started.mig", "properties.mig", "progress.mig.000000001"} {
-					require.NoError(t, os.WriteFile(filepath.Join(trackerDir, name), []byte("x"), 0o644))
-				}
+				require.NoError(t, os.MkdirAll(recordsDir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(trackerDir, "payload.mig"), []byte("x"), 0o644))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(recordsDir, "7_searchable_retokenize.json"), []byte("{}"), 0o644))
 
-				// Same call the tracker's atomic properties.mig write makes, so
-				// the name carries the real random infix rather than one the
-				// test picked.
-				leftover, err := os.CreateTemp(trackerDir, "properties.mig.*.tmp")
+				// Same call the record store's atomic write makes, so the name
+				// carries the real random infix rather than one the test picked.
+				leftover, err := os.CreateTemp(recordsDir, "7_searchable_retokenize.json.*.tmp")
 				require.NoError(t, err)
 				require.NoError(t, leftover.Close())
 			},
 			expected: []string{
-				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "progress.mig.000000001"),
-				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "properties.mig"),
-				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "started.mig"),
+				filepath.Join(migrationsDir, "records", "7_searchable_retokenize.json"),
+				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "payload.mig"),
 			},
 		},
 		{

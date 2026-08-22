@@ -72,7 +72,6 @@ func writeTrackerWithPayload(tb testing.TB, lsm, dirName string, doc []byte) str
 	tb.Helper()
 	dir := filepath.Join(lsm, ".migrations", dirName)
 	require.NoError(tb, os.MkdirAll(dir, 0o755))
-	require.NoError(tb, os.WriteFile(filepath.Join(dir, "started.mig"), []byte("x"), 0o644))
 	require.NoError(tb, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), doc, 0o644))
 	return dirName
 }
@@ -121,9 +120,8 @@ func TestOversizedTrackerPayloadIsRefusedNotParsed(t *testing.T) {
 			lsm := t.TempDir()
 			name := ambiguousTrackerAt(t, lsm, 1, tenantScalePayload(t, multiPropTrackerProps, tc.tenants))
 			migDir := filepath.Join(lsm, ".migrations", name)
-			prefixes := migrationDirPrefixesForIndexType("filterable")
 
-			answer, readPayload := readTaskProps(migDir, prefixes)
+			answer, readPayload := readTaskProps(migDir)
 			require.Equal(t, tc.wantOK, answer.ok)
 			require.Equal(t, tc.wantUnreadable, answer.unreadable)
 			require.Equal(t, tc.wantReads == 1, readPayload)
@@ -145,7 +143,7 @@ func TestOversizedTrackerPayloadIsRefusedNotParsed(t *testing.T) {
 // handler concludes once the bound refuses a payload: it stops deleting the
 // trackers only a payload could attribute, and keeps deleting the ones their
 // own name proves. Under-deleting leaves the next re-enable to fail loudly on
-// the stale sentinel; over-deleting would lose another property's tracker.
+// the migration record; over-deleting would lose another property's tracker.
 func TestOversizedTrackerPayloadKeepsTheDeleteSweepSafe(t *testing.T) {
 	ambiguous := migrationDirWithProps(MigrationDirPrefixEnableFilterable, multiPropTrackerProps) + genSuffix(1)
 	unambiguous := migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{"cat"}) + genSuffix(1)
@@ -170,7 +168,7 @@ func TestOversizedTrackerPayloadKeepsTheDeleteSweepSafe(t *testing.T) {
 			tenants:  payloadTenantsUnderBound,
 		},
 		{
-			name:         "payload settles it and is refused: left for the stale-sentinel check",
+			name:         "payload settles it and is refused: left for the record check",
 			dirName:      ambiguous,
 			propName:     "a",
 			tenants:      payloadTenantsOverBound,
@@ -216,9 +214,11 @@ func TestOversizedTrackerPayloadMakesTheUnloadedGateHydrate(t *testing.T) {
 			lsm := t.TempDir()
 			writeTrackerWithPayload(t, lsm, dirName,
 				tenantScalePayload(t, []string{"a_b"}, tc.tenants))
+			logger, _ := test.NewNullLogger()
 
-			stale, _ := hasStalePartialReindexState(lsm, "a", "filterable", nil, nil)
+			stale, finalizable := hasStalePartialReindexState(lsm, "a", "filterable", nil, nil, logger)
 			require.Equal(t, tc.wantStale, stale)
+			require.False(t, finalizable, "the skip is !stale && !finalizable, so a row claiming a skip owes both")
 		})
 	}
 }
@@ -235,8 +235,9 @@ func TestStaleMigrationDirCleanupStopsOnCancelledContext(t *testing.T) {
 	cancel()
 
 	props := &taskPropsCache{}
-	scope := migrationDirsOf(lsm, nil, "a", "filterable").cachingProps(props)
-	err := cleanStaleMigrationDirsIn(ctx, scope, logger)
+	committed := migrationPreservedStateAt(lsm, logger)
+	scope := migrationDirsOf(lsm, nil, "a", "filterable").cachingProps(props).knownFrom(committed)
+	err := cleanStaleMigrationDirsIn(ctx, scope, committed, logger)
 
 	require.ErrorIs(t, err, context.Canceled)
 	require.Zero(t, props.count(), "a cancelled walk must not parse a tracker payload")
@@ -254,12 +255,11 @@ func BenchmarkRecoveryPayloadParse(b *testing.B) {
 			doc := tenantScalePayload(b, multiPropTrackerProps, tenants)
 			name := ambiguousTrackerAt(b, lsm, 1, doc)
 			migDir := filepath.Join(lsm, ".migrations", name)
-			prefixes := migrationDirPrefixesForIndexType("filterable")
 			b.SetBytes(int64(len(doc)))
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				readTaskProps(migDir, prefixes)
+				readTaskProps(migDir)
 			}
 		})
 	}
@@ -296,6 +296,7 @@ var (
 // differ by is the memo, not the refusal.
 func BenchmarkUnloadedSweepGateAcrossTuples(b *testing.B) {
 	lsmPaths, payloadBytes := coldShardTree(b, 20, payloadTenantsUnderBound)
+	logger, _ := test.NewNullLogger()
 	for _, shareMemo := range []bool{false, true} {
 		name := "memo-per-tuple"
 		if shareMemo {
@@ -314,7 +315,7 @@ func BenchmarkUnloadedSweepGateAcrossTuples(b *testing.B) {
 							props = nil
 						}
 						for _, lsm := range lsmPaths {
-							hasStalePartialReindexState(lsm, propName, indexType, dirs, props)
+							hasStalePartialReindexState(lsm, propName, indexType, dirs, props, logger)
 						}
 					}
 				}
@@ -329,6 +330,7 @@ func BenchmarkUnloadedSweepGateAcrossTuples(b *testing.B) {
 func TestUnloadedSweepGateReadsEachShardsPayloadOncePerRun(t *testing.T) {
 	const shards = 3
 	lsmPaths, _ := coldShardTree(t, shards, payloadTenantsUnderBound)
+	logger, _ := test.NewNullLogger()
 
 	// How many tuples of the grid have to open a payload at all — the rest are
 	// settled by the tracker's name, and would read nothing however the memo is
@@ -336,7 +338,7 @@ func TestUnloadedSweepGateReadsEachShardsPayloadOncePerRun(t *testing.T) {
 	readingTuples := 0
 	for _, propName := range sweepTupleProps {
 		props := &taskPropsCache{}
-		hasStalePartialReindexState(lsmPaths[0], propName, sweepTupleIndexTypes[0], nil, props)
+		hasStalePartialReindexState(lsmPaths[0], propName, sweepTupleIndexTypes[0], nil, props, logger)
 		if props.count() > 0 {
 			readingTuples++
 		}
@@ -352,10 +354,10 @@ func TestUnloadedSweepGateReadsEachShardsPayloadOncePerRun(t *testing.T) {
 				// A memo per gate call is what the run cost before one was
 				// threaded through it.
 				own := &taskPropsCache{}
-				hasStalePartialReindexState(lsm, propName, indexType, unshared, own)
+				hasStalePartialReindexState(lsm, propName, indexType, unshared, own, logger)
 				perTuple += own.count()
 
-				hasStalePartialReindexState(lsm, propName, indexType, shared, shared.trackerProps())
+				hasStalePartialReindexState(lsm, propName, indexType, shared, shared.trackerProps(), logger)
 			}
 		}
 	}

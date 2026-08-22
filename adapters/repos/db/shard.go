@@ -147,6 +147,8 @@ type ShardLike interface {
 
 	isReadOnly() error
 	pathLSM() string
+	migrationRecordStore() *MigrationRecordStore
+	migrationMirrorRegistry() *migrationMirrorRegistry
 
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
@@ -403,7 +405,7 @@ type Shard struct {
 	// property — either the property was created with
 	// IndexRangeFilters=true (no migration ever ran) or an
 	// enable-rangeable / repair-rangeable migration completed locally
-	// (markTidied fired in [runtimeSwap]).
+	// (the flip decision was recorded in [runtimeSwap]).
 	//
 	// False means the rangeable bucket is mid-migration on THIS replica:
 	// a PreReindexHook created an empty main bucket but the per-shard
@@ -425,6 +427,14 @@ type Shard struct {
 	// found on disk, and the post-tidy hook flips it back to true.
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
+
+	// rangeableUndecidable records that this shard's migration records could
+	// not all be read at init, so the pessimistic entries above could not be
+	// derived. A record that does not decode may be exactly the in-flight
+	// rangeable migration whose empty bucket must not be queried, and the
+	// default below reads a pre-created empty bucket as ready. Load-time fact:
+	// the record set is read once per shard load.
+	rangeableUndecidable atomic.Bool
 
 	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
 	// "what tokenization should query input use on this shard?" override
@@ -504,6 +514,15 @@ type Shard struct {
 	// path; registration/arm/disarm publish a fresh copy under the mutex.
 	propValueIndexState           atomic.Value // *propValueIndexState
 	propertyValueIndexCallbacksMu sync.Mutex
+
+	// migrationRecords is this shard's reindex migration state. Reconciliation
+	// builds it at load, before any bucket opens.
+	migrationRecords *MigrationRecordStore
+
+	// migrationMirrors holds the handles that disarm a reindex migration's
+	// double-write mirror. They live here rather than on the task instance
+	// that armed them because the actor that disarms is never that one.
+	migrationMirrors migrationMirrorRegistry
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -720,7 +739,7 @@ func (s *Shard) isFallbackToSearchable() bool {
 //   - The per-shard map has an explicit `true` entry. Set by
 //     [setRangeableLocallyReady] after a local
 //     enable-rangeable / repair-rangeable migration's swap completes
-//     (markTidied + OnMigrationComplete), OR
+//     (the recorded flip decision + OnMigrationComplete), OR
 //   - There is no explicit entry in the map AND the rangeable bucket
 //     for this prop exists in the LSM store. This covers native
 //     rangeable props (created with IndexRangeFilters=true, bucket
@@ -748,6 +767,12 @@ func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 		}
 	}
 	s.rangeableLocalReadyMu.RUnlock()
+
+	// No explicit entry and no way to know whether one was owed: a record
+	// that failed to decode is not evidence that no migration is in flight.
+	if s.rangeableUndecidable.Load() {
+		return false
+	}
 
 	// Default: ready iff the rangeable bucket physically exists in the
 	// store. Cheap (a map lookup under bucketAccessLock.RLock in

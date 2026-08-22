@@ -828,8 +828,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// deferred swap go only to the old main bucket and are silently lost.
 	// Reads: <data>/<index>/<shard>/lsm/.migrations/<dir>/payload.mig
 	// (written by ReindexProvider.persistRecoveryRecord before reindex
-	// starts), plus the existing started.mig / tidied.mig sentinels to
-	// decide which migrations are still in flight.
+	// starts), plus the shard's migration records to decide which
+	// migrations are still in the window that needs callbacks.
 	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
 		appState.ServerConfig.Config.Persistence.DataPath,
 		appState.Logger,
@@ -1020,6 +1020,25 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if metaStoreReady.waitForMetaStore() != nil {
 			return
 		}
+
+		// Migration reconciliation runs at shard load and reads this node's
+		// own applied task map, never the leader's: a shard load must not wait
+		// on a round-trip. The map cannot be installed at DB construction
+		// because the cluster service does not exist yet, so shards loaded
+		// before this point decide nothing that depends on it, which is why
+		// installing the sources also starts the pass that revisits them.
+		//
+		// Ahead of Scheduler.Start, which resumes local units synchronously, so
+		// the pass's first run precedes the first resumed iterator. That
+		// ordering used to be the whole reason the pass could delete a
+		// migration's directories; it no longer is, because the pass repeats
+		// for the life of the node and asks the unit registry directly. The
+		// map is complete here for the same reason the scheduler trusts it to
+		// choose what to resume — waitForMetaStore above.
+		raft := appState.ClusterService.Raft
+		repo.SetMigrationTaskSources(serverShutdownCtx,
+			newMigrationLocalTaskSource(raft), newMigrationClusterTaskSource(raft))
+
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
 			appState.Logger.WithField("action", "startup").
 				Errorf("failed to start distributed task scheduler: %v", err)
@@ -1151,6 +1170,12 @@ func initReindexAndDistributedTasks(
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+
+	// Installed here rather than with the other reindex lookups below, because
+	// those are wired from the post-bootstrap goroutine and reconciliation's
+	// first pass runs there too. A pass that ran without this seal could
+	// remove a running unit's directories.
+	repo.SetReindexUnitSeal(reindexProvider.ReindexUnitSealBuilder())
 
 	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
 	// [db.ReindexProvider.RunSearchableBlockmaxRepair].

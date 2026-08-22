@@ -36,6 +36,11 @@ import (
 // merge/swap/tidy, object iteration, progress tracking) lives in
 // ShardReindexTaskGeneric.
 type MigrationStrategy interface {
+	// StrategyCode identifies this strategy in a migration record's key.
+	// Unlike the directory name it is a durable on-disk value, and it stays
+	// meaningful once directory names become opaque.
+	StrategyCode() MigrationStrategyCode
+
 	// MigrationDirName returns the subdirectory name under .migrations/
 	// e.g. "searchable_map_to_blockmax"
 	MigrationDirName() string
@@ -52,10 +57,6 @@ type MigrationStrategy interface {
 	// Default is "__ingest"; blockmax overrides to "__blockmax_ingest" for backward compat.
 	IngestSuffix() string
 
-	// BackupSuffix returns the suffix for backup buckets.
-	// Default is "__backup"; blockmax overrides to "__blockmax_map" for backward compat.
-	BackupSuffix() string
-
 	// SourceStrategy returns the LSM strategy of source buckets to discover.
 	// e.g. lsmkv.StrategyMapCollection
 	SourceStrategy() string
@@ -68,24 +69,18 @@ type MigrationStrategy interface {
 	// e.g. lsmkv.StrategyInverted
 	TargetStrategy() string
 
-	// BackupStrategy returns the LSM strategy for backup buckets.
-	// Usually the same as SourceStrategy.
-	BackupStrategy() string
-
 	// WriteToReindexBucket writes a single property's data for one object
 	// into the reindex bucket during the async reindex loop.
 	WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket, docID uint64,
 		prop inverted.Property) error
 
 	// MakeAddCallback creates a double-write callback for property additions.
-	// forTargetStrategy=true during ingest phase, false during backup phase.
-	MakeAddCallback(bucketNamer func(string) string, propsByName map[string]struct{},
-		forTargetStrategy bool) onAddToPropertyValueIndex
+	MakeAddCallback(bucketNamer func(string) string, armed armedMirror,
+	) onAddToPropertyValueIndex
 
 	// MakeDeleteCallback creates a double-write callback for property deletions.
-	// forTargetStrategy=true during ingest phase, false during backup phase.
-	MakeDeleteCallback(bucketNamer func(string) string, propsByName map[string]struct{},
-		forTargetStrategy bool) onDeleteFromPropertyValueIndex
+	MakeDeleteCallback(bucketNamer func(string) string, armed armedMirror,
+	) onDeleteFromPropertyValueIndex
 
 	// PreReindexHook is called before the reindex/ingest phase begins on a shard.
 	// e.g. shard.markSearchableBlockmaxProperties(props...)
@@ -104,8 +99,8 @@ type MigrationStrategy interface {
 	// map→blockmax, roaring-set refresh) should return nil.
 	AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay
 
-	// OnMigrationComplete is called when the migration is fully tidied on a
-	// single shard. Implementations can read the shard's current bucket state
+	// OnMigrationComplete is called once this shard's flip is durable.
+	// Implementations can read the shard's current bucket state
 	// to decide whether collection-level finalization (e.g. flipping the
 	// UsingBlockMaxWAND class flag) is safe — important for per-property
 	// migrations, where the flag must only flip once every searchable property
@@ -114,7 +109,7 @@ type MigrationStrategy interface {
 	// Phase contract (see inverted_reindex_task_generic.go file-level
 	// godoc): OnMigrationComplete fires in Phase 2c — AFTER the per-prop
 	// SwapBucketPointer tight loop (Phase 2a) and AFTER the inline
-	// oldMain.Shutdown + oldMain→backup rename loop (Phase 2b), but still
+	// oldMain.Shutdown + removal of the displaced dirs (Phase 2b), but still
 	// INSIDE the per-shard tokenization-overlay window for migrations
 	// that use one (change-tokenization-{searchable,filterable},
 	// enable-filterable, enable-searchable). The overlay is cleared
@@ -257,7 +252,6 @@ func applyPerPropertySchemaUpdate(
 type reindexTaskConfig struct {
 	concurrency                   int
 	memtableOptFactor             int
-	backupMemtableOptFactor       int
 	processingDuration            time.Duration
 	pauseDuration                 time.Duration
 	checkProcessingEveryNoObjects int

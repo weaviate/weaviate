@@ -125,18 +125,17 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 			break
 		}
 	}
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	props, err := task.readPropsToReindex(rt)
-	require.NoError(t, err)
-	require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+	iterated, ok := task.migrationRecord(shard)
+	require.True(t, ok, "the rebuild must have left a record")
+	props := iterated.Subject().Properties
+	require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, props))
 
 	// Panic prefix lets the recover() handler distinguish THE expected
 	// fault panic from any unrelated panic inside runtimeSwap.
 	const haltPanicPrefix = "mid-loop halt: simulated crash"
 	prodSwap := task.processOneSwapProp
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
-		bucket, err := prodSwap(ctx, store, rt, propIdx, propName)
+	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error) {
+		bucket, err := prodSwap(ctx, store, propIdx, propName)
 		if err != nil {
 			return nil, err
 		}
@@ -159,7 +158,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 				panicValue = r
 			}
 		}()
-		swapErr = task.runtimeSwap(ctx, task.logger, shard, rt, props)
+		swapErr = task.runtimeSwap(ctx, task.logger, shard, props)
 		swapReturned = true
 	}()
 
@@ -172,14 +171,22 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 		"recovered panic not from hook (want prefix %q; got %T %v)",
 		haltPanicPrefix, panicValue, panicValue)
 
-	swappedCount := 0
+	// The flip decision is written ahead of the first pointer move, so a
+	// crash anywhere inside the loop still finds it durable.
+	swapped, ok := task.migrationRecord(shard)
+	require.True(t, ok, "the flip decision must have left a record")
+	require.Equal(t, MigrationStateSwapped, swapped.State())
+
+	// A flipped property has no ingest-name entry left in the store, which
+	// is the same fact the swap loop reads to skip one it already flipped.
+	flippedCount := 0
 	for _, p := range props {
-		if rt.IsSwappedProp(p) {
-			swappedCount++
+		if shard.store.Bucket(task.ingestBucketName(p)) == nil {
+			flippedCount++
 		}
 	}
-	assert.GreaterOrEqualf(t, swappedCount, haltAfter, "≥%d markSwappedProp (got %d)", haltAfter, swappedCount)
-	assert.Lessf(t, swappedCount, len(propNames), "halt didn't fire (got %d of %d)", swappedCount, len(propNames))
+	assert.GreaterOrEqualf(t, flippedCount, haltAfter, "≥%d props flipped (got %d)", haltAfter, flippedCount)
+	assert.Lessf(t, flippedCount, len(propNames), "halt didn't fire (got %d of %d)", flippedCount, len(propNames))
 
 	shardName := shard.Name()
 	shardLSMPath := shard.pathLSM()
