@@ -506,7 +506,7 @@ func TestCronsRegistration_BadScheduleKeepsRegistration(t *testing.T) {
 }
 
 func TestCronsRegistration_TickSkipsADeadContext(t *testing.T) {
-	c, _, _, _ := newTestRegistration(t, time.Minute)
+	c, _, hook, _ := newTestRegistration(t, time.Minute)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var ticked bool
@@ -516,6 +516,8 @@ func TestCronsRegistration_TickSkipsADeadContext(t *testing.T) {
 	c.tickJob(ctx, cron.RunOnEveryNode, func(context.Context) { ticked = true }).Run()
 
 	assert.False(t, ticked, "a fire from the generation being replaced must not run")
+	assert.Contains(t, messages(hook), "cron tick skipped, its context has ended",
+		"a skipped fire must say why, so a gap in the sweep log is explainable")
 	require.True(t, c.runMu.TryLock(), "the skipped fire must release runMu")
 	c.runMu.Unlock()
 }
@@ -558,17 +560,22 @@ func TestCronsRegistration_TickChecksItsContextUnderRunMu(t *testing.T) {
 
 func TestCronsRegistration_TickGate(t *testing.T) {
 	tests := []struct {
-		name     string
-		tickGate func() bool
-		wantTick bool
+		name        string
+		tickGate    func() bool
+		wantTick    bool
+		wantSkipLog bool
 	}{
-		{name: "a gate that denies never calls the tick", tickGate: func() bool { return false }},
+		{
+			name:        "a gate that denies never calls the tick",
+			tickGate:    func() bool { return false },
+			wantSkipLog: true,
+		},
 		{name: "a gate that allows calls the tick", tickGate: func() bool { return true }, wantTick: true},
 		{name: "RunOnEveryNode always calls the tick", tickGate: cron.RunOnEveryNode, wantTick: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, _, _, _ := newTestRegistration(t, time.Minute)
+			c, _, hook, _ := newTestRegistration(t, time.Minute)
 			var ticked bool
 
 			// Drive the job directly: initGoCron returns an unstarted cron and
@@ -577,6 +584,9 @@ func TestCronsRegistration_TickGate(t *testing.T) {
 			c.tickJob(context.Background(), tt.tickGate, func(context.Context) { ticked = true }).Run()
 
 			assert.Equal(t, tt.wantTick, ticked)
+			assert.Equal(t, tt.wantSkipLog,
+				slices.Contains(messages(hook), "cron tick skipped by its gate"),
+				"only a denied fire says the gate skipped it")
 		})
 	}
 }

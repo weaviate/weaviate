@@ -256,10 +256,12 @@ func (c *cronsRegistration[T]) tickJob(ctx context.Context, tickGate func() bool
 		// a fire from the replaced generation must not run. The read sits under
 		// runMu so a fire that waited for the lock still sees that cancel.
 		if ctx.Err() != nil {
+			c.jobLogger.Debug("cron tick skipped, its context has ended")
 			return
 		}
 
 		if !tickGate() {
+			c.jobLogger.Debug("cron tick skipped by its gate")
 			return
 		}
 		tick(ctx)
