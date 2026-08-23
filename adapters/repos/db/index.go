@@ -4106,6 +4106,13 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 						status := shard.GetStatus().String()
 						oneNodeStatus.Store(status)
 						perNodeStatus[nodeName] = status
+					} else if err == nil {
+						// Shard is not loaded on this node. For multi-tenant
+						// collections this is expected when the tenant is
+						// inactive. Report it as COLD so the shard still shows
+						// a meaningful status instead of an empty entry.
+						perNodeStatus[nodeName] = models.TenantActivityStatusCOLD
+						oneNodeStatus.CompareAndSwap(nil, models.TenantActivityStatusCOLD)
 					}
 					release()
 				} else {
@@ -4145,7 +4152,11 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	defer release()
 
 	if shard == nil {
-		return "", fmt.Errorf("local %s shard not found", shardName)
+		// Shard is not loaded on this node. For multi-tenant collections
+		// this is expected when the tenant is inactive (COLD, FROZEN, etc.).
+		// Return "COLD" so the caller can report the shard status rather
+		// than failing the entire request with a 500 error.
+		return models.TenantActivityStatusCOLD, nil
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {

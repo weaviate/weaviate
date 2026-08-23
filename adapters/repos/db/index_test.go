@@ -392,6 +392,137 @@ func TestIndex_getShardsStatus(t *testing.T) {
 	require.Equal(t, wantLegacy, gotLegacy, "legacy statuses")
 }
 
+// TestIndex_getShardsStatus_InactiveTenant ensures an inactive tenant whose
+// shard is not loaded on any node is reported as COLD instead of failing the
+// whole listing with a 500 / "local shard not found". Regression test for
+// https://github.com/weaviate/weaviate/issues/12764.
+func TestIndex_getShardsStatus_InactiveTenant(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	clusterNodes := []string{"node-0", "node-1", "node-2"}
+	targetNode := clusterNodes[0]
+	// shard_loaded is a regular loaded shard; shard_inactive has no local
+	// shard and no remote status - exactly what an INACTIVE tenant looks like.
+	shardReplicas := map[string][]string{
+		"shard_loaded":   clusterNodes,
+		"shard_inactive": clusterNodes,
+	}
+	shardStatus := map[string]map[string]string{
+		"shard_loaded": {
+			"node-0": storagestate.StatusReady.String(),
+			"node-1": storagestate.StatusReady.String(),
+			"node-2": storagestate.StatusReady.String(),
+		},
+		// shard_inactive has no loaded shard anywhere: remote replicas report
+		// COLD (post-fix IncomingGetShardStatus), the local one has no shard.
+		"shard_inactive": {
+			"node-1": models.TenantActivityStatusCOLD,
+			"node-2": models.TenantActivityStatusCOLD,
+		},
+	}
+
+	want := map[string]map[string]string{
+		"shard_loaded": {
+			"node-0": storagestate.StatusReady.String(),
+			"node-1": storagestate.StatusReady.String(),
+			"node-2": storagestate.StatusReady.String(),
+		},
+		"shard_inactive": {
+			"node-0": models.TenantActivityStatusCOLD,
+			"node-1": models.TenantActivityStatusCOLD,
+			"node-2": models.TenantActivityStatusCOLD,
+		},
+	}
+
+	wantLegacy := map[string]string{
+		"shard_loaded":   storagestate.StatusReady.String(),
+		"shard_inactive": models.TenantActivityStatusCOLD,
+	}
+
+	var replicas []types.Replica
+	for shard, nodes := range shardReplicas {
+		for _, node := range nodes {
+			replicas = append(replicas, types.Replica{
+				ShardName: shard,
+				NodeName:  node,
+				HostAddr:  node,
+			})
+		}
+	}
+
+	router := &fakeRouter{
+		readSet: types.ReadReplicaSet{
+			Replicas: replicas,
+		},
+	}
+
+	replicator := &replica.Replicator{
+		Finder: replica.NewFinder(
+			"Songs", nil, nil,
+			targetNode, nil, nil,
+			logger, nil,
+		),
+	}
+
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().
+		Shards("Songs").
+		RunAndReturn(func(collectionName string) (shards []string, _ error) {
+			for s := range shardReplicas {
+				shards = append(shards, s)
+			}
+			return
+		}).Maybe()
+	schemaReader.EXPECT().
+		ShardReplicas("Songs", mock.Anything).
+		RunAndReturn(func(collectionName, shardName string) ([]string, error) {
+			return shardReplicas[shardName], nil
+		}).Maybe()
+
+	nodeResolver := cluster.NewMockNodeResolver(t)
+	nodeResolver.EXPECT().
+		NodeHostname(mock.Anything).
+		RunAndReturn(func(s string) (string, bool) { return s, true }).Maybe()
+
+	index := Index{
+		Config:           IndexConfig{ClassName: schema.ClassName("Songs"), ReplicationFactor: 2},
+		getSchema:        &fakeSchemaGetter{nodeName: targetNode},
+		schemaReader:     schemaReader,
+		shardCreateLocks: esync.NewKeyRWLocker(),
+		router:           router,
+		replicator:       replicator,
+		logger:           logger,
+	}
+	index.allShardsReady.Store(true)
+
+	index.remote = sharding.NewRemoteIndex(
+		"Songs",
+		index.getSchema,
+		nodeResolver,
+		&FakeRemoteClient{shardStatus: shardStatus},
+	)
+
+	// Only shard_loaded has a local shard; shard_inactive has none.
+	mockShard := NewMockShardLike(t)
+	mockShard.EXPECT().
+		preventShutdown().
+		Return(func() {}, nil).Maybe()
+	mockShard.EXPECT().
+		Name().
+		Return("shard_loaded").Maybe()
+	mockShard.EXPECT().
+		GetStatus().
+		Return(storagestate.StatusReady).Maybe()
+	index.shards.Store("shard_loaded", mockShard)
+
+	// Act
+	got, gotLegacy, err := index.getShardsStatus(t.Context(), "")
+
+	// Assert
+	assert.NoError(t, err)
+	require.Equal(t, want, got, "shard statuses")
+	require.Equal(t, wantLegacy, gotLegacy, "legacy statuses")
+}
+
 // TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement pins the
 // rf=1 scale-out lost-write fix: while a replica movement is active for the shard, a write
 // must be routed through the replicator (so it registers in the in-flight fence and the
