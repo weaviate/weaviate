@@ -103,7 +103,11 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	)
 	require.NoError(t, err)
 	repo.SetSchemaGetter(schemaGetter)
-	require.NoError(t, repo.WaitForStartup(ctx))
+	// WaitForStartup without the resource scan: the scan ticks twice a second
+	// against the real disk, so it would undo a resource transition a test makes
+	// by hand. Tests that want one drive the scan themselves.
+	require.NoError(t, repo.init(ctx))
+	repo.startupComplete.Store(true)
 
 	return repo, NewMigrator(repo, logger, "node1"), schemaGetter
 }

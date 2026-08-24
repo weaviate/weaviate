@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -370,7 +372,7 @@ func (h *hnsw) restoreDocMappings() error {
 	buf := make([]byte, 8)
 
 	// Get the mappings bucket - handle case where it might be nil
-	bucket := h.store.Bucket(h.id + "_mv_mappings")
+	bucket := h.store.Bucket(helpers.MVMappingsBucketName(h.id))
 	if bucket == nil {
 		err := errors.New("multivector mappings bucket not found")
 		h.logger.WithField("action", "restore_doc_mappings").

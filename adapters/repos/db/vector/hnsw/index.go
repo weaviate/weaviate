@@ -314,14 +314,14 @@ func New(cfg Config, uc ent.UserConfig,
 			muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
 			err := store.CreateOrLoadBucket(
 				context.Background(),
-				cfg.ID+"_muvera_vectors",
+				helpers.MuveraBucketName(cfg.ID),
 				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
 			}
 			muveraVectorForID := func(ctx context.Context, id uint64) ([]float32, error) {
-				return muveraEncoder.GetMuveraVectorForID(id, cfg.ID+"_muvera_vectors")
+				return muveraEncoder.GetMuveraVectorForID(id, helpers.MuveraBucketName(cfg.ID))
 			}
 			vectorCache = cache.NewShardedFloat32LockCache(
 				muveraVectorForID, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
@@ -440,7 +440,7 @@ func New(cfg Config, uc ent.UserConfig,
 		if !uc.Multivector.MuveraEnabled() {
 			err := index.store.CreateOrLoadBucket(
 				context.Background(),
-				cfg.ID+"_mv_mappings",
+				helpers.MVMappingsBucketName(cfg.ID),
 				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
