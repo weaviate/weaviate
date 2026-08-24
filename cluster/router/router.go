@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // Builder provides a builder for creating router instances based on configuration.
@@ -277,20 +278,18 @@ func (r *singleTenantRouter) getWriteReplicasLocation(collection string, tenant 
 
 // targetShards returns either all shards or a single one, depending on the value of the shard parameter.
 func (r *singleTenantRouter) targetShards(collection, shardName string) ([]string, error) {
-	shards, err := r.schemaReader.Shards(collection)
-	if err != nil {
-		return nil, err
-	}
 	if shardName == "" {
-		return shards, nil
+		return r.schemaReader.Shards(collection)
 	}
 
+	// Membership check only — avoids Shards' sorted copy of the full shard list on every routing-plan build.
 	found := false
-	for _, shard := range shards {
-		if shard == shardName {
-			found = true
-			break
-		}
+	err := r.schemaReader.Read(collection, true, func(_ *models.Class, state *sharding.State) error {
+		_, found = state.Physical[shardName]
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	if !found {
 		return nil, fmt.Errorf("error while trying to find shard: %s in collection: %s", shardName, collection)

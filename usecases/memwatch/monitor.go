@@ -129,7 +129,7 @@ func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeIn
 	}
 	if reservationTimeInS > 0 {
 		m.reservedMappings += numberMappings
-		m.reservedMappingsBuffer[(now.Second()+reservationTimeInS)%(mappingsEntries)] += numberMappings
+		m.reservedMappingsBuffer[(now.Second()+reservationTimeInS)%mappingsEntries] += numberMappings
 	}
 
 	m.lastReservationsClear = now

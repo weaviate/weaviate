@@ -189,6 +189,10 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 	}
 
 	db.startupComplete.Store(true)
+	// Only once init has returned: unlike AddClass, it does not settle the
+	// indices it builds against the read-only flag, so a transition landing
+	// while one is still being assembled would reach its shards through neither
+	// path.
 	db.scanResourceUsage()
 
 	return nil

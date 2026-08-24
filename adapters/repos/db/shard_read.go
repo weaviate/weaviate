@@ -218,7 +218,7 @@ func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]
 
 func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int) (
-	objs []types.RepairResponse, err error,
+	objs []types.RepairDigest, err error,
 ) {
 	initialUUID16, err := uuid.Parse(initialUUID.String())
 	if err != nil {
@@ -241,7 +241,7 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 // digests with key <= finalKey. The cursor is reused across calls by the
 // async-replication scan, so it must not be opened/closed here.
 func collectObjectDigests(ctx context.Context, cursor *lsmkv.CursorReplace,
-	initialKey, finalKey []byte, limit int) (objs []types.RepairResponse, err error,
+	initialKey, finalKey []byte, limit int) (objs []types.RepairDigest, err error,
 ) {
 	n := 0
 
@@ -260,8 +260,8 @@ func collectObjectDigests(ctx context.Context, cursor *lsmkv.CursorReplace,
 			return objs, fmt.Errorf("cannot parse object uuid: %w", err)
 		}
 
-		objs = append(objs, types.RepairResponse{
-			ID:         uuidParsed.String(),
+		objs = append(objs, types.RepairDigest{
+			ID:         uuidParsed,
 			UpdateTime: updateTime,
 		})
 
@@ -279,22 +279,16 @@ func collectObjectDigests(ctx context.Context, cursor *lsmkv.CursorReplace,
 // post-Overwrite resolveObjectConflict path.
 //
 // sourceDigests must be in strict lex order of the parsed UUID bytes;
-// enforced mid-join, not up front.
-func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+// order is enforced mid-join: out-of-order input is rejected, not silently mis-joined.
+func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.RepairDigest) ([]types.RepairDigest, error) {
 	if len(sourceDigests) == 0 {
 		return nil, nil
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	firstUUID, err := uuid.Parse(sourceDigests[0].ID)
-	if err != nil {
-		return nil, fmt.Errorf("parse source uuid %q: %w", sourceDigests[0].ID, err)
-	}
-	lastUUID, err := uuid.Parse(sourceDigests[len(sourceDigests)-1].ID)
-	if err != nil {
-		return nil, fmt.Errorf("parse source uuid %q: %w", sourceDigests[len(sourceDigests)-1].ID, err)
-	}
+	firstUUID := sourceDigests[0].ID
+	lastUUID := sourceDigests[len(sourceDigests)-1].ID
 
 	// Digest mode: only the header is read below (localTime), skip the full
 	// value. The join only inspects keys within the source digest span, so the
@@ -304,19 +298,15 @@ func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.Repair
 
 	cursorKey, cursorVal := cursor.Seek(firstUUID[:])
 
-	result := make([]types.RepairResponse, 0, len(sourceDigests))
+	result := make([]types.RepairDigest, 0, len(sourceDigests))
 	var prevUUID uuid.UUID
-	var prevID string
 	for i, d := range sourceDigests {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		srcUUID, err := uuid.Parse(d.ID)
-		if err != nil {
-			return nil, fmt.Errorf("parse source uuid %q: %w", d.ID, err)
-		}
+		srcUUID := d.ID
 		if i > 0 && bytes.Compare(srcUUID[:], prevUUID[:]) <= 0 {
-			return nil, fmt.Errorf("source digests not in strict lex order: %q after %q", d.ID, prevID)
+			return nil, fmt.Errorf("source digests not in strict lex order: %q after %q", srcUUID, prevUUID)
 		}
 
 		for cursorKey != nil && bytes.Compare(cursorKey, srcUUID[:]) < 0 {
@@ -326,18 +316,17 @@ func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.Repair
 		if cursorKey != nil && bytes.Equal(cursorKey, srcUUID[:]) {
 			_, localTime, err := storobj.DocIDAndTimeFromBinary(cursorVal)
 			if err != nil {
-				return nil, fmt.Errorf("extract update time for %q: %w", d.ID, err)
+				return nil, fmt.Errorf("extract update time for %q: %w", srcUUID, err)
 			}
 			if d.UpdateTime > localTime {
-				result = append(result, types.RepairResponse{ID: d.ID, UpdateTime: localTime})
+				result = append(result, types.RepairDigest{ID: d.ID, UpdateTime: localTime})
 			}
 			cursorKey, cursorVal = cursor.Next()
 		} else {
-			result = append(result, types.RepairResponse{ID: d.ID, UpdateTime: 0})
+			result = append(result, types.RepairDigest{ID: d.ID, UpdateTime: 0})
 		}
 
 		prevUUID = srcUUID
-		prevID = d.ID
 	}
 
 	return result, nil

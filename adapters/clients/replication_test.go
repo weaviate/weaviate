@@ -764,9 +764,9 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		got, err := c.DigestObjectsInRange(context.Background(), server.URL[7:], "C1", "S1", UUID1, UUID2, 10)
 		require.NoError(t, err)
 		require.Len(t, got, 2)
-		assert.Equal(t, expected[0].ID, got[0].ID)
+		assert.Equal(t, uuid.MustParse(expected[0].ID), got[0].ID)
 		assert.Equal(t, expected[0].UpdateTime, got[0].UpdateTime)
-		assert.Equal(t, expected[1].ID, got[1].ID)
+		assert.Equal(t, uuid.MustParse(expected[1].ID), got[1].ID)
 		assert.Equal(t, expected[1].UpdateTime, got[1].UpdateTime)
 	})
 
@@ -782,9 +782,9 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		got, err := c.DigestObjectsInRange(context.Background(), server.URL[7:], "C1", "S1", UUID1, UUID2, 10)
 		require.NoError(t, err)
 		require.Len(t, got, 2)
-		assert.Equal(t, expected[0].ID, got[0].ID)
+		assert.Equal(t, uuid.MustParse(expected[0].ID), got[0].ID)
 		assert.Equal(t, expected[0].UpdateTime, got[0].UpdateTime)
-		assert.Equal(t, expected[1].ID, got[1].ID)
+		assert.Equal(t, uuid.MustParse(expected[1].ID), got[1].ID)
 		assert.Equal(t, expected[1].UpdateTime, got[1].UpdateTime)
 	})
 

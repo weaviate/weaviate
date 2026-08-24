@@ -81,6 +81,7 @@ const (
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD ApplyRequest_Type = 222
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE          ApplyRequest_Type = 223
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID                 ApplyRequest_Type = 224
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS                  ApplyRequest_Type = 225
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD                                       ApplyRequest_Type = 300
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL                                    ApplyRequest_Type = 301
 	// Deprecated: kept for backward compat with existing Raft logs.
@@ -150,6 +151,7 @@ var (
 		222: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD",
 		223: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE",
 		224: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID",
+		225: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS",
 		300: "TYPE_DISTRIBUTED_TASK_ADD",
 		301: "TYPE_DISTRIBUTED_TASK_CANCEL",
 		302: "TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED",
@@ -215,6 +217,7 @@ var (
 		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD": 222,
 		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE":          223,
 		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID":                 224,
+		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS":                  225,
 		"TYPE_DISTRIBUTED_TASK_ADD":                                       300,
 		"TYPE_DISTRIBUTED_TASK_CANCEL":                                    301,
 		"TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED":                     302,
@@ -2474,13 +2477,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\xa2\x13\n" +
+	"\x12NotifyPeerResponse\"\xd7\x13\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\xfe\x11\n" +
+	"subCommand\"\xb3\x12\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -2534,7 +2537,8 @@ const file_api_message_proto_rawDesc = "" +
 	"5TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION\x10\xdd\x01\x12D\n" +
 	"?TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD\x10\xde\x01\x12;\n" +
 	"6TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE\x10\xdf\x01\x124\n" +
-	"/TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID\x10\xe0\x01\x12\x1e\n" +
+	"/TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID\x10\xe0\x01\x123\n" +
+	".TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS\x10\xe1\x01\x12\x1e\n" +
 	"\x19TYPE_DISTRIBUTED_TASK_ADD\x10\xac\x02\x12!\n" +
 	"\x1cTYPE_DISTRIBUTED_TASK_CANCEL\x10\xad\x02\x120\n" +
 	"+TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED\x10\xae\x02\x12#\n" +
