@@ -326,7 +326,7 @@ func (u *UserConfig) validate() error {
 		return fmt.Errorf("invalid hnsw config: ksim must be at most 10")
 	}
 
-	return nil
+	return vectorIndexCommon.ValidateBQCompatibility(u.Distance, u.BQ.Enabled)
 }
 
 func NewDefaultUserConfig() UserConfig {
@@ -373,7 +373,11 @@ func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compre
 		hnswConfig.RQ.Bits = 8
 		hnswConfig.RQ.RescoreLimit = DefaultRQRescoreLimit
 	case "bq":
-		hnswConfig.BQ.Enabled = true
+		if err := vectorIndexCommon.EnableDefaultBQ(hnswConfig.Distance, func() {
+			hnswConfig.BQ.Enabled = true
+		}); err != nil {
+			return hnswConfig, err
+		}
 	default:
 		return hnswConfig, errors.New("invalid default quantization for hnsw index: " + compression)
 	}
