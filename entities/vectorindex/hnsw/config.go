@@ -289,6 +289,27 @@ func (u *UserConfig) validate() error {
 			strings.Join(errMsgs, ", "))
 	}
 
+	if err := u.validateCompression(); err != nil {
+		return err
+	}
+
+	if err := ValidatePQConfig(u.PQ); err != nil {
+		return err
+	}
+
+	err := ValidateRQConfig(u.RQ)
+	if err != nil {
+		return err
+	}
+
+	if u.Multivector.MuveraConfig.Enabled && u.Multivector.MuveraConfig.KSim > 10 {
+		return fmt.Errorf("invalid hnsw config: ksim must be less than 10")
+	}
+
+	return nil
+}
+
+func (u *UserConfig) validateCompression() error {
 	enabled := 0
 	if u.PQ.Enabled {
 		enabled++
@@ -306,20 +327,7 @@ func (u *UserConfig) validate() error {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
 	}
 
-	if err := ValidatePQConfig(u.PQ); err != nil {
-		return err
-	}
-
-	err := ValidateRQConfig(u.RQ)
-	if err != nil {
-		return err
-	}
-
-	if u.Multivector.MuveraConfig.Enabled && u.Multivector.MuveraConfig.KSim > 10 {
-		return fmt.Errorf("invalid hnsw config: ksim must be at most 10")
-	}
-
-	return nil
+	return vectorIndexCommon.ValidateBQCompatibility(u.Distance, u.BQ.Enabled)
 }
 
 func NewDefaultUserConfig() UserConfig {
@@ -357,16 +365,16 @@ func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compre
 		hnswConfig.RQ.Enabled = true
 		hnswConfig.RQ.Bits = 1
 		hnswConfig.RQ.RescoreLimit = DefaultBRQRescoreLimit
-	case "rq-4":
-		hnswConfig.RQ.Enabled = true
-		hnswConfig.RQ.Bits = 4
-		hnswConfig.RQ.RescoreLimit = DefaultRQRescoreLimit
 	case "rq-8":
 		hnswConfig.RQ.Enabled = true
 		hnswConfig.RQ.Bits = 8
 		hnswConfig.RQ.RescoreLimit = DefaultRQRescoreLimit
 	case "bq":
-		hnswConfig.BQ.Enabled = true
+		if err := vectorIndexCommon.EnableDefaultBQ(hnswConfig.Distance, func() {
+			hnswConfig.BQ.Enabled = true
+		}); err != nil {
+			return hnswConfig, err
+		}
 	default:
 		return hnswConfig, errors.New("invalid default quantization for hnsw index: " + compression)
 	}
