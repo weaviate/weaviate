@@ -505,6 +505,43 @@ func TestCronsRegistration_BadScheduleKeepsRegistration(t *testing.T) {
 	assert.NoError(t, (*tickCtx.Load()).Err())
 }
 
+// TestCronsRegistration_RefusedRegistrationLeavesNoEntry pins the branch a
+// failed replacement takes: it names the state it left and removes the stale
+// entry, so no job survives firing into a context the loop already cancelled.
+// Only the arm with nothing to remove is reachable — an entry already carrying
+// the job name sends DrainAndUpsertJob down a pause-and-swap path the library
+// gives no way to fail — so the other arm is an explicit gap.
+func TestCronsRegistration_RefusedRegistrationLeavesNoEntry(t *testing.T) {
+	c, _, hook, _ := newTestRegistration(t, time.Minute)
+	// One slot, already taken, is what makes the registration fail: initGoCron
+	// caps nothing, so the cron it builds accepts every job it is offered.
+	cr := gocron.New(gocron.WithParser(cron.Parser()),
+		gocron.WithLogger(gocron.DiscardLogger), gocron.WithMaxEntries(1))
+	_, err := cr.AddFunc("@every 1h", func() {}, gocron.WithName("occupied"))
+	require.NoError(t, err)
+
+	started, err := c.start(cr, cron.RunOnEveryNode, func(context.Context) {})
+	require.NoError(t, err)
+	require.True(t, started)
+
+	require.Eventually(t, func() bool {
+		return len(messages(hook, logrus.ErrorLevel)) == 1
+	}, 2*time.Second, 10*time.Millisecond, "the refused registration should log one error")
+	assert.Contains(t, messages(hook, logrus.ErrorLevel)[0],
+		"cron job not added, no job is registered",
+		"a failed registration must name the state it left the job in")
+	assert.Equal(t, "@every 1m0s", hook.LastEntry().Data["schedule"],
+		"the refused spec must reach the log record")
+	assert.False(t, cr.EntryByName(testJobName).Valid(),
+		"a failed registration must leave no entry under the job name")
+
+	// The loop survives the refusal rather than exiting on it: freeing the slot
+	// and pushing again registers the job.
+	require.True(t, cr.RemoveByName("occupied"))
+	c.valueCh <- 2 * time.Minute
+	requireRegisteredAt(t, cr, testJobName, 2*time.Minute)
+}
+
 func TestCronsRegistration_TickSkipsADeadContext(t *testing.T) {
 	c, _, hook, _ := newTestRegistration(t, time.Minute)
 	ctx, cancel := context.WithCancel(context.Background())
