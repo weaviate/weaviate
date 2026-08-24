@@ -114,6 +114,9 @@ var nonNamespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK:                {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK:           {},
 	api.ApplyRequest_TYPE_CLUSTER_ID_SET:                                             {},
+	// applyRestoreRolesAndUsers checks namespaces itself and rejects the whole
+	// entry, never single rows.
+	api.ApplyRequest_TYPE_RESTORE_ROLES_AND_USERS: {},
 }
 
 // TestApplyTypeNamespaceGateClassification fails when a new

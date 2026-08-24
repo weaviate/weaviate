@@ -203,3 +203,48 @@ func (m *Manager) Restore(snapshot []byte) error {
 	m.logger.Info("successfully restored dynamic users from snapshot")
 	return nil
 }
+
+// ValidateBackupSnapshot checks the backup's users without changing anything.
+// If this cluster uses namespaces, every namespace the users name must exist
+// and not be deleting. Suspended and resuming namespaces are accepted because
+// they keep their rows, so restoring those rows is legal and must not block a
+// cluster-wide restore.
+func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, ns usecasesNamespaces.Exister) error {
+	if m.dynUser == nil || len(req.Users) == 0 {
+		return nil
+	}
+	if err := apikey.ValidateSnapshot(req.Users, req.StripNamespaces); err != nil {
+		return err
+	}
+	if req.StripNamespaces {
+		// This cluster has namespaces turned off, so there is no namespace here
+		// that could be active. The check above covers this case instead.
+		return nil
+	}
+	if err := apikey.RequireReferencedNamespacesExist(req.Users, ns); err != nil {
+		return fmt.Errorf("restore users: %w", err)
+	}
+	return nil
+}
+
+// RestoreFromBackup replaces every user with the ones from the backup and saves
+// them to disk. Not to be confused with Restore, which loads users when a node
+// starts up. Restore must not write to disk, because a failed write would stop
+// the node from starting.
+func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error {
+	if m.dynUser == nil || len(req.Users) == 0 {
+		return nil
+	}
+	if err := m.dynUser.Restore(req.Users, req.StripNamespaces); err != nil {
+		return err
+	}
+	// The file is only a copy read at startup. A failed save must not fail the
+	// restore, because the other nodes have already finished theirs.
+	if err := m.dynUser.Persist(); err != nil {
+		m.logger.WithField("action", "restore_users_from_backup").
+			Warnf("restored users are not on disk yet, RAFT state remains authoritative: %v", err)
+	}
+	m.logger.WithField("action", "restore_users_from_backup").
+		Info("replaced dynamic-user state from backup")
+	return nil
+}
