@@ -317,11 +317,14 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	// resume any .deleteme cleanup that didn't finish before the last shutdown
 	scanAndAsyncDeletePending(config.RootPath, logger)
 
+	// Fakes without the cross-class RPC leave the comparer nil → per-class pre-filter fallback.
+	crossClassComparer, _ := replicaClient.(crossClassRootComparer)
 	asyncReplicationScheduler, err := NewAsyncReplicationScheduler(
 		context.Background(),
 		config.Replication,
 		promMetrics,
 		logger,
+		crossClassComparer,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create async replication scheduler: %w", err)
