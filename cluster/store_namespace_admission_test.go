@@ -38,7 +38,7 @@ const (
 )
 
 // This file tests the namespace checks on both sides of the RAFT log. Every
-// ApplyRequest type belongs to exactly one of the three maps below. The namespace
+// ApplyRequest type belongs to exactly one of the maps below. The namespace
 // lifecycle commands stay ungated, so a suspended namespace can still be resumed
 // or deleted.
 //
@@ -139,6 +139,12 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_CLUSTER_ID_SET:                                             {},
 }
 
+// Commands carrying no single namespace, which check the ones they reference
+// themselves inside the apply handler.
+var selfGatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
+	api.ApplyRequest_TYPE_RESTORE_ROLES_AND_USERS: {},
+}
+
 // applyTypeBuckets pairs each classification map with its name, so the drift
 // check can report which ones a misfiled type appears in.
 var applyTypeBuckets = []struct {
@@ -148,6 +154,7 @@ var applyTypeBuckets = []struct {
 	{"requireActiveProposeTypes", requireActiveProposeTypes},
 	{"destructiveApplyTypes", destructiveApplyTypes},
 	{"ungatedApplyTypes", ungatedApplyTypes},
+	{"selfGatedApplyTypes", selfGatedApplyTypes},
 }
 
 // TestApplyTypeNamespaceGateClassification fails when an ApplyRequest_Type is

@@ -23,6 +23,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"runtime"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,14 +57,19 @@ const (
 
 type replicationClient struct {
 	retryClient
-	// Shared instance: EncodeAll is concurrency-safe and internally multiplexes GOMAXPROCS sub-encoders.
+	// Shared instance: EncodeAll is concurrency-safe and internally multiplexes a capped set of sub-encoders.
 	zstdEncoder *zstd.Encoder
 }
 
 var _ replica.Client = (*replicationClient)(nil)
 
 func NewReplicationClient(httpClient *http.Client) (*replicationClient, error) {
-	enc, err := zstd.NewWriter(nil)
+	// Sub-encoder state is retained for the process lifetime, so concurrency and
+	// window are capped: defaults hold GOMAXPROCS×~1.5MiB permanently and grow by
+	// 16MiB per sub-encoder on any payload over one block (128KiB).
+	enc, err := zstd.NewWriter(nil,
+		zstd.WithEncoderConcurrency(min(4, runtime.GOMAXPROCS(0))),
+		zstd.WithWindowSize(1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("create zstd encoder: %w", err)
 	}

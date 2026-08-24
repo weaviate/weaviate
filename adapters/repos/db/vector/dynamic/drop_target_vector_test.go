@@ -78,7 +78,7 @@ func newDynamicForDrop(t *testing.T, db *bbolt.DB, rootPath, targetVector string
 func TestDropTargetVector_LeavesTheSharedStateDBUsable(t *testing.T) {
 	ctx := context.Background()
 	rootPath := t.TempDir()
-	dbPath := filepath.Join(rootPath, StateDBFileName)
+	dbPath := filepath.Join(rootPath, ent.StateDBFileName)
 	db, err := bbolt.Open(dbPath, 0o666, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
@@ -113,7 +113,7 @@ func TestDropTargetVector_LeavesTheSharedStateDBUsable(t *testing.T) {
 func TestDropTargetVector_ClearsOnlyItsOwnKey(t *testing.T) {
 	ctx := context.Background()
 	rootPath := t.TempDir()
-	db, err := bbolt.Open(filepath.Join(rootPath, StateDBFileName), 0o666, nil)
+	db, err := bbolt.Open(filepath.Join(rootPath, ent.StateDBFileName), 0o666, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 

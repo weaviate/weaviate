@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -1669,6 +1670,8 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
+		appState.ClusterService.Raft,
+		appState.NamespacesController,
 		appState.Logger)
 	return backupScheduler
 }
@@ -2666,6 +2669,14 @@ func limitResources(appState *state.State) {
 	} else {
 		appState.Logger.Info("No resource limits set, weaviate will use all available memory and CPU. " +
 			"To limit resources, set LIMIT_RESOURCES=true")
+	}
+
+	// The runtime reports math.MaxInt64 when no soft memory limit is set. Every
+	// memory check in the process then compares against a limit it can never reach.
+	if debug.SetMemoryLimit(-1) == math.MaxInt64 {
+		appState.Logger.Warn("GOMEMLIMIT is not set: the soft memory limit is unlimited, " +
+			"so every memory-pressure check in this process (batch admission, compaction, " +
+			"vector index growth) is inert. Set GOMEMLIMIT, or LIMIT_RESOURCES=true to derive it from cgroups.")
 	}
 }
 
