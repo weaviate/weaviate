@@ -82,6 +82,7 @@ type shardWriter interface {
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	UpdateStatus(status, reason string) error
+	UpdateStatusIf(cond func(ShardStatus) bool, status, reason string) error // Set shard status if cond holds, without loading an unloaded shard
 }
 
 type ShardLike interface {
