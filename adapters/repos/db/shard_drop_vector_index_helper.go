@@ -76,9 +76,14 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 		}
 	}
 
-	// A dynamic index records its flat-to-hnsw verdict in the shard-shared state
-	// DB, which no artifact above can reach: it is one file per shard, not per
-	// vector, so removing it would take every sibling's verdict too.
+	// A dynamic index records its flat-to-hnsw upgrade as a key in the shard's
+	// index.db, which no artifact above can reach: that file is one per shard,
+	// not one per vector, so removing it would take every sibling's state too.
+	//
+	// Unconditional because nothing here can tell a dynamic vector from any
+	// other — the drop rewrote this entry's VectorIndexType to "none" and
+	// discarded the original type along with its config. A shard that never ran
+	// a dynamic index has no index.db, so this costs it one stat.
 	if err := dynamic.RemoveStateKey(shardDir, targetVector); err != nil {
 		return fmt.Errorf("remove dynamic state for %q: %w", targetVector, err)
 	}

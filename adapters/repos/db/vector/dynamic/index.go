@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -296,18 +297,13 @@ func dbKey(targetVector string) []byte {
 }
 
 // RemoveStateKey deletes targetVector's flat-to-hnsw verdict from the shard's
-// state DB. It is the files-only counterpart of DropTargetVector: the sweeps
-// that never load a shard remove directories, and the state DB is not one of
-// them — it belongs to the shard, not to any one vector, so no artifact list
-// can carry it.
+// state DB. No artifact list can carry it — index.db belongs to the shard, not
+// to any one vector — so the sweeps that never load a shard clear it here. A
+// verdict left behind is inherited by the next vector of the same name, which
+// boots straight into an empty hnsw and never serves its flat stage.
 //
-// A verdict left behind is inherited by the next vector created under the same
-// name: it boots straight into an empty hnsw and never serves its flat stage.
-//
-// A missing file is success — a shard that never ran a dynamic index has no
-// verdict to clear, and the file is deliberately not created here. So is a
-// locked one: the lock is held only by a loaded shard in this process, and
-// every route that loads a shard deletes the key through that handle.
+// A missing or locked state DB is success: nothing was upgraded, or a loaded
+// shard owns the key and deletes it through its own handle.
 func RemoveStateKey(rootPath, targetVector string) error {
 	path := filepath.Join(rootPath, StateDBFileName)
 	// Statted rather than opened straight away: bbolt.Open CREATES the file, so
@@ -321,7 +317,7 @@ func RemoveStateKey(rootPath, targetVector string) error {
 
 	db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: stateDBOpenTimeout})
 	if err != nil {
-		if simpleErrors.Is(err, bbolt.ErrTimeout) {
+		if simpleErrors.Is(err, bolterrors.ErrTimeout) {
 			return nil
 		}
 		return fmt.Errorf("open dynamic state db: %w", err)

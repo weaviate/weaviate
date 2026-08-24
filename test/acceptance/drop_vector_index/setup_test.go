@@ -54,6 +54,8 @@ func TestDropVectorIndex_AsyncIndexing(t *testing.T) {
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1").
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		// The dynamic journeys search over gRPC.
+		WithWeaviateExposeGRPCPort().
 		// Flush partial queue chunks promptly, or the drain sits idle.
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "500ms").
 		WithWeaviateEnv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", "5").

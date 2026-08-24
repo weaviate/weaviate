@@ -28,9 +28,10 @@ import (
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // dynamicVectorConfig is a named vector on the dynamic index: it starts flat
@@ -43,28 +44,15 @@ func dynamicVectorConfig(threshold int) models.VectorConfig {
 	}
 }
 
-// testDynamicUpgradeVerdictCleared pins what a drop has to remove beyond files
-// when the vector runs a dynamic index.
+// testDynamicUpgradeVerdictCleared covers what a drop has to remove beyond
+// files when the vector runs a dynamic index: the flat-to-hnsw upgrade, which
+// lives as a key in the shard's index.db and not in any directory. If it
+// survives the drop, the next vector created under the same name inherits it
+// and boots straight into hnsw, below the threshold it was configured with.
 //
-// A dynamic index records its flat-to-hnsw verdict as a KEY in index.db, the
-// state DB the shard opens once and every dynamic vector on it shares. No
-// artifact list can carry it — index.db is one file per shard, not per vector —
-// so the routes that never load a shard (the cold lazy shard, the
-// group-completion safety net, the shard-init sweep) reach the key through
-// dynamic.RemoveStateKey instead of by removing a directory.
-//
-// A verdict left behind is inherited by the next vector created under the same
-// name: it boots straight into an empty hnsw and never serves its flat stage,
-// paying hnsw's cost below the threshold that was configured to avoid it.
-//
-// Both shard states at drop time are run. Cold is the one the verdict used to
-// survive, since it is the only one no loaded route ever sees. Hot is the state
-// in which the shard holds index.db open, so a files-only route that insisted
-// on reaching the key through the file would wedge the drop of every live
-// tenant instead.
-//
-// The sibling dynamic vector is not decoration either: it is what keeps
-// index.db open, and its own verdict has to come through untouched.
+// Both shard states at drop time are covered. Cold is where the key used to
+// survive; hot is where the shard holds index.db open. The sibling dynamic
+// vector is what keeps that file open, and must come through with its own key.
 func testDynamicUpgradeVerdictCleared(compose *docker.DockerCompose) func(*testing.T) {
 	return func(t *testing.T) {
 		// Own client setup: this runs outside runSuite, whose deferred
@@ -72,6 +60,11 @@ func testDynamicUpgradeVerdictCleared(compose *docker.DockerCompose) func(*testi
 		// localhost - which may be some unrelated local Weaviate.
 		helper.SetupClient(compose.GetWeaviate().URI())
 		defer helper.ResetClient()
+
+		grpcConn, err := helper.CreateGrpcConnectionClient(compose.GetWeaviate().GrpcURI())
+		require.NoError(t, err)
+		defer grpcConn.Close()
+		grpcClient := helper.CreateGrpcWeaviateClient(grpcConn)
 
 		for _, test := range []struct {
 			name      string
@@ -83,13 +76,15 @@ func testDynamicUpgradeVerdictCleared(compose *docker.DockerCompose) func(*testi
 			{name: "shard cold at the drop", className: "DropVectorIndexDynamicCold", coldAtDrop: true},
 			{name: "shard loaded at the drop", className: "DropVectorIndexDynamicHot"},
 		} {
-			t.Run(test.name, testDynamicUpgradeVerdictClearedCase(compose, test.className, test.coldAtDrop))
+			t.Run(test.name, testDynamicUpgradeVerdictClearedCase(
+				compose, grpcClient, test.className, test.coldAtDrop))
 		}
 	}
 }
 
 func testDynamicUpgradeVerdictClearedCase(
-	compose *docker.DockerCompose, className string, coldAtDrop bool,
+	compose *docker.DockerCompose, grpcClient pb.WeaviateClient,
+	className string, coldAtDrop bool,
 ) func(*testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
@@ -195,7 +190,8 @@ func testDynamicUpgradeVerdictClearedCase(
 			// live, so the shape checked below is a shape it really booted
 			// into rather than one it has not reached yet.
 			require.EventuallyWithT(t, func(collect *assert.CollectT) {
-				got, err := nearVectorTenantResultsErr(className, tenant, dropped, randVec(dim, 51), freshCount)
+				got, err := nearVectorTenantHits(ctx, grpcClient,
+					className, tenant, dropped, randVec(dim, 51), freshCount)
 				if !assert.NoError(collect, err) {
 					return
 				}
@@ -216,27 +212,28 @@ func testDynamicUpgradeVerdictClearedCase(
 	}
 }
 
-// nearVectorTenantResultsErr is the outer-t-free variant of
-// nearVectorTenantResults, safe inside an EventuallyWithT condition (see
+// nearVectorTenantHits counts what a near-vector search over targetVector
+// returns. It takes the client and returns the error rather than taking a
+// *testing.T, so it is safe inside an EventuallyWithT condition (see
 // listObjectsWithVectorsErr for why one is needed).
-func nearVectorTenantResultsErr(className, tenant, targetVector string, vector []float32, limit int) (int, error) {
-	resp, err := graphqlhelper.QueryGraphQL(nil, nil, "",
-		nearVectorQuery(className, tenant, targetVector, vector, limit), nil)
+func nearVectorTenantHits(
+	ctx context.Context, grpcClient pb.WeaviateClient,
+	className, tenant, targetVector string, vector []float32, limit int,
+) (int, error) {
+	resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
+		Collection: className,
+		Tenant:     tenant,
+		Limit:      uint32(limit),
+		NearVector: &pb.NearVector{
+			VectorBytes: byteops.Fp32SliceToBytes(vector),
+			Targets:     &pb.Targets{TargetVectors: []string{targetVector}},
+		},
+		Uses_127Api: true,
+	})
 	if err != nil {
 		return 0, err
 	}
-	if len(resp.Errors) > 0 {
-		return 0, fmt.Errorf("graphql: %s", resp.Errors[0].Message)
-	}
-	get, ok := resp.Data["Get"].(map[string]interface{})
-	if !ok {
-		return 0, fmt.Errorf("unexpected Get payload %T", resp.Data["Get"])
-	}
-	results, ok := get[className].([]interface{})
-	if !ok {
-		return 0, fmt.Errorf("unexpected %s payload %T", className, get[className])
-	}
-	return len(results), nil
+	return len(resp.Results), nil
 }
 
 // hnswCommitLogDirs returns the hnsw commit log directories belonging to
