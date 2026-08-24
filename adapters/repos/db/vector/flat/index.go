@@ -343,7 +343,7 @@ func (index *flat) initializeDimensionsAndRQ(vector []float32) {
 		size := int32(len(vector))
 		atomic.StoreInt32(&index.dims, size)
 		if err := index.setDimensions(size); err != nil {
-			index.logger.WithError(err).Error("could not set dimensions")
+			index.logger.Errorf("could not set dimensions: %v", err)
 			return // Fail the entire initialization
 		}
 		dims = size
@@ -353,12 +353,12 @@ func (index *flat) initializeDimensionsAndRQ(vector []float32) {
 		builder := NewQuantizerBuilder(index.distancerProvider)
 		quantizer, err := builder.CreateQuantizer(index.compressionType, dims)
 		if err != nil {
-			index.logger.WithError(err).Error("could not create quantizer")
+			index.logger.Errorf("could not create quantizer: %v", err)
 			return // Fail the entire initialization
 		}
 		index.quantizer = quantizer
 		if err := index.persistRQData(); err != nil {
-			index.logger.WithError(err).Error("could not persist RQ data")
+			index.logger.Errorf("could not persist RQ data: %v", err)
 			return // Fail the entire initialization
 		}
 		index.compressed.Store(true)
