@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -293,6 +294,46 @@ func dbKey(targetVector string) []byte {
 	key = append(key, '_')
 	key = append(key, targetVector...)
 	return key
+}
+
+// RemoveStateKey deletes targetVector's flat-to-hnsw verdict from the shard's
+// state DB. No artifact list can carry it — index.db belongs to the shard, not
+// to any one vector — so the sweeps that never load a shard clear it here. A
+// verdict left behind is inherited by the next vector of the same name, which
+// boots straight into an empty hnsw and never serves its flat stage.
+//
+// A missing or locked state DB is success: nothing was upgraded, or a loaded
+// shard owns the key and deletes it through its own handle.
+func RemoveStateKey(rootPath, targetVector string) error {
+	path := filepath.Join(rootPath, StateDBFileName)
+	// Statted rather than opened straight away: bbolt.Open CREATES the file, so
+	// a plain open would leave an empty state DB in every shard a drop touches.
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat dynamic state db: %w", err)
+	}
+
+	db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: stateDBOpenTimeout})
+	if err != nil {
+		if simpleErrors.Is(err, bolterrors.ErrTimeout) {
+			return nil
+		}
+		return fmt.Errorf("open dynamic state db: %w", err)
+	}
+	defer db.Close()
+
+	if err := db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		if b == nil {
+			return nil
+		}
+		return b.Delete(dbKey(targetVector))
+	}); err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", targetVector, err)
+	}
+	return nil
 }
 
 // UpgradedOnDisk reports whether the dynamic index of an unloaded shard already

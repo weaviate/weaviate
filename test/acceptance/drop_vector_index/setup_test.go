@@ -45,6 +45,8 @@ func TestDropVectorIndex_Cluster(t *testing.T) {
 // ASYNC_INDEXING on. That gives every index a vectors_<name>.queue.d the
 // synchronous path never creates, so the disk assertions — unchanged, they read
 // helpers.VectorIndexArtifactsFor — cover an artifact the cluster job cannot.
+// It also owns the dynamic-index journeys: a dynamic vector is refused at class
+// creation unless async indexing is on, so they cannot run in the suite above.
 func TestDropVectorIndex_AsyncIndexing(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
@@ -52,6 +54,8 @@ func TestDropVectorIndex_AsyncIndexing(t *testing.T) {
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1").
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		// The dynamic journeys search over gRPC.
+		WithWeaviateExposeGRPCPort().
 		// Flush partial queue chunks promptly, or the drain sits idle.
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "500ms").
 		WithWeaviateEnv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", "5").
@@ -65,6 +69,7 @@ func TestDropVectorIndex_AsyncIndexing(t *testing.T) {
 	runSuite(t, compose)
 	t.Run("replicated drop", testReplicatedDrop(compose))
 	t.Run("replicated cold tenant", testReplicatedColdTenant(compose))
+	t.Run("dynamic upgrade verdict cleared", testDynamicUpgradeVerdictCleared(compose))
 }
 
 func TestDropVectorIndex_Restart_Cluster(t *testing.T) {

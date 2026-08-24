@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
@@ -73,6 +74,18 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 		if err := os.RemoveAll(dir); err != nil {
 			return fmt.Errorf("remove %s: %w", dir, err)
 		}
+	}
+
+	// A dynamic index records its flat-to-hnsw upgrade as a key in the shard's
+	// index.db, which no artifact above can reach: that file is one per shard,
+	// not one per vector, so removing it would take every sibling's state too.
+	//
+	// Unconditional because nothing here can tell a dynamic vector from any
+	// other — the drop rewrote this entry's VectorIndexType to "none" and
+	// discarded the original type along with its config. A shard that never ran
+	// a dynamic index has no index.db, so this costs it one stat.
+	if err := dynamic.RemoveStateKey(shardDir, targetVector); err != nil {
+		return fmt.Errorf("remove dynamic state for %q: %w", targetVector, err)
 	}
 
 	return nil
