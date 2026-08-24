@@ -3305,8 +3305,9 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 
 // UnloadLocalShard closes a shard and takes it out of the shard map. A shard
 // that is already gone or already shut is success — the caller wanted it not
-// loaded, and it is not. Every returned error means the shard is still loaded,
-// including the errAlreadyShutdown a closing index refuses with.
+// loaded, and it is not. Every returned error means the shard is still loaded:
+// errAlreadyShutdown once the index is closed, and errIndexShutdown or
+// errIndexDropped while its close is only requested.
 func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	if err := i.enterRead(); err != nil {
 		return err
@@ -3321,7 +3322,13 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 		return nil // shard was not found, nothing to unload
 	}
 
-	if err := shutdownOrRestoreShard(ctx, &i.shards, shardName, shardLike, i.logger); err != nil {
+	// The shutdown retries for seconds while enterRead holds the index open, so
+	// it has to give that wait up on a close request rather than leave a
+	// teardown waiting for it to finish.
+	shutdownCtx, done := i.cancelOnCloseRequested(ctx)
+	defer done()
+
+	if err := shutdownOrRestoreShard(shutdownCtx, &i.shards, shardName, shardLike, i.logger); err != nil {
 		if errors.Is(err, errAlreadyShutdown) {
 			// The shard is shut, which is the outcome this call asked for. It
 			// is worth a line: reaching it means the shutdown burned its retry
@@ -3329,6 +3336,13 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 			i.logger.WithField("shard", shardName).
 				Debugf("shard was already shut or dropped: %v", err)
 			return nil
+		}
+		// backoff reports the aborted wait as a plain cancellation, so only the
+		// close cause names the teardown that stopped the unload. It is joined
+		// rather than substituted: a shutdown that failed on its own can carry a
+		// cancellation too, and that failure is what a caller has to act on.
+		if shutdownCtx.Err() != nil && ctx.Err() == nil && errors.Is(err, context.Canceled) {
+			err = fmt.Errorf("%w: %w", context.Cause(shutdownCtx), err)
 		}
 		return errors.Wrapf(err, "shutdown shard %q", shardName)
 	}

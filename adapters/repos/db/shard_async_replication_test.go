@@ -2810,9 +2810,10 @@ func TestPerformShutdownSkipsDumpWhenStoreShutdownFails(t *testing.T) {
 	}
 	enableAndAwaitAsync(t, ctx, s)
 
-	cancelledCtx, cancel := context.WithCancel(ctx)
-	cancel()
-	require.ErrorContains(t, s.performShutdown(cancelledCtx), "stop lsmkv store",
+	// the store is closed first to make its shutdown fail; the teardown itself
+	// runs to completion whatever the caller's context does
+	require.NoError(t, s.store.Shutdown(ctx))
+	require.ErrorContains(t, s.performShutdown(ctx), "stop lsmkv store",
 		"the store flush itself must have failed for this test to be meaningful")
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()),
 		"no snapshot may be published when the store flush did not complete")
