@@ -27,6 +27,7 @@ This document is the single source of truth for Prometheus metrics exposed by We
 - Prefer counters/gauges with a small, bounded label set
 - Avoid per-tenant/per-class/per-route label explosions unless essential for operations
 - Move exploratory or wide-label analytics to logs, traces, or external stores
+- Rate a label Medium where its values are unbounded in principle but few in practice: one series per active value, worth watching rather than avoiding
 
 ### Change management
 
@@ -211,8 +212,11 @@ This document is the single source of truth for Prometheus metrics exposed by We
 - **The label is deliberately not called `namespace`.** A Kubernetes scrape stamps a `namespace`
   target label of its own, and at the default `honorLabels: false` a scraped `namespace` would be
   rewritten to `exported_namespace` — breaking every query naming it, silently.
-- **A namespace's series is deleted when its last collection is**, so
-  `{collection_namespace="x"} == 0` never matches. Use `absent()` to detect an empty namespace.
+- **A named namespace's series is deleted when its last collection is**, so
+  `{collection_namespace="customer1"} == 0` never matches. Use `absent()` to detect an empty
+  namespace. The always-present empty-namespace series is the exception and can read zero. On a
+  namespaces cluster it always reads zero, because such a node refuses to start while it holds a
+  collection with no namespace.
 - **Namespace names are tenant identifiers** served on the unauthenticated monitoring port. Keep that
   port on a trusted network.
 
