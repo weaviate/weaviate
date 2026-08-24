@@ -93,8 +93,11 @@ type schema struct {
 	classCountByNamespace map[string]int
 
 	// metrics
-	// collectionsCount represents the number of collections on this specific node.
-	collectionsCount prometheus.Gauge
+	// collectionsCount is the number of collections in this node's copy of the
+	// schema, split by the namespace owning them; every node applies every schema
+	// change, so the value is the cluster's. Collections with no namespace prefix
+	// are counted under an empty namespace.
+	collectionsCount *prometheus.GaugeVec
 
 	// shardsCount represents the number of shards (of all collections) on this specific node.
 	shardsCount *prometheus.GaugeVec
@@ -110,12 +113,16 @@ func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer
 		aliases:               make(map[string]string, 128),
 		classCountByNamespace: make(map[string]int),
 		shardReader:           shardReader,
-		collectionsCount: r.NewGauge(prometheus.GaugeOpts{
+		collectionsCount: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace:   "weaviate",
 			Name:        "schema_collections",
-			Help:        "Number of collections per node",
+			Help:        "Number of collections per node and namespace",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
-		}),
+			// Named collection_namespace, not namespace: a Kubernetes scrape
+			// attaches its own namespace label, and Prometheus resolves the
+			// clash by renaming ours to exported_namespace, so a query for
+			// namespace= matches nothing.
+		}, []string{"collection_namespace"}), // empty for a collection with no prefix
 		shardsCount: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace:   "weaviate",
 			Name:        "schema_shards",
@@ -123,6 +130,10 @@ func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
 		}, []string{"status"}), // status: HOT, WARM, COLD, FROZEN
 	}
+
+	// Create the empty-namespace series now so a node with no collections reports
+	// zero instead of omitting the metric until its first collection arrives.
+	s.collectionsCount.WithLabelValues("")
 
 	return s
 }
@@ -363,8 +374,9 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
 	}
 
-	s.collectionsCount.Inc()
-	if ns := namespacing.NamespaceFromQualified(cls.Class); ns != "" {
+	ns := namespacing.NamespaceFromQualified(cls.Class)
+	s.collectionsCount.WithLabelValues(ns).Inc()
+	if ns != "" {
 		s.classCountByNamespace[ns]++
 	}
 
@@ -408,13 +420,15 @@ func (s *schema) deleteClass(name string) bool {
 
 	delete(s.classes, name)
 
-	s.collectionsCount.Dec()
-	if ns := namespacing.NamespaceFromQualified(name); ns != "" {
+	ns := namespacing.NamespaceFromQualified(name)
+	s.collectionsCount.WithLabelValues(ns).Dec()
+	if ns != "" {
 		s.classCountByNamespace[ns]--
-		// Drop the key at zero: a cluster that churns namespaces would
-		// otherwise keep an entry for every namespace it ever held.
+		// Drop the key and its series at zero: a cluster that churns namespaces
+		// would otherwise keep an entry for every namespace it ever held.
 		if s.classCountByNamespace[ns] == 0 {
 			delete(s.classCountByNamespace, ns)
+			s.collectionsCount.DeleteLabelValues(ns)
 		}
 	}
 
@@ -439,21 +453,41 @@ func (s *schema) replaceClasses(classes map[string]*metaClass) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.collectionsCount.Sub(float64(len(s.classes)))
 	for _, ss := range s.classes {
 		for _, shard := range ss.Sharding.Physical {
 			s.shardsCount.WithLabelValues(shard.Status).Dec()
 		}
 	}
 
+	previousNamespaces := s.classCountByNamespace
+
 	s.classes = classes
 	s.classCountByNamespace = countClassesByNamespace(classes)
-
-	s.collectionsCount.Add(float64(len(s.classes)))
+	s.republishCollectionsCount(previousNamespaces)
 
 	for _, ss := range s.classes {
 		for _, shard := range ss.Sharding.Physical {
 			s.shardsCount.WithLabelValues(shard.Status).Inc()
+		}
+	}
+}
+
+// republishCollectionsCount rewrites one series per classCountByNamespace entry,
+// puts the remaining classes on the empty-namespace series, and drops namespaces
+// the new set no longer holds. Refresh classCountByNamespace from s.classes first,
+// or the empty-namespace count goes negative. Overwriting rather than resetting
+// keeps the metric present for a concurrent scrape. Callers hold s.mu.
+func (s *schema) republishCollectionsCount(previousNamespaces map[string]int) {
+	namespaced := 0
+	for ns, count := range s.classCountByNamespace {
+		s.collectionsCount.WithLabelValues(ns).Set(float64(count))
+		namespaced += count
+	}
+	s.collectionsCount.WithLabelValues("").Set(float64(len(s.classes) - namespaced))
+
+	for ns := range previousNamespaces {
+		if _, ok := s.classCountByNamespace[ns]; !ok {
+			s.collectionsCount.DeleteLabelValues(ns)
 		}
 	}
 }

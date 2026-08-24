@@ -13,6 +13,7 @@ package schema
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -76,21 +77,26 @@ func Test_schemaCollectionMetrics(t *testing.T) {
 		},
 	}
 
-	// Collection metrics
-	assert.Equal(t, float64(0), testutil.ToFloat64(s.collectionsCount))
+	// Collection metrics. These classes carry no namespace, so they land on
+	// the empty-namespace series.
+	unnamespaced := func() float64 {
+		return testutil.ToFloat64(s.collectionsCount.WithLabelValues(""))
+	}
+
+	assert.Equal(t, float64(0), unnamespaced())
 	require.NoError(t, s.addClass(c1, ss, 0)) // adding c1 collection
-	assert.Equal(t, float64(1), testutil.ToFloat64(s.collectionsCount))
+	assert.Equal(t, float64(1), unnamespaced())
 
 	require.NoError(t, s.addClass(c2, ss, 0)) // adding c2 collection
-	assert.Equal(t, float64(2), testutil.ToFloat64(s.collectionsCount))
+	assert.Equal(t, float64(2), unnamespaced())
 
 	// delete c2
 	s.deleteClass("collection2")
-	assert.Equal(t, float64(1), testutil.ToFloat64(s.collectionsCount))
+	assert.Equal(t, float64(1), unnamespaced())
 
 	// delete c1
 	s.deleteClass("collection1")
-	assert.Equal(t, float64(0), testutil.ToFloat64(s.collectionsCount))
+	assert.Equal(t, float64(0), unnamespaced())
 }
 
 func Test_schemaShardMetrics(t *testing.T) {
@@ -555,6 +561,24 @@ func (p *fixedParser) ParseClass(*models.Class) error { return nil }
 
 func (p *fixedParser) ParseClassUpdate(_, _ *models.Class) (*models.Class, error) {
 	return p.updated, nil
+}
+
+type failingParser struct{}
+
+func (failingParser) ParseClass(*models.Class) error { return errors.New("corrupt class") }
+
+func (failingParser) ParseClassUpdate(_, _ *models.Class) (*models.Class, error) {
+	return nil, nil
+}
+
+// restoreClasses restores a snapshot holding exactly the named classes.
+func restoreClasses(t *testing.T, sc *schema, names ...string) {
+	t.Helper()
+	classes := make(map[string]*metaClass, len(names))
+	for _, name := range names {
+		classes[name] = &metaClass{Class: models.Class{Class: name}}
+	}
+	require.NoError(t, sc.Restore(mustMarshal(t, classes), &fixedParser{}))
 }
 
 // Test_UpdateClass_MovementRejection verifies that an UpdateClass which would rewrite on-disk
@@ -1269,12 +1293,7 @@ func TestCollectionsCount_Namespaced(t *testing.T) {
 				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 1))
 				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Films"}, newState(), 2))
 
-				data, err := json.Marshal(map[string]*metaClass{
-					"customer2:Books": {Class: models.Class{Class: "customer2:Books"}},
-					"Global":          {Class: models.Class{Class: "Global"}},
-				})
-				require.NoError(t, err)
-				require.NoError(t, sc.Restore(data, &fixedParser{}))
+				restoreClasses(t, sc, "customer2:Books", "Global")
 			},
 			want: map[string]int{"": 2, "customer1": 0, "customer2": 1},
 		},
@@ -1283,9 +1302,7 @@ func TestCollectionsCount_Namespaced(t *testing.T) {
 			setup: func(t *testing.T, sc *schema) {
 				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 1))
 
-				data, err := json.Marshal(map[string]*metaClass{})
-				require.NoError(t, err)
-				require.NoError(t, sc.Restore(data, &fixedParser{}))
+				restoreClasses(t, sc)
 			},
 			want: map[string]int{"": 0, "customer1": 0},
 		},
@@ -1314,10 +1331,132 @@ func TestClassCountByNamespace_DropsEmptyNamespace(t *testing.T) {
 	assert.Empty(t, sc.classCountByNamespace, "after the last class is deleted")
 
 	require.NoError(t, sc.addClass(&models.Class{Class: "customer2:Books"}, ss, 2))
-	data, err := json.Marshal(map[string]*metaClass{})
-	require.NoError(t, err)
-	require.NoError(t, sc.Restore(data, &fixedParser{}))
+	restoreClasses(t, sc)
 	assert.Empty(t, sc.classCountByNamespace, "after an empty snapshot is restored")
+}
+
+// A snapshot the parser rejects must leave the previous classes and their gauge
+// series untouched: replaceClasses runs only after every class has parsed.
+func TestRestore_RejectedSnapshotLeavesStateIntact(t *testing.T) {
+	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
+	require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+
+	data := mustMarshal(t, map[string]*metaClass{
+		"customer2:Books": {Class: models.Class{Class: "customer2:Books"}},
+	})
+	require.Error(t, sc.Restore(data, failingParser{}))
+
+	assert.Equal(t, 2, testutil.CollectAndCount(sc.collectionsCount))
+	assert.Equal(t, float64(1), testutil.ToFloat64(sc.collectionsCount.WithLabelValues("customer1")))
+	assert.Equal(t, 1, sc.CollectionsCount("customer1"))
+	assert.Equal(t, 0, sc.CollectionsCount("customer2"))
+}
+
+// TestCollectionsGauge_ByNamespace pins the observable half of the count: the
+// per-namespace series an operator reads to explain a rejected create, and the
+// pruning that keeps a namespace-churning cluster from growing series without
+// bound.
+func TestCollectionsGauge_ByNamespace(t *testing.T) {
+	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
+
+	tests := []struct {
+		name   string
+		setup  func(t *testing.T, sc *schema)
+		want   map[string]float64
+		series int
+	}{
+		{
+			name:   "a fresh schema publishes zero, not nothing",
+			setup:  func(t *testing.T, sc *schema) {},
+			want:   map[string]float64{"": 0},
+			series: 1,
+		},
+		{
+			name: "each namespace gets its own series and unqualified classes share one",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Films"}, ss, 2))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer2:Movies"}, ss, 3))
+				require.NoError(t, sc.addClass(&models.Class{Class: "Unqualified"}, ss, 4))
+			},
+			want:   map[string]float64{"": 1, "customer1": 2, "customer2": 1},
+			series: 3,
+		},
+		{
+			name: "emptying a namespace drops its series",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer2:Movies"}, ss, 2))
+				require.True(t, sc.deleteClass("customer1:Movies"))
+			},
+			want:   map[string]float64{"": 0, "customer2": 1},
+			series: 2,
+		},
+		{
+			name: "deleting the last unqualified class keeps its series at zero",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "Unqualified"}, ss, 1))
+				require.True(t, sc.deleteClass("Unqualified"))
+			},
+			want:   map[string]float64{"": 0},
+			series: 1,
+		},
+		{
+			name: "a rejected duplicate add does not move the series",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+				require.ErrorIs(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 2), ErrClassExists)
+			},
+			want:   map[string]float64{"": 0, "customer1": 1},
+			series: 2,
+		},
+		{
+			name: "deleting a class that is not there leaves the series alone",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+				require.False(t, sc.deleteClass("customer1:Missing"))
+				require.False(t, sc.deleteClass("customer2:Missing"))
+			},
+			want:   map[string]float64{"": 0, "customer1": 1},
+			series: 2,
+		},
+		{
+			name: "a restore republishes the series and discards the old ones",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+				restoreClasses(t, sc, "customer2:Books", "Unqualified")
+			},
+			want:   map[string]float64{"": 1, "customer2": 1},
+			series: 2,
+		},
+		{
+			name: "a restore of an empty snapshot leaves only the zero series",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+				restoreClasses(t, sc)
+			},
+			want:   map[string]float64{"": 0},
+			series: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+			tt.setup(t, sc)
+
+			// Counted before any read below: WithLabelValues creates the series
+			// it names, so reading first would manufacture the very series this
+			// asserts on.
+			assert.Equal(t, tt.series, testutil.CollectAndCount(sc.collectionsCount),
+				"no series beyond the ones asserted")
+
+			for namespace, want := range tt.want {
+				assert.Equal(t, want, testutil.ToFloat64(sc.collectionsCount.WithLabelValues(namespace)),
+					"namespace %q", namespace)
+			}
+		})
+	}
 }
 
 // The count is read under a read lock, so all three writers of the map must
