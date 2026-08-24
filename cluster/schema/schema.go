@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -81,10 +82,15 @@ type schema struct {
 	nodeID      string
 	shardReader shardReader
 
-	// mu protects `classes` and `aliases`
+	// mu protects `classes`, `aliases` and `classCountByNamespace`
 	mu      sync.RWMutex
 	classes map[string]*metaClass
 	aliases map[string]string // key: canonical form all in TitleCase.
+
+	// classCountByNamespace is kept in step with classes by addClass,
+	// deleteClass and replaceClasses, so the per-namespace collection cap is
+	// checked without scanning every class. An emptied namespace has no entry.
+	classCountByNamespace map[string]int
 
 	// metrics
 	// collectionsCount represents the number of collections on this specific node.
@@ -99,10 +105,11 @@ func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer
 	r := promauto.With(reg)
 
 	s := &schema{
-		nodeID:      nodeID,
-		classes:     make(map[string]*metaClass, 128),
-		aliases:     make(map[string]string, 128),
-		shardReader: shardReader,
+		nodeID:                nodeID,
+		classes:               make(map[string]*metaClass, 128),
+		aliases:               make(map[string]string, 128),
+		classCountByNamespace: make(map[string]int),
+		shardReader:           shardReader,
 		collectionsCount: r.NewGauge(prometheus.GaugeOpts{
 			Namespace:   "weaviate",
 			Name:        "schema_collections",
@@ -259,15 +266,7 @@ func (s *schema) CollectionsCount(namespace string) int {
 	if namespace == "" {
 		return len(s.classes)
 	}
-
-	prefix := namespace + entSchema.NamespaceSeparator
-	count := 0
-	for name := range s.classes {
-		if strings.HasPrefix(name, prefix) {
-			count++
-		}
-	}
-	return count
+	return s.classCountByNamespace[namespace]
 }
 
 // ShardOwner returns the node owner of the specified shard
@@ -365,6 +364,9 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 	}
 
 	s.collectionsCount.Inc()
+	if ns := namespacing.NamespaceFromQualified(cls.Class); ns != "" {
+		s.classCountByNamespace[ns]++
+	}
 
 	for _, shard := range ss.Physical {
 		s.shardsCount.WithLabelValues(shard.Status).Inc()
@@ -407,6 +409,15 @@ func (s *schema) deleteClass(name string) bool {
 	delete(s.classes, name)
 
 	s.collectionsCount.Dec()
+	if ns := namespacing.NamespaceFromQualified(name); ns != "" {
+		s.classCountByNamespace[ns]--
+		// Drop the key at zero: a cluster that churns namespaces would
+		// otherwise keep an entry for every namespace it ever held.
+		if s.classCountByNamespace[ns] == 0 {
+			delete(s.classCountByNamespace, ns)
+		}
+	}
+
 	for status, count := range sc {
 		s.shardsCount.WithLabelValues(status).Sub(float64(count))
 	}
@@ -436,6 +447,7 @@ func (s *schema) replaceClasses(classes map[string]*metaClass) {
 	}
 
 	s.classes = classes
+	s.classCountByNamespace = countClassesByNamespace(classes)
 
 	s.collectionsCount.Add(float64(len(s.classes)))
 
@@ -444,6 +456,18 @@ func (s *schema) replaceClasses(classes map[string]*metaClass) {
 			s.shardsCount.WithLabelValues(shard.Status).Inc()
 		}
 	}
+}
+
+// countClassesByNamespace counts the classes qualified by each namespace. A
+// class with no namespace prefix belongs to no namespace and is left out.
+func countClassesByNamespace(classes map[string]*metaClass) map[string]int {
+	counts := make(map[string]int)
+	for name := range classes {
+		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
+			counts[ns]++
+		}
+	}
+	return counts
 }
 
 // replaceStatesNodeName it update the node name inside sharding states.
