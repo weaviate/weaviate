@@ -99,7 +99,7 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 
 	scheduler := queue.NewScheduler(queue.SchedulerOptions{Logger: logger, Workers: 1})
 
-	idx, err := NewIndex(context.Background(), IndexConfig{
+	idx, err := NewIndex(context.Background(), nil, IndexConfig{
 		ClassName:         schema.ClassName(className),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,

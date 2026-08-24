@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -896,7 +897,12 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		if rawObj != nil {
 			updateBatch = append(updateBatch, rawObj)
 		} else {
-			updateBatch = append(updateBatch, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
+			cp := *incomingObj
+			// The object is shared with goroutines that read it concurrently; give FromObject a private copy to write on.
+			if props, ok := cp.Properties.(map[string]interface{}); ok {
+				cp.Properties = maps.Clone(props)
+			}
+			updateBatch = append(updateBatch, storobj.FromObject(&cp, u.Vector, u.Vectors, u.MultiVectors))
 		}
 	}
 

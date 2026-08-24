@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -347,10 +348,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// serialize on the same per-(collection, property) mutex. See
 	// the field godoc on state.State for the race this closes.
 	appState.ReindexSubmitLocks = state.NewReindexSubmitLocks()
-	// ReindexDeleteMarkers lets GET /indexes suppress the post-DELETE
-	// finalize-window bleed; recorded by the DELETE handler, read by the
-	// GET-indexes handler. See the field godoc on state.State.
-	appState.ReindexDeleteMarkers = state.NewReindexDeleteMarkers()
 
 	var vectorRepo vectorRepo
 	// var vectorMigrator schema.Migrator
@@ -1453,7 +1450,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
 	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer)
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ReindexDeleteMarkers, appState.ServerConfig.Config.Namespaces.Enabled)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ServerConfig.Config.Namespaces.Enabled)
 	setupIndexesHandlers(api, appState)
 	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
@@ -1673,6 +1670,8 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
+		appState.ClusterService.Raft,
+		appState.NamespacesController,
 		appState.Logger)
 	return backupScheduler
 }
@@ -2670,6 +2669,14 @@ func limitResources(appState *state.State) {
 	} else {
 		appState.Logger.Info("No resource limits set, weaviate will use all available memory and CPU. " +
 			"To limit resources, set LIMIT_RESOURCES=true")
+	}
+
+	// The runtime reports math.MaxInt64 when no soft memory limit is set. Every
+	// memory check in the process then compares against a limit it can never reach.
+	if debug.SetMemoryLimit(-1) == math.MaxInt64 {
+		appState.Logger.Warn("GOMEMLIMIT is not set: the soft memory limit is unlimited, " +
+			"so every memory-pressure check in this process (batch admission, compaction, " +
+			"vector index growth) is inert. Set GOMEMLIMIT, or LIMIT_RESOURCES=true to derive it from cgroups.")
 	}
 }
 

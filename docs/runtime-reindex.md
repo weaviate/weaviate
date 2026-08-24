@@ -218,13 +218,47 @@ Per-property, per-index-type snapshot:
 ```
 
 Status values: `ready`, `pending`, `indexing`, `failed`, `cancelled`.
-The status is synthesized in `mergeReindexStatus` from a snapshot of
-the active DTM task list crossed with the live schema flags. A short
-**finalize-window override** lets a FINISHED-but-schema-not-yet-flipped
-entry render as `indexing@100%` for up to 10s (the bound, see
-`finalizeWindowMax`); without that override the UI would briefly show
-"None" between task FINISHED and the schema-flag flip, which was the
-user-visible face of weaviate/weaviate#10675.
+The status is synthesized in `mergeReindexStatus` from the DTM task
+list crossed with the schema flags. Both values are read from the
+node serving the request, and the task list is read first, so the
+schema is never the older of the two: a class read at a later applied
+index carries every flag flip the tasks it is compared against have
+already committed. A FINISHED task surfaces nothing of its own — the
+schema flag alone decides whether an entry is emitted.
+
+#### The apply edge
+
+`PUT .../index/{indexType}` returns `202` as soon as the **leader** applied
+the add-task entry (`Raft.Execute`). On a follower the call does not wait for
+that node's own apply; a leader-served PUT has already applied locally when
+the `202` returns. Cancel works the same way: it decides on the leader-routed
+task list and applies through `Raft.Execute`.
+
+A GET against a lagging follower right after that `202` finds no task and
+answers from the flags alone, in one of two shapes:
+
+- `enable-*`, flag still off: the entry is dropped. The `indexes` array reads
+  `null` only when every applicable type on the property is off; with
+  `indexFilterable` still on you get a non-null array that is merely missing
+  one entry.
+- `change-tokenization` / `change-algorithm`, flag already on at submit time:
+  the entry emits as `ready` with the pre-migration tokenization, reporting
+  the property done and unchanged.
+
+For a client pinned to one node the window is bounded by that node's
+replication lag, and the entry does not flap. It is left open deliberately:
+closing it means blocking a mutation on a local apply, which turns a `202`
+into a latency-bound call that can hang on a partitioned follower, to remove
+a transient polling artifact.
+
+A client that round-robins across nodes does see it flap. Nodes that have
+applied the add-task entry and nodes that have not answer differently, so the
+pill alternates between `indexing` and no entry at all, and `algorithm`
+between `blockmax` and `wand` for a property whose stamp only one of them has.
+
+This endpoint is node-local while `GET /v1/tasks` is leader-routed, so a UI
+polling both against a lagging follower can render the task FINISHED and the
+index pill `indexing` at the same moment.
 
 ### RBAC
 
@@ -1603,8 +1637,7 @@ with the modern testcontainer style.
   `roaring_set_test`).
 - `delete_then_reenable_test` / `delete_reenable_multicycle_test` /
   `delete_reenable_indexing_bleed_test` / `delete_reenable_shortcircuit_test`
-  — the #10675 family + the `mergeReindexStatus` finalize-window
-  override bound test.
+  — the #10675 family.
 - `change_tok_delete_journeys_test` — the cross-strategy clobber +
   `cleanStaleMigrationDirs` family.
 - `cancel_test` / `cancel_then_retry_test` — cancel + the
