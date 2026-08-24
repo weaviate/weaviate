@@ -369,7 +369,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, s
 		})
 
 		if r.err != nil {
-			logger.WithError(r.err).Errorf("runtime overrides: config '%v' change failed", r.field)
+			logger.Errorf("runtime overrides: config '%v' change failed: %v", r.field, r.err)
 			continue
 		}
 		logger.WithField("new_value", r.newV).Infof("runtime overrides: config '%v' changed from '%v' to '%v'", r.field, r.oldV, r.newV)

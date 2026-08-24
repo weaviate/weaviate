@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-jose/go-jose/v4/json"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -849,6 +850,50 @@ maximum_allowed_collections_count: 13`)
 			require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 			assert.Equal(t, float64(DefaultObjectsTTLConcurrencyFactor), concurrencyFactor.Get())
 		})
+	})
+
+	t.Run("a refused value logs why in the message an operator reads", func(t *testing.T) {
+		refusingLog, hook := test.NewNullLogger()
+		interval, err := runtime.NewDynamicValueWithValidation(time.Minute,
+			func(d time.Duration) error {
+				if d < time.Second {
+					return fmt.Errorf("interval %s is below the one second floor", d)
+				}
+				return nil
+			})
+		require.NoError(t, err)
+		// A second field the same push accepts, so the refusal is one record of
+		// two rather than the whole batch.
+		var autoSchema runtime.DynamicValue[bool]
+		reg := &WeaviateRuntimeConfig{
+			NamespaceCleanupInterval: interval,
+			AutoschemaEnabled:        &autoSchema,
+		}
+
+		parsed, err := ParseRuntimeConfig([]byte("namespace_cleanup_interval: 500ms\nautoschema_enabled: true"))
+		require.NoError(t, err)
+
+		require.NoError(t, UpdateRuntimeConfig(refusingLog, reg, parsed, nil, nil))
+
+		atLevel := func(level logrus.Level) []*logrus.Entry {
+			var got []*logrus.Entry
+			for _, entry := range hook.AllEntries() {
+				if entry.Level == level {
+					got = append(got, entry)
+				}
+			}
+			return got
+		}
+
+		refused := atLevel(logrus.ErrorLevel)
+		require.Len(t, refused, 1, "only the refused field logs an error")
+		assert.Contains(t, refused[0].Message, "interval 500ms is below the one second floor",
+			"the reason a push was refused belongs in the message, not beside it")
+		assert.NotContains(t, refused[0].Data, logrus.ErrorKey)
+		assert.Equal(t, time.Minute, interval.Get(), "a refused field keeps its previous value")
+		assert.Len(t, atLevel(logrus.InfoLevel), 1,
+			"the accepted field still reports its change")
+		assert.True(t, autoSchema.Get(), "one refused field must not hold back the rest of the push")
 	})
 }
 
