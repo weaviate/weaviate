@@ -60,10 +60,12 @@ function main() {
   run_acceptance_reindex_mt=false
   run_acceptance_reindex_backup=false
   run_acceptance_drop_vector_index=false
-  run_acceptance_drop_vector_index_cluster=false
+  run_acceptance_drop_vector_index_cluster_group1=false
+  run_acceptance_drop_vector_index_cluster_group2=false
   run_acceptance_drop_vector_index_restart_cluster=false
   run_acceptance_drop_vector_index_rolling_restart=false
-  run_acceptance_drop_vector_index_async_indexing=false
+  run_acceptance_drop_vector_index_async_indexing_group1=false
+  run_acceptance_drop_vector_index_async_indexing_group2=false
   run_acceptance_backups=false
 
   while [[ "$#" -gt 0 ]]; do
@@ -124,10 +126,12 @@ function main() {
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
           --acceptance-drop-vector-index|-advi) run_all_tests=false; run_acceptance_drop_vector_index=true;;
-          --acceptance-drop-vector-index-cluster|-advic) run_all_tests=false; run_acceptance_drop_vector_index_cluster=true;;
+          --acceptance-drop-vector-index-cluster-group1|-advic1) run_all_tests=false; run_acceptance_drop_vector_index_cluster_group1=true;;
+          --acceptance-drop-vector-index-cluster-group2|-advic2) run_all_tests=false; run_acceptance_drop_vector_index_cluster_group2=true;;
           --acceptance-drop-vector-index-restart-cluster|-advirc) run_all_tests=false; run_acceptance_drop_vector_index_restart_cluster=true;;
           --acceptance-drop-vector-index-rolling-restart|-advirr) run_all_tests=false; run_acceptance_drop_vector_index_rolling_restart=true;;
-          --acceptance-drop-vector-index-async-indexing|-advia) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing=true;;
+          --acceptance-drop-vector-index-async-indexing-group1|-advia1) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group1=true;;
+          --acceptance-drop-vector-index-async-indexing-group2|-advia2) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group2=true;;
           --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
@@ -430,9 +434,14 @@ function main() {
     run_acceptance_drop_vector_index
   fi
 
-  if $run_acceptance_drop_vector_index_cluster; then
-    echo "running drop-vector-index cluster acceptance tests"
-    run_acceptance_drop_vector_index_cluster
+  if $run_acceptance_drop_vector_index_cluster_group1; then
+    echo "running drop-vector-index cluster group 1 acceptance tests"
+    run_acceptance_drop_vector_index_cluster_group1
+  fi
+
+  if $run_acceptance_drop_vector_index_cluster_group2; then
+    echo "running drop-vector-index cluster group 2 acceptance tests"
+    run_acceptance_drop_vector_index_cluster_group2
   fi
 
   if $run_acceptance_drop_vector_index_restart_cluster; then
@@ -445,9 +454,14 @@ function main() {
     run_acceptance_drop_vector_index_rolling_restart
   fi
 
-  if $run_acceptance_drop_vector_index_async_indexing; then
-    echo "running drop-vector-index async-indexing acceptance tests"
-    run_acceptance_drop_vector_index_async_indexing
+  if $run_acceptance_drop_vector_index_async_indexing_group1; then
+    echo "running drop-vector-index async-indexing group 1 acceptance tests"
+    run_acceptance_drop_vector_index_async_indexing_group1
+  fi
+
+  if $run_acceptance_drop_vector_index_async_indexing_group2; then
+    echo "running drop-vector-index async-indexing group 2 acceptance tests"
+    run_acceptance_drop_vector_index_async_indexing_group2
   fi
 
   if $run_acceptance_backups; then
@@ -1077,11 +1091,18 @@ function run_acceptance_drop_vector_index() {
     test/acceptance/drop_vector_index
 }
 
-function run_acceptance_drop_vector_index_cluster() {
+function run_acceptance_drop_vector_index_cluster_group1() {
   build_weaviate_test_image
-  echo_green "acceptance — drop-vector-index-cluster"
-  AOF_GROUP_RUN='^TestDropVectorIndex_Cluster$' \
-    run_aof_group "drop-vector-index-cluster" test/acceptance/drop_vector_index
+  echo_green "acceptance — drop-vector-index-cluster-group1"
+  AOF_GROUP_RUN='^TestDropVectorIndex_Cluster_Group1$' \
+    run_aof_group "drop-vector-index-cluster-group1" test/acceptance/drop_vector_index
+}
+
+function run_acceptance_drop_vector_index_cluster_group2() {
+  build_weaviate_test_image
+  echo_green "acceptance — drop-vector-index-cluster-group2"
+  AOF_GROUP_RUN='^TestDropVectorIndex_Cluster_Group2$' \
+    run_aof_group "drop-vector-index-cluster-group2" test/acceptance/drop_vector_index
 }
 
 function run_acceptance_drop_vector_index_restart_cluster() {
@@ -1091,11 +1112,18 @@ function run_acceptance_drop_vector_index_restart_cluster() {
     run_aof_group "drop-vector-index-restart-cluster" test/acceptance/drop_vector_index
 }
 
-function run_acceptance_drop_vector_index_async_indexing() {
+function run_acceptance_drop_vector_index_async_indexing_group1() {
   build_weaviate_test_image
-  echo_green "acceptance — drop-vector-index-async-indexing"
-  AOF_GROUP_RUN='^TestDropVectorIndex_AsyncIndexing$' \
-    run_aof_group "drop-vector-index-async-indexing" test/acceptance/drop_vector_index
+  echo_green "acceptance — drop-vector-index-async-indexing-group1"
+  AOF_GROUP_RUN='^TestDropVectorIndex_AsyncIndexing_Group1$' \
+    run_aof_group "drop-vector-index-async-indexing-group1" test/acceptance/drop_vector_index
+}
+
+function run_acceptance_drop_vector_index_async_indexing_group2() {
+  build_weaviate_test_image
+  echo_green "acceptance — drop-vector-index-async-indexing-group2"
+  AOF_GROUP_RUN='^TestDropVectorIndex_AsyncIndexing_Group2$' \
+    run_aof_group "drop-vector-index-async-indexing-group2" test/acceptance/drop_vector_index
 }
 
 function run_acceptance_drop_vector_index_rolling_restart() {
