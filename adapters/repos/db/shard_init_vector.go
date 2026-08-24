@@ -306,7 +306,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 
 func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
 	if s.dynamicVectorIndexDB == nil {
-		path := filepath.Join(s.path(), dynamic.StateDBFileName)
+		path := filepath.Join(s.path(), dynamicent.StateDBFileName)
 
 		// Timeout: a leaked handle from a failed shard teardown holds the flock;
 		// without it this open retries forever and wedges the loading goroutine.

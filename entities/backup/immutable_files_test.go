@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
 func TestIsImmutableFile(t *testing.T) {
@@ -33,8 +35,8 @@ func TestIsImmutableFile(t *testing.T) {
 
 		// Mutable files (copied and re-uploaded every incremental):
 		{"myclass/shard1/lsm/objects/segment-123.wal", false, "LSM WAL"},
-		{"myclass/shard1/main/meta.db", false, "flat index BoltDB (single vector)"},
-		{"myclass/shard1/main_custom/meta_custom.db", false, "flat index BoltDB (multi-vector)"},
+		{"myclass/shard1/meta.db", false, "flat index BoltDB (single vector)"},
+		{"myclass/shard1/meta_custom.db", false, "flat index BoltDB (multi-vector)"},
 		{"myclass/shard1/main.hnsw.commitlog.d/1709203456", false, "non-condensed HNSW commitlog"},
 		{"myclass/shard1/main.queue.d/chunk-1709203456000000.bin", false, "async indexing queue chunk"},
 		{"myclass/shard1/index.db", false, "dynamic vector index BoltDB"},
@@ -44,6 +46,7 @@ func TestIsImmutableFile(t *testing.T) {
 		{"myclass/shard1/lsm/objects/segment.db.tmp", false, "tmp file (unknown, copied)"},
 		{"myclass/shard1/hashtree_uuid/hashtree-abc.ht", false, "hashtree (unknown, copied)"},
 		{"myclass/shard1/some-new-file.bin", false, "unknown file type (copied by default)"},
+		{"myclass/shard1/metadata.db", true, "unknown meta-prefixed .db is not flat index metadata"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -51,4 +54,16 @@ func TestIsImmutableFile(t *testing.T) {
 			assert.Equal(t, tc.want, got, "IsImmutableFile(%q)", tc.relPath)
 		})
 	}
+
+	// Builds both paths from MetadataFileName and StateDBFileName, so renaming
+	// either fails here rather than hard-linking a file that is rewritten in place.
+	t.Run("the index bolt files stay mutable under their own names", func(t *testing.T) {
+		for _, targetVector := range []string{"", "custom"} {
+			relPath := "myclass/shard1/" + flatent.MetadataFileName(targetVector)
+			assert.False(t, IsImmutableFile(relPath), "IsImmutableFile(%q)", relPath)
+		}
+
+		relPath := "myclass/shard1/" + dynamicent.StateDBFileName
+		assert.False(t, IsImmutableFile(relPath), "IsImmutableFile(%q)", relPath)
+	})
 }

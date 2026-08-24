@@ -46,7 +46,6 @@ import (
 const (
 	composerUpgradedKey = "upgraded"
 	batchSize           = 500
-	StateDBFileName     = "index.db"
 
 	// stateDBOpenTimeout bounds the wait for the state DB's file lock. Only a
 	// loaded shard holds it, and [UpgradedOnDisk] reads unloaded ones, so waiting
@@ -305,7 +304,7 @@ func dbKey(targetVector string) []byte {
 // A missing or locked state DB is success: nothing was upgraded, or a loaded
 // shard owns the key and deletes it through its own handle.
 func RemoveStateKey(rootPath, targetVector string) error {
-	path := filepath.Join(rootPath, StateDBFileName)
+	path := filepath.Join(rootPath, ent.StateDBFileName)
 	// Statted rather than opened straight away: bbolt.Open CREATES the file, so
 	// a plain open would leave an empty state DB in every shard a drop touches.
 	if _, err := os.Stat(path); err != nil {
@@ -351,7 +350,7 @@ func UpgradedOnDisk(rootPath, id, targetVector string) (bool, error) {
 		upgradedWithoutStateKey = err == nil
 	}
 
-	db, err := bbolt.Open(filepath.Join(rootPath, StateDBFileName), 0o600,
+	db, err := bbolt.Open(filepath.Join(rootPath, ent.StateDBFileName), 0o600,
 		&bbolt.Options{ReadOnly: true, Timeout: stateDBOpenTimeout})
 	if err != nil {
 		// only a shard that never wrote state may fall back to the directory; a
@@ -541,7 +540,7 @@ func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 		return err
 	}
 	if !keepFiles {
-		os.Remove(filepath.Join(dynamic.rootPath, StateDBFileName))
+		os.Remove(filepath.Join(dynamic.rootPath, ent.StateDBFileName))
 	}
 
 	return dynamic.index.Drop(ctx, keepFiles)
@@ -645,7 +644,7 @@ func (dynamic *dynamic) SnapshotMutableFiles(ctx context.Context, basePath, stag
 // transaction (tx.CopyFile) so an in-place write during the long upload window cannot tear
 // the staged copy.
 func SnapshotSharedStateDB(db *bbolt.DB, rootPath, basePath, stagingDir string) (string, error) {
-	src := filepath.Join(rootPath, StateDBFileName)
+	src := filepath.Join(rootPath, ent.StateDBFileName)
 	relPath, err := filepath.Rel(basePath, src)
 	if err != nil {
 		return "", fmt.Errorf("index.db relative path: %w", err)

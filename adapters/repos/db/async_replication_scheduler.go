@@ -574,7 +574,7 @@ type AsyncReplicationScheduler struct {
 
 	// batchPool recycles the []*asyncSchedulerEntry slices sent on workCh.
 	batchPool sync.Pool
-	// dispatchBuckets groups due entries by index during one dispatch pass; dispatcher-owned.
+	// dispatchBuckets groups due entries by index during one dispatch pass; dispatcher-owned, emptied at the end of every pass.
 	dispatchBuckets map[*Index][]*asyncSchedulerEntry
 
 	metrics asyncReplicationSchedulerMetrics
@@ -1114,18 +1114,18 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 	}
 
 	// Flush partial buckets: a bucket below the cap ships as a smaller batch, or
-	// rolls back on a full channel.
+	// rolls back on a full channel. Keys are deleted so a dropped index (and the
+	// stale entry pointers in its bucket's backing array) is never pinned.
 	for idx, entries := range sched.dispatchBuckets {
-		if len(entries) == 0 {
-			continue
-		}
-		if full || !sched.trySendBatchLocked(entries) {
-			for _, e := range entries {
-				sched.rollbackReservedLocked(e)
+		if len(entries) > 0 {
+			if full || !sched.trySendBatchLocked(entries) {
+				for _, e := range entries {
+					sched.rollbackReservedLocked(e)
+				}
+				full = true
 			}
-			full = true
 		}
-		sched.dispatchBuckets[idx] = entries[:0]
+		delete(sched.dispatchBuckets, idx)
 	}
 	sched.metrics.setQueueDepth(len(sched.h))
 }
@@ -1246,7 +1246,7 @@ func (sched *AsyncReplicationScheduler) settleDispatchBucketsOnExit() {
 			entry.inFlight = false
 			entry.settleDone()
 		}
-		sched.dispatchBuckets[idx] = entries[:0]
+		delete(sched.dispatchBuckets, idx)
 	}
 }
 

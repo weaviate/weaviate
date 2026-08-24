@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/config"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -277,14 +278,18 @@ func StaticAPIKeyUsers(conf config.Authentication) []string {
 	return conf.APIKey.Users
 }
 
-// ValidateNamespaceStrip runs the stripNamespaces path of [Manager.Restore]
-// against blob without changing any state, returning the same collision error a
-// real strip-restore would hit. It needs no casbin store, so the backup
-// coordinator can reject a doomed restore before any node stages data.
-//
-// staticAPIKeyUsers must be the same list the nodes will strip with, which is
-// the restoring cluster's configured static API key users.
+// ValidateNamespaceStrip runs the strip path of [Manager.Restore] against blob
+// without changing state, returning the collision error a real strip would hit.
+// staticAPIKeyUsers is the restoring cluster's configured list.
 func ValidateNamespaceStrip(blob []byte, staticAPIKeyUsers []string) error {
+	return ValidateSnapshot(blob, true, staticAPIKeyUsers)
+}
+
+// ValidateSnapshot runs the checks [Manager.Restore] makes before it clears
+// the policy store, without clearing it: the decode, plus the strip when
+// stripNamespaces is set. Restore has no version check of its own, so with the
+// strip off only the decode runs.
+func ValidateSnapshot(blob []byte, stripNamespaces bool, staticAPIKeyUsers []string) error {
 	// Restore treats an empty snapshot as a no-op.
 	if len(blob) == 0 {
 		return nil
@@ -293,6 +298,74 @@ func ValidateNamespaceStrip(blob []byte, staticAPIKeyUsers []string) error {
 	if err := json.Unmarshal(blob, &snap); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
+	if !stripNamespaces {
+		return nil
+	}
 	_, err := stripRBACSnapshot(snap, staticAPIKeyUsers)
 	return err
+}
+
+// ReferencedNamespaces returns every namespace the snapshot names. Two sources
+// feed it. The first is the snapshot's own Namespaces list. The source cluster
+// writes that list, because only the source can tell a namespace prefix from a
+// colon inside a global id such as the OIDC subject "urn:foo". The list covers
+// role names, resource paths, and OIDC subjects, but not db subjects (see
+// referencedNamespaces). The second source is the "db:" user subjects, read
+// here: a dynamic user name cannot contain a colon, so a colon in one always
+// marks a namespace. The restoring cluster's static API key users are the one
+// exception to that rule. A blob from before the list existed is checked on its
+// db subjects only; namespaced backups that predate the list are unsupported.
+func ReferencedNamespaces(blob []byte, staticAPIKeyUsers []string) ([]string, error) {
+	if len(blob) == 0 {
+		return nil, nil
+	}
+	snap := snapshot{}
+	if err := json.Unmarshal(blob, &snap); err != nil {
+		return nil, fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+
+	staticUsers := make(map[string]struct{}, len(staticAPIKeyUsers))
+	for _, user := range staticAPIKeyUsers {
+		staticUsers[user] = struct{}{}
+	}
+
+	seen := map[string]struct{}{}
+	add := func(name string) {
+		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
+			seen[ns] = struct{}{}
+		}
+	}
+
+	for _, g := range snap.GroupingPolicy {
+		if len(g) == 0 {
+			continue
+		}
+		user, prefix, err := conv.GetUserAndPrefix(g[0])
+		if err != nil || prefix != string(authentication.AuthTypeDb) {
+			continue
+		}
+		if _, ok := staticUsers[user]; ok {
+			continue
+		}
+		add(user)
+	}
+
+	for _, ns := range snap.Namespaces {
+		if ns != "" {
+			seen[ns] = struct{}{}
+		}
+	}
+	return slices.Sorted(maps.Keys(seen)), nil
+}
+
+// RequireReferencedNamespacesExist returns an error when any namespace the
+// snapshot names is missing or deleting on this cluster. See
+// [ReferencedNamespaces] for which names the snapshot carries and
+// [usecasesNamespaces.RequireAllExisting] for which states pass.
+func RequireReferencedNamespacesExist(blob []byte, staticAPIKeyUsers []string, ns usecasesNamespaces.Exister) error {
+	refs, err := ReferencedNamespaces(blob, staticAPIKeyUsers)
+	if err != nil {
+		return err
+	}
+	return usecasesNamespaces.RequireAllExisting(ns, refs)
 }
