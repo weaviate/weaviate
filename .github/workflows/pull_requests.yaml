@@ -847,14 +847,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: "cluster"
-            test: "--acceptance-drop-vector-index-cluster"
+          - name: "cluster-group1"
+            test: "--acceptance-drop-vector-index-cluster-group1"
+          - name: "cluster-group2"
+            test: "--acceptance-drop-vector-index-cluster-group2"
           - name: "restart-cluster"
             test: "--acceptance-drop-vector-index-restart-cluster"
           - name: "rolling-restart"
             test: "--acceptance-drop-vector-index-rolling-restart"
-          - name: "async-indexing"
-            test: "--acceptance-drop-vector-index-async-indexing"
+          - name: "async-indexing-group1"
+            test: "--acceptance-drop-vector-index-async-indexing-group1"
+          - name: "async-indexing-group2"
+            test: "--acceptance-drop-vector-index-async-indexing-group2"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
