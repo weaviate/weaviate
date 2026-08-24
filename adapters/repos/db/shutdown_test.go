@@ -27,9 +27,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/replication"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // TestIndexStopCycleManagers pins that every cycle manager stops even when another
@@ -267,6 +269,7 @@ func newShutdownTestIndex(t *testing.T, shardErrs map[string]error) *Index {
 
 	idx := newTestIndex(t, logger, "", nil, shards)
 	idx.backupLock = esync.NewKeyRWLocker()
+	idx.shardCreateLocks = esync.NewKeyRWLocker()
 	idx.cycleCallbacks = newTestCycleCallbacks(logger)
 
 	for _, cycle := range testCycles(idx.cycleCallbacks) {
@@ -631,5 +634,137 @@ func TestShutdownSignalSurvivesDeadResourceScanner(t *testing.T) {
 		require.NoError(t, err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("DB.Shutdown must not hang without a live resource-scan receiver")
+	}
+}
+
+// TestCloseRequestAbortsBackgroundShardLoad pins that the background shard load
+// gives up its wait once a close is requested. It waits for a node-wide load
+// permit while holding the index open, so a load that kept waiting would hold up
+// the teardown for as long as the permit is taken.
+func TestCloseRequestAbortsBackgroundShardLoad(t *testing.T) {
+	tests := []struct {
+		name string
+		// requestClose stands in for the teardown, which asks to close before it
+		// waits for closeLock
+		requestClose func(*Index) error
+	}{
+		{
+			name:         "a shutdown",
+			requestClose: func(idx *Index) error { return idx.Shutdown(context.Background()) },
+		},
+		{
+			name: "a drop",
+			requestClose: func(idx *Index) error {
+				idx.signalCloseRequested(errIndexDropped)
+				return nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name+" releases the load", func(t *testing.T) {
+			idx := newShutdownTestIndex(t, nil)
+
+			release, loadDone := startGatedBackgroundLoad(t, idx, "t1")
+			// the load must reach the permit wait rather than park at the gate,
+			// or it never exercises the wait this test is about
+			close(release)
+
+			closeDone := make(chan error, 1)
+			go func() { closeDone <- tt.requestClose(idx) }()
+
+			select {
+			case err := <-loadDone:
+				require.ErrorIs(t, err, context.Canceled)
+			case <-time.After(5 * time.Second):
+				t.Fatal("the shard load kept waiting for a permit through the close request")
+			}
+			require.NoError(t, <-closeDone)
+		})
+	}
+}
+
+// startGatedBackgroundLoad parks a background shard load mid-build and returns
+// once it holds the index open: closing the returned channel lets it through to
+// the permit wait. The one node-wide permit is taken and never given back, so a
+// released load ends at the limiter instead of building a shard.
+func startGatedBackgroundLoad(t *testing.T, idx *Index, shardName string) (chan struct{}, chan error) {
+	t.Helper()
+
+	limiter := loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "test_shard_load", 1)
+	require.NoError(t, limiter.Acquire(context.Background()))
+
+	entered, release := make(chan struct{}), make(chan struct{})
+	idx.shards.Store(shardName, &LazyLoadShard{
+		memMonitor:       gateAllocChecker{entered: entered, release: release},
+		shardLoadLimiter: limiter,
+	})
+
+	loadDone := make(chan error, 1)
+	go func() { loadDone <- idx.loadLocalShardIfActive(shardName) }()
+	<-entered
+
+	return release, loadDone
+}
+
+// TestTeardownProceedsDuringBackgroundShardLoad pins that a shard build in flight
+// holds the index open through the refcount rather than closeLock, so a teardown
+// closes the index straight away instead of queueing for the write lock behind
+// the build.
+func TestTeardownProceedsDuringBackgroundShardLoad(t *testing.T) {
+	idx := newShutdownTestIndex(t, nil)
+
+	release, loadDone := startGatedBackgroundLoad(t, idx, "t1")
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- idx.Shutdown(context.Background()) }()
+
+	// beginClose cancels closingCtx under the write lock, so this fires only once
+	// the teardown got that lock
+	select {
+	case <-idx.closingCtx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the shard build kept the teardown from closing the index")
+	}
+
+	close(release)
+	<-loadDone
+	require.NoError(t, <-closeDone)
+}
+
+// TestCancelOnCloseRequested pins the context a closeLock reader aborts on: live
+// while no teardown has asked to close, then cancelled carrying the cause that
+// says which teardown asked.
+func TestCancelOnCloseRequested(t *testing.T) {
+	tests := []struct {
+		name string
+		// a nil cause means nothing asks to close
+		wantCause error
+	}{
+		{name: "no close requested keeps the context live"},
+		{name: "a shutdown cancels it", wantCause: errIndexShutdown},
+		{name: "a drop cancels it", wantCause: errIndexDropped},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := newShutdownTestIndex(t, nil)
+
+			derived, done := idx.cancelOnCloseRequested(context.Background())
+			defer done()
+
+			if tt.wantCause == nil {
+				require.NoError(t, derived.Err())
+				return
+			}
+
+			idx.signalCloseRequested(tt.wantCause)
+			select {
+			case <-derived.Done():
+			case <-time.After(5 * time.Second):
+				t.Fatal("the derived context ignored the close request")
+			}
+			require.ErrorIs(t, context.Cause(derived), tt.wantCause)
+		})
 	}
 }

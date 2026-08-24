@@ -26,6 +26,8 @@ linters:
         - deferInLoop
     exhaustive:
       default-signifies-exhaustive: true
+      check: [switch, map]
+      explicit-exhaustive-map: true
     forbidigo:
       forbid:
         - pattern: ^print(ln)?$
@@ -94,6 +96,10 @@ linters:
         text: SA1019
       - linters:
           - staticcheck
+        path: usecases/memwatch/monitor_test.go
+        text: SA1019
+      - linters:
+          - staticcheck
         path: adapters/repos/db/vector/datasets/datareader.go
         text: SA1019
       - linters:
@@ -116,6 +122,12 @@ linters:
           - staticcheck
         path: usecases/auth/authentication/oidc/middleware_test.go
         text: SA1019
+      # The server still accepts these legacy request fields, so tests have to
+      # set them. Named individually so other deprecations still surface.
+      - linters:
+          - staticcheck
+        path: ^test/
+        text: 'SA1019: \(github\.com/weaviate/weaviate/grpc/generated/protocol/v1\.(Filters\)\.On|Hybrid\)\.Alpha|NearVector\)\.VectorBytes|SearchRequest\)\.Uses_123Api|SearchRequest\)\.Uses_125Api) is deprecated'
       - linters:
           - unused
         path: adapters/repos/db/vector/hnsw/distancer/asm/dot_inline.go
@@ -524,6 +536,22 @@ linters:
         - gocritic
         path: usecases/memwatch/monitor_test.go # we skip this file as we do defer inside for loop in purpose to mock resource leaking
         text: deferInLoop
+      - linters:
+          - staticcheck
+        path: usecases/schema/executor.go
+        text: ShardStatusGetResponse
+      - linters:
+          - staticcheck
+        path: usecases/schema/authorization_test.go
+        text: ShardStatusGetResponse
+      - linters:
+          - staticcheck
+        path: usecases/schema/executor_test.go
+        text: ShardStatusGetResponse
+      - linters:
+          - staticcheck
+        path: usecases/schema/handler_test.go
+        text: ShardStatusGetResponse
     paths:
       - third_party$
       - builtin$

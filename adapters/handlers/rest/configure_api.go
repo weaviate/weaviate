@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -347,10 +348,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// serialize on the same per-(collection, property) mutex. See
 	// the field godoc on state.State for the race this closes.
 	appState.ReindexSubmitLocks = state.NewReindexSubmitLocks()
-	// ReindexDeleteMarkers lets GET /indexes suppress the post-DELETE
-	// finalize-window bleed; recorded by the DELETE handler, read by the
-	// GET-indexes handler. See the field godoc on state.State.
-	appState.ReindexDeleteMarkers = state.NewReindexDeleteMarkers()
 
 	var vectorRepo vectorRepo
 	// var vectorMigrator schema.Migrator
@@ -567,7 +564,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	migrator.SetNode(appState.Cluster.LocalName())
 	// TODO-offload: "offload-s3" has to come from config when enable modules more than S3
 	migrator.SetOffloadProvider(appState.Modules, "offload-s3")
-	appState.Migrator = migrator
 
 	vectorRepo = repo
 	// migrator = vectorMigrator
@@ -670,11 +666,15 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DistributedTaskTargetVectorExtractors: map[string]distributedtask.TargetVectorExtractor{
 			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskTargets,
 		},
-		ReplicaMovementEnabled:  appState.ServerConfig.Config.ReplicaMovementEnabled,
-		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
-		MaxTenantsPerCollection: appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
-		UsageLimitsErrorMessage: appState.ServerConfig.Config.UsageLimits.ErrorMessage,
-		DBLoadProgress:          repo.StartupLoadingProgress,
+		ReplicaMovementEnabled:                 appState.ServerConfig.Config.ReplicaMovementEnabled,
+		DrainSleep:                             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		MaxTenantsPerCollection:                appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
+		UsageLimitsErrorMessage:                appState.ServerConfig.Config.UsageLimits.ErrorMessage,
+		ReplicaMovementCleanupEnabled:          appState.ServerConfig.Config.Replication.ReplicaMovementCleanupEnabled,
+		ReplicaMovementCleanupMaxAge:           appState.ServerConfig.Config.Replication.ReplicaMovementCleanupMaxAge,
+		ReplicaMovementCleanupInterval:         appState.ServerConfig.Config.Replication.ReplicaMovementCleanupInterval,
+		ReplicaMovementCleanupIncludeCancelled: appState.ServerConfig.Config.Replication.ReplicaMovementCleanupIncludeCancelled,
+		DBLoadProgress:                         repo.StartupLoadingProgress,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -822,8 +822,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
 	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
-	var reindexCtx context.Context
-	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
 	// Discover in-flight runtime reindex tasks from disk so the static
 	// ShardReindexerV3 can re-register their double-write callbacks via
 	// OnAfterLsmInit during shard load — BEFORE any post-restart write
@@ -900,11 +898,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				return
 			}
 			l.Info("Reindexing inverted indexes")
-			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
+			reindexFinished <- migrator.InvertedReindex(serverShutdownCtx, reindexTaskNamesWithArgs)
 		}, appState.Logger)
 	}
 
-	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
+	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager,
+		appState.NamespacesController, appState.DB,
 		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
 
 	// appState.RBAC is a typed nil when RBAC is disabled; pass an untyped-nil
@@ -1452,7 +1451,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
 	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer)
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ReindexDeleteMarkers, appState.ServerConfig.Config.Namespaces.Enabled)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ServerConfig.Config.Namespaces.Enabled)
 	setupIndexesHandlers(api, appState)
 	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
@@ -1672,6 +1671,8 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
+		appState.ClusterService.Raft,
+		appState.NamespacesController,
 		appState.Logger)
 	return backupScheduler
 }
@@ -1716,7 +1717,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 		logger.Exit(1)
 	}
 	// Initialize runtime config and load overridden config
-	runtimeConfigManager := initRuntimeOverrides(appState)
+	runtimeConfigManager := initRuntimeOverrides(appState, prometheus.DefaultRegisterer)
 	dataPath := serverConfig.Config.Persistence.DataPath
 	if err := os.MkdirAll(dataPath, 0o777); err != nil {
 		logger.WithField("action", "startup").
@@ -2670,6 +2671,14 @@ func limitResources(appState *state.State) {
 		appState.Logger.Info("No resource limits set, weaviate will use all available memory and CPU. " +
 			"To limit resources, set LIMIT_RESOURCES=true")
 	}
+
+	// The runtime reports math.MaxInt64 when no soft memory limit is set. Every
+	// memory check in the process then compares against a limit it can never reach.
+	if debug.SetMemoryLimit(-1) == math.MaxInt64 {
+		appState.Logger.Warn("GOMEMLIMIT is not set: the soft memory limit is unlimited, " +
+			"so every memory-pressure check in this process (batch admission, compaction, " +
+			"vector index growth) is inert. Set GOMEMLIMIT, or LIMIT_RESOURCES=true to derive it from cgroups.")
+	}
 }
 
 func telemetryEnabled(state *state.State) bool {
@@ -2700,82 +2709,10 @@ func (m membership) LeaderID() string {
 
 // initRuntimeOverrides assumes, Configs from envs are loaded before
 // initializing runtime overrides.
-func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[config.WeaviateRuntimeConfig] {
+func initRuntimeOverrides(appState *state.State, registerer prometheus.Registerer) *configRuntime.ConfigManager[config.WeaviateRuntimeConfig] {
 	// Enable runtime config manager
 	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
-		// Runtimeconfig manager takes of keeping the `registered` config values upto date
-		registered := &config.WeaviateRuntimeConfig{}
-		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
-		registered.MaximumAllowedObjectsCount = appState.ServerConfig.Config.UsageLimits.MaxObjectsCount
-		registered.MaximumAllowedTenantsPerCollection = appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection
-		registered.MaximumAllowedShardsPerCollection = appState.ServerConfig.Config.UsageLimits.MaxShardsPerCollection
-		registered.UsageLimitsErrorMessage = appState.ServerConfig.Config.UsageLimits.ErrorMessage
-		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
-		registered.AsyncReplicationSchedulerWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationSchedulerWorkers
-		registered.AsyncReplicationHashtreeInitConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeInitConcurrency
-		registered.AsyncReplicationHashtreeHeight = appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeHeight
-		registered.AsyncReplicationFrequency = appState.ServerConfig.Config.Replication.AsyncReplicationFrequency
-		registered.AsyncReplicationFrequencyWhilePropagating = appState.ServerConfig.Config.Replication.AsyncReplicationFrequencyWhilePropagating
-		registered.AsyncReplicationLoggingFrequency = appState.ServerConfig.Config.Replication.AsyncReplicationLoggingFrequency
-		registered.AsyncReplicationDiffBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationDiffBatchSize
-		registered.AsyncReplicationDiffPerNodeTimeout = appState.ServerConfig.Config.Replication.AsyncReplicationDiffPerNodeTimeout
-		registered.AsyncReplicationPrePropagationTimeout = appState.ServerConfig.Config.Replication.AsyncReplicationPrePropagationTimeout
-		registered.AsyncReplicationPropagationTimeout = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationTimeout
-		registered.AsyncReplicationPropagationLimit = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationLimit
-		registered.AsyncReplicationPropagationConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency
-		registered.AsyncReplicationPropagationBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize
-		registered.AsyncReplicationPropagationDelay = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay
-		registered.AsyncReplicationRootPrefilterBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize
-		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
-		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
-		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
-		registered.TenantActivityWriteLogLevel = appState.ServerConfig.Config.TenantActivityWriteLogLevel
-		registered.RevectorizeCheckDisabled = appState.ServerConfig.Config.RevectorizeCheckDisabled
-		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
-		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
-		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
-		registered.QueryBatchedContainsEnabled = appState.ServerConfig.Config.QueryBatchedContainsEnabled
-		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
-		registered.BM25FilterTombMergeGateRatio = appState.ServerConfig.Config.BM25FilterTombMergeGateRatio
-		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
-		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
-		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
-		registered.AllowedVectorIndexTypes = appState.ServerConfig.Config.Restrictions.AllowedVectorIndexTypes
-		registered.AllowedCompressionTypes = appState.ServerConfig.Config.Restrictions.AllowedCompressionTypes
-		registered.RestrictionsErrorMessage = appState.ServerConfig.Config.Restrictions.ErrorMessage
-		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
-		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
-		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
-		registered.NamespaceCleanupInterval = appState.ServerConfig.Config.Namespaces.CleanupInterval
-		registered.ObjectsTTLDeleteSchedule = appState.ServerConfig.Config.ObjectsTTLDeleteSchedule
-		registered.ObjectsTTLBatchSize = appState.ServerConfig.Config.ObjectsTTLBatchSize
-		registered.ObjectsTTLPauseEveryNoBatches = appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches
-		registered.ObjectsTTLPauseDuration = appState.ServerConfig.Config.ObjectsTTLPauseDuration
-		registered.ObjectsTTLConcurrencyFactor = appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor
-		registered.ExportEnabled = appState.ServerConfig.Config.Export.Enabled
-		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
-		registered.ExportDefaultPath = appState.ServerConfig.Config.Export.DefaultPath
-		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
-		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
-		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
-		registered.BackupMaxIndividualFiles = appState.ServerConfig.Config.Backup.MaxIndividualFiles
-		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
-		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.GrpcWebEnabled
-		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
-		registered.ExperimentalRESTSearchEnabled = appState.ServerConfig.Config.ExperimentalRESTSearchEnabled
-
-		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
-			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
-			registered.OIDCClientID = appState.ServerConfig.Config.Authentication.OIDC.ClientID
-			registered.OIDCSkipClientIDCheck = appState.ServerConfig.Config.Authentication.OIDC.SkipClientIDCheck
-			registered.OIDCUsernameClaim = appState.ServerConfig.Config.Authentication.OIDC.UsernameClaim
-			registered.OIDCGroupsClaim = appState.ServerConfig.Config.Authentication.OIDC.GroupsClaim
-			registered.OIDCScopes = appState.ServerConfig.Config.Authentication.OIDC.Scopes
-			registered.OIDCCertificate = appState.ServerConfig.Config.Authentication.OIDC.Certificate
-			registered.OIDCJWKSUrl = appState.ServerConfig.Config.Authentication.OIDC.JWKSUrl
-			registered.OIDCSkipTLSVerify = appState.ServerConfig.Config.Authentication.OIDC.SkipTLSVerify
-		}
-
+		registered := config.BuildRegisteredRuntimeConfig(&appState.ServerConfig.Config)
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
 			config.NewRuntimeConfigParser(appState.Logger),
@@ -2783,7 +2720,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
-			prometheus.DefaultRegisterer)
+			registerer)
 		if err != nil {
 			appState.Logger.WithField("action", "runtime_overrides_parse").Errorf("could not create runtime config manager: %v", err)
 		}

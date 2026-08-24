@@ -260,12 +260,12 @@ func stubDBWithNoLiveReindex() *DB {
 	return db
 }
 
-func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
+func testShard(t testing.TB, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
 		false, false, false, indexOpts...)
 }
 
-func testShardMultiTenant(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
+func testShardMultiTenant(t testing.TB, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithMultiTenantSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
 		false, false, false, indexOpts...)
 }
@@ -353,7 +353,7 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 	return shardName
 }
 
-func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	// With async indexing on, NewShard reads the checkpoint store from a
@@ -547,13 +547,13 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 }
 
 // Simplified functions that delegate to the common helper
-func testShardWithMultiTenantSettings(t *testing.T, ctx context.Context, class *models.Class,
+func testShardWithMultiTenantSettings(t testing.TB, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, true, withAsyncIndexingEnabled, indexOpts...)
 }
 
-func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+func testShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, withAsyncIndexingEnabled, indexOpts...)

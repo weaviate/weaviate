@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -22,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/namespaces"
@@ -366,6 +369,162 @@ func TestNamespaces_DeleteMissingReturns404FromEveryReplica(t *testing.T) {
 		require.True(t, errors.As(err, &nf),
 			"DELETE on %s should return 404, got %T: %v", nodeURI, err, err)
 	}
+}
+
+// TestNamespaces_DeleteClassInMissingNamespaceIsRefused pins the destructive
+// gate's answer for a namespace with no row. It admitted one before, so the
+// delete came back 200 having done nothing; refusing means the answer no longer
+// depends on nothing being able to exist under such a prefix.
+//
+// The status asserted is the 400 the endpoint answers today, not the 422 the
+// sentinel asks for: schemaObjectsDelete has no UnprocessableEntity responder,
+// and adding one needs an openapi-specs change. Alias and tenant deletes already
+// render 422, so this is the one arm out of step. WS6b owns the responder and
+// flips this assertion in the same commit. What is pinned meanwhile is that the
+// delete is refused and says why.
+//
+// Deliberately not parallel: tests in this package repoint the process-wide
+// client at a specific node, and some stop that node.
+func TestNamespaces_DeleteClassInMissingNamespaceIsRefused(t *testing.T) {
+	err := helper.DeleteClassAuthWithReturn(t, uniqueNS()+":Ghost", adminKey)
+	require.Error(t, err, "a delete naming a namespace with no row must be refused")
+
+	var refused *schema.SchemaObjectsDeleteBadRequest
+	require.True(t, errors.As(err, &refused), "expected 400, got %T: %v", err, err)
+	assert.Contains(t, refused.Payload.Error[0].Message, "namespace no longer exists",
+		"the refusal has to say which precondition failed")
+}
+
+// dataDirEntries lists ./data in the given node's container. A failed exec
+// errors rather than returning the empty listing any absence check would pass.
+func dataDirEntries(ctx context.Context, node int) ([]string, error) {
+	code, reader, err := sharedCompose.GetWeaviateNode(node).Container().
+		Exec(ctx, []string{"ls", "-1", "./data"}, tcexec.Multiplexed())
+	if err != nil {
+		return nil, fmt.Errorf("exec ls on node %d: %w", node, err)
+	}
+	if code != 0 {
+		return nil, fmt.Errorf("ls ./data on node %d exited %d", node, code)
+	}
+
+	out := new(strings.Builder)
+	if _, err := io.Copy(out, reader); err != nil {
+		return nil, fmt.Errorf("read ls output from node %d: %w", node, err)
+	}
+
+	var entries []string
+	for line := range strings.SplitSeq(out.String(), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			entries = append(entries, line)
+		}
+	}
+	return entries, nil
+}
+
+// requireClassDirsReclaimed waits until no ./data entry on any node contains a
+// lowercased class name. A drop first appends ".deleteme" or prepends
+// "__DELETE_ME_AFTER_BACKUP__", so equality and prefix tests both miss it.
+func requireClassDirsReclaimed(t *testing.T, ctx context.Context, qualifiedClasses ...string) {
+	t.Helper()
+	require.NotEmpty(t, qualifiedClasses, "nothing to assert the absence of")
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		for _, class := range qualifiedClasses {
+			dirName := strings.ToLower(class)
+			for node := 1; node <= 3; node++ {
+				entries, err := dataDirEntries(ctx, node)
+				if !assert.NoError(c, err) {
+					return
+				}
+				for _, entry := range entries {
+					assert.NotContains(c, entry, dirName, "node %d still holds %q", node, entry)
+				}
+			}
+		}
+	}, 30*time.Second, 250*time.Millisecond, "class directories were never reclaimed")
+}
+
+// TestNamespaces_DeleteSuspendedNamespace asserts the delete cascade removes a
+// suspended namespace's classes and aliases and reclaims their directories on
+// disk. The cascade issues DeleteAlias and DeleteClass while the namespace is
+// deleting, so a prior suspend must not stop them.
+func TestNamespaces_DeleteSuspendedNamespace(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	ns := uniqueNS()
+	const (
+		mtClassName = "SuspendedTenants"
+		stClassName = "SuspendedDocs"
+		mtAlias     = "TenantsAlias"
+		stAlias     = "DocsAlias"
+		tenant      = "warm"
+		objTitle    = "written before the suspend"
+	)
+	qualifiedMT := ns + ":" + mtClassName
+	qualifiedST := ns + ":" + stClassName
+
+	homeNode := helper.CreateNamespace(t, ns, adminKey).HomeNode
+	userKey := createNamespacedUser(t, "u1", ns, adminKey)
+
+	// Two of each, so the cascade's alias and class loops run over more than one.
+	// The cleanup asserts nothing: the cascade has usually removed these already,
+	// and a run that failed before the delete leaves the namespace suspended,
+	// where AdmitDestructiveApply refuses a class delete.
+	helper.CreateClassAuth(t, mtClass(mtClassName), userKey)
+	helper.CreateClassAuth(t, &models.Class{
+		Class:      stClassName,
+		Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+	}, userKey)
+	t.Cleanup(func() {
+		helper.DeleteClassWithoutAssert(t, qualifiedMT, adminKey)
+		helper.DeleteClassWithoutAssert(t, qualifiedST, adminKey)
+	})
+	require.NoError(t, addTenantsAuth(t, mtClassName, []*models.Tenant{
+		{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT},
+	}, userKey))
+	created, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+		Class: mtClassName, Tenant: tenant, Properties: map[string]any{"title": objTitle},
+	}, userKey)
+	require.NoError(t, err)
+	helper.CreateAliasAuth(t, &models.Alias{Alias: mtAlias, Class: mtClassName}, userKey)
+	helper.CreateAliasAuth(t, &models.Alias{Alias: stAlias, Class: stClassName}, userKey)
+
+	requireShardsEventually(t, qualifiedMT, tenant)
+	requireShardCountEventually(t, qualifiedST, 1)
+
+	// The read-back proves the directory the reclaim check waits on held an object.
+	obj, err := helper.GetObjectAuthWithTenant(t, qualifiedMT, created.ID, tenant, adminKey)
+	require.NoError(t, err)
+	props, ok := obj.Properties.(map[string]any)
+	require.True(t, ok, "unexpected property shape %T", obj.Properties)
+	require.Equal(t, objTitle, props["title"])
+
+	// Without this, the reclaim check below would pass on an empty ./data.
+	entriesBeforeDelete, err := dataDirEntries(ctx, nodeIndexFromName(t, homeNode))
+	require.NoError(t, err)
+	for _, class := range []string{qualifiedMT, qualifiedST} {
+		require.Contains(t, entriesBeforeDelete, strings.ToLower(class),
+			"class directory missing on home node %s before the delete", homeNode)
+	}
+
+	helper.SuspendNamespace(t, ns, adminKey)
+
+	// The helper returns once GET reports 404, so the cascade removed the entry.
+	helper.DeleteNamespace(t, ns, adminKey)
+
+	for _, class := range []string{qualifiedMT, qualifiedST} {
+		_, err := helper.GetClassAuthWithReturn(t, class, adminKey)
+		var notFound *schema.SchemaObjectsGetNotFound
+		require.ErrorAs(t, err, &notFound, "class %q must be gone, got %T: %v", class, err, err)
+	}
+	for _, alias := range []string{ns + ":" + mtAlias, ns + ":" + stAlias} {
+		_, err := helper.GetAliasAuthWithReturn(t, alias, adminKey)
+		var notFound *schema.AliasesGetAliasNotFound
+		require.ErrorAs(t, err, &notFound, "alias %q must be gone, got %T: %v", alias, err, err)
+	}
+
+	requireClassDirsReclaimed(t, ctx, qualifiedMT, qualifiedST)
 }
 
 // schemaDumpAs hits a generic authenticated endpoint with the given key.

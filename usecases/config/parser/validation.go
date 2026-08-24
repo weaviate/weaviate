@@ -60,6 +60,17 @@ func ValidateDurationGreaterThanEqual0(val time.Duration) error {
 	return fmt.Errorf("duration greater than equal 0 expected, got %v", val)
 }
 
+// ValidateDurationZeroOrInRange accepts exactly 0 (a disable sentinel) or a
+// value within [min, max].
+func ValidateDurationZeroOrInRange(min, max time.Duration) func(time.Duration) error {
+	return func(val time.Duration) error {
+		if val == 0 || (val >= min && val <= max) {
+			return nil
+		}
+		return fmt.Errorf("duration 0 (disabled) or within [%v, %v] expected, got %v", min, max, val)
+	}
+}
+
 func ValidateGocronSchedule(val string) error {
 	if val != "" {
 		if _, err := cron.FullParser().Parse(val); err != nil {

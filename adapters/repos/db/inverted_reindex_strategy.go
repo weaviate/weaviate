@@ -160,6 +160,9 @@ type MigrationStrategy interface {
 	//     OnTaskCompleted (after every shard's OnMigrationComplete);
 	//     for non-semantic, this hook may itself drive the flip but
 	//     must not assume it has already propagated to other replicas.
+	//     A per-property index flag flipped from here must land before the
+	//     task reaches FINISHED, or GET /v1/schema/{class}/indexes drops
+	//     that index from the response.
 	OnMigrationComplete(ctx context.Context, shard ShardLike) error
 }
 
@@ -252,17 +255,11 @@ func applyPerPropertySchemaUpdate(
 // reindexTaskConfig holds the configuration for a ShardReindexTaskGeneric.
 // Renamed from mapToBlockmaxConfig to be strategy-agnostic.
 type reindexTaskConfig struct {
-	swapBuckets                   bool
-	unswapBuckets                 bool
-	tidyBuckets                   bool
-	rollback                      bool
-	conditionalStart              bool
 	concurrency                   int
 	memtableOptFactor             int
 	backupMemtableOptFactor       int
 	processingDuration            time.Duration
 	pauseDuration                 time.Duration
-	perObjectDelay                time.Duration
 	checkProcessingEveryNoObjects int
 	selectionEnabled              bool
 	selectedPropsByCollection     map[string]map[string]struct{}

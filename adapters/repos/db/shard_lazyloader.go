@@ -463,7 +463,7 @@ func (l *LazyLoadShard) ObjectDigests(ctx context.Context, query []multi.Identif
 
 func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) (objs []types.RepairResponse, err error) {
+) (objs []types.RepairDigest, err error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
@@ -591,7 +591,15 @@ func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string
 func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 	// Shard is not loaded — remove files directly from disk. Delegate to the
 	// shared helper so file path logic is defined in one place.
-	if err := newVectorDropIndexHelper().removeVectorIndexFiles(l.shardOpts.index.path(), l.shardOpts.name, targetVector); err != nil {
+	// The collection's other vector names guard against removing a sibling whose
+	// own bucket collides with one of this target's artifact names.
+	class := l.shardOpts.index.getClass()
+	if class == nil {
+		class = l.shardOpts.class
+	}
+	if err := newVectorDropIndexHelper().removeVectorIndexFiles(
+		l.shardOpts.index.path(), l.shardOpts.name, targetVector,
+		otherTargetVectors(class, targetVector)); err != nil {
 		return err
 	}
 
@@ -848,7 +856,7 @@ func (l *LazyLoadShard) HashTreeRoot() (root hashtree.Digest, ok bool) {
 	return l.shard.HashTreeRoot()
 }
 
-func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairDigest) ([]types.RepairDigest, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}

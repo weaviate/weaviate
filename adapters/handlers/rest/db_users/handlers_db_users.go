@@ -16,7 +16,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"net/http"
 	"regexp"
 	"sync"
 	"time"
@@ -758,18 +757,6 @@ func validateUserName(name string) error {
 	return nil
 }
 
-// namespaceErrRendersUnprocessable reports whether err is a namespace-state
-// error the caller should see as a 422 rather than a 500.
-func namespaceErrRendersUnprocessable(err error) bool {
-	// HTTPStatusForNamespaceErr reports ok=false for ErrNamespaceGone, which
-	// would otherwise fall through to a 500 instead of a 422.
-	if errors.Is(err, namespaces.ErrNamespaceGone) {
-		return true
-	}
-	status, ok := cerrors.HTTPStatusForNamespaceErr(err)
-	return ok && status == http.StatusUnprocessableEntity
-}
-
 // renderCreateUserNamespaceErr renders err for a caller that must not learn
 // about namespaces. A lifecycle sentinel becomes neutral copy; anything else
 // is a genuine internal failure and keeps its detail.
@@ -779,7 +766,7 @@ func renderCreateUserNamespaceErr(principal *models.Principal, err error) middle
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 	public := errors.New(msg)
-	if namespaceErrRendersUnprocessable(err) {
+	if cerrors.NamespaceErrRendersUnprocessable(err) {
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
 	}
 	return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))

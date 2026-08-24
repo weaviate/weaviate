@@ -470,8 +470,8 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // cleanStaleSidecarDirs removes leftover __reindex / __ingest / __backup
 // sidecar directories that share the just-removed bucket's name as their
 // prefix. A successful migration moves the new data into the main bucket
-// dir at runtime but defers the actual filesystem renames (old-main ->
-// __backup, ingest-dir cleanup) to OnBeforeLsmInit on the next restart.
+// dir at runtime but leaves the ingest dir under its own name;
+// FinalizeCompletedMigrations renames it at the next startup.
 // Between completion and restart these sidecars live on disk; a DELETE
 // then re-enable in the same process lifetime would otherwise hit
 // "rename: file exists" the next time RunSwapOnShard tries to move the
@@ -485,8 +485,8 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // dir's entry from [lsmkv.GlobalBucketRegistry]. Background: a successful
 // runtime swap moves the in-memory bucket pointer from the ingest name to
 // the main name (Store.SwapBucketPointer), but leaves the on-disk dir
-// under the ingest name (the dir is renamed by OnBeforeLsmInit on the next
-// restart) AND leaves the registry entry under the ingest dir path
+// under the ingest name (FinalizeCompletedMigrations renames it at the
+// next startup) AND leaves the registry entry under the ingest dir path
 // (Bucket.Shutdown is never called on the live ingest bucket — it just
 // becomes the main bucket). When a follow-up migration tries to load a
 // fresh ingest bucket at the same path, NewBucket's TryAdd fails with

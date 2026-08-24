@@ -128,7 +128,7 @@ func (db *DB) init(ctx context.Context) error {
 			).Build()
 			shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaGetter)
 			var lazyLoadShardEnabled bool
-			idx, err := NewIndex(ctx, IndexConfig{
+			idx, err := NewIndex(ctx, db, IndexConfig{
 				ClassName:                      schema.ClassName(class.Class),
 				RootPath:                       db.config.RootPath,
 				ResourceUsage:                  db.config.ResourceUsage,
@@ -220,7 +220,6 @@ func (db *DB) init(ctx context.Context) error {
 			}
 
 			idx.usageLimits = db.usageLimits
-			idx.db = db
 			idx.SetReplicationFSMReader(db.replicationFSM)
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
@@ -296,7 +295,9 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 		// Prefer precomputed usage data if available; it is cheap to read
 		// and already contains the full shard storage size.
 		if shardusage.ComputedUsageDataExists(indexPath, shardName) {
-			shardUsage, err := shardusage.LoadComputedUsageData(indexPath, shardName)
+			// the fingerprint of the vector configs is not compared here. The full
+			// shard size on disk does not depend on them.
+			saved, err := shardusage.LoadComputedUsageData(indexPath, shardName)
 			if errors.Is(err, shardusage.ErrUsageVersionMismatch) {
 				// a version bump leaves this behind on every shard that stayed
 				// cold across it; the on-disk size below is exact anyway
@@ -309,8 +310,8 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 					WithField("class", className).
 					WithField("shard", shardName).
 					Warnf("failed to load pre-calculated shard usage; falling back to on-disk size: %v", err)
-			} else if shardUsage != nil {
-				total += shardUsage.FullShardStorageBytes
+			} else {
+				total += saved.ShardUsage.FullShardStorageBytes
 				if sizeThresholdBytes > 0 && total > sizeThresholdBytes {
 					return total
 				}

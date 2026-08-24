@@ -457,7 +457,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	// If the caller provided a list of target node overrides, filter the replicas to only include
 	// the relevant overrides so that we only "push" updates to the specified nodes.
 	localNodeName := f.LocalNodeName()
-	targetNodesToUse := routingPlan.NodeNames()
+	var targetNodesToUse []string
 	if len(targetNodeOverrides) > 0 {
 		targetNodesToUse = make([]string, 0, len(targetNodeOverrides))
 		for _, override := range targetNodeOverrides {
@@ -465,10 +465,12 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 				targetNodesToUse = append(targetNodesToUse, override.TargetNode)
 			}
 		}
+	} else {
+		targetNodesToUse = routingPlan.NodeNames()
 	}
 
-	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas()))
-	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
+	replicaNodeNames := make([]string, 0, len(targetNodesToUse))
+	replicasHostAddrs := make([]string, 0, len(targetNodesToUse))
 	for _, replica := range targetNodesToUse {
 		replicaHostAddr, ok := f.nodeResolver.NodeHostname(replica)
 		if ok {
@@ -534,15 +536,15 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 func (f *Finder) DigestObjectsInRange(ctx context.Context,
 	shardName string, host string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (ds []types.RepairResponse, err error) {
+) (ds []types.RepairDigest, err error) {
 	return f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
 }
 
 // CompareDigests is a thin transport wrapper around the remote shard's
 // comparator; see RClient.CompareDigests for the contract.
 func (f *Finder) CompareDigests(ctx context.Context,
-	shardName string, host string, digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	shardName string, host string, digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	return f.client.CompareDigests(ctx, host, f.class, shardName, digests)
 }
 
@@ -560,12 +562,13 @@ func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
 		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
 	}
 
-	var hosts []string
-	for _, node := range routingPlan.NodeNames() {
-		if node == localNodeName {
+	replicas := routingPlan.Replicas()
+	hosts := make([]string, 0, len(replicas))
+	for _, replica := range replicas {
+		if replica.NodeName == localNodeName {
 			continue
 		}
-		addr, ok := f.nodeResolver.NodeHostname(node)
+		addr, ok := f.nodeResolver.NodeHostname(replica.NodeName)
 		if !ok || addr == localHostAddr {
 			continue
 		}
@@ -613,7 +616,7 @@ func (f *Finder) PrefilterShardRoots(ctx context.Context,
 	}
 
 	var stats PrefilterStats
-	chunk := make(map[string]hashtree.Digest, prefilterMaxShardsPerRPC)
+	chunk := make(map[string]hashtree.Digest, min(len(roots), prefilterMaxShardsPerRPC))
 	flush := func(host string) {
 		if len(chunk) == 0 {
 			return

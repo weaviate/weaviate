@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -3047,7 +3048,40 @@ func TestSettleDispatchBucketsOnExit(t *testing.T) {
 
 	awaitAsyncRepWg(t, s, "stranded bucket reservation must settle")
 	assert.False(t, entry.inFlight)
-	assert.Empty(t, sched.dispatchBuckets[idx])
+	assert.Empty(t, sched.dispatchBuckets)
+}
+
+// TestDispatchBucketsEmptiedEveryPass: no *Index key may survive a dispatch pass, or dropped collections stay pinned forever.
+func TestDispatchBucketsEmptiedEveryPass(t *testing.T) {
+	tests := []struct {
+		name           string
+		batchSize      int
+		workChCap      int
+		shardsByClass  map[string]int
+		wantBatchSizes []int
+		wantHeapLen    int
+	}{
+		{"after coalesced dispatch", 512, 16, map[string]int{"A": 3, "B": 2}, []int{3, 2}, 0},
+		{"after mid-pass full batch", 2, 16, map[string]int{"C": 4}, []int{2, 2}, 0},
+		{"after full-channel rollback", 512, 0, map[string]int{"C": 3}, nil, 3},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newBareScheduler(tc.batchSize, tc.workChCap)
+			for class, n := range tc.shardsByClass {
+				idx := &Index{Config: IndexConfig{ClassName: entschema.ClassName(class)}}
+				for range n {
+					sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: class}})
+				}
+			}
+
+			sched.dispatchDueLocked()
+
+			assert.ElementsMatch(t, tc.wantBatchSizes, drainBatchSizes(sched.workCh))
+			assert.Len(t, sched.h, tc.wantHeapLen)
+			assert.Empty(t, sched.dispatchBuckets)
+		})
+	}
 }
 
 // TestDeregisterSettlesEntriesAwaitingPrefilter: entries parked behind the root pre-filter stay settleable, so teardown drains never wait out an RPC bound to sched.ctx.

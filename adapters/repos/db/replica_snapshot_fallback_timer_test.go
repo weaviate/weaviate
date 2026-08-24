@@ -82,7 +82,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 
-	index, err := NewIndex(context.Background(), IndexConfig{
+	index, err := NewIndex(context.Background(), nil, IndexConfig{
 		ClassName:                 schema.ClassName("TestClass"),
 		RootPath:                  t.TempDir(),
 		ReplicationFactor:         1,

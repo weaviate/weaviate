@@ -151,7 +151,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	}
 
 	var lazyLoadShardEnabled bool
-	idx, err = NewIndex(ctx,
+	idx, err = NewIndex(ctx, m.db,
 		IndexConfig{
 			ClassName:                      schema.ClassName(class.Class),
 			RootPath:                       m.db.config.RootPath,
@@ -244,11 +244,16 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	}
 
 	idx.usageLimits = m.db.usageLimits
-	idx.db = m.db
 	idx.SetReplicationFSMReader(m.db.replicationFSM)
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
+
+	// Shards built inside NewIndex read the read-only flag as they come up, but
+	// a transition landing after that read reaches them through neither path -
+	// the sweep cannot see an index that is not in db.indices yet. Settle them
+	// against the flag now that it can.
+	m.db.reconcileIndexResourcePressure(idx)
 
 	// NewIndex loaded shards reading the live AsyncReplicationDisabled flag, but
 	// the index was not yet in db.indices, so a concurrent runtime flag toggle's
@@ -310,12 +315,25 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 	return nil
 }
 
-func (m *Migrator) LoadShard(ctx context.Context, class, shard string) error {
+// LoadShardForMovement loads the target shard of a replica movement. The
+// replication caller keeps a suspend or resume landing mid-movement from failing
+// the apply on the node gaining the replica.
+func (m *Migrator) LoadShardForMovement(ctx context.Context, class, shard string) error {
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
-	return idx.LoadLocalShard(ctx, shard, false)
+	return idx.LoadLocalShardForMovement(ctx, shard)
+}
+
+// LoadShardForNewReplica loads a shard for the apply that adds a replica to it
+// with no replica movement under way.
+func (m *Migrator) LoadShardForNewReplica(ctx context.Context, class, shard string) error {
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return fmt.Errorf("could not find collection %s", class)
+	}
+	return idx.LoadLocalShardForNewReplica(ctx, shard)
 }
 
 func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {
@@ -425,7 +443,7 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 
 		if phys.Status == models.TenantActivityStatusHOT {
 			// Only load the tenant if activity status == HOT.
-			ec.AddWrapf(idx.LoadLocalShard(ctx, shardName, false),
+			ec.AddWrapf(idx.loadLocalShardForReload(ctx, shardName, true /* mustLoad */),
 				"add missing tenant shard %s during update index", shardName)
 		} else {
 			// Shutdown the tenant if activity status != HOT
@@ -498,7 +516,7 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 
 	for _, shardName := range requestedShards {
 		if _, exists := existingShards[shardName]; !exists {
-			ec.AddWrapf(idx.initLocalShard(ctx, shardName),
+			ec.AddWrapf(idx.loadLocalShardForReload(ctx, shardName, false /* mustLoad */),
 				"add missing shard %s during update index", shardName)
 		}
 	}
@@ -612,15 +630,33 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 			continue // skip creating inactive shards
 		}
 
-		err := idx.initLocalShard(ctx, pl.Name)
+		err := idx.LoadLocalShardForTenantAdd(ctx, pl.Name)
 		ec.Add(err)
 	}
 	return ec.ToError()
 }
 
 // UpdateTenants activates or deactivates tenant partitions and returns a commit func
-// that can be used to either commit or rollback the changes
+// that can be used to either commit or rollback the changes. A namespace being
+// deleted leaves an activated tenant's shard closed instead of failing the apply.
 func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload, implicitTenantActivation bool) error {
+	return m.updateTenants(ctx, class, updates, func(ctx context.Context, idx *Index, name string) error {
+		return idx.LoadLocalShardForTenantActivation(ctx, name, implicitTenantActivation)
+	})
+}
+
+// UpdateTenantsForProcess applies the statuses a finished offload or onload
+// reported. A namespace being deleted leaves the tenant's shard closed instead of
+// failing the apply.
+func (m *Migrator) UpdateTenantsForProcess(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload) error {
+	return m.updateTenants(ctx, class, updates, func(ctx context.Context, idx *Index, name string) error {
+		return idx.LoadLocalShardForTenantProcess(ctx, name)
+	})
+}
+
+func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload,
+	loadShard func(ctx context.Context, idx *Index, name string) error,
+) error {
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
@@ -672,12 +708,12 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 				defer cancel()
 
-				if err := idx.LoadLocalShard(ctx, name, implicitTenantActivation); err != nil {
+				if err := loadShard(ctx, idx, name); err != nil {
 					ec.Add(err)
 					idx.logger.WithFields(logrus.Fields{
 						"action": "tenant_activation_lazy_load_shard",
 						"shard":  name,
-					}).WithError(err).Errorf("loading shard %q failed", name)
+					}).Errorf("loading shard %q failed: %v", name, err)
 				}
 				return nil
 			})
