@@ -76,6 +76,7 @@ type ShardLike interface {
 	GetStatus() storagestate.Status                                                                // Return the shard status
 	GetStatusReason() string                                                                       // Return the reason for the current status
 	UpdateStatus(status, reason string) error                                                      // Set shard status
+	UpdateStatusIf(cond func(ShardStatus) bool, status, reason string) error                       // Set shard status if cond holds, without loading an unloaded shard
 	SetStatusReadonly(reason string) error                                                         // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Search and return document ids
 
