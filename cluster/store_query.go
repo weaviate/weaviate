@@ -107,9 +107,14 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get dynamic user: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_USER_IDENTIFIER_EXISTS:
-		payload, err = st.dynUserManager.GetUsers(req)
+		payload, err = st.dynUserManager.CheckUserIdentifierExists(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not check user identifier: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_EXPORT_USERS:
+		payload, err = st.dynUserManager.ExportUsers(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not export dynamic users: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_NAMESPACES:
 		payload, err = st.namespaceManager.Get(req)

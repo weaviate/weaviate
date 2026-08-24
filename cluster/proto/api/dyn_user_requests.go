@@ -87,3 +87,11 @@ type QueryUserIdentifierExistsRequest struct {
 type QueryUserIdentifierExistsResponse struct {
 	Exists bool
 }
+
+type QueryExportUsersRequest struct {
+	UserIds []string
+}
+
+type QueryExportUsersResponse struct {
+	Users map[string]*dbuser.ExportRecord
+}

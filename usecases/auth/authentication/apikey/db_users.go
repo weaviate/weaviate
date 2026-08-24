@@ -43,6 +43,12 @@ const (
 	UserNameRegexCore = `[A-Za-z][-_0-9A-Za-z@.]{0,128}`
 )
 
+// ErrUserIdentifierExists is returned by CreateUser when the userIdentifier
+// already maps to a different userId. IdentifierToId is global and keyed by the
+// non-namespaced identifier, so one source key can map to exactly one target
+// user; a second mapping would hijack the first user's authentication.
+var ErrUserIdentifierExists = errors.New("user identifier already exists")
+
 // MakeUserKey returns the internal storage key for a user. Namespaced users
 // are stored under "namespace<sep>userId" so two namespaces can host the same
 // short id without collision; unnamespaced users keep the bare id for
@@ -65,6 +71,7 @@ type DBUsers interface {
 	ActivateUser(ctx context.Context, userId string) error
 	DeactivateUser(ctx context.Context, userId string, revokeKey bool) error
 	GetUsers(userIds ...string) (map[string]UserView, error)
+	ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord, error)
 	RotateKey(ctx context.Context, userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error
 	CheckUserIdentifierExists(userIdentifier string) (bool, error)
 }
@@ -231,6 +238,13 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 
 	if len(apiKeyFirstLetters) > 3 {
 		return errors.New("api key first letters too long")
+	}
+
+	// IdentifierToId is global and keyed by the non-namespaced identifier.
+	// Refuse to rebind an identifier already held by a different user; re-applying
+	// the same userId is allowed so RAFT replay and idempotent re-import pass.
+	if existing, ok := c.data.IdentifierToId[userIdentifier]; ok && existing != userId {
+		return fmt.Errorf("%w: identifier already maps to user %q", ErrUserIdentifierExists, existing)
 	}
 
 	c.data.SecureKeyStorageById[userId] = secureHash
@@ -411,6 +425,65 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {
 	for _, id := range userIds {
 		if user, ok := c.data.Users[id]; ok && user != nil {
 			users[id] = user.view()
+		}
+	}
+	return users, nil
+}
+
+// ExportUsers returns a per-user credential record or sentinel for migration.
+// With no ids it reports every user and is the sole authoritative export roster.
+// Like GetUsers, an unknown requested id is omitted rather than erroring; it does
+// not use Snapshot/filterDBUserData, which take the write lock and fail hard on an
+// unknown id.
+//
+// Only ExportStatusExported records carry a non-nil SecureHash. Imported (weak),
+// revoked, and hash-less users get a nil-hash sentinel naming why they cannot be
+// carried, so no user is silently omitted.
+func (c *DBUser) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	classify := func(id string, user *User) dbuser.ExportRecord {
+		v := user.view()
+		rec := dbuser.ExportRecord{
+			Id:                 v.Id,
+			UserIdentifier:     c.data.IdToIdentifier[id],
+			ApiKeyFirstLetters: v.ApiKeyFirstLetters,
+			Active:             v.Active,
+			CreatedAt:          v.CreatedAt,
+			Namespace:          v.Namespace,
+		}
+		_, revoked := c.data.UserKeyRevoked[id]
+		secureHash, hasSecureHash := c.data.SecureKeyStorageById[id]
+		switch {
+		case v.ImportedWithKey:
+			rec.Status = dbuser.ExportStatusImportedKey
+		case revoked:
+			rec.Status = dbuser.ExportStatusRevoked
+		case !hasSecureHash:
+			rec.Status = dbuser.ExportStatusNoKey
+		default:
+			rec.SecureHash = &secureHash
+			rec.Status = dbuser.ExportStatusExported
+		}
+		return rec
+	}
+
+	if len(userIds) == 0 {
+		users := make(map[string]dbuser.ExportRecord, len(c.data.Users))
+		for id, user := range c.data.Users {
+			if user == nil {
+				continue
+			}
+			users[id] = classify(id, user)
+		}
+		return users, nil
+	}
+
+	users := make(map[string]dbuser.ExportRecord, len(userIds))
+	for _, id := range userIds {
+		if user, ok := c.data.Users[id]; ok && user != nil {
+			users[id] = classify(id, user)
 		}
 	}
 	return users, nil

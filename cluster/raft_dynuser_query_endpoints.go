@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/dbuser"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 )
 
@@ -46,6 +47,41 @@ func (s *Raft) GetUsers(userIds ...string) (map[string]apikey.UserView, error) {
 	}
 
 	out := make(map[string]apikey.UserView, len(response.Users))
+	for id, u := range response.Users {
+		if u == nil {
+			continue
+		}
+		out[id] = *u
+	}
+	return out, nil
+}
+
+func (s *Raft) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord, error) {
+	req := cmd.QueryExportUsersRequest{
+		UserIds: userIds,
+	}
+
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_EXPORT_USERS,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := cmd.QueryExportUsersResponse{}
+	err = json.Unmarshal(queryResp.Payload, &response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+
+	out := make(map[string]dbuser.ExportRecord, len(response.Users))
 	for id, u := range response.Users {
 		if u == nil {
 			continue

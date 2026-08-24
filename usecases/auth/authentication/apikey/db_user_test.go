@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/dbuser"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 	"github.com/weaviate/weaviate/usecases/namespaces"
@@ -1503,4 +1504,118 @@ func TestListAllUsers(t *testing.T) {
 	require.Len(t, users, 2)
 	require.Contains(t, users, "ns1:user")
 	require.Contains(t, users, "ns2:user")
+}
+
+func TestExportUsers(t *testing.T) {
+	t.Run("strong key user yields a credential record", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "abc", "", time.Now()))
+
+		records, err := dynUsers.ExportUsers()
+		require.NoError(t, err)
+
+		rec := records["user"]
+		require.Equal(t, dbuser.ExportStatusExported, rec.Status)
+		require.NotNil(t, rec.SecureHash)
+		require.Equal(t, hash, *rec.SecureHash)
+		require.Equal(t, identifier, rec.UserIdentifier)
+		require.Equal(t, "abc", rec.ApiKeyFirstLetters)
+		require.True(t, rec.Active)
+	})
+
+	t.Run("imported key user yields sentinel with reason imported_key", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUserWithKey("user", "abc", sha256.Sum256([]byte("key")), time.Now()))
+
+		records, err := dynUsers.ExportUsers()
+		require.NoError(t, err)
+
+		rec := records["user"]
+		require.Equal(t, dbuser.ExportStatusImportedKey, rec.Status)
+		require.Nil(t, rec.SecureHash)
+	})
+
+	t.Run("revoked strong key user yields sentinel with reason revoked", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.DeactivateUser("user", true))
+
+		records, err := dynUsers.ExportUsers()
+		require.NoError(t, err)
+
+		rec := records["user"]
+		require.Equal(t, dbuser.ExportStatusRevoked, rec.Status)
+		require.Nil(t, rec.SecureHash)
+	})
+
+	t.Run("deactivated user carried with active false", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.DeactivateUser("user", false))
+
+		records, err := dynUsers.ExportUsers()
+		require.NoError(t, err)
+
+		rec := records["user"]
+		// A deactivated (not revoked) user keeps its hash so import can reproduce it.
+		require.Equal(t, dbuser.ExportStatusExported, rec.Status)
+		require.NotNil(t, rec.SecureHash)
+		require.False(t, rec.Active)
+	})
+
+	t.Run("unknown requested id is omitted not errored", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+
+		records, err := dynUsers.ExportUsers("does-not-exist")
+		require.NoError(t, err)
+		require.Empty(t, records)
+	})
+}
+
+func TestCreateUserIdentifierInvariant(t *testing.T) {
+	t.Run("same identifier to a different user id is refused with ErrUserIdentifierExists", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+
+		err = dynUsers.CreateUser("user2", "different-hash", identifier, "", "", time.Now())
+		require.ErrorIs(t, err, ErrUserIdentifierExists)
+
+		// The clobber wrote nothing: user2 must not exist and the identifier must
+		// still bind to user1 (not the rejected user2).
+		users, err := dynUsers.GetUsers("user1", "user2")
+		require.NoError(t, err)
+		require.Contains(t, users, "user1")
+		require.NotContains(t, users, "user2")
+
+		dynUsers.lock.RLock()
+		require.Equal(t, "user1", dynUsers.data.IdentifierToId[identifier])
+		_, hasUser2Hash := dynUsers.data.SecureKeyStorageById["user2"]
+		dynUsers.lock.RUnlock()
+		require.False(t, hasUser2Hash)
+	})
+
+	t.Run("same identifier to the same user id is idempotent", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+
+		// RAFT replay / idempotent re-import: re-applying the same userId succeeds.
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+	})
 }
