@@ -20,6 +20,12 @@ import (
 // ErrShardRecovering: shard data is missing locally and being copied from a peer (SELF_RECOVERY).
 var ErrShardRecovering = errors.New("shard recovering from peer")
 
+// ErrIndexNotRegistered: index object not published in memory yet — transient unless the class was deleted (disambiguate via schema).
+var ErrIndexNotRegistered = errors.New("index not registered in memory")
+
+// ErrShardNotRegistered: no in-memory shard entry; on the promote path this means deleted/unloaded mid-recovery, never "create it".
+var ErrShardNotRegistered = errors.New("shard not registered in memory")
+
 func IsShardRecovering(err error) bool {
 	return errors.Is(err, ErrShardRecovering)
 }
