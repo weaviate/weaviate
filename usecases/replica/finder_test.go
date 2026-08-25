@@ -1167,7 +1167,7 @@ func TestAsyncReplicationResolutionIsLocalOnly(t *testing.T) {
 
 // CountObjects must query only as many replicas as the consistency level asks
 // for — a node with no expectation set here fails the test if it is queried —
-// and must report a failed routing plan instead of a count of 0.
+// and must report an error instead of a count of 0 when it reaches none.
 func TestFinderCountObjects(t *testing.T) {
 	var (
 		cls   = "C1"
@@ -1176,40 +1176,36 @@ func TestFinderCountObjects(t *testing.T) {
 	)
 
 	for _, tt := range []struct {
-		name     string
-		cl       types.ConsistencyLevel
-		shard    string
-		counts   map[string]int
-		errNodes []string
-		timeout  time.Duration // caller deadline; zero for none
-		want     int
-		wantErr  bool
+		name         string
+		cl           types.ConsistencyLevel
+		collectionCL bool // call with a plan that names no single shard
+		counts       map[string]int
+		errNodes     []string
+		timeout      time.Duration // caller deadline; zero for none
+		want         int
+		wantErr      string // substring the call must fail with; empty if it must succeed
 	}{
 		{
 			name:   "ONE queries the local replica only",
 			cl:     types.ConsistencyLevelOne,
-			shard:  shard,
 			counts: map[string]int{"A": 7},
 			want:   7,
 		},
 		{
 			name:   "QUORUM queries a majority",
 			cl:     types.ConsistencyLevelQuorum,
-			shard:  shard,
 			counts: map[string]int{"A": 92, "B": 92},
 			want:   92,
 		},
 		{
 			name:   "ALL queries every replica and reconciles",
 			cl:     types.ConsistencyLevelAll,
-			shard:  shard,
 			counts: map[string]int{"A": 92, "B": 13, "C": 92},
 			want:   92,
 		},
 		{
 			name:     "ONE falls back to another replica when the first fails",
 			cl:       types.ConsistencyLevelOne,
-			shard:    shard,
 			errNodes: []string{"A"},
 			counts:   map[string]int{"B": 5},
 			want:     5,
@@ -1217,28 +1213,41 @@ func TestFinderCountObjects(t *testing.T) {
 		{
 			name:     "every replica failing surfaces an error",
 			cl:       types.ConsistencyLevelOne,
-			shard:    shard,
 			errNodes: nodes,
 			timeout:  100 * time.Millisecond,
-			wantErr:  true,
+			wantErr:  "no nodes reported object count",
 		},
 		{
-			name:    "unknown shard surfaces the routing error",
-			cl:      types.ConsistencyLevelOne,
-			shard:   "SH-missing",
-			wantErr: true,
+			name:         "a plan naming no single shard surfaces an error",
+			cl:           types.ConsistencyLevelOne,
+			collectionCL: true,
+			wantErr:      "no single shard",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFakeFactory(t, cls, shard, nodes, false)
 			finder := f.newFinder("A")
 			for node, count := range tt.counts {
-				f.RClient.EXPECT().CountObjects(anyVal, node, cls, tt.shard).Return(count, nil)
+				f.RClient.EXPECT().CountObjects(anyVal, node, cls, shard).Return(count, nil)
 			}
 			// Maybe: which replicas the retry queue reaches before the deadline
 			// is timing-dependent; the counts above carry the fan-out assertions.
 			for _, node := range tt.errNodes {
-				f.RClient.EXPECT().CountObjects(anyVal, node, cls, tt.shard).Return(0, errAny).Maybe()
+				f.RClient.EXPECT().CountObjects(anyVal, node, cls, shard).Return(0, errAny).Maybe()
+			}
+
+			collectionPlan, err := f.newRouter("A").BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
+				ConsistencyLevel: tt.cl,
+			})
+			require.NoError(t, err)
+
+			// The misuse the guard exists for: handing over the collection-wide
+			// plan instead of one of the per-shard plans split out of it.
+			plan := collectionPlan
+			if !tt.collectionCL {
+				shardPlans := collectionPlan.ShardPlans(tt.cl)
+				require.Len(t, shardPlans, 1)
+				plan = shardPlans[0]
 			}
 
 			ctx := context.Background()
@@ -1248,10 +1257,10 @@ func TestFinderCountObjects(t *testing.T) {
 				defer cancel()
 			}
 
-			got, err := finder.CountObjects(ctx, tt.shard, tt.cl)
+			got, err := finder.CountObjects(ctx, plan)
 
-			if tt.wantErr {
-				require.Error(t, err)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
 				return
 			}
 			require.NoError(t, err)
