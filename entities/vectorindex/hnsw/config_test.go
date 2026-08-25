@@ -1159,9 +1159,10 @@ func Test_UserConfig(t *testing.T) {
 
 func Test_ParseDefaultQuantization(t *testing.T) {
 	cases := append(testhelpers.DefaultQuantizationCases(),
-		// HNSW also supports server-level PQ and SQ default quantization.
+		// HNSW also supports server-level PQ and SQ default quantization, and 4-bit RQ.
 		testhelpers.DefaultQuantizationCase{Name: "pq enables PQ", Compression: "pq", Expected: testhelpers.QuantizationState{PQ: true}},
 		testhelpers.DefaultQuantizationCase{Name: "sq enables SQ", Compression: "sq", Expected: testhelpers.QuantizationState{SQ: true}},
+		testhelpers.DefaultQuantizationCase{Name: "rq-4 enables RQ", Compression: "rq-4", Expected: testhelpers.QuantizationState{RQ: true}},
 	)
 
 	testhelpers.RunDefaultQuantizationTests(t, cases,
