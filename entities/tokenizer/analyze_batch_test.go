@@ -264,16 +264,18 @@ func TestAnalyzedBatchAccessors(t *testing.T) {
 	})
 }
 
-// TestSingleTokenBytes covers the precondition the batched key builder depends
-// on: one token per value, and their total byte length.
-//
-// The caller builds one key per value from that value's single token, so a
-// value that tokenized into none or several has no key to stand for it — and
-// the total sizes the slab those keys are written into. Both are checked here
-// rather than through the caller, which cannot reach the failing shapes: it
-// passes FIELD tokenization and no stopword detector, under which every value
-// yields exactly one token.
+// TestSingleTokenBytes covers the precondition SingleTokenBytes checks — one
+// token per value — and the byte total it reports.
 func TestSingleTokenBytes(t *testing.T) {
+	// Enough values that a walk stopping short of the last one is visible in
+	// the total, each a different length so no two can cancel out.
+	manyValues := make([]string, 50)
+	manyBytes := 0
+	for i := range manyValues {
+		manyValues[i] = fmt.Sprintf("%0*d", i+1, 0)
+		manyBytes += i + 1
+	}
+
 	tests := []struct {
 		name         string
 		values       []string
@@ -290,6 +292,11 @@ func TestSingleTokenBytes(t *testing.T) {
 			name: "one token each", values: []string{"alpha", "be"},
 			tokenization: models.PropertyTokenizationField,
 			wantBytes:    7,
+		},
+		{
+			name: "many values", values: manyValues,
+			tokenization: models.PropertyTokenizationField,
+			wantBytes:    manyBytes,
 		},
 		{
 			name: "field trims to one token", values: []string{"  padded value  "},
@@ -339,23 +346,4 @@ func TestSingleTokenBytes(t *testing.T) {
 			assert.Equal(t, tt.wantBytes, total)
 		})
 	}
-}
-
-// TestSingleTokenBytesCountsEveryToken pins that the total covers all values
-// rather than stopping at the first, which a walk that returned early would
-// still satisfy for a single-value batch.
-func TestSingleTokenBytesCountsEveryToken(t *testing.T) {
-	values := make([]string, 50)
-	want := 0
-	for i := range values {
-		values[i] = fmt.Sprintf("%0*d", i+1, 0)
-		want += i + 1
-	}
-	batch, err := AnalyzeBatch(values, models.PropertyTokenizationField, "Class",
-		NewPreparedAnalyzer(nil), nil)
-	require.NoError(t, err)
-
-	total, err := batch.SingleTokenBytes()
-	require.NoError(t, err)
-	assert.Equal(t, want, total)
 }

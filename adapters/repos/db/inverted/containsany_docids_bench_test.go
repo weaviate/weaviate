@@ -172,10 +172,9 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	require.NoError(tb, dateBucket.RoaringSetAddList(sharedDateKey, containsFamilySharedDocIDs))
 	require.NoError(tb, dateBucket.FlushAndSwitch())
 
-	// Booleans have only two distinct keys however many values a filter
-	// names, which is the family where a batch is most likely to hold
-	// duplicates. Even docs are false and odd ones true; the shared docs hold
-	// both, so ContainsAll over true and false is non-empty.
+	// Booleans have only two distinct keys, the family most likely to hold
+	// duplicates in a batch; even docs are false and odd ones true, so
+	// ContainsAll over true and false is non-empty via the shared docs.
 	boolBucketName := helpers.BucketFromPropNameLSM(benchBoolPropName)
 	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), boolBucketName,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
@@ -469,20 +468,12 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 		}
 	}
 
-	// Every case above runs against a fully flushed corpus, which is exactly
-	// the shape where the batch reader skips the active memtable — so batched
-	// and desugared can agree by both reading only disk. This case leaves a
-	// write unflushed so the active memtable is non-empty, the one shape where
-	// the two paths could diverge: the batch reader must probe it per key like
-	// the desugared path does.
-	// The corpus rows above are all small or uniform-width, so they reach only
-	// three of the sort's branches. These two are sized and shaped to reach the
-	// two-word radix and the variable-width radix with its collision repair,
-	// which unit tests cover but nothing had exercised through a real bucket.
-	//
-	// Each list mixes present values with absent ones: the absent values set the
-	// branch, the present ones keep the result non-empty so the two paths are
-	// compared on something.
+	// The corpus rows above are small or uniform-width, reaching only three of
+	// the sort's branches. These two are sized to reach the two-word radix and
+	// the variable-width radix with its collision repair — covered by unit
+	// tests but never exercised through a real bucket. Each list mixes present
+	// values with absent ones so the two paths are compared on a non-empty
+	// result.
 	t.Run("large batches reach the radix branches", func(t *testing.T) {
 		// 250 uuids with no shared prefix, past the two-word cutoff.
 		uuids := make([]interface{}, 0, 250)
@@ -532,6 +523,10 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 		}
 	})
 
+	// Every case above runs against a fully flushed corpus, where the batch
+	// reader skips the active memtable entirely. This leaves a write unflushed
+	// so the batch reader must probe the memtable per key like the desugared
+	// path does, the one shape where the two could otherwise diverge.
 	t.Run("unflushed write in the active memtable", func(t *testing.T) {
 		g := newContainsFixture(t, 200)
 		bucket := g.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))

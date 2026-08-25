@@ -22,24 +22,20 @@ import (
 )
 
 // Ordering for [SortedKeys], reached only through the builders' Build methods.
-// The branches are in dispatchFixedWidth and sortVariableWidth; each one
-// documents the shape it covers.
+// dispatchFixedWidth and sortVariableWidth each document the shape they cover.
 //
 // The branch is picked from key width and shared prefix, never from the
-// caller's type: the lexicographic encoders already make byte order equal value
-// order — it is why LexicographicallySortableFloat64 flips the sign bit — so
-// int, number, date, boolean, uuid and text keys all sort correctly by bytes.
-//
-// A shared prefix leaves fewer discriminating bytes, so it can move a batch to
-// a narrower branch: 14-byte ids need two words, the same ids under a 6-byte
-// shared prefix need one.
+// caller's type: the lexicographic encoders already make byte order equal
+// value order — it is why LexicographicallySortableFloat64 flips the sign bit
+// — so int, number, date, boolean, uuid and text keys all sort correctly by
+// bytes. A shared prefix leaves fewer discriminating bytes, so it can move a
+// batch to a narrower branch: 14-byte ids need two words, the same ids under a
+// 6-byte shared prefix need one.
 
-// sortScratch holds one sort's working buffers, gathered so that what a sort
-// costs in memory can be read in one place. A scratch is made per sort and is
-// not pooled — see [VarKeyBuilder.Build] for why — so every buffer here is
-// allocated at most once and dies with the sort, except bytes and offs, which
-// the variable-width arm hands back for the caller to adopt as the finished
-// list.
+// sortScratch gathers one sort's working buffers, so what a sort costs in
+// memory can be read in one place. Made per sort, not pooled (see
+// [VarKeyBuilder.Build]); every buffer here dies with the sort except bytes
+// and offs, which the variable-width arm hands back as the finished list.
 type sortScratch struct {
 	// keys and keysAlt are always the same length — the radix alternates
 	// between them — so they come from one allocation sliced in two rather
@@ -50,11 +46,10 @@ type sortScratch struct {
 	idx, idxAlt   []uint32
 	bytes         []byte
 	offs          []uint32
-	// swapBuf holds a key-sized working buffer inline, sized to cover the cases
-	// that reach here without an allocation: fixed keys are at most 16 bytes,
-	// and uniform text keys are short in practice. A key longer than that is
-	// allocated on the heap by ensureSwap.
-	swapBuf [64]byte
+	// The key-sized buffer americanFlagSort swaps through is deliberately not
+	// a field here. It reaches sort.Interface, so handing out a pointer into
+	// this struct would move the whole struct to the heap on every path —
+	// including the packed arms, which never ask for one.
 }
 
 // ensureKeys backs the packed keys. The radix alternates between two halves of
@@ -65,10 +60,9 @@ func (s *sortScratch) ensureKeys(n int) {
 	s.keysAlt = s.keysBacking[n : 2*n]
 }
 
-// ensureIdx backs the permutation alone. The comparison branch of the
-// variable-width arm sorts indices and reads nothing else, so it must not pay
-// for the packed keys or the second index array — the same reasoning ensureWide
-// applies one order of magnitude up.
+// ensureIdx backs the permutation alone, for the comparison branch of the
+// variable-width arm, which sorts indices and must not pay for the packed
+// keys or the second index array.
 func (s *sortScratch) ensureIdx(n int) []uint32 {
 	s.idx = make([]uint32, n)
 	return s.idx
@@ -106,74 +100,58 @@ func (s *sortScratch) ensureOffs(n int) []uint32 {
 	return s.offs
 }
 
-// ensureSwap hands out n bytes that do not alias the slab, which is what
-// americanFlagSort holds a whole key in while it swaps two of them.
-func (s *sortScratch) ensureSwap(n int) []byte {
-	if n <= len(s.swapBuf) {
-		return s.swapBuf[:n]
-	}
-	return make([]byte, n)
-}
-
 // radixCutoff is the batch size at which the packed arms hand over to a radix
-// pass, and it is set by the stack array those arms sort in rather than by
-// where the two cross: [radixCutoff]uint64 is 512 bytes, and the two-word arm
-// holds twice that.
+// pass. Set by the stack array those arms sort in — [radixCutoff]uint64 is 512
+// bytes, the two-word arm holds twice that — rather than by the measured
+// crossover.
 //
-// The handover is early: BenchmarkFixedArmsSmall measures the packed branch
-// still ahead of the radix pass at n=63, on both widths. Moving the boundary
-// out means a larger stack array or an allocation on a path whose whole point
-// is having neither, and being early costs under a microsecond.
+// The handover is early: BenchmarkFixedArmsSmall still has the packed branch
+// ahead of the radix pass at n=63, on both widths, and being early costs under
+// a microsecond. Moving the boundary out would mean a larger stack array or an
+// allocation on a path whose whole point is having neither.
 //
-// It is deliberately not tuned per machine. The crossover moves with the branch
-// predictor and the memory bandwidth, but a low gate stays cheap where a high
-// one would not: the comparison sort this replaced runs 8.4ms at n=65536 where
+// Deliberately not tuned per machine: the crossover moves with the branch
+// predictor and memory bandwidth, but a low gate stays cheap where a high one
+// would not — the comparison sort this replaced runs 8.4ms at n=65536 where
 // the radix pass runs 0.67ms.
 const radixCutoff = 64
 
-// wideRadixCutoff is where the two-word arm takes over, and it is much later
-// than radixCutoff because that arm pays for a second radix pass, an index
-// array and a permutation buffer — costs the one-word arm does not have.
+// wideRadixCutoff is where the two-word arm takes over, much later than
+// radixCutoff because that arm pays for a second radix pass, an index array
+// and a permutation buffer.
 //
-// Between the two constants a two-word batch is sorted by comparison. That is
-// the band the packed arm cannot reach, its stack array being sized to
-// radixCutoff, and it is where BenchmarkFixedArmsLarge measures the radix pass
-// behind. Uuid filters of a few dozen to a few hundred ids sit in it.
+// Between the two constants a two-word batch is sorted by comparison instead
+// — the band the packed arm's radixCutoff-sized stack array can't reach, where
+// BenchmarkFixedArmsLarge measures the radix pass behind. Uuid filters of a
+// few dozen to a few hundred ids sit in it.
 //
-// It is rounded rather than measured to a crossover, which moves between runs
-// and machines: repeated benchmarks put it anywhere from 160 to 200, so a
-// precise-looking number here would be noise fixed in place. Being off by a few
-// dozen keys costs a few percent — the two branches are within about 5% of each
-// other through that band, and only pull apart well past it.
+// Rounded rather than measured to an exact crossover, which moves between runs
+// and machines — repeated benchmarks put it anywhere from 160 to 200. Being off
+// by a few dozen keys costs little: the two branches are within about 5% of
+// each other through that band, and only pull apart well past it.
 const wideRadixCutoff = 192
 
 // ErrInternal reports that a list could not be built because this package, or
-// its caller, is wrong — not because a filter value was.
+// its caller, is wrong — not because a filter value was. A builder's other
+// rejections and this one reach the API through the same return, so without a
+// sentinel a broken sort would look like a malformed query; a searcher can
+// tell them apart and log an internal fault as one.
 //
-// The distinction is the point. Everything else a builder rejects is a value
-// the user supplied, and both reach the API through the same return, so without
-// a sentinel a broken sort arrives looking like a malformed query. A searcher
-// can tell them apart and log an internal fault as one.
-//
-// These conditions are returned rather than panicked because they would
-// otherwise take the node down: the gRPC search path installs no recovery
-// interceptor, so a panic there ends the process, and a shape that reaches one
-// would do it again on every replay of the query. Failing the query loses less.
+// Returned rather than panicked: the gRPC search path installs no recovery
+// interceptor, so a panic here ends the process, and would do so again on
+// every replay of the query.
 var ErrInternal = errors.New("inverted: internal fault")
 
-// varRadixCutoff is where the variable-width branch hands over. It is later
-// than radixCutoff because that branch pays for more than the fixed ones do: a
-// permutation to carry, a prefix scan over offsets rather than a stride, and
-// the collision repair the packed word cannot separate.
+// varRadixCutoff is where the variable-width branch hands over, later than
+// radixCutoff because that branch also pays for a permutation, a prefix scan
+// over offsets, and collision repair for keys the packed word can't separate.
 //
-// BenchmarkVariableArms measures the two against each other. At n=64 the
-// comparison sort is still 28% ahead and allocates a third as much; they meet
-// near here. Sharing radixCutoff sent everything from 64 up to the slower one.
+// BenchmarkVariableArms: at n=64 the comparison sort is still 28% ahead and
+// allocates a third as much; the two meet near here.
 //
-// Written out rather than derived from radixCutoff: that constant is bounded by
-// the stack arrays the packed branches sort in, and this one is a measured
-// crossover. Tying them would move this whenever those arrays were resized,
-// with nothing measured behind the new value.
+// A separate constant rather than radixCutoff itself, since that one is
+// bounded by the packed branches' stack arrays, not by a measured crossover —
+// tying them would move this value with no benchmark behind the change.
 const varRadixCutoff = 128
 
 // repairRunCutoff is the run size below which the collision repair stops
@@ -191,13 +169,12 @@ type keyRange struct{ off, n, d int }
 // sortKeys orders a variable-width key list — slab plus n+1 ascending offsets —
 // and reports the width every key shares, or 0 if they differ.
 //
-// The returned slab and offsets need not be the ones passed in: keys of
-// differing lengths are rebuilt into fresh arrays, and handing those back lets
-// the caller adopt them instead of copying the batch back where it started.
+// The returned slab and offsets need not be the ones passed in: differing-
+// length keys are rebuilt into fresh arrays, which the caller adopts instead
+// of being copied back where they started.
 //
-// Uniform width is a property of the data rather than of the builder, and one
-// scan of the offsets says whether it holds — a fraction of the sort it
-// redirects, and nothing at all on the append path.
+// Uniform width is a property of the data, not the builder, so it's detected
+// with one scan of the offsets rather than tracked on the append path.
 func sortKeys(slab []byte, offs []uint32) ([]byte, []uint32, int) {
 	n := len(offs) - 1
 	w := uniformWidthOf(offs)
@@ -242,10 +219,8 @@ func sortFixedWidth(slab []byte, w int) {
 // dispatchFixedWidth is the shared body: sortKeys reaches it with a scratch it is
 // already holding for the variable-width arm.
 func dispatchFixedWidth(slab []byte, w int, sc *sortScratch) {
-	// w == 0 would divide by zero below. Both entry points refuse a
-	// non-positive width before reaching here — the builder in its constructor,
-	// sortKeys through uniformWidthOf — so this only orders the check ahead of
-	// the division it guards.
+	// w == 0 would divide by zero below; both entry points already refuse a
+	// non-positive width, so this is belt and suspenders.
 	if w <= 0 {
 		return
 	}
@@ -257,13 +232,11 @@ func dispatchFixedWidth(slab []byte, w int, sc *sortScratch) {
 		countingSort1(slab)
 		return
 	}
-	// The prefix scan comes before the batch-size gate because it decides how a
-	// key is represented, where the gate only decides whether a radix pass can
-	// amortise. A key that fits a word packs into one whatever the batch size,
-	// and small batches are exactly where the fixed cost of not packing — a
-	// sort.Interface allocation and an indirect call per comparison and per
-	// swap — is largest relative to the work. The scan itself is O(n*w) and
-	// stops at the first key that shares nothing.
+	// The prefix scan runs before the batch-size gate because it decides how a
+	// key is represented, not just whether a radix pass amortises: a key that
+	// fits a word packs into one whatever the batch size, and small batches are
+	// where the fixed cost of not packing — a sort.Interface allocation and an
+	// indirect call per comparison and swap — hurts most.
 	lcp := commonPrefixFixed(slab, w, n)
 	d := w - lcp
 	small := n < radixCutoff
@@ -275,13 +248,13 @@ func dispatchFixedWidth(slab []byte, w int, sc *sortScratch) {
 	case d <= 16 && small:
 		widePackedSmall(slab, w, lcp, n)
 	case d <= 16 && n < wideRadixCutoff:
-		sortSlabComparison(slab, w, n, sc.ensureSwap(w))
+		sortSlabComparison(slab, w, n, make([]byte, w))
 	case d <= 16:
 		widePackedRadix(slab, w, lcp, n, sc)
 	case small:
-		sortSlabComparison(slab, w, n, sc.ensureSwap(w))
+		sortSlabComparison(slab, w, n, make([]byte, w))
 	default:
-		americanFlagSort(slab, w, lcp, sc.ensureSwap(w))
+		americanFlagSort(slab, w, lcp, make([]byte, w))
 	}
 }
 
@@ -289,11 +262,10 @@ func dispatchFixedWidth(slab []byte, w int, sc *sortScratch) {
 // after the shared prefix — every int, number and date filter, and any uuid or
 // text batch whose keys share enough of a prefix.
 //
-// The packed keys live in a stack array, so this allocates nothing where the
-// comparison fallback allocates twice, and it compares words directly where
-// that one calls through sort.Interface for every comparison and every swap.
-// As in packedRadix the packed value IS the key, so the sorted slab is written
-// back from it with nothing permuted alongside.
+// The packed keys live in a stack array rather than the comparison fallback's
+// two allocations, and compare as words rather than through sort.Interface. As
+// in packedRadix, the packed value IS the key, so the slab is written back
+// from it directly.
 func packedSmall(slab []byte, w, lcp, n int) {
 	var buf [radixCutoff]uint64
 	keys := buf[:n]
@@ -309,13 +281,8 @@ func packedSmall(slab []byte, w, lcp, n int) {
 }
 
 // widePackedSmall is packedSmall for the keys that need two words — uuids, and
-// anything else up to 16 discriminating bytes. Comparing the pair high word
-// first is the same ordering the two stable radix passes of widePackedRadix produce.
-//
-// Between them the two cover every fixed-width family below radixCutoff.
-// sortSlabComparison still takes two-word keys in the band up to
-// wideRadixCutoff, which the stack array cannot reach, and keys wider than 16
-// discriminating bytes at any size.
+// anything else up to 16 discriminating bytes. Comparing high word first
+// matches the ordering widePackedRadix's two stable radix passes produce.
 func widePackedSmall(slab []byte, w, lcp, n int) {
 	var buf [radixCutoff][2]uint64
 	keys := buf[:n]
@@ -402,38 +369,25 @@ func widePackedRadix(slab []byte, w, lcp, n int, sc *sortScratch) {
 	copy(hi, sc.hiAlt)
 	radixU64Keyed(hi, sc.hiAlt, idx, sc.idxAlt)
 
-	permuteFixed(slab, w, idx, sc.ensureSwap(w))
+	permuteFixed(slab, w, idx, make([]byte, w))
 }
 
-// permuteFixed rearranges equal-width records so that record i ends up holding
-// what idx[i] pointed at, working inside the slab rather than through a second
-// copy of it.
+// permuteFixed rearranges equal-width records in place — record i ends up
+// holding what idx[i] pointed at — by following each cycle of the permutation,
+// which needs room for one key rather than a second copy of the slab.
 //
-// A permutation is a set of disjoint cycles, so following each one moves every
-// record exactly once and needs room for a single key. Permuting into a scratch
-// slab instead would allocate another len(slab) bytes — the largest buffer this
-// sort would hold — and pass over the batch twice.
+// Chosen for memory, not speed: it saves widePackedRadix's second slab (16 of
+// 56 bytes per key) at the cost of a dependent load chain in place of a
+// gather's overlapping reads. BenchmarkPermute, on uuid-shaped keys: the cycle
+// trails a scratch-slab gather by a third to a half up to n=2048, ties near
+// n=4096, and is 2.4x slower at n=65536 — a few percent at the sizes a uuid
+// filter actually reaches.
 //
-// The trade is a dependent load chain, not write locality. A scratch slab is
-// filled by gathering: every source index is known up front, so those reads
-// overlap. A cycle instead finds its next address in idx at the address it just
-// visited, so each hop waits a full memory latency. Measured on uuid-shaped
-// keys, BenchmarkPermute has the cycle behind at every size: by a third to a
-// half from n=64 through n=2048, level within noise around n=4096, and 2.4x at
-// n=65536. So this is chosen for memory, not speed: it removes the
-// second slab, which is 16 of widePackedRadix's 56 bytes per key. What it costs
-// is a fifth of that branch at its largest size and a few percent at the sizes
-// a uuid filter actually reaches. Streaming stores would not close the gap;
-// fewer dependent loads would.
-//
-// idx must be a permutation of 0..n-1. Anything else — a repeat, an index
-// outside the range — leaves a cycle that never returns to its start, and this
-// loops forever where filling a scratch slab would have terminated with the
-// wrong answer. A hang in a query goroutine cannot be cancelled, so a future
-// caller must not hand it a partial or unvalidated ordering.
-//
-// idx is left as the identity, which is how each cycle marks what it has
-// already moved. Nothing reads it afterwards.
+// idx must be a permutation of 0..n-1: a repeat or an out-of-range index
+// leaves a cycle that never returns to its start, hanging the goroutine
+// forever — uncancellable, unlike a wrong answer. idx is left as the identity
+// when done, which is how each cycle marks what it moved; nothing reads it
+// after.
 func permuteFixed(slab []byte, w int, idx []uint32, tmp []byte) {
 	for i := range idx {
 		if int(idx[i]) == i {
@@ -452,12 +406,12 @@ func permuteFixed(slab []byte, w int, idx []uint32, tmp []byte) {
 	}
 }
 
-// americanFlagSort orders equal-width keys with an in-place MSD radix. Once a
-// byte is bucketed elements never leave their bucket, so the permutation can be
-// cycled within the slab and needs no second copy of it — only the caller's
-// swap buffer and the ranges still to visit. d is where to start, letting a
-// caller that knows the shared prefix skip the levels that bucket every key
-// together.
+// americanFlagSort orders equal-width keys with an in-place most-significant-
+// digit radix: it buckets on the leading byte first. Once a byte is bucketed
+// elements never leave their bucket, so the permutation can be cycled within
+// the slab and needs no second copy of it — only the caller's swap buffer and
+// the ranges still to visit. d is where to start, letting a caller that knows
+// the shared prefix skip the levels that bucket every key together.
 //
 // The traversal must stay iterative. Recursion carries three 256-entry arrays
 // per frame, about 6KB, at a depth equal to the key width — which comes from
@@ -467,10 +421,8 @@ func permuteFixed(slab []byte, w int, idx []uint32, tmp []byte) {
 // Pending ranges are bounded by the key count rather than the key width: each
 // is a disjoint subset holding at least two keys, so at most n/2 can wait.
 func americanFlagSort(slab []byte, w, d int, swap []byte) {
-	// Headroom in the allocation the initial range needs anyway, which also
-	// keeps it off the heap. Not sized to the n/2 bound, which the stack comes
-	// nowhere near — a wide 65,536-key batch peaks around 330 — and not to a
-	// level either, since one partition can push a range per bucket.
+	// 64 keeps the initial allocation off the heap without reaching for the n/2
+	// bound: a wide 65,536-key batch peaks around 330 pending ranges in practice.
 	pending := make([]keyRange, 1, 64)
 	pending[0] = keyRange{off: 0, n: len(slab) / w, d: d}
 	var b bucketing
@@ -585,22 +537,12 @@ func insertionSortFixed(slab []byte, w, d int, swap []byte) {
 // dedupFixed collapses runs of equal keys in a sorted fixed-width slab and
 // reports how many distinct keys remain.
 //
-// Duplicates are free to drop because every consumer treats the list as a set —
-// visiting a key twice changes nothing observable. What is not free is keeping
-// them: each duplicate is another key a lookup has to visit. Booleans are the
-// clearest case, with at most two distinct keys however many values arrive.
+// The pass also re-validates the sort for free: it already compares each key
+// to its predecessor, so checking the sign catches an out-of-order key that no
+// consumer could otherwise detect. Returned as an error rather than panicked,
+// since a panic here would kill the process on every replay of the query.
 //
-// The pass doubles as the only runtime check that the sort worked. It already
-// compares each key against the one before it, so asking for the sign rather
-// than for equality costs nothing and turns an out-of-order key — which no
-// consumer can detect, and which narrows a filter's result silently — into an
-// error the query can report.
-//
-// An inversion is returned rather than panicked because the condition depends
-// on the filter's values: a shape that reaches it would take the process down
-// on every replay of the query, where an error fails just that query.
-//
-// TestDedupRejectsAnInversion drives this by hand, since a correct sort never
+// TestDedupRejectsAnInversion drives this by hand; a correct sort never
 // produces one.
 func dedupFixed(slab []byte, w, n int) (int, error) {
 	if n < 2 {
@@ -655,10 +597,8 @@ func dedupVariable(slab []byte, offs []uint32, n int) (int, error) {
 				"(%x after %x) in the variable-width branch",
 				ErrInternal, i, n, headOf(cur), headOf(prev))
 		}
-		// Survivors only ever move towards the front of the slab, so the write
-		// cursor trails the key being read and cannot overwrite it. Skipped
-		// when nothing has been dropped yet, which is the whole batch when the
-		// filter had no duplicates.
+		// The write cursor trails the read position, so this cannot overwrite a
+		// key not yet read; skipped while nothing has been dropped yet.
 		if pos != offs[i] {
 			copy(slab[pos:], cur)
 		}
@@ -686,14 +626,12 @@ func countingSort1(slab []byte) {
 }
 
 // sortVariableWidth is the general case: keys of differing lengths, so a key's
-// position is not its rank and both slab and offsets have to be rebuilt. The
-// rebuilt arrays are returned for the caller to adopt — copying them back over
-// the originals would move the whole batch twice for no one's benefit.
+// position isn't its rank and both slab and offsets must be rebuilt. The
+// rebuilt arrays are returned for the caller to adopt, rather than copied back
+// over the originals.
 //
-// The rebuild is unavoidable either way, so only the ordering itself is worth
-// gating, and it gates later than the fixed branches do — see varRadixCutoff.
-// BenchmarkVariableArms measures the two against each other at a shared size,
-// which is where that constant comes from.
+// The rebuild is unavoidable either way, so only the ordering is worth gating
+// — see varRadixCutoff.
 func sortVariableWidth(slab []byte, offs []uint32, n int, sc *sortScratch) ([]byte, []uint32) {
 	small := n < varRadixCutoff
 	var idx []uint32
@@ -734,26 +672,20 @@ func sortVariableWidth(slab []byte, offs []uint32, n int, sc *sortScratch) ([]by
 // repairCollisions orders the keys the packed word could not separate.
 //
 // A key with more than 8 discriminating bytes packs to the same word as its
-// neighbours, and radix is stable, so such a run comes out in the order it went
-// in, which is not sorted. Without this pass the result is silently wrong for any keys
-// agreeing on their first 8 discriminating bytes.
+// neighbours; since radix is stable, such a run comes out in input order,
+// which is silently wrong unless repaired here — re-packed 8 bytes deeper and
+// radixed again, since a comparison sort would re-walk their shared prefix on
+// every call.
 //
-// A run is repaired the way the whole batch was: re-pack it 8 bytes deeper and
-// radix again. Comparison is what this shape costs most on, since a run is by
-// definition keys sharing a long prefix, so every comparison re-walks bytes
-// already known equal.
+// Stays iterative for the reason given on [americanFlagSort], advancing 8
+// bytes per level instead of one.
 //
-// The traversal stays iterative for the reason given on [americanFlagSort];
-// depth advances 8 bytes per level here rather than one, but key length still
-// comes from a filter value. The work stack is bounded the same way.
-//
-// What terminates it is the depth check, not the splitting: a level that
-// separates nothing still pushes the run 8 bytes deeper. The check is against
-// the run's shortest key, since packSuffix pads an ended key with zero exactly
-// as it packs a key still running through NULs — so past that depth no level
-// can separate them, while each one re-packs the whole run. A FIELD-tokenized
-// filter keeps NUL bytes verbatim, so waiting for the longest key instead lets
-// one long value hold a whole batch in the loop.
+// Terminates on the run's shortest key, not on whether a level separates
+// anything: packSuffix pads an ended key with zero exactly as it pads a
+// still-running one, so past that depth no level can tell them apart. Gating
+// on the longest key instead would let one long value hold the whole batch in
+// the loop, since FIELD tokenization keeps NUL bytes verbatim and so cannot be
+// used to detect where a shorter key ended.
 func repairCollisions(slab []byte, offs []uint32, n, lcp int, sc *sortScratch) {
 	keys, idx := sc.keys, sc.idx
 	pending := appendTiedRuns(make([]keyRange, 0, 64), keys, 0, n, lcp+8)
@@ -804,14 +736,10 @@ func shortestKeyIn(offs []uint32, run []uint32) int {
 	return shortest
 }
 
-// sortRunByBytes is the terminal comparison, and it starts at the batch's
-// shared prefix rather than at the run's own depth.
-//
-// Skipping the bytes the pack matched is not safe: packSuffix
-// pads a short key with zeros, so "ab" and "ab\x00" pack alike without agreeing
-// on 8 bytes. Comparing their tails past that point compares nothing against
-// nothing and reports them equal, which leaves them in input order. lcp is the
-// deepest offset every key is guaranteed to reach.
+// sortRunByBytes is the terminal comparison, starting at the batch's shared
+// prefix (lcp) rather than the run's own depth: packSuffix zero-pads short
+// keys, so "ab" and "ab\x00" pack alike without agreeing on 8 real bytes, and
+// comparing only past that point would report them equal.
 func sortRunByBytes(slab []byte, offs []uint32, run []uint32, lcp int) {
 	slices.SortFunc(run, func(a, b uint32) int {
 		return bytes.Compare(slab[offs[a]+uint32(lcp):offs[a+1]],
@@ -836,19 +764,19 @@ func commonPrefixVariable(slab []byte, offs []uint32, n int) int {
 	return lcp
 }
 
-// radixU64 is an LSD radix that skips passes whose byte every key agrees on.
-// Which passes those are comes from the OR and the AND of every key, folded in
-// one arithmetic pass with no memory traffic: a zero byte in (or ^ and) is a
-// byte all keys agree on. Narrow value ranges — small ints, dates in one era —
-// make that common rather than exceptional.
+// radixU64 is a least-significant-digit radix — it passes over the trailing
+// byte first — and skips passes whose byte every key agrees on. Which passes
+// those are comes from the OR and the AND of every key, folded in one
+// arithmetic pass with no memory traffic: a zero byte in (or ^ and) is a byte
+// all keys agree on. Narrow value ranges — small ints, dates in one era — make
+// that common rather than exceptional.
 //
 // Kept separate from radixU64Keyed rather than carrying a nil index: the
 // scatter loop below is the hot one, and a branch or a second indexed store in
 // it costs more than the duplicated body.
 func radixU64(a, scratch []uint64) {
-	// Both loops below index element 0, and varyingBytes reports every byte as
-	// varying for an empty slice. Callers are gated well above this today, but
-	// the gate is a tunable constant.
+	// Guards element-0 indexing below; callers are gated well above this today,
+	// but the gate is a tunable constant.
 	if len(a) < 2 {
 		return
 	}

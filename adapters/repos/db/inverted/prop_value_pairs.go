@@ -47,15 +47,14 @@ type propValuePair struct {
 	nested             nestedInfo
 	Class              *models.Class // The schema
 
-	// containsValues holds pre-encoded on-disk keys for a flat, single-property
+	// containsKeys holds pre-encoded on-disk keys for a flat, single-property
 	// Contains(Any|All|None) filter. When it holds any, resolveDocIDs routes to
 	// fetchContainsBatch instead of the children-based dispatch below.
 	//
-	// The count is what routes: an empty list and an unset field are the same
-	// value, so nothing else distinguishes a batched leaf.
-	// newBatchedContainsPair rejects a leaf holding no keys, so the two
-	// cannot diverge.
-	containsValues entsInverted.SortedKeys
+	// The key count is what routes — an empty list and an unset field look the
+	// same — and newBatchedContainsPair guarantees a batched leaf never holds
+	// zero keys, so the two states can't be confused.
+	containsKeys entsInverted.SortedKeys
 }
 
 func newPropValuePair(class *models.Class) (*propValuePair, error) {
@@ -70,12 +69,12 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 		return nil, err
 	}
 
-	if pv.containsValues.Len() > 0 {
-		if !pv.operator.IsContains() {
-			return nil, fmt.Errorf("%w: pre-encoded contains keys with non-contains operator %q",
-				entsInverted.ErrInternal, pv.operator.Name())
+	if pv.containsKeys.Len() > 0 {
+		dbm, err := pv.fetchContainsBatch(ctx, s)
+		if err != nil {
+			s.logContainsFault(pv.prop, err)
 		}
-		return pv.fetchContainsBatch(ctx, s)
+		return dbm, err
 	}
 
 	// Correlated nested AND created during extraction: all children target the
@@ -364,26 +363,28 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 }
 
 // fetchContainsBatch resolves a batched Contains(Any|All|None) filter whose keys
-// were already encoded into pv.containsValues, folding every key's bitmap
+// were already encoded into pv.containsKeys, folding every key's bitmap
 // through docBitmapContainsBatch under a single consistent view.
 //
 // The annotation's window starts before the reader is opened, so a filter that
 // stalls waiting out an in-flight flush shows that time rather than hiding it.
 func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_ *docBitmap, err error) {
+	// Both hold on the pair, not the store, so they answer before it is opened:
+	// keys are attached only on a Contains operator, and dedup can shrink a
+	// batch but not empty it. Either here is a pair assembled wrong.
+	if !pv.operator.IsContains() {
+		return nil, fmt.Errorf("%w: pre-encoded contains keys with non-contains operator %q",
+			entsInverted.ErrInternal, pv.operator.Name())
+	}
+	if pv.containsKeys.Len() == 0 {
+		return nil, fmt.Errorf("%w: contains filter on prop %q carries no keys",
+			entsInverted.ErrInternal, pv.prop)
+	}
+
 	bucketName := pv.getBucketName()
 	b := s.store.Bucket(bucketName)
 	if b == nil {
 		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
-	}
-
-	// A batched Contains carries at least one key. Extraction does not batch
-	// below two values, but the builders drop duplicates, so the key count can
-	// be lower than the value count. Zero is a caller bug: answering it would
-	// mean inventing a result for each operator, and the fold refuses it for
-	// the same reason.
-	if pv.containsValues.Len() == 0 {
-		return nil, fmt.Errorf("%w: contains filter on prop %q carries no keys",
-			entsInverted.ErrInternal, pv.prop)
 	}
 
 	before := time.Now()
@@ -400,10 +401,9 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 				"count":       dbm.count(),
 				"failed":      err != nil,
 				"strategy":    b.Strategy(),
-				// Distinct keys, not filter values: the builders drop
-				// duplicates, so a boolean filter over any number of values
-				// reports at most two.
-				"batched_keys": pv.containsValues.Len(),
+				// Distinct keys, not filter values: dedup means a boolean
+				// filter reports at most two regardless of value count.
+				"batched_keys": pv.containsKeys.Len(),
 			}
 		})
 	}()

@@ -22,9 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSortedKeysLayouts reads both layouts back through every accessor. They
-// are built by different types and share no code, so what a key reads back as
-// must not depend on which one produced it.
+// TestSortedKeysLayouts pins that both layouts, built by different types
+// sharing no code, answer identically through every accessor.
 func TestSortedKeysLayouts(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -99,13 +98,9 @@ func TestSortedKeysLayouts(t *testing.T) {
 	}
 }
 
-// TestSortedKeysAllStopsEarly pins that a consumer can abandon the iteration.
-//
-// All hands out one func literal for both layouts so the compiler can keep the
-// caller's loop body on the stack, and the literal has to honour a false from
-// yield. Nothing on the query path breaks out today — the fold visits every key
-// — so without this the early return is only reachable through a caller that
-// does not exist yet.
+// TestSortedKeysAllStopsEarly pins that a consumer can abandon the iteration
+// by returning false from yield, even though nothing on the query path does
+// so today.
 func TestSortedKeysAllStopsEarly(t *testing.T) {
 	for name, keys := range map[string]SortedKeys{
 		"variable width": buildVariable(t, []string{"a", "bb", "ccc", "dddd"}),
@@ -131,9 +126,7 @@ func TestSortedKeysEmpty(t *testing.T) {
 		"variable builder, nothing appended": mustBuildVar(t, NewVarKeyBuilder(4, 16)),
 		"fixed builder, nothing appended":    mustBuildFixed(t, NewFixedKeyBuilder(4, 8)),
 		"zero value":                         {},
-		// No builder produces this — offsets always carry their leading zero —
-		// but deriving the count from len(offs)-1 would report -1 for it, which
-		// passes every guard that tests for zero.
+		// Not a shape a builder produces; Len must not report -1 for it.
 		"offsets array with no terminator": {offs: []uint32{}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -146,23 +139,14 @@ func TestSortedKeysEmpty(t *testing.T) {
 	}
 }
 
-// TestSortedKeysDegenerate covers the builders reached without a usable width or
-// without their constructor. Each refuses, because the alternative is a list
-// that reads as a legitimate one: a fixed builder with no width would report no
-// keys, and a variable builder with no leading offset reads every key one
-// position over and loses the last — a narrower filter result that nothing
-// reports.
-//
-// The constructors panic and Build returns: a constructor can see the mistake
-// in the arguments it was handed, where Build only sees it in state that has
-// already accumulated, on a path where a panic would take the node down.
+// TestSortedKeysDegenerate covers builders reached without a usable width or
+// without their constructor — each refuses, rather than quietly returning a
+// list that reads as a legitimate one.
 func TestSortedKeysDegenerate(t *testing.T) {
 	cases := map[string]struct {
 		build func()
-		// wantPanic is matched against the recovered value. Asserting only that
-		// something panicked is satisfied by the incidental panics these inputs
-		// cause anyway — a nil offsets slice, a division by a zero width — so
-		// the guard could be deleted with the test still green.
+		// Matched against the panic's text, not just its presence: these inputs
+		// panic incidentally anyway (nil slice, zero-width division).
 		wantPanic string
 	}{
 		"fixed builder, zero width": {
@@ -200,9 +184,6 @@ func TestSortedKeysDegenerate(t *testing.T) {
 		})
 	}
 
-	// Build is handed accumulated state rather than a constant, and sits where a
-	// panic would end the process, so it reports the same class of mistake as an
-	// error a caller can distinguish from a bad filter value.
 	t.Run("build refuses a builder that skipped its constructor", func(t *testing.T) {
 		for name, build := range map[string]func() (SortedKeys, error){
 			"variable, nothing appended": (&VarKeyBuilder{}).Build,
@@ -365,12 +346,8 @@ func TestVarKeyBuilderBuild(t *testing.T) {
 	}
 }
 
-// TestBuildDropsDuplicates covers the pass Build runs after ordering.
-//
-// Both layouts compact in place, and the variable one rewrites offsets as it
-// goes, so a survivor that moves must take its own offsets with it. Duplicates
-// are seeded at the front, the back and throughout because the compaction reads
-// ahead of the cursor it writes to.
+// TestBuildDropsDuplicates covers the dedup pass Build runs after ordering,
+// with duplicates seeded at the front, the back, and throughout.
 func TestBuildDropsDuplicates(t *testing.T) {
 	tests := []struct {
 		name string
@@ -394,9 +371,7 @@ func TestBuildDropsDuplicates(t *testing.T) {
 				assert.Equal(t, len(tt.want), keys.Len())
 			})
 			t.Run("variable", func(t *testing.T) {
-				// Widen one key per case so the list cannot take the
-				// fixed-width layout and the offset-rewriting arm is the one
-				// under test.
+				// Widened so the list keeps offsets, exercising that arm.
 				keys := append([]string{"aaa"}, tt.keys...)
 				want := append([]string{"aaa"}, tt.want...)
 				slices.Sort(want)
@@ -475,11 +450,8 @@ func mustBuildFixed(tb testing.TB, b *FixedKeyBuilder) SortedKeys {
 	return built
 }
 
-// TestSortedKeysAllDoesNotAllocate pins the claim All's godoc rests on: one func
-// literal covers both layouts, so the compiler can tell which iterator a caller
-// received, devirtualize the yield, and keep the caller's loop body on the
-// stack. Splitting All per layout would put an allocation in every fold with
-// nothing else to notice.
+// TestSortedKeysAllDoesNotAllocate pins the escape-analysis claim
+// [SortedKeys.All]'s godoc rests on.
 func TestSortedKeysAllDoesNotAllocate(t *testing.T) {
 	for name, keys := range map[string]SortedKeys{
 		"offsets layout": buildVariable(t, []string{"a", "bb", "ccc"}),
@@ -498,26 +470,25 @@ func TestSortedKeysAllDoesNotAllocate(t *testing.T) {
 	}
 }
 
-// TestSortedKeysAtRefusesOutOfRange covers what At does with an index the list
-// cannot answer: refuse it, rather than answer with an empty key or with one
-// belonging to another position.
-//
-// The refusal is asserted, not its wording. Most of it is the bounds check the
-// compiler generates, so what each layout panics with differs — an offsets
-// index or a slice bound, in key terms or in byte terms — and the message is
-// the runtime's, free to change with it. A check of this package's own would
-// make all the layouts refuse alike, and cost At its inlining; [SortedKeys.At]
-// carries that argument.
-//
-// The zero value is the exception and the reason any check survives: a width of
-// zero makes every slice expression legal and empty, so nothing would panic and
-// every index would answer "". That message this package owns, so it is pinned.
+// TestSortedKeysAtRefusesOutOfRange pins that every layout panics on an
+// out-of-range index, asserted by occurrence rather than message (see
+// [SortedKeys.At] for why) — except the zero value, whose message this
+// package owns and does pin.
 func TestSortedKeysAtRefusesOutOfRange(t *testing.T) {
+	// Enough duplicates to force Build's copy path: append rounds the
+	// allocation up, and an uncapped copy would answer past-the-end indices
+	// with a zero key instead of panicking.
+	dupes := make([]string, 40_000)
+	for i := range dupes {
+		dupes[i] = fmt.Sprintf("%08d", i%251)
+	}
+
 	for name, keys := range map[string]SortedKeys{
-		"offsets layout": buildVariable(t, []string{"a", "bb"}),
-		"width layout":   buildFixed(t, 2)([]string{"aa", "bb"}),
-		"empty, width":   mustBuildFixed(t, NewFixedKeyBuilder(4, 8)),
-		"empty, offsets": mustBuildVar(t, NewVarKeyBuilder(4, 16)),
+		"offsets layout":       buildVariable(t, []string{"a", "bb"}),
+		"width layout":         buildFixed(t, 2)([]string{"aa", "bb"}),
+		"width layout, copied": buildFixed(t, 8)(dupes),
+		"empty, width":         mustBuildFixed(t, NewFixedKeyBuilder(4, 8)),
+		"empty, offsets":       mustBuildVar(t, NewVarKeyBuilder(4, 16)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			n := keys.Len()
@@ -541,13 +512,9 @@ func TestSortedKeysAtRefusesOutOfRange(t *testing.T) {
 	})
 }
 
-// TestShrinkKeysReleasesTheDedupedTail covers the copy that returns a deduped
-// batch's array to the collector.
-//
-// Asserted on the array identity, not on cap(): the returned slice is capped at
-// the last surviving key either way, so cap() reads the same whether the tail
-// was released or is merely hidden behind it. That is the trap the shrink code
-// itself first fell into, and a test reading cap() falls into it too.
+// TestShrinkKeysReleasesTheDedupedTail asserts on array identity, not cap():
+// cap() reads the same whether the dead tail was released or merely hidden
+// behind it.
 func TestShrinkKeysReleasesTheDedupedTail(t *testing.T) {
 	sameArray := func(a, b []byte) bool { return &a[:1][0] == &b[:1][0] }
 
@@ -576,13 +543,7 @@ func TestShrinkKeysReleasesTheDedupedTail(t *testing.T) {
 
 			require.Len(t, got, tt.end)
 			assert.Equal(t, src[:tt.end], got, "shrinking must not alter a key")
-			if tt.wantCopied {
-				// append rounds to a size class, so the spare bytes are fresh
-				// zeros rather than the tail that was dropped.
-				assert.GreaterOrEqual(t, cap(got), tt.end)
-			} else {
-				assert.Equal(t, tt.end, cap(got), "an aliased result must stop at the last key")
-			}
+			assert.Equal(t, tt.end, cap(got), "a result must stop at the last key")
 			assert.Equal(t, tt.wantCopied, !sameArray(src, got),
 				"copied-vs-aliased decides whether the array is released")
 		})
@@ -606,9 +567,8 @@ func TestShrinkKeysReleasesTheDedupedTail(t *testing.T) {
 		assert.True(t, aliased(belowFloor, shrinkOffs(belowFloor, 1)), "1023 offsets is below it")
 	})
 
-	// The helpers above are only reached through Build, and nothing else pins
-	// that Build still calls them: every call site could go back to a plain
-	// three-index slice with the rest of the suite green.
+	// Pins that Build still calls shrinkKeys/shrinkOffs, since nothing else
+	// would notice a regression to a plain three-index slice.
 	t.Run("Build hands the batch array back", func(t *testing.T) {
 		const n = 100_000
 

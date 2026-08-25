@@ -28,13 +28,9 @@ import (
 // Keys here must be shuffled, never strided. An ascending fixture puts pdqsort
 // on its already-sorted fast path and reports a cost no production batch pays.
 
-// sortSlabInterface is the oracle every arm is checked against.
-//
-// It shares no code with production, which is the point: an oracle built on the
-// comparison sort would leave every case that dispatches to that branch —
-// d > 16 below the cutoff — asserting only that the branch agrees with itself.
-// Materializing the keys and sorting the slice is slower and obviously correct,
-// which is the trade an oracle wants.
+// sortSlabInterface is the oracle every arm is checked against. It shares no
+// code with production — an oracle built on the comparison sort would leave
+// cases dispatching to that branch asserting only that it agrees with itself.
 func sortSlabInterface(slab []byte, w int) {
 	n := len(slab) / w
 	if n < 2 {
@@ -86,14 +82,10 @@ func shapeKeys(n int, f func(i int) string) []string {
 	return out
 }
 
-// fixedShapeKeys is shapeKeys for a fixture that claims one width, and fails if
-// the keys do not have it.
-//
-// %0Nd pads to a MINIMUM width, so a fixture written with it stops being
-// fixed-width the moment a value needs more digits. uniformWidthOf then routes
-// the case to sortVariableWidth, and it passes while exercising an arm other
-// than the one its name claims. Checking the width here is what keeps a case
-// honest about which arm it covers.
+// fixedShapeKeys is shapeKeys for a fixture that claims width w, and fails if
+// a key doesn't have it: %0Nd only pads to a minimum, so a value needing more
+// digits would silently move the case to sortVariableWidth instead of the
+// fixed arm its name claims.
 func fixedShapeKeys(tb testing.TB, n, w int, f func(i int) string) []string {
 	tb.Helper()
 	keys := shapeKeys(n, f)
@@ -158,9 +150,6 @@ var matchesInterfaceSizes = []int{0, 1, 2, 3, 63, 64, 65, 127, 128, 129, 191, 19
 // plain comparison sort over materialized keys.
 func TestSortFixedWidthMatchesInterface(t *testing.T) {
 	widths := []int{1, 8, 14, 16, 20}
-	// Sizes straddle radixCutoff so both the packed and radix arms are
-	// exercised. They must be updated with the constant: sizes that no longer
-	// bracket it still pass, while covering only one side.
 	sizes := matchesInterfaceSizes
 	for _, w := range widths {
 		for _, n := range sizes {
@@ -250,13 +239,10 @@ func TestSortKeysAcrossShapes(t *testing.T) {
 	}
 }
 
-// TestSortKeysCollisionRepair covers the keys the packed word cannot separate.
-//
-// The variable-width arm packs 8 bytes past the prefix EVERY key shares, so a
-// prefix shared by only a subset survives into the packed word and that subset
-// arrives from the stable radix in input order. These shapes all produce such a
-// run; a repair that no-ops, or that resumes comparing past the packed bytes,
-// returns them unsorted.
+// TestSortKeysCollisionRepair covers keys the packed word can't separate: a
+// prefix shared by only a subset of keys survives into the packed word, so a
+// repair that no-ops, or resumes comparing past the packed bytes, would leave
+// that subset in input order instead of sorted.
 func TestSortKeysCollisionRepair(t *testing.T) {
 	rng := rand.New(rand.NewSource(31))
 	// Keys must differ in length or uniformWidthOf diverts them to the fixed
@@ -288,10 +274,9 @@ func TestSortKeysCollisionRepair(t *testing.T) {
 		{"random, no group structure", shapeKeys(5000, func(i int) string {
 			return fmt.Sprintf("%08d_%d", rng.Intn(99999999), i)
 		})},
-		// packSuffix pads a short key with zeros, so these pack alike without
-		// agreeing on 8 bytes. A repair that resumes comparing past the packed
-		// word sees nil against nil, calls them equal, and leaves them as they
-		// came in.
+		// packSuffix zero-pads these alike without agreeing on 8 real bytes; a
+		// repair resuming past the packed word would compare nil to nil, call
+		// them equal, and leave them as they came in.
 		{"zero padding against a short key", repeatTo(
 			[]string{"ab", "ab\x00", "ab\x00\x00", "a", "ab\x00b", "ab\x00a"}, 6)},
 		{"zero padding, run past the radix cutoff", repeatTo(
@@ -343,21 +328,13 @@ func TestUniformWidthOf(t *testing.T) {
 	}
 }
 
-// TestAmericanFlagSortDeepAgreement pins a stack overflow.
+// TestAmericanFlagSortDeepAgreement pins a stack overflow: recursion at one
+// frame per matching byte would carry ~6.2KB per frame and blow the goroutine
+// stack on a long agreement run — a fatal, uncatchable crash, not a panic.
+// Reachable from a filter value, since nothing caps a text key's length.
 //
-// The MSD arm advances one byte at a time whenever every key agrees on that
-// byte, and must do so iteratively. One frame per byte carries three 256-entry
-// arrays, about 6.2KB, so a key wide enough to hold a long agreement run would
-// exhaust the goroutine stack — a fatal error, not a panic: recover cannot
-// catch it and the process dies.
-//
-// It is reachable from a filter value. Only the text path produces keys wider
-// than 16 discriminating bytes, tokenizeField trims whitespace and passes the
-// value through as the key, and nothing caps its length.
-//
-// The shape: 64 keys (radixCutoff) of one width, all but one sharing byte 0,
-// the rest zero. The global prefix is empty so the dispatch picks this arm,
-// and the large bucket then agrees on every remaining byte.
+// Shape: radixCutoff keys of one width, all but one sharing byte 0, so the
+// large bucket agrees on every remaining byte.
 func TestAmericanFlagSortDeepAgreement(t *testing.T) {
 	for _, w := range []int{1_000, 20_000, 200_000} {
 		n := radixCutoff
@@ -391,13 +368,9 @@ func prefixedSlab(rng *rand.Rand, n, w, lcp int) []byte {
 	return slab
 }
 
-// TestSortFixedWidthSharedPrefix covers every arm with a prefix each key shares.
-//
-// The random slabs the other tests use leave the shared prefix empty almost
-// always, so on their own they exercise each arm only at lcp == 0 — where the
-// pack has nothing to skip and the discriminating width is the whole key. A
-// prefix moves a batch to a different arm, and the small-batch arms in
-// particular are only reachable with one for widths above 8.
+// TestSortFixedWidthSharedPrefix covers every arm with a shared prefix: the
+// other tests' random slabs leave lcp == 0 almost always, so the small-batch
+// arms above width 8 are otherwise unreachable.
 func TestSortFixedWidthSharedPrefix(t *testing.T) {
 	rng := rand.New(rand.NewSource(7))
 	for _, w := range []int{2, 5, 8, 9, 12, 14, 16, 17, 20, 24} {
@@ -498,33 +471,9 @@ func TestInsertionSortFixed(t *testing.T) {
 	}
 }
 
-// TestSortFixedWidthAllIdentical pins d == 0, where every key is its own shared
-// prefix so the pack shifts by 64 and Go's defined behaviour for an over-wide
-// shift is the only thing making it a no-op.
-//
-// It is a case of its own because the other fixtures reach it by chance: the
-// random slabs never do, and the small-alphabet ones only when a draw happens
-// to come out uniform, so reordering a fixture list can silently stop covering
-// it.
-func TestSortFixedWidthAllIdentical(t *testing.T) {
-	for _, w := range []int{1, 2, 8, 9, 16, 17, 20} {
-		for _, n := range []int{2, 3, 63, 64, 65, 300} {
-			slab := bytes.Repeat([]byte(strings.Repeat("k", w)), n)
-			want := bytes.Clone(slab)
-			sortFixedWidth(slab, w)
-			requireSlabEqual(t, slab, want, w)
-		}
-	}
-}
-
-// TestDedupRejectsAnInversion covers the check that stands in for verifying the
-// sort.
-//
-// It is dead under the rest of the suite by construction — a correct sort never
-// produces an inversion — so the only way to show it fires, and names the pair
-// it found, is to hand it a slab the sort could not have produced. Without this
-// the branch could be deleted, or made to drop the smaller key silently, with
-// everything still green.
+// TestDedupRejectsAnInversion drives the check that stands in for verifying
+// the sort: a correct sort never triggers it, so this hand-builds an inverted
+// slab to confirm it fires and names the offending pair.
 func TestDedupRejectsAnInversion(t *testing.T) {
 	t.Run("fixed width", func(t *testing.T) {
 		tests := []struct {
@@ -592,7 +541,9 @@ func buildVarSlab(tb testing.TB, keys ...string) ([]byte, []uint32, int) {
 }
 
 // TestSortFixedWidthWidthZeroWritesNothing covers d == 0, where every key is its
-// own shared prefix.
+// own shared prefix. The fixture is identical keys deliberately: the other
+// fixtures reach this only by chance — the random slabs never do, the
+// small-alphabet ones only on a uniform draw — so nothing else pins it.
 //
 // A sort over identical keys cannot observe this: any permutation of equal keys
 // is byte-identical whatever the pack computed. So the pack's behaviour at zero

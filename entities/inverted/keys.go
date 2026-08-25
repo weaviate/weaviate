@@ -18,17 +18,14 @@ import (
 	"math"
 )
 
-// SortedKeys is an ascending, immutable list of encoded index keys, held as one
-// slab plus per-key offsets rather than as a [][]byte whose 24-byte headers
-// would outweigh the 8-to-16-byte keys they describe. Keys that share a width
-// carry the width instead of offsets, since key i then starts at i*w.
+// SortedKeys is an ascending, immutable list of encoded index keys, held as
+// one slab plus per-key offsets — or a shared width, when keys are all one
+// size — rather than a [][]byte, whose 24-byte headers would outweigh the
+// 8-to-16-byte keys they describe.
 //
-// Only a builder's Build returns one, so the order cannot be lost downstream
-// and no consumer re-checks it. Build verifies it instead, while dropping
-// duplicates — so a list holds distinct keys, and can be shorter than the
-// values a filter named.
-//
-// The zero value is a valid empty list.
+// Only a builder's Build returns one, so callers can trust the order and the
+// absence of duplicates without re-checking. The zero value is a valid empty
+// list.
 type SortedKeys struct {
 	slab []byte
 	// offs has one entry per key plus a terminator, and is nil when the keys
@@ -40,18 +37,12 @@ type SortedKeys struct {
 
 // Len returns the number of keys.
 //
-// Derived rather than stored. Each layout already carries the count — one
-// offset per key plus a terminator, or a slab that is exactly n keys wide — and
-// a stored count would be a third place for them to disagree. Routing reads
-// this, so a count out of step with the arrays would send a filter down the
-// wrong path rather than merely iterate wrong.
+// Derived from the backing arrays rather than stored, so it can't drift out of
+// sync with them — callers route on this count.
 func (k SortedKeys) Len() int {
 	if k.offs != nil {
-		// An offsets array with no terminator is not a shape the builders
-		// produce. Reporting -1 for it would pass every "no keys" guard, which
-		// all test for zero, and then fail the "has keys" test that routes to
-		// the batched fold — so the leaf would fall through to the per-value
-		// path with no value set, and answer from the wrong bucket.
+		// A builder never leaves offs without a terminator; treat that shape
+		// as empty rather than reporting a count that could misroute callers.
 		if len(k.offs) == 0 {
 			return 0
 		}
@@ -67,29 +58,24 @@ func (k SortedKeys) Len() int {
 // call, and a call is what At cannot afford — see below.
 var errUnbuiltKeys = fmt.Errorf("%w: keys were not made by a builder", ErrInternal)
 
-// At returns key i, aliasing the slab. Callers must not modify it. Its capacity
-// stops at its own end, so appending to it reallocates rather than writing over
-// the next key.
+// At returns key i, aliasing the slab; callers must not modify it. The
+// result's capacity ends at the key itself, so append reallocates rather than
+// overwriting the next key.
 //
-// An index the list cannot answer panics, on the bounds check the compiler
-// generates for the slice expression. Which panic that is depends on the layout
-// — the offsets arm fails on its own index, in key terms, the width arm on the
-// slice bounds, in byte terms — and the wording belongs to the runtime rather
-// than to this package. That is deliberate. A check here could name the index
-// and the count instead, but it costs At its inlining, 271 against a budget of
-// 80 where this is 53, and At is what a reader that needs keys out of order
-// calls per key. [SortedKeys.All] reads the slab directly and never paid
-// either way; a binary search cannot use it.
+// Out-of-range panics via the compiler's generated bounds check rather than an
+// explicit one: naming the index and count here costs At its inlining — 271
+// against an 80 budget, versus 53 without — and At is called per key by
+// readers that need keys out of order. [SortedKeys.All] reads the slab
+// directly and pays neither cost.
 //
-// One index the generated check cannot refuse: any index into a list of zero
-// width, where i*0 slices to [0:0:0] and is legal against any slab. An unbuilt
-// SortedKeys would then answer every index with an empty key rather than
-// failing, so that one is refused here.
+// One case the generated check misses: a zero width, where i*0 legally slices
+// to [0:0:0] against any slab. Refused explicitly in the body, or an unbuilt
+// SortedKeys would answer every index with an empty key instead of panicking.
 //
-// One it cannot refuse and this does not either: an index near maxint, where
-// i*k.w wraps to a legal range and answers with the wrong key. No caller can
-// hold one — Len bounds every index a reader derives — and guarding it slows
-// the width arm of [BenchmarkIterate], so it is stated rather than checked.
+// One case neither checks: an index near maxint can wrap i*k.w into a legal
+// range and return the wrong key. No caller holds one — Len bounds every
+// derived index — and guarding it slows [BenchmarkIterate]'s width arm, so
+// this is documented rather than enforced.
 func (k SortedKeys) At(i int) []byte {
 	if k.offs == nil {
 		if k.w <= 0 {
@@ -100,17 +86,15 @@ func (k SortedKeys) At(i int) []byte {
 	return k.slab[k.offs[i]:k.offs[i+1]:k.offs[i+1]]
 }
 
-// All iterates the keys in order, yielding each key's position and bytes, which
-// alias the slab.
+// All iterates the keys in order, yielding each key's position and bytes,
+// aliasing the slab.
 //
-// One func literal covers both layouts. With one per layout the compiler cannot
-// tell which iterator a caller received, so it cannot devirtualize the yield and
-// heap-allocates the caller's loop body instead.
+// One func literal covers both layouts: separate ones would keep the compiler
+// from devirtualizing the yield, heap-allocating the caller's loop body.
 //
-// The layout is branched on once, outside the loop, and the keys are sliced
-// here rather than through At, which would pay both the branch and a range
-// check per key to re-prove what the loop condition already guarantees.
-// BenchmarkIterate measures the two: 38us against 159us over 100,000 keys.
+// The layout is branched on once, outside the loop, and keys are sliced
+// directly rather than via At, which would add a branch and a redundant range
+// check per key. BenchmarkIterate: 38us vs 159us over 100,000 keys.
 func (k SortedKeys) All() iter.Seq2[int, []byte] {
 	return func(yield func(int, []byte) bool) {
 		if k.offs == nil {
@@ -143,32 +127,28 @@ func (k SortedKeys) isAscending() bool {
 	return true
 }
 
-// VarKeyBuilder fills a [SortedKeys] whose keys vary in length. Keys may be
-// appended in any order; because a key's offset then depends on the lengths
-// before it, ordering them means sorting a permutation and rebuilding the slab
-// in that order, both of which happen in [VarKeyBuilder.Build].
+// VarKeyBuilder fills a [SortedKeys] whose keys vary in length, appended in
+// any order; [VarKeyBuilder.Build] sorts them and rebuilds the slab to match.
 //
-// The builder a producer picks is what chooses the layout. Deciding it here
-// instead — watching the lengths appended — costs a per-key test that pushes
-// AppendString past Go's inlining budget.
+// The layout isn't chosen by watching appended lengths here — that per-key
+// test would push AppendString past Go's inlining budget.
 type VarKeyBuilder struct {
 	slab []byte
 	offs []uint32
-	// n counts the appends, duplicating len(offs)-1 so the two disagree exactly
-	// when the constructor was skipped. Build refuses that.
+	// n duplicates len(offs)-1, so the two disagree exactly when the
+	// constructor was skipped; Build refuses that.
 	n int
 }
 
-// NewVarKeyBuilder sizes both arrays up front so neither grows: a producer knows
-// its key count and total byte length before it starts. It panics on negative
-// arguments.
+// NewVarKeyBuilder sizes both arrays up front so neither grows, since a
+// producer knows its key count and total byte length before it starts. It
+// panics on negative arguments.
 //
-// totalBytes is the batch's total, not a per-key width — the opposite of the
-// neighbouring [NewFixedKeyBuilder], which the arguments cannot distinguish.
+// totalBytes is the batch total, not a per-key width — the reverse of
+// [NewFixedKeyBuilder]'s argument, and the compiler can't catch the swap.
 func NewVarKeyBuilder(numKeys, totalBytes int) *VarKeyBuilder {
-	// Refused here rather than left to make: a negative count sizes offs to
-	// numKeys+1 == 0 and hands back a builder that works while quietly growing,
-	// which is the one promise this constructor exists to make.
+	// A negative count would size offs to numKeys+1 == 0 and hand back a
+	// builder that quietly grows instead of staying pre-sized.
 	if numKeys < 0 || totalBytes < 0 {
 		panic(fmt.Errorf("%w: key count %d and total bytes %d must not be negative",
 			ErrInternal, numKeys, totalBytes))
@@ -188,42 +168,29 @@ func (b *VarKeyBuilder) AppendString(key string) {
 }
 
 // Build orders the keys, drops duplicates, and returns the finished list,
-// consuming the builder.
+// consuming the builder. Ordering happens here rather than in a separate Sort
+// call, so the invariant [SortedKeys] promises can't be skipped.
 //
-// Ordering here, rather than in a Sort the producer has to remember to call,
-// leaves no way to skip the invariant [SortedKeys] is named for. Dropping
-// duplicates is then a linear pass over the same comparisons — see [dedupFixed]
-// and [dedupVariable] — so the list can be shorter than the appends that filled
-// it, and a caller needing its own count must not take this one for it.
+// The result can be shorter than the number of appends — duplicates are
+// dropped (see [dedupFixed], [dedupVariable]) — so a caller needing its own
+// count must not substitute this one. Keys that share a width come back
+// without offsets; the sort already scans for that, so it costs nothing extra.
 //
-// Keys that share a width come back in the layout carrying no offsets. The sort
-// scans them to choose its method regardless, so the layout costs nothing to
-// learn and saves four bytes per key for the query's lifetime.
-//
-// Scratch is sized to the batch. Its rebuilt slab and offsets become the
-// returned list; the rest dies with the sort. Pooling measured no faster at any
-// batch size and would hold a large batch's buffers for the process's lifetime.
+// Scratch isn't pooled: measured no faster at any batch size, and pooling
+// would hold a large batch's buffers for the process's lifetime.
 func (b *VarKeyBuilder) Build() (SortedKeys, error) {
 	// offs carries a leading zero, so a filled builder holds one more offset
-	// than keys. Without it every key reads a position over and the last is
-	// lost, narrowing a filter result with nothing to report it. Reachable from
-	// outside the package: an empty composite literal needs no exported field.
+	// than keys; a mismatch means the constructor was skipped (reachable via
+	// an exported zero-value composite literal).
 	if len(b.offs) != b.n+1 {
 		return SortedKeys{}, fmt.Errorf("%w: VarKeyBuilder holds %d keys against %d "+
 			"offsets; NewVarKeyBuilder was not used", ErrInternal, b.n, len(b.offs))
 	}
-	// Offsets are uint32 and AppendString cannot afford a bound per key, but
-	// len(slab) is still an honest int here, so the ceiling is checked once
-	// after the fact. Past it the offsets have wrapped and stopped ascending,
-	// which reads as wrong keys rather than as a failure.
-	// Deliberately not an [ErrInternal]: a batch this large is what the filter
-	// asked for, not this package being wrong, and an operator reading it as an
-	// internal fault would look in the wrong place. Not covered by any test —
-	// reaching it needs 4GiB of keys in one filter — and unreachable for the
-	// only production caller, which bounds the same total through
-	// [tokenizer.AnalyzedBatch.SingleTokenBytes] before sizing this builder —
-	// AnalyzeBatch bounds the token count, which is a different quantity. It is
-	// kept because the builder is exported and the next producer may not.
+	// Checked once here rather than per key: offsets are uint32 and
+	// AppendString can't afford a bound per append, but len(slab) is still an
+	// honest int after the fact. Not an [ErrInternal] — a batch this large is
+	// what the caller asked for — and kept despite being unreachable for the
+	// current production caller, since the builder is exported.
 	if uint64(len(b.slab)) > math.MaxUint32 {
 		return SortedKeys{}, fmt.Errorf("inverted: batch holds %d bytes of keys, "+
 			"above the uint32 offset ceiling of %d", len(b.slab), uint32(math.MaxUint32))
@@ -256,16 +223,13 @@ type FixedKeyBuilder struct {
 	w    int
 }
 
-// NewFixedKeyBuilder sizes the slab for numKeys keys of keyWidth bytes each. It
-// panics on arguments it cannot build from.
+// NewFixedKeyBuilder sizes the slab for numKeys keys of keyWidth bytes each,
+// and panics on invalid arguments.
 //
-// keyWidth is the width of one key, not the batch's total — the neighbouring
-// [NewVarKeyBuilder] takes a total, and the two are otherwise identical in
-// shape. Passing a total here is accepted by the compiler and produces keys of
-// the wrong width that sort and dedup normally, so it is refused at the point
-// the mistake is made: a width past the widest key any family encodes is
-// rejected here rather than diagnosed inside an encoder writing into a buffer
-// of the wrong size.
+// keyWidth is one key's width, not the batch total — the reverse of
+// [NewVarKeyBuilder]'s argument, and the compiler can't catch the swap. A
+// width above the widest key any family encodes is rejected here, before it
+// silently produces wrong-width keys that would sort and dedup normally.
 func NewFixedKeyBuilder(numKeys, keyWidth int) *FixedKeyBuilder {
 	if keyWidth <= 0 || keyWidth > maxKeyWidth {
 		panic(fmt.Errorf("%w: key width %d is not in 1..%d; NewFixedKeyBuilder "+
@@ -278,28 +242,22 @@ func NewFixedKeyBuilder(numKeys, keyWidth int) *FixedKeyBuilder {
 	return &FixedKeyBuilder{slab: make([]byte, 0, numKeys*keyWidth), w: keyWidth}
 }
 
-// maxKeyWidth is the widest key any fixed-width family encodes — a uuid, at 16.
-// Bounding the width here is what makes a batch total passed as a width fail at
-// the call rather than silently produce keys of the wrong shape, and it is what
-// lets AppendBuf extend the slab from zeroKey without ever sizing a buffer.
+// maxKeyWidth is the widest key any fixed-width family encodes — a uuid, at
+// 16. It also lets AppendBuf extend the slab from zeroKey without sizing a
+// buffer.
 const maxKeyWidth = len(zeroKey)
 
-// AppendBuf appends a key and returns its bytes, zeroed, for the encoder to
-// write into — cheaper than encoding into a temporary and copying it in. The
-// returned slice is capped at its own end, so writing through it cannot reach
-// the next key.
+// AppendBuf appends a key and returns its zeroed bytes for the encoder to
+// write into directly. The slice is capped at its own end, so writing through
+// it cannot reach the next key.
 //
-// It is valid until the next append or Build, whichever comes first. The slab
-// is sized for the key count the constructor was given, so it does not grow in
-// practice; a buffer held across a growth would alias the old array and lose
-// what was written through it, and one held across Build would land on whatever
-// key the sort moved into that slot.
+// Valid only until the next append or Build: a buffer held across a slab
+// growth would alias the stale array, and one held across Build would land on
+// whatever key the sort moved into that slot.
 func (b *FixedKeyBuilder) AppendBuf() []byte {
-	// A zero width would hand back an empty buffer and leave the encoder to
-	// die writing into it, several frames from the mistake and with nothing
-	// but an index-out-of-range to go on. Build's guard cannot reach that: the
-	// encoder runs first. Panics rather than returning because there is no
-	// error to return through, and the width came from a constructor argument.
+	// A zero width would hand back an empty buffer and let the encoder die
+	// several frames away with an unhelpful index-out-of-range. Panics rather
+	// than returning an error since none can be returned through here.
 	if b.w <= 0 {
 		panic(fmt.Errorf("%w: FixedKeyBuilder has a key width of %d; "+
 			"NewFixedKeyBuilder was not used", ErrInternal, b.w))
@@ -322,25 +280,26 @@ const shrinkFloor = 4 << 10
 // shrinkKeys ends the slab at the last surviving key, and copies it onto its
 // own array when what is left behind is most of it.
 //
-// An aliased result is capped at that key so an index past it cannot reach the
-// dropped tail. A copied one may carry spare capacity, which append rounds up
-// to a size class — but those bytes are a fresh allocation, not the tail.
+// Both results are capped at that key: an aliased one so an index past it
+// cannot reach the dropped tail, a copied one because append rounds up to a
+// size class and At bounds against capacity, which would otherwise answer an
+// index past the last key with a zero one instead of panicking.
 //
 // Dedup can leave a handful of keys inside an allocation sized for the whole
-// batch — a boolean filter over 100,000 values keeps two — and the finished
-// list is held for as long as the query runs, so the dead tail is held with it.
-// Capping alone does not release it, and hides it: the returned slice reports
-// the small capacity while the whole array stays reachable. So the decision is
-// made from the array the keys came in, before it is capped.
+// batch — a boolean filter over 100,000 values keeps two — and the list is
+// held for the query's lifetime, keeping the dead tail alive with it. Capping
+// alone hides that rather than releasing it, so the copy decision is made from
+// the pre-cap array size.
 //
-// The ratio keeps a batch that dropped nothing from copying at all, and leaves
-// a worst case of three quarters wasted: a batch dedupping 100,000 keys to
-// 26,000 holds 800KB for 208KB of keys rather than pay the copy.
+// The ratio lets a batch that dropped nothing skip the copy, at a worst case
+// of three quarters wasted: dedupping 100,000 keys to 26,000 holds 800KB for
+// 208KB of live keys.
 func shrinkKeys(slab []byte, end int) []byte {
 	if cap(slab) < shrinkFloor || cap(slab) <= 4*end {
 		return slab[:end:end]
 	}
-	return append([]byte(nil), slab[:end]...)
+	out := append([]byte(nil), slab[:end]...)
+	return out[:end:end]
 }
 
 // shrinkOffs is shrinkKeys for the offsets, which are sized to the pre-dedup key
@@ -351,16 +310,16 @@ func shrinkOffs(offs []uint32, end int) []uint32 {
 	if 4*cap(offs) < shrinkFloor || cap(offs) <= 4*end {
 		return offs[:end:end]
 	}
-	return append([]uint32(nil), offs[:end]...)
+	out := append([]uint32(nil), offs[:end]...)
+	return out[:end:end]
 }
 
 // Build orders the keys in place, drops duplicates, and returns the finished
-// list, consuming the builder. Both happen here for the reasons given on
-// [VarKeyBuilder.Build].
+// list, consuming the builder — see [VarKeyBuilder.Build] for why.
 //
-// At one width key i sits at offset i*w, so ordering moves only the slab and
-// there are no offsets to reorder alongside it. That is also what lets these
-// keys be radix sorted rather than compared.
+// At one width, key i sits at offset i*w, so ordering moves only the slab and
+// there are no offsets to reorder alongside it — and what lets these keys be
+// radix sorted rather than compared.
 func (b *FixedKeyBuilder) Build() (SortedKeys, error) {
 	// A width is a constant of the family being encoded, so a non-positive one
 	// is a builder that skipped its constructor. Refused rather than returned as

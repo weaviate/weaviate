@@ -84,15 +84,13 @@ func encodeFixedWidthKeys[T any](values []T, keyLen int, encode func(dst []byte,
 			return ent.SortedKeys{}, fmt.Errorf("value %d: %w", i, err)
 		}
 	}
-	// Build orders the encoded keys rather than the values: every fixed-width
-	// encoding here is order-preserving, but only for its own type, and a
-	// string-valued date or uuid does not sort as its encoding does. Sorting
-	// the slab is uniform across all of them and moves only bytes, not slice
-	// headers.
+	// Build orders by the encoded key, not the value: each fixed-width encoding
+	// is order-preserving only for its own type (a string-valued date or uuid
+	// doesn't sort as its encoding does), so sorting the slab is what stays
+	// uniform across all of them.
 	//
-	// Every error it can return is [ent.ErrInternal] — the encoders have already
-	// run, so no filter value reaches it — which is what lets the caller report
-	// an internal fault as one.
+	// Every error here is [ent.ErrInternal] — the encoders already ran, so no
+	// filter value reaches this point — letting the caller report it as such.
 	return kb.Build()
 }
 

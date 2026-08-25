@@ -58,15 +58,12 @@ func TestExtractBoolValue(t *testing.T) {
 func TestEncodeKeys(t *testing.T) {
 	s := &Searcher{}
 
-	// assertKeysMatch checks the encoded keys against the single-value encoder
-	// and that each key's capacity is capped to keyLen, so appending to one
-	// cannot reach the next.
+	// assertKeysMatch checks the encoded keys against the single-value encoder,
+	// each key's capacity capped to keyLen so appending can't reach the next.
 	//
-	// The expectation is built from every input value and then ordered and
-	// deduplicated the way the builders do, and its length is asserted. Sizing
-	// it from keys.Len() instead would make it agree with whatever the encoder
-	// produced — including nothing at all, since the range body would simply
-	// not run.
+	// The expectation is ordered and deduplicated the way the builders do, and
+	// its length is asserted rather than derived from keys.Len() — which would
+	// trivially agree with whatever the encoder produced, including nothing.
 	assertKeysMatch := func(t *testing.T, keys ent.SortedKeys, keyLen, numValues int, want func(i int) []byte) {
 		t.Helper()
 		expected := make([][]byte, numValues)

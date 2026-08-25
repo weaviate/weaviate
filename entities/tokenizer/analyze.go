@@ -136,17 +136,11 @@ func (b *AnalyzedBatch) All() iter.Seq2[int, []string] {
 	}
 }
 
-// SingleTokenBytes checks that every value produced exactly one token and
-// reports the tokens' total byte length.
-//
-// A caller building one key per value has no key to stand for a value that
-// tokenized into none or several, so the precondition is checked rather than
-// assumed. FIELD tokenization gives one token per value, but these are query
-// tokens: a stopword detector can empty a value.
-//
-// The total is bounded like [AnalyzeBatch] bounds the token count, since a
-// caller indexing with uint32 offsets needs a byte limit and a token limit does
-// not imply one.
+// SingleTokenBytes checks that every value produced exactly one token — a
+// caller building one key per value has none to stand for a value that
+// tokenized into none or several, which a stopword detector can still do
+// under FIELD tokenization — and reports the tokens' total byte length,
+// bounded like [AnalyzeBatch] bounds the token count.
 func (b *AnalyzedBatch) SingleTokenBytes() (int, error) {
 	var total uint64
 	start := uint32(0)

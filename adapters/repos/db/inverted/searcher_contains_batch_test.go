@@ -231,9 +231,9 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 			}
 			slices.SortFunc(want, bytes.Compare)
 			want = slices.CompactFunc(want, bytes.Equal)
-			require.Equal(t, len(want), pv.containsValues.Len(),
+			require.Equal(t, len(want), pv.containsKeys.Len(),
 				"one key per distinct value")
-			require.Equal(t, want, collectKeys(pv.containsValues))
+			require.Equal(t, want, collectKeys(pv.containsKeys))
 		})
 	}
 }
@@ -247,7 +247,7 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 	// its decline reason in the slow-query details. Rows with wantErr expect
 	// the desugared continuation to fail on its own terms (which also proves
 	// the gate declined: a wrongly-accepted shape would have succeeded with
-	// containsValues instead of erroring); the annotation is written before
+	// containsKeys instead of erroring); the annotation is written before
 	// the failure, so the reason is asserted on those rows too.
 	tests := []struct {
 		name       string
@@ -404,7 +404,7 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.NotNil(t, pv)
-			require.Zero(t, pv.containsValues.Len(), "shape must not resolve through the batched path")
+			require.Zero(t, pv.containsKeys.Len(), "shape must not resolve through the batched path")
 		})
 	}
 }
@@ -439,14 +439,14 @@ func TestExtractContainsBatch_EncodingErrorIsEligibleButFails(t *testing.T) {
 	pv, err := s.extractContains(ctx, containsPath("prop-uuid"),
 		schema.DataTypeText, values, filters.ContainsAny, f.class)
 	require.Error(t, err)
-	require.ErrorContains(t, err, "extract contains values",
+	require.ErrorContains(t, err, "parse uuid filter value",
 		"the matched shape must fail in the gate, not fall through to desugar")
 	require.Nil(t, pv)
 }
 
 // TestExtractContains_FallsThroughToPerValuePath proves that once the gate
 // declines a shape, extractContains's existing per-value dispatch still
-// runs unchanged, producing children (not containsValues).
+// runs unchanged, producing children (not containsKeys).
 func TestExtractContains_FallsThroughToPerValuePath(t *testing.T) {
 	f := newContainsBatchGateFixture(t)
 	s := f.searcher
@@ -456,7 +456,7 @@ func TestExtractContains_FallsThroughToPerValuePath(t *testing.T) {
 	pv, err := s.extractContains(ctx, path, schema.DataTypeText, []string{"hello world", "goodbye"},
 		filters.ContainsAny, f.class)
 	require.NoError(t, err)
-	require.Zero(t, pv.containsValues.Len())
+	require.Zero(t, pv.containsKeys.Len())
 	require.NotEmpty(t, pv.children)
 }
 
@@ -473,22 +473,16 @@ func TestExtractContains_UsesBatchedPathWhenEligible(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, pv)
 	require.Nil(t, pv.children)
-	require.Equal(t, 3, pv.containsValues.Len())
+	require.Equal(t, 3, pv.containsKeys.Len())
 }
 
 // TestNewBatchedContainsPair_RejectsNoKeys pins the invariant resolveDocIDs
-// routes on.
+// routes on: a key count, not a presence test, since a key list's zero value
+// is itself an empty list. A leaf built with none would route as if it were
+// not batched at all, reaching the children dispatch with none to resolve.
 //
-// Routing asks how many keys the leaf holds, not whether it has any, because a
-// key list has no absent value to test for — its zero value is an empty list. A
-// leaf built with none would therefore route as if it were not a batched
-// Contains at all, and reach the children dispatch holding no children. The
-// value-count gate in extractContains keeps that unreachable; this keeps the
-// two from drifting apart if the gate ever moves.
-//
-// One key is accepted: the builders drop duplicate values, so a filter naming
-// the same value twice — or any boolean filter, which has two distinct keys to
-// draw on however many values it names — legitimately arrives with one.
+// One key is accepted: dedup can legitimately shrink a filter — a repeated
+// value, or any boolean filter — down to one distinct key.
 func TestNewBatchedContainsPair_RejectsNoKeys(t *testing.T) {
 	f := newContainsBatchGateFixture(t)
 	prop := &models.Property{Name: "prop-int"}
@@ -506,7 +500,7 @@ func TestNewBatchedContainsPair_RejectsNoKeys(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			pv, err := newBatchedContainsPair(prop, filters.ContainsAny, f.class, tc.keys)
 			require.NoError(t, err)
-			require.Equal(t, tc.keys.Len(), pv.containsValues.Len())
+			require.Equal(t, tc.keys.Len(), pv.containsKeys.Len())
 		})
 	}
 }
@@ -530,7 +524,7 @@ func TestExtractContainsBatch_OptInGate(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(context.Background())
 		pv, err := extract(ctx)
 		require.NoError(t, err)
-		require.Zero(t, pv.containsValues.Len())
+		require.Zero(t, pv.containsKeys.Len())
 		require.NotEmpty(t, pv.children, "with the gate unwired, Contains must desugar per value")
 		require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
 	})
@@ -542,20 +536,20 @@ func TestExtractContainsBatch_OptInGate(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(context.Background())
 		pv, err := extract(ctx)
 		require.NoError(t, err)
-		require.Zero(t, pv.containsValues.Len())
+		require.Zero(t, pv.containsKeys.Len())
 		require.NotEmpty(t, pv.children, "with the gate off, Contains must desugar per value")
 		require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
 
 		require.NoError(t, gate.SetValue(true))
 		pv, err = extract(context.Background())
 		require.NoError(t, err)
-		require.Equal(t, 3, pv.containsValues.Len(), "gate flipped on at runtime must batch")
+		require.Equal(t, 3, pv.containsKeys.Len(), "gate flipped on at runtime must batch")
 
 		require.NoError(t, gate.SetValue(false))
 		ctx = helpers.InitSlowQueryDetails(context.Background())
 		pv, err = extract(ctx)
 		require.NoError(t, err)
-		require.Zero(t, pv.containsValues.Len(), "gate flipped off at runtime must desugar again")
+		require.Zero(t, pv.containsKeys.Len(), "gate flipped off at runtime must desugar again")
 		require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
 	})
 }
@@ -574,7 +568,7 @@ func TestFetchContainsBatch_EmptyKeySet(t *testing.T) {
 			pv := &propValuePair{
 				prop:               "prop-int",
 				operator:           op,
-				containsValues:     keysFrom(t),
+				containsKeys:       keysFrom(t),
 				hasFilterableIndex: true,
 				Class:              f.class,
 			}
@@ -607,7 +601,7 @@ func TestFetchContainsBatch_BucketErrors(t *testing.T) {
 			pv := &propValuePair{
 				prop:               tc.prop,
 				operator:           filters.ContainsAny,
-				containsValues:     keysFrom(t, []byte("a")),
+				containsKeys:       keysFrom(t, []byte("a")),
 				hasFilterableIndex: true,
 				Class:              f.class,
 			}
@@ -661,7 +655,7 @@ func TestFetchContainsBatch_ReadsRows(t *testing.T) {
 			pv := &propValuePair{
 				prop:               "prop-int",
 				operator:           tc.operator,
-				containsValues:     tc.keys,
+				containsKeys:       tc.keys,
 				hasFilterableIndex: true,
 				Class:              f.class,
 			}
@@ -690,7 +684,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		return &propValuePair{
 			prop:               "prop-int",
 			operator:           filters.ContainsAny,
-			containsValues:     keys,
+			containsKeys:       keys,
 			hasFilterableIndex: true,
 			Class:              f.class,
 		}
@@ -741,7 +735,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		pv := &propValuePair{
 			prop:               "prop-nonroaringset",
 			operator:           filters.ContainsAny,
-			containsValues:     keysFrom(t, []byte("a"), []byte("b")),
+			containsKeys:       keysFrom(t, []byte("a"), []byte("b")),
 			hasFilterableIndex: true,
 			Class:              f.class,
 		}
@@ -790,7 +784,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 			pv := &propValuePair{
 				prop:               tc.prop,
 				operator:           filters.ContainsAny,
-				containsValues:     tc.keys,
+				containsKeys:       tc.keys,
 				hasFilterableIndex: true,
 				Class:              f.class,
 			}

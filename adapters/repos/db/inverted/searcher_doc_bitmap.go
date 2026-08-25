@@ -259,7 +259,7 @@ func mergeAllowlistBitmaps(op filters.Operator, maxConc int,
 // for sit far above it either way.
 var containsAnyAccumulatorMinKeys = 256
 
-// docBitmapContainsBatch folds every key in pv.containsValues into a single
+// docBitmapContainsBatch folds every key in pv.containsKeys into a single
 // docBitmap under reader's held view: a dense Accumulator fold for
 // ContainsAny and ContainsNone, an incremental intersection with empty-result
 // early exit for ContainsAll. Every per-key fetch is an OperatorEqual read on
@@ -277,7 +277,7 @@ var containsAnyAccumulatorMinKeys = 256
 func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBatchReader,
 	pv *propValuePair,
 ) (docBitmap, error) {
-	if pv.containsValues.Len() == 0 {
+	if pv.containsKeys.Len() == 0 {
 		// defensive: the folds adopt their first row as the accumulator, so zero
 		// keys yields a nil bitmap rather than an empty one
 		return docBitmap{}, fmt.Errorf("%w: contains fold on prop %q carries no keys",
@@ -292,16 +292,16 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 	var err error
 	switch pv.operator {
 	case filters.ContainsAll:
-		acc, accRelease, err = foldContainsIncremental(ctx, reader, pv.containsValues, filters.ContainsAll, mergeConc)
+		acc, accRelease, err = foldContainsIncremental(ctx, reader, pv.containsKeys, filters.ContainsAll, mergeConc)
 	case filters.ContainsAny, filters.ContainsNone:
 		// ContainsNone folds the same union as ContainsAny; the deny flag is
 		// applied to the result, not the fold. Below
 		// containsAnyAccumulatorMinKeys keys the Accumulator's staging setup
 		// and finalize scan are not worth it — union incrementally instead.
-		if pv.containsValues.Len() < containsAnyAccumulatorMinKeys {
-			acc, accRelease, err = foldContainsIncremental(ctx, reader, pv.containsValues, filters.ContainsAny, mergeConc)
+		if pv.containsKeys.Len() < containsAnyAccumulatorMinKeys {
+			acc, accRelease, err = foldContainsIncremental(ctx, reader, pv.containsKeys, filters.ContainsAny, mergeConc)
 		} else {
-			acc, accRelease, err = foldContainsAnyAccumulator(ctx, reader, pv.containsValues,
+			acc, accRelease, err = foldContainsAnyAccumulator(ctx, reader, pv.containsKeys,
 				s.bitmapFactory.BufPool(), mergeConc)
 		}
 	default:
