@@ -135,7 +135,9 @@ type Config struct {
 	// MaintenanceModeEnabled, when non-nil and true, makes Submit a no-op.
 	MaintenanceModeEnabled func() bool
 	// OnRecoveryComplete promotes the in-memory wrapper after empty-fallback
-	// materialises an empty live dir (the op path doesn't need it).
+	// materialises an empty live dir (the op path doesn't need it). It must never
+	// create a shard; only enterrors.ErrIndexNotRegistered is retried (publication
+	// race), and enterrors.ErrShardNotRegistered means deleted/unloaded mid-recovery.
 	OnRecoveryComplete func(ctx context.Context, collection, shard string) error
 	Logger             logrus.FieldLogger
 	PollInterval       time.Duration // FSM poll cadence; 5s if zero
@@ -448,8 +450,15 @@ func (o *Orchestrator) AcceptEmpty(ctx context.Context, ref ShardRef) (string, e
 	}
 	if o.onRecoveryComplete != nil {
 		if err := o.onRecoveryComplete(ctx, ref.Collection, ref.Shard); err != nil {
-			return "", fmt.Errorf("accept-empty: promote in-memory wrapper for %s/%s: %w",
-				ref.Collection, ref.Shard, err)
+			if !errors.Is(err, enterrors.ErrShardNotRegistered) {
+				return "", fmt.Errorf("accept-empty: promote in-memory wrapper for %s/%s: %w",
+					ref.Collection, ref.Shard, err)
+			}
+			// no in-memory entry (e.g. tenant deactivated): the dir loads on next activation
+			o.logger.WithFields(logrus.Fields{
+				"collection": ref.Collection,
+				"shard":      ref.Shard,
+			}).Infof("accept-empty: no in-memory shard entry to promote: %v", err)
 		}
 	}
 	if o.metrics != nil {
@@ -502,6 +511,9 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, fromBootstrap b
 
 	retryAfterBackoff := func() bool {
 		attempts++
+		if attempts >= maxAttempts {
+			return true // loop head records the give-up; no point sleeping first
+		}
 		if !sleepCtx(ctx, backoff) {
 			return false
 		}
@@ -620,21 +632,46 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 		o.recordOutcome("failure", startedAt)
 		return
 	}
-	// a failed promote would strand the shard in RECOVERING; retry — the index
-	// may not be published yet (submit runs inside NewIndex, publish after)
+	// a failed promote would strand the shard in RECOVERING; retry only the
+	// index-publication race (submit runs inside NewIndex, publish after) —
+	// every other error is permanent for this attempt
 	if o.onRecoveryComplete != nil {
+		const maxPromoteAttempts = 10
 		backoff := o.probeBackoffMin
 		var err error
-		for attempt := 0; attempt < 10; attempt++ {
-			if err = o.onRecoveryComplete(ctx, ref.Collection, ref.Shard); err == nil {
+		for attempt := 0; ; attempt++ {
+			err = o.onRecoveryComplete(ctx, ref.Collection, ref.Shard)
+			if err == nil || !errors.Is(err, enterrors.ErrIndexNotRegistered) {
+				break
+			}
+			// a missing index is also what a class delete looks like
+			if o.shardGoneFromSchema(ref) {
+				o.abandonEmptyFallback(ref, startedAt, logger, err)
+				return
+			}
+			if attempt == maxPromoteAttempts-1 {
 				break
 			}
 			if !sleepCtx(ctx, backoff) {
-				break
+				return // shutdown; no outcome — the shard is re-discovered next startup
 			}
 			backoff = nextBackoff(backoff, o.probeBackoffMax)
 		}
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			if errors.Is(err, enterrors.ErrShardNotRegistered) {
+				if o.shardGoneFromSchema(ref) {
+					o.abandonEmptyFallback(ref, startedAt, logger, err)
+					return
+				}
+				// deregistered but still in schema (e.g. tenant flipped COLD):
+				// the empty dir is the tenant's data dir, loaded on next activation
+				logger.Infof("self-recovery: shard deregistered in memory after empty-fallback; leaving dir for lazy load: %v", err)
+				o.recordOutcome("cancelled", startedAt)
+				return
+			}
 			logger.Errorf("self-recovery: promote after empty-fallback failed: %v", err)
 			o.recordOutcome("failure", startedAt)
 			return
@@ -665,6 +702,39 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 		fallbackFields["operator_note"] = "if data is recoverable from backup, restore now"
 		logger.WithFields(fallbackFields).
 			Warn("no peer has data for shard; created empty shard")
+	}
+}
+
+// shardGoneFromSchema reports whether the schema no longer has the class/tenant.
+func (o *Orchestrator) shardGoneFromSchema(ref ShardRef) bool {
+	if o.schema == nil {
+		return false
+	}
+	_, err := o.schema.ShardReplicas(ref.Collection, ref.Shard)
+	return errors.Is(err, clusterschema.ErrClassNotFound) || errors.Is(err, clusterschema.ErrShardNotFound)
+}
+
+// abandonEmptyFallback settles a promote whose shard was deleted mid-recovery as cancelled.
+func (o *Orchestrator) abandonEmptyFallback(ref ShardRef, startedAt time.Time, logger logrus.FieldLogger, cause error) {
+	logger.Infof("self-recovery abandoned after empty-fallback: shard no longer in schema: %v", cause)
+	o.removeEmptyFallbackDir(ref)
+	o.recordOutcome("cancelled", startedAt)
+}
+
+// removeEmptyFallbackDir reaps the dir emptyFallback created for a since-deleted shard.
+// Non-recursive on purpose: a dir holding data (a concurrent re-create) is never taken.
+func (o *Orchestrator) removeEmptyFallbackDir(ref ShardRef) {
+	if o.pathResolver == nil {
+		return
+	}
+	dir := o.pathResolver.ShardPath(ref.Collection, ref.Shard)
+	if err := os.Remove(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		o.logger.WithField("dir", dir).Debugf("self-recovery: leaving dir behind after abandon: %v", err)
+		return
+	}
+	// reap the class-dir skeleton too when this was its only shard
+	if err := os.Remove(filepath.Dir(dir)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		o.logger.WithField("dir", filepath.Dir(dir)).Debugf("self-recovery: class dir kept after abandon: %v", err)
 	}
 }
 
