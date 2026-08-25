@@ -284,3 +284,69 @@ func TestForEachShardSkipRecovering(t *testing.T) {
 		}))
 	})
 }
+
+type stubLoadableShard struct {
+	ShardLike
+	loadCalls int
+	loaded    bool
+}
+
+func (s *stubLoadableShard) Load(context.Context) error { s.loadCalls++; return nil }
+func (s *stubLoadableShard) isLoaded() bool             { return s.loaded }
+
+// Pins promote-never-creates: a missing entry means deleted/unloaded mid-recovery, not "create it".
+func TestPromoteRecoveringLocalShardNeverCreates(t *testing.T) {
+	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true}, nil)
+	idx.shardCreateLocks = esync.NewKeyRWLocker()
+
+	err := idx.PromoteRecoveringLocalShard(context.Background(), "S")
+	require.ErrorIs(t, err, enterrors.ErrShardNotRegistered)
+	require.Nil(t, idx.shards.Load("S"), "no shard must be created or published")
+	require.NoDirExists(t, shardPath(idx.path(), "S"), "no shard dir must be created")
+}
+
+func TestPromoteRecoveringLocalShardKeepsBlockWithoutLiveDir(t *testing.T) {
+	class := &models.Class{Class: "C"}
+	promMetrics := monitoring.GetMetrics()
+	orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
+	idx := newTestIndexForRecovery(t, orch, nil)
+	idx.closingCtx = context.Background()
+	idx.shardCreateLocks = esync.NewKeyRWLocker()
+	idx.getSchema = &fakeSchemaGetter{}
+
+	require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
+	rec, ok := idx.shards.Load("S").(*RecoveringShard)
+	require.True(t, ok)
+
+	require.NoError(t, idx.PromoteRecoveringLocalShard(context.Background(), "S"))
+	require.NoDirExists(t, shardPath(idx.path(), "S"))
+	require.True(t, rec.isLoadBlocked(), "promote before the live dir exists must keep the block")
+	_, stillRecovering := idx.shards.Load("S").(*RecoveringShard)
+	require.True(t, stillRecovering)
+}
+
+func TestPromoteRecoveringLocalShardLoadsRegisteredEntry(t *testing.T) {
+	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true}, nil)
+	idx.shardCreateLocks = esync.NewKeyRWLocker()
+	stub := &stubLoadableShard{}
+	idx.shards.Store("S", stub)
+
+	require.NoError(t, idx.PromoteRecoveringLocalShard(context.Background(), "S"))
+	require.Equal(t, 1, stub.loadCalls)
+}
+
+func TestPromoteRecoveringLocalShardOnClosedIndex(t *testing.T) {
+	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true}, nil)
+	idx.shardCreateLocks = esync.NewKeyRWLocker()
+	idx.closed = true
+
+	require.ErrorIs(t, idx.PromoteRecoveringLocalShard(context.Background(), "S"), errAlreadyShutdown)
+}
+
+func TestDBLoadLocalShardUnknownCollection(t *testing.T) {
+	db := &DB{}
+
+	err := db.LoadLocalShard(context.Background(), "NoSuch", "S")
+	require.ErrorIs(t, err, enterrors.ErrIndexNotRegistered,
+		"the orchestrator retries only this sentinel while index publication is pending")
+}

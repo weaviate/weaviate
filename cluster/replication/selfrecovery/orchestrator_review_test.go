@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func quietLogger() *logrus.Logger {
@@ -201,7 +202,7 @@ func TestRunOne_EmptyFallbackRetriesPromoteUntilIndexPublished(t *testing.T) {
 		stubSchema{replicas: []string{"self"}}, ns, clientFactory, stubPathResolver{root: root})
 	o.onRecoveryComplete = func(_ context.Context, _, _ string) error {
 		if calls.Add(1) < 3 {
-			return errors.New("load local shard: index not found")
+			return fmt.Errorf("load local shard: index %q: %w", "C", enterrors.ErrIndexNotRegistered)
 		}
 		return nil
 	}
@@ -325,10 +326,12 @@ func TestRunOne_EmptyFallbackPromoteFailureRecordsFailure(t *testing.T) {
 			},
 		}, nil
 	}
+	var promoteCalls atomic.Int64
 	o := newOrchestratorForTest(t, &stubRaft{},
 		stubSchema{replicas: []string{"self", "peer1"}}, ns, clientFactory,
 		stubPathResolver{root: t.TempDir()})
 	o.onRecoveryComplete = func(_ context.Context, _, _ string) error {
+		promoteCalls.Add(1)
 		return errors.New("simulated promote failure")
 	}
 
@@ -339,6 +342,8 @@ func TestRunOne_EmptyFallbackPromoteFailureRecordsFailure(t *testing.T) {
 
 	o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false)
 
+	require.EqualValues(t, 1, promoteCalls.Load(),
+		"a promote error other than the index-publication race is permanent and must not be retried")
 	require.InDelta(t, beforeFailure+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure")), 0.001,
 		"promote-after-empty failure must record a failure outcome")
 	require.InDelta(t, beforeSuccess, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("success")), 0.001,
@@ -528,4 +533,169 @@ func TestRunOne_SkipsWhenLiveDirAppearedWhileQueued(t *testing.T) {
 		t.Fatal("runOne did not return for a shard with a live dir")
 	}
 	require.InDelta(t, before+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("skipped")), 0.001)
+}
+
+// Pins abandon-on-delete: a class deleted during the promote loop settles as cancelled and reaps the dir.
+func TestRunOne_EmptyFallbackPromoteAbandonsWhenClassLeavesSchema(t *testing.T) {
+	root := t.TempDir()
+	var promoteCalls atomic.Int64
+	var classGone atomic.Bool
+	schemaStub := stubSchemaFunc(func(_, _ string) ([]string, error) {
+		if classGone.Load() {
+			return nil, fmt.Errorf("class %q: %w", "C", clusterschema.ErrClassNotFound)
+		}
+		return []string{"self"}, nil
+	})
+	o := newOrchestratorForTest(t, &stubRaft{}, schemaStub, &stubNodeSelector{}, nil, stubPathResolver{root: root})
+	o.onRecoveryComplete = func(_ context.Context, _, _ string) error {
+		promoteCalls.Add(1)
+		classGone.Store(true)
+		return fmt.Errorf("load local shard: index %q: %w", "C", enterrors.ErrIndexNotRegistered)
+	}
+
+	beforeCancelled := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled"))
+	beforeFailure := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure"))
+
+	o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false)
+
+	require.EqualValues(t, 1, promoteCalls.Load(),
+		"promote must stop as soon as the schema no longer has the shard")
+	require.InDelta(t, beforeCancelled+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled")), 0.001,
+		"a mid-recovery delete is a cancellation, not a failure")
+	require.InDelta(t, beforeFailure, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure")), 0.001)
+	require.NoDirExists(t, root+"/C/S", "the empty dir created for a deleted shard must be reaped")
+	require.NoDirExists(t, root+"/C", "an empty class-dir skeleton must be reaped too")
+}
+
+// Pins promote-never-resurrects: a deregistered shard still in schema (e.g. flipped COLD) keeps its empty dir for lazy load.
+func TestRunOne_EmptyFallbackPromoteShardDeregisteredKeepsDir(t *testing.T) {
+	root := t.TempDir()
+	var promoteCalls atomic.Int64
+	o := newOrchestratorForTest(t, &stubRaft{},
+		stubSchema{replicas: []string{"self"}}, &stubNodeSelector{}, nil, stubPathResolver{root: root})
+	o.onRecoveryComplete = func(_ context.Context, _, _ string) error {
+		promoteCalls.Add(1)
+		return fmt.Errorf("promote local shard %q: %w", "S", enterrors.ErrShardNotRegistered)
+	}
+
+	beforeCancelled := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled"))
+	beforeFailure := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure"))
+
+	o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false)
+
+	require.EqualValues(t, 1, promoteCalls.Load(),
+		"a deregistered shard entry is permanent for this attempt and must not be retried")
+	require.InDelta(t, beforeCancelled+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled")), 0.001)
+	require.InDelta(t, beforeFailure, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure")), 0.001)
+	require.DirExists(t, root+"/C/S", "the dir belongs to the still-in-schema tenant and loads on next activation")
+}
+
+func TestRunOne_EmptyFallbackPromoteShardDeregisteredSchemaGoneReapsDir(t *testing.T) {
+	root := t.TempDir()
+	var promoteCalls atomic.Int64
+	var shardGone atomic.Bool
+	schemaStub := stubSchemaFunc(func(_, _ string) ([]string, error) {
+		if shardGone.Load() {
+			return nil, fmt.Errorf("shard %q: %w", "S", clusterschema.ErrShardNotFound)
+		}
+		return []string{"self"}, nil
+	})
+	o := newOrchestratorForTest(t, &stubRaft{}, schemaStub, &stubNodeSelector{}, nil, stubPathResolver{root: root})
+	o.onRecoveryComplete = func(_ context.Context, _, _ string) error {
+		promoteCalls.Add(1)
+		shardGone.Store(true)
+		return fmt.Errorf("promote local shard %q: %w", "S", enterrors.ErrShardNotRegistered)
+	}
+
+	beforeCancelled := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled"))
+
+	o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false)
+
+	require.EqualValues(t, 1, promoteCalls.Load())
+	require.InDelta(t, beforeCancelled+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled")), 0.001)
+	require.NoDirExists(t, root+"/C/S", "the empty dir created for a deleted tenant must be reaped")
+}
+
+// Pins the removed trailing sleep: give-up must not sleep once the final attempt failed.
+func TestRunOne_GiveUpSkipsFinalSleep(t *testing.T) {
+	ns := &stubNodeSelector{
+		addrs: map[string]string{"peer1": "10.0.0.1"},
+		ports: map[string]int{"peer1": 50051},
+	}
+	clientFactory := func(_ context.Context, _ string) (copier.FileReplicationServiceClient, error) {
+		return nil, errors.New("connection refused")
+	}
+	o := newOrchestratorForTest(t, &stubRaft{},
+		stubSchema{replicas: []string{"self", "peer1"}}, ns, clientFactory, stubPathResolver{root: t.TempDir()})
+	o.probeBackoffMin = 2 * time.Millisecond
+	o.probeBackoffMax = 10 * time.Minute
+
+	start := time.Now()
+	o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false)
+
+	require.Less(t, time.Since(start), 1600*time.Millisecond,
+		"the 9 doubling backoffs sum to ~1s; the removed 10th sleep alone would add another ~1s")
+}
+
+func TestRunOne_EmptyFallbackPromoteExhaustionSkipsFinalSleep(t *testing.T) {
+	root := t.TempDir()
+	var promoteCalls atomic.Int64
+	o := newOrchestratorForTest(t, &stubRaft{},
+		stubSchema{replicas: []string{"self"}}, &stubNodeSelector{}, nil, stubPathResolver{root: root})
+	o.probeBackoffMin = 2 * time.Millisecond
+	o.probeBackoffMax = 10 * time.Minute
+	o.onRecoveryComplete = func(_ context.Context, _, _ string) error {
+		promoteCalls.Add(1)
+		return fmt.Errorf("load local shard: index %q: %w", "C", enterrors.ErrIndexNotRegistered)
+	}
+
+	beforeFailure := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure"))
+
+	start := time.Now()
+	o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false)
+
+	require.EqualValues(t, 10, promoteCalls.Load(),
+		"the index-publication race stays retryable while the schema still has the shard")
+	require.InDelta(t, beforeFailure+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure")), 0.001)
+	require.Less(t, time.Since(start), 1600*time.Millisecond,
+		"the 9 doubling backoffs sum to ~1s; the removed 10th sleep alone would add another ~1s")
+}
+
+// Pins shutdown neutrality: a promote loop interrupted by shutdown records no terminal outcome.
+func TestRunOne_EmptyFallbackPromoteShutdownRecordsNoOutcome(t *testing.T) {
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	o := newOrchestratorForTest(t, &stubRaft{},
+		stubSchema{replicas: []string{"self"}}, &stubNodeSelector{}, nil, stubPathResolver{root: root})
+	o.onRecoveryComplete = func(_ context.Context, _, _ string) error {
+		cancel()
+		return fmt.Errorf("load local shard: index %q: %w", "C", enterrors.ErrIndexNotRegistered)
+	}
+
+	beforeFailure := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure"))
+	beforeCancelled := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled"))
+	beforeEmptyLabel := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("empty_fallback"))
+
+	o.runOne(ctx, ShardRef{Collection: "C", Shard: "S"}, false)
+
+	require.InDelta(t, beforeFailure, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure")), 0.001,
+		"shutdown mid-promote must not be mislabeled a failure; the shard is re-discovered next startup")
+	require.InDelta(t, beforeCancelled, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled")), 0.001)
+	require.InDelta(t, beforeEmptyLabel, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("empty_fallback")), 0.001)
+}
+
+// Pins the operator escape hatch: accept-empty succeeds even when no in-memory entry is left to promote.
+func TestAcceptEmpty_ToleratesDeregisteredShard(t *testing.T) {
+	root := t.TempDir()
+	o := newOrchestratorForTest(t, &stubRaft{},
+		stubSchema{replicas: []string{"self"}}, &stubNodeSelector{}, nil, stubPathResolver{root: root})
+	o.onRecoveryComplete = func(_ context.Context, _, _ string) error {
+		return fmt.Errorf("promote local shard %q: %w", "S", enterrors.ErrShardNotRegistered)
+	}
+
+	path, err := o.AcceptEmpty(context.Background(), ShardRef{Collection: "C", Shard: "S"})
+	require.NoError(t, err,
+		"a deregistered entry means a cold/unloaded tenant; the empty dir loads on next activation")
+	require.DirExists(t, path)
 }
