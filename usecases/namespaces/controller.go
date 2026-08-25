@@ -126,11 +126,13 @@ var stateTransitions = map[cmd.NamespaceState]map[cmd.NamespaceState]struct{}{
 	cmd.NamespaceStateDeleting: {},
 }
 
-// isKnownState reports whether s is a state this binary understands. Every
-// known state keys stateTransitions — including deleting, whose empty target
-// set marks it terminal, not unknown — so a state added to the table is
-// accepted here and by Restore without a second list to keep in step.
-func isKnownState(s cmd.NamespaceState) bool {
+// IsKnownState reports whether s is a namespace state this binary has a case
+// for. An unknown one comes from a newer binary's snapshot or peer, so false
+// means refuse the operation rather than read the namespace as active. Known
+// is not permitted: suspended is known and keeps no shards open.
+func IsKnownState(s cmd.NamespaceState) bool {
+	// Keyed off stateTransitions rather than a second list of states, so the
+	// two cannot drift and exhaustive:enforce fails a state added to neither.
 	_, known := stateTransitions[s]
 	return known
 }
@@ -256,7 +258,7 @@ func (c *Controller) ChangeState(name string, target cmd.NamespaceState, sc Stat
 	if sc.AppliedIndex == 0 {
 		return fmt.Errorf("%w: applied index must not be 0", ErrBadRequest)
 	}
-	if !isKnownState(target) {
+	if !IsKnownState(target) {
 		return fmt.Errorf("%w: unknown namespace state %q", ErrBadRequest, target)
 	}
 
@@ -412,7 +414,7 @@ func (c *Controller) Restore(snapshot []byte) error {
 			ns.State = cmd.NamespaceStateActive
 			continue
 		}
-		if !isKnownState(ns.State) {
+		if !IsKnownState(ns.State) {
 			return fmt.Errorf("namespace %q has unknown state %q in snapshot", name, ns.State)
 		}
 	}
