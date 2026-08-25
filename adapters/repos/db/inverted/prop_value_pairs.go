@@ -23,7 +23,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -390,7 +389,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 				"took_string":    took.String(),
 				"count":          dbm.count(),
 				"failed":         err != nil,
-				"strategy":       lsmkv.StrategyRoaringSet,
+				"strategy":       b.Strategy(),
 				"batched_values": len(pv.containsValues),
 			}
 		})
