@@ -142,6 +142,7 @@ func TestImportUsersHandler(t *testing.T) {
 	t.Run("creates a strong user in the target namespace", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("GetUsers", key).Return(map[string]apikey.UserView{}, nil)
 		dynUser.On("CheckUserIdentifierExists", "ident").Return(false, nil)
@@ -150,6 +151,15 @@ func TestImportUsersHandler(t *testing.T) {
 		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
 		require.Equal(t, models.UserImportResultStatusCreated, *result.Status)
+	})
+
+	t.Run("empty batch returns no results without touching authz or namespace state", func(t *testing.T) {
+		// Nothing is mocked: any Authorize, GetNamespace, or store call fails the test.
+		h := dynUserHandler{dbUsers: NewMockDbUserAndRolesGetter(t), authorizer: authorization.NewMockAuthorizer(t), dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
+		res := h.importUsers(users.ImportUsersParams{HTTPRequest: req, Body: &models.UserImportRequest{Namespace: "ns1"}}, principal)
+		parsed, ok := res.(*users.ImportUsersOK)
+		require.True(t, ok)
+		require.Empty(t, parsed.Payload.Results)
 	})
 
 	t.Run("forbidden when the caller cannot write the target namespace", func(t *testing.T) {
@@ -166,6 +176,7 @@ func TestImportUsersHandler(t *testing.T) {
 	t.Run("rejects import into an inactive namespace", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		ns := namespaces.NewMockExister(t)
 		ns.On("GetNamespace", mock.AnythingOfType("string")).Return(api.Namespace{}, false).Maybe()
@@ -189,6 +200,7 @@ func TestImportUsersHandler(t *testing.T) {
 	t.Run("reports clobber when the identifier maps to a different user", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("GetUsers", key).Return(map[string]apikey.UserView{}, nil)
 		dynUser.On("CheckUserIdentifierExists", "ident").Return(true, nil)
@@ -204,6 +216,7 @@ func TestImportUsersHandler(t *testing.T) {
 	t.Run("errors when an existing id holds a different identifier", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("GetUsers", key).Return(map[string]apikey.UserView{key: {Id: key, InternalIdentifier: "other", Active: true}}, nil)
 
@@ -216,6 +229,7 @@ func TestImportUsersHandler(t *testing.T) {
 	t.Run("reconciles active state for an existing same-identifier user", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		// The stored user is active but the record says inactive, so import must deactivate it.
 		dynUser.On("GetUsers", key).Return(map[string]apikey.UserView{key: {Id: key, InternalIdentifier: "ident", Active: true}}, nil)
@@ -226,9 +240,23 @@ func TestImportUsersHandler(t *testing.T) {
 		require.Equal(t, models.UserImportResultStatusReconciled, *result.Status)
 	})
 
+	t.Run("forbidden when the caller holds create but not update", func(t *testing.T) {
+		authorizer := authorization.NewMockAuthorizer(t)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(errors.New("forbidden"))
+		// No store method is mocked: the whole batch is refused before any read or write.
+		dynUser := NewMockDbUserAndRolesGetter(t)
+
+		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
+		res := h.importUsers(importOne(strongRecord(false)), principal)
+		_, ok := res.(*users.ImportUsersForbidden)
+		assert.True(t, ok)
+	})
+
 	t.Run("skips an existing same-identifier user already in the recorded state", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("GetUsers", key).Return(map[string]apikey.UserView{key: {Id: key, InternalIdentifier: "ident", Active: true}}, nil)
 
@@ -240,6 +268,7 @@ func TestImportUsersHandler(t *testing.T) {
 	t.Run("reports partial failure when deactivation fails after create", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("GetUsers", key).Return(map[string]apikey.UserView{}, nil)
 		dynUser.On("CheckUserIdentifierExists", "ident").Return(false, nil)
@@ -255,6 +284,7 @@ func TestImportUsersHandler(t *testing.T) {
 	t.Run("rejects a record with an empty or malformed secure hash", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
 		// Neither GetUsers nor CreateUser is mocked: validation must reject the
 		// record before any store call.
 		dynUser := NewMockDbUserAndRolesGetter(t)
@@ -266,5 +296,18 @@ func TestImportUsersHandler(t *testing.T) {
 		result := firstResult(t, h.importUsers(importOne(rec), principal))
 		require.Equal(t, models.UserImportResultStatusError, *result.Status)
 		require.Contains(t, result.Error, "argon2id")
+	})
+
+	t.Run("reports a null record as an error instead of panicking", func(t *testing.T) {
+		authorizer := authorization.NewMockAuthorizer(t)
+		// Swagger validation lets a null element through, so the key is built from an empty id.
+		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(apikey.MakeUserKey("", "ns1"))[0]).Return(nil)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(apikey.MakeUserKey("", "ns1"))[0]).Return(nil)
+		dynUser := NewMockDbUserAndRolesGetter(t)
+
+		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		result := firstResult(t, h.importUsers(importOne(nil), principal))
+		require.Equal(t, models.UserImportResultStatusError, *result.Status)
+		require.Contains(t, result.Error, "null")
 	})
 }

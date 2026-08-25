@@ -713,9 +713,9 @@ func (h *dynUserHandler) exportUsers(params users.ExportUsersParams, principal *
 // importUsers recreates exported credentials on this cluster and sets each user
 // to its recorded active state. On a namespace-enabled cluster every record lands
 // in the one target namespace from the request; otherwise records land unscoped.
-// Because the batch shares one namespace, authorization is a single CREATE check
-// over every record's key before any write. Each record is then applied on its
-// own and gets its own result.
+// Because the batch shares one namespace, authorization is one CREATE and one
+// UPDATE check over every record's key before any write. Each record is then
+// applied on its own and gets its own result.
 func (h *dynUserHandler) importUsers(params users.ImportUsersParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
@@ -737,14 +737,24 @@ func (h *dynUserHandler) importUsers(params users.ImportUsersParams, principal *
 		return users.NewImportUsersUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("namespaces are not enabled on this cluster; cannot import into a namespace")))
 	}
 
+	// An empty batch has no resource to authorize against. Answer before the
+	// namespace check so an unprivileged caller cannot probe namespace state.
+	if len(params.Body.Users) == 0 {
+		return users.NewImportUsersOK().WithPayload(&models.UserImportResponse{Results: []*models.UserImportResult{}})
+	}
+
 	keys := make([]string, 0, len(params.Body.Users))
 	for _, rec := range params.Body.Users {
 		keys = append(keys, apikey.MakeUserKey(bareUserID(rec), targetNamespace))
 	}
-	if len(keys) > 0 {
-		if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Users(keys...)...); err != nil {
-			return users.NewImportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
-		}
+	// A record for a user that already exists may change that user's active
+	// state, which activateUser gates on UPDATE. Require both verbs up front so
+	// the whole batch is refused before any write.
+	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Users(keys...)...); err != nil {
+		return users.NewImportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(keys...)...); err != nil {
+		return users.NewImportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	// The RAFT apply re-checks the namespace state for every user, so this check
@@ -788,6 +798,11 @@ func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace stri
 	okResult := func(status string) *models.UserImportResult {
 		result.Status = &status
 		return result
+	}
+
+	// Swagger validation skips a null array element, so rec can be nil here.
+	if rec == nil {
+		return errResult("record must not be null")
 	}
 
 	// Only strong (argon2id) keys are importable. CreateUser cannot store a weak

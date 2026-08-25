@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -357,8 +358,11 @@ func fromRPCError(err error) error {
 			return errors.Join(err, namespaces.ErrStateChangedConcurrently)
 		}
 	case codes.AlreadyExists:
-		if strings.Contains(msg, namespaces.ErrAlreadyExists.Error()) {
+		switch {
+		case strings.Contains(msg, namespaces.ErrAlreadyExists.Error()):
 			return errors.Join(err, namespaces.ErrAlreadyExists)
+		case strings.Contains(msg, apikey.ErrUserIdentifierExists.Error()):
+			return errors.Join(err, apikey.ErrUserIdentifierExists)
 		}
 	case codes.InvalidArgument:
 		if strings.Contains(msg, namespaces.ErrBadRequest.Error()) {

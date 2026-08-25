@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -251,7 +252,8 @@ func toRPCError(err error) error {
 		errors.Is(err, namespaces.ErrStateChangedConcurrently),
 		errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
-	case errors.Is(err, namespaces.ErrAlreadyExists):
+	case errors.Is(err, namespaces.ErrAlreadyExists),
+		errors.Is(err, apikey.ErrUserIdentifierExists):
 		ec = codes.AlreadyExists
 	case errors.Is(err, namespaces.ErrBadRequest):
 		ec = codes.InvalidArgument

@@ -146,7 +146,7 @@ func TestHashesExportImport(t *testing.T) {
 		require.Empty(t, rec.SecureHash)
 	})
 
-	t.Run("namespaced admin importing into a foreign namespace is denied", func(t *testing.T) {
+	t.Run("namespaced admin is denied foreign-namespace import and any export", func(t *testing.T) {
 		helper.SetupClient(targetURI)
 		const ownNS, foreignNS = "tenanta", "tenantb"
 		helper.CreateNamespace(t, ownNS, rootKey)
@@ -171,5 +171,10 @@ func TestHashesExportImport(t *testing.T) {
 		require.Error(t, err)
 		var forbidden *users.ImportUsersForbidden
 		require.True(t, errors.As(err, &forbidden), "expected ImportUsersForbidden, got %T: %v", err, err)
+
+		_, err = helper.Client(t).Users.ExportUsers(users.NewExportUsersParams(), helper.CreateAuth(adminAPIKey))
+		require.Error(t, err)
+		var exportForbidden *users.ExportUsersForbidden
+		require.True(t, errors.As(err, &exportForbidden), "expected ExportUsersForbidden, got %T: %v", err, err)
 	})
 }
