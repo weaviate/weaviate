@@ -191,13 +191,15 @@ func (db *DB) ShardPath(collection, shard string) string {
 	)
 }
 
-// LoadLocalShard force-loads a local shard; the self-recovery promote callback.
+// LoadLocalShard promotes a recovering local shard; the self-recovery promote callback.
+// Never creates a shard; wraps ErrIndexNotRegistered/ErrShardNotRegistered for the
+// orchestrator's transient-vs-permanent classification.
 func (db *DB) LoadLocalShard(ctx context.Context, collection, shard string) error {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {
-		return fmt.Errorf("load local shard: index %q not found", collection)
+		return fmt.Errorf("load local shard: index %q: %w", collection, enterrors.ErrIndexNotRegistered)
 	}
-	return idx.LoadLocalShard(ctx, shard, false)
+	return idx.PromoteRecoveringLocalShard(ctx, shard)
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {

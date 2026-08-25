@@ -3184,19 +3184,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Load(shardName); shard != nil {
 		if mustLoad {
-			// Promote only after the rename; loading earlier plants an empty live dir that erases the copy.
-			if rec, ok := shard.(*RecoveringShard); ok && rec.IsRecovering() {
-				if _, err := os.Stat(shardPath(i.path(), shardName)); err != nil {
-					if errors.Is(err, fs.ErrNotExist) {
-						return nil
-					}
-					return fmt.Errorf("load local shard %q: %w", shardName, err)
-				}
-				return rec.Promote(ctx)
-			}
-			if l, ok := shard.(loadableShard); ok {
-				return l.Load(ctx)
-			}
+			return i.loadOrPromoteShard(ctx, shard, shardName)
 		}
 
 		return nil
@@ -3217,6 +3205,44 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	i.publishShard(shardName, shard)
 
 	return nil
+}
+
+// loadOrPromoteShard force-loads an already-registered shard entry.
+func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardName string) error {
+	// Promote only after the rename; loading earlier plants an empty live dir that erases the copy.
+	if rec, ok := shard.(*RecoveringShard); ok && rec.IsRecovering() {
+		if _, err := os.Stat(shardPath(i.path(), shardName)); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return fmt.Errorf("load local shard %q: %w", shardName, err)
+		}
+		return rec.Promote(ctx)
+	}
+	if l, ok := shard.(loadableShard); ok {
+		return l.Load(ctx)
+	}
+	return nil
+}
+
+// PromoteRecoveringLocalShard loads/promotes an existing in-memory shard entry; unlike
+// LoadLocalShard it never creates one — a missing entry means deleted/unloaded mid-recovery.
+func (i *Index) PromoteRecoveringLocalShard(ctx context.Context, shardName string) error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	shard := i.shards.Load(shardName)
+	if shard == nil {
+		return fmt.Errorf("promote local shard %q: %w", shardName, enterrors.ErrShardNotRegistered)
+	}
+	return i.loadOrPromoteShard(ctx, shard, shardName)
 }
 
 func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
