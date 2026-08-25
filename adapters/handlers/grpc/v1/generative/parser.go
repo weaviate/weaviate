@@ -527,7 +527,6 @@ func (p *Parser) digitalocean(in *pb.GenerativeDigitalOcean) map[string]any {
 			FrequencyPenalty: in.FrequencyPenalty,
 			PresencePenalty:  in.PresencePenalty,
 			Stop:             in.Stop.GetValues(),
-			IsAgent:          in.GetIsAgent(),
 		},
 	}
 }

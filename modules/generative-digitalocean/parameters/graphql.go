@@ -31,7 +31,6 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 				"frequencyPenalty": {Description: "Frequency penalty", Type: graphql.Float},
 				"presencePenalty":  {Description: "Presence penalty", Type: graphql.Float},
 				"stop":             {Description: "Stop sequences", Type: graphql.NewList(graphql.String)},
-				"isAgent":          {Description: "Address baseURL as a DigitalOcean agent endpoint", Type: graphql.Boolean},
 			},
 		}),
 		DefaultValue: nil,

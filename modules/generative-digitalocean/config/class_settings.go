@@ -27,14 +27,11 @@ const (
 	frequencyPenaltyProperty = "frequencyPenalty"
 	presencePenaltyProperty  = "presencePenalty"
 	stopProperty             = "stop"
-	isAgentProperty          = "isAgent"
 )
 
 var (
-	// DefaultBaseURL points at DigitalOcean's serverless inference. Agent endpoints are
-	// per-agent hosts, so they have to be configured explicitly together with isAgent.
 	DefaultBaseURL = "https://inference.do-ai.run"
-	DefaultModel   = "llama3.3-70b-instruct"
+	DefaultModel   = "llama-4-maverick"
 )
 
 type classSettings struct {
@@ -102,8 +99,4 @@ func (ic *classSettings) PresencePenalty() *float64 {
 
 func (ic *classSettings) Stop() []string {
 	return ic.propertyValuesHelper.GetPropertyAsListOfStrings(ic.cfg, stopProperty, nil)
-}
-
-func (ic *classSettings) IsAgent() bool {
-	return ic.propertyValuesHelper.GetPropertyAsBool(ic.cfg, isAgentProperty, false)
 }

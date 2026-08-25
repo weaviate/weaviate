@@ -25,7 +25,6 @@ type Params struct {
 	FrequencyPenalty *float64
 	PresencePenalty  *float64
 	Stop             []string
-	IsAgent          bool
 }
 
 func extract(field *ast.ObjectField) any {
@@ -50,8 +49,6 @@ func extract(field *ast.ObjectField) any {
 				out.PresencePenalty = gqlparser.GetValueAsFloat64(f)
 			case "stop":
 				out.Stop = gqlparser.GetValueAsStringArray(f)
-			case "isAgent":
-				out.IsAgent = gqlparser.GetValueAsBoolOrFalse(f)
 			default:
 				// do nothing
 			}

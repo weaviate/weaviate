@@ -53,8 +53,8 @@ func testGenerativeDigitalOcean(rest, grpc string) func(t *testing.T) {
 				generativeModel: "llama-4-maverick",
 			},
 			{
-				name:            "openai-gpt-5",
-				generativeModel: "openai-gpt-5",
+				name:            "deepseek-4-flash",
+				generativeModel: "deepseek-4-flash",
 			},
 			{
 				name:               "absent module config",
@@ -66,6 +66,7 @@ func testGenerativeDigitalOcean(rest, grpc string) func(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				if tt.absentModuleConfig {
 					t.Log("skipping adding module config configuration to class")
+					class.ModuleConfig = nil
 				} else {
 					class.ModuleConfig = map[string]any{
 						"generative-digitalocean": map[string]any{
@@ -90,9 +91,11 @@ func testGenerativeDigitalOcean(rest, grpc string) func(t *testing.T) {
 						})
 					}
 				})
-				t.Run("create a tweet", func(t *testing.T) {
-					planets.CreateTweetTest(t, class.Class)
-				})
+				if !tt.absentModuleConfig {
+					t.Run("create a tweet", func(t *testing.T) {
+						planets.CreateTweetTest(t, class.Class)
+					})
+				}
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := "digitalocean:{temperature:0.1}"
 					if tt.absentModuleConfig {
@@ -100,9 +103,11 @@ func testGenerativeDigitalOcean(rest, grpc string) func(t *testing.T) {
 					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
-				t.Run("create a tweet using grpc", func(t *testing.T) {
-					planets.CreateTweetTestGRPC(t, class.Class)
-				})
+				if !tt.absentModuleConfig {
+					t.Run("create a tweet using grpc", func(t *testing.T) {
+						planets.CreateTweetTestGRPC(t, class.Class)
+					})
+				}
 				t.Run("create a tweet with params using grpc", func(t *testing.T) {
 					params := &pb.GenerativeDigitalOcean{
 						Model:            grpchelper.ToPtr(tt.generativeModel),

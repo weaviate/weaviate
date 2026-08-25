@@ -37,7 +37,6 @@ func TestURL(t *testing.T) {
 	tests := []struct {
 		name      string
 		baseURL   string
-		isAgent   bool
 		header    string
 		expectedU string
 	}{
@@ -52,23 +51,10 @@ func TestURL(t *testing.T) {
 			expectedU: "https://inference.do-ai.run/v1/chat/completions",
 		},
 		{
-			name:      "agent endpoint",
-			baseURL:   "https://my-agent.agents.do-ai.run",
-			isAgent:   true,
-			expectedU: "https://my-agent.agents.do-ai.run/api/v1/chat/completions?agent=true",
-		},
-		{
 			name:      "header overrides baseURL",
 			baseURL:   "https://inference.do-ai.run",
 			header:    "https://override.do-ai.run",
 			expectedU: "https://override.do-ai.run/v1/chat/completions",
-		},
-		{
-			name:      "header overrides baseURL for agent",
-			baseURL:   "https://inference.do-ai.run",
-			isAgent:   true,
-			header:    "https://my-agent.agents.do-ai.run",
-			expectedU: "https://my-agent.agents.do-ai.run/api/v1/chat/completions?agent=true",
 		},
 	}
 
@@ -79,7 +65,7 @@ func TestURL(t *testing.T) {
 			if tt.header != "" {
 				ctx = context.WithValue(ctx, "X-Digitalocean-Baseurl", []string{tt.header})
 			}
-			u, err := c.url(ctx, tt.baseURL, tt.isAgent)
+			u, err := c.url(ctx, tt.baseURL)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedU, u)
 		})
@@ -144,9 +130,27 @@ func TestGenerate(t *testing.T) {
 			expectedResult: "hello",
 		},
 		{
-			name:        "error payload",
+			name:        "top level error payload",
+			statusCode:  http.StatusUnauthorized,
+			body:        `{"id": "Unauthorized", "message": "Unable to authenticate you" }`,
+			expectedErr: "connection to DigitalOcean API failed with status: 401 Unauthorized error: Unable to authenticate you",
+		},
+		{
+			name:        "top level error payload with request id",
+			statusCode:  http.StatusPaymentRequired,
+			body:        `{"id":"Payment Required","message":"You are not allowed to perform this operation","request_id":"abc-123"}`,
+			expectedErr: "connection to DigitalOcean API failed with status: 402 Payment Required error: You are not allowed to perform this operation request_id: abc-123",
+		},
+		{
+			name:        "wrapped error payload",
 			statusCode:  http.StatusBadRequest,
 			body:        `{"error":{"message":"model not found","type":"invalid_request_error"}}`,
+			expectedErr: "connection to DigitalOcean API failed with status: 400 error: model not found",
+		},
+		{
+			name:        "wrapped error payload does not report the completion id as a status",
+			statusCode:  http.StatusBadRequest,
+			body:        `{"id":"chatcmpl-abc","error":{"message":"model not found"}}`,
 			expectedErr: "connection to DigitalOcean API failed with status: 400 error: model not found",
 		},
 		{
@@ -205,7 +209,7 @@ func TestGenerateRequest(t *testing.T) {
 			params:       digitaloceanparams.Params{},
 			expectedPath: "/v1/chat/completions",
 			expectedPayload: map[string]any{
-				"model":    "llama3.3-70b-instruct",
+				"model":    "llama-4-maverick",
 				"messages": []any{map[string]any{"role": "user", "content": `task: [{"prop":"value"}]`}},
 			},
 		},
@@ -230,16 +234,6 @@ func TestGenerateRequest(t *testing.T) {
 				"frequency_penalty":     1.5,
 				"presence_penalty":      -1.5,
 				"stop":                  []any{"END"},
-			},
-		},
-		{
-			name:          "agent endpoint",
-			params:        digitaloceanparams.Params{IsAgent: true},
-			expectedPath:  "/api/v1/chat/completions",
-			expectedQuery: "agent=true",
-			expectedPayload: map[string]any{
-				"model":    "llama3.3-70b-instruct",
-				"messages": []any{map[string]any{"role": "user", "content": `task: [{"prop":"value"}]`}},
 			},
 		},
 	}

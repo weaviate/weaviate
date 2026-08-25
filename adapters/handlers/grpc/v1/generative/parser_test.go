@@ -1365,7 +1365,6 @@ func Test_RequestParser(t *testing.T) {
 									Stop: &pb.TextArray{
 										Values: []string{"stop"},
 									},
-									IsAgent: makeBoolPtr(true),
 								},
 							},
 						},
@@ -1384,7 +1383,6 @@ func Test_RequestParser(t *testing.T) {
 						FrequencyPenalty: makeFloat64Ptr(0.6),
 						PresencePenalty:  makeFloat64Ptr(0.7),
 						Stop:             []string{"stop"},
-						IsAgent:          true,
 					},
 				},
 			},

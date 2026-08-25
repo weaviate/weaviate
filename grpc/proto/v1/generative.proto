@@ -240,8 +240,6 @@ message GenerativeDigitalOcean{
   optional double frequency_penalty = 6;
   optional double presence_penalty = 7;
   optional TextArray stop = 8;
-  // address base_url as a per-agent endpoint instead of serverless inference
-  optional bool is_agent = 9;
 }
 
 message GenerativeAnthropicMetadata {

@@ -72,7 +72,7 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	params := c.parseOptions(cfg, options)
 	debugData := c.debugData(debug, prompt)
 
-	endpoint, err := c.url(ctx, params.BaseURL, params.IsAgent)
+	endpoint, err := c.url(ctx, params.BaseURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve endpoint")
 	}
@@ -123,7 +123,7 @@ func (c *client) doGenerate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	}
 
 	if res.StatusCode != http.StatusOK || response.Error != nil {
-		return nil, c.apiError(res.StatusCode, response.Error)
+		return nil, c.apiError(res.StatusCode, response)
 	}
 
 	if len(response.Choices) == 0 {
@@ -169,9 +169,6 @@ func (c *client) parseOptions(cfg moduletools.ClassConfig, options any) digitalo
 	if len(params.Stop) == 0 {
 		params.Stop = settings.Stop()
 	}
-	if !params.IsAgent {
-		params.IsAgent = settings.IsAgent()
-	}
 	return params
 }
 
@@ -211,22 +208,12 @@ func GetResponseParams(result map[string]any) *responseParams {
 	return nil
 }
 
-// url builds the chat completions endpoint. DigitalOcean serves two shapes: serverless
-// inference on {base}/v1/chat/completions and per-agent endpoints on
-// {base}/api/v1/chat/completions?agent=true.
-func (c *client) url(ctx context.Context, base string, isAgent bool) (string, error) {
+func (c *client) url(ctx context.Context, base string) (string, error) {
 	base, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Digitalocean-Baseurl", base)
 	if err != nil {
 		return "", err
 	}
-	if !isAgent {
-		return url.JoinPath(base, "/v1/chat/completions")
-	}
-	endpoint, err := url.JoinPath(base, "/api/v1/chat/completions")
-	if err != nil {
-		return "", err
-	}
-	return endpoint + "?agent=true", nil
+	return url.JoinPath(base, "/v1/chat/completions")
 }
 
 func (c *client) apiKeyFromContext(ctx context.Context) (string, error) {
@@ -241,12 +228,24 @@ func (c *client) apiKeyFromContext(ctx context.Context) (string, error) {
 		"nor in environment variable under DIGITALOCEAN_APIKEY")
 }
 
-func (c *client) apiError(statusCode int, apiErr *apiError) error {
+func (c *client) apiError(statusCode int, response chatResp) error {
 	monitoring.GetMetrics().ModuleExternalError.WithLabelValues("generate", digitaloceanparams.Name, "API", fmt.Sprintf("%v", statusCode)).Inc()
-	if apiErr != nil {
-		return errors.Errorf("connection to DigitalOcean API failed with status: %d error: %s", statusCode, apiErr.Message)
+	status, message := fmt.Sprintf("%d", statusCode), response.Message
+	if message != "" {
+		if response.ID != "" {
+			status = fmt.Sprintf("%d %s", statusCode, response.ID)
+		}
+	} else if response.Error != nil {
+		message = response.Error.Message
 	}
-	return errors.Errorf("connection to DigitalOcean API failed with status: %d", statusCode)
+	if message == "" {
+		return errors.Errorf("connection to DigitalOcean API failed with status: %s", status)
+	}
+	if response.RequestID != "" {
+		return errors.Errorf("connection to DigitalOcean API failed with status: %s error: %s request_id: %s",
+			status, message, response.RequestID)
+	}
+	return errors.Errorf("connection to DigitalOcean API failed with status: %s error: %s", status, message)
 }
 
 func (c *client) MetaInfo() (map[string]any, error) {
@@ -273,9 +272,16 @@ type chatMessage struct {
 }
 
 type chatResp struct {
-	Choices []choice  `json:"choices"`
-	Usage   *usage    `json:"usage,omitempty"`
-	Error   *apiError `json:"error,omitempty"`
+	Choices []choice `json:"choices"`
+	Usage   *usage   `json:"usage,omitempty"`
+	// DigitalOcean reports failures as a top-level {"id","message","request_id"} body,
+	// where id is a short name for the status such as "Payment Required". On a success
+	// id instead holds the completion id, so only read it alongside an error status.
+	// Models it proxies may answer with the OpenAI-style {"error":{...}} wrapper instead.
+	ID        string    `json:"id,omitempty"`
+	Message   string    `json:"message,omitempty"`
+	RequestID string    `json:"request_id,omitempty"`
+	Error     *apiError `json:"error,omitempty"`
 }
 
 type choice struct {

@@ -34,18 +34,17 @@ func TestClassSettings(t *testing.T) {
 		expectedFreqPenalty *float64
 		expectedPresPenalty *float64
 		expectedStop        []string
-		expectedIsAgent     bool
 	}{
 		{
 			name:            "defaults",
 			cfg:             fakeClassConfig{},
 			expectedBaseURL: "https://inference.do-ai.run",
-			expectedModel:   "llama3.3-70b-instruct",
+			expectedModel:   "llama-4-maverick",
 		},
 		{
 			name: "all properties set",
 			cfg: fakeClassConfig{
-				"baseURL":          "https://my-agent.agents.do-ai.run",
+				"baseURL":          "https://custom.do-ai.run",
 				"model":            "openai-gpt-4o",
 				"temperature":      0.5,
 				"topP":             0.9,
@@ -53,9 +52,8 @@ func TestClassSettings(t *testing.T) {
 				"frequencyPenalty": 1.5,
 				"presencePenalty":  -1.5,
 				"stop":             []any{"\n", "END"},
-				"isAgent":          true,
 			},
-			expectedBaseURL:     "https://my-agent.agents.do-ai.run",
+			expectedBaseURL:     "https://custom.do-ai.run",
 			expectedModel:       "openai-gpt-4o",
 			expectedTemperature: ptr(0.5),
 			expectedTopP:        ptr(0.9),
@@ -63,7 +61,6 @@ func TestClassSettings(t *testing.T) {
 			expectedFreqPenalty: ptr(1.5),
 			expectedPresPenalty: ptr(-1.5),
 			expectedStop:        []string{"\n", "END"},
-			expectedIsAgent:     true,
 		},
 		{
 			name:        "nil config",
@@ -122,7 +119,6 @@ func TestClassSettings(t *testing.T) {
 			assert.Equal(t, tt.expectedFreqPenalty, settings.FrequencyPenalty())
 			assert.Equal(t, tt.expectedPresPenalty, settings.PresencePenalty())
 			assert.Equal(t, tt.expectedStop, settings.Stop())
-			assert.Equal(t, tt.expectedIsAgent, settings.IsAgent())
 		})
 	}
 }

@@ -2031,10 +2031,8 @@ type GenerativeDigitalOcean struct {
 	FrequencyPenalty *float64               `protobuf:"fixed64,6,opt,name=frequency_penalty,json=frequencyPenalty,proto3,oneof" json:"frequency_penalty,omitempty"`
 	PresencePenalty  *float64               `protobuf:"fixed64,7,opt,name=presence_penalty,json=presencePenalty,proto3,oneof" json:"presence_penalty,omitempty"`
 	Stop             *TextArray             `protobuf:"bytes,8,opt,name=stop,proto3,oneof" json:"stop,omitempty"`
-	// address base_url as a per-agent endpoint instead of serverless inference
-	IsAgent       *bool `protobuf:"varint,9,opt,name=is_agent,json=isAgent,proto3,oneof" json:"is_agent,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GenerativeDigitalOcean) Reset() {
@@ -2121,13 +2119,6 @@ func (x *GenerativeDigitalOcean) GetStop() *TextArray {
 		return x.Stop
 	}
 	return nil
-}
-
-func (x *GenerativeDigitalOcean) GetIsAgent() bool {
-	if x != nil && x.IsAgent != nil {
-		return *x.IsAgent
-	}
-	return false
 }
 
 type GenerativeAnthropicMetadata struct {
@@ -4619,7 +4610,7 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\x12_frequency_penaltyB\x13\n" +
 	"\x11_presence_penaltyB\b\n" +
 	"\x06_top_pB\a\n" +
-	"\x05_stop\"\xec\x03\n" +
+	"\x05_stop\"\xbf\x03\n" +
 	"\x16GenerativeDigitalOcean\x12\x1e\n" +
 	"\bbase_url\x18\x01 \x01(\tH\x00R\abaseUrl\x88\x01\x01\x12\x19\n" +
 	"\x05model\x18\x02 \x01(\tH\x01R\x05model\x88\x01\x01\x12%\n" +
@@ -4629,8 +4620,7 @@ const file_v1_generative_proto_rawDesc = "" +
 	"max_tokens\x18\x05 \x01(\x03H\x04R\tmaxTokens\x88\x01\x01\x120\n" +
 	"\x11frequency_penalty\x18\x06 \x01(\x01H\x05R\x10frequencyPenalty\x88\x01\x01\x12.\n" +
 	"\x10presence_penalty\x18\a \x01(\x01H\x06R\x0fpresencePenalty\x88\x01\x01\x12/\n" +
-	"\x04stop\x18\b \x01(\v2\x16.weaviate.v1.TextArrayH\aR\x04stop\x88\x01\x01\x12\x1e\n" +
-	"\bis_agent\x18\t \x01(\bH\bR\aisAgent\x88\x01\x01B\v\n" +
+	"\x04stop\x18\b \x01(\v2\x16.weaviate.v1.TextArrayH\aR\x04stop\x88\x01\x01B\v\n" +
 	"\t_base_urlB\b\n" +
 	"\x06_modelB\x0e\n" +
 	"\f_temperatureB\b\n" +
@@ -4638,8 +4628,7 @@ const file_v1_generative_proto_rawDesc = "" +
 	"\v_max_tokensB\x14\n" +
 	"\x12_frequency_penaltyB\x13\n" +
 	"\x11_presence_penaltyB\a\n" +
-	"\x05_stopB\v\n" +
-	"\t_is_agent\"\xb4\x01\n" +
+	"\x05_stop\"\xb4\x01\n" +
 	"\x1bGenerativeAnthropicMetadata\x12D\n" +
 	"\x05usage\x18\x01 \x01(\v2..weaviate.v1.GenerativeAnthropicMetadata.UsageR\x05usage\x1aO\n" +
 	"\x05Usage\x12!\n" +
