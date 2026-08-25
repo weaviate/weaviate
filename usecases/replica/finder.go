@@ -670,7 +670,8 @@ func (f *Finder) LocalNodeName() string {
 	return f.nodeName
 }
 
-// CountObjects returns an aggregated object count from all replicas the shard exists on.
+// CountObjects returns a shard's object count, reconciled over the replicas the
+// consistency level reaches. At ONE that is one replica's answer verbatim.
 func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.ConsistencyLevel) (int, error) {
 	c := NewReadCoordinator[int](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 
@@ -687,7 +688,7 @@ func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.Consis
 		return count, nil
 	}, "", time.Minute)
 	if err != nil {
-		return 0, nil
+		return 0, err
 	}
 
 	// Fan in results from all concurrent Pull requests. Results with
