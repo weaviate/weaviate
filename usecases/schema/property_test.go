@@ -40,7 +40,6 @@ func TestHandler_AddProperty(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
@@ -99,7 +98,6 @@ func TestHandler_AddProperty(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
@@ -151,7 +149,6 @@ func TestHandler_AddProperty_ReservedSuffix(t *testing.T) {
 					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				}
 				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 				fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
 				_, _, err := handler.AddClass(ctx, nil, class)
 				require.NoError(t, err)
@@ -209,7 +206,6 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
@@ -486,7 +482,6 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	}
 	fakeSchemaManager.On("ReadOnlyClass", refClass.Class).Return(&refClass)
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil).Twice()
-	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil).Twice()
 	fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 	_, _, err := handler.AddClass(ctx, nil, &class)
 	require.NoError(t, err)

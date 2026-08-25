@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -285,15 +284,12 @@ func TestPublishShard_ReconcilesAgainstPressureTransition(t *testing.T) {
 			if tt.noOwningDB {
 				index.db = nil
 			}
-			shard, status, mu := newStatefulShardMock(t, tt.statusAtBuild)
+			shard := newStatusShard(t, tt.statusAtBuild)
 
 			index.publishShard("shard1", shard)
 
 			require.NotNil(t, index.shards.Load("shard1"), "the shard must be published")
-			mu.Lock()
-			defer mu.Unlock()
-			assert.Equal(t, tt.wantStatus, status.Status)
-			assert.Equal(t, tt.wantReason, status.Reason)
+			assert.Equal(t, ShardStatus{Status: tt.wantStatus, Reason: tt.wantReason}, shard.get())
 		})
 	}
 }
@@ -324,9 +320,8 @@ func TestPublishShard_ReconcileFailure(t *testing.T) {
 			db, index := testResourcePressureIndex(t, true)
 			hook := test.NewLocal(db.logger.(*logrus.Logger))
 
-			shard := NewMockShardLike(t)
-			shard.EXPECT().GetStatus().Return(storagestate.StatusReady)
-			shard.EXPECT().SetStatusReadonly(statusReasonResourcePressure).Return(tt.shardErr)
+			shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
+			shard.updateErr = tt.shardErr
 
 			assert.NotPanics(t, func() { index.publishShard("shard1", shard) })
 
@@ -371,25 +366,23 @@ func TestReconcileIndexResourcePressure_ShardCounts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			db, index := testResourcePressureIndex(t, true)
 
-			statuses := make([]*ShardStatus, 0, tt.loadedCount)
-			locks := make([]*sync.Mutex, 0, tt.loadedCount)
+			shards := make([]*statusShard, 0, tt.loadedCount)
 			for n := range tt.loadedCount {
-				shard, status, mu := newStatefulShardMock(t,
+				shard := newStatusShard(t,
 					ShardStatus{Status: storagestate.StatusReady, Reason: statusReasonNotifyReady})
 				index.shards.Store(fmt.Sprintf("loaded_shard_%d", n), shard)
-				statuses = append(statuses, status)
-				locks = append(locks, mu)
+				shards = append(shards, shard)
 			}
 			cold := &LazyLoadShard{shardOpts: &deferredShardOpts{name: "cold_shard"}}
 			index.shards.Store("cold_shard", cold)
 
 			db.reconcileIndexResourcePressure(index)
 
-			for n, status := range statuses {
-				locks[n].Lock()
-				assert.Equal(t, storagestate.StatusReadOnly, status.Status)
-				assert.Equal(t, statusReasonResourcePressure, status.Reason)
-				locks[n].Unlock()
+			for _, shard := range shards {
+				assert.Equal(t, ShardStatus{
+					Status: storagestate.StatusReadOnly,
+					Reason: statusReasonResourcePressure,
+				}, shard.get())
 			}
 			assert.False(t, cold.isLoaded(), "a cold shard must not be loaded when its index is published")
 		})
@@ -406,14 +399,12 @@ func TestReconcileShardResourcePressure_HoldsOffFlagFlip(t *testing.T) {
 	release := make(chan struct{})
 	var flagDuringSettle atomic.Bool
 
-	shard := NewMockShardLike(t)
-	shard.EXPECT().GetStatus().Return(storagestate.StatusReady)
-	shard.EXPECT().SetStatusReadonly(statusReasonResourcePressure).RunAndReturn(func(string) error {
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReady})
+	shard.onUpdate = func() {
 		close(settling)
 		<-release
 		flagDuringSettle.Store(db.resourceScanState.isReadOnly.Load())
-		return nil
-	})
+	}
 
 	published := make(chan struct{})
 	enterrors.GoWrapper(func() {
