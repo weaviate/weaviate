@@ -203,11 +203,9 @@ func (c *cronsRegistration[T]) loop(cr *gocron.Cron, tickGate func() bool,
 				c.runMu.Lock()
 			}
 			c.runMu.Unlock()
-			select {
-			case <-c.serverShutdownCtx.Done():
+			if c.serverShutdownCtx.Err() != nil {
 				c.jobLogger.Debug("server shutdown context cancelled")
 				return
-			default:
 			}
 
 			tickCtx := c.serverShutdownCtx
