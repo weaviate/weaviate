@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -327,30 +328,70 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		return ctxerr
 	}
 
+	// One pool for the whole backup, shared by the shards of every class. A pool
+	// per class could never run wider than that class's shard count, so a node
+	// holding thousands of single-shard collections would upload one shard at a time.
+	poolCtx, cancelPool := context.WithCancel(ctx)
+	defer cancelPool()
+	eg, poolCtx := enterrors.NewErrorGroupWithContextWrapper(u.log, poolCtx)
+	eg.SetLimit(max(u.GoPoolSize, 1))
+	// Releasing an index deletes the class's staging dir, which its shard jobs read
+	// from. Defers run in reverse order, so this one drains the pool before the
+	// release in the defer above it. The normal path already waits below; this is
+	// for a panic or an early return.
+	defer func() { _ = eg.Wait() }()
+
+	var (
+		uploads []*classUpload
+		descErr error
+	)
+
 Loop:
 	for {
 		select {
 		case cdesc, ok := <-ch:
 			if !ok {
-				u.releaseIndexes(classes, desc.ID)
 				break Loop // we are done
 			}
 			if cdesc.Error != nil {
-				return cdesc.Error
+				descErr = cdesc.Error
+				cancelPool()
+				break Loop
 			}
-			u.log.WithField("class", cdesc.Name).Info("start uploading files")
-			preCompressionSize, err := u.class(ctx, desc.ID, &cdesc, overrideBucket, overridePath)
-			if err != nil {
-				return err
-			}
-			totalPreCompressionSize += preCompressionSize
-			cdesc.PreCompressionSizeBytes = preCompressionSize // Set pre-compression size for this class
-			desc.Classes = append(desc.Classes, cdesc)
-			u.log.WithField("class", cdesc.Name).Info("finish uploading files")
+			uploads = append(uploads, u.submitClass(poolCtx, eg, desc.ID, cdesc, overrideBucket, overridePath))
 
-		case <-ctx.Done():
-			return contextChecker(ctx)
+		// cancelled when the backup is aborted and when the first shard job fails.
+		// Either way there is no point taking more class descriptors.
+		case <-poolCtx.Done():
+			break Loop
 		}
+	}
+
+	// Wait before releasing: a class still in the pool is reading its staging dir,
+	// and the release deletes it. Every class the loop submitted has already
+	// released itself in finish, so this only covers the ones it never reached.
+	poolErr := eg.Wait()
+	u.releaseIndexes(classes, desc.ID)
+
+	// uploads is in the order the descriptors arrived, so classes finishing out of
+	// order does not reorder desc.Classes.
+	for _, cu := range uploads {
+		if !cu.complete() {
+			continue
+		}
+		desc.Classes = append(desc.Classes, cu.desc)
+		totalPreCompressionSize += cu.desc.PreCompressionSizeBytes
+	}
+
+	// descErr first, because it is the real cause. cancelPool has already failed
+	// the in-flight shards with context.Canceled, and the defer above publishes
+	// that as a cancelled backup instead of a failed one. Those shard errors are
+	// not lost: finish logs every class that did not upload in full.
+	if descErr != nil {
+		return descErr
+	}
+	if poolErr != nil {
+		return poolErr
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -409,120 +450,135 @@ func (u *uploader) releaseIndexes(classes []string, bakID string) {
 	}
 }
 
-// class uploads one class
-// Returns the number of bytes written for this class
-func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (int64, error) {
-	var err error
-	classLabel := desc.Name
+// classUpload is the state one class's shard jobs share: the descriptor they
+// fill in, and the counters that decide when the class is done and whether it
+// uploaded in full.
+type classUpload struct {
+	desc      backup.ClassDescriptor
+	lastChunk atomic.Int32
+
+	// mu guards the descriptor fields the shard jobs write.
+	mu sync.Mutex
+
+	// pending counts shard jobs that have not returned yet. The job that brings it
+	// to zero runs finish.
+	pending atomic.Int32
+	// shardsDone counts the shards that uploaded. A job bumps it only on its way
+	// out, so one that fails or panics leaves its class incomplete.
+	shardsDone atomic.Int32
+
+	// finish runs once, on whichever shard job returns last.
+	finish func()
+}
+
+// complete reports whether every shard of the class uploaded. Only a complete
+// class may join the backup descriptor: a partial one still lists all its shards
+// but holds chunks for only some, and the restore then skips the rest without
+// reporting anything.
+func (c *classUpload) complete() bool {
+	return int(c.shardsDone.Load()) == len(c.desc.Shards)
+}
+
+// submitClass queues every shard of one class on the shared pool and returns
+// without waiting for them, so the caller can move on to the next class. The
+// returned classUpload is what those jobs write their result into; read it only
+// once the pool has drained.
+func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
+	id string, cdesc backup.ClassDescriptor, overrideBucket, overridePath string,
+) *classUpload {
+	cu := &classUpload{desc: cdesc}
+
+	classLabel := cdesc.Name
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
 	}
-	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.backend), classLabel)
-	if err == nil {
+	observe := func() {}
+	if metric, err := monitoring.GetMetrics().BackupStoreDurations.
+		GetMetricWithLabelValues(getType(u.backend.backend), classLabel); err == nil {
 		timer := prometheus.NewTimer(metric)
-		defer timer.ObserveDuration()
+		observe = func() { timer.ObserveDuration() }
 	}
-	defer func() {
-		// backups need to be released anyway
-		enterrors.GoWrapper(func() {
-			if err := u.sourcer.ReleaseBackup(context.Background(), id, desc.Name); err != nil {
-				u.log.WithFields(logrus.Fields{
-					"class":    desc.Name,
-					"backupID": id,
-				}).Error("failed to release backup")
-			}
-		}, u.log)
-	}()
-	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
-	defer cancel()
 
+	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	u.log.WithFields(logrus.Fields{
 		"action":   "upload_class",
 		"duration": storeTimeout,
 	}).Debug("context.WithTimeout")
 
+	// finish runs when the last shard job of the class has returned. That is the
+	// earliest the index may be released, since releasing it deletes the staging
+	// dir the jobs read from, and late enough for complete to know whether the
+	// class made it into the backup.
+	cu.finish = func() {
+		cancel()
+		observe()
+		u.releaseIndexes([]string{cu.desc.Name}, id)
+		if cu.complete() {
+			u.log.WithField("class", cu.desc.Name).Info("finish uploading files")
+			return
+		}
+		u.log.WithFields(logrus.Fields{
+			"class":       cu.desc.Name,
+			"shards_done": cu.shardsDone.Load(),
+			"shards":      len(cu.desc.Shards),
+		}).Warn("class left out of the backup, not all of its shards uploaded")
+	}
+
 	// Determine source path: use staging dir (hard-linked snapshot) if available,
 	// otherwise fall back to live data path for backward compatibility.
 	sourcePath := u.backend.SourceDataPath()
-	if desc.StagingDir != "" {
-		sourcePath = desc.StagingDir
+	if cdesc.StagingDir != "" {
+		sourcePath = cdesc.StagingDir
 	}
 
-	nShards := len(desc.Shards)
+	u.log.WithField("class", cu.desc.Name).Info("start uploading files")
+
+	nShards := len(cu.desc.Shards)
 	if nShards == 0 {
-		return 0, nil
+		// no jobs to queue, so no job will call finish
+		cu.finish()
+		return cu
 	}
 
-	desc.Chunks = make(map[int32][]string, 1+nShards/2)
-	var (
-		lastChunk atomic.Int32
-		nWorker   = u.GoPoolSize
-	)
-	if nWorker > nShards {
-		nWorker = nShards
-	}
+	cu.desc.Chunks = make(map[int32][]string, 1+nShards/2)
+	cu.pending.Store(int32(nShards))
 
-	// jobs produces work for the processor
-	jobs := func(xs []*backup.ShardDescriptor) <-chan *backup.ShardDescriptor {
-		sendCh := make(chan *backup.ShardDescriptor)
-		f := func() {
-			defer close(sendCh)
-
-			for _, shard := range xs {
-				select {
-				case sendCh <- shard:
-				// cancellation will happen for two reasons:
-				//  - 1. if the whole operation has been aborted,
-				//  - 2. or if the processor routine returns an error
-				case <-ctx.Done():
-					return
+	for _, shard := range cu.desc.Shards {
+		eg.Go(func() error {
+			defer func() {
+				if cu.pending.Add(-1) == 0 {
+					cu.finish()
 				}
-			}
-		}
-		enterrors.GoWrapper(f, u.log)
-		return sendCh
+			}()
+			return u.uploadShard(ctx, cu, shard, overrideBucket, overridePath, sourcePath)
+		})
+	}
+	return cu
+}
+
+// uploadShard compresses one shard into chunks and records them on its class.
+func (u *uploader) uploadShard(ctx context.Context, cu *classUpload, shard *backup.ShardDescriptor,
+	overrideBucket, overridePath, sourcePath string,
+) error {
+	// a failing job cancels ctx, but jobs already queued behind it still start
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
-	incrementalBackupSize := atomic.Int64{}
-
-	// processor
-	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chunkShards {
-		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
-		eg.SetLimit(nWorker)
-		recvCh := make(chan chunkShards, nWorker)
-		f := func() {
-			defer close(recvCh)
-			for i := 0; i < nWorker; i++ {
-				eg.Go(func() error {
-					// operation might have been aborted see comment above
-					if err := ctx.Err(); err != nil {
-						return err
-					}
-					for shard := range sender {
-						incrementalBackupSize.Add(shard.IncrementalBackupInfo.TotalSize)
-						chunks, err := u.processShard(ctx, shard, desc.Name, &lastChunk, overrideBucket, overridePath, sourcePath)
-						if err != nil {
-							return err
-						}
-						for _, c := range chunks {
-							recvCh <- c
-						}
-					}
-					return nil
-				})
-			}
-			err = eg.Wait()
-		}
-		enterrors.GoWrapper(f, u.log)
-		return recvCh
+	chunks, err := u.processShard(ctx, shard, cu.desc.Name, &cu.lastChunk, overrideBucket, overridePath, sourcePath)
+	if err != nil {
+		return err
 	}
 
-	for x := range processor(nWorker, jobs(desc.Shards)) {
-		desc.Chunks[x.chunk] = x.shards
-		desc.PreCompressionSizeBytes += x.preCompressionSize
+	cu.mu.Lock()
+	defer cu.mu.Unlock()
+	for _, c := range chunks {
+		cu.desc.Chunks[c.chunk] = c.shards
+		cu.desc.PreCompressionSizeBytes += c.preCompressionSize
 	}
-	desc.PreCompressionSizeBytes += incrementalBackupSize.Load()
-	return desc.PreCompressionSizeBytes, err
+	cu.desc.PreCompressionSizeBytes += shard.IncrementalBackupInfo.TotalSize
+	cu.shardsDone.Add(1)
+	return nil
 }
 
 type chunkShards struct {
