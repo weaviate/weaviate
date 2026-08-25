@@ -35,7 +35,6 @@ import (
 // to complete before the files are deleted.
 func (s *Shard) drop(keepFiles bool) (err error) {
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
-	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.replicationMap.clear()
@@ -48,7 +47,8 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 
 	s.clearDimensionMetrics() // not deleted in s.metrics.DeleteShardLabels
 
-	s.mayStopAsyncReplication()
+	// persistHashtree=false: shard is being destroyed.
+	s.mayStopAsyncReplication(false)
 
 	s.haltForTransferMux.Lock()
 	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.

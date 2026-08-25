@@ -41,6 +41,10 @@ func (s *Shard) GetStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
+	return s.getStatusUnlocked()
+}
+
+func (s *Shard) getStatusUnlocked() storagestate.Status {
 	if s.status.Status != storagestate.StatusReady && s.status.Status != storagestate.StatusIndexing {
 		return s.status.Status
 	}
@@ -91,6 +95,21 @@ func (s *Shard) UpdateStatus(in, reason string) error {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
+	return s.updateStatusUnlocked(in, reason)
+}
+
+// UpdateStatusIf writes the new status only if cond holds for the current one,
+// evaluating cond and writing under a single statusLock acquisition so a status
+// another writer sets in between cannot be overwritten. cond runs with the lock
+// held and must not call back into the shard.
+func (s *Shard) UpdateStatusIf(cond func(ShardStatus) bool, in, reason string) error {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	current := ShardStatus{Status: s.getStatusUnlocked(), Reason: s.status.Reason}
+	if !cond(current) {
+		return nil
+	}
 	return s.updateStatusUnlocked(in, reason)
 }
 

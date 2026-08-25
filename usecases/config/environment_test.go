@@ -12,7 +12,6 @@
 package config
 
 import (
-	"fmt"
 	"math"
 	"os"
 	"testing"
@@ -1561,27 +1560,6 @@ func TestEnvironmentHNSWAcornFilterRatio(t *testing.T) {
 	}
 }
 
-func TestEnabledForHost(t *testing.T) {
-	localHostname := "weaviate-1"
-	envName := "HOSTBASED_SETTING"
-
-	enabledVals := []string{"enabled", "1", "true", "on", "weaviate-1", "weaviate-0,weaviate-1,weaviate-2"}
-	for _, val := range enabledVals {
-		t.Run(fmt.Sprintf("enabled %q", val), func(t *testing.T) {
-			t.Setenv(envName, val)
-			assert.True(t, enabledForHost(envName, localHostname))
-		})
-	}
-
-	disabledVals := []string{"disabled", "0", "false", "off", "weaviate-0", "weaviate-0,weaviate-2,weaviate-3", ""}
-	for _, val := range disabledVals {
-		t.Run(fmt.Sprintf("disabled %q", val), func(t *testing.T) {
-			t.Setenv(envName, val)
-			assert.False(t, enabledForHost(envName, localHostname))
-		})
-	}
-}
-
 func TestParseCollectionPropsTenants(t *testing.T) {
 	type testCase struct {
 		env            string
@@ -2189,6 +2167,127 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 	}
 }
 
+func TestEnvironmentReplicaMovementCleanup(t *testing.T) {
+	tests := []struct {
+		name                 string
+		env                  map[string]string
+		errContains          string
+		wantEnabled          bool
+		wantMaxAge           time.Duration
+		wantInterval         time.Duration
+		wantIncludeCancelled bool
+	}{
+		{
+			name:         "defaults: off, 7 days, hourly, READY only",
+			wantEnabled:  false,
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: DefaultReplicaMovementCleanupInterval,
+		},
+		{
+			name: "explicit values are parsed",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_ENABLED":           "true",
+				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE":           "24h",
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL":          "5m",
+				"REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED": "true",
+			},
+			wantEnabled:          true,
+			wantMaxAge:           24 * time.Hour,
+			wantInterval:         5 * time.Minute,
+			wantIncludeCancelled: true,
+		},
+		{
+			// Zero passes the >= 0 validator and is the only disable sentinel.
+			// The sweeper reads it as "off", never as "delete every READY op".
+			name: "zero max age is accepted and handled downstream",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE": "0s",
+			},
+			wantMaxAge:   0,
+			wantInterval: DefaultReplicaMovementCleanupInterval,
+		},
+		{
+			name: "zero interval is accepted and handled downstream",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "0s",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: 0,
+		},
+		{
+			// A negative duration fails startup rather than coercing to zero.
+			// Both rows go red if the parse-time validators are dropped.
+			name: "negative max age fails startup, naming the variable",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE": "-1h",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_MAX_AGE",
+		},
+		{
+			name: "negative interval fails startup, naming the variable",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "-1s",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			// Below the floor a sweep hammers the leader with full-FSM scans.
+			name: "interval below the 1m floor fails startup",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "1ms",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			// Above the ceiling the sweep silently never runs; 0 is the only
+			// sanctioned way to disable it.
+			name: "interval above the 168h ceiling fails startup",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "169h",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			name: "interval bounds are inclusive",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "1m",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: time.Minute,
+		},
+		{
+			name: "interval ceiling is inclusive",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "168h",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: 168 * time.Hour,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.errContains != "" {
+				require.ErrorContains(t, err, tt.errContains,
+					"a rejected value must tell the operator which variable to fix")
+				return
+			}
+			require.NoError(t, err)
+
+			require.Equal(t, tt.wantEnabled, conf.Replication.ReplicaMovementCleanupEnabled.Get())
+			require.Equal(t, tt.wantMaxAge, conf.Replication.ReplicaMovementCleanupMaxAge.Get())
+			require.Equal(t, tt.wantInterval, conf.Replication.ReplicaMovementCleanupInterval.Get())
+			require.Equal(t, tt.wantIncludeCancelled, conf.Replication.ReplicaMovementCleanupIncludeCancelled.Get())
+		})
+	}
+}
+
 // TestEnvironmentRuntimeReindexEnabled pins the kill switch's precedence:
 // the env var wins when set, and an absent one leaves a config-file value
 // alone. Getting the absent case wrong silently forces every
@@ -2216,6 +2315,38 @@ func TestEnvironmentRuntimeReindexEnabled(t *testing.T) {
 			conf := Config{RuntimeReindexEnabled: tt.fromFile}
 			require.NoError(t, FromEnv(&conf))
 			require.Equal(t, tt.expected, conf.RuntimeReindexEnabled)
+		})
+	}
+}
+
+func TestEnvironmentAsyncReplicationGlobalSentinels(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         map[string]string
+		wantHeight  int
+		wantFreq    time.Duration
+		expectedErr bool
+	}{
+		{name: "unset means zero sentinel (per-class or code defaults apply)"},
+		{name: "explicit height", env: map[string]string{"ASYNC_REPLICATION_HASHTREE_HEIGHT": "12"}, wantHeight: 12},
+		{name: "explicit frequency", env: map[string]string{"ASYNC_REPLICATION_FREQUENCY": "7s"}, wantFreq: 7 * time.Second},
+		{name: "negative height rejected", env: map[string]string{"ASYNC_REPLICATION_HASHTREE_HEIGHT": "-1"}, expectedErr: true},
+		{name: "non-numeric height rejected", env: map[string]string{"ASYNC_REPLICATION_HASHTREE_HEIGHT": "tall"}, expectedErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.expectedErr {
+				require.NotNil(t, err)
+				return
+			}
+			require.Nil(t, err)
+			require.Equal(t, tt.wantHeight, conf.Replication.AsyncReplicationHashtreeHeight.Get())
+			require.Equal(t, tt.wantFreq, conf.Replication.AsyncReplicationFrequency.Get())
 		})
 	}
 }

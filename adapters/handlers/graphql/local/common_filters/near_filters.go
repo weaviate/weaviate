@@ -208,7 +208,7 @@ func getListOfMultiVectors(values []ast.Value) ([][][]float32, error) {
 
 func valuesAreMultiVectors(values []ast.Value) (bool, error) {
 	if len(values) == 0 {
-		return false, errors.New(("values are empty"))
+		return false, errors.New("values are empty")
 	}
 	firstValue := values[0]
 	switch firstValue.(type) {

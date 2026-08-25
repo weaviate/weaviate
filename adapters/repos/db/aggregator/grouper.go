@@ -124,18 +124,15 @@ func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 }
 
 func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modules *modules.Provider) ([]uint64, error) {
+	g.setDefaultObjectLimit()
+
 	sparseSearch := func() ([]*storobj.Object, []float32, error) {
 		kw, err := g.buildHybridKeywordRanking()
 		if err != nil {
 			return nil, nil, fmt.Errorf("build hybrid keyword ranking: %w", err)
 		}
 
-		if g.params.ObjectLimit == nil {
-			limit := int(g.defaultLimit)
-			g.params.ObjectLimit = &limit
-		}
-
-		sparse, dists, err := g.bm25Objects(ctx, kw)
+		sparse, dists, err := g.bm25Objects(ctx, kw, allowList)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate sparse search: %w", err)
 		}

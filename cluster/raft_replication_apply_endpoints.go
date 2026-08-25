@@ -393,6 +393,28 @@ func (s *Raft) ForceDeleteReplicationByUuid(ctx context.Context, uuid strfmt.UUI
 	return nil
 }
 
+// ForceDeleteReplicationsByIds removes the listed ops on every node. The apply
+// skips unknown ids, so a batch re-proposed after leader churn is a no-op.
+func (s *Raft) ForceDeleteReplicationsByIds(ctx context.Context, ids []uint64) error {
+	req := &api.ReplicationForceDeleteByIdsRequest{
+		Version: api.ReplicationCommandVersionV0,
+		Ids:     ids,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Raft) DeleteAllReplications(ctx context.Context) error {
 	req := &api.ReplicationDeleteAllRequest{
 		Version: api.ReplicationCommandVersionV0,

@@ -32,3 +32,11 @@ const CompareDigestsFlagDeleted byte = 0x01
 // body. The cap leaves enough headroom for the largest realistic
 // diffBatchSize × CompareDigestsRecordLength; tests guard the headroom.
 const CompareDigestsMaxBodyBytes = 4 * 1024 * 1024
+
+// Digest payload encodings negotiated on the gRPC HashTreeLevel RPC. Zero is
+// JSON so payloads from/to older nodes (which never set the field) keep
+// decoding as before; binary is only used when explicitly requested.
+const (
+	DigestsEncodingJSON   uint32 = 0
+	DigestsEncodingBinary uint32 = 1
+)

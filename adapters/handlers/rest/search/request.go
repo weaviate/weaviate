@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
@@ -52,14 +54,9 @@ func checkReservedFields(common *models.SearchCommon) *APIError {
 	return nil
 }
 
-// buildNearTextParams converts the near-text request into the dto.GetParams
-// consumed by traverser.GetClass. Behavior must stay in sync with the gRPC
-// parser (adapters/handlers/grpc/v1/parse_search_request.go). Shared fields
-// are read from the embedded SearchCommon, near-text fields off the body.
-func (h *Handler) buildNearTextParams(class *models.Class, className string, body *models.SearchNearTextRequest,
-	getClass classGetterFunc, principal *models.Principal,
-) (dto.GetParams, *APIError) {
-	common := &body.SearchCommon
+// baseParams starts the dto.GetParams every search type shares: the
+// collection, tenant, consistency level and pagination.
+func (h *Handler) baseParams(className string, common *models.SearchCommon) (dto.GetParams, *APIError) {
 	out := dto.GetParams{ClassName: className, Tenant: common.Tenant}
 
 	replProps, apiErr := parseConsistencyLevel(common.ConsistencyLevel)
@@ -74,26 +71,17 @@ func (h *Handler) buildNearTextParams(class *models.Class, className string, bod
 	}
 	out.Pagination = pagination
 
-	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
+	return out, nil
+}
 
-	nearTextParams, apiErr := parseNearText(class, body, targetVectors, pagination.Limit)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.ModuleParams = map[string]any{"nearText": nearTextParams}
-
-	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.AdditionalProperties = addProps
-
+// fillSelectionAndFilter fills the fields every search type shares: the
+// returnProperties selection (with the no-props marker) and the where filter.
+func (h *Handler) fillSelectionAndFilter(out *dto.GetParams, class *models.Class, className string,
+	common *models.SearchCommon, getClass classGetterFunc, principal *models.Principal,
+) *APIError {
 	props, apiErr := parseReturnProperties(class, common.ReturnProperties, getClass)
 	if apiErr != nil {
-		return dto.GetParams{}, apiErr
+		return apiErr
 	}
 	out.Properties = props
 	if len(out.Properties) == 0 {
@@ -102,11 +90,321 @@ func (h *Handler) buildNearTextParams(class *models.Class, className string, bod
 
 	filter, apiErr := parseWhere(common.Where, className, h.namespacesEnabled, principal, getClass)
 	if apiErr != nil {
-		return dto.GetParams{}, apiErr
+		return apiErr
 	}
 	out.Filters = filter
 
+	return nil
+}
+
+// buildNearTextParams converts the near-text request into the dto.GetParams
+// consumed by traverser.GetClass. Behavior must stay in sync with the gRPC
+// parser (adapters/handlers/grpc/v1/parse_search_request.go). Shared fields
+// are read from the embedded SearchCommon, near-text fields off the body.
+func (h *Handler) buildNearTextParams(class *models.Class, className string, body *models.SearchNearTextRequest,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out, apiErr := h.baseParams(className, common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	nearTextParams, apiErr := parseNearText(class, body, targetVectors, out.Pagination.Limit)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.ModuleParams = map[string]any{"nearText": nearTextParams}
+
+	if apiErr := h.fillCommonFields(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
 	return out, nil
+}
+
+// buildBm25Params converts the bm25 request into the dto.GetParams consumed
+// by traverser.GetClass. Behavior must stay in sync with the gRPC parser's
+// bm25 handling (adapters/handlers/grpc/v1/parse_search_request.go). Shared
+// fields are read from the embedded SearchCommon, bm25 fields off the body.
+func (h *Handler) buildBm25Params(class *models.Class, className string, body *models.SearchBm25Request,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out, apiErr := h.baseParams(className, common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, nil)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	// certainty cannot be computed for a keyword search (gRPC parity)
+	addProps.Certainty = false
+	out.AdditionalProperties = addProps
+
+	keywordRanking, apiErr := parseBm25(body, addProps.ExplainScore)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.KeywordRanking = keywordRanking
+
+	if apiErr := validateQueryProperties(class, body.QueryProperties); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	if apiErr := checkKeywordSearchable(class, body.QueryProperties); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	if apiErr := h.fillSelectionAndFilter(&out, class, className, common, getClass, principal); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	return out, nil
+}
+
+// validateQueryProperties rejects a queryProperties entry that names no
+// schema property with 400, matching returnProperties. Whether an existing
+// property is searchable stays the searcher's check (a typed
+// MissingIndexError, mapped to 422). A "^boost" suffix is stripped before
+// the lookup, mirroring the searcher.
+func validateQueryProperties(class *models.Class, queryProperties []string) *APIError {
+	for _, entry := range queryProperties {
+		name := schema.LowercaseFirstLetter(strings.Split(entry, "^")[0])
+		if _, err := schema.GetPropertyByName(class, name); err != nil {
+			return &APIError{Status: http.StatusBadRequest, Err: err}
+		}
+	}
+	return nil
+}
+
+// checkKeywordSearchable: empty queryProperties over a collection with no
+// searchable property is a 422 here — the engine's all-properties expansion
+// errors untyped (a 500). Explicit properties are the searcher's.
+func checkKeywordSearchable(class *models.Class, queryProperties []string) *APIError {
+	if len(queryProperties) > 0 {
+		return nil
+	}
+	for _, prop := range class.Properties {
+		if searchparams.PropertyHasSearchableIndex(class, prop.Name) {
+			return nil
+		}
+	}
+	return newAPIError(http.StatusUnprocessableEntity,
+		"collection %s has no searchable properties for a keyword search", class.Class)
+}
+
+// fillCommonFields parses returnMetadata (scoped to the resolved target
+// vectors), then the shared selection and filter — used by the
+// vector-capable search types (near-text, hybrid, near-object).
+func (h *Handler) fillCommonFields(out *dto.GetParams, class *models.Class, className string,
+	common *models.SearchCommon, targetVectors []string, getClass classGetterFunc, principal *models.Principal,
+) *APIError {
+	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
+	if apiErr != nil {
+		return apiErr
+	}
+	out.AdditionalProperties = addProps
+
+	return h.fillSelectionAndFilter(out, class, className, common, getClass, principal)
+}
+
+// buildNearObjectParams converts the near-object request into the
+// dto.GetParams consumed by traverser.GetClass. Behavior must stay in sync
+// with the gRPC parser's near-object handling
+// (adapters/handlers/grpc/v1/parse_search_request.go).
+func (h *Handler) buildNearObjectParams(class *models.Class, className string, body *models.SearchNearObjectRequest,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out, apiErr := h.baseParams(className, common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	nearObject, apiErr := parseNearObject(class, body, targetVectors)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.NearObject = nearObject
+
+	if apiErr := h.fillCommonFields(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	return out, nil
+}
+
+// parseNearObject builds the near-object search params, mirroring the gRPC
+// parser: the source object's stored vector anchors the search, so no
+// vectorizer module is required. Whether the id resolves to an object is
+// the engine's (typed ErrSourceObjectNotFound/ErrSourceObjectNoVector).
+func parseNearObject(class *models.Class, body *models.SearchNearObjectRequest, targetVectors []string) (*searchparams.NearObject, *APIError) {
+	if body.ID == nil || *body.ID == "" {
+		return nil, newAPIError(http.StatusBadRequest, "id must not be empty")
+	}
+
+	if body.Certainty != nil && body.Distance != nil {
+		return nil, newAPIError(http.StatusBadRequest, "near_object: cannot provide both distance and certainty")
+	}
+	if body.Certainty != nil && (*body.Certainty < 0 || *body.Certainty > 1) {
+		return nil, newAPIError(http.StatusBadRequest,
+			"certainty must be between 0 and 1, got %v", *body.Certainty)
+	}
+
+	params := &searchparams.NearObject{
+		ID:            body.ID.String(),
+		TargetVectors: targetVectors,
+	}
+	if body.Certainty != nil {
+		if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
+			return nil, &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+		}
+		params.Certainty = *body.Certainty
+	}
+	if body.Distance != nil {
+		params.Distance = *body.Distance
+		params.WithDistance = true
+	}
+
+	return params, nil
+}
+
+// buildHybridParams converts the hybrid request into the dto.GetParams
+// consumed by traverser.GetClass. Behavior must stay in sync with the gRPC
+// parser's hybrid handling (adapters/handlers/grpc/v1/parse_search_request.go).
+func (h *Handler) buildHybridParams(class *models.Class, className string, body *models.SearchHybridRequest,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out, apiErr := h.baseParams(className, common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	hybrid, apiErr := parseHybrid(class, body, targetVectors)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.HybridSearch = hybrid
+
+	if apiErr := validateQueryProperties(class, body.QueryProperties); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	// the keyword part only runs below alpha 1; at alpha 1 a collection
+	// without searchable properties is legitimately pure-vector searchable
+	if hybrid.Alpha < 1 {
+		if apiErr := checkKeywordSearchable(class, body.QueryProperties); apiErr != nil {
+			return dto.GetParams{}, apiErr
+		}
+	}
+
+	if apiErr := h.fillCommonFields(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	return out, nil
+}
+
+const errQueryEmpty = "query must not be empty"
+
+// requireNonEmptyQuery guards the keyword endpoints' plain-string query: an
+// absent (or null) query is swagger's required 422 at bind; the explicit
+// empty string is this 400.
+func requireNonEmptyQuery(query *string) *APIError {
+	if query == nil || *query == "" {
+		return newAPIError(http.StatusBadRequest, errQueryEmpty)
+	}
+	return nil
+}
+
+// parseHybrid builds the hybrid search params, mirroring the gRPC parser:
+// alpha weights the vector part, fusionType picks the fusion algorithm,
+// maxVectorDistance is the distance cutoff, queryProperties as in bm25.
+// The vector part is skipped entirely at alpha 0, so a vectorizer module is
+// only required above 0.
+func parseHybrid(class *models.Class, body *models.SearchHybridRequest, targetVectors []string) (*searchparams.HybridSearch, *APIError) {
+	if apiErr := requireNonEmptyQuery(body.Query); apiErr != nil {
+		return nil, apiErr
+	}
+
+	alpha := common_filters.DefaultAlpha
+	if body.Alpha != nil {
+		alpha = *body.Alpha
+	}
+	if alpha < 0 || alpha > 1 {
+		return nil, newAPIError(http.StatusBadRequest, "alpha should be between 0.0 and 1.0, got %v", alpha)
+	}
+	// the cutoff needs the query vector, which alpha 0 never computes (the
+	// vector part is skipped entirely) — it would be silently ignored
+	if body.MaxVectorDistance != nil && alpha == 0 {
+		return nil, newAPIError(http.StatusBadRequest, "maxVectorDistance requires alpha > 0")
+	}
+
+	fusion := common_filters.HybridFusionDefault
+	switch body.FusionType {
+	case "":
+	case "ranked":
+		fusion = common_filters.HybridRankedFusion
+	case "relativeScore":
+		fusion = common_filters.HybridRelativeScoreFusion
+	default:
+		// enum-validated at bind time; fallback for the direct-call path
+		return nil, newAPIError(http.StatusBadRequest,
+			"fusionType must be one of ranked, relativeScore, got %q", body.FusionType)
+	}
+
+	params := &searchparams.HybridSearch{
+		Query:           *body.Query,
+		Properties:      schema.LowercaseFirstLetterOfStrings(body.QueryProperties),
+		Alpha:           alpha,
+		FusionAlgorithm: fusion,
+		TargetVectors:   targetVectors,
+	}
+	if body.MaxVectorDistance != nil {
+		params.Distance = float32(*body.MaxVectorDistance)
+		params.WithDistance = true
+	}
+
+	if alpha > 0 {
+		if apiErr := checkVectorizer(class, targetVectors, "hybrid with alpha > 0"); apiErr != nil {
+			return nil, apiErr
+		}
+	}
+
+	return params, nil
+}
+
+// parseBm25 builds the keyword-ranking params, mirroring the gRPC parser:
+// first letter lowercased, "^boost" suffixes pass through to the searcher.
+func parseBm25(body *models.SearchBm25Request, explainScore bool) (*searchparams.KeywordRanking, *APIError) {
+	if apiErr := requireNonEmptyQuery(body.Query); apiErr != nil {
+		return nil, apiErr
+	}
+	return &searchparams.KeywordRanking{
+		Type:                   "bm25",
+		Query:                  *body.Query,
+		Properties:             schema.LowercaseFirstLetterOfStrings(body.QueryProperties),
+		AdditionalExplanations: explainScore,
+	}, nil
 }
 
 func parseConsistencyLevel(level string) (*additional.ReplicationProperties, *APIError) {
@@ -233,7 +531,7 @@ func parseNearText(class *models.Class, body *models.SearchNearTextRequest, targ
 		params.WithDistance = true
 	}
 
-	if apiErr := checkVectorizer(class, targetVectors); apiErr != nil {
+	if apiErr := checkVectorizer(class, targetVectors, "near-text"); apiErr != nil {
 		return nil, apiErr
 	}
 
@@ -246,24 +544,25 @@ func parseNearText(class *models.Class, body *models.SearchNearTextRequest, targ
 // swagger's required validation, leaving empty-array/empty-concept here.
 func parseQuery(query []string) ([]string, *APIError) {
 	if len(query) == 0 {
-		return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
+		return nil, newAPIError(http.StatusBadRequest, errQueryEmpty)
 	}
 	for _, concept := range query {
 		if concept == "" {
-			return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
+			return nil, newAPIError(http.StatusBadRequest, errQueryEmpty)
 		}
 	}
 	return query, nil
 }
 
-// checkVectorizer rejects near-text on collections whose (target) vector has
-// no vectorizer module configured — deterministic counterpart of the
-// modules provider's "could not vectorize input ..." runtime error.
-func checkVectorizer(class *models.Class, targetVectors []string) *APIError {
+// checkVectorizer rejects searches that need server-side vectorization on
+// collections whose (target) vector has no vectorizer module configured —
+// deterministic counterpart of the modules provider's "could not vectorize
+// input ..." runtime error. searchKind names the rejected search in the 422.
+func checkVectorizer(class *models.Class, targetVectors []string, searchKind string) *APIError {
 	noVectorizer := func(target string) *APIError {
 		return newAPIError(http.StatusUnprocessableEntity,
-			"near-text is not supported: collection %s has no vectorizer module configured for target vector %q",
-			class.Class, target)
+			"%s is not supported: collection %s has no vectorizer module configured for target vector %q",
+			searchKind, class.Class, target)
 	}
 
 	for _, target := range targetVectors {

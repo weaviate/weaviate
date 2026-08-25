@@ -167,6 +167,10 @@ func (b *BatchSimple[T]) VectorizeBatchObjects(
 				return nil
 			}
 			res, _, err := vectorize(ctx, batchOfObjects[batchIndex].objs, cfg)
+			if err == nil && len(res) != len(batchOfObjects[batchIndex].indexes) {
+				err = fmt.Errorf("vectorizer returned %d embeddings for %d objects",
+					len(res), len(batchOfObjects[batchIndex].indexes))
+			}
 			if err != nil {
 				errorLock.Lock()
 				defer errorLock.Unlock()

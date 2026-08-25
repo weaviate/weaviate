@@ -16,15 +16,16 @@ import (
 	"encoding/binary"
 	simpleErrors "errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -45,7 +46,11 @@ import (
 const (
 	composerUpgradedKey = "upgraded"
 	batchSize           = 500
-	StateDBFileName     = "index.db"
+
+	// stateDBOpenTimeout bounds the wait for the state DB's file lock. Only a
+	// loaded shard holds it, and [UpgradedOnDisk] reads unloaded ones, so waiting
+	// is a sign the caller raced a load rather than something to sit out.
+	stateDBOpenTimeout = time.Second
 )
 
 var dynamicBucket = []byte("dynamic")
@@ -183,12 +188,9 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	logger := cfg.Logger
-	if logger == nil {
-		l := logrus.New()
-		l.Out = io.Discard
-		logger = l
-	}
+	// in place rather than into a local: the flat config below passes cfg.Logger
+	// on, so a default kept beside it would not travel with the index
+	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
 
 	flatConfig := flat.Config{
 		ID:                cfg.ID,
@@ -205,7 +207,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	index := &dynamic{
 		id:                           cfg.ID,
 		targetVector:                 cfg.TargetVector,
-		logger:                       logger,
+		logger:                       cfg.Logger,
 		rootPath:                     cfg.RootPath,
 		shardName:                    cfg.ShardName,
 		className:                    cfg.ClassName,
@@ -278,17 +280,102 @@ func (dynamic *dynamic) Type() common.IndexType {
 }
 
 func (dynamic *dynamic) dbKey() []byte {
-	var key []byte
-	if dynamic.targetVector != "" {
-		key = make([]byte, 0, len(composerUpgradedKey)+len(dynamic.targetVector)+1)
-		key = append(key, composerUpgradedKey...)
-		key = append(key, '_')
-		key = append(key, dynamic.targetVector...)
-	} else {
-		key = []byte(composerUpgradedKey)
+	return dbKey(dynamic.targetVector)
+}
+
+func dbKey(targetVector string) []byte {
+	if targetVector == "" {
+		return []byte(composerUpgradedKey)
 	}
 
+	key := make([]byte, 0, len(composerUpgradedKey)+len(targetVector)+1)
+	key = append(key, composerUpgradedKey...)
+	key = append(key, '_')
+	key = append(key, targetVector...)
 	return key
+}
+
+// RemoveStateKey deletes targetVector's flat-to-hnsw verdict from the shard's
+// state DB. No artifact list can carry it — index.db belongs to the shard, not
+// to any one vector — so the sweeps that never load a shard clear it here. A
+// verdict left behind is inherited by the next vector of the same name, which
+// boots straight into an empty hnsw and never serves its flat stage.
+//
+// A missing or locked state DB is success: nothing was upgraded, or a loaded
+// shard owns the key and deletes it through its own handle.
+func RemoveStateKey(rootPath, targetVector string) error {
+	path := filepath.Join(rootPath, ent.StateDBFileName)
+	// Statted rather than opened straight away: bbolt.Open CREATES the file, so
+	// a plain open would leave an empty state DB in every shard a drop touches.
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat dynamic state db: %w", err)
+	}
+
+	db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: stateDBOpenTimeout})
+	if err != nil {
+		if simpleErrors.Is(err, bolterrors.ErrTimeout) {
+			return nil
+		}
+		return fmt.Errorf("open dynamic state db: %w", err)
+	}
+	defer db.Close()
+
+	if err := db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		if b == nil {
+			return nil
+		}
+		return b.Delete(dbKey(targetVector))
+	}); err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", targetVector, err)
+	}
+	return nil
+}
+
+// UpgradedOnDisk reports whether the dynamic index of an unloaded shard already
+// switched to hnsw, reading the same state the shard's own load reads: the
+// shared state DB, falling back for a named vector to the hnsw commit log
+// directory. An unnamed vector gets no such fallback, because its load reads a
+// missing key as not upgraded and then deletes that directory.
+//
+// State that could not be read returns false along with the error, so a caller
+// can tell that answer apart from a shard positively known to be flat.
+func UpgradedOnDisk(rootPath, id, targetVector string) (bool, error) {
+	upgradedWithoutStateKey := false
+	if targetVector != "" {
+		_, err := os.Stat(hnswCommitLogDirectory(rootPath, id))
+		upgradedWithoutStateKey = err == nil
+	}
+
+	db, err := bbolt.Open(filepath.Join(rootPath, ent.StateDBFileName), 0o600,
+		&bbolt.Options{ReadOnly: true, Timeout: stateDBOpenTimeout})
+	if err != nil {
+		// only a shard that never wrote state may fall back to the directory; a
+		// locked or damaged DB is state we failed to read
+		if os.IsNotExist(err) {
+			return upgradedWithoutStateKey, nil
+		}
+		return false, fmt.Errorf("open dynamic state db: %w", err)
+	}
+	defer db.Close()
+
+	upgraded := upgradedWithoutStateKey
+	if err := db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		if b == nil {
+			return nil
+		}
+		if v := b.Get(dbKey(targetVector)); len(v) > 0 {
+			upgraded = v[0] != 0
+		}
+		return nil
+	}); err != nil {
+		return false, fmt.Errorf("read dynamic state db: %w", err)
+	}
+	return upgraded, nil
 }
 
 func (dynamic *dynamic) getBucketName() string {
@@ -316,8 +403,10 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		}
 
 		if cfg.TargetVector == "" {
+			// a stored empty value reads back non-nil, so length is what says
+			// whether a state was recorded
 			v := b.Get(dbKey)
-			if v == nil {
+			if len(v) == 0 {
 				return nil
 			}
 
@@ -331,7 +420,7 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 
 		// first, check if there's an entry for this specific target vector
 		v := b.Get(dbKey)
-		if v != nil {
+		if len(v) > 0 {
 			upgraded = v[0] != 0
 			return nil
 		}
@@ -451,10 +540,45 @@ func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 		return err
 	}
 	if !keepFiles {
-		os.Remove(filepath.Join(dynamic.rootPath, StateDBFileName))
+		os.Remove(filepath.Join(dynamic.rootPath, ent.StateDBFileName))
 	}
 
 	return dynamic.index.Drop(ctx, keepFiles)
+}
+
+// DropTargetVector removes ONE named vector's dynamic index, leaving the shard
+// intact. Drop is unusable here: the state DB is shared by every dynamic vector
+// on the shard (one handle, one key per vector), so its Close()+Remove would
+// take every sibling's state with it. This deletes only this vector's key,
+// which is also what stops a re-created vector of the same name inheriting a
+// stale "already upgraded" verdict.
+//
+// Loaded-shard route only: the files-only sweeps never open the state DB, so a
+// drop on a cold shard leaves the key behind.
+func (dynamic *dynamic) DropTargetVector(ctx context.Context) error {
+	if dynamic.ctx.Err() != nil {
+		// already dropped
+		return nil
+	}
+
+	dynamic.cancel()
+
+	dynamic.Lock()
+	defer dynamic.Unlock()
+
+	if err := dynamic.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		if b == nil {
+			return nil // nothing was ever recorded for this shard
+		}
+		return b.Delete(dynamic.dbKey())
+	}); err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", dynamic.targetVector, err)
+	}
+
+	// keepFiles=false: the underlying index's own files go, but the SHARED
+	// state DB above is untouched by this path.
+	return dynamic.index.Drop(ctx, false)
 }
 
 func (dynamic *dynamic) Flush() error {
@@ -520,7 +644,7 @@ func (dynamic *dynamic) SnapshotMutableFiles(ctx context.Context, basePath, stag
 // transaction (tx.CopyFile) so an in-place write during the long upload window cannot tear
 // the staged copy.
 func SnapshotSharedStateDB(db *bbolt.DB, rootPath, basePath, stagingDir string) (string, error) {
-	src := filepath.Join(rootPath, StateDBFileName)
+	src := filepath.Join(rootPath, ent.StateDBFileName)
 	relPath, err := filepath.Rel(basePath, src)
 	if err != nil {
 		return "", fmt.Errorf("index.db relative path: %w", err)
@@ -564,7 +688,7 @@ func (dynamic *dynamic) Preload(id uint64, vector []float32) {
 func (dynamic *dynamic) AlreadyIndexed() uint64 {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return (dynamic.index).(upgradableIndexer).AlreadyIndexed()
+	return dynamic.index.(upgradableIndexer).AlreadyIndexed()
 }
 
 func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
@@ -579,7 +703,7 @@ func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
 	}
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return (dynamic.index).(upgradableIndexer).ShouldUpgrade()
+	return dynamic.index.(upgradableIndexer).ShouldUpgrade()
 }
 
 func (dynamic *dynamic) Upgraded() bool {
@@ -859,16 +983,19 @@ func (dynamic *dynamic) Stats() (*hnsw.HnswStats, error) {
 	return h.Stats()
 }
 
+type compressionStatsReporter interface {
+	CompressionStats() compressionhelpers.CompressionStats
+}
+
 func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 
-	// Delegate to the underlying index (flat or hnsw)
-	if vectorIndex, ok := dynamic.index.(compressionhelpers.CompressionStats); ok {
-		return vectorIndex
+	// the stats belong to whichever index is active, flat or hnsw
+	if index, ok := dynamic.index.(compressionStatsReporter); ok {
+		return index.CompressionStats()
 	}
 
-	// Fallback: return uncompressed stats if the underlying index doesn't support CompressionStats
 	return compressionhelpers.UncompressedStats{}
 }
 

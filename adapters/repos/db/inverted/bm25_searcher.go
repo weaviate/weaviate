@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -49,7 +48,6 @@ type BM25Searcher struct {
 	store            *lsmkv.Store
 	getClass         func(string) *models.Class
 	classSearcher    ClassSearcher // to allow recursive searches on ref-props
-	propIndices      propertyspecific.Indices
 	propLenTracker   propLengthRetriever
 	logger           logrus.FieldLogger
 	shardVersion     uint16
@@ -119,7 +117,7 @@ type termListRequest struct {
 }
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
-	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
+	getClass func(string) *models.Class,
 	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider, propLenTracker propLengthRetriever,
 	logger logrus.FieldLogger, shardVersion uint16,
 ) *BM25Searcher {
@@ -127,7 +125,6 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		config:           config,
 		store:            store,
 		getClass:         getClass,
-		propIndices:      propIndices,
 		classSearcher:    classSearcher,
 		propLenTracker:   propLenTracker,
 		logger:           logger.WithField("action", "bm25_search"),

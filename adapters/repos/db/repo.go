@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -65,6 +64,7 @@ type DB struct {
 	promMetrics               *monitoring.PrometheusMetrics
 	indexCheckpoints          *indexcheckpoint.Checkpoints
 	shutdown                  chan struct{}
+	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
 	resourceScanState         *resourceScanState
@@ -191,6 +191,10 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 	}
 
 	db.startupComplete.Store(true)
+	// Only once init has returned: unlike AddClass, it does not settle the
+	// indices it builds against the read-only flag, so a transition landing
+	// while one is still being assembled would reach its shards through neither
+	// path.
 	db.scanResourceUsage()
 
 	return nil
@@ -259,22 +263,15 @@ func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
 }
 
 // localShardsToLoad returns the number of local shards that count toward eager
-// startup loading for the given class: local physical shards whose activity
-// status is HOT (empty status counts as HOT)
+// startup loading for the given class: the shards its namespace state and their
+// own activity status agree should be open. A class whose shards none of the
+// loading paths will open must not be counted, or progress never completes.
 func (db *DB) localShardsToLoad(className string) int64 {
-	var count int64
-	_ = db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return nil
-		}
-		for name, physical := range state.Physical {
-			if state.IsLocalShard(name) && physical.ActivityStatus() == models.TenantActivityStatusHOT {
-				count++
-			}
-		}
-		return nil
-	})
-	return count
+	count, err := db.DesiredOpenLocalShardCount(className)
+	if err != nil {
+		return 0
+	}
+	return int64(count)
 }
 
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter
@@ -611,14 +608,18 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {
-	db.shutdown <- struct{}{}
+	// Close, never send: the sole receiver is the resource-scan loop, and a recovered panic there would leave an unbuffered send hanging the whole shutdown until SIGKILL.
+	db.shutdownOnce.Do(func() { close(db.shutdown) })
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {
 		// shut down the workers that add objects to
 		for i := 0; i < db.maxNumberGoroutines; i++ {
-			db.jobQueueCh <- job{
-				index: -1,
+			select {
+			case db.jobQueueCh <- job{index: -1}:
+			case <-time.After(30 * time.Second):
+				// Skipping is safe (worker Done is deferred); blocking here would wedge the shutdown.
+				db.logger.Warnf("batch worker poison pill %d/%d not accepted after 30s; continuing shutdown", i+1, db.maxNumberGoroutines)
 			}
 		}
 	}
@@ -660,11 +661,12 @@ type job struct {
 }
 
 func (db *DB) batchWorker(first bool) {
+	// Unconditional: a recovered panic must not leak the count and pin DB.Shutdown forever.
+	defer db.shutDownWg.Done()
 	objectCounter := 0
 	checkTime := time.Now().Add(time.Second)
 	for jobToAdd := range db.jobQueueCh {
 		if jobToAdd.index < 0 {
-			db.shutDownWg.Done()
 			return
 		}
 		func() {

@@ -37,15 +37,16 @@ const (
 	movie2ID = strfmt.UUID("aa44bbee-ca5f-4db7-a412-5fc6a2300003")
 )
 
-// postNearText POSTs a raw JSON near-text search and decodes the raw JSON
-// reply, so assertions run against the wire shape, not generated models.
-func postNearText(t *testing.T, collection string, body map[string]interface{}) (int, map[string]interface{}) {
+// postSearch POSTs a raw JSON search of the given type and decodes the raw
+// JSON reply, so assertions run against the wire shape, not generated
+// models.
+func postSearch(t *testing.T, collection, searchType string, body map[string]interface{}) (int, map[string]interface{}) {
 	t.Helper()
 	payload, err := json.Marshal(body)
 	require.NoError(t, err)
 
-	url := fmt.Sprintf("http://%s:%s/v1/search/%s/near-text",
-		helper.ServerHost, helper.ServerPort, collection)
+	url := fmt.Sprintf("http://%s:%s/v1/search/%s/%s",
+		helper.ServerHost, helper.ServerPort, collection, searchType)
 	resp, err := http.Post(url, "application/json", bytes.NewReader(payload))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -53,6 +54,10 @@ func postNearText(t *testing.T, collection string, body map[string]interface{}) 
 	var out map[string]interface{}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	return resp.StatusCode, out
+}
+
+func postNearText(t *testing.T, collection string, body map[string]interface{}) (int, map[string]interface{}) {
+	return postSearch(t, collection, "near-text", body)
 }
 
 // errMessage extracts the message from either error shape: the handler's
@@ -109,6 +114,51 @@ func idOf(t *testing.T, h map[string]interface{}) string {
 	id, ok := h["id"].(string)
 	require.True(t, ok, "hit has no id: %v", h)
 	return id
+}
+
+// unsearchableLedgerClass has no searchable property: ints are never
+// keyword-searchable and its sole text property disables its searchable
+// index.
+func unsearchableLedgerClass(vectorizer string) *models.Class {
+	return &models.Class{
+		Class:      "Ledger",
+		Vectorizer: vectorizer,
+		Properties: []*models.Property{
+			{Name: "year", DataType: schema.DataTypeInt.PropString()},
+			{
+				Name: "code", DataType: schema.DataTypeText.PropString(),
+				IndexSearchable: func() *bool { b := false; return &b }(),
+			},
+		},
+	}
+}
+
+// assertScoredHits asserts the scored-envelope shape shared by the keyword
+// and hybrid endpoints: tookMs present, every hit a UUID id with a score in
+// its metadata, scores descending. requirePositive additionally demands
+// every score be above zero (bm25; hybrid's relative-score fusion may
+// normalize the last hit to 0).
+func assertScoredHits(t *testing.T, out map[string]interface{}, wantHits int, requirePositive bool) {
+	t.Helper()
+	res := results(t, out)
+	require.Len(t, res, wantHits)
+	_, ok := out["tookMs"].(float64)
+	assert.True(t, ok, "tookMs missing or not a number: %v", out)
+
+	prev := float64(-1)
+	for i := range res {
+		h := hit(t, out, i)
+		require.True(t, strfmt.IsUUID(idOf(t, h)), "id is not a UUID: %v", h)
+		score, ok := metadataOf(t, h)["score"].(float64)
+		require.True(t, ok, "score missing in metadata: %v", h)
+		if requirePositive {
+			assert.Greater(t, score, float64(0))
+		}
+		if prev >= 0 {
+			assert.LessOrEqual(t, score, prev, "scores must descend")
+		}
+		prev = score
+	}
 }
 
 func movieClass() *models.Class {
@@ -513,6 +563,30 @@ func TestRESTSearchDisabled(t *testing.T) {
 	status, out := postNearText(t, "Anything", map[string]interface{}{
 		"query": []string{"anything"},
 	})
+	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+	assert.Contains(t, errMessage(t, out), "not enabled")
+
+	// the gate covers every search endpoint
+	status, out = postBm25(t, "Anything", map[string]interface{}{
+		"query": "anything",
+	})
+	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+	assert.Contains(t, errMessage(t, out), "not enabled")
+
+	status, out = postHybrid(t, "Anything", map[string]interface{}{
+		"query": "anything",
+	})
+	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+	assert.Contains(t, errMessage(t, out), "not enabled")
+
+	status, out = postNearObject(t, "Anything", map[string]interface{}{
+		"id": "dd44bbee-ca5f-4db7-a412-5fc6a2300001",
+	})
+	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+	assert.Contains(t, errMessage(t, out), "not enabled")
+
+	// the gate also covers the sibling aggregate endpoint
+	status, out = postAggregate(t, "Anything", map[string]interface{}{})
 	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 	assert.Contains(t, errMessage(t, out), "not enabled")
 }

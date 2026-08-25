@@ -23,6 +23,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"runtime"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,14 +57,19 @@ const (
 
 type replicationClient struct {
 	retryClient
-	// Shared instance: EncodeAll is concurrency-safe and internally multiplexes GOMAXPROCS sub-encoders.
+	// Shared instance: EncodeAll is concurrency-safe and internally multiplexes a capped set of sub-encoders.
 	zstdEncoder *zstd.Encoder
 }
 
 var _ replica.Client = (*replicationClient)(nil)
 
 func NewReplicationClient(httpClient *http.Client) (*replicationClient, error) {
-	enc, err := zstd.NewWriter(nil)
+	// Sub-encoder state is retained for the process lifetime, so concurrency and
+	// window are capped: defaults hold GOMAXPROCS×~1.5MiB permanently and grow by
+	// 16MiB per sub-encoder on any payload over one block (128KiB).
+	enc, err := zstd.NewWriter(nil,
+		zstd.WithEncoderConcurrency(min(4, runtime.GOMAXPROCS(0))),
+		zstd.WithWindowSize(1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("create zstd encoder: %w", err)
 	}
@@ -110,7 +116,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 
 func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 	host, index, shard string, initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]types.RepairResponse, error) {
+) ([]types.RepairDigest, error) {
 	body, err := json.Marshal(replica.DigestObjectsInRangeReq{
 		InitialUUID: initialUUID,
 		FinalUUID:   finalUUID,
@@ -143,6 +149,9 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
 	}
 
@@ -150,20 +159,34 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 		return readDigestsInRangeBinaryStream(res.Body, res.ContentLength, limit)
 	}
 
-	// Legacy JSON fallback for older nodes.
+	// Legacy JSON fallback for older nodes; string IDs are parsed at this edge only.
 	var resp replica.DigestObjectsInRangeResp
 	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
-	return resp.Digests, nil
+	return repairResponsesToDigests(resp.Digests)
+}
+
+// repairResponsesToDigests converts the string-ID JSON wire form into the
+// internal byte-ID digests (legacy-peer fallback paths only).
+func repairResponsesToDigests(responses []types.RepairResponse) ([]types.RepairDigest, error) {
+	digests := make([]types.RepairDigest, len(responses))
+	for i, r := range responses {
+		id, err := uuid.Parse(r.ID)
+		if err != nil {
+			return nil, fmt.Errorf("parse digest uuid %q: %w", r.ID, err)
+		}
+		digests[i] = types.RepairDigest{ID: id, UpdateTime: r.UpdateTime, Deleted: r.Deleted}
+	}
+	return digests, nil
 }
 
 // readDigestsInRangeBinaryStream decodes a fixed-size binary stream produced
 // by writeDigestsInRangeResponse. Each record is
 // replica.DigestObjectsInRangeRecordLength bytes: 16-byte UUID (RFC-4122
 // binary form) + 8-byte UpdateTime (int64 big-endian).
-func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64, maxRecords int) ([]types.RepairResponse, error) {
-	var results []types.RepairResponse
+func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64, maxRecords int) ([]types.RepairDigest, error) {
+	var results []types.RepairDigest
 	if contentLength > 0 {
 		// Content-Length is peer-controlled; never pre-size beyond the request's own bound
 		recordCount := contentLength / int64(replica.DigestObjectsInRangeRecordLength)
@@ -174,7 +197,7 @@ func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64, maxRecords
 		if recordCount < 0 {
 			recordCount = 0
 		}
-		results = make([]types.RepairResponse, 0, int(recordCount))
+		results = make([]types.RepairDigest, 0, int(recordCount))
 	}
 	var buf [replica.DigestObjectsInRangeRecordLength]byte
 	for {
@@ -190,8 +213,8 @@ func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64, maxRecords
 			return nil, fmt.Errorf("parse uuid from binary record: %w", err)
 		}
 		updateTime := int64(binary.BigEndian.Uint64(buf[16:]))
-		results = append(results, types.RepairResponse{
-			ID:         id.String(),
+		results = append(results, types.RepairDigest{
+			ID:         id,
 			UpdateTime: updateTime,
 		})
 	}
@@ -204,23 +227,9 @@ func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64, maxRecords
 // Wire format: CompareDigestsRecordLength bytes per record —
 // 16-byte UUID (big-endian) + 8-byte UpdateTime (int64 big-endian) + 1-byte flags.
 func (c *replicationClient) CompareDigests(ctx context.Context,
-	host, index, shard string, digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
-	body := make([]byte, 0, len(digests)*replica.CompareDigestsRecordLength)
-	var buf [replica.CompareDigestsRecordLength]byte
-	for _, d := range digests {
-		u, err := uuid.Parse(d.ID)
-		if err != nil {
-			return nil, fmt.Errorf("encode source digest uuid %q: %w", d.ID, err)
-		}
-		copy(buf[:16], u[:])
-		binary.BigEndian.PutUint64(buf[16:], uint64(d.UpdateTime))
-		buf[24] = 0
-		if d.Deleted {
-			buf[24] = replica.CompareDigestsFlagDeleted
-		}
-		body = append(body, buf[:]...)
-	}
+	host, index, shard string, digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
+	body := replica.RepairDigestsToBinary(digests)
 
 	// No internal timeout: the async-replication scheduler manages the
 	// per-cycle deadline on the incoming context.
@@ -239,6 +248,9 @@ func (c *replicationClient) CompareDigests(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
 	}
 
@@ -247,8 +259,8 @@ func (c *replicationClient) CompareDigests(ctx context.Context,
 
 // readCompareDigestsBinaryStream decodes a fixed-size binary stream produced
 // by postCompareDigests. Each record is replica.CompareDigestsRecordLength bytes.
-func readCompareDigestsBinaryStream(r io.Reader, contentLength int64, maxRecords int) ([]types.RepairResponse, error) {
-	var results []types.RepairResponse
+func readCompareDigestsBinaryStream(r io.Reader, contentLength int64, maxRecords int) ([]types.RepairDigest, error) {
+	var results []types.RepairDigest
 	if contentLength > 0 {
 		recordCount := contentLength / int64(replica.CompareDigestsRecordLength)
 		if recordCount > int64(maxRecords) {
@@ -257,7 +269,7 @@ func readCompareDigestsBinaryStream(r io.Reader, contentLength int64, maxRecords
 		if recordCount < 0 {
 			recordCount = 0
 		}
-		results = make([]types.RepairResponse, 0, int(recordCount))
+		results = make([]types.RepairDigest, 0, int(recordCount))
 	}
 	var buf [replica.CompareDigestsRecordLength]byte
 	for {
@@ -274,8 +286,8 @@ func readCompareDigestsBinaryStream(r io.Reader, contentLength int64, maxRecords
 		}
 		updateTime := int64(binary.BigEndian.Uint64(buf[16:]))
 		deleted := buf[24]&replica.CompareDigestsFlagDeleted != 0
-		results = append(results, types.RepairResponse{
-			ID:         id.String(),
+		results = append(results, types.RepairDigest{
+			ID:         id,
 			UpdateTime: updateTime,
 			Deleted:    deleted,
 		})
@@ -284,6 +296,20 @@ func readCompareDigestsBinaryStream(r io.Reader, contentLength int64, maxRecords
 
 // HashTreeLevel fetches hash tree level digests. discriminant.Size() must
 // equal hashtree.LeavesCount(level).
+
+// asyncNotReadyError maps 412/418/503 to the retry-later sentinel family; nil otherwise (pre-1.38 peers send 500).
+func asyncNotReadyError(code int, body []byte) error {
+	switch code {
+	case http.StatusPreconditionFailed:
+		return fmt.Errorf("%w: %s", replica.ErrAsyncReplicationNotActive, body)
+	case http.StatusTeapot:
+		return fmt.Errorf("%w: %s", replica.ErrReplicaMaintenance, body)
+	case http.StatusServiceUnavailable:
+		return fmt.Errorf("%w: %s", replica.ErrReplicaBooting, body)
+	}
+	return nil
+}
+
 func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	host, index, shard string, level int, discriminant *hashtree.Bitset,
 ) ([]hashtree.Digest, error) {
@@ -326,6 +352,9 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 
 	if code := res.StatusCode; !successCode(code) {
 		errBody, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(code, errBody); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", code, errBody)
 	}
 
@@ -569,6 +598,9 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
+		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
 	}
 

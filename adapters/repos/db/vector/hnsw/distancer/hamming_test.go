@@ -135,7 +135,6 @@ func TestCompareHammingDistanceImplementations(t *testing.T) {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
 			r := getRandomSeed()
 			count := 1
-			countFailed := 0
 
 			vec1s := make([][]float32, count)
 			vec2s := make([][]float32, count)
@@ -166,12 +165,9 @@ func TestCompareHammingDistanceImplementations(t *testing.T) {
 				resControl := HammingDistanceGo(vec1s[i], vec2s[i])
 
 				if resControl != res {
-					countFailed++
-					t.Fatalf("run %d: match: %f != %f, %d\n", i, resControl, res, (unsafe.Pointer(&vec1s[i][0])))
+					t.Fatalf("run %d: match: %f != %f, %d\n", i, resControl, res, unsafe.Pointer(&vec1s[i][0]))
 				}
-
 			}
-			fmt.Printf("total failed: %d\n", countFailed)
 		})
 	}
 }

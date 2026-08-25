@@ -267,7 +267,7 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 				// removes the per-prop backup dirs. tidyBackupBuckets
 				// is therefore dead code on the inline happy path;
 				// it's only ever called from the recovery branches
-				// in RunSwapOnShard / OnBeforeLsmInit. To exercise
+				// in RunSwapOnShard. To exercise
 				// the per-prop tidy hook explicitly we drive
 				// runtimeSwap to completion, then reset the tidied
 				// sentinel (leaving IsSwapped=true, IsTidied=false),
@@ -284,11 +284,8 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 				// runs the markTidied call again (idempotent on
 				// the bucket-removal side because RemoveAll is
 				// OS-level idempotent). The hook can then fire.
-				//
-				// Same pattern as runCrossReplicaMigrationWithCrash
-				// (inverted_reindex_recovery_multiprop_test.go:651)
-				// — there is no public unmarkTidied so we remove
-				// the tidied.mig file directly.
+				// There is no unmarkTidied, so we remove the
+				// tidied.mig file directly.
 				ftr := rt.(*fileReindexTracker)
 				tidiedPath := filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)
 				require.NoError(t, os.Remove(tidiedPath),

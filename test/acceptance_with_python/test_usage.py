@@ -19,11 +19,17 @@ from weaviate.collections.classes.config_vectors import _VectorConfigCreate
 
 from . import get_debug_usage as debug_usage
 from .conftest import CollectionFactory
-from .get_debug_usage import ShardUsage, VectorUsage
+from .get_debug_usage import CollectionUsage, ShardUsage, VectorUsage
 
 vectors = wvc.config.Configure.Vectors
 vectorizers = wvc.config.Configure.Vectorizer
 quantizer = wvc.config.Configure.VectorIndex.Quantizer
+
+# These tests assert on storage sizes that only settle once background work (commit log
+# rewrites, memtable flushes, quantizer training) has run. Keeping them on a single worker
+# stops them from competing with the rest of the suite for the CPU that work needs, and stops
+# them from waiting on each other's shards through the node-wide /debug/usage report.
+pytestmark = pytest.mark.xdist_group("usage")
 
 
 def tenant_objects_count(tenant_id: int) -> int:
@@ -31,6 +37,59 @@ def tenant_objects_count(tenant_id: int) -> int:
 
 
 vector_names = ["first", "second", "third", "fourth"]
+
+# muvera holds a fixed encoded vector per object: repetitions x 2^ksim x dprojections
+muvera_encoded_dimensions = 10 * (1 << 4) * 16
+
+
+def wait_for_compression(
+    collection_name: str, target_vector: str, compression: str, timeout: float = 60.0
+) -> VectorUsage:
+    """Poll until a named vector reports the given compression with a settled ratio.
+
+    Enabling a quantizer trains and re-encodes in the background, so both the reported
+    compression and its ratio only change some time after the schema update returns. PQ is
+    excluded from the ratio check because it keeps reporting an uncompressed ratio.
+    """
+    deadline = time.monotonic() + timeout
+    named_vector = None
+    while True:
+        usage = debug_usage.get_debug_usage_for_collection(collection_name)
+        named_vector = next(
+            (nv for nv in usage.shards[0].named_vectors if nv.name == target_vector), None
+        )
+        if named_vector is not None and named_vector.compression == compression:
+            if compression == "pq" or named_vector.vector_compression_ratio != 1:
+                return named_vector
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"named vector {target_vector} did not report {compression} within {timeout}s,"
+                f" last report: {named_vector}"
+            )
+        time.sleep(0.5)
+
+
+def wait_for_shard_status(
+    collection_name: str, shard_names: List[str], status: str, timeout: float = 60.0
+) -> CollectionUsage:
+    """Poll until the given shards report the given status.
+
+    The reported status follows whether the shard is loaded locally, not what the schema says.
+    Activating and deactivating a tenant both return once the schema change is applied and
+    load or unload the shard afterwards, so the two disagree for a while.
+    """
+    deadline = time.monotonic() + timeout
+    expected = set(shard_names)
+    while True:
+        usage = debug_usage.get_debug_usage_for_collection(collection_name)
+        pending = {
+            s.name: s.status for s in usage.shards if s.name in expected and s.status != status
+        }
+        if not pending:
+            return usage
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"shards {pending} did not become {status} within {timeout}s")
+        time.sleep(0.5)
 
 
 def test_usage_adding_named_vector(collection_factory: CollectionFactory):
@@ -178,7 +237,8 @@ def test_usage_mt(
             )
 
     # test usage for HOT tenants
-    usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
+    tenants = ["tenant" + str(i) for i in range(num_tenants)]
+    usage_collection = wait_for_shard_status(collection.name, tenants, "active")
     assert usage_collection.name == collection.name
     assert len(usage_collection.shards) == num_tenants
 
@@ -186,10 +246,11 @@ def test_usage_mt(
         analyze_tenant(shard, True, num_vector_indices, vector_config, vector_index_config)
 
     # now deactivate some tenats and check usage again
-    collection.tenants.deactivate(["tenant" + str(i) for i in range(0, num_tenants, 2)])
-    usage_collection_col = debug_usage.get_debug_usage_for_collection(collection.name)
-    assert usage_collection.name == collection.name
-    assert len(usage_collection.shards) == num_tenants
+    deactivated = tenants[::2]
+    collection.tenants.deactivate(deactivated)
+    usage_collection_col = wait_for_shard_status(collection.name, deactivated, "inactive")
+    assert usage_collection_col.name == collection.name
+    assert len(usage_collection_col.shards) == num_tenants
 
     for shard in usage_collection_col.shards:
         tenant_id = int(shard.name.removeprefix("tenant"))
@@ -247,7 +308,7 @@ def test_usage_enabling_compression(
         )
     )
 
-    time.sleep(0.5)  # wait for async training to finish
+    wait_for_compression(collection.name, vector_names[0], quantizer_config.quantizer_name())
 
     usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
     assert usage_collection.name == collection.name
@@ -334,7 +395,7 @@ def test_multi_vector(collection_factory: CollectionFactory):
     assert named_vector_muvera.name == vector_names[1]
     assert len(named_vector_muvera.dimensionalities) == 1
     dimensionality = named_vector_muvera.dimensionalities[0]
-    assert dimensionality.dimensions == 6  # 3 vectors of 2 dimensions each
+    assert dimensionality.dimensions == muvera_encoded_dimensions
     assert dimensionality.count == 2
     assert named_vector_muvera.compression == "standard"
     assert named_vector_muvera.vector_compression_ratio == 1
@@ -345,7 +406,7 @@ def test_multi_vector(collection_factory: CollectionFactory):
     assert named_vector_muvera_bq.name == vector_names[2]
     assert len(named_vector_muvera_bq.dimensionalities) == 1
     dimensionality = named_vector_muvera_bq.dimensionalities[0]
-    assert dimensionality.dimensions == 6  # 3 vectors of 2 dimensions each
+    assert dimensionality.dimensions == muvera_encoded_dimensions
     assert dimensionality.count == 2
     assert named_vector_muvera_bq.compression == "bq"
     assert named_vector_muvera_bq.vector_compression_ratio == 32
@@ -397,7 +458,8 @@ def test_object_storage(collection_factory: CollectionFactory):
     collection.tenants.deactivate("tenant")
     collection.tenants.activate("tenant")
 
-    usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
+    # settled, so the hot totals below describe the same bytes the cold read will see
+    usage_collection = debug_usage.get_settled_debug_usage_for_collection(collection.name)
     assert usage_collection.name == collection.name
     assert len(usage_collection.shards) == 1
     shard = usage_collection.shards[0]
@@ -466,7 +528,8 @@ def test_storage_vectors(collection_factory: CollectionFactory):
     # Moreover, the flat index does use an additional bucket to store the uncompressed vectors, resulting in an
     # additional 400000 bytes for the first vector, so total storage should be around 1328125 bytes
 
-    usage_collection = debug_usage.get_debug_usage_for_collection(collection.name)
+    # settled, so the hot totals below describe the same bytes the cold read will see
+    usage_collection = debug_usage.get_settled_debug_usage_for_collection(collection.name)
     assert usage_collection.name == collection.name
     assert len(usage_collection.shards) == 1
     shard = usage_collection.shards[0]
@@ -481,18 +544,13 @@ def test_storage_vectors(collection_factory: CollectionFactory):
     shard_cold = usage_collection_cold.shards[0]
     assert len(shard_cold.named_vectors) == 2
 
-    # On-disk LSM segments and HNSW commit-log/snapshot files are non-deterministic
-    # between a live shard (hot) and a fully-shutdown shard (cold) because the second
-    # deactivate flushes memtables and stops commit-log/compaction cycles. Allow ~1%
-    # drift between hot and cold totals instead of strict equality.
-    assert shard_cold.vector_storage_bytes == pytest.approx(shard.vector_storage_bytes, rel=0.01)
+    # hot and cold computation should result in the same value
+    assert shard_cold.vector_storage_bytes == shard.vector_storage_bytes
     # we want AT LEAST the calculated value, but it can be higher due to overhead
     assert shard_cold.vector_storage_bytes > 1328125
 
-    assert shard_cold.index_storage_bytes == pytest.approx(shard.index_storage_bytes, rel=0.01)
-    assert shard_cold.full_shard_storage_bytes == pytest.approx(
-        shard.full_shard_storage_bytes, rel=0.01
-    )
+    assert shard_cold.index_storage_bytes == shard.index_storage_bytes
+    assert shard_cold.full_shard_storage_bytes == shard.full_shard_storage_bytes
     # shard storage must be larger than sum of components
     assert (
         shard.full_shard_storage_bytes
@@ -577,7 +635,7 @@ def analyze_tenant(
     tenant_id = int(shard.name.removeprefix("tenant"))
     assert len(shard.named_vectors) == num_vector_indices
     if is_active:
-        shard.status = "active"
+        assert shard.status == "active"
         assert shard.objects_count == tenant_objects_count(
             tenant_id
         )  # inactive count is too unreliable
@@ -602,10 +660,7 @@ def analyze_tenant(
             if isinstance(vec_index_config.quantizer, _BQConfigCreate):
                 assert named_vector.compression == _BQConfigCreate.quantizer_name()
                 if is_active:
-                    if vec_index_config.vector_index_type() == "flat":
-                        assert named_vector.vector_compression_ratio == 1  # not set for flat
-                    else:
-                        assert named_vector.vector_compression_ratio == 32
+                    assert named_vector.vector_compression_ratio == 32
             elif isinstance(vec_index_config.quantizer, _SQConfigCreate):
                 assert named_vector.compression == _SQConfigCreate.quantizer_name()
                 # SQ compression is only enabled for async indexing after training

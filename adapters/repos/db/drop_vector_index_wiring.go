@@ -97,8 +97,13 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 		return fmt.Errorf("index for collection %q not found", collection)
 	}
 	helper := newVectorDropIndexHelper()
+	class := idx.getClass()
 	for _, target := range targets {
-		if err := helper.removeVectorIndexFiles(idx.path(), shardName, target); err != nil {
+		// Siblings are read per target: the collection's other vector names are
+		// what stops a drop deleting a live vector whose own bucket happens to
+		// share a name with one of this target's artifacts.
+		if err := helper.removeVectorIndexFiles(idx.path(), shardName, target,
+			otherTargetVectors(class, target)); err != nil {
 			return err
 		}
 	}

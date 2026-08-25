@@ -97,11 +97,19 @@ func (s *Raft) SetDistributedTaskSchemaMutationDetectors(detectors map[string]di
 	s.store.SetDistributedTaskSchemaMutationDetectors(detectors)
 }
 
-// RegisterDistributedTaskCollectionExtractor opts a task namespace into
-// the DELETE_CLASS cascade. See [distributedtask.CollectionExtractor]
-// and weaviate/0-weaviate-issues#231.
-func (s *Raft) RegisterDistributedTaskCollectionExtractor(namespace string, extractor distributedtask.CollectionExtractor) {
-	s.store.RegisterDistributedTaskCollectionExtractor(namespace, extractor)
+// LocalUnrecognizedDistributedTasks implements
+// [distributedtask.LocalTaskInspector].
+func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
+	return s.store.LocalUnrecognizedDistributedTasks()
+}
+
+// LocalDistributedTasks reads this node's own FSM, not the leader. The schema
+// lives in that same FSM at the same applied index, so a caller that reads
+// tasks and then a schema flag gets a flag at least as new as the tasks. It
+// can trail the leader: use [Raft.ListDistributedTasks] when a decision needs
+// the cluster's latest state.
+func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
+	return s.store.LocalDistributedTasks()
 }
 
 func (s *Raft) Ready() bool {

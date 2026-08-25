@@ -260,12 +260,12 @@ func stubDBWithNoLiveReindex() *DB {
 	return db
 }
 
-func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
+func testShard(t testing.TB, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
 		false, false, false, indexOpts...)
 }
 
-func testShardMultiTenant(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
+func testShardMultiTenant(t testing.TB, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithMultiTenantSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
 		false, false, false, indexOpts...)
 }
@@ -292,6 +292,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -352,9 +353,14 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 	return shardName
 }
 
-func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
+	// With async indexing on, NewShard reads the checkpoint store from a
+	// goroutine, so a missing one surfaces on an unrelated test.
+	require.False(t, withAsyncIndexingEnabled && !withCheckpoints,
+		"async indexing needs withCheckpoints")
+
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	maxResults := int64(10_000)
@@ -447,8 +453,24 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
 		}, nil,
 	).Maybe()
+	mockRouter.EXPECT().
+		BuildRoutingPlanOptions(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(tenant, shard string, cl types.ConsistencyLevel, direct string) types.RoutingPlanBuildOptions {
+			return types.RoutingPlanBuildOptions{Shard: shard, Tenant: tenant, ConsistencyLevel: cl}
+		}).
+		Maybe()
+	mockRouter.EXPECT().
+		BuildReadRoutingPlan(mock.Anything).
+		Return(types.ReadRoutingPlan{
+			LocalHostname: "127.0.0.1",
+			ReplicaSet: types.ReadReplicaSet{
+				Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
+			},
+		}, nil).
+		Maybe()
 
 	nodeResolver := cluster.NewMockNodeResolver(t)
+	nodeResolver.EXPECT().NodeHostname(mock.Anything).Return("127.0.0.1", true).Maybe()
 
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
@@ -525,13 +547,13 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 }
 
 // Simplified functions that delegate to the common helper
-func testShardWithMultiTenantSettings(t *testing.T, ctx context.Context, class *models.Class,
+func testShardWithMultiTenantSettings(t testing.TB, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, true, withAsyncIndexingEnabled, indexOpts...)
 }
 
-func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+func testShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, withAsyncIndexingEnabled, indexOpts...)

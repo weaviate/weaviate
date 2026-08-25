@@ -32,6 +32,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/aggregate"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
@@ -88,6 +89,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		AuthzAddPermissionsHandler: authz.AddPermissionsHandlerFunc(func(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AddPermissions has not yet been implemented")
+		}),
+		AggregateAggregateHandler: aggregate.AggregateHandlerFunc(func(params aggregate.AggregateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation aggregate.Aggregate has not yet been implemented")
 		}),
 		SchemaAliasesCreateHandler: schema.AliasesCreateHandlerFunc(func(params schema.AliasesCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.AliasesCreate has not yet been implemented")
@@ -398,6 +402,15 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsVectorsDeleteHandler: schema.SchemaObjectsVectorsDeleteHandlerFunc(func(params schema.SchemaObjectsVectorsDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsVectorsDelete has not yet been implemented")
 		}),
+		SearchSearchBm25Handler: search.SearchBm25HandlerFunc(func(params search.SearchBm25Params, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation search.SearchBm25 has not yet been implemented")
+		}),
+		SearchSearchHybridHandler: search.SearchHybridHandlerFunc(func(params search.SearchHybridParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation search.SearchHybrid has not yet been implemented")
+		}),
+		SearchSearchNearObjectHandler: search.SearchNearObjectHandlerFunc(func(params search.SearchNearObjectParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation search.SearchNearObject has not yet been implemented")
+		}),
 		SearchSearchNearTextHandler: search.SearchNearTextHandlerFunc(func(params search.SearchNearTextParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation search.SearchNearText has not yet been implemented")
 		}),
@@ -498,6 +511,8 @@ type WeaviateAPI struct {
 	UsersActivateUserHandler users.ActivateUserHandler
 	// AuthzAddPermissionsHandler sets the operation handler for the add permissions operation
 	AuthzAddPermissionsHandler authz.AddPermissionsHandler
+	// AggregateAggregateHandler sets the operation handler for the aggregate operation
+	AggregateAggregateHandler aggregate.AggregateHandler
 	// SchemaAliasesCreateHandler sets the operation handler for the aliases create operation
 	SchemaAliasesCreateHandler schema.AliasesCreateHandler
 	// SchemaAliasesDeleteHandler sets the operation handler for the aliases delete operation
@@ -704,6 +719,12 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
 	// SchemaSchemaObjectsVectorsDeleteHandler sets the operation handler for the schema objects vectors delete operation
 	SchemaSchemaObjectsVectorsDeleteHandler schema.SchemaObjectsVectorsDeleteHandler
+	// SearchSearchBm25Handler sets the operation handler for the search bm25 operation
+	SearchSearchBm25Handler search.SearchBm25Handler
+	// SearchSearchHybridHandler sets the operation handler for the search hybrid operation
+	SearchSearchHybridHandler search.SearchHybridHandler
+	// SearchSearchNearObjectHandler sets the operation handler for the search near object operation
+	SearchSearchNearObjectHandler search.SearchNearObjectHandler
 	// SearchSearchNearTextHandler sets the operation handler for the search near text operation
 	SearchSearchNearTextHandler search.SearchNearTextHandler
 	// NamespacesSuspendNamespaceHandler sets the operation handler for the suspend namespace operation
@@ -825,6 +846,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.AuthzAddPermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.AddPermissionsHandler")
+	}
+	if o.AggregateAggregateHandler == nil {
+		unregistered = append(unregistered, "aggregate.AggregateHandler")
 	}
 	if o.SchemaAliasesCreateHandler == nil {
 		unregistered = append(unregistered, "schema.AliasesCreateHandler")
@@ -1135,6 +1159,15 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaSchemaObjectsVectorsDeleteHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsVectorsDeleteHandler")
 	}
+	if o.SearchSearchBm25Handler == nil {
+		unregistered = append(unregistered, "search.SearchBm25Handler")
+	}
+	if o.SearchSearchHybridHandler == nil {
+		unregistered = append(unregistered, "search.SearchHybridHandler")
+	}
+	if o.SearchSearchNearObjectHandler == nil {
+		unregistered = append(unregistered, "search.SearchNearObjectHandler")
+	}
 	if o.SearchSearchNearTextHandler == nil {
 		unregistered = append(unregistered, "search.SearchNearTextHandler")
 	}
@@ -1288,6 +1321,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/authz/roles/{id}/add-permissions"] = authz.NewAddPermissions(o.context, o.AuthzAddPermissionsHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/aggregate/{collection}"] = aggregate.NewAggregate(o.context, o.AggregateAggregateHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1700,6 +1737,18 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/schema/{className}/vectors/{vectorIndexName}/index"] = schema.NewSchemaObjectsVectorsDelete(o.context, o.SchemaSchemaObjectsVectorsDeleteHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/search/{collection}/bm25"] = search.NewSearchBm25(o.context, o.SearchSearchBm25Handler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/search/{collection}/hybrid"] = search.NewSearchHybrid(o.context, o.SearchSearchHybridHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/search/{collection}/near-object"] = search.NewSearchNearObject(o.context, o.SearchSearchNearObjectHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

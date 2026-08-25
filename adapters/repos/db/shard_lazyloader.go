@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -23,7 +24,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -213,6 +213,19 @@ func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
 	return l.shard.UpdateStatus(status, reason)
 }
 
+// UpdateStatusIf leaves an unloaded shard alone instead of loading it: the
+// status lives in the loaded shard, and loading one to record a status would
+// resurrect a shard that was deliberately unloaded.
+func (l *LazyLoadShard) UpdateStatusIf(cond func(ShardStatus) bool, status, reason string) error {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if !l.loaded {
+		return nil
+	}
+	return l.shard.UpdateStatusIf(cond, status, reason)
+}
+
 func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
 	l.mustLoad()
 	return l.shard.SetStatusReadonly(reason)
@@ -319,8 +332,9 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 }
 
 func (l *LazyLoadShard) enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error {
-	if err := l.Load(ctx); err != nil {
-		return err
+	// Never load (init applies config at load); isLoaded takes l.mutex, so callers must not hold replicationConfigLock.
+	if !l.isLoaded() {
+		return nil
 	}
 	return l.shard.enableAsyncReplication(ctx, config)
 }
@@ -351,14 +365,15 @@ func (l *LazyLoadShard) removePersistedHashtree() error {
 	loaded := l.loaded
 	l.mutex.Unlock()
 	if !loaded {
-		return nil // not loaded: a stale .ht is discarded on next load
+		return nil // unloaded shards take no writes, so a persisted .ht stays valid; init scrubs it when async is off
 	}
 	return l.shard.removePersistedHashtree()
 }
 
 func (l *LazyLoadShard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error {
-	if err := l.Load(ctx); err != nil {
-		return err
+	// Never load: matches resumeAfterAbortedOffload's no-op-when-unloaded contract.
+	if !l.isLoaded() {
+		return nil
 	}
 	return l.shard.rebuildAsyncReplicationFromScratch(ctx, enabled, config)
 }
@@ -367,16 +382,14 @@ func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOve
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	l.shard.addTargetNodeOverride(ctx, targetNodeOverride)
-	return nil
+	return l.shard.addTargetNodeOverride(ctx, targetNodeOverride)
 }
 
 func (l *LazyLoadShard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	l.shard.removeTargetNodeOverride(ctx, targetNodeOverride)
-	return nil
+	return l.shard.removeTargetNodeOverride(ctx, targetNodeOverride)
 }
 
 func (l *LazyLoadShard) removeAllTargetNodeOverrides(ctx context.Context) error {
@@ -463,7 +476,7 @@ func (l *LazyLoadShard) ObjectDigests(ctx context.Context, query []multi.Identif
 
 func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) (objs []types.RepairResponse, err error) {
+) (objs []types.RepairDigest, err error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
@@ -547,11 +560,12 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 }
 
 func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
-	property *models.Property,
+	property *models.Property, payloadReads *atomic.Int64,
 ) {
 	if l.isLoaded() {
-		l.shard.updatePropertyBuckets(ctx, eg, property)
+		l.shard.updatePropertyBuckets(ctx, eg, property, payloadReads)
 	} else {
+		// The unloaded path removes bucket dirs by name and reads no payloads.
 		l.updateUnloadedPropertyBuckets(ctx, eg, property)
 	}
 }
@@ -561,22 +575,18 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 	prop *models.Property,
 ) {
 	eg.Go(func() error {
-		if !inverted.HasFilterableIndex(prop) {
-			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
-			if err != nil {
-				return fmt.Errorf("cannot remove unloaded filterable index for %s property: %w", prop.Name, err)
+		// Shares the loaded path's index types so Index.updateProperty's summary
+		// log names what this branch removed too. Not its body: this path
+		// removes the main bucket dir by name and nothing else, so a cold
+		// tenant's migration and sidecar dirs outlive the property delete.
+		// That is a gap, not a property of unloaded shards.
+		for _, indexType := range disabledIndexTypes(prop) {
+			mainBucket, ok := mainBucketForPropertyIndex(prop.Name, indexType)
+			if !ok {
+				return fmt.Errorf("cannot remove unloaded %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
-		}
-		if !inverted.HasSearchableIndex(prop) {
-			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
-			if err != nil {
-				return fmt.Errorf("cannot remove unloaded searchable index for %s property: %w", prop.Name, err)
-			}
-		}
-		if !inverted.HasRangeableIndex(prop) {
-			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
-			if err != nil {
-				return fmt.Errorf("cannot remove unloaded rangeable index for %s property: %w", prop.Name, err)
+			if err := l.shard.removeDirIfExists(l.pathLSM(), mainBucket); err != nil {
+				return fmt.Errorf("cannot remove unloaded %s index for %s property: %w", indexType, prop.Name, err)
 			}
 		}
 		return nil
@@ -594,7 +604,15 @@ func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string
 func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 	// Shard is not loaded — remove files directly from disk. Delegate to the
 	// shared helper so file path logic is defined in one place.
-	if err := newVectorDropIndexHelper().removeVectorIndexFiles(l.shardOpts.index.path(), l.shardOpts.name, targetVector); err != nil {
+	// The collection's other vector names guard against removing a sibling whose
+	// own bucket collides with one of this target's artifact names.
+	class := l.shardOpts.index.getClass()
+	if class == nil {
+		class = l.shardOpts.class
+	}
+	if err := newVectorDropIndexHelper().removeVectorIndexFiles(
+		l.shardOpts.index.path(), l.shardOpts.name, targetVector,
+		otherTargetVectors(class, targetVector)); err != nil {
 		return err
 	}
 
@@ -851,7 +869,7 @@ func (l *LazyLoadShard) HashTreeRoot() (root hashtree.Digest, ok bool) {
 	return l.shard.HashTreeRoot()
 }
 
-func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairDigest) ([]types.RepairDigest, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
@@ -943,11 +961,6 @@ func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint6
 	return l.shard.addToPropertySetBucket(bucket, docID, key)
 }
 
-func (l *LazyLoadShard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	l.mustLoad()
-	return l.shard.addToPropertyRangeBucket(bucket, docID, key)
-}
-
 func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
 	l.mustLoad()
 	return l.shard.addToPropertyMapBucket(bucket, pair, key)
@@ -968,11 +981,6 @@ func (l *LazyLoadShard) addJobToQueue(job job) {
 	l.shard.addJobToQueue(job)
 }
 
-func (l *LazyLoadShard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
-	l.mustLoad()
-	return l.shard.uuidFromDocID(docID)
-}
-
 func (l *LazyLoadShard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
 	if err := l.Load(ctx); err != nil {
 		return err
@@ -985,29 +993,9 @@ func (l *LazyLoadShard) putObjectLSM(ctx context.Context, object *storobj.Object
 	return l.shard.putObjectLSM(ctx, object, idBytes)
 }
 
-func (l *LazyLoadShard) mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error {
-	l.mustLoad()
-	return l.shard.mayUpsertObjectHashTree(object, idBytes, status)
-}
-
 func (l *LazyLoadShard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
 	l.mustLoad()
 	return l.shard.mutableMergeObjectLSM(ctx, merge, idBytes)
-}
-
-func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	l.mustLoad()
-	return l.shard.deleteFromPropertySetBucket(bucket, docID, key)
-}
-
-func (l *LazyLoadShard) deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	l.mustLoad()
-	return l.shard.deleteFromPropertyRangeBucket(bucket, docID, key)
-}
-
-func (l *LazyLoadShard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error {
-	l.mustLoad()
-	return l.shard.batchExtendInvertedIndexItemsLSMNoFrequency(b, item)
 }
 
 func (l *LazyLoadShard) updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error {
@@ -1033,6 +1021,16 @@ func (l *LazyLoadShard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context
 func (l *LazyLoadShard) hasGeoIndex() bool {
 	l.mustLoad()
 	return l.shard.hasGeoIndex()
+}
+
+// A cold shard reports false rather than loading: the only caller reaches this
+// through ForEachLoadedShard, and the addProperty that false triggers skips cold
+// shards too.
+func (l *LazyLoadShard) hasGeoIndexForProp(propName string) bool {
+	if !l.isLoaded() {
+		return false
+	}
+	return l.shard.hasGeoIndexForProp(propName)
 }
 
 func (l *LazyLoadShard) Metrics() *Metrics {
@@ -1072,4 +1070,49 @@ func (l *LazyLoadShard) blockLoading() func() {
 	return func() {
 		l.mutex.Unlock()
 	}
+}
+
+// canSkipUnloadedSweep reports whether the cleanup sweep can leave this
+// shard alone; a loaded shard is never skipped, since sweeping it costs no
+// load. The loading mutex covers the disk read and is released before
+// returning — the hydration that follows takes it itself.
+//
+// A completed migration's leftovers are the second reason not to skip: a
+// load is what runs [FinalizeCompletedMigrations], so a shard that keeps its
+// data under the ingest sidecar name plus a full backup copy of the bucket it
+// replaced reclaims neither until something hydrates it. One load per tenant
+// per completed migration settles that — finalize removes the tracker dir it
+// answers from, so the next sweep skips the tenant again. A tenant with no
+// migration leftovers at all, which is the population this gate is for, is
+// never loaded.
+//
+// Skipping holds only while reindex state arrives through a load. Shutdown does
+// not remove the shard from the index map — [Index.Shutdown] shuts its shards
+// down in place — so what keeps the gate off a shard being shut down is the
+// mutex: [LazyLoadShard.Shutdown] takes the one held across this disk read. A
+// sweep racing an index shutdown then comes back truncated from
+// [Index.forEachShardStrict] rather than as a walk that reached every shard.
+//
+// The second return is how many tracker payloads this call had to read, for
+// the caller's log; a loaded shard reads none, and so does a shard a previous
+// tuple of the same run already answered from props.
+func (l *LazyLoadShard) canSkipUnloadedSweep(
+	propName, indexType string, dirs *dirNamesCache, props *taskPropsCache,
+) (bool, int) {
+	release := l.blockLoading()
+	defer release()
+
+	if l.loaded {
+		return false, 0
+	}
+	if props == nil {
+		// No run-wide memo. Substituted here rather than left to the probe, so
+		// the count below is taken off the cache the probe actually used.
+		props = &taskPropsCache{}
+	}
+	// props is a running total over the whole run, so the caller gets the delta.
+	before := props.count()
+	stale, finalizable := hasStalePartialReindexState(
+		l.pathLSM(), propName, indexType, dirs, props)
+	return !stale && !finalizable, props.count() - before
 }

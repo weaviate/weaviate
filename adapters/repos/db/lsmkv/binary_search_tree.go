@@ -103,6 +103,21 @@ func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
 	return t.root.flattenInOrder()
 }
 
+// flattenInOrderRange returns only nodes with min <= key <= max (inclusive; a
+// nil bound is unbounded), visiting just the subtrees intersecting the range.
+// It counts first so the result is allocated exactly once at its final size.
+func (t *binarySearchTree) flattenInOrderRange(min, max []byte) []*binarySearchNode {
+	if t.root == nil {
+		return nil
+	}
+
+	size := t.root.countInRange(min, max)
+	if size == 0 {
+		return nil
+	}
+	return t.root.appendInOrderRange(make([]*binarySearchNode, 0, size), min, max)
+}
+
 type countStats struct {
 	upsertKeys     [][]byte
 	tombstonedKeys [][]byte
@@ -368,21 +383,67 @@ func (n *binarySearchNode) flattenInOrder() []*binarySearchNode {
 	// preallocate capacity to avoid repeated reallocations
 	size := n.subtreeSize()
 	res := make([]*binarySearchNode, 0, size)
-	return n.appendInOrder(res)
+	return n.appendInOrderRange(res, nil, nil)
 }
 
-func (n *binarySearchNode) appendInOrder(dst []*binarySearchNode) []*binarySearchNode {
+// appendInOrderRange drops a bound (nil) once the current node proves it holds
+// for a whole subtree, so interior in-range subtrees are traversed compare-free.
+func (n *binarySearchNode) appendInOrderRange(dst []*binarySearchNode, min, max []byte) []*binarySearchNode {
 	if n == nil {
 		return dst
 	}
-	if n.left != nil {
-		dst = n.left.appendInOrder(dst)
+	aboveMin := min == nil || bytes.Compare(n.key, min) >= 0
+	belowMax := max == nil || bytes.Compare(n.key, max) <= 0
+	if aboveMin {
+		leftMax := max
+		if belowMax {
+			leftMax = nil
+		}
+		dst = n.left.appendInOrderRange(dst, min, leftMax)
 	}
-	dst = append(dst, n.shallowCopy())
-	if n.right != nil {
-		dst = n.right.appendInOrder(dst)
+	if aboveMin && belowMax {
+		dst = append(dst, n.shallowCopy())
+	}
+	if belowMax {
+		rightMin := min
+		if aboveMin {
+			rightMin = nil
+		}
+		dst = n.right.appendInOrderRange(dst, rightMin, max)
 	}
 	return dst
+}
+
+// countInRange sizes flattenInOrderRange's allocation using the same pruning
+// and bound dropping as appendInOrderRange, without allocating.
+func (n *binarySearchNode) countInRange(min, max []byte) int {
+	if n == nil {
+		return 0
+	}
+	if min == nil && max == nil {
+		return n.subtreeSize()
+	}
+	aboveMin := min == nil || bytes.Compare(n.key, min) >= 0
+	belowMax := max == nil || bytes.Compare(n.key, max) <= 0
+	size := 0
+	if aboveMin {
+		leftMax := max
+		if belowMax {
+			leftMax = nil
+		}
+		size += n.left.countInRange(min, leftMax)
+	}
+	if aboveMin && belowMax {
+		size++
+	}
+	if belowMax {
+		rightMin := min
+		if aboveMin {
+			rightMin = nil
+		}
+		size += n.right.countInRange(rightMin, max)
+	}
+	return size
 }
 
 func (n *binarySearchNode) subtreeSize() int {

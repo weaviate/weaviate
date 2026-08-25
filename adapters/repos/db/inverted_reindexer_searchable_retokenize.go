@@ -39,8 +39,6 @@ func NewRuntimeSearchableRetokenizeTask(
 	}
 
 	cfg := reindexTaskConfig{
-		swapBuckets:                   true,
-		tidyBuckets:                   true,
 		concurrency:                   2,
 		memtableOptFactor:             4,
 		backupMemtableOptFactor:       1,

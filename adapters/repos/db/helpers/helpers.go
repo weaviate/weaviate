@@ -14,12 +14,8 @@ package helpers
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/vectorindex/flat"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 var (
@@ -44,6 +40,159 @@ func GetVectorsBucketName(targetVector string) string {
 		return fmt.Sprintf("%s_%s", VectorsBucketLSM, targetVector)
 	}
 	return VectorsBucketLSM
+}
+
+// A multivector index keeps one bucket of its own, named off the index ID:
+// muvera encodings when muvera is on, node-to-doc mappings when it is off. The
+// two are mutually exclusive.
+//
+// These live here rather than being concatenated at the point of use so the
+// code that CREATES the bucket and the drop that removes it share one
+// definition. Concatenated inline, a rename on the hnsw side compiles cleanly
+// while the cleanup keeps deleting the old name: removeBucket no-ops and the
+// leak returns silently.
+
+// MuveraBucketName is the bucket a muvera-encoded multivector index stores its
+// encoded vectors in. indexID is the vector index's ID.
+func MuveraBucketName(indexID string) string {
+	return fmt.Sprintf("%s_muvera_vectors", indexID)
+}
+
+// MVMappingsBucketName is the bucket a multivector index WITHOUT muvera stores
+// its node-to-doc mappings in. indexID is the vector index's ID.
+func MVMappingsBucketName(indexID string) string {
+	return fmt.Sprintf("%s_mv_mappings", indexID)
+}
+
+// HFresh keeps more on-disk state than the other index types: a directory of
+// its own under the shard, plus two dedicated LSM buckets. All three are keyed
+// on the index ID (vectorIndexID, i.e. "vectors_<target>" for a named vector),
+// and they live here so the index that creates them and the drop that removes
+// them cannot drift apart.
+
+// HFreshDirName is the hfresh index's own directory under the shard.
+func HFreshDirName(indexID string) string {
+	return fmt.Sprintf("%s.hfresh.d", indexID)
+}
+
+// HFreshPostingsBucketName is the LSM bucket holding hfresh's posting lists.
+func HFreshPostingsBucketName(indexID string) string {
+	return fmt.Sprintf("hfresh_postings_%s", indexID)
+}
+
+// HFreshSharedBucketName is the LSM bucket holding hfresh's shared metadata.
+func HFreshSharedBucketName(indexID string) string {
+	return fmt.Sprintf("hfresh_shared_%s", indexID)
+}
+
+// FlatMetadataFileName is the flat index's quantisation metadata, under the
+// shard directory (see flat.getMetadataFile).
+func FlatMetadataFileName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("meta_%s.db", targetVector)
+	}
+	return "meta.db"
+}
+
+// VectorIndexArtifacts is everything a named vector's index owns on disk:
+// LSMBuckets are directories under <shard>/lsm; ShardDirs are entries under
+// <shard> — directories, plus the flat metadata file. Both go via os.RemoveAll.
+type VectorIndexArtifacts struct {
+	LSMBuckets []string
+	ShardDirs  []string
+}
+
+// All returns every artifact as a single slice, LSM buckets first.
+func (a VectorIndexArtifacts) All() []string {
+	return append(append([]string{}, a.LSMBuckets...), a.ShardDirs...)
+}
+
+// vectorIndexArtifactNames is the raw, unfiltered artifact set for a target
+// vector. Split out from VectorIndexArtifactsFor so the sibling-collision guard
+// can compute what OTHER vectors own without recursing through the filter.
+func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
+	indexID := GetVectorsBucketName(targetVector)
+	return VectorIndexArtifacts{
+		LSMBuckets: []string{
+			indexID,                               // raw vectors
+			GetCompressedBucketName(targetVector), // BQ/PQ/SQ/RQ
+			MuveraBucketName(indexID),             // multivector + muvera
+			MVMappingsBucketName(indexID),         // multivector without muvera
+			HFreshPostingsBucketName(indexID),     // hfresh
+			HFreshSharedBucketName(indexID),       // hfresh
+			// hfresh runs a nested centroids HNSW whose id is
+			// "<indexID>_centroids"; hnsw derives its compressed bucket from
+			// that id with the "vectors_" prefix stripped, so it lands in the
+			// shard's lsm dir under this name. Its commitlog and snapshot dirs
+			// do NOT need listing — they live inside the .hfresh.d directory
+			// below, which goes wholesale.
+			GetCompressedBucketName(targetVector + "_centroids"),
+		},
+		ShardDirs: []string{
+			GetHNSWCommitLogDirName(targetVector),
+			GetHNSWSnapshotDirName(targetVector),
+			HFreshDirName(indexID),
+			// The async-indexing queue. The live drop closes it via queue.Drop,
+			// but every files-only path (cold lazy shard, inactive tenant, crash
+			// before the live drop) leaves it — and DiskQueue.Init replays stale
+			// chunks into a re-created index of the same name, so this is wrong
+			// vectors and dimension errors, not just disk cost.
+			indexID + ".queue.d",
+			// flat.Drop removes this on the live path only; the files-only
+			// paths leave it, same gap as the queue directory above.
+			FlatMetadataFileName(targetVector),
+		},
+	}
+}
+
+// VectorIndexArtifactsFor lists what dropping targetVector has to remove. It is
+// the single source of truth for that set: the live drop, the file sweep and
+// the tests all read it, because three hand-maintained copies is exactly how
+// "<indexID>_mv_mappings" ended up missing from all of them at once.
+//
+// Entries that only exist for some index types are listed unconditionally:
+// removal is a no-op when the artifact is absent, whereas reading the config
+// back to decide would miss an index that failed to load, or one whose config
+// changed since it was written.
+//
+// otherTargetVectors is not optional. TargetVectorNameRegex permits names like
+// "<other>_muvera_vectors" or "<other>_centroids", which make one of THIS
+// target's artifacts byte-identical to a bucket a live sibling owns. Any
+// artifact a sibling claims is therefore dropped from the list: leaking beats
+// deleting data that is still in use.
+func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) VectorIndexArtifacts {
+	artifacts := vectorIndexArtifactNames(targetVector)
+
+	// Skipping the target itself is what keeps its OWN artifacts in the list,
+	// for a caller that passes the whole schema rather than filtering first.
+	protected := map[string]struct{}{}
+	for _, other := range otherTargetVectors {
+		if other == targetVector {
+			continue
+		}
+		for _, name := range vectorIndexArtifactNames(other).All() {
+			protected[name] = struct{}{}
+		}
+	}
+	if len(protected) == 0 {
+		return artifacts
+	}
+
+	// Only LSM buckets can collide. Every ShardDirs entry ends in a dotted
+	// suffix (".hnsw.commitlog.d", ".hfresh.d", ".queue.d") and
+	// TargetVectorNameRegex forbids dots in vector names, so no sibling's
+	// artifact can ever equal one — filtering them would be unreachable code.
+	// A future shard directory WITHOUT a dotted suffix would break that and
+	// needs the guard extended.
+	keptBuckets := artifacts.LSMBuckets[:0:0]
+	for _, name := range artifacts.LSMBuckets {
+		if _, clash := protected[name]; clash {
+			continue
+		}
+		keptBuckets = append(keptBuckets, name)
+	}
+	artifacts.LSMBuckets = keptBuckets
+	return artifacts
 }
 
 func GetHNSWCommitLogDirName(targetVector string) string {
@@ -178,41 +327,4 @@ func BucketSearchableFromPropertyLSM(prop *models.Property) string {
 // a property at its currently-active generation. See [BucketFromPropertyLSM].
 func BucketRangeableFromPropertyLSM(prop *models.Property) string {
 	return BucketRangeableFromPropNameLSMAtGen(prop.Name, prop.BucketGeneration)
-}
-
-// CompressionRatioFromConfig calculates the compression ratio from vector index config
-// This is used for inactive tenants where we don't have access to the actual vector index
-func CompressionRatioFromConfig(config schemaConfig.VectorIndexConfig, dimensions int) float64 {
-	// Check for different compression types in config by type asserting
-	if hnswConfig, ok := config.(hnsw.UserConfig); ok {
-		// Check for different compression types in HNSW config
-		if hnswConfig.PQ.Enabled {
-			// PQ compression ratio depends on segments
-			segments := hnswConfig.PQ.Segments
-			if segments == 0 {
-				segments = common.CalculateOptimalSegments(dimensions)
-			}
-			return float64(dimensions*4) / float64(segments)
-		} else if hnswConfig.BQ.Enabled {
-			// BQ compression ratio is approximately 32x
-			return 32
-		} else if hnswConfig.SQ.Enabled {
-			// SQ compression ratio is approximately 4x
-			return 4
-		}
-	} else if flatConfig, ok := config.(flat.UserConfig); ok {
-		// Check for different compression types in Flat config
-		if flatConfig.BQ.Enabled {
-			// BQ compression ratio is approximately 32x
-			return 32
-		} else if flatConfig.PQ.Enabled {
-			// PQ compression ratio depends on segments (not supported in flat but handle gracefully)
-		} else if flatConfig.SQ.Enabled {
-			// SQ compression ratio is approximately 4x
-			return 4
-		}
-	}
-
-	// Default to no compression
-	return 1
 }

@@ -320,11 +320,8 @@ func dispatchMatrixDriveCell(
 		// corrupts the segment registry and any subsequent path-based
 		// resolve. Production never reaches this dispatch branch in
 		// the same process — it's only entered post-restart on a node
-		// where OnBeforeLsmInit's pre-LSM-init dispatch didn't already
-		// advance the sentinel. The convergence matrices in this
-		// directory (which DO shutdown+reinit before recovery) cover
-		// the post-restart IsPrepended convergence at the
-		// bucket-content level. See the file godoc above.
+		// where FinalizeCompletedMigrations did not already advance
+		// the sentinel. See the file godoc above.
 		t.Skip("IsPrepended dispatch branch requires post-restart in-memory state; not safely reachable in a same-process unit test (recoverRuntimeSwapBuckets renames live mmap'd bucket dirs). Convergence matrices cover the post-restart path.")
 	case dispatchMatrixIsMerged:
 		dispatchMatrixDriveToMerged(t, ctx, shard, task, path)

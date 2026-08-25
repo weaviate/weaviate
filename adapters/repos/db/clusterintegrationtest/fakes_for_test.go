@@ -113,6 +113,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(func(className string) *models.Class {
 		return n.schemaManager.ReadOnlyClass(className)
 	}).Maybe()
@@ -171,7 +172,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, nil, nil, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 

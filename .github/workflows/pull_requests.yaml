@@ -500,7 +500,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-light:
     name: modules light (${{ matrix.name }})
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-4
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
@@ -533,7 +533,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-api:
     name: modules api (${{ matrix.name }})
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-4
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork && !startsWith(github.ref, 'refs/tags') }}  # no PRs from fork
     strategy:
@@ -828,13 +828,14 @@ jobs:
         name: check
         env:
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           commit_message=$(git log -1 --format=%B $COMMIT_SHA)
-          if [[ "$commit_message" == *"drop-vector-index"* || "$commit_message" == "prepare release"* ]]; then
+          if [[ "$commit_message" == *"drop-vector-index"* || "$commit_message" == "prepare release"* || "$BRANCH_NAME" == merge* ]]; then
             echo "Run pipeline"
             echo "run_pipeline=true" >> $GITHUB_OUTPUT
           else
-            echo "Skip pipeline. In order to run the pipeline commit title must contain: drop-vector-index"
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: drop-vector-index, or the branch name must start with: merge"
             echo "run_pipeline=false" >> $GITHUB_OUTPUT
           fi
   Acceptance-DropVectorIndex-Tests:
@@ -846,12 +847,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: "cluster"
-            test: "--acceptance-drop-vector-index-cluster"
+          - name: "cluster-group1"
+            test: "--acceptance-drop-vector-index-cluster-group1"
+          - name: "cluster-group2"
+            test: "--acceptance-drop-vector-index-cluster-group2"
           - name: "restart-cluster"
             test: "--acceptance-drop-vector-index-restart-cluster"
           - name: "rolling-restart"
             test: "--acceptance-drop-vector-index-rolling-restart"
+          - name: "async-indexing-group1"
+            test: "--acceptance-drop-vector-index-async-indexing-group1"
+          - name: "async-indexing-group2"
+            test: "--acceptance-drop-vector-index-async-indexing-group2"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go

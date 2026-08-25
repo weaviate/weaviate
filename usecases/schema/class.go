@@ -185,27 +185,31 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	// On namespace-enabled clusters the cap is enforced per namespace.
-	// QualifyForCreate above already required principal.Namespace for this
-	// flow, so it is the correct selector here.
-	countNamespace := ""
-	if h.config.Namespaces.Enabled {
-		countNamespace = principal.Namespace
-	}
-
-	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
-	if err != nil {
-		h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
-	}
-
+	// Read the limit before the count: no cap is the default, and the count
+	// costs a round trip to the leader whose answer an uncapped cluster
+	// discards.
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
+	if limit != config.DefaultMaximumAllowedCollectionsCount {
+		// On namespace-enabled clusters the cap is enforced per namespace.
+		// QualifyForCreate above already required principal.Namespace for this
+		// flow, so it is the correct selector here.
+		countNamespace := ""
+		if h.config.Namespaces.Enabled {
+			countNamespace = principal.Namespace
+		}
 
-	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
-		// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
-		// in the usage-limits work; see docs/usage_limits.md for the wire
-		// contract.
-		return nil, 0, usagelimits.NewLimitExceededError(
-			h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
+		existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
+		if err != nil {
+			h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
+		}
+
+		if existingCollectionsCount >= limit {
+			// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
+			// in the usage-limits work; see docs/usage_limits.md for the wire
+			// contract.
+			return nil, 0, usagelimits.NewLimitExceededError(
+				h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
+		}
 	}
 
 	candidates, err := h.namespaceCandidates(cls.Class)
@@ -549,6 +553,12 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		updated.Vectorizer = ""
 		updated.VectorIndexType = ""
 		updated.VectorIndexConfig = nil
+	}
+
+	if updated.ReplicationConfig != nil {
+		if err := replication.ValidateAsyncConfig(updated.ReplicationConfig.AsyncConfig); err != nil {
+			return fmt.Errorf("async replication config: %w", err)
+		}
 	}
 
 	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true, h.config); err != nil {
@@ -1188,6 +1198,12 @@ func (h *Handler) validateClassInvariants(
 
 	if err := replica.ValidateConfig(class, h.config.Replication); err != nil {
 		return err
+	}
+
+	if class.ReplicationConfig != nil {
+		if err := replication.ValidateAsyncConfig(class.ReplicationConfig.AsyncConfig); err != nil {
+			return fmt.Errorf("async replication config: %w", err)
+		}
 	}
 
 	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false, h.config); err != nil {
