@@ -192,8 +192,6 @@ func (a *Analyzer) TextArray(tokenization string, inArr []string, propName strin
 	return countable
 }
 
-// Int requires no analysis, so it's actually just a simple conversion to a
-// string-formatted byte slice of the int
 func (a *Analyzer) Int(in int64) ([]Countable, error) {
 	data, err := ent.LexicographicallySortableInt64(in)
 	if err != nil {
@@ -207,7 +205,6 @@ func (a *Analyzer) Int(in int64) ([]Countable, error) {
 	}, nil
 }
 
-// UUID requires no analysis, so it's just dumping the raw binary representation
 func (a *Analyzer) UUID(in uuid.UUID) ([]Countable, error) {
 	return []Countable{
 		{
@@ -216,8 +213,6 @@ func (a *Analyzer) UUID(in uuid.UUID) ([]Countable, error) {
 	}, nil
 }
 
-// UUID array requires no analysis, so it's just dumping the raw binary
-// representation of each contained element
 func (a *Analyzer) UUIDArray(in []uuid.UUID) ([]Countable, error) {
 	out := make([]Countable, len(in))
 	for i := range in {
@@ -229,8 +224,6 @@ func (a *Analyzer) UUIDArray(in []uuid.UUID) ([]Countable, error) {
 	return out, nil
 }
 
-// Int array requires no analysis, so it's actually just a simple conversion to a
-// string-formatted byte slice of the int
 func (a *Analyzer) IntArray(in []int64) ([]Countable, error) {
 	out := make([]Countable, len(in))
 	for i := range in {
@@ -244,8 +237,6 @@ func (a *Analyzer) IntArray(in []int64) ([]Countable, error) {
 	return out, nil
 }
 
-// Float requires no analysis, so it's actually just a simple conversion to a
-// lexicographically sortable byte slice.
 func (a *Analyzer) Float(in float64) ([]Countable, error) {
 	data, err := ent.LexicographicallySortableFloat64(in)
 	if err != nil {
@@ -259,8 +250,6 @@ func (a *Analyzer) Float(in float64) ([]Countable, error) {
 	}, nil
 }
 
-// Float array requires no analysis, so it's actually just a simple conversion to a
-// lexicographically sortable byte slice.
 func (a *Analyzer) FloatArray(in []float64) ([]Countable, error) {
 	out := make([]Countable, len(in))
 	for i := range in {
@@ -274,8 +263,6 @@ func (a *Analyzer) FloatArray(in []float64) ([]Countable, error) {
 	return out, nil
 }
 
-// BoolArray requires no analysis, so it's actually just a simple conversion to
-// one 0/1 byte per value
 func (a *Analyzer) BoolArray(in []bool) ([]Countable, error) {
 	out := make([]Countable, len(in))
 	for i := range in {
@@ -287,8 +274,6 @@ func (a *Analyzer) BoolArray(in []bool) ([]Countable, error) {
 	return out, nil
 }
 
-// Bool requires no analysis, so it's actually just a simple conversion to a
-// single 0/1 byte
 func (a *Analyzer) Bool(in bool) ([]Countable, error) {
 	b := make([]byte, 1)
 	putBoolKey(b, in)
