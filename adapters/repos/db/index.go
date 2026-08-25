@@ -3606,7 +3606,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 }
 
 func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregation.Result, error) {
-	var total atomic.Int32
+	var total atomic.Int64
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	eg.SetLimit(min(len(shards), runtime.GOMAXPROCS(0)*4))
@@ -3618,7 +3618,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 			if err != nil {
 				return err
 			}
-			total.Add(int32(count))
+			total.Add(int64(count))
 			return nil
 		})
 	}

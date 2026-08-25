@@ -12,6 +12,7 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -83,7 +84,10 @@ func TestIndex_aggregateCount(t *testing.T) {
 		shards []string         // Complete list of shards in collection.
 		tenant string
 
-		want int // Expected aggregated count
+		planErrs map[string]error // Shards whose routing plan fails to build.
+
+		want    int  // Expected aggregated count
+		wantErr bool // Whether the aggregation must fail
 	}{
 		{
 			name:   "consistent count",
@@ -121,6 +125,23 @@ func TestIndex_aggregateCount(t *testing.T) {
 			want: 3,
 		},
 		{
+			name: "counts above MaxInt32",
+			nodes: []map[string]int{
+				{"abc": 1200000000, "xyz": 1000000000},
+				{"abc": 1200000000, "xyz": 1000000000},
+			},
+			want: 2200000000,
+		},
+		{
+			name: "a shard whose routing plan fails",
+			nodes: []map[string]int{
+				{"abc": 1, "xyz": 2},
+				{"abc": 1, "xyz": 2},
+			},
+			planErrs: map[string]error{"xyz": errors.New("no read replica found")},
+			wantErr:  true,
+		},
+		{
 			name:   "one tenant",
 			shards: []string{"john_doe", "jane_doe"},
 			nodes: []map[string]int{
@@ -155,6 +176,7 @@ func TestIndex_aggregateCount(t *testing.T) {
 			})
 
 			router := &fakeRouter{
+				planErrs: tt.planErrs,
 				readPlan: types.ReadRoutingPlan{
 					IntConsistencyLevel: len(tt.counts) + len(tt.nodes),
 					ConsistencyLevel:    types.ConsistencyLevelAll,
@@ -193,9 +215,13 @@ func TestIndex_aggregateCount(t *testing.T) {
 			}, nil)
 
 			// Assert
-			require.NoError(t, err, "aggregate")
-			require.Len(t, res.Groups, 1, "number of groups")
-			require.Equal(t, tt.want, res.Groups[0].Count, "object count")
+			if tt.wantErr {
+				require.Error(t, err, "aggregate")
+			} else {
+				require.NoError(t, err, "aggregate")
+				require.Len(t, res.Groups, 1, "number of groups")
+				require.Equal(t, tt.want, res.Groups[0].Count, "object count")
+			}
 		})
 	}
 }
@@ -207,6 +233,7 @@ type fakeRouter struct {
 	writePlan types.WriteRoutingPlan
 	readSet   types.ReadReplicaSet
 	writeSet  types.WriteReplicaSet
+	planErrs  map[string]error
 }
 
 // AllHostnames implements [types.Router].
@@ -217,6 +244,10 @@ func (f *fakeRouter) AllHostnames() []string {
 var _ types.Router = (*fakeRouter)(nil)
 
 func (f *fakeRouter) BuildReadRoutingPlan(opt types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
+	if err := f.planErrs[opt.Shard]; err != nil {
+		return types.ReadRoutingPlan{}, err
+	}
+
 	readPlan := f.readPlan
 	readPlan.Shard = opt.Shard
 	readPlan.Tenant = opt.Tenant
@@ -234,7 +265,9 @@ func (f *fakeRouter) BuildReadRoutingPlan(opt types.RoutingPlanBuildOptions) (ty
 }
 
 func (f *fakeRouter) BuildRoutingPlanOptions(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions {
-	return f.options
+	opt := f.options
+	opt.Shard = shard
+	return opt
 }
 
 func (f *fakeRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
