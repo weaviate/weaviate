@@ -16,7 +16,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/vectorindex/common/testhelpers"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -405,6 +407,33 @@ func Test_DynamicUserConfig(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "PQ is not currently supported for flat indices",
 		},
+		{
+			// https://github.com/weaviate/weaviate/issues/12035
+			name: "hnsw bq enabled with hamming distance is rejected",
+			input: map[string]interface{}{
+				"distance": common.DistanceHamming,
+				"hnsw": map[string]interface{}{
+					"bq": map[string]interface{}{
+						"enabled": true,
+					},
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "binary quantization (bq) is not compatible",
+		},
+		{
+			name: "flat bq enabled with hamming distance is rejected",
+			input: map[string]interface{}{
+				"distance": common.DistanceHamming,
+				"flat": map[string]interface{}{
+					"bq": map[string]interface{}{
+						"enabled": true,
+					},
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "binary quantization (bq) is not compatible",
+		},
 	}
 
 	for _, test := range tests {
@@ -420,4 +449,22 @@ func Test_DynamicUserConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_ParseDefaultQuantization(t *testing.T) {
+	testhelpers.RunDefaultQuantizationTests(t,
+		testhelpers.DefaultQuantizationCases(),
+		func(distance string) schemaConfig.VectorIndexConfig {
+			uc := NewDefaultUserConfig()
+			if distance != "" {
+				uc.Distance = distance
+			}
+			return uc
+		},
+		ParseDefaultQuantization,
+		func(cfg schemaConfig.VectorIndexConfig) testhelpers.QuantizationState {
+			c := cfg.(UserConfig)
+			return testhelpers.QuantizationState{BQ: c.HnswUC.BQ.Enabled && c.FlatUC.BQ.Enabled, RQ: c.HnswUC.RQ.Enabled || c.FlatUC.RQ.Enabled}
+		},
+	)
 }
