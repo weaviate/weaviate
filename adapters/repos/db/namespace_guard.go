@@ -27,9 +27,9 @@ import (
 )
 
 var (
-	// errNamespaceUnknownLocally is returned when a class resolves to a namespace
+	// ErrNamespaceUnknownLocally is returned when a class resolves to a namespace
 	// that the namespace map does not hold. Every shard decision refuses on it.
-	errNamespaceUnknownLocally = errors.New("namespace not known on this node")
+	ErrNamespaceUnknownLocally = errors.New("namespace not known on this node")
 
 	// errNoNamespaceLookup is returned when a namespaced class has no namespace
 	// lookup to consult, which only a lost wiring line can produce.
@@ -42,6 +42,15 @@ var (
 	// errUnknownShardLoadCaller is returned for a caller the load decision has no
 	// case for, so a wiring fault does not read as a namespace state.
 	errUnknownShardLoadCaller = errors.New("unknown shard load caller")
+
+	// errUnknownNamespaceState is returned for a namespace state that is not a key
+	// of stateTransitions. readDesiredOpenLocalShards refuses on it rather than
+	// reading it as a namespace that keeps none of its shards open.
+	errUnknownNamespaceState = errors.New("unknown namespace state")
+
+	// errNoShardingState is returned when the schema holds the class but carries
+	// no sharding state for it. It is a fault, not a class going away.
+	errNoShardingState = errors.New("no sharding state for class")
 )
 
 // shardLoadCaller says who wants a shard loaded. Each caller gets a different
@@ -96,9 +105,56 @@ func stateForShardDecision(e namespaces.Exister, namespace, class string, logger
 	}
 	ns, ok := e.GetNamespace(namespace)
 	if !ok {
-		return "", refuseShardDecision(logger, namespace, class, errNamespaceUnknownLocally)
+		return "", refuseShardDecision(logger, namespace, class, ErrNamespaceUnknownLocally)
 	}
 	return ns.State, nil
+}
+
+// requireKnownNamespaceState returns nil when state is a key of stateTransitions.
+// ShardsShouldBeOpen reads a state it has no case for as "keep none open", so an
+// unknown one is refused here instead. A default: arm on that switch would end
+// the lint that keeps the two in step, and this check would not stand in for it.
+func requireKnownNamespaceState(state api.NamespaceState) error {
+	if !namespaces.IsKnownState(state) {
+		return fmt.Errorf("%w: %q", errUnknownNamespaceState, state)
+	}
+	return nil
+}
+
+// readDesiredOpenLocalShards calls use with the class's sharding state when the
+// namespace keeps its shards open, and returns the state it read. The state is
+// the zero value only beside a non-nil error, and a non-nil error does not mean
+// use never ran: SchemaReader.Read retries, so use may run more than once. use
+// holds the class's schema read lock, which every schema apply for that class
+// waits behind, so it must collect rather than block, do I/O, or take a lock.
+func (db *DB) readDesiredOpenLocalShards(className string, retryIfClassNotFound bool,
+	use func(*sharding.State) error,
+) (api.NamespaceState, error) {
+	state, err := db.namespaceState(className)
+	if err != nil {
+		return "", err
+	}
+	if err := requireKnownNamespaceState(state); err != nil {
+		return "", refuseShardDecision(db.logger,
+			namespacing.NamespaceFromQualified(className), className, err)
+	}
+	if !namespaces.ShardsShouldBeOpen(state) {
+		// Nothing is desired open, so the shards need not be enumerated.
+		return state, nil
+	}
+
+	if err := db.schemaReader.Read(className, retryIfClassNotFound,
+		func(_ *models.Class, shardingState *sharding.State) error {
+			if shardingState == nil {
+				// Walking nothing would read as "keep none open", which a sweep would
+				// act on by unloading the class.
+				return fmt.Errorf("%w: %q", errNoShardingState, className)
+			}
+			return use(shardingState)
+		}); err != nil {
+		return "", err
+	}
+	return state, nil
 }
 
 // forEachDesiredOpenLocalShard calls fn for each HOT shard this node should hold
@@ -117,22 +173,7 @@ func stateForShardDecision(e namespaces.Exister, namespace, class string, logger
 // against the shards it holds must intersect with the listed replicas rather
 // than unload everything this omits.
 func (db *DB) forEachDesiredOpenLocalShard(className string, fn func(name string)) error {
-	namespace := namespacing.NamespaceFromQualified(className)
-	state, err := stateForShardDecision(db.namespacesExister, namespace, className, db.logger)
-	if err != nil {
-		return err
-	}
-	if !namespaces.ShardsShouldBeOpen(state) {
-		// Nothing is desired open, so the shards need not be enumerated.
-		return nil
-	}
-
-	return db.schemaReader.Read(className, true, func(_ *models.Class, shardingState *sharding.State) error {
-		if shardingState == nil {
-			// Walking nothing would read as "keep none open", which a sweep would
-			// act on by unloading the class.
-			return fmt.Errorf("no sharding state for class %q", className)
-		}
+	_, err := db.readDesiredOpenLocalShards(className, true, func(shardingState *sharding.State) error {
 		for name, physical := range shardingState.Physical {
 			if shardingState.IsLocalOpenPhysical(physical) {
 				fn(name)
@@ -140,6 +181,7 @@ func (db *DB) forEachDesiredOpenLocalShard(className string, fn func(name string
 		}
 		return nil
 	})
+	return err
 }
 
 // DesiredOpenLocalShardCount returns how many HOT shards this node should hold
@@ -164,6 +206,13 @@ func (db *DB) ReopenShard(ctx context.Context, className, shardName string) erro
 		return fmt.Errorf("index for class %q not found locally", className)
 	}
 	return index.initLocalShardWithForcedLoading(ctx, index.getClass(), shardName, true, false, callerResume)
+}
+
+// namespaceState binds a class name to the shared state lookup, deriving the
+// namespace from the qualified name. The state is returned unvalidated.
+func (db *DB) namespaceState(className string) (api.NamespaceState, error) {
+	return stateForShardDecision(db.namespacesExister,
+		namespacing.NamespaceFromQualified(className), className, db.logger)
 }
 
 // namespaceState binds this index's own namespace to the shared state lookup.
