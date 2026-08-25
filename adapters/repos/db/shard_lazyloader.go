@@ -271,8 +271,8 @@ func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	// The disk read stays under the lock: a load writes segment sidecars and
 	// recovers the write-ahead log, so a read overlapping one can sum a mix of
 	// old and new segments and then cache the result. Everything else on this
-	// shard waits for one directory listing, and only until the first read
-	// fills the cache.
+	// shard waits for one directory listing. A failed read caches nothing, so a
+	// shard whose sidecars stay unreadable repeats that listing on every call.
 	idx := l.shardOpts.index
 	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name, true)
 	if err != nil {
