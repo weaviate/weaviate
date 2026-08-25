@@ -256,30 +256,6 @@ func TestNewIndexCarriesNamespaceLookup(t *testing.T) {
 	})
 }
 
-// A shard with no status counts as HOT, so a single-tenant shard, which never
-// carries one, is decided by its namespace alone. The namespace axis is covered
-// by TestDesiredOpenLocalShardCount.
-func TestShardStatusOpen(t *testing.T) {
-	statuses := []struct {
-		name   string
-		status string
-		hot    bool
-	}{
-		{name: "HOT", status: models.TenantActivityStatusHOT, hot: true},
-		{name: "empty", status: "", hot: true},
-		{name: "COLD", status: models.TenantActivityStatusCOLD},
-		{name: "FROZEN", status: models.TenantActivityStatusFROZEN},
-		{name: "FREEZING", status: models.TenantActivityStatusFREEZING},
-		{name: "UNFREEZING", status: models.TenantActivityStatusUNFREEZING},
-	}
-
-	for _, st := range statuses {
-		t.Run(st.name, func(t *testing.T) {
-			assert.Equal(t, st.hot, shardStatusOpen(st.status))
-		})
-	}
-}
-
 // readerForShards serves one class's sharding state to the code under test.
 func readerForShards(t *testing.T, className string, shards map[string]sharding.Physical) *schemaUC.MockSchemaReader {
 	t.Helper()

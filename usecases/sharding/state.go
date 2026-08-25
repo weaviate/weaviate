@@ -356,6 +356,13 @@ func (s *State) LocalActivePhysicalShardsCount() int {
 	return count
 }
 
+// IsLocalOpenPhysical reports whether this node is a replica of p and p's
+// activity status keeps its shard open. An empty status, which every
+// single-tenant shard has, counts as HOT, unlike in LocalActivePhysicalShardsCount.
+func (s *State) IsLocalOpenPhysical(p Physical) bool {
+	return s.IsLocalPhysical(p) && p.ActivityStatus() == models.TenantActivityStatusHOT
+}
+
 func (s *State) AllPhysicalShards() []string {
 	names := make([]string, 0, len(s.Physical))
 	for _, physical := range s.Physical {
