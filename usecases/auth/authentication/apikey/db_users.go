@@ -437,15 +437,17 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {
 // It does not use Snapshot or filterDBUserData: those take the write lock and
 // return an error on an unknown id.
 //
-// Only ExportStatusExported records carry a non-nil SecureHash. Imported (weak),
-// revoked, and hash-less users get a nil hash and a status naming why they cannot
-// be carried, so no user is silently left out.
+// Only ExportStatusExported records carry a non-nil SecureHash. Imported (weak)
+// and revoked users get a nil hash and a status naming why they cannot be
+// carried, so no user is silently left out. A user with no stored hash fails the
+// whole export: no write path produces one, so it means the store is corrupt.
 func (c *DBUser) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	classify := func(id string, user *User) dbuser.ExportRecord {
+	classify := func(id string, user *User) (dbuser.ExportRecord, error) {
 		v := user.view()
+		var err error
 		rec := dbuser.ExportRecord{
 			Id:                 v.Id,
 			UserIdentifier:     c.data.IdToIdentifier[id],
@@ -462,12 +464,12 @@ func (c *DBUser) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord,
 		case revoked:
 			rec.Status = dbuser.ExportStatusRevoked
 		case !hasSecureHash:
-			rec.Status = dbuser.ExportStatusNoKey
+			err = fmt.Errorf("no secure hash on file")
 		default:
 			rec.SecureHash = &secureHash
 			rec.Status = dbuser.ExportStatusExported
 		}
-		return rec
+		return rec, err
 	}
 
 	if len(userIds) == 0 {
@@ -476,7 +478,11 @@ func (c *DBUser) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord,
 			if user == nil {
 				continue
 			}
-			users[id] = classify(id, user)
+			classified, err := classify(id, user)
+			if err != nil {
+				return nil, fmt.Errorf("exporting user %q: %w", id, err)
+			}
+			users[id] = classified
 		}
 		return users, nil
 	}
@@ -484,7 +490,11 @@ func (c *DBUser) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord,
 	users := make(map[string]dbuser.ExportRecord, len(userIds))
 	for _, id := range userIds {
 		if user, ok := c.data.Users[id]; ok && user != nil {
-			users[id] = classify(id, user)
+			classified, err := classify(id, user)
+			if err != nil {
+				return nil, fmt.Errorf("exporting user %q: %w", id, err)
+			}
+			users[id] = classified
 		}
 	}
 	return users, nil

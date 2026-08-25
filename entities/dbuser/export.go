@@ -25,10 +25,6 @@ const (
 	// ExportStatusRevoked marks a strong-key user whose key was revoked. Carrying
 	// the hash would bring the revoked credential back to life.
 	ExportStatusRevoked = "revoked"
-	// ExportStatusNoKey marks a user record with no secure hash on file. No known
-	// write path produces one; the status keeps such a record visible instead of
-	// dropping it.
-	ExportStatusNoKey = "no_key"
 )
 
 // ExportRecord is the per-user result of an export. The RAFT query sends and

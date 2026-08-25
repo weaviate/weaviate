@@ -1526,6 +1526,31 @@ func TestExportUsers(t *testing.T) {
 		require.True(t, rec.Active)
 	})
 
+	t.Run("user with no stored hash fails the whole export", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("healthy", hash, identifier, "", "", time.Now()))
+		_, hash2, identifier2, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("broken", hash2, identifier2, "", "", time.Now()))
+		// No write path drops a hash, so corrupt the store directly.
+		delete(dynUsers.data.SecureKeyStorageById, "broken")
+
+		records, err := dynUsers.ExportUsers()
+		require.ErrorContains(t, err, `exporting user "broken"`)
+		require.Nil(t, records)
+
+		records, err = dynUsers.ExportUsers("broken")
+		require.ErrorContains(t, err, `exporting user "broken"`)
+		require.Nil(t, records)
+
+		records, err = dynUsers.ExportUsers("healthy")
+		require.NoError(t, err)
+		require.Equal(t, dbuser.ExportStatusExported, records["healthy"].Status)
+	})
+
 	t.Run("imported key user yields sentinel with reason imported_key", func(t *testing.T) {
 		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
 		require.NoError(t, err)

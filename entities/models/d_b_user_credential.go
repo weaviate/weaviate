@@ -49,7 +49,7 @@ type DBUserCredential struct {
 	SecureHash string `json:"secureHash,omitempty"`
 
 	// Export classification. Only 'exported' carries a usable secureHash; the others report why the user was not carried.
-	// Enum: [exported imported_key revoked no_key]
+	// Enum: [exported imported_key revoked]
 	Status string `json:"status,omitempty"`
 
 	// The name (ID) of the user, without any namespace prefix.
@@ -114,7 +114,7 @@ var dBUserCredentialTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["exported","imported_key","revoked","no_key"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["exported","imported_key","revoked"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -132,9 +132,6 @@ const (
 
 	// DBUserCredentialStatusRevoked captures enum value "revoked"
 	DBUserCredentialStatusRevoked string = "revoked"
-
-	// DBUserCredentialStatusNoKey captures enum value "no_key"
-	DBUserCredentialStatusNoKey string = "no_key"
 )
 
 // prop value enum

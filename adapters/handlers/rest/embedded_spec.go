@@ -8789,8 +8789,7 @@ func init() {
           "enum": [
             "exported",
             "imported_key",
-            "revoked",
-            "no_key"
+            "revoked"
           ]
         },
         "userId": {
@@ -21301,8 +21300,7 @@ func init() {
           "enum": [
             "exported",
             "imported_key",
-            "revoked",
-            "no_key"
+            "revoked"
           ]
         },
         "userId": {

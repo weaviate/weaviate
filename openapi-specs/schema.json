@@ -172,8 +172,7 @@
           "enum": [
             "exported",
             "imported_key",
-            "revoked",
-            "no_key"
+            "revoked"
           ],
           "description": "Export classification. Only 'exported' carries a usable secureHash; the others report why the user was not carried."
         }
