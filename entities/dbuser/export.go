@@ -17,23 +17,25 @@ import "time"
 // carries a usable credential; the others carry a nil SecureHash and name why the
 // user's key cannot be migrated.
 const (
-	// ExportStatusExported: a strong-key user whose argon2id hash is carried.
+	// ExportStatusExported marks a strong-key user whose argon2id hash is carried.
 	ExportStatusExported = "exported"
-	// ExportStatusImportedKey: a user created from a static (weak sha256) key,
-	// which cannot be reconstructed through CreateUser.
+	// ExportStatusImportedKey marks a user created from a static key. Its weak
+	// sha256 hash cannot be stored through CreateUser.
 	ExportStatusImportedKey = "imported_key"
-	// ExportStatusRevoked: a strong-key user whose key was revoked; carrying it
-	// would resurrect a revoked credential.
+	// ExportStatusRevoked marks a strong-key user whose key was revoked. Carrying
+	// the hash would bring the revoked credential back to life.
 	ExportStatusRevoked = "revoked"
-	// ExportStatusNoKey: a user record with no secure hash on file (defensive).
+	// ExportStatusNoKey marks a user record with no secure hash on file. No known
+	// write path produces one; the status keeps such a record visible instead of
+	// dropping it.
 	ExportStatusNoKey = "no_key"
 )
 
-// ExportRecord is the per-user result of an export. It is a shared wire type at
-// both ends of the RAFT query hop, kept separate from [View] so hash material
-// never reaches any pre-existing response type. Only records with
+// ExportRecord is the per-user result of an export. The RAFT query sends and
+// receives this same type. It is kept separate from [View] so hash material never
+// reaches an existing response type. Only records with
 // Status == ExportStatusExported carry a non-nil SecureHash; every other status
-// is a sentinel that reports why the user was not carried.
+// reports why the user was not carried.
 type ExportRecord struct {
 	Id                 string
 	UserIdentifier     string

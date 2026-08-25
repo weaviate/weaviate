@@ -35,16 +35,11 @@ const (
 
 func strptr(s string) *string { return &s }
 
-// TestUserCredentialMigration exercises the export/import round-trip across a
-// flat source cluster and a namespace-enabled target cluster: a strong key
-// migrated from source authenticates on the target under the chosen namespace,
-// non-migratable keys are reported as sentinels, and a namespaced admin cannot
-// import into a namespace it does not own.
 func TestHashesExportImport(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	// Flat source cluster (namespaces off), where credentials are minted.
+	// Source cluster with namespaces off, where the credentials are created.
 	source, err := docker.New().WithWeaviate().
 		WithApiKey().
 		WithUserApiKey(root, rootKey).
@@ -109,8 +104,8 @@ func TestHashesExportImport(t *testing.T) {
 		require.Len(t, importResp.Payload.Results, 1)
 		require.Equal(t, models.UserImportResultStatusCreated, *importResp.Payload.Results[0].Status)
 
-		// The original source key now authenticates against the target: import
-		// landed the identifier→id→hash triple under the target namespace.
+		// The original source key now authenticates against the target. Import
+		// stored the identifier, the user id, and the hash under the target namespace.
 		info := helper.GetInfoForOwnUser(t, sourceAPIKey)
 		require.NotNil(t, info)
 
@@ -157,7 +152,7 @@ func TestHashesExportImport(t *testing.T) {
 		helper.CreateNamespace(t, ownNS, rootKey)
 		helper.CreateNamespace(t, foreignNS, rootKey)
 
-		// A real-RBAC namespaced admin confined to ownNS.
+		// An admin whose RBAC role is limited to ownNS.
 		adminID := "nsadmin"
 		adminAPIKey := helper.CreateUserWithNamespace(t, adminID, ownNS, rootKey)
 		helper.AssignRoleToUser(t, rootKey, authorization.Admin, ownNS+":"+adminID)

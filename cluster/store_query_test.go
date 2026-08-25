@@ -29,11 +29,11 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-// newDynUserQueryStore builds an FSM whose dynUserManager is backed by a real,
-// seeded *apikey.DBUser. NewMockStore leaves DynamicUserController nil, which
-// short-circuits the manager to an empty payload and would make the dispatch
-// assertions false-green. It returns the store plus the seeded user's id and
-// identifier.
+// newDynUserQueryStore builds a Store whose dynUserManager is backed by a real
+// *apikey.DBUser with one seeded user. NewMockStore is not usable here: it leaves
+// DynamicUserController nil, so the manager answers every query with an empty
+// payload and the dispatch assertions would pass without testing anything. It
+// returns the store plus the seeded user's id and identifier.
 func newDynUserQueryStore(t *testing.T) (*Store, string, string) {
 	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
@@ -85,9 +85,6 @@ func TestQueryUserIdentifierExistsDispatch(t *testing.T) {
 
 		var out cmd.QueryUserIdentifierExistsResponse
 		require.NoError(t, json.Unmarshal(resp.Payload, &out))
-		// A dispatch misrouted to GetUsers never populates Exists, so it stays
-		// false; exists=true confirms TYPE_USER_IDENTIFIER_EXISTS reaches
-		// CheckUserIdentifierExists.
 		require.True(t, out.Exists, "seeded identifier must report exists=true; false means the dispatch is misrouted to GetUsers")
 	})
 

@@ -217,7 +217,7 @@ func TestImportUsersHandler(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
-		// Stored active; record says inactive → deactivate to converge.
+		// The stored user is active but the record says inactive, so import must deactivate it.
 		dynUser.On("GetUsers", key).Return(map[string]apikey.UserView{key: {Id: key, InternalIdentifier: "ident", Active: true}}, nil)
 		dynUser.On("DeactivateUser", mock.Anything, key, false).Return(nil)
 

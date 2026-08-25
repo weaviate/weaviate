@@ -1615,7 +1615,7 @@ func TestCreateUserIdentifierInvariant(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
 
-		// RAFT replay / idempotent re-import: re-applying the same userId succeeds.
+		// Re-applying the same userId succeeds, as RAFT log replay and a repeat import need.
 		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
 	})
 }

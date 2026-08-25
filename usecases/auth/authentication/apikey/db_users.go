@@ -44,9 +44,10 @@ const (
 )
 
 // ErrUserIdentifierExists is returned by CreateUser when the userIdentifier
-// already maps to a different userId. IdentifierToId is global and keyed by the
-// non-namespaced identifier, so one source key can map to exactly one target
-// user; a second mapping would hijack the first user's authentication.
+// already maps to a different userId. IdentifierToId is one map for the whole
+// cluster, keyed by the identifier alone with no namespace prefix. So one key
+// can map to exactly one user; a second mapping would hijack the first user's
+// authentication.
 var ErrUserIdentifierExists = errors.New("user identifier already exists")
 
 // MakeUserKey returns the internal storage key for a user. Namespaced users
@@ -240,9 +241,9 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 		return errors.New("api key first letters too long")
 	}
 
-	// IdentifierToId is global and keyed by the non-namespaced identifier.
-	// Refuse to rebind an identifier already held by a different user; re-applying
-	// the same userId is allowed so RAFT replay and idempotent re-import pass.
+	// IdentifierToId is one map for the whole cluster, keyed with no namespace
+	// prefix. Refuse to rebind an identifier held by a different user. Re-applying
+	// the same userId is allowed, so RAFT log replay and a repeat import both pass.
 	if existing, ok := c.data.IdentifierToId[userIdentifier]; ok && existing != userId {
 		return fmt.Errorf("%w: identifier already maps to user %q", ErrUserIdentifierExists, existing)
 	}
@@ -430,15 +431,15 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {
 	return users, nil
 }
 
-// ExportUsers returns a per-user credential record or sentinel for migration.
-// With no ids it reports every user and is the sole authoritative export roster.
-// Like GetUsers, an unknown requested id is omitted rather than erroring; it does
-// not use Snapshot/filterDBUserData, which take the write lock and fail hard on an
-// unknown id.
+// ExportUsers returns a credential record per user for migration. With no ids it
+// reports every user, and export relies on that as the complete user list. Like
+// GetUsers, an unknown requested id is left out rather than returning an error.
+// It does not use Snapshot or filterDBUserData: those take the write lock and
+// return an error on an unknown id.
 //
 // Only ExportStatusExported records carry a non-nil SecureHash. Imported (weak),
-// revoked, and hash-less users get a nil-hash sentinel naming why they cannot be
-// carried, so no user is silently omitted.
+// revoked, and hash-less users get a nil hash and a status naming why they cannot
+// be carried, so no user is silently left out.
 func (c *DBUser) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
