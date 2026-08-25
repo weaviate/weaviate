@@ -125,10 +125,9 @@ func IsCleanupCollectionDropped(err error) bool {
 // sidecar shutdown hands the context to the bucket's shutdown, whose
 // compaction and flush waits both wrap it. Both are pinned, since a step that
 // started swallowing the cause would silently turn every cancelled run back
-// into a broken shard. A cancellation surfacing deeper, inside NewShard, is
-// flattened to a string in [LazyLoadShard.Load] and reads as a shard failure —
-// an Error-level false alarm on that arm, accepted over masking a real failure
-// as a timeout.
+// into a broken shard. A cancellation surfacing deeper, inside NewShard, is in
+// reach too: [LazyLoadShard.Load] wraps that failure rather than flattening it,
+// so the context checks NewShard makes on its way in reach this guard as well.
 func truncatedByCancellation(reported error) error {
 	if !errors.Is(reported, context.Canceled) && !errors.Is(reported, context.DeadlineExceeded) {
 		return nil

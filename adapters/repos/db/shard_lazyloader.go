@@ -148,9 +148,10 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		l.shardOpts.bitmapBufPool)
 	if err != nil {
 		l.shardOpts.promMetrics.FailLoadingShard()
-		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
-		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
-		return errors.New(msg)
+		l.shardOpts.index.logger.WithField("error", "shard_load").
+			Errorf("unable to load shard %s: %v", l.shardOpts.name, err)
+		// %w, not a formatted string: callers classify this with errors.Is.
+		return fmt.Errorf("unable to load shard %s: %w", l.shardOpts.name, err)
 	}
 
 	l.shardOpts.promMetrics.FinishLoadingShard()
