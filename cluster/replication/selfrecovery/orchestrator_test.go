@@ -47,6 +47,12 @@ func (s stubSchema) ShardReplicas(class, shard string) ([]string, error) {
 	return s.replicas, s.err
 }
 
+type stubSchemaFunc func(class, shard string) ([]string, error)
+
+func (f stubSchemaFunc) ShardReplicas(class, shard string) ([]string, error) {
+	return f(class, shard)
+}
+
 type stubPathResolver struct{ root string }
 
 func (p stubPathResolver) ShardPath(collection, shard string) string {
