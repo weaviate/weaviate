@@ -230,14 +230,23 @@ func newSourcePropClass(props ...*models.Property) *models.Class {
 	}
 }
 
+func geo(lat, lon float32) *models.GeoCoordinates {
+	return &models.GeoCoordinates{Latitude: &lat, Longitude: &lon}
+}
+
 // runSourcePropCases runs each case through reVectorize against a text2vec module
-// declaring mediaProps as its media properties. Passing nil models a plain text2vec
-// module (VectorizableProperties returns no media props), which is the path on which
-// blob-like source properties are otherwise never compared.
+// with the given media properties. Pass nil to model a plain text2vec module that
+// has no media properties at all.
 func runSourcePropCases(t *testing.T, class *models.Class, mediaProps []string, cases []sourcePropCase) {
 	t.Helper()
+	runSourcePropCasesWithModule(t, class, newDummyText2VecModule("my-module", mediaProps), cases)
+}
+
+func runSourcePropCasesWithModule(t *testing.T, class *models.Class,
+	module dummyText2VecModuleNoCapabilities, cases []sourcePropCase,
+) {
+	t.Helper()
 	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "", nil)
-	module := newDummyText2VecModule("my-module", mediaProps)
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			uid, _ := uuid.NewUUID()
@@ -277,22 +286,26 @@ func TestCompareRevectorize_NonTextSourceProperties(t *testing.T) {
 		{name: "number array changed", sourceProps: []string{"sizes"}, oldProps: map[string]any{"sizes": []float64{1, 2}}, newProps: map[string]any{"sizes": []float64{1, 3}}, different: true},
 		{name: "mixed text+number source, only number changed", sourceProps: []string{"title", "price"}, oldProps: map[string]any{"title": "a", "price": 9.99}, newProps: map[string]any{"title": "a", "price": 19.99}, different: true},
 		{name: "non-source number changed -> skip", sourceProps: []string{"title"}, oldProps: map[string]any{"title": "a", "price": 9.99}, newProps: map[string]any{"title": "a", "price": 19.99}, different: false},
-		// representation drift: same logical value, different Go types -> must not re-vectorize.
+		// same value, different Go types -> must not re-vectorize.
 		{name: "date drift time.Time vs RFC3339 string, unchanged", sourceProps: []string{"released"}, oldProps: map[string]any{"released": time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)}, newProps: map[string]any{"released": "2024-01-01T00:00:00Z"}, different: false},
-		// The comparator - not the corpus - normalizes an RFC3339 string down to second
-		// precision, so the disk string and the request-side time.Time for the same instant
-		// compare equal and must not re-vectorize.
+		// Dates compare at second precision, so a stored string with sub-seconds and
+		// a time.Time for the same instant are equal and must not re-vectorize.
 		{name: "date sub-second drift string(micros) vs time.Time, unchanged", sourceProps: []string{"released"}, oldProps: map[string]any{"released": "2024-01-01T12:30:45.123456Z"}, newProps: map[string]any{"released": time.Date(2024, 1, 1, 12, 30, 45, 123456000, time.UTC)}, different: false},
 		{name: "date millisecond drift string vs time.Time, unchanged", sourceProps: []string{"released"}, oldProps: map[string]any{"released": "2024-01-01T12:30:45.123Z"}, newProps: map[string]any{"released": time.Date(2024, 1, 1, 12, 30, 45, 123000000, time.UTC)}, different: false},
 		{name: "date changed at seconds despite sub-second noise", sourceProps: []string{"released"}, oldProps: map[string]any{"released": "2024-01-01T12:30:45.123456Z"}, newProps: map[string]any{"released": time.Date(2024, 1, 1, 12, 30, 46, 0, time.UTC)}, different: true},
 		{name: "int drift int64 vs float64, unchanged", sourceProps: []string{"qty"}, oldProps: map[string]any{"qty": int64(5)}, newProps: map[string]any{"qty": float64(5)}, different: false},
-		// date array drift: disk returns RFC3339Nano strings, the request side carries []time.Time.
+		// date arrays: disk returns strings, the request carries []time.Time.
 		{name: "date array drift []string vs []time.Time, unchanged", sourceProps: []string{"timestamps"}, oldProps: map[string]any{"timestamps": []string{"2024-01-01T00:00:00.5Z", "2024-02-02T00:00:00Z"}}, newProps: map[string]any{"timestamps": []time.Time{time.Date(2024, 1, 1, 0, 0, 0, 500000000, time.UTC), time.Date(2024, 2, 2, 0, 0, 0, 0, time.UTC)}}, different: false},
 		{name: "date array changed", sourceProps: []string{"timestamps"}, oldProps: map[string]any{"timestamps": []string{"2024-01-01T00:00:00.5Z", "2024-02-02T00:00:00Z"}}, newProps: map[string]any{"timestamps": []time.Time{time.Date(2024, 1, 1, 0, 0, 0, 500000000, time.UTC), time.Date(2024, 3, 3, 0, 0, 0, 0, time.UTC)}}, different: true},
 		{name: "empty array drift []any vs []float64, unchanged", sourceProps: []string{"sizes"}, oldProps: map[string]any{"sizes": []any{}}, newProps: map[string]any{"sizes": []float64{}}, different: false},
 		{name: "presence change (source prop removed)", sourceProps: []string{"price"}, oldProps: map[string]any{"price": 9.99}, newProps: map[string]any{}, different: true},
 		{name: "object source prop unchanged", sourceProps: []string{"meta"}, oldProps: map[string]any{"meta": map[string]any{"a": "b"}}, newProps: map[string]any{"meta": map[string]any{"a": "b"}}, different: false},
 		{name: "object source prop changed", sourceProps: []string{"meta"}, oldProps: map[string]any{"meta": map[string]any{"a": "b"}}, newProps: map[string]any{"meta": map[string]any{"a": "c"}}, different: true},
+		// disk reads turn {latitude, longitude} object values into *models.GeoCoordinates
+		// (and phone-shaped ones into *models.PhoneNumber); the request side is a map.
+		{name: "geo-shaped object drift struct vs map, unchanged", sourceProps: []string{"meta"}, oldProps: map[string]any{"meta": geo(52.52, 13.405)}, newProps: map[string]any{"meta": map[string]any{"latitude": 52.52, "longitude": 13.405}}, different: false},
+		{name: "geo-shaped object changed", sourceProps: []string{"meta"}, oldProps: map[string]any{"meta": geo(52.52, 13.405)}, newProps: map[string]any{"meta": map[string]any{"latitude": 52.53, "longitude": 13.405}}, different: true},
+		{name: "phone-shaped object drift struct vs map, unchanged", sourceProps: []string{"meta"}, oldProps: map[string]any{"meta": &models.PhoneNumber{Input: "+49 171 123", InternationalFormatted: "+49 171 123", NationalFormatted: "0171 123", National: 171123, CountryCode: 49, Valid: true}}, newProps: map[string]any{"meta": map[string]any{"input": "+49 171 123", "internationalFormatted": "+49 171 123", "nationalFormatted": "0171 123", "national": float64(171123), "countryCode": float64(49), "valid": true}}, different: false},
 	}
 
 	runSourcePropCases(t, class, []string{"image", "video"}, cases)
@@ -321,8 +334,46 @@ func TestCompareRevectorize_SkipIgnoredWithSourceProperties(t *testing.T) {
 	})
 }
 
-// TestCompareRevectorize_BlobSourceProperty: a blob is a base64 string the corpus
-// vectorizes like text, so a changed blob must re-vectorize.
+// TestCompareRevectorize_SkipHonoredOnNamedVectorClass: on a named-vector class the
+// class-level Vectorizer is "none", but skip:true on a property must still count.
+func TestCompareRevectorize_SkipHonoredOnNamedVectorClass(t *testing.T) {
+	class := newSourcePropClass(
+		&models.Property{
+			Name:         "title",
+			DataType:     []string{schema.DataTypeText.String()},
+			ModuleConfig: map[string]any{"my-module": map[string]any{"skip": true}},
+		},
+		&models.Property{Name: "body", DataType: []string{schema.DataTypeText.String()}},
+	)
+	class.Vectorizer = "none"
+
+	runSourcePropCases(t, class, nil, []sourcePropCase{
+		{name: "skip:true prop changed -> skip", oldProps: map[string]any{"title": "a", "body": "b"}, newProps: map[string]any{"title": "x", "body": "b"}, different: false},
+		{name: "other prop changed -> re-vectorize", oldProps: map[string]any{"title": "a", "body": "b"}, newProps: map[string]any{"title": "a", "body": "y"}, different: true},
+	})
+}
+
+// TestCompareRevectorize_BlobIgnoredWhenTextNotVectorized: a module that does not
+// vectorize text (multi2vec, img2vec) never vectorizes a blob outside its media
+// properties, so changing one must not re-vectorize.
+func TestCompareRevectorize_BlobIgnoredWhenTextNotVectorized(t *testing.T) {
+	class := newSourcePropClass(
+		&models.Property{Name: "image", DataType: []string{schema.DataTypeBlob.String()}},
+		&models.Property{Name: "thumbnail", DataType: []string{schema.DataTypeBlob.String()}},
+	)
+	noText := false
+	module := newDummyText2VecModule("my-module", []string{"image"})
+	module.vectorizeText = &noText
+
+	runSourcePropCasesWithModule(t, class, module, []sourcePropCase{
+		{name: "non-media blob changed -> skip", oldProps: map[string]any{"thumbnail": "QQ=="}, newProps: map[string]any{"thumbnail": "Qg=="}, different: false},
+		{name: "media blob changed -> re-vectorize", oldProps: map[string]any{"image": "QQ=="}, newProps: map[string]any{"image": "Qg=="}, different: true},
+		{name: "blob listed as source prop changed -> re-vectorize", sourceProps: []string{"thumbnail"}, oldProps: map[string]any{"thumbnail": "QQ=="}, newProps: map[string]any{"thumbnail": "Qg=="}, different: true},
+	})
+}
+
+// TestCompareRevectorize_BlobSourceProperty: a blob is a base64 string that gets
+// vectorized like text, so a changed blob must re-vectorize.
 func TestCompareRevectorize_BlobSourceProperty(t *testing.T) {
 	class := newSourcePropClass(
 		&models.Property{Name: "title", DataType: []string{schema.DataTypeText.String()}},
@@ -339,12 +390,10 @@ func TestCompareRevectorize_BlobSourceProperty(t *testing.T) {
 	runSourcePropCases(t, class, []string{"image", "video"}, cases)
 }
 
-// TestCompareRevectorize_BlobHashSourceProperty: a blobHash source property on a
-// plain text2vec module (no media properties at all, so the media-property path
-// never fires) is still vectorized as base64 by the corpus. The stored value is
-// already a SHA-256 hash because hashing happens after vectorization, so the
-// comparator must hash the incoming base64 before comparing - otherwise every
-// update re-vectorizes.
+// TestCompareRevectorize_BlobHashSourceProperty: on a text2vec module with no
+// media properties, a blobHash source property is vectorized as base64 but
+// stored as a hash. The comparator must hash the incoming base64 before
+// comparing, otherwise every update re-vectorizes.
 func TestCompareRevectorize_BlobHashSourceProperty(t *testing.T) {
 	class := newSourcePropClass(
 		&models.Property{Name: "title", DataType: []string{schema.DataTypeText.String()}},
@@ -368,13 +417,12 @@ func TestCompareRevectorize_BlobHashSourceProperty(t *testing.T) {
 		{name: "mixed text+blobHash source, only blobHash changed", sourceProps: []string{"title", "thumbnail"}, oldProps: map[string]any{"title": "a", "thumbnail": hashA}, newProps: map[string]any{"title": "a", "thumbnail": base64B}, different: true},
 	}
 
-	// nil media properties: a text2vec module reports none, which is exactly the
-	// configuration in which the pre-existing IsBlobHash handling never fired.
+	// nil: a plain text2vec module reports no media properties.
 	runSourcePropCases(t, class, nil, cases)
 }
 
-// TestCompareRevectorize_BlobHashMediaProperty: the multi2vec path, where blobHash is
-// a declared media property, keeps working through the same hash normalization.
+// TestCompareRevectorize_BlobHashMediaProperty: a blobHash declared as a media
+// property (the multi2vec setup) still compares by hash.
 func TestCompareRevectorize_BlobHashMediaProperty(t *testing.T) {
 	class := newSourcePropClass(
 		&models.Property{Name: "image", DataType: []string{schema.DataTypeBlobHash.String()}},

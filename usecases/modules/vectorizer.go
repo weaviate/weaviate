@@ -532,8 +532,9 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 	return modConfigs, nil
 }
 
-// sourcePropertiesFromModuleConfig reads a named vector's source properties,
-// handling both []any (JSON/RAFT) and []string forms; nil means none.
+// sourcePropertiesFromModuleConfig reads a named vector's source properties.
+// The config holds them as []string or []any depending on how the schema was
+// loaded; nil means none are set.
 func (p *Provider) sourcePropertiesFromModuleConfig(modConfig map[string]any, moduleName string) []string {
 	vecConfig, ok := modConfig[moduleName].(map[string]any)
 	if !ok {
@@ -547,7 +548,8 @@ func (p *Provider) sourcePropertiesFromModuleConfig(modConfig map[string]any, mo
 		for _, prop := range props {
 			s, ok := prop.(string)
 			if !ok {
-				// On a non-string entry, treat the config as absent (no partial list).
+				// If any entry is not a string, ignore the whole list rather
+				// than use only part of it.
 				return nil
 			}
 			out = append(out, s)

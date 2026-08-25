@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -322,8 +321,8 @@ func newUUID() strfmt.UUID {
 	return strfmt.UUID(uuid.NewString())
 }
 
-// countingText2VecModule / countingText2ColBERTModule count embedding-model calls in
-// both the single-object and batch (honoring skipObject) paths.
+// countingText2VecModule / countingText2ColBERTModule count how often the
+// embedding model is called; in batches, skipped objects do not count.
 
 type countingText2VecModule struct {
 	dummyText2VecModuleNoCapabilities
@@ -375,10 +374,10 @@ func (m *countingText2ColBERTModule) VectorizeBatch(ctx context.Context,
 	return vecs, nil, map[int]error{}
 }
 
-func newCountingProvider(moduleName string, multiVector, revectorizeCheckDisabled bool) (*Provider, *int) {
+func newCountingProvider(moduleName string, multiVector bool) (*Provider, *int) {
 	logger, _ := test.NewNullLogger()
 	p := NewProvider(logger, config.Config{
-		RevectorizeCheckDisabled: configRuntime.NewDynamicValue(revectorizeCheckDisabled),
+		RevectorizeCheckDisabled: configRuntime.NewDynamicValue(false),
 	})
 	calls := 0
 	if multiVector {
@@ -522,7 +521,7 @@ func TestUpdateVector_RespectsNamedVectorSourceProperties(t *testing.T) {
 			wantVectorizeCalls: 0,
 		},
 		{
-			// empty source props => no explicit list => all text props compared.
+			// an empty list means no source properties, so all text props are compared.
 			name:               "empty source props; change a text prop -> re-vectorize",
 			sourceProperties:   []any{},
 			changedProp:        "delivery_label",
@@ -533,7 +532,7 @@ func TestUpdateVector_RespectsNamedVectorSourceProperties(t *testing.T) {
 	for _, j := range journeys {
 		for _, tc := range cases {
 			t.Run(j.name+"/"+tc.name, func(t *testing.T) {
-				p, calls := newCountingProvider(moduleName, j.multiVector, false)
+				p, calls := newCountingProvider(moduleName, j.multiVector)
 				class := newSourcePropsTestClass(moduleName, targetVector, tc.sourceProperties)
 				oldProps := map[string]any{"vector_input": "embed me", "delivery_label": "1 day"}
 				storedVector, _ := sourcePropsTestVectors(j.multiVector)
@@ -557,14 +556,14 @@ func TestUpdateVector_RespectsNamedVectorSourceProperties(t *testing.T) {
 }
 
 // TestBatchUpdateVector_MixedSkipAndRevectorize: in one batch, the changed-source
-// object must re-vectorize while the unchanged one keeps its vector — checks the
-// per-object skip and result-to-object mapping (a 1-object batch can't catch this).
+// object must re-vectorize while the unchanged one keeps its vector — checks that
+// each object gets its own result (a 1-object batch can't catch this).
 func TestBatchUpdateVector_MixedSkipAndRevectorize(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	const targetVector = "vector_input"
 	const moduleName = "my-module"
 
-	p, calls := newCountingProvider(moduleName, false, false)
+	p, calls := newCountingProvider(moduleName, false)
 	class := newSourcePropsTestClass(moduleName, targetVector, []any{"vector_input"})
 
 	changedID := newUUID()   // source property changes -> must re-vectorize
@@ -609,157 +608,35 @@ func TestBatchUpdateVector_MixedSkipAndRevectorize(t *testing.T) {
 		"unchanged-source object must keep its stored vector (correct result-to-object mapping)")
 }
 
-// TestUpdateVector_RevectorizeCheckDisabled_AlwaysVectorizes: with the check
-// disabled, an update re-vectorizes even when only a non-source property changed.
-func TestUpdateVector_RevectorizeCheckDisabled_AlwaysVectorizes(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	const targetVector = "vector_input"
-	const moduleName = "my-module"
-
-	p, calls := newCountingProvider(moduleName, false, true)
-	class := newSourcePropsTestClass(moduleName, targetVector, []any{"vector_input"})
-
-	findObject := staticFindObject(targetVector,
-		map[string]any{"vector_input": "embed me", "delivery_label": "1 day"},
-		[]float32{1, 2, 3})
-
-	obj := &models.Object{
-		Class: class.Class, ID: newUUID(), Vectors: models.Vectors{},
-		Properties: map[string]any{"vector_input": "embed me", "delivery_label": "2 days"},
-	}
-
-	require.NoError(t, p.UpdateVector(context.Background(), obj, class, findObject, logger))
-	require.Equal(t, 1, *calls,
-		"with RevectorizeCheckDisabled=true, updates must always re-vectorize")
-}
-
-// TestUpdateVector_NonTextSourcePropertyEndToEnd: through Provider.UpdateVector,
-// a changed numeric source property re-vectorizes; a non-source change does not.
-func TestUpdateVector_NonTextSourcePropertyEndToEnd(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	const targetVector = "vec"
-	const moduleName = "my-module"
-
-	newClass := func() *models.Class {
-		return newNamedVectorClass(moduleName, targetVector, []any{"price"},
-			&models.Property{Name: "price", DataType: []string{schema.DataTypeNumber.String()}},
-			&models.Property{Name: "label", DataType: []string{schema.DataTypeText.String()}},
-		)
-	}
-
-	cases := []struct {
-		name      string
-		merged    map[string]any
-		wantCalls int
-	}{
-		{name: "source (price) changed -> re-vectorize", merged: map[string]any{"price": 19.99, "label": "x"}, wantCalls: 1},
-		{name: "non-source (label) changed -> skip", merged: map[string]any{"price": 9.99, "label": "y"}, wantCalls: 0},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			p, calls := newCountingProvider(moduleName, false, false)
-			class := newClass()
-			findObject := staticFindObject(targetVector,
-				map[string]any{"price": 9.99, "label": "x"}, []float32{1, 2, 3})
-			obj := &models.Object{
-				Class: class.Class, ID: newUUID(), Properties: tc.merged, Vectors: models.Vectors{},
-			}
-			require.NoError(t, p.UpdateVector(context.Background(), obj, class, findObject, logger))
-			require.Equal(t, tc.wantCalls, *calls)
-		})
-	}
-}
-
-// TestBatchUpdateVector_SubSecondDateSourceProperty: on the batch path a date stored
-// as an RFC3339Nano string vs supplied as time.Time must not re-vectorize the same instant.
-func TestBatchUpdateVector_SubSecondDateSourceProperty(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	const targetVector = "vec"
-	const moduleName = "my-module"
-
-	newClass := func() *models.Class {
-		return newNamedVectorClass(moduleName, targetVector, []any{"released"},
-			&models.Property{Name: "released", DataType: []string{schema.DataTypeDate.String()}},
-			&models.Property{Name: "label", DataType: []string{schema.DataTypeText.String()}},
-		)
-	}
-
-	cases := []struct {
-		name      string
-		diskDate  any // RFC3339(Nano) string, as read from disk
-		newDate   any // time.Time, as produced by validation on the update
-		wantCalls int
-	}{
-		{name: "same instant, microsecond string vs time.Time -> skip", diskDate: "2024-01-01T12:30:45.123456Z", newDate: time.Date(2024, 1, 1, 12, 30, 45, 123456000, time.UTC), wantCalls: 0},
-		{name: "same instant, millisecond string vs time.Time -> skip", diskDate: "2024-01-01T12:30:45.123Z", newDate: time.Date(2024, 1, 1, 12, 30, 45, 123000000, time.UTC), wantCalls: 0},
-		{name: "changed second -> re-vectorize", diskDate: "2024-01-01T12:30:45.123456Z", newDate: time.Date(2024, 1, 1, 12, 30, 46, 0, time.UTC), wantCalls: 1},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			p, calls := newCountingProvider(moduleName, false, false)
-			class := newClass()
-			findObject := staticFindObject(targetVector,
-				map[string]any{"released": tc.diskDate, "label": "x"}, []float32{1, 2, 3})
-			obj := &models.Object{
-				Class: class.Class, ID: newUUID(), Vectors: models.Vectors{},
-				Properties: map[string]any{"released": tc.newDate, "label": "x"},
-			}
-			vecErrors, err := p.BatchUpdateVector(context.Background(), class, []*models.Object{obj}, findObject, logger)
-			require.NoError(t, err)
-			require.Empty(t, vecErrors)
-			require.Equal(t, tc.wantCalls, *calls)
-		})
-	}
-}
-
-// TestUpdateVector_BlobHashSourceProperty: a blobHash listed as a source property of
-// a text2vec named vector is vectorized as base64 but persisted as a SHA-256 hash
-// (hashing runs after vectorization), so an unchanged payload must not re-vectorize
-// even though the raw values differ. Covers both the single-object and batch paths.
+// TestUpdateVector_BlobHashSourceProperty: one blobHash smoke case through the
+// provider — sent to the model as base64 but stored as a hash, so an unchanged
+// payload must not re-vectorize. Value coverage lives in compare_test.go.
 func TestUpdateVector_BlobHashSourceProperty(t *testing.T) {
 	const targetVector = "vec"
 	const moduleName = "my-module"
-
-	const (
-		base64A = "QQ=="
-		base64B = "Qg=="
-	)
+	const base64A = "QQ=="
 	storedHash := schema.HashBlob(base64A)
 
-	newClass := func() *models.Class {
-		return newNamedVectorClass(moduleName, targetVector, []any{"thumbnail"},
-			&models.Property{Name: "thumbnail", DataType: []string{schema.DataTypeBlobHash.String()}},
-			&models.Property{Name: "label", DataType: []string{schema.DataTypeText.String()}},
-		)
-	}
+	class := newNamedVectorClass(moduleName, targetVector, []any{"thumbnail"},
+		&models.Property{Name: "thumbnail", DataType: []string{schema.DataTypeBlobHash.String()}},
+		&models.Property{Name: "label", DataType: []string{schema.DataTypeText.String()}},
+	)
 
-	cases := []struct {
-		name      string
-		newBlob   string
-		wantCalls int
-	}{
-		{name: "unchanged base64 -> skip", newBlob: base64A, wantCalls: 0},
-		{name: "changed base64 -> re-vectorize", newBlob: base64B, wantCalls: 1},
-		{name: "re-submitted hash -> skip", newBlob: storedHash, wantCalls: 0},
-	}
-	for _, tc := range cases {
-		for _, batch := range []bool{false, true} {
-			mode := "single-object"
-			if batch {
-				mode = "batch"
-			}
-			t.Run(mode+"/"+tc.name, func(t *testing.T) {
-				p, calls := newCountingProvider(moduleName, false, false)
-				class := newClass()
-				findObject := staticFindObject(targetVector,
-					map[string]any{"thumbnail": storedHash, "label": "x"}, []float32{1, 2, 3})
-				obj := &models.Object{
-					Class: class.Class, ID: newUUID(), Vectors: models.Vectors{},
-					Properties: map[string]any{"thumbnail": tc.newBlob, "label": "x"},
-				}
-				runUpdateVector(t, p, class, obj, findObject, batch)
-				require.Equal(t, tc.wantCalls, *calls)
-			})
+	for _, batch := range []bool{false, true} {
+		mode := "single-object"
+		if batch {
+			mode = "batch"
 		}
+		t.Run(mode+"/unchanged base64 -> skip", func(t *testing.T) {
+			p, calls := newCountingProvider(moduleName, false)
+			findObject := staticFindObject(targetVector,
+				map[string]any{"thumbnail": storedHash, "label": "x"}, []float32{1, 2, 3})
+			obj := &models.Object{
+				Class: class.Class, ID: newUUID(), Vectors: models.Vectors{},
+				Properties: map[string]any{"thumbnail": base64A, "label": "x"},
+			}
+			runUpdateVector(t, p, class, obj, findObject, batch)
+			require.Equal(t, 0, *calls)
+		})
 	}
 }
