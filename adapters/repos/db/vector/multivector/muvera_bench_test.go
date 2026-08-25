@@ -47,7 +47,9 @@ func BenchmarkMuveraEncodeDoc(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = encoder.EncodeDoc(doc)
+		if _, err := encoder.EncodeDoc(doc); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -58,6 +60,8 @@ func BenchmarkMuveraEncodeQuery(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = encoder.EncodeQuery(query)
+		if _, err := encoder.EncodeQuery(query); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

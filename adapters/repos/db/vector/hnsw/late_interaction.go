@@ -33,9 +33,14 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 		ids = append(ids, docID)
 	}
 
+	useCache := !h.compressed.Load() && !h.muvera.Load()
+
 	// Acquire a single consistent view for all disk reads to avoid per-candidate flushLock acquisitions.
-	view := h.GetViewThunk()
-	defer view.ReleaseView()
+	var view common.BucketView
+	if !useCache {
+		view = h.GetViewThunk()
+		defer view.ReleaseView()
+	}
 
 	resultsQueue := priorityqueue.NewMax[any](k)
 	mu := sync.Mutex{}
@@ -58,15 +63,26 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 	for workerID := 0; workerID < workers; workerID++ {
 		workerID := workerID
 		eg.Go(func() error {
-			slice := h.pools.tempVectors.Get(int(h.dims.Load()))
-			defer h.pools.tempVectors.Put(slice)
+			var slice *common.VectorSlice
+			if !useCache {
+				slice = h.pools.tempVectors.Get(int(h.dims.Load()))
+				defer h.pools.tempVectors.Put(slice)
+			}
 
+			// per-worker scratch keeps the scoring fast path allocation-free
+			var dots []float32
 			for idPos := workerID; idPos < len(ids); idPos += workers {
 				if err := ctx.Err(); err != nil {
 					return fmt.Errorf("computeLateInteraction: %w", err)
 				}
 				docID := ids[idPos]
-				sim, err := h.computeScoreWithView(ctx, queryVectors, docID, slice, view)
+				var sim float32
+				var err error
+				if useCache {
+					sim, err = h.computeScoreFromCache(ctx, queryVectors, docID, &dots)
+				} else {
+					sim, err = h.computeScoreWithView(ctx, queryVectors, docID, slice, view, &dots)
+				}
 				if err != nil {
 					h.logger.
 						WithField("action", "computeLateInteraction").
@@ -95,7 +111,7 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 	return resultIDs, distances, nil
 }
 
-func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, error) {
+func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64, scratch *[]float32) (float32, error) {
 	h.RLock()
 	vecIDs := h.docIDVectors[docID]
 	h.RUnlock()
@@ -126,10 +142,11 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 		}
 	}
 
-	return lateInteractionScore(h.multiDistancerProvider, searchVecs, docVecs)
+	return lateInteractionScore(h.multiDistancerProvider, searchVecs, docVecs, scratch)
 }
 
-func lateInteractionScore(provider distancer.Provider, searchVecs, docVecs [][]float32) (float32, error) {
+// scratch is an optional reused buffer; pass nil to allocate locally
+func lateInteractionScore(provider distancer.Provider, searchVecs, docVecs [][]float32, scratch *[]float32) (float32, error) {
 	similarity := float32(0.0)
 
 	// Fast path: the multi-vector aggregation uses plain dot products
@@ -138,7 +155,13 @@ func lateInteractionScore(provider distancer.Provider, searchVecs, docVecs [][]f
 	// generic path below is kept for equal-length validation errors and any
 	// future non-dot provider.
 	if provider.Type() == "dot" && equalVectorDims(searchVecs, docVecs) {
-		dots := make([]float32, len(docVecs))
+		if scratch == nil {
+			scratch = new([]float32)
+		}
+		if cap(*scratch) < len(docVecs) {
+			*scratch = make([]float32, len(docVecs))
+		}
+		dots := (*scratch)[:len(docVecs)]
 		for _, searchVec := range searchVecs {
 			f32.DotProductBatch(dots, docVecs, searchVec)
 			maxSim := float32(math.MaxFloat32)
@@ -173,13 +196,28 @@ func lateInteractionScore(provider distancer.Provider, searchVecs, docVecs [][]f
 	return similarity, nil
 }
 
-func (h *hnsw) computeScoreWithView(ctx context.Context, searchVecs [][]float32, docID uint64, slice *common.VectorSlice, view common.BucketView) (float32, error) {
+// only valid for uncompressed non-MUVERA indexes, where the cache holds the original token vectors
+func (h *hnsw) computeScoreFromCache(ctx context.Context, searchVecs [][]float32, docID uint64, scratch *[]float32) (float32, error) {
+	h.RLock()
+	vecIDs := h.docIDVectors[docID]
+	h.RUnlock()
+	docVecs, errs := h.multiVectorForID(ctx, vecIDs)
+	for _, err := range errs {
+		if err != nil {
+			return 0, errors.Wrap(err, "get vector for docID")
+		}
+	}
+
+	return lateInteractionScore(h.multiDistancerProvider, searchVecs, docVecs, scratch)
+}
+
+func (h *hnsw) computeScoreWithView(ctx context.Context, searchVecs [][]float32, docID uint64, slice *common.VectorSlice, view common.BucketView, scratch *[]float32) (float32, error) {
 	docVecs, err := h.TempMultiVectorForIDWithViewThunk(ctx, docID, slice, view)
 	if err != nil {
 		return 0, errors.Wrap(err, "get vectors for docID")
 	}
 
-	return lateInteractionScore(h.multiDistancerProvider, searchVecs, docVecs)
+	return lateInteractionScore(h.multiDistancerProvider, searchVecs, docVecs, scratch)
 }
 
 func equalVectorDims(searchVecs, docVecs [][]float32) bool {

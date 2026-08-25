@@ -14,9 +14,29 @@ package multivector
 import (
 	"testing"
 
+	"github.com/tphakala/simd/f32"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+// simHash computes the SimHash of a vector using random Gaussian projections.
+// It is test-only: production encoding inlines the hashing across all
+// repetitions in encode. gaussiansFlat is one repetition's row-major
+// KSim×Dimensions matrix; dots is a caller-provided scratch of at least KSim
+// entries.
+func (e *MuveraEncoder) simHash(vec []float32, gaussiansFlat []float32, dots []float32) uint64 {
+	dots = dots[:e.config.KSim]
+	f32.DotProductStrided(dots, gaussiansFlat, vec, e.config.KSim, e.config.Dimensions, e.config.Dimensions)
+	var result uint64
+	for i, dot := range dots {
+		// Set bit based on sign of dot product
+		if dot > 0 {
+			result |= 1 << uint(i)
+		}
+	}
+	return result
+}
 
 func TestSimHashTest(t *testing.T) {
 	// Create a default config

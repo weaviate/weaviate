@@ -126,27 +126,17 @@ func initProjectionMatrix(rows int, cols int, rng *rand.Rand) [][]float32 {
 	return matrix
 }
 
-// simHash computes the SimHash of a vector using random Gaussian projections.
-// gaussiansFlat is one repetition's row-major KSim×Dimensions matrix; dots is
-// a caller-provided scratch of at least KSim entries.
-func (e *MuveraEncoder) simHash(vec []float32, gaussiansFlat []float32, dots []float32) uint64 {
-	dots = dots[:e.config.KSim]
-	f32.DotProductStrided(dots, gaussiansFlat, vec, e.config.KSim, e.config.Dimensions, e.config.Dimensions)
-	var result uint64
-	for i, dot := range dots {
-		// Set bit based on sign of dot product
-		if dot > 0 {
-			result |= 1 << uint(i)
-		}
-	}
-	return result
-}
-
-func (e *MuveraEncoder) encode(fullVec [][]float32, isDoc bool) []float32 {
+func (e *MuveraEncoder) encode(fullVec [][]float32, isDoc bool) ([]float32, error) {
 	if len(fullVec) == 0 {
-		return nil
+		return nil, fmt.Errorf("muvera encode: multi-vector has no tokens")
 	}
 	dims := e.config.Dimensions
+	// the SIMD kernels silently truncate ragged rows, so reject them up front
+	for i, token := range fullVec {
+		if len(token) != dims {
+			return nil, fmt.Errorf("muvera encode: token %d has %d dimensions, expected %d", i, len(token), dims)
+		}
+	}
 	numClusters := e.config.NumClusters
 	dProjections := e.config.DProjections
 
@@ -156,6 +146,7 @@ func (e *MuveraEncoder) encode(fullVec [][]float32, isDoc bool) []float32 {
 	dots := make([]float32, numHashRows)
 	allClusterMappings := make([]uint64, e.config.Repetitions*len(fullVec))
 	for relative, token := range fullVec {
+		// the ignored bool only reports whether a SIMD kernel ran; the fallback is equivalent
 		f32.DotProductStrided(dots, e.gaussiansAllFlat, token, numHashRows, dims, dims)
 		for rep := 0; rep < e.config.Repetitions; rep++ {
 			var cluster uint64
@@ -232,16 +223,18 @@ func (e *MuveraEncoder) encode(fullVec [][]float32, isDoc bool) []float32 {
 	scale := 1.0 / float32(math.Sqrt(float64(dProjections)))
 	f32.Scale(encodedVec, encodedVec, scale)
 
-	return encodedVec
+	return encodedVec, nil
 }
 
-// EncodeQuery encodes a query vector using Muvera
-func (e *MuveraEncoder) EncodeQuery(query [][]float32) []float32 {
+// EncodeQuery encodes a query vector using Muvera. It errors on an empty
+// multi-vector or on tokens whose dimensions differ from the encoder's.
+func (e *MuveraEncoder) EncodeQuery(query [][]float32) ([]float32, error) {
 	return e.encode(query, false)
 }
 
-// EncodeDoc encodes a document vector using Muvera
-func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
+// EncodeDoc encodes a document vector using Muvera. It errors on an empty
+// multi-vector or on tokens whose dimensions differ from the encoder's.
+func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) ([]float32, error) {
 	return e.encode(fullDoc, true)
 }
 

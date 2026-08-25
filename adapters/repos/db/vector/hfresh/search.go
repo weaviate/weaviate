@@ -428,7 +428,7 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 
 	// The muvera encoder is initialized by the first AddMulti (or restored
 	// from persisted metadata at startup). Until then its projection
-	// matrices are nil and EncodeQuery would panic. dims is
+	// matrices are nil and EncodeQuery would fail. dims is
 	// only set after the encoder is initialized and persisted — atomically,
 	// unlike muveraEncoder.Dimensions() — so a non-zero value guarantees the
 	// encoder is ready without racing a concurrent first insert.
@@ -450,7 +450,10 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	vectors = h.normalizeMultiVec(vectors)
 
 	// Encode query vectors into FDE (Fast Dense Encoding) representation
-	queryFDE := h.muveraEncoder.EncodeQuery(vectors)
+	queryFDE, err := h.muveraEncoder.EncodeQuery(vectors)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "muvera encode query")
+	}
 
 	routingBudget, rerankBudget := h.muveraSearchBudgets(k)
 

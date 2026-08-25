@@ -38,11 +38,13 @@ func TestMuveraEncodeSparseMultiVectors(t *testing.T) {
 			singleToken[0][i] = float32(i) * 0.1
 		}
 
-		docEncoded := encoder.EncodeDoc(singleToken)
+		docEncoded, err := encoder.EncodeDoc(singleToken)
+		require.NoError(t, err)
 		require.NotNil(t, docEncoded)
 		assertAllFinite(t, docEncoded, "EncodeDoc single token")
 
-		queryEncoded := encoder.EncodeQuery(singleToken)
+		queryEncoded, err := encoder.EncodeQuery(singleToken)
+		require.NoError(t, err)
 		require.NotNil(t, queryEncoded)
 		assertAllFinite(t, queryEncoded, "EncodeQuery single token")
 	})
@@ -57,11 +59,13 @@ func TestMuveraEncodeSparseMultiVectors(t *testing.T) {
 			twoTokens[1][i] = float32(64-i) * 0.1
 		}
 
-		docEncoded := encoder.EncodeDoc(twoTokens)
+		docEncoded, err := encoder.EncodeDoc(twoTokens)
+		require.NoError(t, err)
 		require.NotNil(t, docEncoded)
 		assertAllFinite(t, docEncoded, "EncodeDoc two tokens")
 
-		queryEncoded := encoder.EncodeQuery(twoTokens)
+		queryEncoded, err := encoder.EncodeQuery(twoTokens)
+		require.NoError(t, err)
 		require.NotNil(t, queryEncoded)
 		assertAllFinite(t, queryEncoded, "EncodeQuery two tokens")
 	})
@@ -77,11 +81,13 @@ func TestMuveraEncodeSparseMultiVectors(t *testing.T) {
 			}
 		}
 
-		docEncoded := encoder.EncodeDoc(similarTokens)
+		docEncoded, err := encoder.EncodeDoc(similarTokens)
+		require.NoError(t, err)
 		require.NotNil(t, docEncoded)
 		assertAllFinite(t, docEncoded, "EncodeDoc similar tokens")
 
-		queryEncoded := encoder.EncodeQuery(similarTokens)
+		queryEncoded, err := encoder.EncodeQuery(similarTokens)
+		require.NoError(t, err)
 		require.NotNil(t, queryEncoded)
 		assertAllFinite(t, queryEncoded, "EncodeQuery similar tokens")
 	})
@@ -92,11 +98,13 @@ func TestMuveraEncodeSparseMultiVectors(t *testing.T) {
 			make([]float32, 64),
 		}
 
-		docEncoded := encoder.EncodeDoc(zeroTokens)
+		docEncoded, err := encoder.EncodeDoc(zeroTokens)
+		require.NoError(t, err)
 		require.NotNil(t, docEncoded)
 		assertAllFinite(t, docEncoded, "EncodeDoc zero tokens")
 
-		queryEncoded := encoder.EncodeQuery(zeroTokens)
+		queryEncoded, err := encoder.EncodeQuery(zeroTokens)
+		require.NoError(t, err)
 		require.NotNil(t, queryEncoded)
 		assertAllFinite(t, queryEncoded, "EncodeQuery zero tokens")
 	})
@@ -166,8 +174,12 @@ func TestEncodedVectorMatchesConfiguredDimensions(t *testing.T) {
 
 			expected := tt.config.EncodedDimensions()
 			assert.Positive(t, expected)
-			assert.Len(t, encoder.EncodeDoc(tokens), expected)
-			assert.Len(t, encoder.EncodeQuery(tokens), expected)
+			docEncoded, err := encoder.EncodeDoc(tokens)
+			require.NoError(t, err)
+			assert.Len(t, docEncoded, expected)
+			queryEncoded, err := encoder.EncodeQuery(tokens)
+			require.NoError(t, err)
+			assert.Len(t, queryEncoded, expected)
 		})
 	}
 }

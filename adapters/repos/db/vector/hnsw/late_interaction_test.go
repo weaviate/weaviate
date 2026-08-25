@@ -75,7 +75,7 @@ func TestLateInteractionScoreMatchesReference(t *testing.T) {
 
 			want, err := referenceLateInteractionScore(provider, searchVecs, docVecs)
 			require.NoError(t, err)
-			got, err := lateInteractionScore(provider, searchVecs, docVecs)
+			got, err := lateInteractionScore(provider, searchVecs, docVecs, nil)
 			require.NoError(t, err)
 			require.InDelta(t, want, got, 1e-3)
 		})
@@ -90,20 +90,38 @@ func TestLateInteractionScoreRaggedDims(t *testing.T) {
 
 	searchVecs := randomVecSet(rng, 4, 128)
 	docVecs := randomVecSet(rng, 4, 64)
-	_, err := lateInteractionScore(provider, searchVecs, docVecs)
+	_, err := lateInteractionScore(provider, searchVecs, docVecs, nil)
 	require.ErrorIs(t, err, distancer.ErrVectorLength)
 
 	// one ragged doc token among equal ones
 	docVecs = randomVecSet(rng, 4, 128)
 	docVecs[2] = docVecs[2][:100]
-	_, err = lateInteractionScore(provider, searchVecs, docVecs)
+	_, err = lateInteractionScore(provider, searchVecs, docVecs, nil)
 	require.ErrorIs(t, err, distancer.ErrVectorLength)
 
 	// ragged query tokens
 	searchVecs[1] = searchVecs[1][:100]
 	docVecs = randomVecSet(rng, 4, 128)
-	_, err = lateInteractionScore(provider, searchVecs, docVecs)
+	_, err = lateInteractionScore(provider, searchVecs, docVecs, nil)
 	require.ErrorIs(t, err, distancer.ErrVectorLength)
+}
+
+// A shared scratch buffer must not change results across candidates of
+// varying token counts (the workers reuse one buffer per goroutine).
+func TestLateInteractionScoreScratchReuse(t *testing.T) {
+	provider := distancer.NewDotProductProvider()
+	rng := rand.New(rand.NewPCG(7, 8))
+	searchVecs := randomVecSet(rng, 8, 128)
+
+	var scratch []float32
+	for _, docTokens := range []int{50, 3, 100, 1, 27} {
+		docVecs := randomVecSet(rng, docTokens, 128)
+		want, err := referenceLateInteractionScore(provider, searchVecs, docVecs)
+		require.NoError(t, err)
+		got, err := lateInteractionScore(provider, searchVecs, docVecs, &scratch)
+		require.NoError(t, err)
+		require.InDelta(t, want, got, 1e-3)
+	}
 }
 
 // ColBERT-style shapes: 32 query tokens x 100 doc tokens, 128 dims.
@@ -113,9 +131,10 @@ func BenchmarkLateInteractionScore(b *testing.B) {
 	searchVecs := randomVecSet(rng, 32, 128)
 	docVecs := randomVecSet(rng, 100, 128)
 
+	var scratch []float32
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := lateInteractionScore(provider, searchVecs, docVecs); err != nil {
+		if _, err := lateInteractionScore(provider, searchVecs, docVecs, &scratch); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -130,7 +149,7 @@ func TestLateInteractionScoreEmptyDocVecs(t *testing.T) {
 
 	want, err := referenceLateInteractionScore(provider, searchVecs, nil)
 	require.NoError(t, err)
-	got, err := lateInteractionScore(provider, searchVecs, nil)
+	got, err := lateInteractionScore(provider, searchVecs, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, want, got)
 }

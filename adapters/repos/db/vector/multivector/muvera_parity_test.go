@@ -146,11 +146,13 @@ func TestMuveraEncodeMatchesReference(t *testing.T) {
 			for _, isDoc := range []bool{true, false} {
 				want := referenceEncode(encoder, tokens, isDoc)
 				var got []float32
+				var err error
 				if isDoc {
-					got = encoder.EncodeDoc(tokens)
+					got, err = encoder.EncodeDoc(tokens)
 				} else {
-					got = encoder.EncodeQuery(tokens)
+					got, err = encoder.EncodeQuery(tokens)
 				}
+				require.NoError(t, err)
 				require.Equal(t, len(want), len(got))
 				for i := range want {
 					require.InDeltaf(t, want[i], got[i], 1e-3,
@@ -167,7 +169,8 @@ func TestMuveraLoadConfigRebuildsFlatMatrices(t *testing.T) {
 	encoder := defaultTestEncoder(128)
 	rng := rand.New(rand.NewPCG(7, 8))
 	tokens := randomTokens(rng, 10, 128)
-	want := encoder.EncodeDoc(tokens)
+	want, err := encoder.EncodeDoc(tokens)
+	require.NoError(t, err)
 
 	loaded := NewMuveraEncoder(ent.MuveraConfig{}, nil)
 	loaded.LoadMuveraConfig(MuveraData{
@@ -179,21 +182,49 @@ func TestMuveraLoadConfigRebuildsFlatMatrices(t *testing.T) {
 		Gaussians:    encoder.gaussians,
 		S:            encoder.S,
 	})
-	got := loaded.EncodeDoc(tokens)
+	got, err := loaded.EncodeDoc(tokens)
+	require.NoError(t, err)
 	require.Equal(t, want, got)
 }
 
+// Empty multi-vectors must be rejected: the pre-SIMD doc path panicked on
+// them, and silently storing a nil encoding would be worse.
 func TestMuveraEncodeEmptyDoc(t *testing.T) {
 	encoder := defaultTestEncoder(128)
-	require.Nil(t, encoder.EncodeDoc([][]float32{}))
-	require.Nil(t, encoder.EncodeQuery(nil))
+	_, err := encoder.EncodeDoc([][]float32{})
+	require.ErrorContains(t, err, "no tokens")
+	_, err = encoder.EncodeQuery(nil)
+	require.ErrorContains(t, err, "no tokens")
+}
+
+// Ragged token dimensions must be rejected: the SIMD kernels would silently
+// truncate to the shorter operand where the pre-SIMD scalar loops panicked.
+func TestMuveraEncodeRaggedDims(t *testing.T) {
+	encoder := defaultTestEncoder(128)
+	rng := rand.New(rand.NewPCG(9, 10))
+
+	shortToken := randomTokens(rng, 5, 128)
+	shortToken[3] = shortToken[3][:64]
+	_, err := encoder.EncodeDoc(shortToken)
+	require.ErrorContains(t, err, "token 3 has 64 dimensions, expected 128")
+	_, err = encoder.EncodeQuery(shortToken)
+	require.ErrorContains(t, err, "token 3 has 64 dimensions, expected 128")
+
+	longToken := randomTokens(rng, 5, 128)
+	longToken[0] = append(longToken[0], 1.0)
+	_, err = encoder.EncodeDoc(longToken)
+	require.ErrorContains(t, err, "token 0 has 129 dimensions, expected 128")
+	_, err = encoder.EncodeQuery(longToken)
+	require.ErrorContains(t, err, "token 0 has 129 dimensions, expected 128")
 }
 
 func TestMuveraEncodeDeterministic(t *testing.T) {
 	encoder := defaultTestEncoder(128)
 	rng := rand.New(rand.NewPCG(1, 2))
 	tokens := randomTokens(rng, 25, 128)
-	a := encoder.EncodeDoc(tokens)
-	b := encoder.EncodeDoc(tokens)
+	a, err := encoder.EncodeDoc(tokens)
+	require.NoError(t, err)
+	b, err := encoder.EncodeDoc(tokens)
+	require.NoError(t, err)
 	require.Equal(t, a, b)
 }

@@ -301,6 +301,10 @@ func New(cfg Config, uc ent.UserConfig,
 
 	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
 
+	if cfg.AllocChecker == nil {
+		cfg.AllocChecker = memwatch.NewDummyMonitor()
+	}
+
 	normalizeOnRead := cfg.DistanceProvider.Type() == "cosine-dot"
 
 	var vectorCache cache.Cache[float32]

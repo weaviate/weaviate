@@ -60,6 +60,10 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
+	if len(vector) == 0 {
+		return fmt.Errorf("multi vector array is empty")
+	}
+
 	dims := int(h.dims.Load())
 
 	// no vectors exist
@@ -285,6 +289,9 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	}
 
 	if h.muvera.Load() {
+		if len(vectors[0]) == 0 {
+			return errors.Errorf("addMultiBatch called with empty multi-vector for docID %d", docIDs[0])
+		}
 		h.trackMuveraOnce.Do(func() {
 			h.muveraEncoder.InitEncoder(len(vectors[0][0]))
 			h.Lock()
@@ -298,7 +305,11 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		// Process all vectors
 		processedVectors := make([][]float32, len(vectors))
 		for i, v := range vectors {
-			processedVectors[i] = h.muveraEncoder.EncodeDoc(v)
+			var err error
+			processedVectors[i], err = h.muveraEncoder.EncodeDoc(v)
+			if err != nil {
+				return errors.Wrapf(err, "muvera encode for docID %d", docIDs[i])
+			}
 			docIDBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(docIDBytes, docIDs[i])
 			muveraBytes := multivector.MuveraBytesFromFloat32(processedVectors[i])

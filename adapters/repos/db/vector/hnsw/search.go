@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -97,15 +98,22 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 		return nil, nil, errors.New("multivector search is not enabled")
 	}
 
+	if len(vectors) == 0 {
+		return nil, nil, errors.New("multi vector array is empty")
+	}
+
 	if h.muvera.Load() {
 		// this happens only if hnsw is empty so we need to initialize muvera encoder
 		if err := h.initMuveraEncoder(vectors); err != nil {
 			return nil, nil, err
 		}
 
-		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
+		muveraQuery, err := h.muveraEncoder.EncodeQuery(vectors)
+		if err != nil {
+			return nil, nil, err
+		}
 		overfetch := 2
-		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
+		docIDs, _, err := h.SearchByVector(ctx, muveraQuery, overfetch*k, allowList)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1100,7 +1108,7 @@ func (h *hnsw) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVe
 		if !ok {
 			return -1, fmt.Errorf("docID %v is not in the vector index", docID)
 		}
-		return h.computeScore(queryVector, docID)
+		return h.computeScore(queryVector, docID, nil)
 	}
 	return common.QueryVectorDistancer{DistanceFunc: f}
 }
