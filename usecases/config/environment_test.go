@@ -2350,3 +2350,45 @@ func TestEnvironmentAsyncReplicationGlobalSentinels(t *testing.T) {
 		})
 	}
 }
+
+func TestNamespaceCleanupIntervalValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     string
+		wantErr string
+		wantGet time.Duration
+	}{
+		{name: "a sub-second interval fails the boot", env: "500ms", wantErr: "NAMESPACE_CLEANUP_INTERVAL"},
+		{name: "unset yields the default", wantGet: DefaultNamespaceCleanupInterval},
+		// newCronsNamespaceCleanup substitutes the default; Get() keeps the 0 the
+		// operator wrote, and /debug/config omits a zero interval entirely.
+		{name: "a value at or below zero is kept as configured", env: "0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env != "" {
+				t.Setenv("NAMESPACE_CLEANUP_INTERVAL", tt.env)
+			}
+			var conf Config
+
+			err := FromEnv(&conf)
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantGet, conf.Namespaces.CleanupInterval.Get())
+		})
+	}
+
+	t.Run("a sub-second runtime push is refused and the interval stands", func(t *testing.T) {
+		t.Setenv("NAMESPACE_CLEANUP_INTERVAL", "1m")
+		var conf Config
+		require.NoError(t, FromEnv(&conf))
+
+		require.Error(t, conf.Namespaces.CleanupInterval.SetValue(500*time.Millisecond))
+		assert.Equal(t, time.Minute, conf.Namespaces.CleanupInterval.Get(),
+			"a refused push must leave the previous interval in place")
+	})
+}
