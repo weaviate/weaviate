@@ -674,6 +674,11 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 func (h *dynUserHandler) exportUsers(params users.ExportUsersParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
+	// Hash material leaves the cluster here. READ on users/* is not enough: the
+	// built-in viewer and read-only roles hold it.
+	if !h.isRequestFromRootUser(principal) {
+		return users.NewExportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can export db user credentials")))
+	}
 	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Users("*")...); err != nil {
 		return users.NewExportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -713,11 +718,17 @@ func (h *dynUserHandler) exportUsers(params users.ExportUsersParams, principal *
 // importUsers recreates exported credentials on this cluster and sets each user
 // to its recorded active state. On a namespace-enabled cluster every record lands
 // in the one target namespace from the request; otherwise records land unscoped.
-// Because the batch shares one namespace, authorization is one CREATE and one
-// UPDATE check over every record's key before any write. Each record is then
-// applied on its own and gets its own result.
+// Root only. Authorization then runs before namespace validation so a caller
+// without rights cannot learn the cluster's namespace configuration. An empty batch authorizes CREATE
+// against the namespace's user wildcard; a non-empty batch checks per-key CREATE
+// and UPDATE. Each record is then applied on its own and gets its own result.
 func (h *dynUserHandler) importUsers(params users.ImportUsersParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
+
+	// Import writes credentials. Root only, matching export.
+	if !h.isRequestFromRootUser(principal) {
+		return users.NewImportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can import db user credentials")))
+	}
 
 	if !h.dbUserEnabled {
 		return users.NewImportUsersUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
@@ -727,34 +738,38 @@ func (h *dynUserHandler) importUsers(params users.ImportUsersParams, principal *
 		return users.NewImportUsersBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("request body is required")))
 	}
 
-	targetNamespace := ""
+	targetNamespace := params.Body.Namespace
+
+	// Authorization runs before the namespace is validated, so a caller without
+	// rights learns nothing about the cluster's namespace settings.
+	if len(params.Body.Users) == 0 {
+		wildcardKey := apikey.MakeUserKey("*", targetNamespace)
+		if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Users(wildcardKey)...); err != nil {
+			return users.NewImportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+	} else {
+		keys := make([]string, 0, len(params.Body.Users))
+		for _, rec := range params.Body.Users {
+			keys = append(keys, apikey.MakeUserKey(bareUserID(rec), targetNamespace))
+		}
+		if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Users(keys...)...); err != nil {
+			return users.NewImportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+		if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(keys...)...); err != nil {
+			return users.NewImportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+	}
+
 	if h.namespacesEnabled {
-		targetNamespace = params.Body.Namespace
 		if targetNamespace == "" {
 			return users.NewImportUsersUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("a target namespace is required on namespace-enabled clusters")))
 		}
-	} else if params.Body.Namespace != "" {
+	} else if targetNamespace != "" {
 		return users.NewImportUsersUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("namespaces are not enabled on this cluster; cannot import into a namespace")))
 	}
 
-	// An empty batch has no resource to authorize against. Answer before the
-	// namespace check so an unprivileged caller cannot probe namespace state.
 	if len(params.Body.Users) == 0 {
 		return users.NewImportUsersOK().WithPayload(&models.UserImportResponse{Results: []*models.UserImportResult{}})
-	}
-
-	keys := make([]string, 0, len(params.Body.Users))
-	for _, rec := range params.Body.Users {
-		keys = append(keys, apikey.MakeUserKey(bareUserID(rec), targetNamespace))
-	}
-	// A record for a user that already exists may change that user's active
-	// state, which activateUser gates on UPDATE. Require both verbs up front so
-	// the whole batch is refused before any write.
-	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Users(keys...)...); err != nil {
-		return users.NewImportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
-	}
-	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(keys...)...); err != nil {
-		return users.NewImportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	// The RAFT apply re-checks the namespace state for every user, so this check

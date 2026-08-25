@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -32,6 +33,8 @@ import (
 const strongHash = "$argon2id$v=19$m=65536,t=3,p=2$c29tZXNhbHQ$aGFzaHZhbHVl"
 
 func strptr(s string) *string { return &s }
+
+var rootOnly = rbacconf.Config{Enabled: true, RootUsers: []string{"root-user"}}
 
 // activeNsExister reports every namespace as existing and active.
 func activeNsExister(t *testing.T) *namespaces.MockExister {
@@ -47,14 +50,22 @@ func activeNsExister(t *testing.T) *namespaces.MockExister {
 }
 
 func TestExportUsersHandler(t *testing.T) {
-	principal := &models.Principal{}
+	principal := &models.Principal{Username: "root-user"}
+
+	t.Run("forbidden for a non-root caller even with users read", func(t *testing.T) {
+		// Root is checked first, so the authorizer is never consulted.
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: NewMockDbUserAndRolesGetter(t), authorizer: authorization.NewMockAuthorizer(t), dbUserEnabled: true}
+		res := h.exportUsers(users.ExportUsersParams{HTTPRequest: req}, &models.Principal{Username: "viewer"})
+		_, ok := res.(*users.ExportUsersForbidden)
+		assert.True(t, ok)
+	})
 
 	t.Run("forbidden without users read", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("*")[0]).Return(errors.New("denied"))
 		dynUser := NewMockDbUserAndRolesGetter(t)
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
 		res := h.exportUsers(users.ExportUsersParams{HTTPRequest: req}, principal)
 		_, ok := res.(*users.ExportUsersForbidden)
 		assert.True(t, ok)
@@ -69,7 +80,7 @@ func TestExportUsersHandler(t *testing.T) {
 			"imported": {Id: "imported", Status: dbuser.ExportStatusImportedKey},
 		}, nil)
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
 		res := h.exportUsers(users.ExportUsersParams{HTTPRequest: req}, principal)
 		parsed, ok := res.(*users.ExportUsersOK)
 		require.True(t, ok)
@@ -93,7 +104,7 @@ func TestExportUsersHandler(t *testing.T) {
 			"ns1:bob": {Id: "ns1:bob", UserIdentifier: "ident", Namespace: "ns1", Active: true, Status: dbuser.ExportStatusExported, SecureHash: strptr(strongHash)},
 		}, nil)
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
 		res := h.exportUsers(users.ExportUsersParams{HTTPRequest: req}, principal)
 		parsed, ok := res.(*users.ExportUsersOK)
 		require.True(t, ok)
@@ -110,7 +121,7 @@ func TestExportUsersHandler(t *testing.T) {
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("ExportUsers").Return(map[string]dbuser.ExportRecord{}, nil)
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
 		res := h.exportUsers(users.ExportUsersParams{HTTPRequest: req}, principal)
 		_, ok := res.(*users.ExportUsersOK)
 		require.True(t, ok)
@@ -119,7 +130,7 @@ func TestExportUsersHandler(t *testing.T) {
 }
 
 func TestImportUsersHandler(t *testing.T) {
-	principal := &models.Principal{IsGlobalOperator: true}
+	principal := &models.Principal{Username: "root-user", IsGlobalOperator: true}
 	const key = "ns1:bob"
 
 	importOne := func(rec *models.DBUserCredential) users.ImportUsersParams {
@@ -139,6 +150,13 @@ func TestImportUsersHandler(t *testing.T) {
 		return parsed.Payload.Results[0]
 	}
 
+	t.Run("forbidden for a non-root caller before any authorization", func(t *testing.T) {
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: NewMockDbUserAndRolesGetter(t), authorizer: authorization.NewMockAuthorizer(t), dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
+		res := h.importUsers(importOne(strongRecord(true)), &models.Principal{Username: "admin", IsGlobalOperator: true})
+		_, ok := res.(*users.ImportUsersForbidden)
+		assert.True(t, ok)
+	})
+
 	t.Run("creates a strong user in the target namespace", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
@@ -148,18 +166,31 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser.On("CheckUserIdentifierExists", "ident").Return(false, nil)
 		dynUser.On("CreateUser", mock.Anything, key, strongHash, "ident", "abc", "ns1", mock.Anything).Return(nil)
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
 		require.Equal(t, models.UserImportResultStatusCreated, *result.Status)
 	})
 
-	t.Run("empty batch returns no results without touching authz or namespace state", func(t *testing.T) {
-		// Nothing is mocked: any Authorize, GetNamespace, or store call fails the test.
-		h := dynUserHandler{dbUsers: NewMockDbUserAndRolesGetter(t), authorizer: authorization.NewMockAuthorizer(t), dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
+	t.Run("empty batch authorizes then returns no results", func(t *testing.T) {
+		authorizer := authorization.NewMockAuthorizer(t)
+		wildcardKey := apikey.MakeUserKey("*", "ns1")
+		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(wildcardKey)[0]).Return(nil)
+		// No store or namespace calls are mocked: the handler must not touch them.
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: NewMockDbUserAndRolesGetter(t), authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
 		res := h.importUsers(users.ImportUsersParams{HTTPRequest: req, Body: &models.UserImportRequest{Namespace: "ns1"}}, principal)
 		parsed, ok := res.(*users.ImportUsersOK)
 		require.True(t, ok)
 		require.Empty(t, parsed.Payload.Results)
+	})
+
+	t.Run("empty batch forbidden for unprivileged caller", func(t *testing.T) {
+		authorizer := authorization.NewMockAuthorizer(t)
+		wildcardKey := apikey.MakeUserKey("*", "ns1")
+		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(wildcardKey)[0]).Return(errors.New("denied"))
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: NewMockDbUserAndRolesGetter(t), authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
+		res := h.importUsers(users.ImportUsersParams{HTTPRequest: req, Body: &models.UserImportRequest{Namespace: "ns1"}}, principal)
+		_, ok := res.(*users.ImportUsersForbidden)
+		assert.True(t, ok)
 	})
 
 	t.Run("forbidden when the caller cannot write the target namespace", func(t *testing.T) {
@@ -167,7 +198,7 @@ func TestImportUsersHandler(t *testing.T) {
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(errors.New("denied"))
 		dynUser := NewMockDbUserAndRolesGetter(t)
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
 		res := h.importUsers(importOne(strongRecord(true)), principal)
 		_, ok := res.(*users.ImportUsersForbidden)
 		assert.True(t, ok)
@@ -181,7 +212,7 @@ func TestImportUsersHandler(t *testing.T) {
 		ns := namespaces.NewMockExister(t)
 		ns.On("GetNamespace", mock.AnythingOfType("string")).Return(api.Namespace{}, false).Maybe()
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: ns}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: ns}
 		res := h.importUsers(importOne(strongRecord(true)), principal)
 		_, ok := res.(*users.ImportUsersUnprocessableEntity)
 		assert.True(t, ok)
@@ -189,9 +220,13 @@ func TestImportUsersHandler(t *testing.T) {
 
 	t.Run("rejects a supplied namespace on a non-namespaced cluster", func(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
+		// Authorization passes so the request reaches the namespace check and its 422.
+		nsKey := apikey.MakeUserKey("bob", "ns1")
+		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(nsKey)[0]).Return(nil)
+		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(nsKey)[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: false}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: false}
 		res := h.importUsers(importOne(strongRecord(true)), principal)
 		_, ok := res.(*users.ImportUsersUnprocessableEntity)
 		assert.True(t, ok)
@@ -206,7 +241,7 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser.On("CheckUserIdentifierExists", "ident").Return(true, nil)
 		// CreateUser is deliberately not mocked: it must not be called on a clobber.
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
 		require.Equal(t, models.UserImportResultStatusError, *result.Status)
 		require.Contains(t, result.Error, "different target user")
@@ -220,7 +255,7 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("GetUsers", key).Return(map[string]apikey.UserView{key: {Id: key, InternalIdentifier: "other", Active: true}}, nil)
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
 		require.Equal(t, models.UserImportResultStatusError, *result.Status)
 		dynUser.AssertNotCalled(t, "CreateUser", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -235,7 +270,7 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser.On("GetUsers", key).Return(map[string]apikey.UserView{key: {Id: key, InternalIdentifier: "ident", Active: true}}, nil)
 		dynUser.On("DeactivateUser", mock.Anything, key, false).Return(nil)
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(false)), principal))
 		require.Equal(t, models.UserImportResultStatusReconciled, *result.Status)
 	})
@@ -247,7 +282,7 @@ func TestImportUsersHandler(t *testing.T) {
 		// No store method is mocked: the whole batch is refused before any read or write.
 		dynUser := NewMockDbUserAndRolesGetter(t)
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
 		res := h.importUsers(importOne(strongRecord(false)), principal)
 		_, ok := res.(*users.ImportUsersForbidden)
 		assert.True(t, ok)
@@ -260,7 +295,7 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("GetUsers", key).Return(map[string]apikey.UserView{key: {Id: key, InternalIdentifier: "ident", Active: true}}, nil)
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
 		require.Equal(t, models.UserImportResultStatusSkippedExists, *result.Status)
 	})
@@ -275,7 +310,7 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser.On("CreateUser", mock.Anything, key, strongHash, "ident", "abc", "ns1", mock.Anything).Return(nil)
 		dynUser.On("DeactivateUser", mock.Anything, key, false).Return(errors.New("raft down"))
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(false)), principal))
 		require.Equal(t, models.UserImportResultStatusError, *result.Status)
 		require.Contains(t, result.Error, "re-run to reconcile")
@@ -292,7 +327,7 @@ func TestImportUsersHandler(t *testing.T) {
 		rec := strongRecord(true)
 		rec.SecureHash = "not-an-argon2id-hash"
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(rec), principal))
 		require.Equal(t, models.UserImportResultStatusError, *result.Status)
 		require.Contains(t, result.Error, "argon2id")
@@ -305,7 +340,7 @@ func TestImportUsersHandler(t *testing.T) {
 		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(apikey.MakeUserKey("", "ns1"))[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
 
-		h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(nil), principal))
 		require.Equal(t, models.UserImportResultStatusError, *result.Status)
 		require.Contains(t, result.Error, "null")
