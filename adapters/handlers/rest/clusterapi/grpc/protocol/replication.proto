@@ -25,6 +25,7 @@ service ReplicationService {
   rpc FindUUIDs (FindUUIDsRequest) returns (FindUUIDsResponse);
   rpc HashTreeLevel (HashTreeLevelRequest) returns (HashTreeLevelResponse);
   rpc CompareHashTreeRoots (CompareHashTreeRootsRequest) returns (CompareHashTreeRootsResponse);
+  rpc CompareHashTreeRootsMulti (CompareHashTreeRootsMultiRequest) returns (CompareHashTreeRootsMultiResponse);
   rpc CountObjects (CountObjectsRequest) returns (CountObjectsResponse);
 
   // Async-checkpoint control plane; mirrors /replicas/indices/{class}/async-checkpoint.
@@ -295,6 +296,28 @@ message CompareHashTreeRootsRequest {
 
 message CompareHashTreeRootsResponse {
   repeated string diverging_shards = 1;
+}
+
+// CompareHashTreeRootsMulti is the cross-class form of CompareHashTreeRoots: one
+// request carries every class's due shard roots for this target node.
+message ClassShardRootDigests {
+  string index = 1;
+  repeated ShardRootDigest shard_root_digests = 2;
+}
+
+message CompareHashTreeRootsMultiRequest {
+  repeated ClassShardRootDigests classes = 1;
+}
+
+// error set means the class could not be compared; the sender descends its shards.
+message ClassDivergingShards {
+  string index = 1;
+  repeated string diverging_shards = 2;
+  string error = 3;
+}
+
+message CompareHashTreeRootsMultiResponse {
+  repeated ClassDivergingShards classes = 1;
 }
 
 // CountObjects fetches hash tree level digests.
