@@ -101,17 +101,6 @@ func stateForShardDecision(e namespaces.Exister, namespace, class string, logger
 	return ns.State, nil
 }
 
-// shardStatusOpen reports whether an activity status should keep its shard open.
-// It is the filter initAndStoreShards applies at startup, so a shard reported
-// open is one startup also registers. An empty status counts as HOT.
-//
-// The namespace state is not consulted here. forEachDesiredOpenLocalShard gates
-// on it once before it enumerates, so a large tenant set pays that check once
-// rather than per shard.
-func shardStatusOpen(status string) bool {
-	return schema.ActivityStatus(status) == models.TenantActivityStatusHOT
-}
-
 // forEachDesiredOpenLocalShard calls fn for each HOT shard this node should hold
 // open, among those the sharding state lists it as a replica of. A single-tenant
 // shard carries no status, which counts as HOT. A class in no namespace is
@@ -145,7 +134,7 @@ func (db *DB) forEachDesiredOpenLocalShard(className string, fn func(name string
 			return fmt.Errorf("no sharding state for class %q", className)
 		}
 		for name, physical := range shardingState.Physical {
-			if shardingState.IsLocalPhysical(physical) && shardStatusOpen(physical.Status) {
+			if shardingState.IsLocalOpenPhysical(physical) {
 				fn(name)
 			}
 		}

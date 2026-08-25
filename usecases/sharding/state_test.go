@@ -788,6 +788,10 @@ func TestState_NumberOfReplicas(t *testing.T) {
 	}
 }
 
+func physicalShard(name, status string, nodes ...string) Physical {
+	return Physical{Name: name, Status: status, BelongsToNodes: nodes}
+}
+
 func TestState_IsLocalPhysical(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -824,13 +828,55 @@ func TestState_IsLocalPhysical(t *testing.T) {
 	})
 }
 
+func TestState_IsLocalOpenPhysical(t *testing.T) {
+	statuses := []struct {
+		name   string
+		status string
+		open   bool
+	}{
+		{name: "HOT", status: models.TenantActivityStatusHOT, open: true},
+		{name: "empty", status: "", open: true},
+		{name: "COLD", status: models.TenantActivityStatusCOLD},
+		{name: "FROZEN", status: models.TenantActivityStatusFROZEN},
+		{name: "FREEZING", status: models.TenantActivityStatusFREEZING},
+		{name: "UNFREEZING", status: models.TenantActivityStatusUNFREEZING},
+	}
+
+	localities := []struct {
+		name     string
+		replicas []string
+		local    bool
+	}{
+		{name: "this node among the replicas", replicas: []string{"N2", "N1"}, local: true},
+		{name: "another node the only replica", replicas: []string{"N2"}},
+		{name: "an empty replica list", replicas: []string{}},
+		{name: "no replica list", replicas: nil},
+	}
+
+	for _, st := range statuses {
+		for _, loc := range localities {
+			t.Run(st.name+"/"+loc.name, func(t *testing.T) {
+				state := &State{}
+				state.SetLocalName("N1")
+
+				got := state.IsLocalOpenPhysical(physicalShard("s1", st.status, loc.replicas...))
+				assert.Equal(t, st.open && loc.local, got)
+
+				if st.status == "" {
+					// An empty status is the shape every single-tenant shard
+					// carries, so reading it as anything but HOT would leave all
+					// of them out.
+					assert.Equal(t, state.IsLocalOpenPhysical(
+						physicalShard("s1", models.TenantActivityStatusHOT, loc.replicas...)), got)
+				}
+			})
+		}
+	}
+}
+
 // Neither accessor had coverage. Both are live: the count feeds multi-tenant
 // lazy-load auto-detection, the names feed backup restore and the reload.
 func TestState_LocalPhysicalShardAccessors(t *testing.T) {
-	physical := func(name, status string, nodes ...string) Physical {
-		return Physical{Name: name, Status: status, BelongsToNodes: nodes}
-	}
-
 	tests := []struct {
 		name      string
 		shards    []Physical
@@ -840,17 +886,17 @@ func TestState_LocalPhysicalShardAccessors(t *testing.T) {
 		{name: "no shards"},
 		{
 			name:      "a shard this node holds no replica of",
-			shards:    []Physical{physical("s1", models.TenantActivityStatusHOT, "N2", "N3")},
+			shards:    []Physical{physicalShard("s1", models.TenantActivityStatusHOT, "N2", "N3")},
 			wantCount: 0,
 		},
 		{
 			name:      "a shard with no replica list at all",
-			shards:    []Physical{physical("s1", models.TenantActivityStatusHOT)},
+			shards:    []Physical{physicalShard("s1", models.TenantActivityStatusHOT)},
 			wantCount: 0,
 		},
 		{
 			name:      "this node listed last among the replicas",
-			shards:    []Physical{physical("s1", models.TenantActivityStatusHOT, "N2", "N3", "N1")},
+			shards:    []Physical{physicalShard("s1", models.TenantActivityStatusHOT, "N2", "N3", "N1")},
 			wantCount: 1,
 			wantNames: []string{"s1"},
 		},
@@ -859,17 +905,17 @@ func TestState_LocalPhysicalShardAccessors(t *testing.T) {
 			// even though every other shard filter reads it as HOT. The names
 			// accessor ignores status entirely, so it still returns the shard.
 			name:      "an empty status counts as inactive but is still named",
-			shards:    []Physical{physical("s1", "", "N1")},
+			shards:    []Physical{physicalShard("s1", "", "N1")},
 			wantCount: 0,
 			wantNames: []string{"s1"},
 		},
 		{
 			name: "only the local HOT shards are counted",
 			shards: []Physical{
-				physical("hot1", models.TenantActivityStatusHOT, "N1"),
-				physical("hot2", models.TenantActivityStatusHOT, "N1", "N2"),
-				physical("cold1", models.TenantActivityStatusCOLD, "N1"),
-				physical("remote1", models.TenantActivityStatusHOT, "N2"),
+				physicalShard("hot1", models.TenantActivityStatusHOT, "N1"),
+				physicalShard("hot2", models.TenantActivityStatusHOT, "N1", "N2"),
+				physicalShard("cold1", models.TenantActivityStatusCOLD, "N1"),
+				physicalShard("remote1", models.TenantActivityStatusHOT, "N2"),
 			},
 			wantCount: 2,
 			wantNames: []string{"cold1", "hot1", "hot2"},
