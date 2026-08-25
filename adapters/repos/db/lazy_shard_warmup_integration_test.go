@@ -122,7 +122,7 @@ func TestLazyShardBackgroundWarmup(t *testing.T) {
 			schemaGetter := &fakeSchemaGetter{schema: fakeSchema, shardState: shardState}
 			shardResolver := resolver.NewShardResolver(className, true, schemaGetter)
 
-			index, err := NewIndex(ctx, IndexConfig{
+			index, err := NewIndex(ctx, nil, IndexConfig{
 				RootPath:                    dirName,
 				ClassName:                   schema.ClassName(className),
 				ReplicationFactor:           1,
