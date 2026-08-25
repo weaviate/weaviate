@@ -193,11 +193,12 @@ func (c *cronsRegistration[T]) loop(cr *gocron.Cron, tickGate func() bool,
 			}
 			cancel()
 
-			// The barrier can wait out a whole tick body, so say so rather
-			// than going quiet for a full run. It is released before
-			// DrainAndUpsertJob below, which waits for the tick in flight,
-			// and that tick takes runMu first: holding runMu across the
-			// upsert deadlocks the two against each other.
+			// Wait out the tick in flight before swapping the job, and say so:
+			// the wait can last a whole tick body. gocron drains for us only
+			// while the named entry survives, and a disable removed it, so on
+			// the re-enable DrainAndUpsertJob finds nothing to wait for.
+			// Released before that upsert, which waits for a tick that takes
+			// runMu first: holding runMu across the call deadlocks the two.
 			if !c.runMu.TryLock() {
 				c.jobLogger.Debug("cron job waiting for the tick in flight")
 				c.runMu.Lock()
