@@ -45,7 +45,7 @@ func NewMcpGet(ctx *middleware.Context, handler McpGetHandler) *McpGet {
 /*
 	McpGet swagger:route GET /mcp mcp mcpGet
 
-Opens an SSE stream for receiving MCP server-sent events.
+Not supported. This server sends no server-to-client notifications, so there is no event stream to open; the response is always 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.
 */
 type McpGet struct {
 	Context *middleware.Context
@@ -57,7 +57,7 @@ func (o *McpGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewMcpGetParams()
+	Params := NewMcpGetParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -78,5 +78,4 @@ func (o *McpGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }

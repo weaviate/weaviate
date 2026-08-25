@@ -31,69 +31,67 @@ type McpGetReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *McpGetReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-	case 200:
-		result := NewMcpGetOK()
+	case 405:
+		result := NewMcpGetMethodNotAllowed()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
-		return result, nil
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
-// NewMcpGetOK creates a McpGetOK with default headers values
-func NewMcpGetOK() *McpGetOK {
-	return &McpGetOK{}
+// NewMcpGetMethodNotAllowed creates a McpGetMethodNotAllowed with default headers values
+func NewMcpGetMethodNotAllowed() *McpGetMethodNotAllowed {
+	return &McpGetMethodNotAllowed{}
 }
 
 /*
-McpGetOK describes a response with status code 200, with default header values.
+McpGetMethodNotAllowed describes a response with status code 405, with default header values.
 
-SSE event stream
+GET is not supported; send JSON-RPC requests with POST
 */
-type McpGetOK struct {
+type McpGetMethodNotAllowed struct{}
+
+// IsSuccess returns true when this mcp get method not allowed response has a 2xx status code
+func (o *McpGetMethodNotAllowed) IsSuccess() bool {
+	return false
 }
 
-// IsSuccess returns true when this mcp get o k response has a 2xx status code
-func (o *McpGetOK) IsSuccess() bool {
+// IsRedirect returns true when this mcp get method not allowed response has a 3xx status code
+func (o *McpGetMethodNotAllowed) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this mcp get method not allowed response has a 4xx status code
+func (o *McpGetMethodNotAllowed) IsClientError() bool {
 	return true
 }
 
-// IsRedirect returns true when this mcp get o k response has a 3xx status code
-func (o *McpGetOK) IsRedirect() bool {
+// IsServerError returns true when this mcp get method not allowed response has a 5xx status code
+func (o *McpGetMethodNotAllowed) IsServerError() bool {
 	return false
 }
 
-// IsClientError returns true when this mcp get o k response has a 4xx status code
-func (o *McpGetOK) IsClientError() bool {
-	return false
+// IsCode returns true when this mcp get method not allowed response a status code equal to that given
+func (o *McpGetMethodNotAllowed) IsCode(code int) bool {
+	return code == 405
 }
 
-// IsServerError returns true when this mcp get o k response has a 5xx status code
-func (o *McpGetOK) IsServerError() bool {
-	return false
+// Code gets the status code for the mcp get method not allowed response
+func (o *McpGetMethodNotAllowed) Code() int {
+	return 405
 }
 
-// IsCode returns true when this mcp get o k response a status code equal to that given
-func (o *McpGetOK) IsCode(code int) bool {
-	return code == 200
+func (o *McpGetMethodNotAllowed) Error() string {
+	return fmt.Sprintf("[GET /mcp][%d] mcpGetMethodNotAllowed ", 405)
 }
 
-// Code gets the status code for the mcp get o k response
-func (o *McpGetOK) Code() int {
-	return 200
+func (o *McpGetMethodNotAllowed) String() string {
+	return fmt.Sprintf("[GET /mcp][%d] mcpGetMethodNotAllowed ", 405)
 }
 
-func (o *McpGetOK) Error() string {
-	return fmt.Sprintf("[GET /mcp][%d] mcpGetOK ", 200)
-}
-
-func (o *McpGetOK) String() string {
-	return fmt.Sprintf("[GET /mcp][%d] mcpGetOK ", 200)
-}
-
-func (o *McpGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
+func (o *McpGetMethodNotAllowed) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	return nil
 }

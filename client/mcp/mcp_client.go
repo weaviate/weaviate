@@ -43,7 +43,7 @@ type ClientOption func(*runtime.ClientOperation)
 type ClientService interface {
 	McpDelete(params *McpDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*McpDeleteOK, error)
 
-	McpGet(params *McpGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*McpGetOK, error)
+	McpGet(params *McpGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) error
 
 	McpPost(params *McpPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*McpPostOK, error)
 
@@ -51,7 +51,7 @@ type ClientService interface {
 }
 
 /*
-McpDelete Terminates an MCP session.
+McpDelete Accepted for compatibility with clients that end their session explicitly; the server keeps no session state, so there is nothing to terminate.
 */
 func (a *Client) McpDelete(params *McpDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*McpDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -90,9 +90,9 @@ func (a *Client) McpDelete(params *McpDeleteParams, authInfo runtime.ClientAuthI
 }
 
 /*
-McpGet Opens an SSE stream for receiving MCP server-sent events.
+McpGet Not supported. This server sends no server-to-client notifications, so there is no event stream to open; the response is always 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.
 */
-func (a *Client) McpGet(params *McpGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*McpGetOK, error) {
+func (a *Client) McpGet(params *McpGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) error {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewMcpGetParams()
@@ -101,7 +101,7 @@ func (a *Client) McpGet(params *McpGetParams, authInfo runtime.ClientAuthInfoWri
 		ID:                 "mcp.get",
 		Method:             "GET",
 		PathPattern:        "/mcp",
-		ProducesMediaTypes: []string{"text/event-stream"},
+		ProducesMediaTypes: []string{"application/json", "text/event-stream"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
@@ -114,22 +114,15 @@ func (a *Client) McpGet(params *McpGetParams, authInfo runtime.ClientAuthInfoWri
 		opt(op)
 	}
 
-	result, err := a.transport.Submit(op)
+	_, err := a.transport.Submit(op)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	success, ok := result.(*McpGetOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for mcp.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
+	return nil
 }
 
 /*
-McpPost MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.
+McpPost MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation. Every request is authenticated on its own; no Mcp-Session-Id is issued or required.
 */
 func (a *Client) McpPost(params *McpPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*McpPostOK, error) {
 	// TODO: Validate the params before sending

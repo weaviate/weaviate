@@ -45,7 +45,7 @@ func NewMcpDelete(ctx *middleware.Context, handler McpDeleteHandler) *McpDelete 
 /*
 	McpDelete swagger:route DELETE /mcp mcp mcpDelete
 
-Terminates an MCP session.
+Accepted for compatibility with clients that end their session explicitly; the server keeps no session state, so there is nothing to terminate.
 */
 type McpDelete struct {
 	Context *middleware.Context
@@ -57,7 +57,7 @@ func (o *McpDelete) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewMcpDeleteParams()
+	Params := NewMcpDeleteParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -78,5 +78,4 @@ func (o *McpDelete) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }

@@ -2974,8 +2974,9 @@ func init() {
     },
     "/mcp": {
       "get": {
-        "description": "Opens an SSE stream for receiving MCP server-sent events.",
+        "description": "Not supported. This server sends no server-to-client notifications, so there is no event stream to open; the response is always 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.",
         "produces": [
+          "application/json",
           "text/event-stream"
         ],
         "tags": [
@@ -2983,13 +2984,13 @@ func init() {
         ],
         "operationId": "mcp.get",
         "responses": {
-          "200": {
-            "description": "SSE event stream"
+          "405": {
+            "description": "GET is not supported; send JSON-RPC requests with POST"
           }
         }
       },
       "post": {
-        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation. Every request is authenticated on its own; no Mcp-Session-Id is issued or required.",
         "consumes": [
           "application/json"
         ],
@@ -3008,7 +3009,7 @@ func init() {
         }
       },
       "delete": {
-        "description": "Terminates an MCP session.",
+        "description": "Accepted for compatibility with clients that end their session explicitly; the server keeps no session state, so there is nothing to terminate.",
         "tags": [
           "mcp"
         ],
@@ -15226,8 +15227,9 @@ func init() {
     },
     "/mcp": {
       "get": {
-        "description": "Opens an SSE stream for receiving MCP server-sent events.",
+        "description": "Not supported. This server sends no server-to-client notifications, so there is no event stream to open; the response is always 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.",
         "produces": [
+          "application/json",
           "text/event-stream"
         ],
         "tags": [
@@ -15235,13 +15237,13 @@ func init() {
         ],
         "operationId": "mcp.get",
         "responses": {
-          "200": {
-            "description": "SSE event stream"
+          "405": {
+            "description": "GET is not supported; send JSON-RPC requests with POST"
           }
         }
       },
       "post": {
-        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation. Every request is authenticated on its own; no Mcp-Session-Id is issued or required.",
         "consumes": [
           "application/json"
         ],
@@ -15260,7 +15262,7 @@ func init() {
         }
       },
       "delete": {
-        "description": "Terminates an MCP session.",
+        "description": "Accepted for compatibility with clients that end their session explicitly; the server keeps no session state, so there is nothing to terminate.",
         "tags": [
           "mcp"
         ],

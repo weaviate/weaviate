@@ -22,27 +22,24 @@ import (
 	"github.com/go-openapi/runtime"
 )
 
-// McpGetOKCode is the HTTP code returned for type McpGetOK
-const McpGetOKCode int = 200
+// McpGetMethodNotAllowedCode is the HTTP code returned for type McpGetMethodNotAllowed
+const McpGetMethodNotAllowedCode int = 405
 
 /*
-McpGetOK SSE event stream
+McpGetMethodNotAllowed GET is not supported; send JSON-RPC requests with POST
 
-swagger:response mcpGetOK
+swagger:response mcpGetMethodNotAllowed
 */
-type McpGetOK struct {
-}
+type McpGetMethodNotAllowed struct{}
 
-// NewMcpGetOK creates McpGetOK with default headers values
-func NewMcpGetOK() *McpGetOK {
-
-	return &McpGetOK{}
+// NewMcpGetMethodNotAllowed creates McpGetMethodNotAllowed with default headers values
+func NewMcpGetMethodNotAllowed() *McpGetMethodNotAllowed {
+	return &McpGetMethodNotAllowed{}
 }
 
 // WriteResponse to the client
-func (o *McpGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *McpGetMethodNotAllowed) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(200)
+	rw.WriteHeader(405)
 }

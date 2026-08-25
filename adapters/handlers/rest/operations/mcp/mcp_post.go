@@ -45,7 +45,7 @@ func NewMcpPost(ctx *middleware.Context, handler McpPostHandler) *McpPost {
 /*
 	McpPost swagger:route POST /mcp mcp mcpPost
 
-MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.
+MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation. Every request is authenticated on its own; no Mcp-Session-Id is issued or required.
 */
 type McpPost struct {
 	Context *middleware.Context
@@ -57,7 +57,7 @@ func (o *McpPost) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewMcpPostParams()
+	Params := NewMcpPostParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -78,5 +78,4 @@ func (o *McpPost) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }
