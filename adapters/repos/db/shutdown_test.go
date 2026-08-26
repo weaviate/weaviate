@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -637,31 +638,38 @@ func TestShutdownSignalSurvivesDeadResourceScanner(t *testing.T) {
 	}
 }
 
+// closeRequest is one of the teardowns that asks an index to close before it
+// waits for closeLock, paired with the cause it signals.
+type closeRequest struct {
+	name    string
+	request func(*Index) error
+	cause   error
+}
+
+func closeRequests() []closeRequest {
+	return []closeRequest{
+		{
+			name:    "a shutdown",
+			request: func(idx *Index) error { return idx.Shutdown(context.Background()) },
+			cause:   errIndexShutdown,
+		},
+		{
+			name: "a drop",
+			request: func(idx *Index) error {
+				idx.signalCloseRequested(errIndexDropped)
+				return nil
+			},
+			cause: errIndexDropped,
+		},
+	}
+}
+
 // TestCloseRequestAbortsBackgroundShardLoad pins that the background shard load
 // gives up its wait once a close is requested. It waits for a node-wide load
 // permit while holding the index open, so a load that kept waiting would hold up
 // the teardown for as long as the permit is taken.
 func TestCloseRequestAbortsBackgroundShardLoad(t *testing.T) {
-	tests := []struct {
-		name string
-		// requestClose stands in for the teardown, which asks to close before it
-		// waits for closeLock
-		requestClose func(*Index) error
-	}{
-		{
-			name:         "a shutdown",
-			requestClose: func(idx *Index) error { return idx.Shutdown(context.Background()) },
-		},
-		{
-			name: "a drop",
-			requestClose: func(idx *Index) error {
-				idx.signalCloseRequested(errIndexDropped)
-				return nil
-			},
-		},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range closeRequests() {
 		t.Run(tt.name+" releases the load", func(t *testing.T) {
 			idx := newShutdownTestIndex(t, nil)
 
@@ -671,13 +679,56 @@ func TestCloseRequestAbortsBackgroundShardLoad(t *testing.T) {
 			close(release)
 
 			closeDone := make(chan error, 1)
-			go func() { closeDone <- tt.requestClose(idx) }()
+			go func() { closeDone <- tt.request(idx) }()
 
 			select {
 			case err := <-loadDone:
 				require.ErrorIs(t, err, context.Canceled)
+				require.ErrorIs(t, context.Cause(idx.closeRequestedCtx), tt.cause)
 			case <-time.After(5 * time.Second):
 				t.Fatal("the shard load kept waiting for a permit through the close request")
+			}
+			require.NoError(t, <-closeDone)
+		})
+	}
+}
+
+// TestCloseRequestAbortsShardUnload pins that an unload gives up the shard
+// shutdown it is waiting on once a close is requested. The shutdown retries for
+// seconds while the unload holds the index open, so an unload that kept
+// retrying would hold the teardown behind its own in-flight count.
+func TestCloseRequestAbortsShardUnload(t *testing.T) {
+	for _, tt := range closeRequests() {
+		t.Run(tt.name+" releases the unload", func(t *testing.T) {
+			idx := newShutdownTestIndex(t, nil)
+
+			var parked sync.Once
+			entered := make(chan struct{})
+			shard := NewMockShardLike(t)
+			shard.EXPECT().Name().Return("t1").Maybe()
+			// stands in for Shard.Shutdown's retry loop: a shard in use holds it
+			// until the retries run out or the given context is cancelled
+			shard.EXPECT().Shutdown(mock.Anything).RunAndReturn(func(ctx context.Context) error {
+				parked.Do(func() {
+					close(entered)
+					<-ctx.Done()
+				})
+				return ctx.Err()
+			})
+			idx.shards.Store("t1", shard)
+
+			unloadDone := make(chan error, 1)
+			go func() { unloadDone <- idx.UnloadLocalShard(context.Background(), "t1") }()
+			<-entered
+
+			closeDone := make(chan error, 1)
+			go func() { closeDone <- tt.request(idx) }()
+
+			select {
+			case err := <-unloadDone:
+				require.ErrorIs(t, err, tt.cause)
+			case <-time.After(5 * time.Second):
+				t.Fatal("the unload kept waiting on the shard shutdown through the close request")
 			}
 			require.NoError(t, <-closeDone)
 		})

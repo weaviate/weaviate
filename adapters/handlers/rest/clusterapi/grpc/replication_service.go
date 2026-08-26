@@ -334,6 +334,36 @@ func (s *ReplicationService) CompareHashTreeRoots(ctx context.Context, req *pb.C
 	return &pb.CompareHashTreeRootsResponse{DivergingShards: diverging}, nil
 }
 
+// CompareHashTreeRootsMulti classifies per class; a failed class carries its error so the rest still classify.
+func (s *ReplicationService) CompareHashTreeRootsMulti(ctx context.Context, req *pb.CompareHashTreeRootsMultiRequest) (*pb.CompareHashTreeRootsMultiResponse, error) {
+	total := 0
+	for _, cls := range req.GetClasses() {
+		total += len(cls.GetShardRootDigests())
+	}
+	if total > replica.CompareHashTreeRootsMaxShardsPerRequest {
+		return nil, status.Errorf(codes.InvalidArgument, "too many shards: %d exceeds maximum %d",
+			total, replica.CompareHashTreeRootsMaxShardsPerRequest)
+	}
+
+	resp := &pb.CompareHashTreeRootsMultiResponse{
+		Classes: make([]*pb.ClassDivergingShards, 0, len(req.GetClasses())),
+	}
+	for _, cls := range req.GetClasses() {
+		shards := cls.GetShardRootDigests()
+		roots := make(map[string]hashtree.Digest, len(shards))
+		for _, sr := range shards {
+			roots[sr.GetShard()] = hashtree.Digest{sr.GetRootHashHigh(), sr.GetRootHashLow()}
+		}
+		diverging, err := s.server.CompareHashTreeRoots(ctx, cls.GetIndex(), roots)
+		if err != nil {
+			resp.Classes = append(resp.Classes, &pb.ClassDivergingShards{Index: cls.GetIndex(), Error: err.Error()})
+			continue
+		}
+		resp.Classes = append(resp.Classes, &pb.ClassDivergingShards{Index: cls.GetIndex(), DivergingShards: diverging})
+	}
+	return resp, nil
+}
+
 func (s *ReplicationService) CountObjects(ctx context.Context, req *pb.CountObjectsRequest) (*pb.CountObjectsResponse, error) {
 	count, err := s.server.CountObjects(ctx, req.GetIndex(), req.GetShard())
 	if err != nil {
