@@ -8188,6 +8188,20 @@ func init() {
         "Path": {
           "description": "Path or key within the bucket.",
           "type": "string"
+        },
+        "dedupeConvergenceTimeoutSeconds": {
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set.",
+          "type": "integer",
+          "default": 60,
+          "maximum": 600,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "dedupeReplicas": {
+          "description": "If true, shards of replicated collections that are provably in sync (via async-replication checkpoints) are archived by a single replica instead of every replica, and a restore copies them back to all replicas. Shards that cannot be proven in sync fall back to being archived by every replica. Requires async replication on replicated collections and a cluster where every node supports this option; such backups can only be restored by versions that support it.",
+          "type": "boolean",
+          "default": false,
+          "x-nullable": false
         }
       }
     },
@@ -20752,6 +20766,20 @@ func init() {
         "Path": {
           "description": "Path or key within the bucket.",
           "type": "string"
+        },
+        "dedupeConvergenceTimeoutSeconds": {
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set.",
+          "type": "integer",
+          "default": 60,
+          "maximum": 600,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "dedupeReplicas": {
+          "description": "If true, shards of replicated collections that are provably in sync (via async-replication checkpoints) are archived by a single replica instead of every replica, and a restore copies them back to all replicas. Shards that cannot be proven in sync fall back to being archived by every replica. Requires async replication on replicated collections and a cluster where every node supports this option; such backups can only be restored by versions that support it.",
+          "type": "boolean",
+          "default": false,
+          "x-nullable": false
         }
       }
     },

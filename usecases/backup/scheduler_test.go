@@ -3112,3 +3112,11 @@ func TestRestoreIgnoresNodeMappingForUnknownNode(t *testing.T) {
 		})
 	}
 }
+
+func TestSchedulerBackupDedupeKillSwitch(t *testing.T) {
+	t.Setenv("BACKUP_DEDUPE_DISABLED", "true")
+	fs := newFakeScheduler(nil)
+	_, err := fs.scheduler().Backup(context.Background(), nil, &BackupRequest{ID: "kill-switch", Backend: "s3", DedupeReplicas: true})
+	require.ErrorContains(t, err, "BACKUP_DEDUPE_DISABLED")
+	assert.IsType(t, backup.ErrUnprocessable{}, err)
+}

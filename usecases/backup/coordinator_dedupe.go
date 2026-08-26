@@ -16,6 +16,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -64,6 +65,9 @@ func (p *dedupePlan) designated() int {
 // the all-replica fallback. Checkpoints are deleted before returning: proving
 // convergence at the cutoff is sufficient, archiving needs no live checkpoint.
 func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string, budget time.Duration) *dedupePlan {
+	defer func(begin time.Time) {
+		monitoring.GetMetrics().BackupDedupePlanningDurations.Observe(float64(time.Since(begin).Milliseconds()))
+	}(time.Now())
 	if budget <= 0 {
 		budget = c.dedupeConvergenceBudget
 	}
@@ -75,12 +79,14 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 	candidates := make(map[string][]string, len(classes))
 	for _, class := range classes {
 		if !c.checkpointer.IsAsyncReplicationEnabled(ctx, class) {
+			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("class_ineligible").Inc()
 			c.log.WithField("action", OpCreate).WithField("class", class).
 				Info("replica dedupe: class skipped, async replication not enabled")
 			continue
 		}
 		replicasByShard, err := c.checkpointer.ShardReplicas(ctx, class)
 		if err != nil {
+			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("class_ineligible").Inc()
 			c.log.WithField("action", OpCreate).WithField("class", class).
 				Warnf("replica dedupe: class falls back to all-replica backup: %v", err)
 			continue
@@ -108,6 +114,7 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 	created := make([]string, 0, len(candidates))
 	for class, shards := range candidates {
 		if err := c.checkpointer.CreateAsyncCheckpoints(ctx, class, cutoffMs, shards); err != nil {
+			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("create_failed").Inc()
 			c.log.WithField("action", OpCreate).WithField("class", class).
 				Warnf("replica dedupe: class falls back to all-replica backup: create checkpoints: %v", err)
 			delete(candidates, class)
@@ -149,6 +156,12 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 			WithField("fallback", len(candidates[class])-len(plan.designations[class])).
 			Info("replica dedupe: planning complete")
 	}
+	candidateShards := 0
+	for _, shards := range candidates {
+		candidateShards += len(shards)
+	}
+	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("designated").Add(float64(plan.designated()))
+	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("fallback").Add(float64(candidateShards - plan.designated()))
 	return plan
 }
 
@@ -178,6 +191,7 @@ func (c *coordinator) pollConvergence(ctx context.Context, candidates map[string
 
 			statuses, err := c.checkpointer.GetAsyncCheckpointNodeStatuses(ctx, class, shardNames)
 			if err != nil {
+				monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("status_failed").Inc()
 				c.log.WithField("action", OpCreate).WithField("class", class).
 					Warnf("replica dedupe: class falls back to all-replica backup: checkpoint status: %v", err)
 				delete(pending, class)
@@ -213,6 +227,7 @@ func (c *coordinator) pollConvergence(ctx context.Context, candidates map[string
 	}
 	for class, shards := range pending {
 		if len(shards) > 0 {
+			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("not_converged").Add(float64(len(shards)))
 			c.log.WithField("action", OpCreate).WithField("class", class).
 				WithField("unconverged", len(shards)).
 				Info("replica dedupe: unconverged shards fall back to all-replica backup")
