@@ -197,7 +197,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				)
 				return lazyLoadShardEnabled
 			}(),
-			LazyLoadShardWarmupDisabled:         m.db.config.LazyLoadShardWarmupDisabled,
+			LazyLoadShardWarmupMinObjects:       m.db.config.LazyLoadShardWarmupMinObjects,
 			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
 			HaltForTransferTimeout:              m.db.config.HaltForTransferTimeout,
@@ -284,6 +284,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		"class":                   class.Class,
 		"enable_lazy_load_shards": lazyLoadShardEnabled,
 		"background_warmup":       idx.Config.backgroundWarmupEnabled(),
+		"warmup_min_objects":      m.db.config.LazyLoadShardWarmupMinObjects,
 		"local_shard_count":       localActiveShardsCount,
 		"total_shard_size_bytes":  totalShardSizeBytes,
 		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,

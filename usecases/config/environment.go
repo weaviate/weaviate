@@ -175,17 +175,28 @@ func FromEnv(config *Config) error {
 
 	// Written only when the variable is set, so a value from the config file
 	// survives.
-	if v := os.Getenv("LAZY_LOAD_SHARD_WARMUP_DISABLED"); v != "" {
-		config.LazyLoadShardWarmupDisabled = entcfg.Enabled(v)
+	if v := os.Getenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS"); v != "" {
+		asInt, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS as int: %w", err)
+		}
+		config.LazyLoadShardWarmupMinObjects = asInt
 	}
 	// Eager loading ignores the knob entirely, so warning there would describe a
 	// state no collection on this node is in. Auto-detection is resolved per
 	// collection later, so a nil setting still warns.
-	if config.LazyLoadShardWarmupDisabled &&
+	if minObjects := config.LazyLoadShardWarmupMinObjects; minObjects != 0 &&
 		(config.EnableLazyLoadShards == nil || *config.EnableLazyLoadShards) {
-		logrus.Warn("lazy shard background warmup is disabled; shards stay unloaded until first access. " +
-			"An untouched HOT tenant keeps its expired objects, because the TTL sweep skips unloaded shards. " +
-			"Async replication also skips it, so a stale replica is not repaired until something loads it.")
+		left := fmt.Sprintf("only shards holding more than %d objects are warmed up", minObjects)
+		if minObjects < 0 {
+			left = "no shard is warmed up"
+		}
+		logrus.Warnf("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS is %d, so %s; every other shard stays unloaded "+
+			"until first access. "+
+			"An untouched HOT tenant keeps its expired objects, because the TTL sweep skips unloaded shards. "+
+			"Async replication also skips it, so a stale replica is not repaired until something loads it. "+
+			"MAXIMUM_ALLOWED_OBJECTS_COUNT stops counting it, so this node admits writes past its cap.",
+			minObjects, left)
 	}
 
 	// Lazy load shard size threshold for auto-detection (in GB)
