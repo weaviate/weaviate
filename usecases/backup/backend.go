@@ -820,40 +820,31 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, m
 	}
 	classTempDir := path.Join(fw.tempDir, materializedName)
 
-	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
+	if err := fw.prepare(classTempDir); err != nil {
+		return err
+	}
+	if err := fw.fetch(ctx, classTempDir, desc, fw.backend, overrideBucket, overridePath, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
 	}
-
-	if materializedName != desc.Name {
-		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(desc.Name))
-		newIndexDir := filepath.Join(classTempDir, strings.ToLower(materializedName))
-		if _, err := os.Stat(oldIndexDir); err == nil {
-			if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
-				return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
-			}
-		}
-
-	}
-
-	if fw.migrator != nil {
-		if err := fw.migrator(classTempDir); err != nil {
-			return fmt.Errorf("migrate from pre 1.23: %w", err)
-		}
-	}
-
-	return nil
+	return fw.finalize(classTempDir, desc.Name, materializedName)
 }
 
-// writeTempFiles writes class files into a temporary directory
-// temporary directory path = d.tempDir/className
-// Function makes sure that created files will be removed in case of an error
-func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
+// prepare resets the class staging directory; run once per class, before any fetch pass.
+func (fw *fileWriter) prepare(classTempDir string) error {
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
 	if err := os.MkdirAll(classTempDir, os.ModePerm); err != nil {
 		return fmt.Errorf("create temp class folder %s: %w", classTempDir, err)
 	}
+	return nil
+}
+
+// fetch downloads desc's chunks (and incremental base chunks) from store into
+// classTempDir. store fixes the {backupID}/{node} prefix, so a multi-source
+// restore runs one fetch pass per source; chunk ids from different sources may
+// collide and must never share a pass.
+func (fw *fileWriter) fetch(ctx context.Context, classTempDir string, desc *backup.ClassDescriptor, store nodeStore, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -868,7 +859,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		eg.Go(func() error {
 			return fw.readAndUnzipChunk(classTempDir, compressionType, chunk,
 				func(w io.WriteCloser) error {
-					_, err := fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
+					_, err := store.Read(ctx, chunk, overrideBucket, overridePath, w)
 					return err
 				})
 		})
@@ -882,7 +873,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 					eg.Go(func() error {
 						return fw.readAndUnzipChunk(classTempDir, compressionType, chunkId,
 							func(w io.WriteCloser) error {
-								_, err := fw.backend.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
+								_, err := store.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
 								return err
 							})
 					})
@@ -891,6 +882,27 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		}
 	}
 	return eg.Wait()
+}
+
+// finalize applies the namespace-strip rename and the pre-1.23 migrator; run
+// once per class, after every fetch pass.
+func (fw *fileWriter) finalize(classTempDir, descName, materializedName string) error {
+	if materializedName != descName {
+		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(descName))
+		newIndexDir := filepath.Join(classTempDir, strings.ToLower(materializedName))
+		if _, err := os.Stat(oldIndexDir); err == nil {
+			if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
+				return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
+			}
+		}
+	}
+
+	if fw.migrator != nil {
+		if err := fw.migrator(classTempDir); err != nil {
+			return fmt.Errorf("migrate from pre 1.23: %w", err)
+		}
+	}
+	return nil
 }
 
 // readAndUnzipChunk downloads a chunk via readFn and unzips it into classTempDir.

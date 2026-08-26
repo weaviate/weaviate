@@ -1207,7 +1207,8 @@ func (e *incrementalTestEnv) restore(backupID string, desc *backup.ClassDescript
 	}
 
 	classTempDir := filepath.Join(fw.tempDir, e.className)
-	err := fw.writeTempFiles(context.Background(), classTempDir, "", "", desc, backup.CompressionNone)
+	require.NoError(e.t, fw.prepare(classTempDir))
+	err := fw.fetch(context.Background(), classTempDir, desc, fw.backend, "", "", backup.CompressionNone)
 	require.NoError(e.t, err)
 	return classTempDir
 }
