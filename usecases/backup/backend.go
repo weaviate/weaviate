@@ -273,6 +273,10 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		}
 	}
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
+	// set on the one path that runs the backup to the end, so the defer below can
+	// tell that path from a panic, which leaves err nil on a backup that stopped
+	// somewhere in the middle.
+	var completed bool
 
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
 
@@ -284,6 +288,12 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		//  name, so the cancellation check below still reads the operation's
 		//  context rather than this one, which can never be cancelled.
 		metaCtx := context.Background()
+
+		// A panic unwinds through here with err nil, and the success branch would
+		// publish the node as done on a backup that never reached the end.
+		if err == nil && !completed {
+			err = errors.New("backup did not run to completion")
+		}
 
 		// Handle success case first
 		if err == nil {
@@ -348,14 +358,18 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	// per class could never run wider than that class's shard count, so a node
 	// holding thousands of single-shard collections would upload one shard at a time.
 	poolCtx, cancelPool := context.WithCancel(ctx)
-	defer cancelPool()
 	eg, poolCtx := enterrors.NewErrorGroupWithContextWrapper(u.log, poolCtx)
 	eg.SetLimit(max(u.GoPoolSize, 1))
 	// Releasing an index deletes the class's staging dir, which its shard jobs read
 	// from. Defers run in reverse order, so this one drains the pool before the
-	// release in the defer above it. The normal path already waits below; this is
-	// for a panic or an early return.
-	defer func() { _ = eg.Wait() }()
+	// release in the defer above it. Cancelling first is what bounds the drain: a
+	// shard job runs under storeTimeout, so waiting on jobs nothing has cancelled
+	// parks the backup for a day. The normal path already waits below; this is for
+	// a panic or an early return.
+	defer func() {
+		cancelPool()
+		_ = eg.Wait()
+	}()
 
 	var (
 		uploads []*classUpload
@@ -447,6 +461,7 @@ Loop:
 	desc.Status = backup.Success
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
 	desc.PreCompressionSizeBytes = totalPreCompressionSize
+	completed = true
 	return nil
 }
 

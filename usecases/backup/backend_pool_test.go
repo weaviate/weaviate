@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,6 +58,11 @@ type uploadProbe struct {
 	// producerStopsAfter, when positive, ends the producer after that many
 	// descriptors with no error descriptor, as a recovered panic in it would.
 	producerStopsAfter int
+	// panicOnSourcePathCall, when positive, panics on that call to SourceDataPath.
+	// submitClass calls it once per class, so this panics inside the descriptor
+	// loop with the classes before it already running in the pool.
+	panicOnSourcePathCall int
+	sourcePathCalls       atomic.Int64
 
 	mu sync.Mutex
 	// writing counts the chunk writes of each class that have not returned.
@@ -180,9 +186,14 @@ func (p *uploadProbe) PutObject(_ context.Context, _, key, _, _ string, b []byte
 	return nil
 }
 
-func (p *uploadProbe) SourceDataPath() string { return p.sourcePath }
-func (p *uploadProbe) IsExternal() bool       { return true }
-func (p *uploadProbe) Name() string           { return "uploadProbe" }
+func (p *uploadProbe) SourceDataPath() string {
+	if n := p.sourcePathCalls.Add(1); p.panicOnSourcePathCall > 0 && n == int64(p.panicOnSourcePathCall) {
+		panic("uploadProbe: injected panic in the descriptor loop")
+	}
+	return p.sourcePath
+}
+func (p *uploadProbe) IsExternal() bool { return true }
+func (p *uploadProbe) Name() string     { return "uploadProbe" }
 
 func (p *uploadProbe) HomeDir(_, _, _ string) string { return p.sourcePath }
 
@@ -220,17 +231,36 @@ func (p *uploadProbe) snapshot() (written, releases []string, meta backup.Backup
 // runUpload drives uploader.all over the probe's classes with a pool poolSize wide.
 func runUpload(t *testing.T, ctx context.Context, p *uploadProbe, poolSize int) (*backup.BackupDescriptor, error) {
 	t.Helper()
+	desc, _, err := runUploadWithStat(t, ctx, p, poolSize)
+	return desc, err
+}
+
+// runUploadWithStat is runUpload plus the status slot the upload published to,
+// which is what a poll for the node reads.
+func runUploadWithStat(t *testing.T, ctx context.Context, p *uploadProbe, poolSize int) (*backup.BackupDescriptor, *backupStat, error) {
+	t.Helper()
+	u, desc, names, stat := newProbeUploader(t, p, poolSize)
+	return desc, stat, u.all(ctx, names, desc, nil, "", "")
+}
+
+// newProbeUploader builds the uploader the pool tests drive, along with the
+// arguments and the status slot of the upload. A test whose call to all does not
+// return normally still needs to read the slot, which is what a poll for the
+// node reads, so it is handed out before the call rather than after it.
+func newProbeUploader(t *testing.T, p *uploadProbe, poolSize int) (*uploader, *backup.BackupDescriptor, []string, *backupStat) {
+	t.Helper()
 	names := make([]string, len(p.descs))
 	for i, d := range p.descs {
 		names[i] = d.Name
 	}
 	logger, _ := test.NewNullLogger()
 	store := nodeStore{objectStore{backend: p, backupId: "backup-1"}}
-	u := newUploader(config.Backup{}, p, nil, nil, nil, nil, store, "backup-1", &backupStat{}, logger).
+	stat := &backupStat{}
+	u := newUploader(config.Backup{}, p, nil, nil, nil, nil, store, "backup-1", stat, logger).
 		withCompression(zipConfig{Level: int(NoCompression), GoPoolSize: poolSize})
 
 	desc := &backup.BackupDescriptor{ID: "backup-1", Classes: make([]backup.ClassDescriptor, 0, len(names))}
-	return desc, u.all(ctx, names, desc, nil, "", "")
+	return u, desc, names, stat
 }
 
 // classDescriptorWithShards returns desc carrying n copies of its shard, so one
@@ -648,4 +678,74 @@ func TestUploaderAllRejectsPartialDescriptorRun(t *testing.T) {
 	_, _, meta := p.snapshot()
 	assert.NotEqual(t, backup.Success, meta.Status,
 		"a backup missing classes must not be published as successful")
+}
+
+// TestUploaderAllCancelsThePoolBeforeDrainingIt pins the order the pool defers
+// run in when the descriptor loop does not reach its own wait. Draining shard
+// jobs that nothing has cancelled gives each of them the full storeTimeout, so
+// the backup goroutine parks for a day on a backup that is already over.
+func TestUploaderAllCancelsThePoolBeforeDrainingIt(t *testing.T) {
+	classes := []string{"Class-A", "Class-B"}
+	sourcePath := t.TempDir()
+	p := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, classes...)...)
+	// Class-A is submitted and its shard reaches the backend; Class-B panics on
+	// its way into the pool, leaving Class-A in flight.
+	p.panicOnSourcePathCall = 2
+	p.onWrite = func(ctx context.Context, _, _ string) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	// the package shadows the any type with a mock.Anything alias, so the
+	// recovered value is reduced to whether there was one
+	var (
+		panicked bool
+		finished = make(chan struct{})
+	)
+	u, desc, names, _ := newProbeUploader(t, p, len(classes))
+	go func() {
+		defer close(finished)
+		defer func() { panicked = recover() != nil }()
+		_ = u.all(context.Background(), names, desc, nil, "", "")
+	}()
+
+	select {
+	case <-finished:
+	case <-time.After(probeTimeout):
+		t.Fatal("all never returned: it drained the pool without cancelling it first")
+	}
+	require.True(t, panicked, "the panic must still propagate out of all")
+}
+
+// TestUploaderAllDoesNotPublishSuccessOnPanic pins that a backup that stopped
+// part way through is not published as one that finished. A panic unwinds
+// through the publishing defer with the named error still nil, and a node
+// reporting success is a node the coordinator counts as done.
+func TestUploaderAllDoesNotPublishSuccessOnPanic(t *testing.T) {
+	classes := []string{"Class-A", "Class-B"}
+	sourcePath := t.TempDir()
+	p := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, classes...)...)
+	p.panicOnSourcePathCall = 2
+
+	finished := make(chan struct{})
+	u, desc, names, stat := newProbeUploader(t, p, len(classes))
+	go func() {
+		defer close(finished)
+		defer func() { _ = recover() }()
+		_ = u.all(context.Background(), names, desc, nil, "", "")
+	}()
+
+	select {
+	case <-finished:
+	case <-time.After(probeTimeout):
+		t.Fatal("all never returned")
+	}
+
+	got := stat.get()
+	assert.Equal(t, backup.Failed, got.Status,
+		"a backup that panicked part way through must not be published as successful")
+	assert.NotEmpty(t, got.Err, "the failure has to carry a reason a poll can read")
+
+	_, _, meta := p.snapshot()
+	assert.NotEqual(t, backup.Success, meta.Status)
 }
