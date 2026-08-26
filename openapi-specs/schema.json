@@ -11761,7 +11761,7 @@
     "/aggregate/{collection}": {
       "post": {
         "summary": "Aggregate over a collection",
-        "description": "Aggregates over the objects of a collection. Phase 1 supports counts: the number of matching objects, either in total (flat `count` response) or per group of a `groupBy` property (`groups` response). A `where` filter limits the objects that are aggregated; an empty body returns the collection's total object count.",
+        "description": "Aggregates over the objects of a collection. Phase 1 supports counts: the number of matching objects, either in total (flat `count` response) or per group of a `groupBy` property (`groups` response). A `where` filter limits the objects that are aggregated; an empty body returns the collection's total object count. \n\n**Note**: This API is experimental and disabled by default; set `EXPERIMENTAL_REST_SEARCH_ENABLED=true` to enable the REST search and aggregate endpoints.",
         "tags": [
           "aggregate"
         ],
@@ -11842,7 +11842,7 @@
     "/search/{collection}/bm25": {
       "post": {
         "summary": "Search a collection with bm25",
-        "description": "Performs a keyword (BM25F) search over the objects of a collection. Objects are scored against the query with the BM25F ranking function over the searchable text properties (all of them, or the `queryProperties` subset) and the best-scoring objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.",
+        "description": "Performs a keyword (BM25F) search over the objects of a collection. Objects are scored against the query with the BM25F ranking function over the searchable text properties (all of them, or the `queryProperties` subset) and the best-scoring objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`. \n\n**Note**: This API is experimental and disabled by default; set `EXPERIMENTAL_REST_SEARCH_ENABLED=true` to enable the REST search and aggregate endpoints.",
         "tags": [
           "search"
         ],
@@ -11929,7 +11929,7 @@
     "/search/{collection}/hybrid": {
       "post": {
         "summary": "Search a collection with hybrid",
-        "description": "Performs a hybrid search over the objects of a collection: the query is scored with the BM25F ranking function over the searchable text properties (all of them, or the `queryProperties` subset) and, in parallel, vectorized server-side and searched against the vector index; the two rankings are fused (per `fusionType`, weighted by `alpha`) and the best objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.",
+        "description": "Performs a hybrid search over the objects of a collection: the query is scored with the BM25F ranking function over the searchable text properties (all of them, or the `queryProperties` subset) and, in parallel, vectorized server-side and searched against the vector index; the two rankings are fused (per `fusionType`, weighted by `alpha`) and the best objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`. \n\n**Note**: This API is experimental and disabled by default; set `EXPERIMENTAL_REST_SEARCH_ENABLED=true` to enable the REST search and aggregate endpoints.",
         "tags": [
           "search"
         ],
@@ -12022,7 +12022,7 @@
     "/search/{collection}/near-object": {
       "post": {
         "summary": "Search a collection with near-object",
-        "description": "Performs a similarity search over the objects of a collection, anchored at an existing object: the stored vector of the source object (referenced by `id`) is searched against the vector index and the closest objects are returned — the source object itself included — each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`. No query is vectorized, so collections without a vectorizer module are fully searchable.",
+        "description": "Performs a similarity search over the objects of a collection, anchored at an existing object: the stored vector of the source object (referenced by `id`) is searched against the vector index and the closest objects are returned — the source object itself included — each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`. No query is vectorized, so collections without a vectorizer module are fully searchable. \n\n**Note**: This API is experimental and disabled by default; set `EXPERIMENTAL_REST_SEARCH_ENABLED=true` to enable the REST search and aggregate endpoints.",
         "tags": [
           "search"
         ],
@@ -12109,7 +12109,7 @@
     "/search/{collection}/near-text": {
       "post": {
         "summary": "Search a collection with near-text",
-        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.",
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`. \n\n**Note**: This API is experimental and disabled by default; set `EXPERIMENTAL_REST_SEARCH_ENABLED=true` to enable the REST search and aggregate endpoints.",
         "tags": [
           "search"
         ],
@@ -12240,11 +12240,11 @@
     },
     {
       "name": "search",
-      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; the bm25 endpoint performs keyword (BM25F) search over the searchable text properties. Each result carries the object's `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`."
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; the bm25 endpoint performs keyword (BM25F) search over the searchable text properties. Each result carries the object's `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`. \n\n**Note**: This API is experimental and disabled by default; set `EXPERIMENTAL_REST_SEARCH_ENABLED=true` to enable the REST search and aggregate endpoints."
     },
     {
       "name": "aggregate",
-      "description": "Operations for aggregating over collections. The aggregate endpoint counts the objects that match an optional `where` filter, in total or grouped by a property's distinct values."
+      "description": "Operations for aggregating over collections. The aggregate endpoint counts the objects that match an optional `where` filter, in total or grouped by a property's distinct values. \n\n**Note**: This API is experimental and disabled by default; set `EXPERIMENTAL_REST_SEARCH_ENABLED=true` to enable the REST search and aggregate endpoints."
     },
     {
       "name": "backups",
