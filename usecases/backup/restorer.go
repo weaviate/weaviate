@@ -70,8 +70,7 @@ func (r *restorer) restore(
 	})
 }
 
-// startRestore reserves the restore slot and runs work in a coordinator-gated
-// goroutine; work stages files locally, RAFT applies them after Finalizing.
+// startRestore reserves the restore slot and runs work in a coordinator-gated goroutine; RAFT applies staged files after Finalizing.
 func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx context.Context) error) (CanCommitResponse, error) {
 	expiration := min(req.Duration, _TimeoutShardCommit)
 	ret := CanCommitResponse{
@@ -279,8 +278,7 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 	return meta, cs, nil
 }
 
-// validateNodeMeta checks that a per-node descriptor is the requested,
-// successful, restorable backup.
+// validateNodeMeta checks a per-node descriptor is the requested, successful, restorable backup.
 func validateNodeMeta(meta *backup.BackupDescriptor, destPath, reqID string) error {
 	if meta.ID != reqID {
 		return fmt.Errorf("wrong backup file: restore request asked for %q but the per-node descriptor at %q reports backup ID %q (this happens when metadata from a different backup was placed into this slot, or a prior aborted restore wrote stale state; remove %s/ on the backend and retry with the original backup ID)",
