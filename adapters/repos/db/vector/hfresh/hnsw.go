@@ -20,7 +20,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -32,14 +31,23 @@ type Centroid struct {
 }
 
 func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
+	// Centroids fetched via Centroids.Get carry no code (the centroid HNSW
+	// stores 8-bit RQ codes, which this 1-bit distancer cannot read), so
+	// encode lazily on first use and memoize. Centroid values are used
+	// single-threaded within one maintenance operation.
+	if c.Compressed == nil {
+		if distancer == nil || distancer.quantizer == nil {
+			return 0, errors.New("centroid distancer is not initialized")
+		}
+		c.Compressed = distancer.quantizer.CompressedBytes(distancer.quantizer.Encode(c.Uncompressed))
+	}
 	return v.DistanceWithRaw(distancer, c.Compressed)
 }
 
 type HNSWIndex struct {
-	metrics   *Metrics
-	hnsw      *hnsw.HNSW
-	counter   atomic.Int32
-	quantizer *compressionhelpers.BinaryRotationalQuantizer
+	metrics *Metrics
+	hnsw    *hnsw.HNSW
+	counter atomic.Int32
 }
 
 func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, pageSize uint64) (*HNSWIndex, error) {
@@ -73,25 +81,18 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	return &index, nil
 }
 
-func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.BinaryRotationalQuantizer) {
-	i.quantizer = quantizer
-}
-
 func (i *HNSWIndex) Get(id uint64) (*Centroid, error) {
 	vec, err := i.hnsw.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	if i.quantizer == nil {
-		return nil, errors.New("centroid quantizer is not initialized")
-	}
 
-	// The centroid HNSW stores 8-bit RQ codes, but Centroid.Distance compares
-	// Compressed against posting vectors with the 1-bit quantizer, so the code
-	// must be in the 1-bit format.
+	// Compressed is left nil on purpose: the centroid HNSW stores 8-bit RQ
+	// codes, which Centroid.Distance cannot use. It encodes a 1-bit code
+	// lazily on first use, so hot callers that only read Uncompressed
+	// (RNGSelect on the insert path) don't pay for an encode.
 	return &Centroid{
 		Uncompressed: vec,
-		Compressed:   i.quantizer.CompressedBytes(i.quantizer.Encode(vec)),
 		Deleted:      false,
 	}, nil
 }

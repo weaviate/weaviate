@@ -203,8 +203,9 @@ func TestSplitTaskQueueOperations(t *testing.T) {
 // HNSW stores 8-bit RQ codes; before the fix in HNSWIndex.Get, the raw 8-bit
 // code was handed to Distancer.DistanceBetweenCompressedVectors, which
 // decodes it as a 1-bit code — every reassignment comparison was NaN or a
-// value unrelated to actual proximity. Get must return a Compressed code in
-// the 1-bit format so those comparisons behave like the estimator.
+// value unrelated to actual proximity. Get now leaves Compressed nil and
+// Centroid.Distance lazily encodes a 1-bit code on first use, so those
+// comparisons behave like the estimator.
 //
 // Setup: well-separated unit centroids inserted exactly like doSplit inserts
 // them, and posting vectors sampled tightly around each centroid, encoded
@@ -279,11 +280,12 @@ func TestCentroidDistanceQuantizerMismatch(t *testing.T) {
 		fetched[i] = c
 	}
 
-	// Get must hand back a code with the 1-bit layout, not the centroid
-	// HNSW's internal 8-bit code (at d=256: 40 bytes, not 272).
+	// Get must not hand out the centroid HNSW's internal 8-bit code: it leaves
+	// Compressed nil and Centroid.Distance lazily encodes a 1-bit code on
+	// first use (at d=256: 40 bytes, not 272).
 	oneBitLen := len(oneBitCode(centers[0]))
-	require.Equal(t, oneBitLen, len(fetched[0].Compressed),
-		"Centroids.Get must return a code in the 1-bit quantizer's format")
+	require.Nil(t, fetched[0].Compressed,
+		"Centroids.Get must not populate Compressed eagerly")
 
 	var (
 		trueOwnMax, trueFarMin float32 = 0, 4
@@ -339,6 +341,10 @@ func TestCentroidDistanceQuantizerMismatch(t *testing.T) {
 			}
 		}
 	}
+
+	// Distance memoized a code in the 1-bit quantizer's format.
+	require.Len(t, fetched[0].Compressed, oneBitLen,
+		"Centroid.Distance must memoize a 1-bit code")
 
 	t.Logf("samples: %d", total)
 	t.Logf("true own-centroid distance max: %.4f, far-centroid min: %.4f", trueOwnMax, trueFarMin)
