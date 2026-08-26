@@ -12,8 +12,8 @@ repository:
   wl/LICENSE-WEAVIATE.
 
 When built, Weaviate-licensed features are toggled using an environment
-variable. Setting WEAVIATE_LICENSE to any value other than a blank string or
-false, includes Weaviate-licensed source code in the binary. When the
-environment variable is omitted or explicitly set it to false, only
-BSD-3-Clause-licensed code is executed.
+variable. Setting WEAVIATE_LICENSE to true, on, enabled or 1 includes
+Weaviate-licensed source code in the binary. When the environment variable is
+omitted or explicitly set it to false, only BSD-3-Clause-licensed code is
+executed.
 

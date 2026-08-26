@@ -348,6 +348,10 @@ type Config struct {
 
 	// Disable vector dimension tracking that are used for billing. These metrics are being deprecated in favor of more accurate metrics
 	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
+
+	// WeaviateLicense gates the functionality that is licensed under the
+	// Weaviate License (the "wl" directory) instead of BSD-3-Clause.
+	WeaviateLicense *runtime.DynamicValue[bool] `json:"weaviate_license" yaml:"weaviate_license"`
 }
 
 type CollectionPropsTenants struct {

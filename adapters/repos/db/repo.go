@@ -461,6 +461,10 @@ type Config struct {
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
+
+	// Plumbed through for future callers under the "wl" directory; nothing in
+	// the DB layer reads it yet.
+	WeaviateLicense *configRuntime.DynamicValue[bool]
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
