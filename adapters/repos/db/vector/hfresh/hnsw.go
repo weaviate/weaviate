@@ -33,8 +33,12 @@ type Centroid struct {
 func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
 	// Centroids fetched via Centroids.Get carry no code (the centroid HNSW
 	// stores 8-bit RQ codes, which this 1-bit distancer cannot read), so
-	// encode lazily on first use and memoize. Centroid values are used
-	// single-threaded within one maintenance operation.
+	// encode lazily on first use and memoize. The unsynchronized write below
+	// relies on Centroid values being confined to a single goroutine within
+	// one maintenance operation (Get returns a fresh instance per call).
+	// Sharing a Centroid across goroutines — e.g. caching instances to skip
+	// the Get — would make this a data race with a torn slice-header read;
+	// add synchronization here before introducing any such sharing.
 	if c.Compressed == nil {
 		if distancer == nil || distancer.quantizer == nil {
 			return 0, errors.New("centroid distancer is not initialized")
