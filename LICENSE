@@ -11,9 +11,8 @@ repository:
   givenfile is licensed under the Weaviate license, as defined in
   wl/LICENSE-WEAVIATE.
 
-When built, Weaviate-licensed features are toggled using an environment
-variable. Setting WEAVIATE_LICENSE to true, on, enabled or 1 includes
-Weaviate-licensed source code in the binary. When the environment variable is
-omitted or explicitly set it to false, only BSD-3-Clause-licensed code is
-executed.
+Weaviate-licensed features are toggled using an environment variable. Setting
+WEAVIATE_LICENSE to true, on, enabled or 1 (case-insensitive) enables the
+Weaviate-licensed functionality in the "wl" directory. With any other value,
+or when the variable is unset, only BSD-3-Clause-licensed code is executed.
 
