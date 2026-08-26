@@ -13,9 +13,12 @@ package backup
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -56,7 +59,8 @@ func (p *dedupePlan) designated() int {
 }
 
 // planDesignatedShards designates one archiving node per convergence-proven shard; failures only downgrade shards to all-replica fallback, and checkpoints are deleted before returning (archiving needs no live checkpoint).
-func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string, budget time.Duration) *dedupePlan {
+// Designations only ever name members of participants: a designated non-participant would archive nothing while every replica skips.
+func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string, budget time.Duration, participants map[string]struct{}) *dedupePlan {
 	defer func(begin time.Time) {
 		monitoring.GetMetrics().BackupDedupePlanningDurations.Observe(float64(time.Since(begin).Milliseconds()))
 	}(time.Now())
@@ -141,7 +145,7 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 	}
 	sort.Strings(classNames)
 	for _, class := range classNames {
-		plan.designations[class] = assignDesignations(converged[class], loads)
+		plan.designations[class] = assignDesignations(converged[class], loads, participants)
 		c.log.WithField("action", OpCreate).WithField("class", class).
 			WithField("designated", len(plan.designations[class])).
 			WithField("fallback", len(candidates[class])-len(plan.designations[class])).
@@ -281,8 +285,9 @@ func replicaSetCompleteAtCutoff(entries []replica.AsyncCheckpointNodeStatus, rep
 	return true
 }
 
-// assignDesignations picks the least-loaded replica per shard (sorted order, lexicographic ties); loads is shared across classes.
-func assignDesignations(shardReplicas map[string][]string, loads map[string]int) map[string]string {
+// assignDesignations picks the least-loaded participant replica per shard (sorted order, lexicographic ties); loads is shared across classes.
+// Shards with fewer than two participant replicas get no designation: naming a non-participant would orphan the shard, and a lone participant gains nothing.
+func assignDesignations(shardReplicas map[string][]string, loads map[string]int, participants map[string]struct{}) map[string]string {
 	shards := make([]string, 0, len(shardReplicas))
 	for shard := range shardReplicas {
 		shards = append(shards, shard)
@@ -293,7 +298,12 @@ func assignDesignations(shardReplicas map[string][]string, loads map[string]int)
 	for _, shard := range shards {
 		nodes := make([]string, 0, len(shardReplicas[shard]))
 		for node := range uniqueNonEmpty(shardReplicas[shard]) {
-			nodes = append(nodes, node)
+			if _, ok := participants[node]; ok {
+				nodes = append(nodes, node)
+			}
+		}
+		if len(nodes) < 2 {
+			continue
 		}
 		sort.Strings(nodes)
 		best := nodes[0]
@@ -336,6 +346,69 @@ func projectDesignations(plan *dedupePlan, nodeName string) map[string]map[strin
 		}
 	}
 	return out
+}
+
+// verifyDesignatedCoverage confirms every designated shard is present in its designated node's uploaded descriptor.
+// A miss means the shard is in nobody's archive (replica set changed mid-backup) and the backup must fail rather than report Success over silent loss.
+func (c *coordinator) verifyDesignatedCoverage(ctx context.Context, req *StatusRequest, plan *dedupePlan) error {
+	byNode := make(map[string]map[string][]string)
+	for class, shards := range plan.designations {
+		for shard, node := range shards {
+			if byNode[node] == nil {
+				byNode[node] = make(map[string][]string)
+			}
+			byNode[node][class] = append(byNode[node][class], shard)
+		}
+	}
+	nodes := make([]string, 0, len(byNode))
+	for node := range byNode {
+		nodes = append(nodes, node)
+	}
+	sort.Strings(nodes)
+	for _, node := range nodes {
+		meta, err := c.readNodeMeta(ctx, req, node)
+		if err != nil {
+			return fmt.Errorf("verify designated shards of node %q: %w", node, err)
+		}
+		classNames := make([]string, 0, len(byNode[node]))
+		for class := range byNode[node] {
+			classNames = append(classNames, class)
+		}
+		sort.Strings(classNames)
+		for _, class := range classNames {
+			cd := meta.GetClassDescriptor(class)
+			for _, shard := range byNode[node][class] {
+				if cd == nil || cd.GetShardDescriptor(shard) == nil {
+					return fmt.Errorf("designated shard %q of class %q missing from node %q archive; replica set likely changed during the backup, retry it", shard, class, node)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// readNodeMeta reads one node's per-node descriptor, retrying transient backend errors on the poll cadence.
+func (c *coordinator) readNodeMeta(ctx context.Context, req *StatusRequest, node string) (*backup.BackupDescriptor, error) {
+	backend, err := c.backends.BackupBackend(req.Backend, modulecapabilities.BackendUseCaseBackup)
+	if err != nil {
+		return nil, err
+	}
+	store := nodeStore{objectStore{
+		backend:  backend,
+		backupId: fmt.Sprintf("%s/%s", req.ID, node),
+		bucket:   req.Bucket,
+		path:     req.Path,
+		node:     node,
+	}}
+	for attempt := 0; ; attempt++ {
+		meta, err := store.Meta(ctx, req.ID, req.Bucket, req.Path)
+		if err == nil {
+			return meta, nil
+		}
+		if attempt >= 2 || !sleepUntil(ctx, time.Now().Add(c.dedupePollInterval)) {
+			return nil, err
+		}
+	}
 }
 
 func uniqueNonEmpty(nodes []string) map[string]struct{} {
