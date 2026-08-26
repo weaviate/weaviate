@@ -441,6 +441,13 @@ func TestBackupDedupeReplicas(t *testing.T) {
 		}
 		host = compose.GetWeaviate().URI()
 		helper.SetupClient(host)
+		// Ready nodes may still be loading shards; retry until reads settle.
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			for _, node := range nodeNames {
+				_, err := common.GetObjectFromNode(t, host, className, ids[0], node)
+				require.NoError(ct, err)
+			}
+		}, 2*time.Minute, 2*time.Second)
 		requireOnEveryNode(t, host, className, ids)
 	})
 }
