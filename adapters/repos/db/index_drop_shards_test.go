@@ -475,6 +475,7 @@ func newDropTestIndex(t *testing.T) (*Index, *test.Hook) {
 		shardCreateLocks: esync.NewKeyRWLocker(),
 		Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName("Abc")},
 	}
+	idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
 	for _, cycle := range testCycles(idx.cycleCallbacks) {
 		cycle.Start()
 	}

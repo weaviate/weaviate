@@ -242,6 +242,18 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.shutdownRequested.Store(false)
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
 
+	// The teardown below cannot be abandoned: every step of it consumes ctx.
+	// Stopping after s.shut is set leaves buckets unflushed and registry entries
+	// uncleared on a shard that already reads as shut. Only the cancellation is
+	// dropped, so the caller's deadline still bounds it.
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(context.WithoutCancel(ctx), deadline)
+		defer cancel()
+	} else {
+		ctx = context.WithoutCancel(ctx)
+	}
+
 	// Track shard unloading: loaded -> unloading
 	// Only update metrics if the shard was properly registered (prevents double-counting
 	// during partial initialization cleanup)
