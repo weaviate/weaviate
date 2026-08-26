@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path"
 	"slices"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -159,6 +161,10 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		logOperation(s.logger, "try_backup", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
+	if req.DedupeReplicas && entcfg.Enabled(os.Getenv("BACKUP_DEDUPE_DISABLED")) {
+		return nil, backup.NewErrUnprocessable(fmt.Errorf("dedupeReplicas is disabled on this cluster (BACKUP_DEDUPE_DISABLED); retry without the option"))
+	}
+
 	explicitInclude := len(req.Include) > 0
 
 	if explicitInclude {
@@ -191,16 +197,18 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, fmt.Errorf("init uploader: %w", err)
 	}
 	breq := Request{
-		Method:       OpCreate,
-		ID:           req.ID,
-		Backend:      req.Backend,
-		Classes:      sel.classes,
-		Users:        sel.users,
-		Roles:        sel.roles,
-		Compression:  req.Compression,
-		Bucket:       req.Bucket,
-		Path:         req.Path,
-		BaseBackupID: req.BaseBackupID,
+		Method:                          OpCreate,
+		ID:                              req.ID,
+		Backend:                         req.Backend,
+		Classes:                         sel.classes,
+		Users:                           sel.users,
+		Roles:                           sel.roles,
+		Compression:                     req.Compression,
+		Bucket:                          req.Bucket,
+		Path:                            req.Path,
+		BaseBackupID:                    req.BaseBackupID,
+		DedupeReplicas:                  req.DedupeReplicas,
+		DedupeConvergenceTimeoutSeconds: req.DedupeConvergenceTimeoutSeconds,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, err

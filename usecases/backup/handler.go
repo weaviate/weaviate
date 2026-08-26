@@ -272,6 +272,14 @@ type BackupRequest struct {
 	UserRestoreOption string
 
 	BaseBackupID string
+
+	// DedupeReplicas opts in to single-replica archiving of shards proven
+	// converged via async-replication checkpoints; the artifact then requires
+	// fan-out-capable versions to restore.
+	DedupeReplicas bool
+
+	// DedupeConvergenceTimeoutSeconds bounds the convergence wait; 0 = default.
+	DedupeConvergenceTimeoutSeconds int
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
