@@ -1119,3 +1119,38 @@ func TestFileListRemoveIndices(t *testing.T) {
 		assert.Equal(t, 3, f.Len())
 	})
 }
+
+// TestDedupeReplicasRoundTrip pins wire compatibility: absent field decodes false, set field survives.
+func TestDedupeReplicasRoundTrip(t *testing.T) {
+	t.Run("global descriptor", func(t *testing.T) {
+		var legacy DistributedBackupDescriptor
+		require.NoError(t, json.Unmarshal([]byte(`{"id":"x","version":"2.1"}`), &legacy))
+		assert.False(t, legacy.DedupeReplicas)
+
+		raw, err := json.Marshal(DistributedBackupDescriptor{ID: "x", Version: "2.1"})
+		require.NoError(t, err)
+		assert.NotContains(t, string(raw), "dedupeReplicas")
+
+		raw, err = json.Marshal(DistributedBackupDescriptor{ID: "x", Version: "3.0", DedupeReplicas: true})
+		require.NoError(t, err)
+		var got DistributedBackupDescriptor
+		require.NoError(t, json.Unmarshal(raw, &got))
+		assert.True(t, got.DedupeReplicas)
+	})
+
+	t.Run("node descriptor", func(t *testing.T) {
+		var legacy BackupDescriptor
+		require.NoError(t, json.Unmarshal([]byte(`{"id":"x","version":"2.1"}`), &legacy))
+		assert.False(t, legacy.DedupeReplicas)
+
+		raw, err := json.Marshal(BackupDescriptor{ID: "x", Version: "2.1"})
+		require.NoError(t, err)
+		assert.NotContains(t, string(raw), "dedupeReplicas")
+
+		raw, err = json.Marshal(BackupDescriptor{ID: "x", Version: "3.0", DedupeReplicas: true})
+		require.NoError(t, err)
+		var got BackupDescriptor
+		require.NoError(t, json.Unmarshal(raw, &got))
+		assert.True(t, got.DedupeReplicas)
+	})
+}

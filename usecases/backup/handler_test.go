@@ -117,16 +117,19 @@ func TestCheckRestorableVersion(t *testing.T) {
 		{version: "2.0", serverVersion: current},
 		{version: "2.1", serverVersion: current},
 		{version: "2.9", serverVersion: current},
-		{version: "3.0", serverVersion: current, wantMsg: errMsgHigherVersion},
+		{version: "3.0", serverVersion: current},
 		// A structure version may omit the minor; the major still decides.
-		{version: "3", serverVersion: current, wantMsg: errMsgHigherVersion},
+		{version: "3", serverVersion: current},
+		{version: "4.0", serverVersion: current, wantMsg: errMsgHigherVersion},
+		{version: "4", serverVersion: current, wantMsg: errMsgHigherVersion},
 		{version: "10", serverVersion: current, wantMsg: errMsgHigherVersion},
 		// A byte compare read this as older than "2.1" and wrongly accepted it.
 		{version: "10.0", serverVersion: current, wantMsg: errMsgHigherVersion},
 		// A corrupt descriptor is reported by Validate, not refused as an old format.
 		{version: "", serverVersion: current},
-		// The version this build writes must stay restorable by it.
+		// The versions this build writes must stay restorable by it.
 		{version: Version, serverVersion: current},
+		{version: VersionDedupeReplicas, serverVersion: current},
 
 		{version: Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
 		{version: Version, serverVersion: "1.16", wantErr: errLegacyFlatFS},
@@ -152,6 +155,14 @@ func TestCheckRestorableVersion(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDedupeVersionRefusedByOldReleases pins the refusal predicates old builds apply to VersionDedupeReplicas.
+func TestDedupeVersionRefusedByOldReleases(t *testing.T) {
+	require.Greater(t, VersionDedupeReplicas[0], Version[0])
+	major, ok := parseMajor(VersionDedupeReplicas)
+	require.True(t, ok)
+	require.Greater(t, major, 2)
 }
 
 func TestHandlerValidateCoordinationOperation(t *testing.T) {

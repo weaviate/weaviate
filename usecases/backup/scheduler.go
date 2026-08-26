@@ -906,8 +906,9 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if err := meta.Validate(); err != nil {
 		return nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
-	if v := meta.Version; v[0] > Version[0] {
-		return nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
+	// Version 3.x and dedupeReplicas must agree; a mismatch means a tampered or corrupt descriptor.
+	if major, ok := parseMajor(meta.Version); ok && (major >= 3) != meta.DedupeReplicas {
+		return nil, fmt.Errorf("corrupted backup file: version %s inconsistent with dedupeReplicas=%v", meta.Version, meta.DedupeReplicas)
 	}
 
 	// Base backups are only read after the restore has started staging data.
