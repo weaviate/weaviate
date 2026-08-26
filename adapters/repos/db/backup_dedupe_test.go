@@ -60,3 +60,30 @@ func TestFilterDesignatedShards(t *testing.T) {
 		})
 	}
 }
+
+func TestVerifyDesignatedLocalShards(t *testing.T) {
+	local := []string{"s1", "s2"}
+
+	tests := []struct {
+		name       string
+		designated map[string]string
+		nodeName   string
+		wantErr    string
+	}{
+		{name: "nil designations", designated: nil, nodeName: "n1"},
+		{name: "designated to self and local", designated: map[string]string{"s1": "n1"}, nodeName: "n1"},
+		{name: "designated elsewhere and missing", designated: map[string]string{"gone": "n2"}, nodeName: "n1"},
+		{name: "designated to self but missing", designated: map[string]string{"gone": "n1"}, nodeName: "n1", wantErr: `shard "gone" is designated to this node but no longer local`},
+		{name: "deterministic first shard reported", designated: map[string]string{"zz": "n1", "aa": "n1"}, nodeName: "n1", wantErr: `shard "aa" is designated to this node but no longer local`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := verifyDesignatedLocalShards(tc.designated, local, tc.nodeName)
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.wantErr)
+			}
+		})
+	}
+}

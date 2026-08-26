@@ -214,7 +214,11 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	var plan *dedupePlan
 	if req.DedupeReplicas && c.checkpointer != nil {
 		budget := time.Duration(req.DedupeConvergenceTimeoutSeconds) * time.Second
-		plan = c.planDesignatedShards(ctx, req.Classes, budget)
+		participants := make(map[string]struct{}, len(groups))
+		for node := range groups {
+			participants[node] = struct{}{}
+		}
+		plan = c.planDesignatedShards(ctx, req.Classes, budget, participants)
 	}
 	version := Version
 	if req.DedupeReplicas {
@@ -267,6 +271,13 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
+		if c.descriptor.Status == backup.Success && plan != nil && plan.designated() > 0 {
+			if err := c.verifyDesignatedCoverage(ctx, &statusReq, plan); err != nil {
+				c.descriptor.Status = backup.Failed
+				c.descriptor.Error = err.Error()
+				c.log.WithFields(logFields).Errorf("coordinator: designated-shard coverage check failed: %v", err)
+			}
+		}
 		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}

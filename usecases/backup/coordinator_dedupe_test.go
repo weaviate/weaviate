@@ -195,16 +195,28 @@ func TestAssignDesignations(t *testing.T) {
 		"s4": {"n3", "n2"},
 	}
 
+	all := parts("n1", "n2", "n3", "n9")
 	loads := map[string]int{}
-	got := assignDesignations(shardReplicas, loads)
+	got := assignDesignations(shardReplicas, loads, all)
 	assert.Equal(t, map[string]string{"s1": "n1", "s2": "n2", "s3": "n1", "s4": "n3"}, got)
 	assert.Equal(t, map[string]int{"n1": 2, "n2": 1, "n3": 1}, loads)
 
-	again := assignDesignations(shardReplicas, map[string]int{})
+	again := assignDesignations(shardReplicas, map[string]int{}, all)
 	assert.Equal(t, got, again)
 
-	crossClass := assignDesignations(map[string][]string{"t1": {"n1", "n9"}}, loads)
+	crossClass := assignDesignations(map[string][]string{"t1": {"n1", "n9"}}, loads, all)
 	assert.Equal(t, map[string]string{"t1": "n9"}, crossClass)
+
+	onlyParticipants := assignDesignations(map[string][]string{"u1": {"n1", "n2", "x"}, "u2": {"n1", "x"}}, map[string]int{"n1": 9}, parts("n1", "n2"))
+	assert.Equal(t, map[string]string{"u1": "n2"}, onlyParticipants)
+}
+
+func parts(nodes ...string) map[string]struct{} {
+	out := make(map[string]struct{}, len(nodes))
+	for _, n := range nodes {
+		out[n] = struct{}{}
+	}
+	return out
 }
 
 func TestProjectDesignations(t *testing.T) {
@@ -244,7 +256,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.converge["C1/s2"] = true
 		c := newDedupeCoordinator(f)
 
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0)
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
 		require.NotNil(t, plan)
 		assert.Equal(t, 2, plan.designated())
 		assert.Len(t, plan.designations["C1"], 2)
@@ -264,7 +276,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		c := newDedupeCoordinator(f)
 		c.dedupeConvergenceBudget = 40 * time.Millisecond
 
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0)
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
 		assert.Equal(t, map[string]map[string]string{"C1": {"s1": plan.designations["C1"]["s1"]}}, plan.designations)
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
 	})
@@ -275,7 +287,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
 		c := newDedupeCoordinator(f)
 
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0)
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
 		assert.Equal(t, 0, plan.designated())
 		assert.Empty(t, f.createCalls)
 		assert.Empty(t, f.deleteCalls)
@@ -287,7 +299,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1"}, "s2": {"n2"}}
 		c := newDedupeCoordinator(f)
 
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0)
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
 		assert.Equal(t, 0, plan.designated())
 		assert.Empty(t, f.createCalls)
 	})
@@ -300,7 +312,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.converge["C2/t1"] = true
 		c := newDedupeCoordinator(f)
 
-		plan := c.planDesignatedShards(ctx, []string{"C1", "C2"}, 0)
+		plan := c.planDesignatedShards(ctx, []string{"C1", "C2"}, 0, parts("n1", "n2", "n3"))
 		assert.NotContains(t, plan.designations, "C1")
 		assert.Len(t, plan.designations["C2"], 1)
 		assert.Equal(t, []string{"C2"}, f.deleteCalls)
@@ -313,7 +325,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		c.dedupeConvergenceBudget = 5 * time.Second
 
 		start := time.Now()
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0)
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
 		assert.Equal(t, 0, plan.designated())
 		assert.Less(t, time.Since(start), 2*time.Second)
 		assert.Equal(t, 1, f.statusCalls["C1"])
@@ -328,7 +340,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		c.dedupeConvergenceBudget = 5 * time.Second
 
 		start := time.Now()
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0)
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
 		assert.Equal(t, 0, plan.designated())
 		assert.Less(t, time.Since(start), 2*time.Second)
 		assert.Equal(t, 1, f.statusCalls["C1"])
@@ -341,7 +353,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.statusErr["C1"] = assert.AnError
 		c := newDedupeCoordinator(f)
 
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0)
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
 		assert.Equal(t, 0, plan.designated())
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
 	})
@@ -355,7 +367,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		cancelCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 		defer cancel()
 
-		plan := c.planDesignatedShards(cancelCtx, []string{"C1"}, 0)
+		plan := c.planDesignatedShards(cancelCtx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
 		assert.Equal(t, 0, plan.designated())
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
 	})
@@ -368,7 +380,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		c.dedupeConvergenceBudget = 5 * time.Second
 
 		start := time.Now()
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 40*time.Millisecond)
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 40*time.Millisecond, parts("n1", "n2", "n3"))
 		assert.Equal(t, 0, plan.designated())
 		assert.Less(t, time.Since(start), 2*time.Second)
 		assert.GreaterOrEqual(t, f.statusCalls["C1"], 2)
@@ -379,7 +391,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.replicasErr["C1"] = assert.AnError
 		c := newDedupeCoordinator(f)
 
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0)
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
 		assert.Equal(t, 0, plan.designated())
 		assert.Empty(t, f.createCalls)
 	})
@@ -465,8 +477,10 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		mockBackendProvider := NewMockBackupBackendProvider(t)
 		coordinator.backends = mockBackendProvider
 		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil)
-		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
-		fc.backend.On("GetObject", any, any, any, any, any).Return(bytes, nil).Twice()
+		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success, Classes: []backup.ClassDescriptor{
+			{Name: "Class-A", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "N1"}}},
+		}})
+		fc.backend.On("GetObject", any, any, any, any, any).Return(bytes, nil).Times(3)
 
 		req := newDedupeReq()
 		store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
@@ -475,9 +489,50 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		<-fc.backend.doneChan
 
 		got := fc.backend.glMeta
+		assert.Equal(t, backup.Success, got.Status)
 		assert.Equal(t, VersionDedupeReplicas, got.Version)
 		assert.True(t, got.DedupeReplicas)
 		assert.Equal(t, []string{"Class-A"}, f.deleteCalls)
+	})
+
+	t.Run("designated shard missing from archive fails the backup", func(t *testing.T) {
+		t.Parallel()
+		fc := newFakeCoordinator(nodeResolver)
+		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+
+		f := newFakeCheckpointer()
+		f.shardReplicas["Class-A"] = map[string][]string{"s1": {"N1", "N2"}}
+		f.converge["Class-A/s1"] = true
+
+		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1, DedupeHonored: true}
+		fc.client.On("CanCommit", any, nodes[0], any).Return(ack, nil)
+		fc.client.On("CanCommit", any, nodes[1], any).Return(ack, nil)
+		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
+		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
+		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
+		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
+
+		coordinator := *fc.coordinator()
+		coordinator.checkpointer = f
+		coordinator.dedupeCutoffLead = 10 * time.Millisecond
+		coordinator.dedupePollInterval = 5 * time.Millisecond
+
+		mockBackendProvider := NewMockBackupBackendProvider(t)
+		coordinator.backends = mockBackendProvider
+		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil)
+		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
+		fc.backend.On("GetObject", any, any, any, any, any).Return(bytes, nil)
+
+		req := newDedupeReq()
+		store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
+		require.NoError(t, coordinator.Backup(ctx, store, &req))
+		<-fc.backend.doneChan
+
+		got := fc.backend.glMeta
+		assert.Equal(t, backup.Failed, got.Status)
+		assert.Contains(t, got.Error, "designated shard")
 	})
 
 	t.Run("flag off keeps wire payload legacy", func(t *testing.T) {

@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"sync"
 	"time"
 
@@ -324,6 +325,9 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
+	if err := verifyDesignatedLocalShards(designated, shardNames, i.getSchema.NodeName()); err != nil {
+		return err
+	}
 	shardNames = filterDesignatedShards(shardNames, designated, replicas, i.getSchema.NodeName())
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
@@ -518,6 +522,9 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 	shardNames, stateBytes, replicas, err := i.readSchema()
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
+	}
+	if err := verifyDesignatedLocalShards(designated, shardNames, i.getSchema.NodeName()); err != nil {
+		return err
 	}
 	shardNames = filterDesignatedShards(shardNames, designated, replicas, i.getSchema.NodeName())
 
@@ -801,6 +808,21 @@ func (i *Index) readSchema() (shards []string, state []byte, replicas map[string
 		return nil
 	})
 	return
+}
+
+// verifyDesignatedLocalShards fails when a shard designated to this node is no longer local: archiving would silently omit it from the artifact.
+func verifyDesignatedLocalShards(designated map[string]string, shardNames []string, nodeName string) error {
+	mine := make([]string, 0, len(designated))
+	for shard, d := range designated {
+		if d == nodeName && !slices.Contains(shardNames, shard) {
+			mine = append(mine, shard)
+		}
+	}
+	if len(mine) == 0 {
+		return nil
+	}
+	sort.Strings(mine)
+	return fmt.Errorf("shard %q is designated to this node but no longer local; the replica set changed during the backup, retry it", mine[0])
 }
 
 // filterDesignatedShards drops shards designated to another still-replica node; anything else is kept so exclusion never orphans a shard.
