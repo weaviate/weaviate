@@ -316,6 +316,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			return ret
 		}
 		ret.Timeout = res.Timeout
+		ret.DedupeHonored = req.DedupeReplicas
 	case OpRestore:
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {

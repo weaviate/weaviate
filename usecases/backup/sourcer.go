@@ -32,6 +32,10 @@ type Sourcer interface { // implemented by the index
 	// If an error happens a descriptor with an error will be written to the channel just before closing it.
 	//
 	// BackupDescriptors acquires resources so that a call to ReleaseBackup() is mandatory to free acquired resources.
+	//
+	// shardDesignations (class -> shard -> archiving node) excludes local shards
+	// designated to another node; nil backs up every local shard.
 	BackupDescriptors(_ context.Context, bakid string, classes []string, baseDescr []*backup.BackupDescriptor,
+		shardDesignations map[string]map[string]string,
 	) <-chan backup.ClassDescriptor
 }

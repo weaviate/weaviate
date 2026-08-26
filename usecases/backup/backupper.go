@@ -130,7 +130,8 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		}
 
 		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, req.Roles, store, req.ID, &b.lastOp, b.logger).
-			withCompression(newZipConfig(req.Compression))
+			withCompression(newZipConfig(req.Compression)).
+			withShardDesignations(req.ShardDesignations)
 
 		compressionType, err := CompressionTypeFromLevel(req.Level)
 		if err != nil {
@@ -163,14 +164,19 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			baseBackupID = ""
 		}
 
+		version := Version
+		if req.DedupeReplicas {
+			version = VersionDedupeReplicas
+		}
 		result := backup.BackupDescriptor{
 			StartedAt:       startedAt,
 			ID:              id,
 			Classes:         make([]backup.ClassDescriptor, 0, len(req.Classes)),
-			Version:         Version,
+			Version:         version,
 			ServerVersion:   config.ServerVersion,
 			CompressionType: &compressionType,
 			BaseBackupID:    baseBackupID,
+			DedupeReplicas:  req.DedupeReplicas,
 		}
 
 		b.logger.WithFields(logFields).Info("starting backup")

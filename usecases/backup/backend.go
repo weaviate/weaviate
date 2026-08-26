@@ -213,6 +213,8 @@ type uploader struct {
 	roles    []string
 	backend  nodeStore
 	backupID string
+	// class -> shard -> archiving node; nil = every local shard.
+	shardDesignations map[string]map[string]string
 	zipConfig
 	// slot is the node's own operation slot, which is what a status poll reads
 	// until the descriptor is written to the backend.
@@ -254,11 +256,16 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 	return u
 }
 
+func (u *uploader) withShardDesignations(designations map[string]map[string]string) *uploader {
+	u.shardDesignations = designations
+	return u
+}
+
 // all uploads all files in addition to the metadata file
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.slot.set(backup.Transferring)
 	desc.Status = backup.Transferring
-	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
+	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr, u.shardDesignations)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()

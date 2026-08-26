@@ -210,25 +210,38 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return backup.NewErrUnprocessable(err)
 	}
 
+	// Planning runs after the lastOp gate so concurrent backups can't double-create
+	// checkpoints, and before canCommit so the wait stays outside its timeout.
+	var plan *dedupePlan
+	if req.DedupeReplicas && c.checkpointer != nil {
+		budget := time.Duration(req.DedupeConvergenceTimeoutSeconds) * time.Second
+		plan = c.planDesignatedShards(ctx, req.Classes, budget)
+	}
+	version := Version
+	if req.DedupeReplicas {
+		version = VersionDedupeReplicas
+	}
+
 	c.descriptor = &backup.DistributedBackupDescriptor{
 		StartedAt:       time.Now().UTC(),
 		Status:          backup.Started,
 		ID:              req.ID,
 		Nodes:           groups,
-		Version:         Version,
+		Version:         version,
 		ServerVersion:   config.ServerVersion,
 		Leader:          leader,
 		CompressionType: compressionType,
 		BaseBackupID:    req.BaseBackupID,
 		Users:           req.Users,
 		Roles:           req.Roles,
+		DedupeReplicas:  req.DedupeReplicas,
 	}
 
 	for key := range c.Participants {
 		delete(c.Participants, key)
 	}
 
-	nodes, err := c.canCommit(ctx, req)
+	nodes, err := c.canCommit(ctx, req, plan)
 	if err != nil {
 		c.lastOp.reset()
 		return err
@@ -306,7 +319,7 @@ func (c *coordinator) Restore(
 
 	// Time canCommit phase (initiates file staging on all nodes)
 	canCommitStart := time.Now()
-	nodes, err := c.canCommit(ctx, req)
+	nodes, err := c.canCommit(ctx, req, nil)
 	c.observeRestorePhase("prepare", time.Since(canCommitStart))
 	if err != nil {
 		c.lastOp.reset()
@@ -571,7 +584,7 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 
 // canCommit asks candidates if they agree to participate in DBRO
 // It returns and error if any candidates refuses to participate
-func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]string, error) {
+func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupePlan) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
 
@@ -580,7 +593,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	g.SetLimit(_MaxNumberConns)
 	g.Go(func() error {
 		defer close(reqChan)
-		for nodeName, gr := range c.descriptor.Nodes {
+		for originalName, gr := range c.descriptor.Nodes {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -588,7 +601,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			}
 
 			// If we have a nodeMapping with the node name from the backup, replace the node with the new one
-			nodeName = c.descriptor.ToMappedNodeName(nodeName)
+			nodeName := c.descriptor.ToMappedNodeName(originalName)
 
 			host, found := c.nodeResolver.NodeHostname(nodeName)
 			if !found {
@@ -612,6 +625,8 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				UserRestoreOption: req.UserRestoreOption,
 				RbacRestoreOption: req.RbacRestoreOption,
 				BaseBackupID:      c.descriptor.BaseBackupID,
+				DedupeReplicas:    req.DedupeReplicas,
+				ShardDesignations: projectDesignations(plan, originalName),
 			}
 		}
 		return nil
@@ -624,6 +639,11 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
 			if err == nil && resp.Timeout == 0 {
 				err = canCommitErrFromResponse(resp)
+			}
+			// A missing ack means an old node that would archive all replicas and
+			// skip the version stamp; abort rather than silently degrade.
+			if err == nil && req.DedupeReplicas && !resp.DedupeHonored {
+				err = fmt.Errorf("does not support dedupeReplicas (mixed-version cluster); retry without the flag or after upgrading")
 			}
 			if err != nil {
 				return fmt.Errorf("node %q: %w", req.NodeName, err)

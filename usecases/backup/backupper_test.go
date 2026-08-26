@@ -190,7 +190,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, nil)
 		sourcer.On("ReleaseBackup", mock.Anything, mock.Anything).Return(nil)
 		var ch <-chan backup.ClassDescriptor
-		sourcer.On("BackupDescriptors", any, any, any, any).Return(ch)
+		sourcer.On("BackupDescriptors", any, any, any, any, any).Return(ch)
 
 		backend := &fakeBackend{}
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
@@ -219,7 +219,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -255,7 +255,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -306,7 +306,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		var gotBaseDescrs []*backup.BackupDescriptor
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
 			gotBaseDescrs = a.Get(3).([]*backup.BackupDescriptor)
 		})
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
@@ -348,7 +348,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -382,7 +382,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch).RunFn = func(a mock.Arguments) {
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch).RunFn = func(a mock.Arguments) {
 			m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", ""})
 			// give the abort request time to propagate
 			time.Sleep(10 * time.Millisecond)
@@ -421,7 +421,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
