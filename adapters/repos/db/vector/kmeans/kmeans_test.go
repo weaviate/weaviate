@@ -395,11 +395,11 @@ func TestFitBalancedCentersMatchMembership(t *testing.T) {
 }
 
 // A dense blob plus two far outliers, sized above the hfresh split floor of
-// 192 vectors. k-means++ initialization places the second center on the
-// outliers, so the outliers form a two-point cluster and balancing then moves
-// roughly half the blob in with them. The returned center for that cluster
-// must be the mean of the balanced membership (roughly offset*2/n per
-// dimension), not the mean of just the two outliers (offset per dimension).
+// 192 vectors. Lloyd's iterations isolate the outliers in a two-point cluster,
+// and balancing then moves roughly half the blob in with them. The returned
+// center for that cluster must be the mean of the balanced membership (roughly
+// offset*4/n per dimension because the cluster has about n/2 members), not the
+// mean of just the two outliers (offset per dimension).
 func TestFitBalancedOutlierBlobSplit(t *testing.T) {
 	d := 4
 	k := 2
