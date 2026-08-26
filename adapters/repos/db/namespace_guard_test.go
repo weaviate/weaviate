@@ -184,6 +184,19 @@ func TestNamespaceGuard(t *testing.T) {
 		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest))
 	})
 
+	// The refusal line sits behind the error check, so a state that resolves
+	// leaves no entry at all. Both routes to that return are driven: through the
+	// lookup, and past it.
+	t.Run("a namespace that resolves logs nothing", func(t *testing.T) {
+		idx, hook := indexForNamespace(t, "alpha:Product", existerWithState(t, api.NamespaceStateActive))
+		require.NoError(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest))
+		assert.Empty(t, hook.AllEntries(), "a namespace that resolves must log nothing")
+
+		un, unhook := indexForNamespace(t, "Product", nil)
+		require.NoError(t, un.requireNamespaceAllowsShardLoad(callerUserRequest))
+		assert.Empty(t, unhook.AllEntries(), "an unqualified class must log nothing")
+	})
+
 	t.Run("a lookup miss is logged at Error with class and namespace", func(t *testing.T) {
 		e := namespaces.NewMockExister(t)
 		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)

@@ -83,14 +83,6 @@ const (
 	callerReload
 )
 
-// logRefusedShardMaterialization writes the line an operator greps for when a
-// shard was not opened. Every site that materializes one calls it, so they name
-// the class and the namespace alike. A caller that materializes nothing does not.
-func logRefusedShardMaterialization(logger logrus.FieldLogger, class, namespace string, reason error) {
-	logger.WithFields(logrus.Fields{"class": class, "namespace": namespace}).
-		Errorf("refusing shard materialization: %v", reason)
-}
-
 // stateForShardDecision returns the namespace state a shard decision should use.
 // An empty namespace yields active — the shape every class carries on a cluster
 // running with namespaces off — so such a cluster never reaches the lookup and
@@ -213,9 +205,17 @@ func (db *DB) namespaceState(className string) (api.NamespaceState, error) {
 	return stateForShardDecision(db.namespacesExister, namespacing.NamespaceFromQualified(className))
 }
 
-// namespaceState binds this index's own namespace to the shared state lookup.
+// namespaceState reads this index's namespace state and logs at Error when it
+// cannot. loadLocalShardIfActive returns nil on that error, so without this
+// line nothing records the refusal.
 func (i *Index) namespaceState() (api.NamespaceState, error) {
-	return stateForShardDecision(i.namespacesExister, i.namespace)
+	state, err := stateForShardDecision(i.namespacesExister, i.namespace)
+	if err != nil {
+		i.logger.WithFields(logrus.Fields{
+			"class": i.Config.ClassName.String(), "namespace": i.namespace,
+		}).Errorf("refusing shard materialization: %v", err)
+	}
+	return state, err
 }
 
 // requireNamespaceAllowsShardLoad returns nil when the namespace's state lets
@@ -223,7 +223,6 @@ func (i *Index) namespaceState() (api.NamespaceState, error) {
 func (i *Index) requireNamespaceAllowsShardLoad(caller shardLoadCaller) error {
 	state, err := i.namespaceState()
 	if err != nil {
-		logRefusedShardMaterialization(i.logger, i.Config.ClassName.String(), i.namespace, err)
 		return err
 	}
 	switch caller {
