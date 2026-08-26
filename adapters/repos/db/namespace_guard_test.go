@@ -931,6 +931,88 @@ func TestDesiredOpenLocalShardNames(t *testing.T) {
 	})
 }
 
+// No schema reader: a nil one panics if any arm reaches for the class.
+func TestNamespaceStateForClass(t *testing.T) {
+	// The state space every entry point deciding on a namespace owes.
+	for _, tc := range shardsShouldBeOpenStates() {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			db := &DB{logger: logger, namespacesExister: tc.exister(t)}
+
+			got, err := db.NamespaceStateForClass(tc.className)
+
+			switch {
+			case tc.className == unqualifiedClass:
+				require.NoError(t, err)
+				assert.Equal(t, api.NamespaceStateActive, got)
+			case !namespaces.IsKnownState(tc.state):
+				require.ErrorIs(t, err, errUnknownNamespaceState)
+				assert.Empty(t, got, "a refusal must not carry a state")
+			default:
+				require.NoError(t, err)
+				assert.Equal(t, tc.state, got)
+			}
+
+			// The sweep drives this per class per tick; the level is its caller's.
+			assert.Empty(t, hook.AllEntries(), "a read-only accessor logs nothing")
+		})
+	}
+
+	// Both fail-closed arms, each carrying its own sentinel and not the other.
+	for _, tc := range namespaceLookupRefusals() {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			db := &DB{logger: logger, namespacesExister: tc.exister(t)}
+
+			got, err := db.NamespaceStateForClass(namespacedClass)
+
+			require.ErrorIs(t, err, tc.wantErr)
+			for _, other := range []error{errNoNamespaceLookup, ErrNamespaceUnknownLocally, errUnknownNamespaceState} {
+				if !errors.Is(other, tc.wantErr) {
+					require.NotErrorIs(t, err, other)
+				}
+			}
+			assert.Empty(t, got, "a refusal must not carry a state")
+			assert.Empty(t, hook.AllEntries(), "a read-only accessor logs nothing")
+		})
+	}
+
+	// Keyed on the namespace, never on the class, so no name is a not-found.
+	t.Run("a qualified name whose class does not exist answers its namespace's state", func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		db := &DB{logger: logger, namespacesExister: existerWithState(t, api.NamespaceStateSuspended)}
+
+		got, err := db.NamespaceStateForClass("alpha:NoSuchClass")
+		require.NoError(t, err)
+		assert.Equal(t, api.NamespaceStateSuspended, got)
+	})
+
+	// Restore normalizes an unwritten state to active on the way in, so
+	// normalizing here too would hide the record rather than report it.
+	t.Run("a namespace record with no state is refused", func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		db := &DB{logger: logger, namespacesExister: existerWithState(t, "")}
+
+		got, err := db.NamespaceStateForClass(namespacedClass)
+		require.ErrorIs(t, err, errUnknownNamespaceState)
+		assert.Empty(t, got, "a refusal must not carry a state")
+	})
+
+	// A second lookup could return a state the accessor never validated.
+	t.Run("the namespace is looked up once", func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		e := namespaces.NewMockExister(t)
+		e.EXPECT().GetNamespace("alpha").
+			Return(api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true).Once()
+
+		got, err := (&DB{logger: logger, namespacesExister: e}).NamespaceStateForClass(namespacedClass)
+		require.NoError(t, err)
+		assert.Equal(t, api.NamespaceStateActive, got)
+	})
+}
+
 // indexForGuardTest builds the minimum Index initLocalShardWithForcedLoading
 // needs before it reaches the resident-shard branch.
 func indexForGuardTest(t *testing.T, className string, e namespaces.Exister) *Index {

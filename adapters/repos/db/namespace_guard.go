@@ -216,6 +216,25 @@ func (db *DB) DesiredOpenLocalShardNames(className string) ([]string, api.Namesp
 	return names, state, nil
 }
 
+// NamespaceStateForClass returns the state of the class's namespace, always one
+// of the four constants or the zero value beside an error. It never reports a
+// class as unknown — an unqualified name answers active, which reads as "keep
+// the shards open" — so a consumer must resolve the class through
+// GetLocalShardNames first. ErrNamespaceUnknownLocally is the one exported
+// error: a diverged namespace map, to report rather than skip.
+func (db *DB) NamespaceStateForClass(className string) (api.NamespaceState, error) {
+	state, err := db.namespaceState(className)
+	if err != nil {
+		// Before the check, so a lookup refusal stays distinct from an
+		// unrecognised state.
+		return "", err
+	}
+	if err := requireKnownNamespaceState(state); err != nil {
+		return "", err
+	}
+	return state, nil
+}
+
 // ReopenShard loads a shard on behalf of a resuming namespace, which the request
 // path refuses to do while the namespace comes back. The shard is loaded outright
 // rather than registered lazily, since no request would come along to load it. A
