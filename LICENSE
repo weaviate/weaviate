@@ -8,7 +8,7 @@ repository:
   the BSD-3-Clause License, as defined in LICENSE-BSD.
 
 * Within the "wl" directory and all its sub-directories, source code in a
-  givenfile is licensed under the Weaviate license, as defined in
+  given file is licensed under the Weaviate license, as defined in
   wl/LICENSE-WEAVIATE.
 
 Weaviate-licensed features are toggled using an environment variable. Setting
