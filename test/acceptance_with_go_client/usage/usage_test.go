@@ -533,11 +533,11 @@ func TestRestart(t *testing.T) {
 		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
 		WithWeaviateEnv(entcfg.EnvNestedFilteringPreview, "true").
 		// a count threshold of 0 lazy-loads every multi-tenant collection the node
-		// finds on startup, and the warmup knob leaves those shards unloaded until
-		// something asks for them, so the report after the restart has to measure hot
-		// tenants from disk
+		// finds on startup, and a negative warmup minimum leaves those shards
+		// unloaded until something asks for them, so the report after the restart
+		// has to measure hot tenants from disk
 		WithWeaviateEnv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "0").
-		WithWeaviateEnv("LAZY_LOAD_SHARD_WARMUP_DISABLED", "true").
+		WithWeaviateEnv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS", "-1").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

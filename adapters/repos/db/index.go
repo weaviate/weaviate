@@ -15,6 +15,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -672,38 +673,61 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 
+		// abortIfClosing reports whether the index is closing and logs that the
+		// sweep stopped; the caller is the one that returns.
+		abortIfClosing := func() bool {
+			err := i.closingCtx.Err()
+			if err == nil {
+				return false
+			}
+			i.logger.
+				WithField("action", "load_all_shards").
+				Errorf("failed to load all shards: %v", err)
+			return true
+		}
+
 		now := time.Now()
+		var loaded, skipped int
 
 		for _, shardName := range hotShardNames {
+			if abortIfClosing() {
+				return
+			}
+
+			// The decision comes before the tick so only shards that will load wait a
+			// second. At a positive threshold each skip still costs one directory
+			// listing, unpaced.
+			if !i.warmupCandidate(shardName) {
+				skipped++
+				continue
+			}
+
 			select {
 			case <-i.closingCtx.Done():
-				i.logger.
-					WithField("action", "load_all_shards").
-					Errorf("failed to load all shards: %v", i.closingCtx.Err())
-				return
 			case <-ticker.C:
-				select {
-				case <-i.closingCtx.Done():
-					i.logger.
-						WithField("action", "load_all_shards").
-						Errorf("failed to load all shards: %v", i.closingCtx.Err())
-					return
-				default:
-					err := i.loadLocalShardIfActive(shardName)
-					if err != nil {
-						i.logger.
-							WithField("action", "load_shard").
-							WithField("shard_name", shardName).
-							Errorf("failed to load shard: %v", err)
-						return
-					}
-				}
 			}
+			if abortIfClosing() {
+				return
+			}
+
+			if err := i.loadLocalShardIfActive(shardName); err != nil {
+				i.logger.
+					WithField("action", "load_shard").
+					WithField("shard_name", shardName).
+					Errorf("failed to load shard: %v", err)
+				return
+			}
+			loaded++
 		}
 
 		i.logger.
-			WithField("action", "load_all_shards").
-			WithField("took", time.Since(now).String()).
+			WithFields(logrus.Fields{
+				"action":  "load_all_shards",
+				"class":   i.Config.ClassName.String(),
+				"took":    time.Since(now).String(),
+				"loaded":  loaded,
+				"skipped": skipped,
+			}).
 			Debug("finished loading all shards")
 	}
 
@@ -720,6 +744,67 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 func (i *Index) unloadedShardIsEmpty(shardName string) bool {
 	count, err := indexcounter.Read(shardPath(i.path(), shardName))
 	return err == nil && count == 0
+}
+
+// warmupCandidate reports whether the startup sweep should load this shard, and
+// is asked before the sweep spends a tick on it. A count it cannot read answers
+// true: a shard is loaded rather than left cold on a number nobody could take.
+func (i *Index) warmupCandidate(shardName string) bool {
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	shard := i.shards.Load(shardName)
+	if shard == nil {
+		return false
+	}
+	lazyShard, ok := shard.(*LazyLoadShard)
+	if !ok || lazyShard.isLoaded() {
+		return false
+	}
+
+	// avoid footprint of empty shards
+	if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+		return false
+	}
+
+	minObjects := i.Config.LazyLoadShardWarmupMinObjects
+	if minObjects == 0 {
+		return true
+	}
+
+	count, err := lazyShard.ObjectCountAsync(i.closingCtx)
+	if err != nil {
+		entry := i.logger.
+			WithField("action", "load_shard").
+			WithField("shard_name", shardName)
+		if stderrors.Is(err, fs.ErrNotExist) {
+			entry.Debugf("unloaded shard has no objects bucket yet, warming it up: %v", err)
+		} else {
+			entry.Warnf("failed to count objects of unloaded shard, warming it up anyway: %v", err)
+		}
+		return true
+	}
+	if count > minObjects {
+		return true
+	}
+
+	// Segment sidecars miss the segment a shutdown flush writes and everything
+	// still in a write-ahead log, so they can read zero for a large shard that was
+	// merely restarted. The persisted doc-id counter sees both, and a shard left
+	// cold never gets its sidecars derived, so the skip has to convince both.
+	if written, err := indexcounter.Read(shardPath(i.path(), shardName)); err == nil &&
+		int64(written) > minObjects {
+		return true
+	}
+
+	i.logger.WithFields(logrus.Fields{
+		"action":             "skip_shard_warmup",
+		"class":              i.Config.ClassName.String(),
+		"shard_name":         shardName,
+		"object_count":       count,
+		"warmup_min_objects": minObjects,
+	}).Debug("shard holds too few objects to warm up; it loads on first access")
+	return false
 }
 
 func (i *Index) loadLocalShardIfActive(shardName string) error {
@@ -1225,7 +1310,7 @@ type IndexConfig struct {
 	AsyncReplicationScheduler           *AsyncReplicationScheduler
 	AvoidMMap                           bool
 	EnableLazyLoadShards                bool
-	LazyLoadShardWarmupDisabled         bool // read only when EnableLazyLoadShards is true
+	LazyLoadShardWarmupMinObjects       int64 // read only when EnableLazyLoadShards is true
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
@@ -1270,10 +1355,11 @@ type IndexConfig struct {
 }
 
 // backgroundWarmupEnabled reports whether the startup sweep loads cold shards.
-// The sweep only runs on the lazy-loading path, so LazyLoadShardWarmupDisabled
-// has nothing to switch off while EnableLazyLoadShards is false.
+// The sweep only runs on the lazy-loading path, so LazyLoadShardWarmupMinObjects
+// has nothing to gate while EnableLazyLoadShards is false. A negative value turns
+// the sweep off; which shards a non-negative one loads is warmupCandidate's call.
 func (c IndexConfig) backgroundWarmupEnabled() bool {
-	return c.EnableLazyLoadShards && !c.LazyLoadShardWarmupDisabled
+	return c.EnableLazyLoadShards && c.LazyLoadShardWarmupMinObjects >= 0
 }
 
 func indexID(class schema.ClassName) string {

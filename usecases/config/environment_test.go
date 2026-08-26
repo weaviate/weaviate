@@ -624,38 +624,44 @@ func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 	}
 }
 
-func TestEnvironmentLazyLoadShardWarmupDisabled(t *testing.T) {
+func TestEnvironmentLazyLoadShardWarmupMinObjects(t *testing.T) {
 	tests := []struct {
 		name string
 		// preset mirrors a value coming from the config file, which is parsed
 		// before FromEnv runs.
-		preset   bool
-		value    string
-		expected bool
+		preset      int64
+		value       string
+		expected    int64
+		expectedErr bool
 	}{
-		{name: "unset keeps warmup running", value: "", expected: false},
-		{name: "true disables", value: "true", expected: true},
-		{name: "on disables", value: "on", expected: true},
-		{name: "1 disables", value: "1", expected: true},
-		{name: "false keeps warmup running", value: "false", expected: false},
-		{name: "unparsable value keeps warmup running", value: "not-a-bool", expected: false},
-		{name: "config file value survives an unset env var", preset: true, value: "", expected: true},
-		{name: "env var overrides the config file", preset: true, value: "false", expected: false},
+		{name: "unset keeps the zero value", value: "", expected: 0},
+		{name: "negative turns the sweep off", value: "-1", expected: -1},
+		{name: "zero sweeps every non-empty shard", value: "0", expected: 0},
+		{name: "positive sets a threshold", value: "1000", expected: 1000},
+		{name: "unparsable value is rejected", value: "not-an-int", expectedErr: true},
+		{name: "config file value survives an unset env var", preset: 500, value: "", expected: 500},
+		{name: "env var overrides the config file", preset: 500, value: "-1", expected: -1},
+		{name: "zero overrides a config-file threshold", preset: 500, value: "0", expected: 0},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Ensure hermetic behavior regardless of outer environment
-			t.Setenv("LAZY_LOAD_SHARD_WARMUP_DISABLED", "")
+			t.Setenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS", "")
 
 			if tt.value != "" {
-				t.Setenv("LAZY_LOAD_SHARD_WARMUP_DISABLED", tt.value)
+				t.Setenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS", tt.value)
 			}
 
-			conf := Config{LazyLoadShardWarmupDisabled: tt.preset}
-			require.NoError(t, FromEnv(&conf))
+			conf := Config{LazyLoadShardWarmupMinObjects: tt.preset}
+			err := FromEnv(&conf)
+			if tt.expectedErr {
+				require.Error(t, err)
+				return
+			}
 
-			assert.Equal(t, tt.expected, conf.LazyLoadShardWarmupDisabled)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, conf.LazyLoadShardWarmupMinObjects)
 		})
 	}
 }
