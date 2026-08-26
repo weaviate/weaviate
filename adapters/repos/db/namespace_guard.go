@@ -83,29 +83,29 @@ const (
 	callerReload
 )
 
-// refuseShardDecision logs why a shard decision is being refused and returns
-// the reason, so both refusals name the class and the namespace the same way.
-func refuseShardDecision(logger logrus.FieldLogger, namespace, class string, reason error) error {
+// logRefusedShardMaterialization writes the line an operator greps for when a
+// shard was not opened. Every site that materializes one calls it, so they name
+// the class and the namespace alike. A caller that materializes nothing does not.
+func logRefusedShardMaterialization(logger logrus.FieldLogger, class, namespace string, reason error) {
 	logger.WithFields(logrus.Fields{"class": class, "namespace": namespace}).
 		Errorf("refusing shard materialization: %v", reason)
-	return reason
 }
 
 // stateForShardDecision returns the namespace state a shard decision should use.
-// An unqualified class name yields active — every class on a cluster running with
-// namespaces off — so such a cluster never reaches the lookup and never takes its
-// read lock. A returned error is already logged, and every decision refuses on it
-// rather than reading as an active namespace.
-func stateForShardDecision(e namespaces.Exister, namespace, class string, logger logrus.FieldLogger) (api.NamespaceState, error) {
+// An empty namespace yields active — the shape every class carries on a cluster
+// running with namespaces off — so such a cluster never reaches the lookup and
+// never takes its read lock. Errors come back unlogged, and every decision refuses on one rather
+// than reading it as an active namespace.
+func stateForShardDecision(e namespaces.Exister, namespace string) (api.NamespaceState, error) {
 	if namespace == "" {
 		return api.NamespaceStateActive, nil
 	}
 	if e == nil {
-		return "", refuseShardDecision(logger, namespace, class, errNoNamespaceLookup)
+		return "", errNoNamespaceLookup
 	}
 	ns, ok := e.GetNamespace(namespace)
 	if !ok {
-		return "", refuseShardDecision(logger, namespace, class, ErrNamespaceUnknownLocally)
+		return "", ErrNamespaceUnknownLocally
 	}
 	return ns.State, nil
 }
@@ -135,8 +135,7 @@ func (db *DB) readDesiredOpenLocalShards(className string, retryIfClassNotFound 
 		return "", err
 	}
 	if err := requireKnownNamespaceState(state); err != nil {
-		return "", refuseShardDecision(db.logger,
-			namespacing.NamespaceFromQualified(className), className, err)
+		return "", err
 	}
 	if !namespaces.ShardsShouldBeOpen(state) {
 		// Nothing is desired open, so the shards need not be enumerated.
@@ -211,13 +210,12 @@ func (db *DB) ReopenShard(ctx context.Context, className, shardName string) erro
 // namespaceState binds a class name to the shared state lookup, deriving the
 // namespace from the qualified name. The state is returned unvalidated.
 func (db *DB) namespaceState(className string) (api.NamespaceState, error) {
-	return stateForShardDecision(db.namespacesExister,
-		namespacing.NamespaceFromQualified(className), className, db.logger)
+	return stateForShardDecision(db.namespacesExister, namespacing.NamespaceFromQualified(className))
 }
 
 // namespaceState binds this index's own namespace to the shared state lookup.
 func (i *Index) namespaceState() (api.NamespaceState, error) {
-	return stateForShardDecision(i.namespacesExister, i.namespace, i.Config.ClassName.String(), i.logger)
+	return stateForShardDecision(i.namespacesExister, i.namespace)
 }
 
 // requireNamespaceAllowsShardLoad returns nil when the namespace's state lets
@@ -225,6 +223,7 @@ func (i *Index) namespaceState() (api.NamespaceState, error) {
 func (i *Index) requireNamespaceAllowsShardLoad(caller shardLoadCaller) error {
 	state, err := i.namespaceState()
 	if err != nil {
+		logRefusedShardMaterialization(i.logger, i.Config.ClassName.String(), i.namespace, err)
 		return err
 	}
 	switch caller {

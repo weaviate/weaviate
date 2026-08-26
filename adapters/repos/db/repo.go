@@ -48,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -279,6 +280,11 @@ func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
 func (db *DB) localShardsToLoad(className string) int64 {
 	count, err := db.DesiredOpenLocalShardCount(className)
 	if err != nil {
+		// Debug because the count is polled per class on a ticker, and reporting
+		// zero is this function's answer rather than a fault it can act on.
+		db.logger.WithFields(logrus.Fields{
+			"class": className, "namespace": namespacing.NamespaceFromQualified(className),
+		}).Debugf("counting no shards to load for this class: %v", err)
 		return 0
 	}
 	return int64(count)

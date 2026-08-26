@@ -587,6 +587,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	if err != nil {
 		// Treating the error as a namespace that keeps no shards open would
 		// register no shards and report the class ready.
+		logRefusedShardMaterialization(i.logger, className, i.namespace, err)
 		return err
 	}
 	if !namespaces.ShardsShouldBeOpen(state) {
@@ -866,7 +867,12 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	// walks its shard list, so re-read it here. A refusal returns nil because an
 	// error would end that loop for every shard behind this one.
 	state, err := i.namespaceState()
-	if err != nil || !namespaces.ShardsShouldBeOpen(state) {
+	if err != nil {
+		// The refusal is swallowed, so this line is the only evidence of it.
+		logRefusedShardMaterialization(i.logger, i.Config.ClassName.String(), i.namespace, err)
+		return "", nil
+	}
+	if !namespaces.ShardsShouldBeOpen(state) {
 		return "", nil
 	}
 
