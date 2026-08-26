@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,9 @@ import (
 // hanging.
 const probeTimeout = 5 * time.Second
 
+// backendFullMsg is the rejection text the probe returns for a class a test fails.
+const backendFullMsg = "backend is full"
+
 // uploadProbe is the sourcer and the backend the shared-pool tests run against.
 // It feeds fixed class descriptors and records what the pool does, and onWrite
 // lets a test hold one chunk open while it inspects what else is running.
@@ -44,20 +48,35 @@ type uploadProbe struct {
 	// write was given; returning an error fails it the way a backend rejection does.
 	onWrite   func(ctx context.Context, class, key string) error
 	onRelease func(class string)
+	// onDescriptor runs before a class is snapshotted, holding the producer's own
+	// context, so a test can keep the producer open while the pool fails around it.
+	onDescriptor func(ctx context.Context, class string)
+	// producerDone closes when the producer stops snapshotting classes, just
+	// before it closes the descriptor channel.
+	producerDone chan struct{}
+	// producerStopsAfter, when positive, ends the producer after that many
+	// descriptors with no error descriptor, as a recovered panic in it would.
+	producerStopsAfter int
 
 	mu sync.Mutex
 	// writing counts the chunk writes of each class that have not returned.
 	writing  map[string]int
 	written  []string
 	releases []string
-	meta     backup.BackupDescriptor
+	// snapshotted names the classes the producer snapshotted, in order.
+	snapshotted []string
+	// snapshottedAfterRelease names the classes the producer snapshotted after
+	// their own index had already been released.
+	snapshottedAfterRelease []string
+	meta                    backup.BackupDescriptor
 }
 
 func newUploadProbe(sourcePath string, descs ...backup.ClassDescriptor) *uploadProbe {
 	return &uploadProbe{
-		sourcePath: sourcePath,
-		descs:      descs,
-		writing:    map[string]int{},
+		sourcePath:   sourcePath,
+		descs:        descs,
+		writing:      map[string]int{},
+		producerDone: make(chan struct{}),
 	}
 }
 
@@ -73,14 +92,59 @@ func (p *uploadProbe) ReleaseBackup(_ context.Context, _, class string) error {
 
 func (p *uploadProbe) Backupable(context.Context, []string) error { return nil }
 
-func (p *uploadProbe) BackupDescriptors(_ context.Context, _ string, _ []string, _ []*backup.BackupDescriptor,
+// BackupDescriptors produces one descriptor at a time from its own goroutine and
+// stops between classes once ctx is cancelled, as DB.BackupDescriptors does, so a
+// test can observe the pool while a later class has not been snapshotted yet.
+func (p *uploadProbe) BackupDescriptors(ctx context.Context, _ string, _ []string, _ []*backup.BackupDescriptor,
 ) <-chan backup.ClassDescriptor {
 	ch := make(chan backup.ClassDescriptor, len(p.descs))
-	for _, d := range p.descs {
-		ch <- d
-	}
-	close(ch)
+	go func() {
+		// producerDone closes before ch, so producerDone is already closed by the
+		// time a consumer draining ch sees it closed.
+		defer func() {
+			close(p.producerDone)
+			close(ch)
+		}()
+		for i, d := range p.descs {
+			if p.producerStopsAfter > 0 && i >= p.producerStopsAfter {
+				return
+			}
+			if err := ctx.Err(); err != nil {
+				ch <- backup.ClassDescriptor{Name: d.Name, Error: err}
+				return
+			}
+			if p.onDescriptor != nil {
+				p.onDescriptor(ctx, d.Name)
+			}
+			p.mu.Lock()
+			p.snapshotted = append(p.snapshotted, d.Name)
+			if slices.Contains(p.releases, d.Name) {
+				p.snapshottedAfterRelease = append(p.snapshottedAfterRelease, d.Name)
+			}
+			p.mu.Unlock()
+
+			ch <- d
+			if d.Error != nil {
+				return
+			}
+		}
+	}()
 	return ch
+}
+
+// classesSnapshotted reports the classes the producer snapshotted, in order.
+func (p *uploadProbe) classesSnapshotted() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.snapshotted...)
+}
+
+// classesSnapshottedAfterRelease reports the classes the producer snapshotted
+// after their own index had already been released.
+func (p *uploadProbe) classesSnapshottedAfterRelease() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.snapshottedAfterRelease...)
 }
 
 func (p *uploadProbe) Write(ctx context.Context, _, key, _, _ string, r backup.ReadCloserWithError) (n int64, err error) {
@@ -369,7 +433,7 @@ func TestUploaderAllFailures(t *testing.T) {
 		{
 			name:       "backend rejects a chunk write",
 			failWrites: true,
-			wantErr:    "backend is full",
+			wantErr:    backendFullMsg,
 			wantStatus: backup.Failed,
 		},
 		{
@@ -417,7 +481,7 @@ func TestUploaderAllFailures(t *testing.T) {
 			if tc.failWrites {
 				p.onWrite = func(_ context.Context, class, _ string) error {
 					if class == failing {
-						return errors.New("backend is full")
+						return errors.New(backendFullMsg)
 					}
 					return nil
 				}
@@ -426,7 +490,7 @@ func TestUploaderAllFailures(t *testing.T) {
 				p.onWrite = func(writeCtx context.Context, _, _ string) error {
 					select {
 					case <-writeCtx.Done():
-						return errors.New("backend is full")
+						return errors.New(backendFullMsg)
 					case <-time.After(probeTimeout):
 						return errors.New("the pool was never cancelled")
 					}
@@ -449,4 +513,139 @@ func TestUploaderAllFailures(t *testing.T) {
 			}, probeTimeout, time.Millisecond, "every class must be released even when the backup fails")
 		})
 	}
+}
+
+// TestUploaderAllWaitsForDescriptorProducer pins that all does not release an
+// index while the descriptor producer can still snapshot it. The producer runs
+// on the operation's context, which cancelling the pool never reaches.
+func TestUploaderAllWaitsForDescriptorProducer(t *testing.T) {
+	const failing = "Class-A"
+	names := []string{failing, "Class-B", "Class-C"}
+	last := names[len(names)-1]
+	sourcePath := t.TempDir()
+	p := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, names...)...)
+
+	failed := make(chan struct{})
+	var once sync.Once
+	p.onWrite = func(_ context.Context, class, _ string) error {
+		if class != failing {
+			return nil
+		}
+		once.Do(func() { close(failed) })
+		return errors.New(backendFullMsg)
+	}
+	releasedLast := make(chan struct{})
+	var relOnce sync.Once
+	p.onRelease = func(class string) {
+		if class == last {
+			relOnce.Do(func() { close(releasedLast) })
+		}
+	}
+	// onDescriptor holds the last class's snapshot open until all stops the
+	// producer. Whichever of the two arms below wins is the assertion: a release
+	// reaching the held class first is the ordering this test exists to catch.
+	p.onDescriptor = func(ctx context.Context, class string) {
+		if class != last {
+			return
+		}
+		select {
+		case <-failed:
+		case <-time.After(probeTimeout):
+			t.Error("the failing class never failed the pool")
+			return
+		}
+		select {
+		case <-releasedLast:
+			t.Error("the last class's index was released while the producer could still snapshot it")
+		case <-ctx.Done():
+		}
+	}
+
+	desc, err := runUpload(t, context.Background(), p, 4)
+	require.Error(t, err)
+	assert.Equal(t, backup.Failed, desc.Status)
+
+	select {
+	case <-p.producerDone:
+	default:
+		t.Error("all returned while the descriptor producer was still snapshotting classes")
+	}
+
+	select {
+	case <-p.producerDone:
+	case <-time.After(probeTimeout):
+		t.Fatal("the descriptor producer never finished")
+	}
+	assert.Empty(t, p.classesSnapshottedAfterRelease(),
+		"a class snapshotted after its index was released stays marked in progress")
+}
+
+// TestUploaderAllStopsDescriptorProducerOnFailure pins that the drain waits only
+// for the class already being snapshotted. all owns the producer's context, so a
+// failed backup does not wait out a snapshot of every class it never reached.
+func TestUploaderAllStopsDescriptorProducerOnFailure(t *testing.T) {
+	const failing, gated = "Class-A", "Class-C"
+	names := []string{failing, "Class-B", gated, "Class-D"}
+	sourcePath := t.TempDir()
+	p := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, names...)...)
+
+	p.onWrite = func(_ context.Context, class, _ string) error {
+		if class != failing {
+			return nil
+		}
+		return errors.New(backendFullMsg)
+	}
+	// Holding the gated class until all stops the producer puts one class in flight
+	// at exactly the moment the drain starts, which is the wait the drain bounds.
+	p.onDescriptor = func(ctx context.Context, class string) {
+		if class != gated {
+			return
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(probeTimeout):
+			t.Error("all never stopped the descriptor producer")
+		}
+	}
+
+	desc, err := runUpload(t, context.Background(), p, 4)
+	require.Error(t, err)
+	assert.Equal(t, backup.Failed, desc.Status)
+
+	select {
+	case <-p.producerDone:
+	case <-time.After(probeTimeout):
+		t.Fatal("the descriptor producer never finished")
+	}
+	assert.Equal(t, []string{failing, "Class-B", gated}, p.classesSnapshotted(),
+		"the class after the one in flight must never be snapshotted")
+	assert.Empty(t, p.classesSnapshottedAfterRelease(),
+		"a class snapshotted after its index was released stays marked in progress")
+
+	// The gated class was snapshotted and its descriptor then thrown away by the
+	// drain, which is safe only because the release still covers it.
+	assert.Eventually(t, func() bool {
+		_, releases, _ := p.snapshot()
+		return len(dedupe(releases)) == len(names)
+	}, probeTimeout, time.Millisecond, "every class must be released, described or not")
+}
+
+// TestUploaderAllRejectsPartialDescriptorRun pins that a producer ending without
+// saying why fails the backup. A recovered panic in it closes the channel with no
+// error descriptor, which otherwise reads as "every class was described" and
+// publishes a SUCCESS that omits the classes it never reached.
+func TestUploaderAllRejectsPartialDescriptorRun(t *testing.T) {
+	names := []string{"Class-A", "Class-B", "Class-C"}
+	sourcePath := t.TempDir()
+	p := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, names...)...)
+	p.producerStopsAfter = 1
+
+	desc, err := runUpload(t, context.Background(), p, 4)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "describes 1 of 3 classes")
+	assert.NotEqual(t, backup.Success, desc.Status)
+
+	_, _, meta := p.snapshot()
+	assert.NotEqual(t, backup.Success, meta.Status,
+		"a backup missing classes must not be published as successful")
 }

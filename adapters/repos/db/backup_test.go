@@ -1040,3 +1040,56 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 		"shardCreateLocks must be released after preventShutdown failure")
 	idx.shardCreateLocks.RUnlock(shardName)
 }
+
+// TestBackupDescriptorsClosesChannelWhenCancelled pins that the producer closes
+// the descriptor channel on the early return a cancelled context takes. The
+// caller drains that channel to close before it releases any index, so a producer
+// that returns without closing leaves the backup waiting on a channel with no sender.
+func TestBackupDescriptorsClosesChannelWhenCancelled(t *testing.T) {
+	logger, _ := tlog.NewNullLogger()
+	db := &DB{logger: logger, indices: map[string]*Index{}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ch := db.BackupDescriptors(ctx, "backup-1", []string{"Class-A", "Class-B"}, nil)
+
+	var got []backup.ClassDescriptor
+	for {
+		select {
+		case d, ok := <-ch:
+			if !ok {
+				require.Len(t, got, 1, "the cancelled class is the last descriptor sent")
+				assert.Equal(t, "Class-A", got[0].Name)
+				require.Error(t, got[0].Error)
+				assert.ErrorIs(t, got[0].Error, context.Canceled)
+				return
+			}
+			got = append(got, d)
+		case <-time.After(5 * time.Second):
+			t.Fatal("BackupDescriptors never closed the descriptor channel")
+		}
+	}
+}
+
+// TestBackupDescriptorsClosesChannelOnPanic pins the exit that defer close(ds)
+// exists for. GoWrapper recovers a panic and lets the goroutine end, so a close
+// that is not deferred leaves the caller draining a channel with no sender.
+func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
+	logger, _ := tlog.NewNullLogger()
+	// A zero-value Index panics inside descriptor on its nil logger.
+	db := &DB{logger: logger, indices: map[string]*Index{indexID("Class-A"): {}}}
+
+	ch := db.BackupDescriptors(context.Background(), "backup-1", []string{"Class-A"}, nil)
+
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("BackupDescriptors never closed the descriptor channel after the producer panicked")
+		}
+	}
+}

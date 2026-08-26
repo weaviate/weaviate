@@ -259,7 +259,19 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.slot.set(backup.Transferring)
 	desc.Status = backup.Transferring
-	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
+	// all owns the producer's context so it can be stopped before any index is
+	// released. Without that the wait covers every class the backup never reached.
+	producerCtx, stopProducer := context.WithCancel(ctx)
+	ch := u.sourcer.BackupDescriptors(producerCtx, desc.ID, classes, baseDescr)
+	// A class the producer snapshots after the release below stays marked in
+	// progress, and the next backup of that class fails. Draining to close is what
+	// proves it stopped. Draining twice costs nothing, so the normal path calls
+	// this directly and the defer covers a panic or an early return.
+	stopAndDrainProducer := func() {
+		stopProducer()
+		for range ch {
+		}
+	}
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
@@ -318,6 +330,10 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
 
+	// Registered after the release above, so reverse order runs it first and no
+	// index is released while the producer can still snapshot its class.
+	defer stopAndDrainProducer()
+
 	contextChecker := func(ctx context.Context) error {
 		ctxerr := ctx.Err()
 		if ctxerr != nil {
@@ -371,6 +387,8 @@ Loop:
 	// and the release deletes it. Every class the loop submitted has already
 	// released itself in finish, so this only covers the ones it never reached.
 	poolErr := eg.Wait()
+
+	stopAndDrainProducer()
 	u.releaseIndexes(classes, desc.ID)
 
 	// uploads is in the order the descriptors arrived, so classes finishing out of
@@ -392,6 +410,11 @@ Loop:
 	}
 	if poolErr != nil {
 		return poolErr
+	}
+	// The producer stopped without saying why, so publishing here would report a
+	// backup that omits every class it never described.
+	if ctx.Err() == nil && len(uploads) != len(classes) {
+		return fmt.Errorf("backup describes %d of %d classes", len(uploads), len(classes))
 	}
 
 	if err := ctx.Err(); err != nil {
