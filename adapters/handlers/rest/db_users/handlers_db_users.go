@@ -1028,7 +1028,7 @@ func renderImportUsersNamespaceErr(principal *models.Principal, err error) middl
 		return experimental.NewImportUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 	public := errors.New(msg)
-	if namespaceErrRendersUnprocessable(err) {
+	if cerrors.NamespaceErrRendersUnprocessable(err) {
 		return experimental.NewImportUsersUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
 	}
 	return experimental.NewImportUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
