@@ -77,6 +77,21 @@ var asyncRepDispatchSeam func(*asyncSchedulerEntry)
 // asyncRepPrefilterSeam replaces the replicator root-compare in tests; nil outside tests.
 var asyncRepPrefilterSeam func(ctx context.Context, roots map[string]hashtree.Digest) map[string]struct{}
 
+// prefilterCoalesceWindow delays due entries so cross-class batches can form; var so tests can shrink it.
+var prefilterCoalesceWindow = time.Second
+
+// asyncRepTargetHostsSeam replaces per-shard target resolution in tests; nil outside tests.
+var asyncRepTargetHostsSeam func(*Shard) ([]string, error)
+
+// asyncRepPerClassFallbackSeam replaces the per-class fallback pre-filter in tests; nil outside tests.
+var asyncRepPerClassFallbackSeam func(context.Context, map[string]hashtree.Digest) (map[string]struct{}, replica.PrefilterStats)
+
+// crossClassRootComparer is the narrow client surface for the node-level root compare.
+type crossClassRootComparer interface {
+	CompareHashTreeRootsMulti(ctx context.Context, host string,
+		classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error)
+}
+
 func init() {
 	asyncRepRebuildBaseBackoff.Store(int64(30 * time.Second))
 }
@@ -574,8 +589,11 @@ type AsyncReplicationScheduler struct {
 
 	// batchPool recycles the []*asyncSchedulerEntry slices sent on workCh.
 	batchPool sync.Pool
-	// dispatchBuckets groups due entries by index during one dispatch pass; dispatcher-owned, emptied at the end of every pass.
-	dispatchBuckets map[*Index][]*asyncSchedulerEntry
+	// dispatchPending accumulates due entries during one dispatch pass; dispatcher-owned, emptied at the end of every pass.
+	dispatchPending []*asyncSchedulerEntry
+
+	// crossClassComparer is the node-level root-compare client; nil falls back to the per-class pre-filter.
+	crossClassComparer crossClassRootComparer
 
 	metrics asyncReplicationSchedulerMetrics
 	logger  logrus.FieldLogger
@@ -599,12 +617,18 @@ type AsyncReplicationScheduler struct {
 //
 // AsyncReplicationHashtreeInitConcurrency is read once here to size the init
 // semaphore; later changes to its DynamicValue have no effect.
+// crossClassComparer is optional: absent (or nil) falls back to the per-class pre-filter.
 func NewAsyncReplicationScheduler(
 	ctx context.Context,
 	replicationCfg replication.GlobalConfig,
 	prom *monitoring.PrometheusMetrics,
 	logger logrus.FieldLogger,
+	crossClassComparer ...crossClassRootComparer,
 ) (*AsyncReplicationScheduler, error) {
+	var comparer crossClassRootComparer
+	if len(crossClassComparer) > 0 {
+		comparer = crossClassComparer[0]
+	}
 	// Guard against nil DynamicValue pointers (zero-valued GlobalConfig in tests).
 	maxWorkersConfig := replicationCfg.AsyncReplicationSchedulerWorkers
 	if maxWorkersConfig == nil {
@@ -673,7 +697,7 @@ func NewAsyncReplicationScheduler(
 		removeCh:                 make(chan removeRequest),
 		asyncReplicationDisabled: asyncReplicationDisabled,
 		rootPrefilterBatchSize:   rootPrefilterBatchSize,
-		dispatchBuckets:          make(map[*Index][]*asyncSchedulerEntry),
+		crossClassComparer:       comparer,
 		hashtreeInitSem:          semaphore.NewWeighted(int64(hashtreeInitConcurrency)),
 		metrics:                  m,
 		logger:                   logger,
@@ -982,6 +1006,13 @@ func (sched *AsyncReplicationScheduler) timeUntilNextLocked() time.Duration {
 	}
 	d := time.Until(sched.h[0].nextRunAt)
 	if d < minDispatchInterval {
+		if !sched.coalesceElapsedLocked(time.Now()) {
+			// Sleep out the coalesce window instead of spinning at minDispatchInterval.
+			if w := time.Until(sched.h[0].nextRunAt.Add(prefilterCoalesceWindow)); w > minDispatchInterval {
+				return w
+			}
+			return minDispatchInterval
+		}
 		// Entry is due now. If the channel is full (all workers busy), use the
 		// larger backoff so the dispatcher yields instead of spinning.
 		if len(sched.workCh) == cap(sched.workCh) {
@@ -1050,6 +1081,9 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 		return
 	}
 	now := time.Now()
+	if !sched.coalesceElapsedLocked(now) {
+		return
+	}
 
 	full := false
 	for len(sched.h) > 0 && !sched.h[0].nextRunAt.After(now) && !full {
@@ -1090,44 +1124,68 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 			continue
 		}
 
-		idx := entry.shard.index
-
 		// Add(1) before send so Deregister+asyncRepWg.Wait() catches the cycle; pop to advance.
 		entry.shard.asyncRepWg.Add(1)
 		entry.pendingDone.Store(true)
 		entry.inFlight = true
 		heap.Pop(&sched.h)
 
-		sched.dispatchBuckets[idx] = append(sched.dispatchBuckets[idx], entry)
+		sched.dispatchPending = append(sched.dispatchPending, entry)
 		if asyncRepDispatchSeam != nil {
 			asyncRepDispatchSeam(entry)
 		}
-		if len(sched.dispatchBuckets[idx]) >= sched.effectiveBatchSize() {
-			if !sched.trySendBatchLocked(sched.dispatchBuckets[idx]) {
-				for _, e := range sched.dispatchBuckets[idx] {
+		if len(sched.dispatchPending) >= sched.effectiveBatchSize() {
+			if !sched.trySendBatchLocked(sched.dispatchPending) {
+				for _, e := range sched.dispatchPending {
 					sched.rollbackReservedLocked(e)
 				}
 				full = true
 			}
-			sched.dispatchBuckets[idx] = sched.dispatchBuckets[idx][:0]
+			clear(sched.dispatchPending)
+			sched.dispatchPending = sched.dispatchPending[:0]
 		}
 	}
 
-	// Flush partial buckets: a bucket below the cap ships as a smaller batch, or
-	// rolls back on a full channel. Keys are deleted so a dropped index (and the
-	// stale entry pointers in its bucket's backing array) is never pinned.
-	for idx, entries := range sched.dispatchBuckets {
-		if len(entries) > 0 {
-			if full || !sched.trySendBatchLocked(entries) {
-				for _, e := range entries {
-					sched.rollbackReservedLocked(e)
-				}
-				full = true
+	// Flush the partial batch; cleared so dropped indexes are never pinned by stale tails.
+	if len(sched.dispatchPending) > 0 {
+		if full || !sched.trySendBatchLocked(sched.dispatchPending) {
+			for _, e := range sched.dispatchPending {
+				sched.rollbackReservedLocked(e)
 			}
 		}
-		delete(sched.dispatchBuckets, idx)
+		clear(sched.dispatchPending)
+		sched.dispatchPending = sched.dispatchPending[:0]
 	}
 	sched.metrics.setQueueDepth(len(sched.h))
+}
+
+// coalesceElapsedLocked reports whether due entries should dispatch now or keep
+// accumulating: a full batch, a head past the window, or a diverging head fire
+// immediately. mu must be held.
+func (sched *AsyncReplicationScheduler) coalesceElapsedLocked(now time.Time) bool {
+	if len(sched.h) == 0 || sched.h[0].nextRunAt.After(now) {
+		return true
+	}
+	batch := sched.effectiveBatchSize()
+	if batch <= 1 {
+		return true
+	}
+	head := sched.h[0]
+	if head.descendDirect {
+		return true
+	}
+	if !head.nextRunAt.After(now.Add(-prefilterCoalesceWindow)) {
+		return true
+	}
+	due := 0
+	for _, e := range sched.h {
+		if !e.nextRunAt.After(now) {
+			if due++; due >= batch {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // onResultLocked re-enqueues a shard after a cycle completes (or discards
@@ -1237,17 +1295,16 @@ func (sched *AsyncReplicationScheduler) onRemoveLocked(s *Shard) {
 	sched.metrics.setQueueDepth(len(sched.h))
 }
 
-// settleDispatchBucketsOnExit settles reservations stranded in dispatchBuckets by a mid-dispatch panic: they sit in no channel and no heap.
+// settleDispatchBucketsOnExit settles reservations stranded in dispatchPending by a mid-dispatch panic: they sit in no channel and no heap.
 func (sched *AsyncReplicationScheduler) settleDispatchBucketsOnExit() {
 	sched.mu.Lock()
 	defer sched.mu.Unlock()
-	for idx, entries := range sched.dispatchBuckets {
-		for _, entry := range entries {
-			entry.inFlight = false
-			entry.settleDone()
-		}
-		delete(sched.dispatchBuckets, idx)
+	for _, entry := range sched.dispatchPending {
+		entry.inFlight = false
+		entry.settleDone()
 	}
+	clear(sched.dispatchPending)
+	sched.dispatchPending = sched.dispatchPending[:0]
 }
 
 // drainWorkChOnExit empties workCh after the dispatcher returned, settling each
@@ -1273,23 +1330,34 @@ func (sched *AsyncReplicationScheduler) drainWorkChOnExit() {
 
 // batchScratch holds a worker's reusable classify maps, reset per batch: no
 // per-batch allocs and no cross-worker sharing.
+// prefilterGroup tracks one class's eligible shards through the cross-class pre-filter.
+type prefilterGroup struct {
+	index   *Index
+	roots   map[string]hashtree.Digest
+	entries map[string]*asyncSchedulerEntry
+	// waiting counts outstanding per-host confirmations; a shard skips only at zero with no diverge.
+	waiting map[string]int
+	diverge map[string]bool
+}
+
 type batchScratch struct {
-	roots    map[string]hashtree.Digest
-	eligible map[string]*asyncSchedulerEntry
-	skip     map[*asyncSchedulerEntry]bool
+	classes map[string]*prefilterGroup
+	// byHost: host → class → shard → root; per-host tuples ≤ batch size (≤4096) so one RPC always fits the receiver's cap.
+	byHost map[string]map[string]map[string]hashtree.Digest
+	skip   map[*asyncSchedulerEntry]bool
 }
 
 func newBatchScratch() *batchScratch {
 	return &batchScratch{
-		roots:    make(map[string]hashtree.Digest),
-		eligible: make(map[string]*asyncSchedulerEntry),
-		skip:     make(map[*asyncSchedulerEntry]bool),
+		classes: make(map[string]*prefilterGroup),
+		byHost:  make(map[string]map[string]map[string]hashtree.Digest),
+		skip:    make(map[*asyncSchedulerEntry]bool),
 	}
 }
 
 func (bs *batchScratch) reset() {
-	clear(bs.roots)
-	clear(bs.eligible)
+	clear(bs.classes)
+	clear(bs.byHost)
 	clear(bs.skip)
 }
 
@@ -1505,19 +1573,25 @@ func (sched *AsyncReplicationScheduler) deferDescent(entry *asyncSchedulerEntry)
 	sched.resultCh <- asyncSchedulerResult{entry: entry, deferDescent: true}
 }
 
-// prefilterCtx builds the context for one batched pre-filter. It must abort when
-// the index closes: index.drop() cancels closingCtx etc.
+// prefilterCtx aborts when the scheduler stops, the timeout fires, or any involved index closes.
 func (sched *AsyncReplicationScheduler) prefilterCtx(
-	idx *Index, timeout time.Duration,
+	timeout time.Duration, indexes ...*Index,
 ) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(sched.ctx, timeout)
-
-	if idx == nil || idx.closingCtx == nil {
+	stops := make([]func() bool, 0, len(indexes))
+	for _, idx := range indexes {
+		if idx == nil || idx.closingCtx == nil {
+			continue
+		}
+		stops = append(stops, context.AfterFunc(idx.closingCtx, cancel))
+	}
+	if len(stops) == 0 {
 		return ctx, cancel
 	}
-	stop := context.AfterFunc(idx.closingCtx, cancel)
 	return ctx, func() {
-		stop()
+		for _, stop := range stops {
+			stop()
+		}
 		cancel()
 	}
 }
@@ -1535,6 +1609,7 @@ func (sched *AsyncReplicationScheduler) classifyBatch(batch []*asyncSchedulerEnt
 		}
 	}()
 
+	total := 0
 	for _, entry := range batch {
 		s := entry.shard
 		if sched.hasTargetNodeOverrides(s) {
@@ -1544,32 +1619,174 @@ func (sched *AsyncReplicationScheduler) classifyBatch(batch []*asyncSchedulerEnt
 		if !ok {
 			continue
 		}
-		scratch.roots[s.name] = root
-		scratch.eligible[s.name] = entry
+		cls := s.index.Config.ClassName.String()
+		g := scratch.classes[cls]
+		if g == nil {
+			g = &prefilterGroup{
+				index:   s.index,
+				roots:   make(map[string]hashtree.Digest),
+				entries: make(map[string]*asyncSchedulerEntry),
+				waiting: make(map[string]int),
+				diverge: make(map[string]bool),
+			}
+			scratch.classes[cls] = g
+		}
+		g.roots[s.name] = root
+		g.entries[s.name] = entry
+		total++
 	}
-	if len(scratch.roots) == 0 {
+	if total == 0 {
 		return
 	}
 
-	s0 := batch[0].shard
-	cfg := sched.effectiveConfig(s0)
-	ctx, cancel := sched.prefilterCtx(s0.index, cfg.diffPerNodeTimeout)
-	// defer so the timer is released even if PrefilterShardRoots panics (an inline
-	// cancel() would be skipped, leaking it until the parent is done).
-	defer cancel()
-	var needFull map[string]struct{}
-	if asyncRepPrefilterSeam != nil {
-		needFull = asyncRepPrefilterSeam(ctx, scratch.roots)
-	} else {
-		var stats replica.PrefilterStats
-		needFull, stats = s0.index.replicator.PrefilterShardRoots(ctx, scratch.roots)
-		sched.metrics.addRootCompareRPC(stats.OK, stats.Errored, stats.Unsupported)
+	cfg := sched.effectiveConfig(batch[0].shard)
+	indexes := make([]*Index, 0, len(scratch.classes))
+	for _, g := range scratch.classes {
+		indexes = append(indexes, g.index)
 	}
-	sched.metrics.observeRootPrefilterBatch(len(scratch.roots))
+	ctx, cancel := sched.prefilterCtx(cfg.diffPerNodeTimeout, indexes...)
+	// defer so the timer is released even if a compare panics.
+	defer cancel()
 
-	for name, entry := range scratch.eligible {
-		if _, diverges := needFull[name]; !diverges {
-			scratch.skip[entry] = true
+	if asyncRepPrefilterSeam != nil {
+		for _, g := range scratch.classes {
+			needFull := asyncRepPrefilterSeam(ctx, g.roots)
+			for name, entry := range g.entries {
+				if _, diverges := needFull[name]; !diverges {
+					scratch.skip[entry] = true
+				}
+			}
+		}
+		sched.metrics.observeRootPrefilterBatch(total)
+		return
+	}
+
+	sched.classifyCrossClass(ctx, scratch)
+	sched.metrics.observeRootPrefilterBatch(total)
+}
+
+// classifyCrossClass resolves per-shard targets, issues one root-compare RPC per host,
+// and marks confirmed-in-sync entries in scratch.skip; every failure path leaves
+// entries on the conservative full-descent side.
+func (sched *AsyncReplicationScheduler) classifyCrossClass(ctx context.Context, scratch *batchScratch) {
+	for cls, g := range scratch.classes {
+		for name, entry := range g.entries {
+			var hosts []string
+			var err error
+			if asyncRepTargetHostsSeam != nil {
+				hosts, err = asyncRepTargetHostsSeam(entry.shard)
+			} else {
+				hosts, err = g.index.replicator.TargetHostAddrsForShard(name)
+			}
+			if err != nil {
+				g.diverge[name] = true
+				continue
+			}
+			if len(hosts) == 0 {
+				scratch.skip[entry] = true
+				continue
+			}
+			g.waiting[name] = len(hosts)
+			for _, h := range hosts {
+				perClass := scratch.byHost[h]
+				if perClass == nil {
+					perClass = make(map[string]map[string]hashtree.Digest)
+					scratch.byHost[h] = perClass
+				}
+				sub := perClass[cls]
+				if sub == nil {
+					sub = make(map[string]hashtree.Digest, len(g.roots))
+					perClass[cls] = sub
+				}
+				sub[name] = g.roots[name]
+			}
+		}
+	}
+
+	var ok, errored, unsupported int
+	fallbackDone := make(map[string]bool)
+	for host, classes := range scratch.byHost {
+		if sched.crossClassComparer == nil {
+			sched.fallbackPerClass(ctx, classes, scratch, &ok, &errored, &unsupported, fallbackDone)
+			continue
+		}
+		resp, err := sched.crossClassComparer.CompareHashTreeRootsMulti(ctx, host, classes)
+		switch {
+		case errors.Is(err, replica.ErrCompareHashTreeRootsUnsupported):
+			unsupported++
+			sched.fallbackPerClass(ctx, classes, scratch, &ok, &errored, &unsupported, fallbackDone)
+		case err != nil:
+			errored++
+			for cls, shards := range classes {
+				g := scratch.classes[cls]
+				for name := range shards {
+					g.diverge[name] = true
+				}
+			}
+		default:
+			ok++
+			for cls, shards := range classes {
+				g := scratch.classes[cls]
+				cr, found := resp.Classes[cls]
+				if !found || cr.Error != "" {
+					for name := range shards {
+						g.diverge[name] = true
+					}
+					continue
+				}
+				for _, name := range cr.DivergingShards {
+					g.diverge[name] = true
+				}
+				for name := range shards {
+					if !g.diverge[name] && g.waiting[name] > 0 {
+						g.waiting[name]--
+					}
+				}
+			}
+		}
+	}
+	sched.metrics.addRootCompareRPC(ok, errored, unsupported)
+
+	for _, g := range scratch.classes {
+		for name, entry := range g.entries {
+			if _, resolved := g.waiting[name]; !resolved {
+				continue
+			}
+			if !g.diverge[name] && g.waiting[name] == 0 {
+				scratch.skip[entry] = true
+			}
+		}
+	}
+}
+
+// fallbackPerClass reruns the per-class pre-filter (all hosts) for classes whose peer
+// lacks the cross-class RPC; its result is authoritative for those classes.
+func (sched *AsyncReplicationScheduler) fallbackPerClass(ctx context.Context,
+	classes map[string]map[string]hashtree.Digest, scratch *batchScratch,
+	ok, errored, unsupported *int, done map[string]bool,
+) {
+	for cls := range classes {
+		if done[cls] {
+			continue
+		}
+		done[cls] = true
+		g := scratch.classes[cls]
+		var needFull map[string]struct{}
+		var stats replica.PrefilterStats
+		if asyncRepPerClassFallbackSeam != nil {
+			needFull, stats = asyncRepPerClassFallbackSeam(ctx, g.roots)
+		} else {
+			needFull, stats = g.index.replicator.PrefilterShardRoots(ctx, g.roots)
+		}
+		*ok += stats.OK
+		*errored += stats.Errored
+		*unsupported += stats.Unsupported
+		for name := range g.entries {
+			if _, diverges := needFull[name]; diverges {
+				g.diverge[name] = true
+			} else if _, resolved := g.waiting[name]; resolved {
+				g.waiting[name] = 0
+			}
 		}
 	}
 }
