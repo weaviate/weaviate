@@ -87,6 +87,7 @@ type PrometheusMetrics struct {
 	BackupDedupePlanningDurations     prometheus.Summary
 	BackupDedupeShards                *prometheus.CounterVec
 	BackupDedupeFallbacks             *prometheus.CounterVec
+	BackupDedupeRestoreAnomalies      *prometheus.CounterVec
 	BackupStoreDataTransferred        *prometheus.CounterVec
 	RestorePhaseDurations             *prometheus.HistogramVec
 
@@ -776,6 +777,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		BackupDedupeFallbacks: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "backup_dedupe_fallback_total",
 			Help: "Replica-dedupe fallbacks by reason",
+		}, []string{"reason"}),
+		BackupDedupeRestoreAnomalies: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "backup_dedupe_restore_anomalies_total",
+			Help: "Fan-out restore shards without a normal source, by reason (no_holder = nothing restored, multi_holder = deterministic pick among duplicates)",
 		}, []string{"reason"}),
 		BackupRestoreDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "backup_restore_data_transferred",
