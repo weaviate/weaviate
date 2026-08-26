@@ -290,6 +290,10 @@ func validateNodeMeta(meta *backup.BackupDescriptor, destPath, reqID string) err
 	if err := checkRestorableVersion(meta.Version, meta.ServerVersion); err != nil {
 		return err
 	}
+	// Mirrors the scheduler's global gate: a 3.x per-node descriptor without the flag (or the reverse) is tampered or corrupt, and the legacy path must never restore a deduped node descriptor thin.
+	if major, ok := parseMajor(meta.Version); ok && (major >= 3) != meta.DedupeReplicas {
+		return fmt.Errorf("corrupted backup file: version %s inconsistent with dedupeReplicas=%v", meta.Version, meta.DedupeReplicas)
+	}
 	if err := meta.Validate(); err != nil {
 		return fmt.Errorf("corrupted backup file: %w", err)
 	}

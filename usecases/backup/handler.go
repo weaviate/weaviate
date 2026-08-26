@@ -87,7 +87,11 @@ func checkRestorableVersion(version, serverVersion string) error {
 		return errLegacyFlatFS
 	}
 	// A structure version may omit the minor, so compare majors only.
-	if major, ok := parseMajor(version); ok && major > maxRestorableMajorVersion {
+	major, ok := parseMajor(version)
+	if version != "" && !ok {
+		return fmt.Errorf("corrupted backup: unrecognized structure version %q", version)
+	}
+	if ok && major > maxRestorableMajorVersion {
 		return fmt.Errorf("%s: %s > %d.x", errMsgHigherVersion, version, maxRestorableMajorVersion)
 	}
 	return nil
@@ -280,21 +284,25 @@ type BackupRequest struct {
 	DedupeConvergenceTimeoutSeconds int
 }
 
+// originalNodeName reverse-maps this node's name to its backup-time name; a wrong answer here makes a mapped fan-out restore silently restore nothing.
+func originalNodeName(local string, mapping map[string]string) string {
+	for oldName, newName := range mapping {
+		if local == newName {
+			return oldName
+		}
+	}
+	return local
+}
+
 // OnCanCommit will be triggered when coordinator asks the node to participate
 // in a distributed backup operation
 func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitResponse {
 	ret := &CanCommitResponse{Method: req.Method, ID: req.ID}
 
 	nodeName := m.node
-	// If we are doing a restore and have a nodeMapping specified, ensure we use the "old" node name from the backup to retrieve/store the
-	// backup information.
+	// A restore must read/store backup information under the node's backup-time name.
 	if req.Method == OpRestore {
-		for oldNodeName, newNodeName := range req.NodeMapping {
-			if nodeName == newNodeName {
-				nodeName = oldNodeName
-				break
-			}
-		}
+		nodeName = originalNodeName(m.node, req.NodeMapping)
 	}
 	store, err := nodeBackend(nodeName, m.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {

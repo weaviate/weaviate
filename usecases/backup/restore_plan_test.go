@@ -100,6 +100,13 @@ func TestExpandParticipantsForDedupe(t *testing.T) {
 		require.ErrorContains(t, err, "injective node_mapping")
 	})
 
+	t.Run("mapping onto an unmapped participant refused", func(t *testing.T) {
+		c, req, schema := newCoord("N1", "N2", "N3")
+		c.descriptor.NodeMapping = map[string]string{"N1": "N2"}
+		err := c.expandParticipantsForDedupe(req, schema)
+		require.ErrorContains(t, err, "itself an unmapped participant")
+	})
+
 	t.Run("unresolvable replica named with hint", func(t *testing.T) {
 		c, req, schema := newCoord("N1", "N2")
 		err := c.expandParticipantsForDedupe(req, schema)
@@ -114,6 +121,49 @@ func TestExpandParticipantsForDedupe(t *testing.T) {
 	})
 }
 
+func TestValidateNodeMetaDedupeConsistency(t *testing.T) {
+	newMeta := func(version string, dedupe bool) *backup.BackupDescriptor {
+		return &backup.BackupDescriptor{
+			StartedAt:      time.Now().UTC(),
+			ID:             "1",
+			Status:         backup.Success,
+			Version:        version,
+			ServerVersion:  "1.40.0",
+			DedupeReplicas: dedupe,
+		}
+	}
+
+	tests := []struct {
+		name    string
+		version string
+		dedupe  bool
+		wantErr string
+	}{
+		{name: "legacy flag off", version: "2.1", dedupe: false},
+		{name: "deduped flag on", version: "3.0", dedupe: true},
+		{name: "deduped version without flag", version: "3.0", dedupe: false, wantErr: "inconsistent with dedupeReplicas"},
+		{name: "legacy version with flag", version: "2.1", dedupe: true, wantErr: "inconsistent with dedupeReplicas"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateNodeMeta(newMeta(tc.version, tc.dedupe), "dst", "1")
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestOriginalNodeName(t *testing.T) {
+	mapping := map[string]string{"N1": "new-N1", "N2": "new-N2"}
+	assert.Equal(t, "N1", originalNodeName("new-N1", mapping))
+	assert.Equal(t, "N2", originalNodeName("new-N2", mapping))
+	assert.Equal(t, "N3", originalNodeName("N3", mapping))
+	assert.Equal(t, "N9", originalNodeName("N9", nil))
+}
+
 func TestResolveShardSource(t *testing.T) {
 	const class = "C"
 	meta := func(node string, shards ...string) sourceMeta {
@@ -121,41 +171,46 @@ func TestResolveShardSource(t *testing.T) {
 		for _, s := range shards {
 			cd.Shards = append(cd.Shards, &backup.ShardDescriptor{Name: s, Node: node})
 		}
-		return sourceMeta{node: node, meta: &backup.BackupDescriptor{Classes: []backup.ClassDescriptor{cd}}}
+		desc := &backup.BackupDescriptor{Classes: []backup.ClassDescriptor{cd}}
+		return sourceMeta{node: node, meta: desc, shards: indexShardDescriptors(desc)}
 	}
 
 	n1, n2, n3 := meta("N1", "s1", "s2"), meta("N2", "s2"), meta("N3", "s2", "s3")
 	metas := []sourceMeta{n1, n2, n3}
 
 	t.Run("own copy preferred", func(t *testing.T) {
-		src, err := resolveShardSource(metas, &n1, class, "s2")
+		src, ambiguous, err := resolveShardSource(metas, &n1, class, "s2")
 		require.NoError(t, err)
 		assert.Equal(t, "N1", src)
+		assert.False(t, ambiguous)
 	})
 
 	t.Run("single foreign holder of a deduped shard", func(t *testing.T) {
-		src, err := resolveShardSource(metas, &n2, class, "s1")
+		src, ambiguous, err := resolveShardSource(metas, &n2, class, "s1")
 		require.NoError(t, err)
 		assert.Equal(t, "N1", src)
+		assert.False(t, ambiguous)
 	})
 
 	t.Run("no holder means nothing to restore", func(t *testing.T) {
-		src, err := resolveShardSource(metas, &n1, class, "s9")
+		src, ambiguous, err := resolveShardSource(metas, &n1, class, "s9")
 		require.NoError(t, err)
 		assert.Empty(t, src)
+		assert.False(t, ambiguous)
 	})
 
-	t.Run("multiple foreign holders means own copy was empty", func(t *testing.T) {
+	t.Run("multiple foreign holders pick the smallest deterministically", func(t *testing.T) {
 		empty := meta("N4")
-		src, err := resolveShardSource([]sourceMeta{n1, n3, empty}, &empty, class, "s2")
+		src, ambiguous, err := resolveShardSource([]sourceMeta{n3, n1, empty}, &empty, class, "s2")
 		require.NoError(t, err)
-		assert.Empty(t, src)
+		assert.Equal(t, "N1", src)
+		assert.True(t, ambiguous)
 	})
 
 	t.Run("shard claiming another node is inconsistent", func(t *testing.T) {
 		bad := meta("N9", "s1")
 		bad.node = "N1"
-		_, err := resolveShardSource([]sourceMeta{bad}, nil, class, "s1")
+		_, _, err := resolveShardSource([]sourceMeta{bad}, nil, class, "s1")
 		require.ErrorContains(t, err, "inconsistent backup")
 	})
 }
@@ -244,6 +299,26 @@ func TestBuildFanoutPlan(t *testing.T) {
 		src := plan.classes[0].sources[0]
 		assert.Equal(t, "N1", src.node)
 		assert.Len(t, src.desc.Shards, 2)
+	})
+
+	t.Run("node-mapped participant restores under its backup-time name", func(t *testing.T) {
+		backend := newFakeBackend()
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+		backend.On("GetObject", mock.Anything, backupID+"/N1", BackupFile).Return(nodeMeta("N1", true, "s1", "s2"), nil)
+
+		r := newRestorer(backend)
+		req := &Request{
+			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
+			DedupeReplicas: true, SourceNodes: []string{"N1"},
+			NodeMapping: map[string]string{"N1": "new-N1", "N2": "new-N2"},
+		}
+
+		plan, err := r.buildFanoutPlan(ctx, originalNodeName("new-N2", req.NodeMapping), req)
+		require.NoError(t, err)
+		require.Len(t, plan.classes, 1)
+		require.Len(t, plan.classes[0].sources, 1)
+		assert.Equal(t, "N1", plan.classes[0].sources[0].node)
+		assert.Len(t, plan.classes[0].sources[0].desc.Shards, 2)
 	})
 
 	t.Run("not-deduped source descriptor refused", func(t *testing.T) {

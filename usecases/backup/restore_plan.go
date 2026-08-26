@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path"
 	"slices"
@@ -57,8 +58,14 @@ func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.
 	req.DedupeReplicas = true
 
 	// A many-to-one mapping would collide participants; shrink-topology restore is unsupported.
-	byNewName := make(map[string]string, len(c.descriptor.NodeMapping))
-	for oldName, newName := range c.descriptor.NodeMapping {
+	oldNames := make([]string, 0, len(c.descriptor.NodeMapping))
+	for oldName := range c.descriptor.NodeMapping {
+		oldNames = append(oldNames, oldName)
+	}
+	sort.Strings(oldNames)
+	byNewName := make(map[string]string, len(oldNames))
+	for _, oldName := range oldNames {
+		newName := c.descriptor.NodeMapping[oldName]
 		if prev, ok := byNewName[newName]; ok {
 			return fmt.Errorf("restore of a replica-deduped backup requires an injective node_mapping: %q and %q both map to %q", prev, oldName, newName)
 		}
@@ -95,6 +102,21 @@ func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.
 		}
 	}
 
+	// A mapping target equal to a different unmapped participant collides just as surely as two explicit entries.
+	participantNames := make([]string, 0, len(c.descriptor.Nodes))
+	for node := range c.descriptor.Nodes {
+		participantNames = append(participantNames, node)
+	}
+	sort.Strings(participantNames)
+	for _, node := range participantNames {
+		if _, mapped := c.descriptor.NodeMapping[node]; mapped {
+			continue
+		}
+		if prev, ok := byNewName[node]; ok && prev != node {
+			return fmt.Errorf("restore of a replica-deduped backup requires an injective node_mapping: %q maps to %q, which is itself an unmapped participant", prev, node)
+		}
+	}
+
 	var unresolvable []string
 	for node := range c.descriptor.Nodes {
 		mapped := c.descriptor.ToMappedNodeName(node)
@@ -121,6 +143,21 @@ type sourceMeta struct {
 	node  string
 	store nodeStore
 	meta  *backup.BackupDescriptor
+	// shards indexes meta's shard descriptors (class -> shard) so plan building stays linear on large tenant counts.
+	shards map[string]map[string]*backup.ShardDescriptor
+}
+
+func indexShardDescriptors(meta *backup.BackupDescriptor) map[string]map[string]*backup.ShardDescriptor {
+	out := make(map[string]map[string]*backup.ShardDescriptor, len(meta.Classes))
+	for i := range meta.Classes {
+		cd := &meta.Classes[i]
+		shards := make(map[string]*backup.ShardDescriptor, len(cd.Shards))
+		for _, sd := range cd.Shards {
+			shards[sd.Name] = sd
+		}
+		out[cd.Name] = shards
+	}
+	return out
 }
 
 // buildFanoutPlan derives which shards this participant (originalNode, its backup-time name) restores from which source prefix.
@@ -151,7 +188,7 @@ func (r *restorer) buildFanoutPlan(ctx context.Context, originalNode string, req
 			if len(req.Classes) > 0 {
 				meta.Include(req.Classes)
 			}
-			metas[i] = sourceMeta{node: src, store: store, meta: meta}
+			metas[i] = sourceMeta{node: src, store: store, meta: meta, shards: indexShardDescriptors(meta)}
 			return nil
 		})
 	}
@@ -200,15 +237,20 @@ func (r *restorer) buildFanoutPlan(ctx context.Context, originalNode string, req
 		cp := classPlan{name: class}
 		perSource := make(map[string][]string)
 		for _, shard := range myShards {
-			src, err := resolveShardSource(metas, own, class, shard)
+			src, ambiguous, err := resolveShardSource(metas, own, class, shard)
 			if err != nil {
 				return nil, err
 			}
 			if src == "" {
-				// Zero holders (empty at backup time) or several without an own copy: faithfully restore nothing.
+				monitoring.GetMetrics().BackupDedupeRestoreAnomalies.WithLabelValues("no_holder").Inc()
 				r.logger.WithField("action", "restore").WithField("class", class).
-					WithField("shard", shard).Debug("replica-deduped restore: no source copy for this node, skipping shard")
+					WithField("shard", shard).Info("replica-deduped restore: no source copy for this node, restoring nothing for this shard")
 				continue
+			}
+			if ambiguous {
+				monitoring.GetMetrics().BackupDedupeRestoreAnomalies.WithLabelValues("multi_holder").Inc()
+				r.logger.WithField("action", "restore").WithField("class", class).WithField("shard", shard).
+					Warnf("replica-deduped restore: several foreign archives hold this shard, restoring deterministically from %q", src)
 			}
 			perSource[src] = append(perSource[src], shard)
 		}
@@ -236,16 +278,15 @@ func (r *restorer) buildFanoutPlan(ctx context.Context, originalNode string, req
 	return plan, nil
 }
 
-// resolveShardSource picks the own archive when present, else the single foreign holder; empty means nothing to restore.
-func resolveShardSource(metas []sourceMeta, own *sourceMeta, class, shard string) (string, error) {
+// resolveShardSource picks the own archive when present, else a foreign holder; empty means nothing to restore.
+// Several foreign holders are duplication drift, every one a legitimate replica state: the smallest name wins deterministically and ambiguous reports it.
+func resolveShardSource(metas []sourceMeta, own *sourceMeta, class, shard string) (src string, ambiguous bool, err error) {
 	if own != nil {
-		if d := own.meta.GetClassDescriptor(class); d != nil {
-			if sd := d.GetShardDescriptor(shard); sd != nil {
-				if sd.Node != own.node {
-					return "", fmt.Errorf("inconsistent backup: shard %q of class %q under prefix %q claims node %q", shard, class, own.node, sd.Node)
-				}
-				return own.node, nil
+		if sd := own.shards[class][shard]; sd != nil {
+			if sd.Node != own.node {
+				return "", false, fmt.Errorf("inconsistent backup: shard %q of class %q under prefix %q claims node %q", shard, class, own.node, sd.Node)
 			}
+			return own.node, false, nil
 		}
 	}
 	var holders []string
@@ -253,36 +294,43 @@ func resolveShardSource(metas []sourceMeta, own *sourceMeta, class, shard string
 		if own != nil && metas[i].node == own.node {
 			continue
 		}
-		d := metas[i].meta.GetClassDescriptor(class)
-		if d == nil {
+		sd := metas[i].shards[class][shard]
+		if sd == nil {
 			continue
 		}
-		if sd := d.GetShardDescriptor(shard); sd != nil {
-			if sd.Node != metas[i].node {
-				return "", fmt.Errorf("inconsistent backup: shard %q of class %q under prefix %q claims node %q", shard, class, metas[i].node, sd.Node)
-			}
-			holders = append(holders, metas[i].node)
+		if sd.Node != metas[i].node {
+			return "", false, fmt.Errorf("inconsistent backup: shard %q of class %q under prefix %q claims node %q", shard, class, metas[i].node, sd.Node)
 		}
+		holders = append(holders, metas[i].node)
 	}
-	if len(holders) == 1 {
-		return holders[0], nil
+	if len(holders) == 0 {
+		return "", false, nil
 	}
-	return "", nil
+	sort.Strings(holders)
+	return holders[0], len(holders) > 1, nil
 }
 
 // filterClassDescriptor keeps only the given shards and their chunks; chunk ids are per-source, never merge across sources.
 func filterClassDescriptor(desc *backup.ClassDescriptor, shards []string) *backup.ClassDescriptor {
+	keep := make(map[string]struct{}, len(shards))
+	for _, s := range shards {
+		keep[s] = struct{}{}
+	}
 	out := *desc
 	out.Shards = make([]*backup.ShardDescriptor, 0, len(shards))
 	for _, sd := range desc.Shards {
-		if slices.Contains(shards, sd.Name) {
+		if _, ok := keep[sd.Name]; ok {
 			out.Shards = append(out.Shards, sd)
 		}
 	}
 	out.Chunks = make(map[int32][]string, len(desc.Chunks))
 	for id, chunkShards := range desc.Chunks {
-		if len(chunkShards) > 0 && slices.Contains(shards, chunkShards[0]) {
-			out.Chunks[id] = chunkShards
+		// The uploader packs exactly one shard per chunk today; scanning every entry keeps this correct should a future packer span shards.
+		for _, cs := range chunkShards {
+			if _, ok := keep[cs]; ok {
+				out.Chunks[id] = chunkShards
+				break
+			}
 		}
 	}
 	return &out
@@ -305,6 +353,9 @@ func (r *restorer) restoreAllFanout(ctx context.Context, plan *restorePlan,
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
 		if err := r.restoreOneFanout(ctx, cp, plan.compressionType, cpuPercentage, overrideBucket, overridePath, stripNamespaces); err != nil {
+			if errors.Is(err, context.Canceled) {
+				r.lastOp.set(backup.Cancelled)
+			}
 			return fmt.Errorf("restore class %s: %w", cp.name, err)
 		}
 		r.logger.WithField("action", "restore").

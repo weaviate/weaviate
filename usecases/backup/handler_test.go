@@ -130,6 +130,9 @@ func TestCheckRestorableVersion(t *testing.T) {
 		{version: "10.0", serverVersion: current, wantMsg: errMsgHigherVersion},
 		// A corrupt descriptor is reported by Validate, not refused as an old format.
 		{version: "", serverVersion: current},
+		// An unparseable version must refuse, not skip every gate.
+		{version: "x.0", serverVersion: current, wantMsg: "unrecognized structure version"},
+		{version: "garbage", serverVersion: current, wantMsg: "unrecognized structure version"},
 		// The versions this build writes must stay restorable by it.
 		{version: Version, serverVersion: current},
 		{version: VersionDedupeReplicas, serverVersion: current},

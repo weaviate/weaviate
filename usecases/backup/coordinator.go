@@ -50,7 +50,10 @@ const (
 	_BookingPeriod      = time.Second * 20
 	_TimeoutNodeDown    = 7 * time.Minute
 	_TimeoutQueryStatus = 5 * time.Second
-	_TimeoutCanCommit   = 8 * time.Second
+	// 30s (was 8s when the transport ignored it): the client now honors the ctx, and canCommit covers participant backend Initialize calls that can be slow on remote object stores.
+	_TimeoutCanCommit = 30 * time.Second
+	// Fan-out restore participants read every source's descriptor inside canCommit; N reads of large descriptors need more than the create budget.
+	_TimeoutDedupeRestoreCanCommit = 120 * time.Second
 	_NextRoundPeriod    = 10 * time.Second
 	_MaxNumberConns     = 16
 )
@@ -605,7 +608,11 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 // canCommit asks candidates if they agree to participate in DBRO
 // It returns and error if any candidates refuses to participate
 func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupePlan) (map[string]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
+	timeout := c.timeoutCanCommit
+	if req.Method == OpRestore && req.DedupeReplicas {
+		timeout = _TimeoutDedupeRestoreCanCommit
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	reqChan := make(chan *Request)
