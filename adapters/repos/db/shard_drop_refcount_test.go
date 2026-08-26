@@ -193,7 +193,7 @@ func TestObjectWritesAfterStoreTeardownReturnErrors(t *testing.T) {
 			return shard.batchDeleteObject(context.Background(), id, time.Now())
 		},
 		"merge": func() error {
-			_, _, err := shard.mergeObjectInStorage(context.Background(), merge, idBytes, index.getClass())
+			_, _, err := shard.mergeObjectInStorage(context.Background(), merge, idBytes)
 			return err
 		},
 		"mutable merge": func() error {
