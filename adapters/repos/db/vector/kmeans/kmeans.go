@@ -521,6 +521,7 @@ func (m *KMeans) FitBalanced(data [][]float32) ([]uint32, error) {
 	for i := range m.K {
 		centroidAssignments[i] = make([]pair, 0, n/m.K)
 	}
+	assigned := false
 	for m.Metrics.Iterations < m.IterationThreshold {
 		for i := range m.K {
 			centroidAssignments[i] = centroidAssignments[i][:0]
@@ -541,8 +542,7 @@ func (m *KMeans) FitBalanced(data [][]float32) ([]uint32, error) {
 			metrics.wcss += float64(nearest.distance)
 			metrics.computations += nearest.computations
 		}
-
-		result = m.balanceAssignments(centroidAssignments)
+		assigned = true
 
 		m.Metrics.update(metrics)
 		m.updateCenters(data)
@@ -550,6 +550,16 @@ func (m *KMeans) FitBalanced(data [][]float32) ([]uint32, error) {
 			m.Metrics.Termination = ClusterStability
 			break
 		}
+	}
+	// Balancing is applied once, to the final assignment. The balanced labels
+	// are written back before a last call to updateCenters so that the
+	// returned Centers are the means of the membership that is actually
+	// returned. Balancing inside the loop would leave Centers computed from
+	// the pre-balancing assignment.
+	if assigned {
+		result = m.balanceAssignments(centroidAssignments)
+		copy(m.tmp.assignment, result)
+		m.updateCenters(data)
 	}
 	m.cleanupMemory()
 	return result, nil
