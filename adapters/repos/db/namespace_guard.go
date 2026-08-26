@@ -184,6 +184,33 @@ func (db *DB) DesiredOpenLocalShardCount(className string) (int, error) {
 	return count, nil
 }
 
+// DesiredOpenLocalShardNames returns the HOT shards this node should hold open
+// for the class, as sharding-state map keys in map order, and the namespace
+// state they were computed under. A class in no namespace is decided as active.
+//
+// An empty slice is an answer, and nil comes only with an error. A caller that
+// diffs that nil against the shards it holds unloads the whole class. Of the
+// errors only cluster/schema's ErrClassNotFound is a routine skip.
+//
+// A shard missing here may still be wanted. A replica movement holds its target
+// before the sharding state lists it, and a namespace resumed after the read
+// leaves this empty while the node holds every shard. Intersect with
+// SchemaReader.LocalShards, which keys on Physical.Name rather than the map key,
+// and re-read before acting on an empty set.
+func (db *DB) DesiredOpenLocalShardNames(className string) ([]string, api.NamespaceState, error) {
+	names := []string{}
+	state, err := db.readDesiredOpenLocalShards(className, false, func(shardingState *sharding.State) error {
+		// Assigned rather than appended per shard, so a retried read cannot
+		// return each name twice.
+		names = shardingState.AllLocalOpenPhysicalShards()
+		return nil
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return names, state, nil
+}
+
 // ReopenShard loads a shard on behalf of a resuming namespace, which the request
 // path refuses to do while the namespace comes back. The shard is loaded outright
 // rather than registered lazily, since no request would come along to load it. A

@@ -852,40 +852,46 @@ func TestState_IsLocalOpenPhysical(t *testing.T) {
 	}
 }
 
-// Neither accessor had coverage. Both are live: the count feeds multi-tenant
-// lazy-load auto-detection, the names feed backup restore and the reload.
+// The rows drive three accessors over one map to show where they disagree.
+// LocalActivePhysicalShardsCount compares Status raw, AllLocalPhysicalShards
+// ignores Status and sorts, and AllLocalOpenPhysicalShards reads empty as HOT.
 func TestState_LocalPhysicalShardAccessors(t *testing.T) {
 	tests := []struct {
-		name      string
-		shards    []Physical
-		wantCount int
-		wantNames []string
+		name          string
+		shards        []Physical
+		wantCount     int
+		wantNames     []string
+		wantOpenNames []string
 	}{
-		{name: "no shards"},
+		{name: "no shards", wantOpenNames: []string{}},
 		{
-			name:      "a shard this node holds no replica of",
-			shards:    []Physical{physicalShard("s1", models.TenantActivityStatusHOT, "N2", "N3")},
-			wantCount: 0,
+			name:          "a shard this node holds no replica of",
+			shards:        []Physical{physicalShard("s1", models.TenantActivityStatusHOT, "N2", "N3")},
+			wantCount:     0,
+			wantOpenNames: []string{},
 		},
 		{
-			name:      "a shard with no replica list at all",
-			shards:    []Physical{physicalShard("s1", models.TenantActivityStatusHOT)},
-			wantCount: 0,
+			name:          "a shard with no replica list at all",
+			shards:        []Physical{physicalShard("s1", models.TenantActivityStatusHOT)},
+			wantCount:     0,
+			wantOpenNames: []string{},
 		},
 		{
-			name:      "this node listed last among the replicas",
-			shards:    []Physical{physicalShard("s1", models.TenantActivityStatusHOT, "N2", "N3", "N1")},
-			wantCount: 1,
-			wantNames: []string{"s1"},
+			name:          "this node listed last among the replicas",
+			shards:        []Physical{physicalShard("s1", models.TenantActivityStatusHOT, "N2", "N3", "N1")},
+			wantCount:     1,
+			wantNames:     []string{"s1"},
+			wantOpenNames: []string{"s1"},
 		},
 		{
-			// The count compares the status raw, so an empty one is not active
-			// even though every other shard filter reads it as HOT. The names
-			// accessor ignores status entirely, so it still returns the shard.
-			name:      "an empty status counts as inactive but is still named",
-			shards:    []Physical{physicalShard("s1", "", "N1")},
-			wantCount: 0,
-			wantNames: []string{"s1"},
+			// Only the count compares Status raw and misses the shard. Every
+			// single-tenant shard has an empty status and depends on the open
+			// lister reading it as HOT.
+			name:          "an empty status counts as inactive but is still named and still open",
+			shards:        []Physical{physicalShard("s1", "", "N1")},
+			wantCount:     0,
+			wantNames:     []string{"s1"},
+			wantOpenNames: []string{"s1"},
 		},
 		{
 			name: "only the local HOT shards are counted",
@@ -895,8 +901,9 @@ func TestState_LocalPhysicalShardAccessors(t *testing.T) {
 				physicalShard("cold1", models.TenantActivityStatusCOLD, "N1"),
 				physicalShard("remote1", models.TenantActivityStatusHOT, "N2"),
 			},
-			wantCount: 2,
-			wantNames: []string{"cold1", "hot1", "hot2"},
+			wantCount:     2,
+			wantNames:     []string{"cold1", "hot1", "hot2"},
+			wantOpenNames: []string{"hot1", "hot2"},
 		},
 	}
 
@@ -911,6 +918,23 @@ func TestState_LocalPhysicalShardAccessors(t *testing.T) {
 			assert.Equal(t, tt.wantCount, state.LocalActivePhysicalShardsCount())
 			assert.Equal(t, tt.wantNames, state.AllLocalPhysicalShards(),
 				"names must be sorted, not in map order")
+
+			open := state.AllLocalOpenPhysicalShards()
+			require.NotNil(t, open, "empty is an answer a caller diffs against")
+			assert.ElementsMatch(t, tt.wantOpenNames, open)
 		})
 	}
+
+	// Every row above stores a shard under its own Name, so none tells the key
+	// from the Name field. Nothing on disk keeps them equal, since the store
+	// rebuilds the key and the value from different byte strings.
+	t.Run("the open lister yields the map key where the Name field differs", func(t *testing.T) {
+		state := &State{Physical: map[string]Physical{
+			"t1": physicalShard("T1", models.TenantActivityStatusHOT, "N1"),
+		}}
+		state.SetLocalName("N1")
+
+		assert.Equal(t, []string{"t1"}, state.AllLocalOpenPhysicalShards())
+		assert.Equal(t, []string{"T1"}, state.AllLocalPhysicalShards())
+	})
 }

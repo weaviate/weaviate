@@ -33,6 +33,7 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
@@ -687,6 +688,138 @@ func TestDesiredOpenLocalShardCountReadFailures(t *testing.T) {
 			assert.Zero(t, got)
 		})
 	}
+}
+
+// A sweep outside db acts on DesiredOpenLocalShardNames, so its whole contract is
+// pinned. Empty is an answer, nil is a refusal, and the state comes back beside
+// the names.
+func TestDesiredOpenLocalShardNames(t *testing.T) {
+	const class = namespacedClass
+
+	// An error answers (nil, "", err). Read as an empty set it would make a sweep
+	// computing loaded \ desired unload every shard of the class. It logs nothing,
+	// since the sweep calls it per class on every tick.
+	t.Run("every error answers nil and logs nothing", func(t *testing.T) {
+		type errorRow struct {
+			name    string
+			exister func(*testing.T) namespaces.Exister
+			read    func(*schemaUC.MockSchemaReader)
+			wantErr error
+		}
+		active := func(t *testing.T) namespaces.Exister { return existerWithState(t, api.NamespaceStateActive) }
+
+		rows := []errorRow{
+			{
+				name:    "a failing read",
+				exister: active,
+				read: func(r *schemaUC.MockSchemaReader) {
+					r.EXPECT().Read(class, mock.Anything, mock.Anything).Return(errReadFailed)
+				},
+				wantErr: errReadFailed,
+			},
+			{
+				// The godoc promises this sentinel travels, so a consumer can
+				// skip a class dropped mid-sweep instead of reporting a fault.
+				name:    "a class the schema has dropped",
+				exister: active,
+				read: func(r *schemaUC.MockSchemaReader) {
+					r.EXPECT().Read(class, mock.Anything, mock.Anything).
+						Return(clusterSchema.ErrClassNotFound)
+				},
+				wantErr: clusterSchema.ErrClassNotFound,
+			},
+		}
+		// A lookup refusal comes back before the sharding state is read, so these
+		// rows register no Read expectation.
+		for _, r := range namespaceLookupRefusals() {
+			rows = append(rows, errorRow{
+				name: r.name, exister: r.exister, read: func(*schemaUC.MockSchemaReader) {}, wantErr: r.wantErr,
+			})
+		}
+
+		for _, tc := range rows {
+			t.Run(tc.name, func(t *testing.T) {
+				reader := schemaUC.NewMockSchemaReader(t)
+				tc.read(reader)
+				logger, hook := logrustest.NewNullLogger()
+				logger.SetLevel(logrus.DebugLevel)
+				db := &DB{logger: logger, schemaReader: reader, namespacesExister: tc.exister(t)}
+
+				names, state, err := db.DesiredOpenLocalShardNames(class)
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Nil(t, names, "a refusal must not read as an empty set")
+				assert.Empty(t, state)
+				assert.Empty(t, hook.AllEntries(), "the accessor must leave the level to its caller")
+			})
+		}
+	})
+
+	// Every entry point deciding on ShardsShouldBeOpen walks this table, so this
+	// accessor cannot drift from them. The unqualified row passes no lookup, which
+	// fails an implementation that consults one before the empty-namespace arm.
+	t.Run("the stored state decides the set and travels with it", func(t *testing.T) {
+		shards := map[string]sharding.Physical{
+			"hot1": hotPhysical("hot1"), "hot2": hotPhysical("hot2"),
+			"cold1": coldPhysical("cold1"),
+			"other": {Name: "other", BelongsToNodes: []string{"other"}, Status: models.TenantActivityStatusHOT},
+		}
+
+		for _, tc := range shardsShouldBeOpenStates() {
+			t.Run(tc.name, func(t *testing.T) {
+				db := dbForDesiredOpen(t, tc.className, tc.exister(t), shards)
+
+				names, state, err := db.DesiredOpenLocalShardNames(tc.className)
+
+				if tc.className != unqualifiedClass && !namespaces.IsKnownState(tc.state) {
+					require.ErrorIs(t, err, errUnknownNamespaceState)
+					assert.Nil(t, names, "a refusal must not read as an empty set")
+					assert.Empty(t, state)
+					return
+				}
+
+				require.NoError(t, err)
+				require.NotNil(t, names, "empty is an answer, nil is a refusal")
+				if tc.className == unqualifiedClass {
+					assert.Equal(t, api.NamespaceStateActive, state,
+						"a class in no namespace is decided as active")
+				} else {
+					assert.Equal(t, tc.state, state)
+				}
+
+				if tc.wantLoad {
+					assert.ElementsMatch(t, []string{"hot1", "hot2"}, names)
+				} else {
+					assert.Empty(t, names)
+				}
+			})
+		}
+	})
+
+	// A dropped class costs four attempts and 150 ms with the flag set. The
+	// sweep reads this per class per tick and skips a dropped one, so it must
+	// not inherit the retry the startup count wants.
+	t.Run("the names accessor does not retry a dropped class, the count does", func(t *testing.T) {
+		var retries []bool
+		reader := schemaUC.NewMockSchemaReader(t)
+		reader.EXPECT().Read(class, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ string, retry bool, readFunc func(*models.Class, *sharding.State) error) error {
+				retries = append(retries, retry)
+				return readFunc(&models.Class{Class: class},
+					reloadState(false, map[string]sharding.Physical{"hot1": hotPhysical("hot1")}))
+			})
+		logger, _ := logrustest.NewNullLogger()
+		db := &DB{
+			logger: logger, schemaReader: reader,
+			namespacesExister: existerWithState(t, api.NamespaceStateActive),
+		}
+
+		_, _, err := db.DesiredOpenLocalShardNames(class)
+		require.NoError(t, err)
+		_, err = db.DesiredOpenLocalShardCount(class)
+		require.NoError(t, err)
+
+		assert.Equal(t, []bool{false, true}, retries)
+	})
 }
 
 // indexForGuardTest builds the minimum Index initLocalShardWithForcedLoading
