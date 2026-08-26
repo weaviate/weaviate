@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
@@ -874,40 +875,49 @@ func TestState_IsLocalOpenPhysical(t *testing.T) {
 	}
 }
 
-// Neither accessor had coverage. Both are live: the count feeds multi-tenant
-// lazy-load auto-detection, the names feed backup restore and the reload.
+// Three accessors over one map, driven together so a row shows where they
+// disagree. LocalActivePhysicalShardsCount compares Status raw,
+// AllLocalPhysicalShards ignores Status and sorts, and
+// AllLocalOpenPhysicalShards reads an empty Status as HOT.
 func TestState_LocalPhysicalShardAccessors(t *testing.T) {
 	tests := []struct {
-		name      string
-		shards    []Physical
-		wantCount int
-		wantNames []string
+		name          string
+		shards        []Physical
+		wantCount     int
+		wantNames     []string
+		wantOpenNames []string
 	}{
-		{name: "no shards"},
+		{name: "no shards", wantOpenNames: []string{}},
 		{
-			name:      "a shard this node holds no replica of",
-			shards:    []Physical{physicalShard("s1", models.TenantActivityStatusHOT, "N2", "N3")},
-			wantCount: 0,
+			name:          "a shard this node holds no replica of",
+			shards:        []Physical{physicalShard("s1", models.TenantActivityStatusHOT, "N2", "N3")},
+			wantCount:     0,
+			wantOpenNames: []string{},
 		},
 		{
-			name:      "a shard with no replica list at all",
-			shards:    []Physical{physicalShard("s1", models.TenantActivityStatusHOT)},
-			wantCount: 0,
+			name:          "a shard with no replica list at all",
+			shards:        []Physical{physicalShard("s1", models.TenantActivityStatusHOT)},
+			wantCount:     0,
+			wantOpenNames: []string{},
 		},
 		{
-			name:      "this node listed last among the replicas",
-			shards:    []Physical{physicalShard("s1", models.TenantActivityStatusHOT, "N2", "N3", "N1")},
-			wantCount: 1,
-			wantNames: []string{"s1"},
+			name:          "this node listed last among the replicas",
+			shards:        []Physical{physicalShard("s1", models.TenantActivityStatusHOT, "N2", "N3", "N1")},
+			wantCount:     1,
+			wantNames:     []string{"s1"},
+			wantOpenNames: []string{"s1"},
 		},
 		{
 			// The count compares the status raw, so an empty one is not active
 			// even though every other shard filter reads it as HOT. The names
-			// accessor ignores status entirely, so it still returns the shard.
-			name:      "an empty status counts as inactive but is still named",
-			shards:    []Physical{physicalShard("s1", "", "N1")},
-			wantCount: 0,
-			wantNames: []string{"s1"},
+			// accessor ignores status entirely, so it still returns the shard,
+			// and the open lister reads it as HOT, which is what every
+			// single-tenant shard depends on.
+			name:          "an empty status counts as inactive but is still named and still open",
+			shards:        []Physical{physicalShard("s1", "", "N1")},
+			wantCount:     0,
+			wantNames:     []string{"s1"},
+			wantOpenNames: []string{"s1"},
 		},
 		{
 			name: "only the local HOT shards are counted",
@@ -917,8 +927,9 @@ func TestState_LocalPhysicalShardAccessors(t *testing.T) {
 				physicalShard("cold1", models.TenantActivityStatusCOLD, "N1"),
 				physicalShard("remote1", models.TenantActivityStatusHOT, "N2"),
 			},
-			wantCount: 2,
-			wantNames: []string{"cold1", "hot1", "hot2"},
+			wantCount:     2,
+			wantNames:     []string{"cold1", "hot1", "hot2"},
+			wantOpenNames: []string{"hot1", "hot2"},
 		},
 	}
 
@@ -933,6 +944,57 @@ func TestState_LocalPhysicalShardAccessors(t *testing.T) {
 			assert.Equal(t, tt.wantCount, state.LocalActivePhysicalShardsCount())
 			assert.Equal(t, tt.wantNames, state.AllLocalPhysicalShards(),
 				"names must be sorted, not in map order")
+
+			open := state.AllLocalOpenPhysicalShards()
+			require.NotNil(t, open, "empty is an answer a caller diffs against")
+			assert.ElementsMatch(t, tt.wantOpenNames, open)
 		})
 	}
+
+	// The table above stores every shard under its own Name, so no row in it can
+	// tell the two fields apart. Nothing on disk holds them equal either: the
+	// store rebuilds the key from one byte string and the value from another.
+	t.Run("the open lister yields the map key where the Name field differs", func(t *testing.T) {
+		state := &State{Physical: map[string]Physical{
+			"t1": physicalShard("T1", models.TenantActivityStatusHOT, "N1"),
+		}}
+		state.SetLocalName("N1")
+
+		assert.Equal(t, []string{"t1"}, state.AllLocalOpenPhysicalShards())
+		assert.Equal(t, []string{"T1"}, state.AllLocalPhysicalShards())
+	})
+
+	// DesiredOpenLocalShardNames publishes 16 bytes per shard in the class, which
+	// rests on the capacity coming off the whole map rather than the local subset.
+	t.Run("the open lister sizes its result off the whole map", func(t *testing.T) {
+		state := &State{Physical: map[string]Physical{
+			"local":  physicalShard("local", models.TenantActivityStatusHOT, "N1"),
+			"remote": physicalShard("remote", models.TenantActivityStatusHOT, "N2"),
+			"cold":   physicalShard("cold", models.TenantActivityStatusCOLD, "N1"),
+		}}
+		state.SetLocalName("N1")
+
+		names := state.AllLocalOpenPhysicalShards()
+		require.Len(t, names, 1)
+		assert.Equal(t, len(state.Physical), cap(names),
+			"the published memory bound rests on this")
+	})
+
+	// A sorting implementation always returns sorted, so it always fails this.
+	// An unsorted one walks the map from a hash-seeded random start, which over
+	// 64 keys reaches ascending order only by accident — the count is what makes
+	// the row non-flaky and must not be shrunk.
+	t.Run("the open lister does not sort", func(t *testing.T) {
+		state := &State{Physical: map[string]Physical{}}
+		for i := 0; i < 64; i++ {
+			name := fmt.Sprintf("s%02d", i)
+			state.Physical[name] = physicalShard(name, models.TenantActivityStatusHOT, "N1")
+		}
+		state.SetLocalName("N1")
+
+		names := state.AllLocalOpenPhysicalShards()
+		require.Len(t, names, 64)
+		assert.False(t, sort.StringsAreSorted(names),
+			"the caller sorts the diff it computes, not this set")
+	})
 }

@@ -396,6 +396,21 @@ func (s *State) AllLocalPhysicalShards() []string {
 	return names
 }
 
+// AllLocalOpenPhysicalShards returns the Physical map keys IsLocalOpenPhysical
+// admits. An empty result is a non-nil slice, and the order is the map's: a
+// caller sorts the diff it computes, which is O(changes), rather than this set,
+// which is O(tenants). It yields the key rather than Physical.Name so a caller
+// diffing this against the shards it holds keys both halves alike.
+func (s *State) AllLocalOpenPhysicalShards() []string {
+	names := make([]string, 0, len(s.Physical))
+	for name, physical := range s.Physical {
+		if s.IsLocalOpenPhysical(physical) {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 func (s *State) SetLocalName(name string) {
 	s.localNodeName = name
 }
