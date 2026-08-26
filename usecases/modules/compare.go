@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func reVectorize(ctx context.Context,
@@ -121,20 +122,31 @@ func renderSourceValue(v any) string {
 			return t.Format(time.RFC3339)
 		}
 		return val
-	case map[string]any, []any, []map[string]any, []float64, []int, []int64, []bool, []string, []time.Time,
-		*models.GeoCoordinates, *models.PhoneNumber:
-		// Arrays, objects, geo and phone values are compared as JSON. Disk reads
-		// turn geo/phone shaped maps into structs, and []time.Time marshals to the
-		// same strings a date array reads back from disk, so equal values match.
-		// Single dates compare at second precision, date arrays with sub-seconds;
-		// both err toward re-vectorizing, never toward keeping a stale vector.
-		if b, err := json.Marshal(val); err == nil {
-			return string(b)
+	case map[string]any:
+		// Disk reads turn geo/phone shaped maps into structs. Convert the same way
+		// here so both sides round floats and drop empty fields identically.
+		if shaped, err := storobj.ShapeConvertMap(val); err == nil {
+			return renderJSON(shaped)
 		}
-		return fmt.Sprintf("%v", v)
+		return renderJSON(val)
+	case []any, []map[string]any, []float64, []int, []int64, []bool, []string, []time.Time,
+		*models.GeoCoordinates, *models.PhoneNumber:
+		// Arrays, objects, geo and phone values are compared as JSON. []time.Time
+		// marshals to the same strings a date array reads back from disk.
+		// Single dates compare at second precision because that is what gets
+		// vectorized; date arrays keep sub-seconds, which at worst re-vectorizes
+		// once too often.
+		return renderJSON(val)
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+func renderJSON(v any) string {
+	if b, err := json.Marshal(v); err == nil {
+		return string(b)
+	}
+	return fmt.Sprintf("%v", v)
 }
 
 func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
