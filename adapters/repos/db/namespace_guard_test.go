@@ -157,7 +157,7 @@ func TestNamespaceGuard(t *testing.T) {
 	t.Run("a namespaced class refuses on a missing lookup and on a missing namespace", func(t *testing.T) {
 		noLookup, noLookupHook := indexForNamespace(t, "alpha:Product", nil)
 		require.ErrorIs(t, noLookup.requireNamespaceAllowsShardLoad(callerUserRequest), errNoNamespaceLookup)
-		require.NotNil(t, noLookupHook.LastEntry(), "a missing lookup must be logged")
+		assertRefusedMaterializationLogged(t, noLookupHook, "alpha:Product", "alpha", errNoNamespaceLookup)
 
 		e := namespaces.NewMockExister(t)
 		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
@@ -191,12 +191,7 @@ func TestNamespaceGuard(t *testing.T) {
 
 		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), ErrNamespaceUnknownLocally)
 
-		entry := hook.LastEntry()
-		require.NotNil(t, entry, "a lookup miss must be logged")
-		assert.Equal(t, logrus.ErrorLevel, entry.Level)
-		assert.Equal(t, "alpha:Product", entry.Data["class"])
-		assert.Equal(t, "alpha", entry.Data["namespace"])
-		assert.Contains(t, entry.Message, ErrNamespaceUnknownLocally.Error())
+		assertRefusedMaterializationLogged(t, hook, "alpha:Product", "alpha", ErrNamespaceUnknownLocally)
 	})
 
 	// An active namespace admits every caller the switch knows, so a refusal here
@@ -427,10 +422,11 @@ func TestReadDesiredOpenLocalShards(t *testing.T) {
 		assert.Empty(t, state)
 	})
 
-	// localShardsToLoad turns every error into a count of zero, so this line is
-	// the only trace a class that will never open a shard leaves behind.
-	t.Run("an unrecognised state is logged with class and namespace", func(t *testing.T) {
+	// localShardsToLoad reaches this read once per class per startup tick and
+	// discards the error, so the level is its call rather than this read's.
+	t.Run("a refusal is returned without logging", func(t *testing.T) {
 		logger, hook := logrustest.NewNullLogger()
+		logger.SetLevel(logrus.DebugLevel)
 		db := &DB{
 			logger: logger, schemaReader: readerForShards(t, class, shards),
 			namespacesExister: existerWithState(t, api.NamespaceState("bogus")),
@@ -438,14 +434,25 @@ func TestReadDesiredOpenLocalShards(t *testing.T) {
 
 		_, err := db.readDesiredOpenLocalShards(class, true, func(*sharding.State) error { return nil })
 		require.ErrorIs(t, err, errUnknownNamespaceState)
-
-		entry := hook.LastEntry()
-		require.NotNil(t, entry, "a refused state must be logged")
-		assert.Equal(t, logrus.ErrorLevel, entry.Level)
-		assert.Equal(t, class, entry.Data["class"])
-		assert.Equal(t, "alpha", entry.Data["namespace"])
-		assert.Contains(t, entry.Message, "bogus")
+		assert.Nil(t, hook.LastEntry(), "the shared read must leave the level to its caller")
 	})
+
+	// The lookup's own two arms leave the read the same way. The row above cannot
+	// show it: its exister answers, so the lookup never refuses.
+	for _, tc := range namespaceLookupRefusals() {
+		t.Run(tc.name+" is returned without logging", func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+			db := &DB{
+				logger: logger, schemaReader: readerForShards(t, class, shards),
+				namespacesExister: tc.exister(t),
+			}
+
+			_, err := db.readDesiredOpenLocalShards(class, true, func(*sharding.State) error { return nil })
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Nil(t, hook.LastEntry(), "the shared read must leave the level to its caller")
+		})
+	}
 
 	// SchemaReader.Read retries a class it cannot find when the flag is set, so
 	// the choice is the caller's. A read hardcoding it passes every row above,
@@ -675,7 +682,15 @@ func TestDesiredOpenLocalShardCountReadFailures(t *testing.T) {
 func indexForGuardTest(t *testing.T, className string, e namespaces.Exister) *Index {
 	t.Helper()
 
-	logger, _ := logrustest.NewNullLogger()
+	idx, _ := indexForGuardTestWithHook(t, className, e)
+	return idx
+}
+
+// indexForGuardTestWithHook is indexForGuardTest that also returns its log hook.
+func indexForGuardTestWithHook(t *testing.T, className string, e namespaces.Exister) (*Index, *logrustest.Hook) {
+	t.Helper()
+
+	logger, hook := logrustest.NewNullLogger()
 	// shutdownOrRestoreShard dereferences idx.metrics, so an index without one
 	// panics when a test deactivates a tenant. Passing nil for prom produces the
 	// same *Metrics a node without monitoring has, one whose baseMetrics is nil.
@@ -694,7 +709,25 @@ func indexForGuardTest(t *testing.T, className string, e namespaces.Exister) *In
 		closingCtx:             context.Background(),
 	}
 	idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
-	return idx
+	return idx, hook
+}
+
+// assertRefusedMaterializationLogged pins the line an operator greps for when a
+// shard was not opened. The message is asserted, not just the level and the
+// fields, because nothing else in the tree matches on that sentence, so a
+// reworded one would go unnoticed.
+func assertRefusedMaterializationLogged(t *testing.T, hook *logrustest.Hook,
+	class, namespace string, wantErr error,
+) {
+	t.Helper()
+
+	entry := hook.LastEntry()
+	require.NotNil(t, entry, "a refusal must be logged")
+	assert.Equal(t, logrus.ErrorLevel, entry.Level)
+	assert.Equal(t, class, entry.Data["class"])
+	assert.Equal(t, namespace, entry.Data["namespace"])
+	assert.Contains(t, entry.Message, "refusing shard materialization")
+	assert.Contains(t, entry.Message, wantErr.Error())
 }
 
 // namespaceLookupRefusals returns both fail-closed arms of the chokepoint: a
@@ -1870,9 +1903,7 @@ func TestGuardBoot(t *testing.T) {
 			assert.False(t, idx.allShardsReady.Load(),
 				"a class whose shards were never enumerated must not report ready")
 
-			entry := hook.LastEntry()
-			require.NotNil(t, entry, "a refusal must be logged")
-			assert.Equal(t, logrus.ErrorLevel, entry.Level)
+			assertRefusedMaterializationLogged(t, hook, class, "alpha", tc.wantErr)
 		})
 	}
 
@@ -1932,12 +1963,13 @@ func TestGuardBackgroundLoad(t *testing.T) {
 	// shards behind it from being tried.
 	for _, tc := range namespaceLookupRefusals() {
 		t.Run(tc.name+" loads nothing", func(t *testing.T) {
-			idx := indexForGuardTest(t, class, tc.exister(t))
+			idx, hook := indexForGuardTestWithHook(t, class, tc.exister(t))
 			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 
 			outcome, err := idx.loadLocalShardIfActive("t1")
 			require.NoError(t, err)
 			require.Empty(t, outcome, "an unreadable namespace counts against no shard")
+			assertRefusedMaterializationLogged(t, hook, class, "alpha", tc.wantErr)
 		})
 	}
 
@@ -2173,10 +2205,13 @@ func TestLocalShardsToLoad(t *testing.T) {
 
 	// The wrapper's own behavior: the error becomes a count of zero, since the
 	// startup progress it feeds has no way to report one.
-	t.Run("a lookup miss counts none and logs", func(t *testing.T) {
+	t.Run("a lookup miss counts none and logs at Debug", func(t *testing.T) {
 		e := namespaces.NewMockExister(t)
 		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
 		logger, hook := logrustest.NewNullLogger()
+		// NewNullLogger starts at Info, where a Debugf fires no hook, so without
+		// this the row is red whether or not localShardsToLoad logs.
+		logger.SetLevel(logrus.DebugLevel)
 		db := &DB{
 			logger:            logger,
 			schemaReader:      readerForShards(t, class, mixed),
@@ -2186,8 +2221,10 @@ func TestLocalShardsToLoad(t *testing.T) {
 		assert.Zero(t, db.localShardsToLoad(class))
 
 		entry := hook.LastEntry()
-		require.NotNil(t, entry, "a lookup miss must be logged")
-		assert.Equal(t, logrus.ErrorLevel, entry.Level)
+		require.NotNil(t, entry, "a swallowed error must leave a trace")
+		assert.Equal(t, logrus.DebugLevel, entry.Level)
+		assert.Equal(t, class, entry.Data["class"])
+		assert.Contains(t, entry.Message, ErrNamespaceUnknownLocally.Error())
 	})
 }
 
