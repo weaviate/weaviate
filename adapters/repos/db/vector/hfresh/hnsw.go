@@ -82,14 +82,16 @@ func (i *HNSWIndex) Get(id uint64) (*Centroid, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmp, err := hnsw.GetCompressedVector[byte](i.hnsw, id)
-	if err != nil {
-		return nil, err
+	if i.quantizer == nil {
+		return nil, errors.New("centroid quantizer is not initialized")
 	}
 
+	// The centroid HNSW stores 8-bit RQ codes, but Centroid.Distance compares
+	// Compressed against posting vectors with the 1-bit quantizer, so the code
+	// must be in the 1-bit format.
 	return &Centroid{
 		Uncompressed: vec,
-		Compressed:   cmp,
+		Compressed:   i.quantizer.CompressedBytes(i.quantizer.Encode(vec)),
 		Deleted:      false,
 	}, nil
 }
