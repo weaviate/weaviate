@@ -55,15 +55,6 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
 FROM alpine:3.24 AS weaviate
-# The version pins below are what make this layer's cache key change. A bare
-# `apk upgrade` has a fixed cache key, so CI serves it from the BuildKit cache
-# and keeps shipping the package versions that were current when the cache entry
-# was written -- which is how CVE-2026-14456 and friends survived in the image
-# despite the upgrade. Raise a pin when a scan reports a fix, and add a pin for
-# any package that is not pulled in by one already listed. An unavailable
-# version fails the build rather than silently shipping the vulnerable one.
-# `apk upgrade` still runs first so a busted layer also picks up unrelated fixes.
-# openssl pulls libcrypto3 and libssl3 to the matching version.
 RUN apk upgrade --no-cache && \
     apk add --no-cache bc ca-certificates "openssl>=3.5.8-r0" && mkdir ./modules
 COPY --from=server_builder /weaviate-server /bin/weaviate
