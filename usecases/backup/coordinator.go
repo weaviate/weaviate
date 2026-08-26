@@ -318,9 +318,10 @@ func (c *coordinator) Restore(
 	c.descriptor = desc.ResetStatus()
 
 	if c.descriptor.DedupeReplicas {
+		// User-input problems (bad node_mapping, unresolvable replicas) -> 422 with the message.
 		if err := c.expandParticipantsForDedupe(req, schema); err != nil {
 			c.lastOp.reset()
-			return err
+			return backup.NewErrUnprocessable(err)
 		}
 	}
 
