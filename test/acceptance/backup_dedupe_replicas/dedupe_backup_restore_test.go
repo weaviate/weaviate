@@ -450,6 +450,16 @@ func TestBackupDedupeReplicas(t *testing.T) {
 		}, 2*time.Minute, 2*time.Second)
 		requireOnEveryNode(t, host, className, ids)
 	})
+
+	t.Run("legacy non-deduped backup restores through the untouched path", func(t *testing.T) {
+		helper.DeleteClass(t, className)
+		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backendS3, controlBackupID, nil, false)
+		if err != nil {
+			t.Fatalf("restore refused: %s", restoreErrorMessage(err))
+		}
+		helper.ExpectBackupEventuallyRestored(t, controlBackupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
+		requireOnEveryNode(t, host, className, ids)
+	})
 }
 
 func TestBackupDedupeMultiTenantColdTenantFallback(t *testing.T) {
@@ -514,6 +524,11 @@ func TestBackupDedupeMultiTenantColdTenantFallback(t *testing.T) {
 		holders, _ := shardHolders(t, minioC, backupID, className)
 		assert.Len(t, holders[hotTenant], 1, "hot tenant archived by %v, want one node", holders[hotTenant])
 		assert.Len(t, holders[coldT], 3, "cold tenant archived by %v, want every replica", holders[coldT])
+
+		tenant, err := helper.GetOneTenant(t, className, coldT)
+		require.NoError(t, err)
+		assert.Equal(t, models.TenantActivityStatusCOLD, tenant.Payload.ActivityStatus,
+			"backup planning must never activate a cold tenant")
 	})
 
 	t.Run("restore fans hot tenant out and keeps cold tenant restorable", func(t *testing.T) {

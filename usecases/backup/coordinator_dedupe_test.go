@@ -515,6 +515,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		err := coordinator.Backup(ctx, store, &req)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "does not support dedupeReplicas")
+		assert.Empty(t, fc.backend.glMeta.ID, "aborted mixed-version create must leave the backend prefix empty")
 	})
 
 	t.Run("success stamps v3 and ships projected designations", func(t *testing.T) {

@@ -140,6 +140,7 @@ func TestValidateNodeMetaDedupeConsistency(t *testing.T) {
 		wantErr string
 	}{
 		{name: "legacy flag off", version: "2.1", dedupe: false},
+		{name: "compression-era flag off", version: "2.0", dedupe: false},
 		{name: "deduped flag on", version: "3.0", dedupe: true},
 		{name: "deduped version without flag", version: "3.0", dedupe: false, wantErr: "inconsistent with dedupeReplicas"},
 		{name: "legacy version with flag", version: "2.1", dedupe: true, wantErr: "inconsistent with dedupeReplicas"},
