@@ -150,6 +150,7 @@ message QueryRequest {
     
     TYPE_GET_USERS = 61;
     TYPE_USER_IDENTIFIER_EXISTS = 62;
+    TYPE_EXPORT_USERS = 64;
 
     TYPE_GET_NAMESPACES = 63;
 

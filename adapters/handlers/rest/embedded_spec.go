@@ -2550,6 +2550,106 @@ func init() {
         ]
       }
     },
+    "/experimental/export-db-users": {
+      "post": {
+        "description": "Experimental: this endpoint may change or be removed without notice. Export every database (` + "`" + `db` + "`" + ` user type) user's API-key credential for migration to another cluster. Strong-key users carry their argon2id key hash; imported/weak and revoked users are reported with a null hash and a status naming why they cannot be migrated. Root users only.",
+        "tags": [
+          "experimental"
+        ],
+        "summary": "Export all database-user credentials",
+        "operationId": "exportUsers",
+        "responses": {
+          "200": {
+            "description": "The exported user credentials.",
+            "schema": {
+              "$ref": "#/definitions/UserExportResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.experimental.export-db-users"
+        ]
+      }
+    },
+    "/experimental/import-db-users": {
+      "post": {
+        "description": "Experimental: this endpoint may change or be removed without notice. Recreate exported database (` + "`" + `db` + "`" + ` user type) user credentials on this cluster under a target namespace. Each user is created with its original key hash so the source key keeps working. Returns a per-user result. Only strong-key records are importable. Root users only.",
+        "tags": [
+          "experimental"
+        ],
+        "summary": "Import database-user credentials",
+        "operationId": "importUsers",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UserImportRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The per-user import results.",
+            "schema": {
+              "$ref": "#/definitions/UserImportResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.experimental.import-db-users"
+        ]
+      }
+    },
     "/export/{backend}": {
       "post": {
         "description": "Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.",
@@ -8887,6 +8987,57 @@ func init() {
         }
       }
     },
+    "DBUserCredential": {
+      "description": "A single database user's exportable API-key credential. Carries the argon2id key hash for strong-key users; for users whose key cannot be migrated (imported/weak, revoked, or missing a hash) secureHash is null and status names the reason.",
+      "type": "object",
+      "required": [
+        "userId"
+      ],
+      "properties": {
+        "active": {
+          "description": "Whether the user is active. A deactivated (not revoked) user is carried with active=false and reproduced on import.",
+          "type": "boolean"
+        },
+        "apiKeyFirstLetters": {
+          "description": "First 3 letters of the associated API key.",
+          "type": "string",
+          "maxLength": 3
+        },
+        "createdAt": {
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "namespace": {
+          "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
+          "type": "string"
+        },
+        "secureHash": {
+          "description": "The argon2id PHC hash of the user's API key. Null when the key cannot be migrated (see status).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "Export classification. Only 'exported' carries a usable secureHash; the others report why the user was not carried.",
+          "type": "string",
+          "enum": [
+            "exported",
+            "imported_key",
+            "revoked"
+          ]
+        },
+        "userId": {
+          "description": "The name (ID) of the user, without any namespace prefix.",
+          "type": "string"
+        },
+        "userIdentifier": {
+          "description": "The random identifier embedded in the user's API key, used to resolve the key hash. Exactly 16 characters for an importable record; empty when the export reports a user whose key is not carried.",
+          "type": "string"
+        }
+      }
+    },
     "DBUserInfo": {
       "type": "object",
       "required": [
@@ -11847,6 +11998,84 @@ func init() {
         }
       }
     },
+    "UserExportResponse": {
+      "description": "The full set of database-user credential records on the source, one per user.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "users": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DBUserCredential"
+          }
+        }
+      }
+    },
+    "UserImportRequest": {
+      "description": "A batch of database-user credentials to recreate on the target, bound to a single target namespace.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "namespace": {
+          "description": "The target namespace every user in this request is created under. Required on namespace-enabled clusters.",
+          "type": "string"
+        },
+        "users": {
+          "description": "The credential records to import. Only records with a strong (argon2id) secureHash are importable.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DBUserCredential"
+          }
+        }
+      }
+    },
+    "UserImportResponse": {
+      "description": "The per-user outcome of an import batch.",
+      "type": "object",
+      "required": [
+        "results"
+      ],
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UserImportResult"
+          }
+        }
+      }
+    },
+    "UserImportResult": {
+      "description": "The outcome of importing a single database-user credential.",
+      "type": "object",
+      "required": [
+        "userId",
+        "status"
+      ],
+      "properties": {
+        "error": {
+          "description": "The reason, present only when status is 'error'.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The outcome for this user.",
+          "type": "string",
+          "enum": [
+            "created",
+            "reconciled",
+            "skipped_exists",
+            "error"
+          ]
+        },
+        "userId": {
+          "description": "The name (ID) of the user, without any namespace prefix.",
+          "type": "string"
+        }
+      }
+    },
     "UserOwnInfo": {
       "type": "object",
       "required": [
@@ -14758,6 +14987,106 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.cluster.statistics.get"
+        ]
+      }
+    },
+    "/experimental/export-db-users": {
+      "post": {
+        "description": "Experimental: this endpoint may change or be removed without notice. Export every database (` + "`" + `db` + "`" + ` user type) user's API-key credential for migration to another cluster. Strong-key users carry their argon2id key hash; imported/weak and revoked users are reported with a null hash and a status naming why they cannot be migrated. Root users only.",
+        "tags": [
+          "experimental"
+        ],
+        "summary": "Export all database-user credentials",
+        "operationId": "exportUsers",
+        "responses": {
+          "200": {
+            "description": "The exported user credentials.",
+            "schema": {
+              "$ref": "#/definitions/UserExportResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.experimental.export-db-users"
+        ]
+      }
+    },
+    "/experimental/import-db-users": {
+      "post": {
+        "description": "Experimental: this endpoint may change or be removed without notice. Recreate exported database (` + "`" + `db` + "`" + ` user type) user credentials on this cluster under a target namespace. Each user is created with its original key hash so the source key keeps working. Returns a per-user result. Only strong-key records are importable. Root users only.",
+        "tags": [
+          "experimental"
+        ],
+        "summary": "Import database-user credentials",
+        "operationId": "importUsers",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UserImportRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The per-user import results.",
+            "schema": {
+              "$ref": "#/definitions/UserImportResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.experimental.import-db-users"
         ]
       }
     },
@@ -21357,6 +21686,57 @@ func init() {
         }
       }
     },
+    "DBUserCredential": {
+      "description": "A single database user's exportable API-key credential. Carries the argon2id key hash for strong-key users; for users whose key cannot be migrated (imported/weak, revoked, or missing a hash) secureHash is null and status names the reason.",
+      "type": "object",
+      "required": [
+        "userId"
+      ],
+      "properties": {
+        "active": {
+          "description": "Whether the user is active. A deactivated (not revoked) user is carried with active=false and reproduced on import.",
+          "type": "boolean"
+        },
+        "apiKeyFirstLetters": {
+          "description": "First 3 letters of the associated API key.",
+          "type": "string",
+          "maxLength": 3
+        },
+        "createdAt": {
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "namespace": {
+          "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
+          "type": "string"
+        },
+        "secureHash": {
+          "description": "The argon2id PHC hash of the user's API key. Null when the key cannot be migrated (see status).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "Export classification. Only 'exported' carries a usable secureHash; the others report why the user was not carried.",
+          "type": "string",
+          "enum": [
+            "exported",
+            "imported_key",
+            "revoked"
+          ]
+        },
+        "userId": {
+          "description": "The name (ID) of the user, without any namespace prefix.",
+          "type": "string"
+        },
+        "userIdentifier": {
+          "description": "The random identifier embedded in the user's API key, used to resolve the key hash. Exactly 16 characters for an importable record; empty when the export reports a user whose key is not carried.",
+          "type": "string"
+        }
+      }
+    },
     "DBUserInfo": {
       "type": "object",
       "required": [
@@ -24542,6 +24922,84 @@ func init() {
       "properties": {
         "apikey": {
           "description": "The API key associated with the user.",
+          "type": "string"
+        }
+      }
+    },
+    "UserExportResponse": {
+      "description": "The full set of database-user credential records on the source, one per user.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "users": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DBUserCredential"
+          }
+        }
+      }
+    },
+    "UserImportRequest": {
+      "description": "A batch of database-user credentials to recreate on the target, bound to a single target namespace.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "namespace": {
+          "description": "The target namespace every user in this request is created under. Required on namespace-enabled clusters.",
+          "type": "string"
+        },
+        "users": {
+          "description": "The credential records to import. Only records with a strong (argon2id) secureHash are importable.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DBUserCredential"
+          }
+        }
+      }
+    },
+    "UserImportResponse": {
+      "description": "The per-user outcome of an import batch.",
+      "type": "object",
+      "required": [
+        "results"
+      ],
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UserImportResult"
+          }
+        }
+      }
+    },
+    "UserImportResult": {
+      "description": "The outcome of importing a single database-user credential.",
+      "type": "object",
+      "required": [
+        "userId",
+        "status"
+      ],
+      "properties": {
+        "error": {
+          "description": "The reason, present only when status is 'error'.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The outcome for this user.",
+          "type": "string",
+          "enum": [
+            "created",
+            "reconciled",
+            "skipped_exists",
+            "error"
+          ]
+        },
+        "userId": {
+          "description": "The name (ID) of the user, without any namespace prefix.",
           "type": "string"
         }
       }
