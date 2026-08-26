@@ -113,13 +113,9 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not check user identifier: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_EXPORT_USERS:
-		// A whole-roster export that is short is a silently incomplete migration,
-		// not a retried request. Barrier confirms with the quorum that this node is
-		// still the leader and waits until its state machine has applied every
-		// committed entry, so a leader fresh from an election cannot answer early.
-		// Targeted lookups (import's per-record read) skip it: they are re-checked
-		// at apply time and must not pay a log append each. A nil raft instance is
-		// a single-process store built by a unit test.
+		// Barrier proves this node is still leader and has applied every committed
+		// entry, so a fresh leader cannot return a short roster. Per-id reads skip
+		// it; the apply re-checks them. raft is nil only in unit-test stores.
 		if st.raft != nil {
 			var sub cmd.QueryExportUsersRequest
 			if err := json.Unmarshal(req.SubCommand, &sub); err != nil {

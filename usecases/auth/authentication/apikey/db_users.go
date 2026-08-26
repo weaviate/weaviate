@@ -43,11 +43,9 @@ const (
 	UserNameRegexCore = `[A-Za-z][-_0-9A-Za-z@.]{0,128}`
 )
 
-// ErrUserIdentifierExists is returned by CreateUser when the userIdentifier
-// already maps to a different userId. IdentifierToId is one map for the whole
-// cluster, keyed by the identifier alone with no namespace prefix. So one key
-// can map to exactly one user; a second mapping would hijack the first user's
-// authentication.
+// ErrUserIdentifierExists is returned by CreateUser when the identifier already
+// maps to a different userId. IdentifierToId is cluster-wide with no namespace
+// prefix, so a second mapping would hijack the first user's login.
 var ErrUserIdentifierExists = errors.New("user identifier already exists")
 
 // ErrUserExists is returned by CreateUser when the userId is already held by a
@@ -246,24 +244,21 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 		return errors.New("api key first letters too long")
 	}
 
-	// IdentifierToId is one map for the whole cluster, keyed with no namespace
-	// prefix. Refuse to rebind an identifier held by a different user. Re-applying
-	// the same userId is allowed, so RAFT log replay and a repeat import both pass.
+	// Refuse to rebind an identifier held by another user. Same-userId re-apply
+	// is allowed for RAFT log replay and repeat import.
 	if existing, ok := c.data.IdentifierToId[userIdentifier]; ok && existing != userId {
 		return fmt.Errorf("%w: identifier already maps to user %q", ErrUserIdentifierExists, existing)
 	}
 
-	// The same guard on the other axis: the userId must not already be bound to a
-	// different identifier. Both checks run before any write, so a rejected create
-	// leaves every map untouched.
+	// The userId must not already hold a different identifier. Both checks come
+	// before every write, so a rejected create leaves every map untouched.
 	if existing := c.data.Users[userId]; existing != nil && existing.InternalIdentifier != userIdentifier {
 		return fmt.Errorf("%w: user %q is bound to a different identifier", ErrUserExists, userId)
 	}
 
 	c.data.SecureKeyStorageById[userId] = secureHash
-	// The cached weak hash is derived from the secure hash it was verified
-	// against. Keeping it across a re-create makes this node reject the very
-	// credential just stored.
+	// The cached weak hash was verified against the old secure hash. Keeping it
+	// makes this node reject the credential just stored.
 	c.memoryOnlyData.weakKeyStorageById.Delete(userId)
 	c.data.IdentifierToId[userIdentifier] = userId
 	c.data.IdToIdentifier[userId] = userIdentifier
@@ -447,12 +442,10 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {
 	return users, nil
 }
 
-// ExportUsers returns a credential record per user for migration. With no ids it
-// reports every user, and export relies on that as the complete user list. Like
-// GetUsers, an unknown requested id is left out rather than returning an error.
-//
-// Imported (weak) and revoked users get a nil hash and a status naming why they cannot be
-// exported. A missing secure hash is an error because it indicates a broken state.
+// ExportUsers returns a credential record per user for migration; with no ids it
+// returns every user. An unknown id is left out, as in GetUsers. Imported and
+// revoked users get a nil hash and a status naming why. A missing secure hash is
+// an error: no write path produces one, so the store is broken.
 func (c *DBUser) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()

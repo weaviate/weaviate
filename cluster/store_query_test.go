@@ -31,11 +31,9 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-// newDynUserQueryStore builds a Store whose dynUserManager is backed by a real
-// *apikey.DBUser with one seeded user. NewMockStore is not usable here: it leaves
-// DynamicUserController nil, so the manager answers every query with an empty
-// payload and the dispatch assertions would pass without testing anything. It
-// returns the store plus the seeded user's id and identifier.
+// newDynUserQueryStore backs a Store with a real DBUser holding one seeded user
+// and returns that user's id and identifier. NewMockStore leaves the controller
+// nil, so every query would return empty and the assertions would pass vacuously.
 func newDynUserQueryStore(t *testing.T) (*Store, string, string) {
 	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
@@ -185,9 +183,8 @@ func TestQueryExportUsersDispatch(t *testing.T) {
 	})
 
 	t.Run("other user queries do not verify leadership", func(t *testing.T) {
-		// Only the export is a whole-roster read where a stale answer is silently
-		// wrong; adding the quorum round-trip to every user query would tax the
-		// login path.
+		// Only the roster export pays the quorum round-trip; per-user queries sit
+		// on the login path.
 		store, _, identifier := newDynUserQueryStore(t)
 		attachFollowerRaft(t, store)
 

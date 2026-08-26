@@ -75,11 +75,9 @@ func (s *ExportStatus) UnmarshalText(text []byte) error {
 	return fmt.Errorf("invalid export status %q", string(text))
 }
 
-// ExportRecord is the per-user result of an export. The RAFT query sends and
-// receives this same type. It is kept separate from [View] so hash material never
-// reaches an existing response type. Only records with
-// Status == ExportStatusExported carry a non-nil SecureHash; every other status
-// reports why the user was not carried.
+// ExportRecord is the per-user export result and the RAFT wire type. It is kept
+// separate from [View] so hash material never reaches an existing response type.
+// Only ExportStatusExported records carry a non-nil SecureHash.
 type ExportRecord struct {
 	Id                 string
 	UserIdentifier     string

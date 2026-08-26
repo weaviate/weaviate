@@ -673,7 +673,7 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 
 // exportUsers returns every db user's credential record for migration to another
 // cluster. A user whose key cannot be carried gets a nil-hash record naming the
-// reason. Requires cluster-wide user READ, so only root/global operators pass.
+// reason. Root only.
 func (h *dynUserHandler) exportUsers(params experimental.ExportUsersParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
@@ -721,13 +721,10 @@ func (h *dynUserHandler) exportUsers(params experimental.ExportUsersParams, prin
 	return experimental.NewExportUsersOK().WithPayload(response)
 }
 
-// importUsers recreates exported credentials on this cluster and sets each user
-// to its recorded active state. On a namespace-enabled cluster every record lands
-// in the one target namespace from the request; otherwise records land unscoped.
-// Root only. Authorization then runs before namespace validation so a caller
-// without rights cannot learn the cluster's namespace configuration. An empty batch authorizes CREATE
-// against the namespace's user wildcard; a non-empty batch checks per-key CREATE
-// and UPDATE. Each record is then applied on its own and gets its own result.
+// importUsers recreates exported credentials under the request's target
+// namespace, or unscoped on a flat cluster, and returns a result per record.
+// Root only, then CREATE and UPDATE over the batch's user keys before the
+// namespace is validated, so an unauthorized caller learns nothing.
 func (h *dynUserHandler) importUsers(params experimental.ImportUsersParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
@@ -778,9 +775,8 @@ func (h *dynUserHandler) importUsers(params experimental.ImportUsersParams, prin
 		return experimental.NewImportUsersOK().WithPayload(&models.UserImportResponse{Results: []*models.UserImportResult{}})
 	}
 
-	// The RAFT apply re-checks the namespace state for every user, so this check
-	// adds no safety. It only saves one RAFT round-trip per user when this node
-	// already knows the namespace is not active.
+	// The apply re-checks the namespace; this only saves a round-trip per user
+	// when this node already knows it is inactive.
 	if err := namespaces.RequireActive(h.namespaces, targetNamespace); err != nil {
 		return renderImportUsersNamespaceErr(principal, err)
 	}
@@ -802,11 +798,10 @@ func bareUserID(rec *models.DBUserCredential) string {
 	return *rec.UserID
 }
 
-// importOneUser applies a single record under targetNamespace and returns its
-// result. It never overwrites a credential: it refuses a user id already held by
-// a different identifier, and an identifier already bound to a different user.
-// Both checks here can race with a concurrent create on the leader; CreateUser
-// repeats both at apply time and those are the checks that hold.
+// importOneUser applies one record under targetNamespace and returns its result.
+// It refuses a user id held by a different identifier and an identifier bound to
+// a different user. Both checks can race a concurrent create; CreateUser repeats
+// them at apply time.
 func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace string, rec *models.DBUserCredential) *models.UserImportResult {
 	bareID := bareUserID(rec)
 	result := &models.UserImportResult{UserID: &bareID}
@@ -826,10 +821,8 @@ func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace stri
 		return errResult("record must not be null")
 	}
 
-	// Only strong (argon2id) keys are importable; export never emits a weak hash.
-	// The hash is decoded rather than prefix-matched because argon2 panics on
-	// zero iterations or parallelism, and that panic would land on the imported
-	// user's first login.
+	// Only argon2id hashes are importable. The hash is fully decoded because
+	// argon2 panics at login on zero iterations or parallelism.
 	params, _, _, err := argon2id.DecodeHash(rec.SecureHash)
 	if err != nil || params.Memory == 0 || params.Iterations == 0 || params.Parallelism == 0 {
 		return errResult("secureHash must be a valid argon2id hash")
@@ -852,9 +845,8 @@ func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace stri
 		return errResult("cannot import a user with a static api key name")
 	}
 
-	// The existing user is read as an export record, not a view. A view carries
-	// no revocation state, so a revoked user would be reported as reconciled
-	// while its key stays unusable.
+	// Read an export record, not a view: only the record carries revocation, and
+	// a revoked user must not be reported as reconciled.
 	existing, err := h.dbUsers.ExportUsers(key)
 	if err != nil {
 		return errResult(fmt.Sprintf("checking user existence: %v", err))
