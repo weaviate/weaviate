@@ -176,13 +176,7 @@ func (m *Manager) ExportUsers(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// These pointers are local and never shared.
-	wireUsers := make(map[string]*dbuser.ExportRecord, len(users))
-	for id, v := range users {
-		wireUsers[id] = &v
-	}
-	response := cmd.QueryExportUsersResponse{Users: wireUsers}
-	payload, err := json.Marshal(response)
+	payload, err := json.Marshal(cmd.QueryExportUsersResponse{Users: users})
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
 	}

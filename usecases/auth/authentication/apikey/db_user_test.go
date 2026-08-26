@@ -1643,4 +1643,51 @@ func TestCreateUserIdentifierInvariant(t *testing.T) {
 		// Re-applying the same userId succeeds, as RAFT log replay and a repeat import need.
 		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
 	})
+
+	t.Run("same user id with a different identifier is refused with ErrUserExists", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+
+		_, otherHash, otherIdentifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		err = dynUsers.CreateUser("user1", otherHash, otherIdentifier, "", "", time.Now())
+		require.ErrorIs(t, err, ErrUserExists)
+
+		// The rejected create wrote nothing: the stored credential is the original
+		// one and the rejected identifier is not left dangling in IdentifierToId.
+		dynUsers.lock.RLock()
+		defer dynUsers.lock.RUnlock()
+		require.Equal(t, hash, dynUsers.data.SecureKeyStorageById["user1"])
+		require.Equal(t, identifier, dynUsers.data.IdToIdentifier["user1"])
+		require.Equal(t, identifier, dynUsers.data.Users["user1"].InternalIdentifier)
+		require.Equal(t, "user1", dynUsers.data.IdentifierToId[identifier])
+		require.NotContains(t, dynUsers.data.IdentifierToId, otherIdentifier)
+	})
+
+	t.Run("create clears the verified key cache", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+
+		randomKey, _, err := keys.DecodeApiKey(apiKey)
+		require.NoError(t, err)
+		_, err = dynUsers.ValidateAndExtract(randomKey, identifier)
+		require.NoError(t, err)
+		_, cached := dynUsers.memoryOnlyData.weakKeyStorageById.Load("user1")
+		require.True(t, cached, "a successful login must populate the cache, else the assertion below is vacuous")
+
+		// The cache entry is bound to the hash it was verified against, so a
+		// re-create must drop it rather than reject the newly stored credential.
+		_, newHash, _, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user1", newHash, identifier, "", "", time.Now()))
+
+		_, cached = dynUsers.memoryOnlyData.weakKeyStorageById.Load("user1")
+		require.False(t, cached)
+	})
 }

@@ -93,5 +93,5 @@ type QueryExportUsersRequest struct {
 }
 
 type QueryExportUsersResponse struct {
-	Users map[string]*dbuser.ExportRecord
+	Users map[string]dbuser.ExportRecord
 }

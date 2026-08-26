@@ -253,7 +253,8 @@ func toRPCError(err error) error {
 		errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
 	case errors.Is(err, namespaces.ErrAlreadyExists),
-		errors.Is(err, apikey.ErrUserIdentifierExists):
+		errors.Is(err, apikey.ErrUserIdentifierExists),
+		errors.Is(err, apikey.ErrUserExists):
 		ec = codes.AlreadyExists
 	case errors.Is(err, namespaces.ErrBadRequest):
 		ec = codes.InvalidArgument

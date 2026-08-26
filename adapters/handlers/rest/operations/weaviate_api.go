@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/cluster"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/distributed_tasks"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/experimental"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/export"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/mcp"
@@ -198,8 +199,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ExportExportStatusHandler: export.ExportStatusHandlerFunc(func(params export.ExportStatusParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation export.ExportStatus has not yet been implemented")
 		}),
-		UsersExportUsersHandler: users.ExportUsersHandlerFunc(func(params users.ExportUsersParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation users.ExportUsers has not yet been implemented")
+		ExperimentalExportUsersHandler: experimental.ExportUsersHandlerFunc(func(params experimental.ExportUsersParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation experimental.ExportUsers has not yet been implemented")
 		}),
 		ReplicationForceDeleteReplicationsHandler: replication.ForceDeleteReplicationsHandlerFunc(func(params replication.ForceDeleteReplicationsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ForceDeleteReplications has not yet been implemented")
@@ -255,8 +256,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzHasPermissionHandler: authz.HasPermissionHandlerFunc(func(params authz.HasPermissionParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.HasPermission has not yet been implemented")
 		}),
-		UsersImportUsersHandler: users.ImportUsersHandlerFunc(func(params users.ImportUsersParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation users.ImportUsers has not yet been implemented")
+		ExperimentalImportUsersHandler: experimental.ImportUsersHandlerFunc(func(params experimental.ImportUsersParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation experimental.ImportUsers has not yet been implemented")
 		}),
 		UsersListAllUsersHandler: users.ListAllUsersHandlerFunc(func(params users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.ListAllUsers has not yet been implemented")
@@ -583,8 +584,8 @@ type WeaviateAPI struct {
 	ExportExportCreateHandler export.ExportCreateHandler
 	// ExportExportStatusHandler sets the operation handler for the export status operation
 	ExportExportStatusHandler export.ExportStatusHandler
-	// UsersExportUsersHandler sets the operation handler for the export users operation
-	UsersExportUsersHandler users.ExportUsersHandler
+	// ExperimentalExportUsersHandler sets the operation handler for the export users operation
+	ExperimentalExportUsersHandler experimental.ExportUsersHandler
 	// ReplicationForceDeleteReplicationsHandler sets the operation handler for the force delete replications operation
 	ReplicationForceDeleteReplicationsHandler replication.ForceDeleteReplicationsHandler
 	// ReplicationGetCollectionShardingStateHandler sets the operation handler for the get collection sharding state operation
@@ -621,8 +622,8 @@ type WeaviateAPI struct {
 	GraphqlGraphqlPostHandler graphql.GraphqlPostHandler
 	// AuthzHasPermissionHandler sets the operation handler for the has permission operation
 	AuthzHasPermissionHandler authz.HasPermissionHandler
-	// UsersImportUsersHandler sets the operation handler for the import users operation
-	UsersImportUsersHandler users.ImportUsersHandler
+	// ExperimentalImportUsersHandler sets the operation handler for the import users operation
+	ExperimentalImportUsersHandler experimental.ImportUsersHandler
 	// UsersListAllUsersHandler sets the operation handler for the list all users operation
 	UsersListAllUsersHandler users.ListAllUsersHandler
 	// NamespacesListNamespacesHandler sets the operation handler for the list namespaces operation
@@ -955,8 +956,8 @@ func (o *WeaviateAPI) Validate() error {
 	if o.ExportExportStatusHandler == nil {
 		unregistered = append(unregistered, "export.ExportStatusHandler")
 	}
-	if o.UsersExportUsersHandler == nil {
-		unregistered = append(unregistered, "users.ExportUsersHandler")
+	if o.ExperimentalExportUsersHandler == nil {
+		unregistered = append(unregistered, "experimental.ExportUsersHandler")
 	}
 	if o.ReplicationForceDeleteReplicationsHandler == nil {
 		unregistered = append(unregistered, "replication.ForceDeleteReplicationsHandler")
@@ -1012,8 +1013,8 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzHasPermissionHandler == nil {
 		unregistered = append(unregistered, "authz.HasPermissionHandler")
 	}
-	if o.UsersImportUsersHandler == nil {
-		unregistered = append(unregistered, "users.ImportUsersHandler")
+	if o.ExperimentalImportUsersHandler == nil {
+		unregistered = append(unregistered, "experimental.ImportUsersHandler")
 	}
 	if o.UsersListAllUsersHandler == nil {
 		unregistered = append(unregistered, "users.ListAllUsersHandler")
@@ -1468,7 +1469,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/users/db/export"] = users.NewExportUsers(o.context, o.UsersExportUsersHandler)
+	o.handlers["POST"]["/experimental/export-db-users"] = experimental.NewExportUsers(o.context, o.ExperimentalExportUsersHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1544,7 +1545,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/users/db/import"] = users.NewImportUsers(o.context, o.UsersImportUsersHandler)
+	o.handlers["POST"]["/experimental/import-db-users"] = experimental.NewImportUsers(o.context, o.ExperimentalImportUsersHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

@@ -363,6 +363,8 @@ func fromRPCError(err error) error {
 			return errors.Join(err, namespaces.ErrAlreadyExists)
 		case strings.Contains(msg, apikey.ErrUserIdentifierExists.Error()):
 			return errors.Join(err, apikey.ErrUserIdentifierExists)
+		case strings.Contains(msg, apikey.ErrUserExists.Error()):
+			return errors.Join(err, apikey.ErrUserExists)
 		}
 	case codes.InvalidArgument:
 		if strings.Contains(msg, namespaces.ErrBadRequest.Error()) {

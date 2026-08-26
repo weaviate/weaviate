@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/experimental"
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
@@ -67,7 +68,7 @@ func TestHashesExportImport(t *testing.T) {
 
 	exportRecord := func(t *testing.T, userID string) *models.DBUserCredential {
 		t.Helper()
-		resp, err := helper.Client(t).Users.ExportUsers(users.NewExportUsersParams(), helper.CreateAuth(rootKey))
+		resp, err := helper.Client(t).Experimental.ExportUsers(experimental.NewExportUsersParams(), helper.CreateAuth(rootKey))
 		require.NoError(t, err)
 		require.NotNil(t, resp.Payload)
 		for _, u := range resp.Payload.Users {
@@ -95,8 +96,8 @@ func TestHashesExportImport(t *testing.T) {
 		const ns = "migns"
 		helper.CreateNamespace(t, ns, rootKey)
 
-		importResp, err := helper.Client(t).Users.ImportUsers(
-			users.NewImportUsersParams().WithBody(&models.UserImportRequest{
+		importResp, err := helper.Client(t).Experimental.ImportUsers(
+			experimental.NewImportUsersParams().WithBody(&models.UserImportRequest{
 				Namespace: ns,
 				Users:     []*models.DBUserCredential{rec},
 			}), helper.CreateAuth(rootKey))
@@ -110,8 +111,8 @@ func TestHashesExportImport(t *testing.T) {
 		require.NotNil(t, info)
 
 		// A second import is idempotent: same identifier, already present.
-		reimport, err := helper.Client(t).Users.ImportUsers(
-			users.NewImportUsersParams().WithBody(&models.UserImportRequest{
+		reimport, err := helper.Client(t).Experimental.ImportUsers(
+			experimental.NewImportUsersParams().WithBody(&models.UserImportRequest{
 				Namespace: ns,
 				Users:     []*models.DBUserCredential{rec},
 			}), helper.CreateAuth(rootKey))
@@ -158,8 +159,8 @@ func TestHashesExportImport(t *testing.T) {
 		helper.AssignRoleToUser(t, rootKey, authorization.Admin, ownNS+":"+adminID)
 		helper.WaitForOwnRole(t, adminAPIKey, authorization.Admin)
 
-		_, err := helper.Client(t).Users.ImportUsers(
-			users.NewImportUsersParams().WithBody(&models.UserImportRequest{
+		_, err := helper.Client(t).Experimental.ImportUsers(
+			experimental.NewImportUsersParams().WithBody(&models.UserImportRequest{
 				Namespace: foreignNS,
 				Users: []*models.DBUserCredential{{
 					UserID:         strptr("intruder"),
@@ -169,12 +170,12 @@ func TestHashesExportImport(t *testing.T) {
 				}},
 			}), helper.CreateAuth(adminAPIKey))
 		require.Error(t, err)
-		var forbidden *users.ImportUsersForbidden
+		var forbidden *experimental.ImportUsersForbidden
 		require.True(t, errors.As(err, &forbidden), "expected ImportUsersForbidden, got %T: %v", err, err)
 
-		_, err = helper.Client(t).Users.ExportUsers(users.NewExportUsersParams(), helper.CreateAuth(adminAPIKey))
+		_, err = helper.Client(t).Experimental.ExportUsers(experimental.NewExportUsersParams(), helper.CreateAuth(adminAPIKey))
 		require.Error(t, err)
-		var exportForbidden *users.ExportUsersForbidden
+		var exportForbidden *experimental.ExportUsersForbidden
 		require.True(t, errors.As(err, &exportForbidden), "expected ExportUsersForbidden, got %T: %v", err, err)
 	})
 }

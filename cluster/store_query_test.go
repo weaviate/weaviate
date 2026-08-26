@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -106,6 +108,24 @@ func TestQueryUserIdentifierExistsDispatch(t *testing.T) {
 	})
 }
 
+// attachFollowerRaft gives store a real raft instance that is not the leader.
+// The node is never bootstrapped, so its configuration is empty, it can never
+// win an election and Barrier always reports raft.ErrNotLeader.
+func attachFollowerRaft(t *testing.T, store *Store) {
+	t.Helper()
+	cfg := raft.DefaultConfig()
+	cfg.LocalID = raft.ServerID("node-1")
+	cfg.Logger = hclog.NewNullLogger()
+	inmem := raft.NewInmemStore()
+	_, transport := raft.NewInmemTransport("")
+
+	r, err := raft.NewRaft(cfg, store, inmem, inmem, raft.NewInmemSnapshotStore(), transport)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, r.Shutdown().Error()) })
+
+	store.raft = r
+}
+
 func TestQueryExportUsersDispatch(t *testing.T) {
 	t.Run("seeded user is returned with an exported credential", func(t *testing.T) {
 		store, userID, identifier := newDynUserQueryStore(t)
@@ -127,5 +147,61 @@ func TestQueryExportUsersDispatch(t *testing.T) {
 		require.Equal(t, dbuser.ExportStatusExported, rec.Status)
 		require.Equal(t, identifier, rec.UserIdentifier)
 		require.NotNil(t, rec.SecureHash)
+	})
+
+	t.Run("a node that is not the leader refuses to serve the export", func(t *testing.T) {
+		store, _, _ := newDynUserQueryStore(t)
+		attachFollowerRaft(t, store)
+
+		sub, err := json.Marshal(cmd.QueryExportUsersRequest{})
+		require.NoError(t, err)
+
+		_, err = store.Query(&cmd.QueryRequest{
+			Type:       cmd.QueryRequest_TYPE_EXPORT_USERS,
+			SubCommand: sub,
+		})
+		require.ErrorContains(t, err, "verify leader before export")
+		require.ErrorIs(t, err, raft.ErrNotLeader)
+	})
+
+	t.Run("a targeted export skips the leadership check", func(t *testing.T) {
+		// Import reads one record at a time through this path and the apply
+		// re-validates it, so the quorum round-trip is reserved for the full roster.
+		store, userID, _ := newDynUserQueryStore(t)
+		attachFollowerRaft(t, store)
+
+		sub, err := json.Marshal(cmd.QueryExportUsersRequest{UserIds: []string{userID}})
+		require.NoError(t, err)
+
+		resp, err := store.Query(&cmd.QueryRequest{
+			Type:       cmd.QueryRequest_TYPE_EXPORT_USERS,
+			SubCommand: sub,
+		})
+		require.NoError(t, err)
+
+		var out cmd.QueryExportUsersResponse
+		require.NoError(t, json.Unmarshal(resp.Payload, &out))
+		require.Contains(t, out.Users, userID)
+	})
+
+	t.Run("other user queries do not verify leadership", func(t *testing.T) {
+		// Only the export is a whole-roster read where a stale answer is silently
+		// wrong; adding the quorum round-trip to every user query would tax the
+		// login path.
+		store, _, identifier := newDynUserQueryStore(t)
+		attachFollowerRaft(t, store)
+
+		sub, err := json.Marshal(cmd.QueryUserIdentifierExistsRequest{UserIdentifier: identifier})
+		require.NoError(t, err)
+
+		resp, err := store.Query(&cmd.QueryRequest{
+			Type:       cmd.QueryRequest_TYPE_USER_IDENTIFIER_EXISTS,
+			SubCommand: sub,
+		})
+		require.NoError(t, err)
+
+		var out cmd.QueryUserIdentifierExistsResponse
+		require.NoError(t, json.Unmarshal(resp.Payload, &out))
+		require.True(t, out.Exists)
 	})
 }

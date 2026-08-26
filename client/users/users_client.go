@@ -49,13 +49,9 @@ type ClientService interface {
 
 	DeleteUser(params *DeleteUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteUserNoContent, error)
 
-	ExportUsers(params *ExportUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ExportUsersOK, error)
-
 	GetOwnInfo(params *GetOwnInfoParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetOwnInfoOK, error)
 
 	GetUserInfo(params *GetUserInfoParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUserInfoOK, error)
-
-	ImportUsers(params *ImportUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ImportUsersOK, error)
 
 	ListAllUsers(params *ListAllUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListAllUsersOK, error)
 
@@ -229,47 +225,6 @@ func (a *Client) DeleteUser(params *DeleteUserParams, authInfo runtime.ClientAut
 }
 
 /*
-ExportUsers exports all database user credentials
-
-Export every database (`db` user type) user's API-key credential for migration to another cluster. Strong-key users carry their argon2id key hash; imported/weak, revoked, and hash-less users are reported with a null hash and a status naming why they cannot be migrated. Root/global operators only.
-*/
-func (a *Client) ExportUsers(params *ExportUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ExportUsersOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewExportUsersParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "exportUsers",
-		Method:             "POST",
-		PathPattern:        "/users/db/export",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &ExportUsersReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.Submit(op)
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*ExportUsersOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for exportUsers: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
 GetOwnInfo gets current user info
 
 Get information about the currently authenticated user, including username and assigned roles.
@@ -348,47 +303,6 @@ func (a *Client) GetUserInfo(params *GetUserInfoParams, authInfo runtime.ClientA
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for getUserInfo: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-ImportUsers imports database user credentials
-
-Recreate exported database (`db` user type) user credentials on this cluster under a target namespace. Each user is created with its original key hash so the source key keeps working. Returns a per-user result. Only strong-key records are importable. A caller can only import into namespaces it is authorized to write users in.
-*/
-func (a *Client) ImportUsers(params *ImportUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ImportUsersOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewImportUsersParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "importUsers",
-		Method:             "POST",
-		PathPattern:        "/users/db/import",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &ImportUsersReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.Submit(op)
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*ImportUsersOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for importUsers: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

@@ -76,19 +76,10 @@ func (s *Raft) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord, e
 	}
 
 	response := cmd.QueryExportUsersResponse{}
-	err = json.Unmarshal(queryResp.Payload, &response)
-	if err != nil {
+	if err := json.Unmarshal(queryResp.Payload, &response); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
-
-	out := make(map[string]dbuser.ExportRecord, len(response.Users))
-	for id, u := range response.Users {
-		if u == nil {
-			continue
-		}
-		out[id] = *u
-	}
-	return out, nil
+	return response.Users, nil
 }
 
 func (s *Raft) CheckUserIdentifierExists(userIdentifier string) (bool, error) {

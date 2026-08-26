@@ -50,6 +50,11 @@ const (
 // authentication.
 var ErrUserIdentifierExists = errors.New("user identifier already exists")
 
+// ErrUserExists is returned by CreateUser when the userId is already held by a
+// different userIdentifier. Writing anyway would replace a live user's key hash
+// with one the caller supplied, locking that user out of the cluster.
+var ErrUserExists = errors.New("user already exists with a different credential")
+
 // MakeUserKey returns the internal storage key for a user. Namespaced users
 // are stored under "namespace<sep>userId" so two namespaces can host the same
 // short id without collision; unnamespaced users keep the bare id for
@@ -248,7 +253,18 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 		return fmt.Errorf("%w: identifier already maps to user %q", ErrUserIdentifierExists, existing)
 	}
 
+	// The same guard on the other axis: the userId must not already be bound to a
+	// different identifier. Both checks run before any write, so a rejected create
+	// leaves every map untouched.
+	if existing := c.data.Users[userId]; existing != nil && existing.InternalIdentifier != userIdentifier {
+		return fmt.Errorf("%w: user %q is bound to a different identifier", ErrUserExists, userId)
+	}
+
 	c.data.SecureKeyStorageById[userId] = secureHash
+	// The cached weak hash is derived from the secure hash it was verified
+	// against. Keeping it across a re-create makes this node reject the very
+	// credential just stored.
+	c.memoryOnlyData.weakKeyStorageById.Delete(userId)
 	c.data.IdentifierToId[userIdentifier] = userId
 	c.data.IdToIdentifier[userId] = userIdentifier
 	c.data.Users[userId] = &User{
@@ -434,20 +450,15 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {
 // ExportUsers returns a credential record per user for migration. With no ids it
 // reports every user, and export relies on that as the complete user list. Like
 // GetUsers, an unknown requested id is left out rather than returning an error.
-// It does not use Snapshot or filterDBUserData: those take the write lock and
-// return an error on an unknown id.
 //
-// Only ExportStatusExported records carry a non-nil SecureHash. Imported (weak)
-// and revoked users get a nil hash and a status naming why they cannot be
-// carried, so no user is silently left out. A user with no stored hash fails the
-// whole export: no write path produces one, so it means the store is corrupt.
+// Imported (weak) and revoked users get a nil hash and a status naming why they cannot be
+// exported. A missing secure hash is an error because it indicates a broken state.
 func (c *DBUser) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
 	classify := func(id string, user *User) (dbuser.ExportRecord, error) {
 		v := user.view()
-		var err error
 		rec := dbuser.ExportRecord{
 			Id:                 v.Id,
 			UserIdentifier:     c.data.IdToIdentifier[id],
@@ -456,20 +467,21 @@ func (c *DBUser) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord,
 			CreatedAt:          v.CreatedAt,
 			Namespace:          v.Namespace,
 		}
-		_, revoked := c.data.UserKeyRevoked[id]
-		secureHash, hasSecureHash := c.data.SecureKeyStorageById[id]
-		switch {
-		case v.ImportedWithKey:
+		if v.ImportedWithKey {
 			rec.Status = dbuser.ExportStatusImportedKey
-		case revoked:
-			rec.Status = dbuser.ExportStatusRevoked
-		case !hasSecureHash:
-			err = fmt.Errorf("no secure hash on file")
-		default:
-			rec.SecureHash = &secureHash
-			rec.Status = dbuser.ExportStatusExported
+			return rec, nil
 		}
-		return rec, err
+		if _, revoked := c.data.UserKeyRevoked[id]; revoked {
+			rec.Status = dbuser.ExportStatusRevoked
+			return rec, nil
+		}
+		secureHash, ok := c.data.SecureKeyStorageById[id]
+		if !ok {
+			return dbuser.ExportRecord{}, fmt.Errorf("no secure hash on file")
+		}
+		rec.SecureHash = &secureHash
+		rec.Status = dbuser.ExportStatusExported
+		return rec, nil
 	}
 
 	if len(userIds) == 0 {

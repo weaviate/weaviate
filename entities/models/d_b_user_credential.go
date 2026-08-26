@@ -56,7 +56,7 @@ type DBUserCredential struct {
 	// Required: true
 	UserID *string `json:"userId"`
 
-	// The random identifier embedded in the user's API key, used to resolve the key hash.
+	// The random identifier embedded in the user's API key, used to resolve the key hash. Exactly 16 characters for an importable record; empty when the export reports a user whose key is not carried.
 	UserIdentifier string `json:"userIdentifier,omitempty"`
 }
 
