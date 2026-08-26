@@ -317,6 +317,13 @@ func (c *coordinator) Restore(
 	}
 	c.descriptor = desc.ResetStatus()
 
+	if c.descriptor.DedupeReplicas {
+		if err := c.expandParticipantsForDedupe(req, schema); err != nil {
+			c.lastOp.reset()
+			return err
+		}
+	}
+
 	// Time canCommit phase (initiates file staging on all nodes)
 	canCommitStart := time.Now()
 	nodes, err := c.canCommit(ctx, req, nil)
@@ -627,6 +634,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 				BaseBackupID:      c.descriptor.BaseBackupID,
 				DedupeReplicas:    req.DedupeReplicas,
 				ShardDesignations: projectDesignations(plan, originalName),
+				SourceNodes:       req.SourceNodes,
 			}
 		}
 		return nil
