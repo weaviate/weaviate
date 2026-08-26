@@ -79,6 +79,7 @@ func NewScheduler(
 	authorizer authorization.Authorizer,
 	client client,
 	sourcer Selector,
+	checkpointer ReplicaCheckpointer,
 	userLister UserLister,
 	roleLister RoleLister,
 	backends BackupBackendProvider,
@@ -102,13 +103,13 @@ func NewScheduler(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends, nil,
+			logger, nodeResolver, backends, nil, checkpointer,
 		),
 		restorer: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends, rolesAndUsers,
+			logger, nodeResolver, backends, rolesAndUsers, nil,
 		),
 	}
 	return m

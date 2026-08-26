@@ -695,7 +695,7 @@ func newFakeNodeResolver(nodes []string) *fakeNodeResolver {
 }
 
 func (fc *fakeCoordinator) coordinator() *coordinator {
-	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver, nil, fc.rolesAndUsers)
+	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver, nil, fc.rolesAndUsers, nil)
 	c.timeoutNextRound = time.Millisecond * 200
 	return c
 }

@@ -1361,7 +1361,7 @@ func (f *fakeScheduler) scheduler() *Scheduler {
 	if !f.nilListers {
 		userLister, roleLister = &f.userLister, &f.roleLister
 	}
-	c := NewScheduler(f.auth, &f.client, &f.selector, userLister, roleLister, provider,
+	c := NewScheduler(f.auth, &f.client, &f.selector, nil, userLister, roleLister, provider,
 		f.nodeResolver, &f.schema, f.staticAPIKeyUsers, f.rolesAndUsers, f.namespaces, f.log)
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200

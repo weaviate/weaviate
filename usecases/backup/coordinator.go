@@ -115,6 +115,8 @@ type coordinator struct {
 	backends     BackupBackendProvider
 	// nil on the backupper, which never restores roles or users.
 	rolesAndUsers rolesAndUsersRestorer
+	// nil on the restorer, which never plans replica dedupe.
+	checkpointer ReplicaCheckpointer
 
 	// state
 	Participants map[string]participantStatus
@@ -137,6 +139,7 @@ func newCoordinator(
 	nodeResolver NodeResolver,
 	backends BackupBackendProvider,
 	rolesAndUsers rolesAndUsersRestorer,
+	checkpointer ReplicaCheckpointer,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
@@ -146,6 +149,7 @@ func newCoordinator(
 		nodeResolver:       nodeResolver,
 		backends:           backends,
 		rolesAndUsers:      rolesAndUsers,
+		checkpointer:       checkpointer,
 		Participants:       make(map[string]participantStatus, 16),
 		timeoutNodeDown:    _TimeoutNodeDown,
 		timeoutQueryStatus: _TimeoutQueryStatus,
