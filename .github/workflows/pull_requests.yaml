@@ -580,6 +580,8 @@ jobs:
             test: "--only-module-multi2vec-voyageai"
           - name: "text2vec-digitalocean"
             test: "--only-module-text2vec-digitalocean"
+          - name: "generative-digitalocean"
+            test: "--only-module-generative-digitalocean"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
