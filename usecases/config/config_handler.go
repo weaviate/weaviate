@@ -869,6 +869,23 @@ type Backup struct {
 	// least-privilege credentials that can write but lack DeleteObject.
 	// Env: BACKUP_SKIP_ACCESS_CHECK.
 	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
+
+	// DistributedTasksEnabled gates the DTM-based backup orchestration path.
+	// When true, backup create is proposed as a distributed task instead of
+	// using the in-memory 2PC coordinator. The legacy path remains for one
+	// minor release. Env: BACKUP_DISTRIBUTED_TASKS_ENABLED.
+	DistributedTasksEnabled bool `json:"distributed_tasks_enabled" yaml:"distributed_tasks_enabled"`
+
+	// StaleTimeout is the per-task stale-detection timeout for DTM backup
+	// tasks. A unit whose fingerprint is unchanged for this duration is
+	// force-failed. Env: BACKUP_STALE_TIMEOUT. Default: 7m (parity with
+	// the legacy 7-minute node-down check).
+	StaleTimeout time.Duration `json:"stale_timeout" yaml:"stale_timeout"`
+
+	// MaxUnitRetries is the per-unit retry budget for transient failures.
+	// Zero disables retries. The budget counts re-opens, so 3 allows up
+	// to 4 total executions. Env: BACKUP_MAX_UNIT_RETRIES. Default: 3.
+	MaxUnitRetries int32 `json:"max_unit_retries" yaml:"max_unit_retries"`
 }
 
 const (

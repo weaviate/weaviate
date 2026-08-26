@@ -1014,6 +1014,34 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
+	// Registered even when the DTM gate is off, so the conflict detector
+	// and the retainer still guard the cleanup sweep.
+	var bkpProviderRBACSrc backup.RBACSnapshotter
+	if appState.RBAC != nil {
+		bkpProviderRBACSrc = appState.RBAC
+	}
+	var bkpProviderUserSrc backup.DynUserSnapshotter
+	if appState.ServerConfig.Config.Authentication.DBUsers.Enabled && appState.APIKey != nil && appState.APIKey.Dynamic != nil {
+		bkpProviderUserSrc = appState.APIKey.Dynamic
+	}
+	backupTaskProvider := backup.NewBackupTaskProvider(backup.BackupTaskProviderParams{
+		Node:     appState.Cluster.LocalName(),
+		Logger:   appState.Logger,
+		Cfg:      appState.ServerConfig.Config.Backup,
+		Sourcer:  repo,
+		RBACSrc:  bkpProviderRBACSrc,
+		UserSrc:  bkpProviderUserSrc,
+		Backends: appState.Modules,
+		// Shares the node-wide backup latch with the legacy 2PC participant path.
+		NodeHandler: appState.BackupManager,
+		DataPath:    appState.ServerConfig.Config.Persistence.DataPath,
+		AppliedIndexProbe: func(ctx context.Context, version uint64) error {
+			return appState.ClusterService.WaitForUpdate(ctx, version)
+		},
+	})
+	providers[backup.BackupTaskNamespace] = backupTaskProvider
+	appState.BackupTaskProvider = backupTaskProvider
+
 	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
@@ -1519,8 +1547,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	if entconfig.Enabled(os.Getenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")) {
 		enterrors.GoWrapper(
 			func() {
-				// cleanup unfinished backups on startup
-				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				// The budget must cover the sweep's wait for raft
+				// readiness. A shorter budget cuts that wait short and
+				// aborts the whole sweep.
+				ctx, cancel := context.WithTimeout(context.Background(), backup.CleanupSweepTimeout)
 				defer cancel()
 				backupScheduler.CleanupUnfinishedBackups(ctx)
 			}, appState.Logger)
@@ -1673,7 +1703,55 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		appState.SchemaManager,
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
 		appState.Logger)
+
+	dtmClient := &backupRaftDTMClient{raft: appState.ClusterService.Raft}
+	backupScheduler.SetDTMClient(dtmClient, appState.ServerConfig.Config.Backup, appState.BackupTaskProvider)
+
 	return backupScheduler
+}
+
+// backupRaftDTMClient adapts *cluster.Raft to backup.BackupDTMClient so
+// the backup usecase does not import the cluster package directly.
+type backupRaftDTMClient struct {
+	raft *rCluster.Raft
+}
+
+func (c *backupRaftDTMClient) GetDistributedTask(ctx context.Context, namespace, taskID string) (*distributedtask.Task, error) {
+	return c.raft.GetDistributedTask(ctx, namespace, taskID)
+}
+
+func (c *backupRaftDTMClient) CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error {
+	return c.raft.CancelDistributedTask(ctx, namespace, taskID, taskVersion)
+}
+
+func (c *backupRaftDTMClient) ForceTerminateDistributedTask(
+	ctx context.Context, namespace, taskID string,
+	taskVersion uint64, reason string, requestedTerminalStatus string,
+) error {
+	return c.raft.ForceTerminateDistributedTask(ctx, namespace, taskID, taskVersion, reason, requestedTerminalStatus)
+}
+
+func (c *backupRaftDTMClient) ProposeBackupTask(
+	ctx context.Context, taskID string,
+	payloadBytes []byte, unitSpecs []distributedtask.UnitSpec,
+	staleTimeoutMs int64, maxUnitRetries int32,
+) error {
+	return c.raft.AddDistributedTaskWithGroupsOptions(
+		ctx, backup.BackupTaskNamespace, taskID,
+		json.RawMessage(payloadBytes), unitSpecs, false,
+		rCluster.AddDistributedTaskOptions{
+			StaleTimeoutMs: staleTimeoutMs,
+			MaxUnitRetries: maxUnitRetries,
+		},
+	)
+}
+
+func (c *backupRaftDTMClient) Ready() bool {
+	return c.raft.Ready()
+}
+
+func (c *backupRaftDTMClient) WaitUntilDBRestored(ctx context.Context, period time.Duration, close chan struct{}) error {
+	return c.raft.WaitUntilDBRestored(ctx, period, close)
 }
 
 func startExportScheduler(appState *state.State) *exportusecase.Scheduler {

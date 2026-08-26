@@ -63,6 +63,7 @@ function main() {
   run_acceptance_drop_vector_index_cluster=false
   run_acceptance_drop_vector_index_restart_cluster=false
   run_acceptance_drop_vector_index_rolling_restart=false
+  run_acceptance_backup_multinode=false
   run_acceptance_backups=false
 
   while [[ "$#" -gt 0 ]]; do
@@ -126,6 +127,7 @@ function main() {
           --acceptance-drop-vector-index-cluster|-advic) run_all_tests=false; run_acceptance_drop_vector_index_cluster=true;;
           --acceptance-drop-vector-index-restart-cluster|-advirc) run_all_tests=false; run_acceptance_drop_vector_index_restart_cluster=true;;
           --acceptance-drop-vector-index-rolling-restart|-advirr) run_all_tests=false; run_acceptance_drop_vector_index_rolling_restart=true;;
+          --acceptance-backup-multinode|-abm) run_all_tests=false; run_acceptance_backup_multinode=true;;
           --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
@@ -443,6 +445,11 @@ function main() {
     run_acceptance_drop_vector_index_rolling_restart
   fi
 
+  if $run_acceptance_backup_multinode; then
+    echo "running backup multinode acceptance tests"
+    run_acceptance_backup_multinode
+  fi
+
   if $run_acceptance_backups; then
     echo "running backup/restore acceptance tests"
     run_acceptance_backups
@@ -681,12 +688,12 @@ function run_aof_group() {
 
       # Stress tests need different test configuration (no timeout, no race detector)
       if [[ "$pkg" == "test/acceptance/stress_tests" ]]; then
-        if ! go test -count 1 "${extra_flags[@]}" "$pkg"; then
+        if ! go test -count 1 ${extra_flags[@]+"${extra_flags[@]}"} "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
       else
-        if ! go test -count 1 -timeout=20m -race "${extra_flags[@]}" "$pkg"; then
+        if ! go test -count 1 -timeout=20m -race ${extra_flags[@]+"${extra_flags[@]}"} "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
@@ -1089,6 +1096,12 @@ function run_acceptance_drop_vector_index_rolling_restart() {
   echo_green "acceptance — drop-vector-index-rolling-restart"
   AOF_GROUP_RUN='^TestDropVectorIndex_RollingRestart_Cluster$' \
     run_aof_group "drop-vector-index-rolling-restart" test/acceptance/drop_vector_index
+}
+
+function run_acceptance_backup_multinode() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-multinode"
+  run_aof_group "backup-multinode" test/acceptance/backup_multinode
 }
 
 function run_acceptance_backups() {

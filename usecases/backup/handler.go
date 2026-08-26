@@ -156,12 +156,15 @@ type NodeResolver interface {
 	LeaderID() string
 }
 
-// dynUserSnapshotter is the backup-side contract for the dynamic-user FSM. The variadic
+// DynUserSnapshotter is the backup-side contract for the dynamic-user FSM. The variadic
 // Snapshot filters to a user subset for backups; zero args is the full snapshot.
-type dynUserSnapshotter interface {
+type DynUserSnapshotter interface {
 	Snapshot(userIDs ...string) ([]byte, error)
 	Restore(snapshot []byte, stripNamespaces bool) error
 }
+
+// dynUserSnapshotter is the old name. Call sites in this package still use it.
+type dynUserSnapshotter = DynUserSnapshotter
 
 // RBACSnapshotter is the backup-side contract for the RBAC FSM. The variadic
 // Snapshot filters to a role subset for backups; zero args is the full snapshot.

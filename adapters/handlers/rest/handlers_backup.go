@@ -309,7 +309,10 @@ func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 	if params.Path != nil {
 		overridePath = *params.Path
 	}
-	err := s.manager.Cancel(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
+	// ?force is not in the generated params (no swagger spec change).
+	force := params.HTTPRequest.URL.Query().Get("force") == "true"
+
+	err := s.manager.CancelWithForce(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath, force)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {

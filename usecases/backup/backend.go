@@ -218,6 +218,10 @@ type uploader struct {
 	// until the descriptor is written to the backend.
 	slot statusPublisher
 	log  logrus.FieldLogger
+
+	// onClassUploaded fires after each class's chunks are uploaded, before
+	// the node descriptor is written.
+	onClassUploaded func(className string)
 }
 
 // statusPublisher is the observable half of a node's operation slot. Failing
@@ -347,6 +351,9 @@ Loop:
 			cdesc.PreCompressionSizeBytes = preCompressionSize // Set pre-compression size for this class
 			desc.Classes = append(desc.Classes, cdesc)
 			u.log.WithField("class", cdesc.Name).Info("finish uploading files")
+			if u.onClassUploaded != nil {
+				u.onClassUploaded(cdesc.Name)
+			}
 
 		case <-ctx.Done():
 			return contextChecker(ctx)

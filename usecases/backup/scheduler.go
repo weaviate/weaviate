@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -32,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -51,6 +54,24 @@ const (
 	AllBackupsOrderDesc AllBackupsOrder = "desc"
 )
 
+// BackupDTMClient abstracts the Raft surface the Scheduler needs for
+// DTM-based backup orchestration.
+type BackupDTMClient interface {
+	GetDistributedTask(ctx context.Context, namespace, taskID string) (*distributedtask.Task, error)
+	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+	ForceTerminateDistributedTask(
+		ctx context.Context, namespace, taskID string,
+		taskVersion uint64, reason string, requestedTerminalStatus string,
+	) error
+	ProposeBackupTask(
+		ctx context.Context, taskID string,
+		payloadBytes []byte, unitSpecs []distributedtask.UnitSpec,
+		staleTimeoutMs int64, maxUnitRetries int32,
+	) error
+	Ready() bool
+	WaitUntilDBRestored(ctx context.Context, period time.Duration, close chan struct{}) error
+}
+
 // Scheduler assigns backup operations to coordinators.
 type Scheduler struct {
 	// deps
@@ -69,6 +90,11 @@ type Scheduler struct {
 	// namespaced dynamic one. Build it with rbac.StaticAPIKeyUsers, so this list
 	// is the same one the nodes strip with.
 	staticAPIKeyUsers []string
+
+	// DTM integration (nil when the feature is off or not wired).
+	dtm          BackupDTMClient
+	backupCfg    config.Backup
+	taskProvider *BackupTaskProvider
 }
 
 // NewScheduler creates a new scheduler with two coordinators
@@ -108,32 +134,107 @@ func NewScheduler(
 	return m
 }
 
+func (s *Scheduler) SetDTMClient(dtm BackupDTMClient, cfg config.Backup, provider *BackupTaskProvider) {
+	s.dtm = dtm
+	s.backupCfg = cfg
+	s.taskProvider = provider
+}
+
+func (s *Scheduler) dtmEnabled() bool {
+	return s.backupCfg.DistributedTasksEnabled && s.dtm != nil
+}
+
+const (
+	// sweepReadinessTimeout is how long the sweep waits for raft readiness.
+	// Exceeding it aborts the whole sweep.
+	sweepReadinessTimeout = 2 * time.Minute
+
+	// CleanupSweepTimeout is the budget a caller must give
+	// CleanupUnfinishedBackups. It covers the readiness wait plus the sweep's
+	// own work. A shorter budget cuts the readiness wait short, which aborts
+	// the sweep on every startup where the raft restore is slow.
+	CleanupSweepTimeout = sweepReadinessTimeout + 3*time.Minute
+)
+
 func (s *Scheduler) CleanupUnfinishedBackups(ctx context.Context) {
+	// The sweep aborts rather than proceeding whenever a check below fails.
+	if s.dtm != nil {
+		waitCtx, waitCancel := context.WithTimeout(ctx, sweepReadinessTimeout)
+		defer waitCancel()
+		closeCh := make(chan struct{})
+		defer close(closeCh)
+		if err := s.dtm.WaitUntilDBRestored(waitCtx, 2*time.Second, closeCh); err != nil {
+			s.logger.WithField("action", "cleanup_unfinished_backups").
+				Errorf("readiness timeout — aborting sweep: %v", err)
+			return
+		}
+		for !s.dtm.Ready() {
+			select {
+			case <-ctx.Done():
+				s.logger.WithField("action", "cleanup_unfinished_backups").
+					Errorf("context canceled while waiting for raft readiness")
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+	}
+
 	for _, backend := range s.backends.EnabledBackupBackends() {
 		backups, err := backend.AllBackups(ctx)
 		if err != nil {
 			s.logger.
 				WithField("action", "cleanup_unfinished_backups").
-				Error(fmt.Errorf("get all backups: %w", err))
+				Errorf("get all backups: %v", err)
 			continue
 		}
 		for _, bak := range backups {
-			if backupNotCompleted(bak.Status, bak.Error) {
-				bak.Status = backup.Cancelled
-				bak.Error = "backup canceled due to node restart"
-				// TODO: make compatible with override bucket/path?
-				store, err := coordBackend(s.backends, backend.Name(), bak.ID, "", "")
-				if err != nil {
+			if !backupNotCompleted(bak.Status, bak.Error) {
+				continue
+			}
+
+			// Skip any backup ID that has a DTM record, active or terminal.
+			if s.dtm != nil {
+				dtmTask, dtmErr := s.dtm.GetDistributedTask(ctx, BackupTaskNamespace, bak.ID)
+				if dtmErr != nil {
+					// Skip the ID rather than cancel a backup that may still be alive.
 					s.logger.WithField("action", "cleanup_unfinished_backups").
-						Error(fmt.Errorf("init coordinator store: %w", err))
+						WithField("backup_id", bak.ID).
+						Warnf("DTM query error — skipping ID: %v", dtmErr)
 					continue
 				}
-				// TODO: make compatible with override bucket/path?
-				if err := store.PutMeta(ctx, GlobalBackupFile, bak, "", ""); err != nil {
+				if dtmTask != nil {
 					s.logger.WithField("action", "cleanup_unfinished_backups").
-						Error(fmt.Errorf("update meta file: %w", err))
+						WithField("backup_id", bak.ID).
+						Infof("skipping — DTM record exists (status %s)", dtmTask.Status)
 					continue
 				}
+			}
+
+			store, err := coordBackend(s.backends, backend.Name(), bak.ID, "", "")
+			if err != nil {
+				s.logger.WithField("action", "cleanup_unfinished_backups").
+					Errorf("init coordinator store: %v", err)
+				continue
+			}
+
+			// Re-read before writing to avoid racing a concurrent completion.
+			recheck, recheckErr := store.Meta(ctx, GlobalBackupFile, "", "")
+			if recheckErr != nil {
+				s.logger.WithField("action", "cleanup_unfinished_backups").
+					WithField("backup_id", bak.ID).
+					Warnf("re-check read error — skipping: %v", recheckErr)
+				continue
+			}
+			if !backupNotCompleted(recheck.Status, recheck.Error) {
+				continue
+			}
+
+			bak.Status = backup.Cancelled
+			bak.Error = "backup canceled due to node restart"
+			if err := store.PutMeta(ctx, GlobalBackupFile, bak, "", ""); err != nil {
+				s.logger.WithField("action", "cleanup_unfinished_backups").
+					Errorf("update meta file: %v", err)
+				continue
 			}
 		}
 	}
@@ -183,6 +284,11 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 		return nil, fmt.Errorf("init uploader: %w", err)
 	}
+
+	if s.dtmEnabled() {
+		return s.backupViaDTM(ctx, req, sel, store)
+	}
+
 	breq := Request{
 		Method:       OpCreate,
 		ID:           req.ID,
@@ -208,6 +314,101 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 			Path:    st.Path, // The HomeDir, not the override path
 			Bucket:  st.OverrideBucket,
 		}, nil
+	}
+}
+
+func (s *Scheduler) backupViaDTM(ctx context.Context, req *BackupRequest, sel backupSelections, store coordStore) (*models.BackupCreateResponse, error) {
+	leader := s.backupper.nodeResolver.LeaderID()
+	if leader == "" {
+		return nil, backup.NewErrUnprocessable(fmt.Errorf("no raft leader available, try again later"))
+	}
+
+	groups, err := s.backupper.groupByShard(ctx, sel.classes, leader)
+	if err != nil {
+		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	compressionType, err := CompressionTypeFromLevel(req.Level)
+	if err != nil {
+		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	payload := &taskPayload{
+		ID:              req.ID,
+		Backend:         req.Backend,
+		Nodes:           groups,
+		Leader:          leader,
+		Classes:         sel.classes,
+		Users:           sel.users,
+		Roles:           sel.roles,
+		Compression:     req.Compression,
+		Bucket:          req.Bucket,
+		Path:            req.Path,
+		BaseBackupID:    req.BaseBackupID,
+		ServerVersion:   config.ServerVersion,
+		CompressionType: compressionType,
+	}
+
+	payloadBytes, err := marshalTaskPayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal backup payload: %w", err)
+	}
+
+	// One unit per node and class. The group is the node.
+	var unitSpecs []distributedtask.UnitSpec
+	for nodeName, nd := range groups {
+		for _, cls := range nd.Classes {
+			unitSpecs = append(unitSpecs, distributedtask.UnitSpec{
+				ID:      fmt.Sprintf("%s/%s", nodeName, cls),
+				GroupID: nodeName,
+			})
+		}
+	}
+
+	addErr := s.dtm.ProposeBackupTask(
+		ctx, req.ID, payloadBytes, unitSpecs,
+		s.backupCfg.StaleTimeout.Milliseconds(), s.backupCfg.MaxUnitRetries,
+	)
+
+	if addErr != nil {
+		if errors.Is(addErr, distributedtask.ErrTaskAlreadyRunning) ||
+			errors.Is(addErr, distributedtask.ErrTaskConflict) {
+			existing, fetchErr := s.dtm.GetDistributedTask(ctx, BackupTaskNamespace, req.ID)
+			if fetchErr != nil {
+				return nil, fmt.Errorf("backup propose-retry: %w", fetchErr)
+			}
+			if existing == nil {
+				return nil, backup.NewErrUnprocessable(fmt.Errorf("backup %q conflicts with another operation: %w", req.ID, addErr))
+			}
+			if bytes.Equal(existing.Payload, payloadBytes) {
+				return s.buildDTMCreateResponse(req, sel, store, existing), nil
+			}
+			return nil, backup.NewErrUnprocessable(fmt.Errorf("backup ID %q is already in use with a different configuration", req.ID))
+		}
+		return nil, fmt.Errorf("propose backup task: %w", addErr)
+	}
+
+	status := string(backup.Started)
+	return &models.BackupCreateResponse{
+		Classes: sel.classes,
+		ID:      req.ID,
+		Backend: req.Backend,
+		Status:  &status,
+		Path:    store.HomeDir(req.Bucket, req.Path),
+		Bucket:  req.Bucket,
+	}, nil
+}
+
+func (s *Scheduler) buildDTMCreateResponse(req *BackupRequest, sel backupSelections, store coordStore, task *distributedtask.Task) *models.BackupCreateResponse {
+	st, _ := dtmStatusToBackup(task)
+	status := string(st)
+	return &models.BackupCreateResponse{
+		Classes: sel.classes,
+		ID:      req.ID,
+		Backend: req.Backend,
+		Status:  &status,
+		Path:    store.HomeDir(req.Bucket, req.Path),
+		Bucket:  req.Bucket,
 	}
 }
 
@@ -330,6 +531,20 @@ func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.P
 	return s.authorizer.Authorize(ctx, principal, verb, authorization.Backups(meta.Classes()...)...)
 }
 
+// authorizeTaskClasses authorizes the caller against the classes carried by a
+// DTM backup record. An unreadable payload authorizes nothing.
+func (s *Scheduler) authorizeTaskClasses(ctx context.Context, principal *models.Principal, verb string,
+	task *distributedtask.Task,
+) error {
+	payload, err := unmarshalTaskPayload(task.Payload)
+	if err != nil {
+		return fmt.Errorf("backup %q: unreadable task payload: %w", task.ID, err)
+	}
+	// authorization.Backups uppercases its input in place.
+	classes := append([]string(nil), payload.Classes...)
+	return s.authorizer.Authorize(ctx, principal, verb, authorization.Backups(classes...)...)
+}
+
 const metaReadAttempts = 3
 
 // metaWithRetry reads the backup meta, retrying briefly on a partial file mid-write
@@ -375,6 +590,26 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, err
 	}
 
+	if s.dtm != nil {
+		dtmTask, dtmErr := s.dtm.GetDistributedTask(ctx, BackupTaskNamespace, backupID)
+		if dtmErr != nil {
+			// Falling back to the legacy path is safe: the rollout gate means no
+			// DTM backup exists while an old node could be leader.
+			s.logger.WithField("backup_id", backupID).
+				Warnf("DTM status query failed, falling back to legacy path: %v", dtmErr)
+		} else if dtmTask != nil {
+			// The authorize above reads the global descriptor, which does not
+			// exist until the first node writes it. Until then, the task
+			// record's own classes scope this read.
+			if err := s.authorizeTaskClasses(ctx, principal, authorization.READ, dtmTask); err != nil {
+				return nil, err
+			}
+			st := s.taskProvider.dtmTaskToStatus(ctx, dtmTask)
+			return st, nil
+		}
+		// No task and no error means no DTM record; fall through to legacy.
+	}
+
 	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, ""}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
@@ -412,6 +647,12 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 
 func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
 ) error {
+	return s.CancelWithForce(ctx, principal, backend, backupID, overrideBucket, overridePath, false)
+}
+
+// CancelWithForce cancels a backup, optionally using force-terminate for SWAPPING tasks.
+func (s *Scheduler) CancelWithForce(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string, force bool,
+) error {
 	defer func(begin time.Time) {
 		var err error
 		logOperation(s.logger, "cancel_backup", backupID, backend, begin, err)
@@ -442,6 +683,17 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return backup.NewErrUnprocessable(idErr)
 	}
 
+	if s.dtm != nil {
+		dtmTask, dtmErr := s.dtm.GetDistributedTask(ctx, BackupTaskNamespace, backupID)
+		if dtmErr != nil {
+			return fmt.Errorf("cancel: DTM query failed: %w", dtmErr)
+		}
+		if dtmTask != nil {
+			return s.cancelDTMBackup(ctx, dtmTask, force)
+		}
+		// No task means no DTM record; fall through to legacy.
+	}
+
 	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
 		return fmt.Errorf("init uploader: %w", err)
 	}
@@ -469,6 +721,43 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	s.backupper.abortAll(ctx,
 		&AbortRequest{Method: OpCreate, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
 
+	return nil
+}
+
+func (s *Scheduler) cancelDTMBackup(ctx context.Context, task *distributedtask.Task, force bool) error {
+	if task.Status.IsTerminal() {
+		if task.Status == distributedtask.TaskStatusCancelled {
+			return nil
+		}
+		return backup.NewErrUnprocessable(fmt.Errorf("backup %q has already reached status %s", task.ID, task.Status))
+	}
+
+	// A STARTED task cancels normally.
+	if task.Status.IsCancellable() {
+		return s.dtm.CancelDistributedTask(ctx, BackupTaskNamespace, task.ID, task.Version)
+	}
+
+	// SWAPPING and PREPARING tasks need force.
+	if !force {
+		return backup.NewErrUnprocessable(fmt.Errorf(
+			"backup %q is in status %s and cannot be cancelled without ?force=true", task.ID, task.Status))
+	}
+
+	if !s.dtmEnabled() {
+		return backup.NewErrUnprocessable(fmt.Errorf(
+			"?force=true is refused while the backup DTM flag is off"))
+	}
+
+	err := s.dtm.ForceTerminateDistributedTask(
+		ctx, BackupTaskNamespace, task.ID, task.Version,
+		"operator force-cancel via REST", string(distributedtask.TaskStatusCancelled),
+	)
+	if err != nil {
+		if errors.Is(err, distributedtask.ErrForceTerminateRefused) {
+			return backup.NewErrUnprocessable(fmt.Errorf("force-terminate refused by the FSM: %w", err))
+		}
+		return fmt.Errorf("force-terminate: %w", err)
+	}
 	return nil
 }
 
