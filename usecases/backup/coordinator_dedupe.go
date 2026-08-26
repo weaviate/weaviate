@@ -21,13 +21,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
-// ReplicaCheckpointer proves per-shard replica convergence via async-replication
-// checkpoints. Implemented by *db.DB; nil on coordinators that never dedupe.
+// ReplicaCheckpointer proves per-shard replica convergence; implemented by *db.DB, nil on coordinators that never dedupe.
 type ReplicaCheckpointer interface {
 	// ShardReplicas returns shard name -> replica node names for class.
 	ShardReplicas(ctx context.Context, class string) (map[string][]string, error)
-	// IsAsyncReplicationEnabled reports whether the class's replicas are kept
-	// consistent by async replication (true also for RF=1, where it is irrelevant).
+	// IsAsyncReplicationEnabled is true when async replication keeps replicas consistent (also for RF=1, where it is irrelevant).
 	IsAsyncReplicationEnabled(ctx context.Context, class string) bool
 	CreateAsyncCheckpoints(ctx context.Context, class string, cutoffMs int64, shards []string) error
 	DeleteAsyncCheckpoints(ctx context.Context, class string, shards []string) error
@@ -35,7 +33,7 @@ type ReplicaCheckpointer interface {
 }
 
 const (
-	// _DedupeCutoffLead must exceed checkpoint-create fan-out latency: shards reject a cutoff already in the past.
+	// Must exceed checkpoint-create fan-out latency: shards reject a past cutoff.
 	_DedupeCutoffLead               = 10 * time.Second
 	_DedupePollInterval             = 3 * time.Second
 	_DefaultDedupeConvergenceBudget = 60 * time.Second
@@ -44,10 +42,8 @@ const (
 
 // dedupePlan is the outcome of convergence planning for one backup.
 type dedupePlan struct {
-	// designations maps class -> shard -> the single node that archives it.
-	designations map[string]map[string]string
-	// replicas maps class -> shard -> replica nodes, for per-node projection.
-	replicas map[string]map[string][]string
+	designations map[string]map[string]string // class -> shard -> archiving node
+	replicas     map[string]map[string][]string
 }
 
 // designated counts shards assigned to a single archiving node.
@@ -59,11 +55,7 @@ func (p *dedupePlan) designated() int {
 	return n
 }
 
-// planDesignatedShards proves per-shard replica convergence via async
-// checkpoints and designates one archiving node per converged shard. It never
-// fails the backup: every internal failure downgrades the affected shards to
-// the all-replica fallback. Checkpoints are deleted before returning: proving
-// convergence at the cutoff is sufficient, archiving needs no live checkpoint.
+// planDesignatedShards designates one archiving node per convergence-proven shard; failures only downgrade shards to all-replica fallback, and checkpoints are deleted before returning (archiving needs no live checkpoint).
 func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string, budget time.Duration) *dedupePlan {
 	defer func(begin time.Time) {
 		monitoring.GetMetrics().BackupDedupePlanningDurations.Observe(float64(time.Since(begin).Milliseconds()))
@@ -123,7 +115,6 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 		created = append(created, class)
 	}
 	defer func() {
-		// Leaked checkpoints are inert, but delete regardless of how planning exits.
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), _DedupeCleanupTimeout)
 		defer cancel()
 		for _, class := range created {
@@ -165,9 +156,7 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 	return plan
 }
 
-// pollConvergence polls checkpoint statuses until every candidate shard is
-// resolved (converged or dropped) or the budget expires. It returns
-// class -> shard -> replica nodes for converged shards only.
+// pollConvergence polls until every candidate shard converges or drops, returning class -> shard -> replicas for converged shards.
 func (c *coordinator) pollConvergence(ctx context.Context, candidates map[string][]string,
 	replicas map[string]map[string][]string, cutoffMs int64, budget time.Duration,
 ) map[string]map[string][]string {
@@ -207,10 +196,11 @@ func (c *coordinator) pollConvergence(ctx context.Context, candidates map[string
 					delete(shards, shard)
 					continue
 				}
-				// A create that failed everywhere leaves no entry at this cutoff; it can never converge.
-				if firstPoll && !anyEntryAtCutoff(entries, cutoffMs) {
+				// Checkpoint membership is final after create, so an entry absent on the first poll never appears later; only root equality is worth polling for.
+				if firstPoll && !replicaSetCompleteAtCutoff(entries, replicas[class][shard], cutoffMs) {
+					monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("create_failed").Inc()
 					c.log.WithField("action", OpCreate).WithField("class", class).WithField("shard", shard).
-						Debug("replica dedupe: shard falls back, no checkpoint created at cutoff")
+						Debug("replica dedupe: shard falls back, checkpoint missing on at least one replica")
 					delete(shards, shard)
 				}
 			}
@@ -236,9 +226,7 @@ func (c *coordinator) pollConvergence(ctx context.Context, candidates map[string
 	return converged
 }
 
-// convergedReplicaSet reports whether entries prove that every replica of the
-// shard holds identical data as of the checkpoint cutoff. Absent entries mean
-// a down node, an unloaded shard, or a dropped checkpoint - never agreement.
+// convergedReplicaSet is true when entries prove every replica identical at the cutoff; absent entries never mean agreement.
 func convergedReplicaSet(entries []replica.AsyncCheckpointNodeStatus, replicas []string, wantCutoffMs int64) bool {
 	replicaSet := uniqueNonEmpty(replicas)
 	if len(replicaSet) < 2 {
@@ -249,7 +237,8 @@ func convergedReplicaSet(entries []replica.AsyncCheckpointNodeStatus, replicas [
 		if _, ok := replicaSet[e.Node]; !ok {
 			return false
 		}
-		if prev, ok := byNode[e.Node]; ok && prev != e {
+		if prev, ok := byNode[e.Node]; ok &&
+			(prev.Root != e.Root || prev.CutoffMs != e.CutoffMs || prev.CreatedAt.UnixMilli() != e.CreatedAt.UnixMilli()) {
 			return false
 		}
 		if e.CutoffMs != wantCutoffMs {
@@ -268,25 +257,31 @@ func convergedReplicaSet(entries []replica.AsyncCheckpointNodeStatus, replicas [
 			seen = true
 			continue
 		}
-		if e.Root != first.Root || !e.CreatedAt.Equal(first.CreatedAt) {
+		// Millisecond precision: remote entries round-trip through created_at_ms, the local one keeps nanoseconds.
+		if e.Root != first.Root || e.CreatedAt.UnixMilli() != first.CreatedAt.UnixMilli() {
 			return false
 		}
 	}
 	return first.Root != (hashtree.Digest{})
 }
 
-func anyEntryAtCutoff(entries []replica.AsyncCheckpointNodeStatus, cutoffMs int64) bool {
+// replicaSetCompleteAtCutoff is true when every replica has an entry at the expected cutoff.
+func replicaSetCompleteAtCutoff(entries []replica.AsyncCheckpointNodeStatus, replicas []string, cutoffMs int64) bool {
+	at := make(map[string]struct{}, len(entries))
 	for _, e := range entries {
 		if e.CutoffMs == cutoffMs {
-			return true
+			at[e.Node] = struct{}{}
 		}
 	}
-	return false
+	for node := range uniqueNonEmpty(replicas) {
+		if _, ok := at[node]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
-// assignDesignations picks one archiving node per shard: least-loaded replica,
-// sorted shard order, lexicographic tie-break. loads is shared across classes
-// so multi-class backups balance cluster-wide.
+// assignDesignations picks the least-loaded replica per shard (sorted order, lexicographic ties); loads is shared across classes.
 func assignDesignations(shardReplicas map[string][]string, loads map[string]int) map[string]string {
 	shards := make([]string, 0, len(shardReplicas))
 	for shard := range shardReplicas {
@@ -313,8 +308,7 @@ func assignDesignations(shardReplicas map[string][]string, loads map[string]int)
 	return out
 }
 
-// projectDesignations returns the designation entries relevant to one node:
-// shards it replicates. Nil when nothing applies.
+// projectDesignations returns the entries for shards the node replicates; nil when none apply.
 func projectDesignations(plan *dedupePlan, nodeName string) map[string]map[string]string {
 	if plan == nil {
 		return nil
