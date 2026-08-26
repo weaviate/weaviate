@@ -2009,51 +2009,119 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_ShardMismatch(t *testing
 	require.Empty(t, ws.Replicas)
 }
 
-func TestSingleTenantRouter_BuildReadRoutingPlan_AllShards(t *testing.T) {
-	mockSchemaGetter := schema.NewMockSchemaGetter(t)
-	mockSchemaReader := schema.NewMockSchemaReader(t)
-	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
+// shardNodes is one shard's replica nodes as the schema holds them, and the subset the
+// replication FSM leaves after filtering that shard for reads. A shard ends up with no
+// read replica either because the FSM filters them all out or because the node selector
+// resolves no hostname for the ones left, and the two are independent.
+type shardNodes struct {
+	inSchema []string
+	readable []string
+}
 
-	shards := []string{"shard1", "shard2"}
-	state := createShardingStateWithShards([]string{"shard1", "shard2"})
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, state)
-	}).Maybe()
+// TestSingleTenantRouter_BuildReadRoutingPlan_ShardCoverage pins that a read plan fails
+// rather than silently omitting a shard that has no read replica.
+func TestSingleTenantRouter_BuildReadRoutingPlan_ShardCoverage(t *testing.T) {
+	const collection = "TestClass"
 
-	for _, shard := range shards {
-		mockSchemaReader.EXPECT().ShardReplicas("TestClass", shard).Return([]string{"node1"}, nil)
-		mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", shard, []string{"node1"}).
-			Return([]string{"node1"})
+	// Only node1 and node2 resolve to a hostname, so a replica on node9 is unresolvable.
+	resolvableNodes := []string{"node1", "node2"}
+
+	for _, tt := range []struct {
+		name string
+		// shards is the collection's shard list; targetShard is what the caller asks
+		// for, empty meaning all of them. nodesByShard holds a stub per shard the
+		// plan build is expected to visit.
+		shards       []string
+		targetShard  string
+		nodesByShard map[string]shardNodes
+		wantShards   []string
+		wantErr      string
+	}{
+		{
+			name:   "every shard has a read replica",
+			shards: []string{"shard1", "shard2"},
+			nodesByShard: map[string]shardNodes{
+				"shard1": {inSchema: []string{"node1"}, readable: []string{"node1"}},
+				"shard2": {inSchema: []string{"node1"}, readable: []string{"node1"}},
+			},
+			wantShards: []string{"shard1", "shard2"},
+		},
+		{
+			name:   "one of several shards has every replica filtered out of reads",
+			shards: []string{"shard1", "shard2", "shard3"},
+			nodesByShard: map[string]shardNodes{
+				"shard1": {inSchema: []string{"node1"}, readable: []string{"node1"}},
+				"shard2": {inSchema: []string{"node1"}, readable: []string{}},
+				"shard3": {inSchema: []string{"node1"}, readable: []string{"node1"}},
+			},
+			wantErr: `no read replica found for shards ["shard2"]`,
+		},
+		{
+			name:   "a shard's only read replica sits on a node that resolves to no hostname",
+			shards: []string{"shard1", "shard2"},
+			nodesByShard: map[string]shardNodes{
+				"shard1": {inSchema: []string{"node1"}, readable: []string{"node1"}},
+				"shard2": {inSchema: []string{"node9"}, readable: []string{"node9"}},
+			},
+			wantErr: `no read replica found for shards ["shard2"]`,
+		},
+		{
+			name:   "a shard keeps its resolvable read replica when another resolves to no hostname",
+			shards: []string{"shard1", "shard2"},
+			nodesByShard: map[string]shardNodes{
+				"shard1": {inSchema: []string{"node1", "node9"}, readable: []string{"node1", "node9"}},
+				"shard2": {inSchema: []string{"node1"}, readable: []string{"node1"}},
+			},
+			wantShards: []string{"shard1", "shard2"},
+		},
+		{
+			name:        "the targeted shard has no read replica",
+			shards:      []string{"shard1", "shard2"},
+			targetShard: "shard2",
+			nodesByShard: map[string]shardNodes{
+				"shard2": {inSchema: []string{"node1"}, readable: []string{}},
+			},
+			wantErr: `no read replica found for shards ["shard2"]`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mockSchemaGetter := schema.NewMockSchemaGetter(t)
+			mockSchemaReader := schema.NewMockSchemaReader(t)
+			mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+			mockNodeSelector := mocks.NewMockNodeSelector(resolvableNodes...)
+
+			state := createShardingStateWithShards(tt.shards)
+			mockSchemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
+			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+				return readFunc(&models.Class{Class: className}, state)
+			}).Maybe()
+
+			for shard, nodes := range tt.nodesByShard {
+				mockSchemaReader.EXPECT().ShardReplicas(collection, shard).Return(nodes.inSchema, nil)
+				mockReplicationFSM.EXPECT().FilterOneShardReplicasRead(collection, shard, nodes.inSchema).
+					Return(nodes.readable)
+			}
+
+			r := router.NewBuilder(collection, false, mockNodeSelector, mockSchemaGetter,
+				mockSchemaReader, mockReplicationFSM).Build()
+
+			plan, err := r.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
+				Tenant:           "",
+				Shard:            tt.targetShard,
+				ConsistencyLevel: types.ConsistencyLevelOne,
+			})
+
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErr)
+				require.Empty(t, plan.ReplicaSet.Replicas)
+				return
+			}
+
+			require.NoError(t, err)
+			require.ElementsMatch(t, tt.wantShards, plan.Shards())
+		})
 	}
-
-	r := router.NewBuilder(
-		"TestClass",
-		false,
-		mockNodeSelector,
-		mockSchemaGetter,
-		mockSchemaReader,
-		mockReplicationFSM,
-	).Build()
-
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:           "",
-		Shard:            "",
-		ConsistencyLevel: types.ConsistencyLevelOne,
-	}
-
-	plan, err := r.BuildReadRoutingPlan(opts)
-	require.NoError(t, err)
-	require.Len(t, plan.ReplicaSet.Replicas, 2, "should have replicas from all shards")
-
-	shardNames := make(map[string]bool)
-	for _, replica := range plan.ReplicaSet.Replicas {
-		shardNames[replica.ShardName] = true
-	}
-	require.True(t, shardNames["shard1"], "should have replica from shard1")
-	require.True(t, shardNames["shard2"], "should have replica from shard2")
 }
 
 // TestMultiTenantRouter_BuildReadRoutingPlan_TenantActivation pins who may activate a tenant
