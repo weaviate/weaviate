@@ -48,6 +48,8 @@ func classifyCanCommitErr(err error) CanCommitErrorKind {
 
 // Version of backup structure
 const (
+	// "3.0" replica-deduped artifact layout; requires fan-out restore
+	VersionDedupeReplicas = "3.0"
 	// "2.1" support restore on 2 phases
 	Version = "2.1"
 	// "2.0" support compression
@@ -70,8 +72,8 @@ func legacyRestoreErr(origin string) error {
 		"release that still supports it and create a new backup", origin)
 }
 
-// maxMajorVersion is the newest backup-structure major version this build restores.
-var maxMajorVersion, _ = parseMajor(Version)
+// maxRestorableMajorVersion is the newest backup-structure major this build restores; 3.x = replica-deduped layout.
+const maxRestorableMajorVersion = 3
 
 // checkRestorableVersion refuses backups this build cannot restore, either because their
 // format is too old or because a later Weaviate produced them. version is the
@@ -85,8 +87,8 @@ func checkRestorableVersion(version, serverVersion string) error {
 		return errLegacyFlatFS
 	}
 	// A structure version may omit the minor, so compare majors only.
-	if major, ok := parseMajor(version); ok && major > maxMajorVersion {
-		return fmt.Errorf("%s: %s > %s", errMsgHigherVersion, version, Version)
+	if major, ok := parseMajor(version); ok && major > maxRestorableMajorVersion {
+		return fmt.Errorf("%s: %s > %d.x", errMsgHigherVersion, version, maxRestorableMajorVersion)
 	}
 	return nil
 }
