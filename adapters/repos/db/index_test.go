@@ -276,6 +276,7 @@ func TestIndex_getShardsStatus(t *testing.T) {
 		"shard_local":          clusterNodes,
 		"shard_not_local":      clusterNodes[1:],
 		"remote_not_reachable": clusterNodes,
+		"inactive":             {targetNode},
 	}
 	shardStatus := map[string]map[string]string{
 		"shard_local": {
@@ -303,7 +304,9 @@ func TestIndex_getShardsStatus(t *testing.T) {
 		"shard_local":          storagestate.StatusReady.String(),
 		"shard_not_local":      storagestate.StatusIndexing.String(),
 		"remote_not_reachable": storagestate.StatusReady.String(),
+		"inactive":             models.TenantActivityStatusCOLD,
 	}
+	want["inactive"] = map[string]string{targetNode: models.TenantActivityStatusCOLD}
 
 	var replicas []types.Replica
 	for shard, nodes := range shardReplicas {
@@ -346,6 +349,13 @@ func TestIndex_getShardsStatus(t *testing.T) {
 			assert.Contains(t, shardReplicas, shardName)
 			return shardReplicas[shardName], nil
 		}).Maybe()
+	schemaReader.EXPECT().
+		Read("Songs", true, mock.Anything).
+		RunAndReturn(func(_ string, _ bool, reader func(*models.Class, *sharding.State) error) error {
+			return reader(nil, &sharding.State{Physical: map[string]sharding.Physical{
+				"inactive": {Name: "inactive", Status: models.TenantActivityStatusCOLD},
+			}})
+		}).Once()
 
 	nodeResolver := cluster.NewMockNodeResolver(t)
 	nodeResolver.EXPECT().

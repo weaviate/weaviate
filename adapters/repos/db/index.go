@@ -4084,6 +4084,18 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 	if err != nil {
 		return nil, nil, err
 	}
+	shardActivityStatus := make(map[string]string, len(shardNames))
+	if err := i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return nil
+		}
+		for shardName, physical := range state.Physical {
+			shardActivityStatus[shardName] = physical.ActivityStatus()
+		}
+		return nil
+	}); err != nil {
+		return nil, nil, err
+	}
 
 	var mu sync.Mutex // guards shardsStatus and legacyStatus
 	shardsStatus := make(map[string]map[string]string, len(shardNames))
@@ -4133,6 +4145,14 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 						oneNodeStatus.CompareAndSwap(nil, status)
 						perNodeStatus[nodeName] = status
 					}
+				}
+				if err != nil && shardActivityStatus[shardName] == models.TenantActivityStatusCOLD {
+					// COLD/INACTIVE shards are intentionally unloaded from every node.
+					// Their activity status in the schema is authoritative when the
+					// local or remote shard lookup cannot find an in-memory shard.
+					err = nil
+					oneNodeStatus.CompareAndSwap(nil, models.TenantActivityStatusCOLD)
+					perNodeStatus[nodeName] = models.TenantActivityStatusCOLD
 				}
 
 				if errors.Is(err, errAlreadyShutdown) {
