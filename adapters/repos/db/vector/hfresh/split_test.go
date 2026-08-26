@@ -251,9 +251,7 @@ func TestCentroidDistanceQuantizerMismatch(t *testing.T) {
 
 	initializeDimensions(t, &tf, centers[0])
 	quantizer := tf.Index.quantizer
-	// the test helper builds Distancer without its sync.Pool; construct it
-	// the way production does (insert.go)
-	dist := NewDistancer(quantizer, tf.Index.config.DistanceProvider)
+	dist := tf.Index.distancer
 
 	oneBitCode := func(v []float32) []byte {
 		return quantizer.CompressedBytes(quantizer.Encode(v))
