@@ -3322,9 +3322,8 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 		return nil // shard was not found, nothing to unload
 	}
 
-	// The shutdown retries for seconds while enterRead holds the index open, so
-	// it has to give that wait up on a close request rather than leave a
-	// teardown waiting for it to finish.
+	// The shutdown retries for seconds while enterRead holds the index open. A
+	// close request has to end that wait, or the teardown blocks behind it.
 	shutdownCtx, done := i.cancelOnCloseRequested(ctx)
 	defer done()
 
@@ -3337,10 +3336,9 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 				Debugf("shard was already shut or dropped: %v", err)
 			return nil
 		}
-		// backoff reports the aborted wait as a plain cancellation, so only the
-		// close cause names the teardown that stopped the unload. It is joined
-		// rather than substituted: a shutdown that failed on its own can carry a
-		// cancellation too, and that failure is what a caller has to act on.
+		// backoff reports the aborted wait as a plain cancellation, so only
+		// context.Cause names the teardown. The two are joined because a shutdown
+		// that failed on its own also cancels, and that is what to act on.
 		if shutdownCtx.Err() != nil && ctx.Err() == nil && errors.Is(err, context.Canceled) {
 			err = fmt.Errorf("%w: %w", context.Cause(shutdownCtx), err)
 		}

@@ -2810,7 +2810,7 @@ func TestPerformShutdownSkipsDumpWhenStoreShutdownFails(t *testing.T) {
 	}
 	enableAndAwaitAsync(t, ctx, s)
 
-	// the store is closed first to make its shutdown fail; the teardown itself
+	// the store is closed first to make its shutdown fail. The teardown itself
 	// runs to completion whatever the caller's context does
 	require.NoError(t, s.store.Shutdown(ctx))
 	require.ErrorContains(t, s.performShutdown(ctx), "stop lsmkv store",

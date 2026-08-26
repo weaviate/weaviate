@@ -399,8 +399,8 @@ func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
 		},
 		{
 			// A close request ends the retry wait, never a teardown already past
-			// the shut mark: every step after that mark consumes ctx, so giving
-			// it up there would leave the shard torn instead of closed.
+			// s.shut: every step after that consumes ctx, so giving it up there
+			// would leave buckets unflushed on a shard that reads as shut.
 			name: "close request does not interrupt an idle shard's teardown",
 			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
 				index.signalCloseRequested(errIndexShutdown)
@@ -420,9 +420,9 @@ func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
 			wantStillInMap: true,
 		},
 		{
-			// The close cause must not swallow a tear whose own failure carries a
-			// cancellation: matching on the cancellation alone would report the
-			// shard as merely stopped and hide the handles it still holds.
+			// The cause UnloadLocalShard joins must not hide a tear whose own
+			// failure carries a cancellation: matching on the cancellation alone
+			// reports the shard as stopped and hides the handles it still holds.
 			name: "close request keeps a cancelled tear matchable",
 			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
 				tearShard(t, index.shards.Load(shardName),
