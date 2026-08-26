@@ -1035,6 +1035,26 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("UnparseableVersionRefused", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		meta := backup.DistributedBackupDescriptor{
+			ID:            id,
+			StartedAt:     timePt,
+			Version:       "x.0",
+			ServerVersion: "2",
+			Status:        backup.Success,
+			Nodes: map[string]*backup.NodeDescriptor{
+				nodeName: {Classes: []string{cls}},
+			},
+		}
+		bytes := marshalCoordinatorMeta(meta)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		_, err := fs.scheduler().Restore(ctx, nil, req, false)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "unrecognized structure version")
+	})
+
 	t.Run("CorruptedBackupFile", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Success})

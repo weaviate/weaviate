@@ -15,6 +15,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/backup"
 )
 
 func TestFilterDesignatedShards(t *testing.T) {
@@ -59,6 +62,20 @@ func TestFilterDesignatedShards(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestCollectShardBaseDescrsSkipsShardlessBases(t *testing.T) {
+	idx := &Index{}
+	base := []*backup.ClassDescriptor{
+		{BackupID: "base-1", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "n1"}}},
+		{BackupID: "base-2", Shards: []*backup.ShardDescriptor{{Name: "s2", Node: "n1"}}},
+	}
+
+	assert.Nil(t, idx.collectShardBaseDescrs("deduped-away", base))
+
+	got := idx.collectShardBaseDescrs("s2", base)
+	require.Len(t, got, 1)
+	assert.Equal(t, "base-2", got[0].BackupID)
 }
 
 func TestVerifyDesignatedLocalShards(t *testing.T) {
