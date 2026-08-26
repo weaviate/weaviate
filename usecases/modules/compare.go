@@ -131,8 +131,10 @@ func renderSourceValue(v any) string {
 		if b, err := json.Marshal(val); err == nil {
 			return string(b)
 		}
+		return fmt.Sprintf("%v", v)
+	default:
+		return fmt.Sprintf("%v", v)
 	}
-	return fmt.Sprintf("%v", v)
 }
 
 func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
