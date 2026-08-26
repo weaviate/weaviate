@@ -54,8 +54,8 @@ const (
 	_TimeoutCanCommit = 30 * time.Second
 	// Fan-out restore participants read every source's descriptor inside canCommit; N reads of large descriptors need more than the create budget.
 	_TimeoutDedupeRestoreCanCommit = 120 * time.Second
-	_NextRoundPeriod    = 10 * time.Second
-	_MaxNumberConns     = 16
+	_NextRoundPeriod               = 10 * time.Second
+	_MaxNumberConns                = 16
 )
 
 type nodeMap map[string]*backup.NodeDescriptor
