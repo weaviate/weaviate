@@ -286,7 +286,7 @@ func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, te
 		return status, version, err
 	}
 
-	return m.activateTenantIfInactive(ctx, class, status)
+	return m.activateTenantIfInactive(ctx, class, status, version)
 }
 
 // OptimisticTenantStatus tries to query the local state first
@@ -348,7 +348,7 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 }
 
 func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
-	status map[string]string,
+	status map[string]string, queriedVersion uint64,
 ) (map[string]string, uint64, error) {
 	req := &api.UpdateTenantsRequest{
 		Tenants:               make([]*api.Tenant, 0, len(status)),
@@ -363,8 +363,8 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	}
 
 	if len(req.Tenants) == 0 {
-		// nothing to do, all tenants are already HOT
-		return status, 0, nil
+		// The query still read the tenant at a version the caller has to reach.
+		return status, queriedVersion, nil
 	}
 
 	schemaVersion, err := m.schemaManager.UpdateTenants(ctx, class, req)
@@ -381,7 +381,8 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 		status[t.Name] = models.TenantActivityStatusHOT
 	}
 
-	return status, schemaVersion, nil
+	// Both index the same RAFT log, so the caller has to reach the later one.
+	return status, max(queriedVersion, schemaVersion), nil
 }
 
 func (m *Manager) AllowImplicitTenantActivation(class string) bool {
