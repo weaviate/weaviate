@@ -65,7 +65,15 @@ func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.
 		byNewName[newName] = oldName
 	}
 
+	// The schema slice is the full archive; the descriptor's classes are the include/exclude/authz-filtered selection. Anything outside it must not enroll participants, pollute class lists, or gate resolvability.
+	selected := make(map[string]struct{}, len(c.descriptor.Nodes))
+	for _, class := range c.descriptor.Classes() {
+		selected[class] = struct{}{}
+	}
 	for i := range schema {
+		if _, ok := selected[schema[i].Name]; !ok {
+			continue
+		}
 		var state shardingStateSubset
 		if err := json.Unmarshal(schema[i].ShardingState, &state); err != nil {
 			return fmt.Errorf("class %q: unmarshal archived sharding state: %w", schema[i].Name, err)
