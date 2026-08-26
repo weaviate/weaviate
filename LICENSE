@@ -1,27 +1,19 @@
-Copyright (c) 2020-2025, Weaviate B.V.
-All rights reserved.
+Source code in this repository is variously licensed under the BSD-3-Clause
+License, or the Weaviate License.
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
+The license of all source code can be identified by its location in this
+repository:
 
-1. Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
+* Outside of the "wl" directory, source code in a given file is licensed under
+  the BSD-3-Clause License, as defined in LICENSE-BSD.
 
-2. Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
+* Within the "wl" directory and all its sub-directories, source code in a
+  givenfile is licensed under the Weaviate license, as defined in
+  wl/LICENSE-WEAVIATE.
 
-3. Neither the name of the copyright holder nor the names of its
-   contributors may be used to endorse or promote products derived from
-   this software without specific prior written permission.
+When built, Weaviate-licensed features are toggled using an environment
+variable. Setting WEAVIATE_LICENSE to any value other than a blank string or
+false, includes Weaviate-licensed source code in the binary. When the
+environment variable is omitted or explicitly set it to false, only
+BSD-3-Clause-licensed code is executed.
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
