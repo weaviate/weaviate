@@ -1668,7 +1668,7 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, userLister, roleLister, appState.Modules,
+		appState.DB, appState.DB, userLister, roleLister, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),

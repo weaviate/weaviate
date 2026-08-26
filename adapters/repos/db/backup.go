@@ -242,6 +242,35 @@ func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
 	return nodes, nil
 }
 
+// ShardReplicas returns shard name -> replica node names for class, skipping
+// empty node names. Shards with no valid replica are omitted.
+func (db *DB) ShardReplicas(ctx context.Context, class string) (map[string][]string, error) {
+	shardReplicas := make(map[string][]string)
+
+	err := db.schemaReader.Read(class, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", class)
+		}
+		for shardName, shard := range state.Physical {
+			validNodes := make([]string, 0, len(shard.BelongsToNodes))
+			for _, node := range shard.BelongsToNodes {
+				if node != "" {
+					validNodes = append(validNodes, node)
+				}
+			}
+			if len(validNodes) > 0 {
+				shardReplicas[shardName] = validNodes
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", class, err)
+	}
+
+	return shardReplicas, nil
+}
+
 func (db *DB) ListClasses(ctx context.Context) []string {
 	classes := db.schemaGetter.GetSchemaSkipAuth().Objects.Classes
 	classNames := make([]string, len(classes))
