@@ -355,7 +355,7 @@ func TestIndex_getShardsStatus(t *testing.T) {
 			return reader(nil, &sharding.State{Physical: map[string]sharding.Physical{
 				"inactive": {Name: "inactive", Status: models.TenantActivityStatusCOLD},
 			}})
-		}).Once()
+		}).Maybe()
 
 	nodeResolver := cluster.NewMockNodeResolver(t)
 	nodeResolver.EXPECT().
@@ -400,6 +400,13 @@ func TestIndex_getShardsStatus(t *testing.T) {
 	assert.NoError(t, err)
 	require.Equal(t, want, got, "shard statuses")
 	require.Equal(t, wantLegacy, gotLegacy, "legacy statuses")
+
+	// A shutdown error must not be converted into the schema's COLD fallback.
+	index.closed = true
+	got, gotLegacy, err = index.getShardsStatus(t.Context(), "inactive")
+	assert.Nil(t, got)
+	assert.Nil(t, gotLegacy)
+	assert.ErrorIs(t, err, errAlreadyShutdown)
 }
 
 // TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement pins the

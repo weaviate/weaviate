@@ -4147,6 +4147,11 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 					}
 				}
 				if err != nil && shardActivityStatus[shardName] == models.TenantActivityStatusCOLD {
+					// Preserve shutdown errors. A COLD fallback must not hide a
+					// concurrent index teardown.
+					if errors.Is(err, errAlreadyShutdown) {
+						return err
+					}
 					// COLD/INACTIVE shards are intentionally unloaded from every node.
 					// Their activity status in the schema is authoritative when the
 					// local or remote shard lookup cannot find an in-memory shard.
