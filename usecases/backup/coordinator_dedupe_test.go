@@ -37,6 +37,7 @@ type fakeCheckpointer struct {
 	statusErr     map[string]error
 	converge      map[string]bool
 	diverge       map[string]bool
+	partial       map[string]bool
 	cutoffByClass map[string]int64
 	createCalls   []string
 	deleteCalls   []string
@@ -54,6 +55,7 @@ func newFakeCheckpointer() *fakeCheckpointer {
 		statusErr:     map[string]error{},
 		converge:      map[string]bool{},
 		diverge:       map[string]bool{},
+		partial:       map[string]bool{},
 		cutoffByClass: map[string]int64{},
 		statusCalls:   map[string]int{},
 		createdAt:     time.Now().UTC(),
@@ -122,6 +124,13 @@ func (f *fakeCheckpointer) GetAsyncCheckpointNodeStatuses(_ context.Context, cla
 					Node: node, CutoffMs: cutoff, CreatedAt: f.createdAt, Root: hashtree.Digest{uint64(i + 1), 0},
 				})
 			}
+		case f.partial[key]:
+			nodes := f.shardReplicas[class][shard]
+			for _, node := range nodes[:len(nodes)-1] {
+				out[shard] = append(out[shard], replica.AsyncCheckpointNodeStatus{
+					Node: node, CutoffMs: cutoff, CreatedAt: f.createdAt, Root: f.root,
+				})
+			}
 		}
 	}
 	return out, nil
@@ -163,6 +172,7 @@ func TestConvergedReplicaSet(t *testing.T) {
 		{name: "cutoff mismatch", entries: []replica.AsyncCheckpointNodeStatus{full[0], full[1], entry("n3", 99, createdAt, root)}, replicas: replicas, cutoff: 100, want: false},
 		{name: "inactive entry", entries: []replica.AsyncCheckpointNodeStatus{full[0], full[1], entry("n3", 0, time.Time{}, hashtree.Digest{})}, replicas: replicas, cutoff: 100, want: false},
 		{name: "createdAt mismatch", entries: []replica.AsyncCheckpointNodeStatus{full[0], full[1], entry("n3", 100, createdAt.Add(time.Millisecond), root)}, replicas: replicas, cutoff: 100, want: false},
+		{name: "local nanosecond vs remote millisecond createdAt", entries: []replica.AsyncCheckpointNodeStatus{entry("n1", 100, createdAt.Truncate(time.Millisecond).Add(431*time.Microsecond), root), entry("n2", 100, createdAt.Truncate(time.Millisecond), root), entry("n3", 100, createdAt.Truncate(time.Millisecond), root)}, replicas: replicas, cutoff: 100, want: true},
 		{name: "root mismatch", entries: []replica.AsyncCheckpointNodeStatus{full[0], full[1], entry("n3", 100, createdAt, hashtree.Digest{9, 9})}, replicas: replicas, cutoff: 100, want: false},
 		{name: "consistent duplicate entries", entries: append(append([]replica.AsyncCheckpointNodeStatus{}, full...), full[0]), replicas: replicas, cutoff: 100, want: true},
 		{name: "conflicting duplicate entries", entries: append(append([]replica.AsyncCheckpointNodeStatus{}, full...), entry("n1", 100, createdAt, hashtree.Digest{9, 9})), replicas: replicas, cutoff: 100, want: false},
@@ -299,6 +309,21 @@ func TestPlanDesignatedShards(t *testing.T) {
 	t.Run("silent create failure early-drops without burning budget", func(t *testing.T) {
 		f := newFakeCheckpointer()
 		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
+		c := newDedupeCoordinator(f)
+		c.dedupeConvergenceBudget = 5 * time.Second
+
+		start := time.Now()
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0)
+		assert.Equal(t, 0, plan.designated())
+		assert.Less(t, time.Since(start), 2*time.Second)
+		assert.Equal(t, 1, f.statusCalls["C1"])
+		assert.Equal(t, []string{"C1"}, f.deleteCalls)
+	})
+
+	t.Run("checkpoint missing on one replica early-drops without burning budget", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2", "n3"}}
+		f.partial["C1/s1"] = true
 		c := newDedupeCoordinator(f)
 		c.dedupeConvergenceBudget = 5 * time.Second
 
