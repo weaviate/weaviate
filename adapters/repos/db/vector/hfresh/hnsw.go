@@ -45,7 +45,17 @@ func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
 		}
 		c.Compressed = distancer.quantizer.CompressedBytes(distancer.quantizer.Encode(c.Uncompressed))
 	}
-	return v.DistanceWithRaw(distancer, c.Compressed)
+	dist, err := v.DistanceWithRaw(distancer, c.Compressed)
+	if err != nil {
+		return 0, err
+	}
+	// The split/merge reassignment gates compare these distances with plain
+	// <, >= — NaN makes every comparison false and silently disables the
+	// gates instead of failing the operation, so reject it here.
+	if math.IsNaN(float64(dist)) {
+		return 0, errors.Errorf("NaN distance between vector %d and centroid (incompatible code formats?)", v.ID())
+	}
+	return dist, nil
 }
 
 type HNSWIndex struct {
