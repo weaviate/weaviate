@@ -24,6 +24,7 @@ import (
 	contextualai "github.com/weaviate/weaviate/modules/generative-contextualai/parameters"
 	databricks "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
 	deepseek "github.com/weaviate/weaviate/modules/generative-deepseek/parameters"
+	digitalocean "github.com/weaviate/weaviate/modules/generative-digitalocean/parameters"
 	friendliai "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	google "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistral "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
@@ -1299,6 +1300,88 @@ func Test_RequestParser(t *testing.T) {
 						FrequencyPenalty: makeFloat64Ptr(0.6),
 						PresencePenalty:  makeFloat64Ptr(0.7),
 						TopP:             makeFloat64Ptr(0.8),
+						Stop:             []string{"stop"},
+					},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; nil dynamic digitalocean",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Digitalocean{},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt:  makeStrPtr("prompt"),
+				Options: nil,
+			},
+		},
+		{
+			name:       "generative search; single response; empty dynamic digitalocean",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Digitalocean{
+								Digitalocean: &pb.GenerativeDigitalOcean{},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"digitalocean": digitalocean.Params{},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; full dynamic digitalocean",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Digitalocean{
+								Digitalocean: &pb.GenerativeDigitalOcean{
+									BaseUrl:          makeStrPtr("baseURL"),
+									Model:            makeStrPtr("model"),
+									Temperature:      makeFloat64Ptr(0.5),
+									TopP:             makeFloat64Ptr(0.8),
+									MaxTokens:        makeInt64Ptr(10),
+									FrequencyPenalty: makeFloat64Ptr(0.6),
+									PresencePenalty:  makeFloat64Ptr(0.7),
+									Stop: &pb.TextArray{
+										Values: []string{"stop"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"digitalocean": digitalocean.Params{
+						BaseURL:          "baseURL",
+						Model:            "model",
+						Temperature:      makeFloat64Ptr(0.5),
+						TopP:             makeFloat64Ptr(0.8),
+						MaxTokens:        makeIntPtr(10),
+						FrequencyPenalty: makeFloat64Ptr(0.6),
+						PresencePenalty:  makeFloat64Ptr(0.7),
 						Stop:             []string{"stop"},
 					},
 				},
