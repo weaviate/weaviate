@@ -214,6 +214,8 @@ type uploader struct {
 	roles    []string
 	backend  nodeStore
 	backupID string
+	// class -> shard -> archiving node; nil = every local shard.
+	shardDesignations map[string]map[string]string
 	zipConfig
 	// slot is the node's own operation slot, which is what a status poll reads
 	// until the descriptor is written to the backend.
@@ -255,6 +257,11 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 	return u
 }
 
+func (u *uploader) withShardDesignations(designations map[string]map[string]string) *uploader {
+	u.shardDesignations = designations
+	return u
+}
+
 // all uploads all files in addition to the metadata file
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.slot.set(backup.Transferring)
@@ -262,7 +269,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	// all owns the producer's context so it can be stopped before any index is
 	// released. Without that the wait covers every class the backup never reached.
 	producerCtx, stopProducer := context.WithCancel(ctx)
-	ch := u.sourcer.BackupDescriptors(producerCtx, desc.ID, classes, baseDescr)
+	ch := u.sourcer.BackupDescriptors(producerCtx, desc.ID, classes, baseDescr, u.shardDesignations)
 	// A class the producer snapshots after the release below stays marked in
 	// progress, and the next backup of that class fails. Draining to close is what
 	// proves it stopped. Draining twice costs nothing, so the normal path calls

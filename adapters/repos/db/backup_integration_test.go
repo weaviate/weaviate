@@ -112,7 +112,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			err := db.Backupable(ctx, classes)
 			assert.Nil(t, err)
 
-			ch := db.BackupDescriptors(ctx, backupID, classes, nil)
+			ch := db.BackupDescriptors(ctx, backupID, classes, nil, nil)
 
 			for d := range ch {
 				assert.Equal(t, className, d.Name)
@@ -193,7 +193,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			timeoutCtx, cancel := context.WithTimeout(context.Background(), 0)
 			defer cancel()
 
-			ch := db.BackupDescriptors(timeoutCtx, backupID, classes, nil)
+			ch := db.BackupDescriptors(timeoutCtx, backupID, classes, nil, nil)
 			for d := range ch {
 				require.NotNil(t, d.Error)
 				assert.Contains(t, d.Error.Error(), "context deadline exceeded")
@@ -654,7 +654,7 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 	require.Nil(t, db.Backupable(ctx, classes))
 
 	var classDescs []entBackup.ClassDescriptor
-	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
+	ch := db.BackupDescriptors(ctx, backupID, classes, nil, nil)
 	for d := range ch {
 		require.Nil(t, d.Error)
 		classDescs = append(classDescs, d)
@@ -856,7 +856,7 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 	require.Nil(t, db.Backupable(ctx, classes))
 
 	var classDescs []entBackup.ClassDescriptor
-	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
+	ch := db.BackupDescriptors(ctx, backupID, classes, nil, nil)
 	for d := range ch {
 		require.Nil(t, d.Error)
 		classDescs = append(classDescs, d)
@@ -899,7 +899,7 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 	require.Nil(t, db.Backupable(ctx, classes))
 
 	var classDescs2 []entBackup.ClassDescriptor
-	ch2 := db.BackupDescriptors(ctx, backupID+"-2", classes, nil)
+	ch2 := db.BackupDescriptors(ctx, backupID+"-2", classes, nil, nil)
 	for d := range ch2 {
 		require.Nil(t, d.Error)
 		classDescs2 = append(classDescs2, d)

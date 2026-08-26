@@ -74,6 +74,20 @@ type Request struct {
 	RestoreOverwriteAlias bool
 
 	BaseBackupID string
+
+	// DedupeReplicas marks a replica-deduped backup: on create it echoes the
+	// user's opt-in, on restore it marks a fan-out restore. Older nodes ignore it.
+	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
+
+	// DedupeConvergenceTimeoutSeconds bounds convergence planning; consumed by
+	// the coordinator only, 0 means the default budget.
+	DedupeConvergenceTimeoutSeconds int `json:"dedupeConvergenceTimeoutSeconds,omitempty"`
+
+	// ShardDesignations maps class -> shard -> the single node that archives it.
+	// EXCLUSION semantics: a participant skips a local shard only when a
+	// DIFFERENT node is named for it; absent shards are archived by every
+	// replica, so any drift degrades to duplication, never omission.
+	ShardDesignations map[string]map[string]string `json:"shardDesignations,omitempty"`
 }
 
 // CanCommitErrorKind is a coarse, JSON-stable classification of a remote
@@ -111,6 +125,9 @@ type CanCommitResponse struct {
 	// empty. Older nodes never set this field; consumers must treat the
 	// zero value as [CanCommitErrCannotCommit].
 	ErrKind CanCommitErrorKind `json:"err_kind,omitempty"`
+	// DedupeHonored acks that the participant understood DedupeReplicas. Older
+	// nodes never set it; the coordinator aborts a dedupe backup without it.
+	DedupeHonored bool `json:"dedupe_honored,omitempty"`
 }
 
 type StatusRequest struct {

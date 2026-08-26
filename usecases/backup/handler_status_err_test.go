@@ -195,7 +195,7 @@ func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 			close(descriptors)
 
 			sourcer := &fakeSourcer{}
-			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything, mock.Anything).
 				Return((<-chan backup.ClassDescriptor)(descriptors))
 			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
 
@@ -261,7 +261,7 @@ func TestUploaderPublishesSuccessOnlyOnceTheDescriptorIsWritten(t *testing.T) {
 			close(descriptors)
 
 			sourcer := &fakeSourcer{}
-			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything, mock.Anything).
 				Return((<-chan backup.ClassDescriptor)(descriptors))
 			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
 
@@ -307,7 +307,7 @@ func TestUploaderPublishesAnAbortAsCancelled(t *testing.T) {
 	close(descriptors)
 
 	sourcer := &fakeSourcer{}
-	sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+	sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything, mock.Anything).
 		Return((<-chan backup.ClassDescriptor)(descriptors))
 	sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
 
@@ -377,7 +377,7 @@ func TestHandlerOnStatusServesTheReasonAfterTheCreateGoroutineExits(t *testing.T
 
 	sourcer := &fakeSourcer{}
 	sourcer.On("Backupable", mock.Anything, []string{class}).Return(nil)
-	sourcer.On("BackupDescriptors", mock.Anything, backupID, mock.Anything, mock.Anything).
+	sourcer.On("BackupDescriptors", mock.Anything, backupID, mock.Anything, mock.Anything, mock.Anything).
 		Return((<-chan backup.ClassDescriptor)(descriptors))
 	sourcer.On("ReleaseBackup", mock.Anything, backupID, mock.Anything).Return(nil)
 

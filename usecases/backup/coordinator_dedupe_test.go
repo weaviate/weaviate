@@ -13,14 +13,17 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -354,5 +357,118 @@ func TestPlanDesignatedShards(t *testing.T) {
 		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0)
 		assert.Equal(t, 0, plan.designated())
 		assert.Empty(t, f.createCalls)
+	})
+}
+
+func TestCoordinatedBackupDedupe(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName  = "s3"
+		any          = mock.Anything
+		backupID     = "dedupe-1"
+		ctx          = context.Background()
+		nodes        = []string{"N1", "N2"}
+		classes      = []string{"Class-A"}
+		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
+		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
+		nodeResolver = newFakeNodeResolver(nodes)
+	)
+
+	newDedupeReq := func() Request {
+		req := newReq(classes, backendName, backupID)
+		req.DedupeReplicas = true
+		return req
+	}
+
+	t.Run("missing ack from old participant aborts", func(t *testing.T) {
+		t.Parallel()
+		fc := newFakeCoordinator(nodeResolver)
+		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+		fc.client.On("CanCommit", any, nodes[0], any).Return(&CanCommitResponse{
+			Method: OpCreate, ID: backupID, Timeout: 1, DedupeHonored: true,
+		}, nil).Maybe()
+		fc.client.On("CanCommit", any, nodes[1], any).Return(&CanCommitResponse{
+			Method: OpCreate, ID: backupID, Timeout: 1,
+		}, nil)
+		fc.client.On("Abort", any, nodes[0], any).Return(nil).Maybe()
+		fc.client.On("Abort", any, nodes[1], any).Return(nil).Maybe()
+		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+
+		coordinator := *fc.coordinator()
+		coordinator.checkpointer = newFakeCheckpointer()
+		coordinator.dedupeCutoffLead = time.Millisecond
+		coordinator.dedupePollInterval = time.Millisecond
+
+		req := newDedupeReq()
+		store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
+		err := coordinator.Backup(ctx, store, &req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "does not support dedupeReplicas")
+	})
+
+	t.Run("success stamps v3 and ships projected designations", func(t *testing.T) {
+		t.Parallel()
+		fc := newFakeCoordinator(nodeResolver)
+		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+
+		f := newFakeCheckpointer()
+		f.shardReplicas["Class-A"] = map[string][]string{"s1": {"N1", "N2"}}
+		f.converge["Class-A/s1"] = true
+
+		wantDesignations := map[string]map[string]string{"Class-A": {"s1": "N1"}}
+		match := func(node string) func(r *Request) bool {
+			return func(r *Request) bool {
+				return r.Method == OpCreate && r.ID == backupID && r.DedupeReplicas &&
+					assert.ObjectsAreEqual(wantDesignations, r.ShardDesignations)
+			}
+		}
+		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1, DedupeHonored: true}
+		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(match(nodes[0]))).Return(ack, nil)
+		fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(match(nodes[1]))).Return(ack, nil)
+		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
+		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
+		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
+		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
+
+		coordinator := *fc.coordinator()
+		coordinator.checkpointer = f
+		coordinator.dedupeCutoffLead = 10 * time.Millisecond
+		coordinator.dedupePollInterval = 5 * time.Millisecond
+
+		mockBackendProvider := NewMockBackupBackendProvider(t)
+		coordinator.backends = mockBackendProvider
+		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil)
+		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
+		fc.backend.On("GetObject", any, any, any, any, any).Return(bytes, nil).Twice()
+
+		req := newDedupeReq()
+		store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
+		err := coordinator.Backup(ctx, store, &req)
+		require.NoError(t, err)
+		<-fc.backend.doneChan
+
+		got := fc.backend.glMeta
+		assert.Equal(t, VersionDedupeReplicas, got.Version)
+		assert.True(t, got.DedupeReplicas)
+		assert.Equal(t, []string{"Class-A"}, f.deleteCalls)
+	})
+
+	t.Run("flag off keeps wire payload legacy", func(t *testing.T) {
+		t.Parallel()
+		raw, err := json.Marshal(&Request{Method: OpCreate, ID: backupID, Classes: classes})
+		require.NoError(t, err)
+		for _, key := range []string{"dedupeReplicas", "shardDesignations", "dedupeConvergenceTimeoutSeconds"} {
+			assert.NotContains(t, string(raw), key)
+		}
+		raw, err = json.Marshal(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1})
+		require.NoError(t, err)
+		assert.NotContains(t, string(raw), "dedupe_honored")
+
+		var legacy Request
+		require.NoError(t, json.Unmarshal([]byte(`{"Method":"create","ID":"x"}`), &legacy))
+		assert.False(t, legacy.DedupeReplicas)
+		assert.Nil(t, legacy.ShardDesignations)
 	})
 }
