@@ -17,9 +17,12 @@ package mcp
 // Editing this file might prove futile when you re-run the generate command
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -45,7 +48,7 @@ func NewMcpGet(ctx *middleware.Context, handler McpGetHandler) *McpGet {
 /*
 	McpGet swagger:route GET /mcp mcp mcpGet
 
-Not supported. This server sends no server-to-client notifications, so there is no event stream to open; the response is always 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.
+Not supported. This server sends no server-to-client notifications, so there is no event stream to open; while the MCP server is enabled, GET returns 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.
 */
 type McpGet struct {
 	Context *middleware.Context
@@ -57,7 +60,7 @@ func (o *McpGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewMcpGetParams()
+	var Params = NewMcpGetParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -78,4 +81,79 @@ func (o *McpGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
+}
+
+// McpGetMethodNotAllowedBody mcp get method not allowed body
+//
+// swagger:model McpGetMethodNotAllowedBody
+type McpGetMethodNotAllowedBody struct {
+
+	// error
+	Error string `json:"error,omitempty" yaml:"error,omitempty"`
+}
+
+// Validate validates this mcp get method not allowed body
+func (o *McpGetMethodNotAllowedBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this mcp get method not allowed body based on context it is used
+func (o *McpGetMethodNotAllowedBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *McpGetMethodNotAllowedBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *McpGetMethodNotAllowedBody) UnmarshalBinary(b []byte) error {
+	var res McpGetMethodNotAllowedBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
+	return nil
+}
+
+// McpGetServiceUnavailableBody mcp get service unavailable body
+//
+// swagger:model McpGetServiceUnavailableBody
+type McpGetServiceUnavailableBody struct {
+
+	// error
+	Error string `json:"error,omitempty" yaml:"error,omitempty"`
+}
+
+// Validate validates this mcp get service unavailable body
+func (o *McpGetServiceUnavailableBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this mcp get service unavailable body based on context it is used
+func (o *McpGetServiceUnavailableBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *McpGetServiceUnavailableBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *McpGetServiceUnavailableBody) UnmarshalBinary(b []byte) error {
+	var res McpGetServiceUnavailableBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
+	return nil
 }

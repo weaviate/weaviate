@@ -90,7 +90,7 @@ func (a *Client) McpDelete(params *McpDeleteParams, authInfo runtime.ClientAuthI
 }
 
 /*
-McpGet Not supported. This server sends no server-to-client notifications, so there is no event stream to open; the response is always 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.
+McpGet Not supported. This server sends no server-to-client notifications, so there is no event stream to open; while the MCP server is enabled, GET returns 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.
 */
 func (a *Client) McpGet(params *McpGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) error {
 	// TODO: Validate the params before sending

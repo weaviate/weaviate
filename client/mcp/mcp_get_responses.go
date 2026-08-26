@@ -17,10 +17,13 @@ package mcp
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"fmt"
+	"io"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // McpGetReader is a Reader for the McpGet structure.
@@ -33,6 +36,12 @@ func (o *McpGetReader) ReadResponse(response runtime.ClientResponse, consumer ru
 	switch response.Code() {
 	case 405:
 		result := NewMcpGetMethodNotAllowed()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 503:
+		result := NewMcpGetServiceUnavailable()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -52,7 +61,14 @@ McpGetMethodNotAllowed describes a response with status code 405, with default h
 
 GET is not supported; send JSON-RPC requests with POST
 */
-type McpGetMethodNotAllowed struct{}
+type McpGetMethodNotAllowed struct {
+
+	/* Methods this endpoint accepts: POST, DELETE
+	 */
+	Allow string
+
+	Payload *McpGetMethodNotAllowedBody
+}
 
 // IsSuccess returns true when this mcp get method not allowed response has a 2xx status code
 func (o *McpGetMethodNotAllowed) IsSuccess() bool {
@@ -85,13 +101,176 @@ func (o *McpGetMethodNotAllowed) Code() int {
 }
 
 func (o *McpGetMethodNotAllowed) Error() string {
-	return fmt.Sprintf("[GET /mcp][%d] mcpGetMethodNotAllowed ", 405)
+	return fmt.Sprintf("[GET /mcp][%d] mcpGetMethodNotAllowed  %+v", 405, o.Payload)
 }
 
 func (o *McpGetMethodNotAllowed) String() string {
-	return fmt.Sprintf("[GET /mcp][%d] mcpGetMethodNotAllowed ", 405)
+	return fmt.Sprintf("[GET /mcp][%d] mcpGetMethodNotAllowed  %+v", 405, o.Payload)
+}
+
+func (o *McpGetMethodNotAllowed) GetPayload() *McpGetMethodNotAllowedBody {
+	return o.Payload
 }
 
 func (o *McpGetMethodNotAllowed) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	// hydrates response header Allow
+	hdrAllow := response.GetHeader("Allow")
+
+	if hdrAllow != "" {
+		o.Allow = hdrAllow
+	}
+
+	o.Payload = new(McpGetMethodNotAllowedBody)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewMcpGetServiceUnavailable creates a McpGetServiceUnavailable with default headers values
+func NewMcpGetServiceUnavailable() *McpGetServiceUnavailable {
+	return &McpGetServiceUnavailable{}
+}
+
+/*
+McpGetServiceUnavailable describes a response with status code 503, with default header values.
+
+MCP server is disabled
+*/
+type McpGetServiceUnavailable struct {
+	Payload *McpGetServiceUnavailableBody
+}
+
+// IsSuccess returns true when this mcp get service unavailable response has a 2xx status code
+func (o *McpGetServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this mcp get service unavailable response has a 3xx status code
+func (o *McpGetServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this mcp get service unavailable response has a 4xx status code
+func (o *McpGetServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this mcp get service unavailable response has a 5xx status code
+func (o *McpGetServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this mcp get service unavailable response a status code equal to that given
+func (o *McpGetServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the mcp get service unavailable response
+func (o *McpGetServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *McpGetServiceUnavailable) Error() string {
+	return fmt.Sprintf("[GET /mcp][%d] mcpGetServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *McpGetServiceUnavailable) String() string {
+	return fmt.Sprintf("[GET /mcp][%d] mcpGetServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *McpGetServiceUnavailable) GetPayload() *McpGetServiceUnavailableBody {
+	return o.Payload
+}
+
+func (o *McpGetServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(McpGetServiceUnavailableBody)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+/*
+McpGetMethodNotAllowedBody mcp get method not allowed body
+swagger:model McpGetMethodNotAllowedBody
+*/
+type McpGetMethodNotAllowedBody struct {
+
+	// error
+	Error string `json:"error,omitempty"`
+}
+
+// Validate validates this mcp get method not allowed body
+func (o *McpGetMethodNotAllowedBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this mcp get method not allowed body based on context it is used
+func (o *McpGetMethodNotAllowedBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *McpGetMethodNotAllowedBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *McpGetMethodNotAllowedBody) UnmarshalBinary(b []byte) error {
+	var res McpGetMethodNotAllowedBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
+	return nil
+}
+
+/*
+McpGetServiceUnavailableBody mcp get service unavailable body
+swagger:model McpGetServiceUnavailableBody
+*/
+type McpGetServiceUnavailableBody struct {
+
+	// error
+	Error string `json:"error,omitempty"`
+}
+
+// Validate validates this mcp get service unavailable body
+func (o *McpGetServiceUnavailableBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this mcp get service unavailable body based on context it is used
+func (o *McpGetServiceUnavailableBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *McpGetServiceUnavailableBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *McpGetServiceUnavailableBody) UnmarshalBinary(b []byte) error {
+	var res McpGetServiceUnavailableBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
 	return nil
 }

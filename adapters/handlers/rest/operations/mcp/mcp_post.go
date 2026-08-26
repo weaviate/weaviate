@@ -17,9 +17,12 @@ package mcp
 // Editing this file might prove futile when you re-run the generate command
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -57,7 +60,7 @@ func (o *McpPost) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewMcpPostParams()
+	var Params = NewMcpPostParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -78,4 +81,42 @@ func (o *McpPost) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
+}
+
+// McpPostServiceUnavailableBody mcp post service unavailable body
+//
+// swagger:model McpPostServiceUnavailableBody
+type McpPostServiceUnavailableBody struct {
+
+	// error
+	Error string `json:"error,omitempty" yaml:"error,omitempty"`
+}
+
+// Validate validates this mcp post service unavailable body
+func (o *McpPostServiceUnavailableBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this mcp post service unavailable body based on context it is used
+func (o *McpPostServiceUnavailableBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *McpPostServiceUnavailableBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *McpPostServiceUnavailableBody) UnmarshalBinary(b []byte) error {
+	var res McpPostServiceUnavailableBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
+	return nil
 }

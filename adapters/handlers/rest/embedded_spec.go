@@ -2974,7 +2974,7 @@ func init() {
     },
     "/mcp": {
       "get": {
-        "description": "Not supported. This server sends no server-to-client notifications, so there is no event stream to open; the response is always 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.",
+        "description": "Not supported. This server sends no server-to-client notifications, so there is no event stream to open; while the MCP server is enabled, GET returns 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.",
         "produces": [
           "application/json",
           "text/event-stream"
@@ -2985,7 +2985,32 @@ func init() {
         "operationId": "mcp.get",
         "responses": {
           "405": {
-            "description": "GET is not supported; send JSON-RPC requests with POST"
+            "description": "GET is not supported; send JSON-RPC requests with POST",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "type": "string",
+                "description": "Methods this endpoint accepts: POST, DELETE"
+              }
+            }
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
@@ -3005,6 +3030,17 @@ func init() {
         "responses": {
           "200": {
             "description": "JSON-RPC response or SSE stream"
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
@@ -3016,7 +3052,18 @@ func init() {
         "operationId": "mcp.delete",
         "responses": {
           "200": {
-            "description": "Session terminated"
+            "description": "Accepted; the server keeps no session state, so there is nothing to terminate"
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
@@ -15227,7 +15274,7 @@ func init() {
     },
     "/mcp": {
       "get": {
-        "description": "Not supported. This server sends no server-to-client notifications, so there is no event stream to open; the response is always 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.",
+        "description": "Not supported. This server sends no server-to-client notifications, so there is no event stream to open; while the MCP server is enabled, GET returns 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.",
         "produces": [
           "application/json",
           "text/event-stream"
@@ -15238,7 +15285,32 @@ func init() {
         "operationId": "mcp.get",
         "responses": {
           "405": {
-            "description": "GET is not supported; send JSON-RPC requests with POST"
+            "description": "GET is not supported; send JSON-RPC requests with POST",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            },
+            "headers": {
+              "Allow": {
+                "type": "string",
+                "description": "Methods this endpoint accepts: POST, DELETE"
+              }
+            }
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
@@ -15258,6 +15330,17 @@ func init() {
         "responses": {
           "200": {
             "description": "JSON-RPC response or SSE stream"
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
@@ -15269,7 +15352,18 @@ func init() {
         "operationId": "mcp.delete",
         "responses": {
           "200": {
-            "description": "Session terminated"
+            "description": "Accepted; the server keeps no session state, so there is nothing to terminate"
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
