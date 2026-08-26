@@ -518,8 +518,8 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.Empty(t, fc.backend.glMeta.ID, "aborted mixed-version create must leave the backend prefix empty")
 	})
 
-	t.Run("success stamps v3 and ships projected designations", func(t *testing.T) {
-		t.Parallel()
+	runCommittedDedupeBackup := func(t *testing.T, nodeMeta backup.BackupDescriptor, canCommitMatcher interface{}) (*fakeCoordinator, *fakeCheckpointer) {
+		t.Helper()
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 
@@ -527,16 +527,9 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		f.shardReplicas["Class-A"] = map[string][]string{"s1": {"N1", "N2"}}
 		f.converge["Class-A/s1"] = true
 
-		wantDesignations := map[string]map[string]string{"Class-A": {"s1": "N1"}}
-		match := func(node string) func(r *Request) bool {
-			return func(r *Request) bool {
-				return r.Method == OpCreate && r.ID == backupID && r.DedupeReplicas &&
-					assert.ObjectsAreEqual(wantDesignations, r.ShardDesignations)
-			}
-		}
 		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1, DedupeHonored: true}
-		fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(match(nodes[0]))).Return(ack, nil)
-		fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(match(nodes[1]))).Return(ack, nil)
+		fc.client.On("CanCommit", any, nodes[0], canCommitMatcher).Return(ack, nil)
+		fc.client.On("CanCommit", any, nodes[1], canCommitMatcher).Return(ack, nil)
 		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
 		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
@@ -552,16 +545,26 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		mockBackendProvider := NewMockBackupBackendProvider(t)
 		coordinator.backends = mockBackendProvider
 		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil)
-		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success, Classes: []backup.ClassDescriptor{
-			{Name: "Class-A", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "N1"}}},
-		}})
-		fc.backend.On("GetObject", any, any, any, any, any).Return(bytes, nil).Times(3)
+		fc.backend.On("GetObject", any, any, any, any, any).Return(marshalMeta(nodeMeta), nil)
 
 		req := newDedupeReq()
 		store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
-		err := coordinator.Backup(ctx, store, &req)
-		require.NoError(t, err)
+		require.NoError(t, coordinator.Backup(ctx, store, &req))
 		<-fc.backend.doneChan
+		return fc, f
+	}
+
+	t.Run("success stamps v3 and ships projected designations", func(t *testing.T) {
+		t.Parallel()
+		wantDesignations := map[string]map[string]string{"Class-A": {"s1": "N1"}}
+		match := mock.MatchedBy(func(r *Request) bool {
+			return r.Method == OpCreate && r.ID == backupID && r.DedupeReplicas &&
+				assert.ObjectsAreEqual(wantDesignations, r.ShardDesignations)
+		})
+		nodeMeta := backup.BackupDescriptor{Status: backup.Success, Classes: []backup.ClassDescriptor{
+			{Name: "Class-A", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "N1"}}},
+		}}
+		fc, f := runCommittedDedupeBackup(t, nodeMeta, match)
 
 		got := fc.backend.glMeta
 		assert.Equal(t, backup.Success, got.Status)
@@ -572,38 +575,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 
 	t.Run("designated shard missing from archive fails the backup", func(t *testing.T) {
 		t.Parallel()
-		fc := newFakeCoordinator(nodeResolver)
-		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
-
-		f := newFakeCheckpointer()
-		f.shardReplicas["Class-A"] = map[string][]string{"s1": {"N1", "N2"}}
-		f.converge["Class-A/s1"] = true
-
-		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1, DedupeHonored: true}
-		fc.client.On("CanCommit", any, nodes[0], any).Return(ack, nil)
-		fc.client.On("CanCommit", any, nodes[1], any).Return(ack, nil)
-		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
-		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
-		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
-		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
-		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
-
-		coordinator := *fc.coordinator()
-		coordinator.checkpointer = f
-		coordinator.dedupeCutoffLead = 10 * time.Millisecond
-		coordinator.dedupePollInterval = 5 * time.Millisecond
-
-		mockBackendProvider := NewMockBackupBackendProvider(t)
-		coordinator.backends = mockBackendProvider
-		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil)
-		bytes := marshalMeta(backup.BackupDescriptor{Status: backup.Success})
-		fc.backend.On("GetObject", any, any, any, any, any).Return(bytes, nil)
-
-		req := newDedupeReq()
-		store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
-		require.NoError(t, coordinator.Backup(ctx, store, &req))
-		<-fc.backend.doneChan
+		fc, _ := runCommittedDedupeBackup(t, backup.BackupDescriptor{Status: backup.Success}, any)
 
 		got := fc.backend.glMeta
 		assert.Equal(t, backup.Failed, got.Status)

@@ -257,6 +257,26 @@ func dumpNodeLogs(t *testing.T, compose *docker.DockerCompose) {
 	}
 }
 
+func startDedupeCluster(ctx context.Context, t *testing.T) *docker.DockerCompose {
+	t.Helper()
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithBackendS3(bucketName, regionName).
+		Start(ctx)
+	require.NoError(t, err)
+	return compose
+}
+
+func restoreAndVerify(t *testing.T, host, className, backupID string, ids []strfmt.UUID) {
+	t.Helper()
+	_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backendS3, backupID, nil, false)
+	if err != nil {
+		t.Fatalf("restore refused: %s", restoreErrorMessage(err))
+	}
+	helper.ExpectBackupEventuallyRestored(t, backupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
+	requireOnEveryNode(t, host, className, ids)
+}
+
 func newReplicatedClass(name string) *models.Class {
 	return &models.Class{
 		Class:             name,
@@ -271,11 +291,7 @@ func newReplicatedClass(name string) *models.Class {
 func TestBackupDedupeReplicas(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithBackendS3(bucketName, regionName).
-		Start(ctx)
-	require.NoError(t, err)
+	compose := startDedupeCluster(ctx, t)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
@@ -374,12 +390,7 @@ func TestBackupDedupeReplicas(t *testing.T) {
 
 	t.Run("restore fans the single copy out to every replica", func(t *testing.T) {
 		helper.DeleteClass(t, className)
-		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backendS3, backupID, nil, false)
-		if err != nil {
-			t.Fatalf("restore refused: %s", restoreErrorMessage(err))
-		}
-		helper.ExpectBackupEventuallyRestored(t, backupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
-		requireOnEveryNode(t, host, className, ids)
+		restoreAndVerify(t, host, className, backupID, ids)
 	})
 
 	t.Run("backup under continuous writes completes without losing shards", func(t *testing.T) {
@@ -453,23 +464,14 @@ func TestBackupDedupeReplicas(t *testing.T) {
 
 	t.Run("legacy non-deduped backup restores through the untouched path", func(t *testing.T) {
 		helper.DeleteClass(t, className)
-		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backendS3, controlBackupID, nil, false)
-		if err != nil {
-			t.Fatalf("restore refused: %s", restoreErrorMessage(err))
-		}
-		helper.ExpectBackupEventuallyRestored(t, controlBackupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
-		requireOnEveryNode(t, host, className, ids)
+		restoreAndVerify(t, host, className, controlBackupID, ids)
 	})
 }
 
 func TestBackupDedupeMultiTenantColdTenantFallback(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithBackendS3(bucketName, regionName).
-		Start(ctx)
-	require.NoError(t, err)
+	compose := startDedupeCluster(ctx, t)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()

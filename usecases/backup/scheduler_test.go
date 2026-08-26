@@ -1001,14 +1001,16 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
 
-	t.Run("DedupeVersionFlagMismatch", func(t *testing.T) {
+	t.Run("DedupeVersionGates", func(t *testing.T) {
 		for _, tc := range []struct {
 			name    string
 			version string
 			dedupe  bool
+			wantErr string
 		}{
-			{name: "V3WithoutFlag", version: "3.0", dedupe: false},
-			{name: "V2WithFlag", version: "2.1", dedupe: true},
+			{name: "V3WithoutFlag", version: "3.0", dedupe: false, wantErr: "inconsistent with dedupeReplicas"},
+			{name: "V2WithFlag", version: "2.1", dedupe: true, wantErr: "inconsistent with dedupeReplicas"},
+			{name: "UnparseableVersion", version: "x.0", dedupe: false, wantErr: "unrecognized structure version"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				fs := newFakeScheduler(nil)
@@ -1029,30 +1031,10 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 				fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 				_, err := fs.scheduler().Restore(ctx, nil, req, false)
 				assert.NotNil(t, err)
-				assert.Contains(t, err.Error(), "inconsistent with dedupeReplicas")
+				assert.Contains(t, err.Error(), tc.wantErr)
 				assert.IsType(t, backup.ErrUnprocessable{}, err)
 			})
 		}
-	})
-
-	t.Run("UnparseableVersionRefused", func(t *testing.T) {
-		fs := newFakeScheduler(nil)
-		meta := backup.DistributedBackupDescriptor{
-			ID:            id,
-			StartedAt:     timePt,
-			Version:       "x.0",
-			ServerVersion: "2",
-			Status:        backup.Success,
-			Nodes: map[string]*backup.NodeDescriptor{
-				nodeName: {Classes: []string{cls}},
-			},
-		}
-		bytes := marshalCoordinatorMeta(meta)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
-		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		_, err := fs.scheduler().Restore(ctx, nil, req, false)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "unrecognized structure version")
 	})
 
 	t.Run("CorruptedBackupFile", func(t *testing.T) {

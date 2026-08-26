@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	entbackup "github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
@@ -55,11 +54,7 @@ func TestBackupCrossVersionRestore(t *testing.T) {
 	}
 	defer restoreImageEnv()
 
-	oldCompose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithBackendS3(bucketName, regionName).
-		Start(ctx)
-	require.NoError(t, err)
+	oldCompose := startDedupeCluster(ctx, t)
 	oldTerminated := false
 	defer func() {
 		if !oldTerminated {
@@ -86,11 +81,7 @@ func TestBackupCrossVersionRestore(t *testing.T) {
 	require.NoError(t, oldCompose.Terminate(ctx))
 	oldTerminated = true
 
-	newCompose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithBackendS3(bucketName, regionName).
-		Start(ctx)
-	require.NoError(t, err)
+	newCompose := startDedupeCluster(ctx, t)
 	defer func() {
 		require.NoError(t, newCompose.Terminate(ctx))
 	}()
@@ -107,12 +98,7 @@ func TestBackupCrossVersionRestore(t *testing.T) {
 		assert.False(t, global.DedupeReplicas)
 		assert.NotEqual(t, ubak.VersionDedupeReplicas, global.Version)
 
-		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backendS3, backupID, nil, false)
-		if err != nil {
-			t.Fatalf("restore refused: %s", restoreErrorMessage(err))
-		}
-		helper.ExpectBackupEventuallyRestored(t, backupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
-		requireOnEveryNode(t, host, className, ids)
+		restoreAndVerify(t, host, className, backupID, ids)
 	})
 }
 
