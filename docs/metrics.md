@@ -347,6 +347,10 @@ This document is the single source of truth for Prometheus metrics exposed by We
 | `bucket_pause_durations_ms` | Bucket pause durations | `Summary` | `bucket_dir` | - Low 
 | `backup_restore_data_transferred` | Total number of bytes transferred during a backup restore | `Counter` | `backend_name, class_name` | ❌ High 
 | `backup_store_data_transferred` | Total number of bytes transferred during a backup store | `Counter` | `backend_name, class_name` | ❌ High 
+| `backup_dedupe_planning_ms` | Wall time of replica-dedupe convergence planning per backup | `Summary` | | - Low 
+| `backup_dedupe_shards_total` | Shards planned by replica-dedupe backups, by outcome (designated = archived once, fallback = archived by every replica) | `Counter` | `outcome` | - Low 
+| `backup_dedupe_fallback_total` | Replica-dedupe fallbacks by reason | `Counter` | `reason` | - Low 
+| `backup_dedupe_restore_anomalies_total` | Fan-out restore shards without a normal source, by reason (no_holder = nothing restored, multi_holder = deterministic pick among duplicates) | `Counter` | `reason` | - Low 
 
 #### Shard Metrics
 | Name | Description | Type | Labels | High Cardinality |

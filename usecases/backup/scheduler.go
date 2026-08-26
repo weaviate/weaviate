@@ -161,10 +161,6 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		logOperation(s.logger, "try_backup", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
-	if req.DedupeReplicas && entcfg.Enabled(os.Getenv("BACKUP_DEDUPE_DISABLED")) {
-		return nil, backup.NewErrUnprocessable(fmt.Errorf("dedupeReplicas is disabled on this cluster (BACKUP_DEDUPE_DISABLED); retry without the option"))
-	}
-
 	explicitInclude := len(req.Include) > 0
 
 	if explicitInclude {
@@ -173,6 +169,11 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
 			return nil, err
 		}
+	}
+
+	// Coordinator-entry-only by design (participants honor designations regardless); restore of existing deduped artifacts is deliberately never gated.
+	if req.DedupeReplicas && entcfg.Enabled(os.Getenv("BACKUP_DEDUPE_DISABLED")) {
+		return nil, backup.NewErrUnprocessable(fmt.Errorf("dedupeReplicas is disabled on this cluster (BACKUP_DEDUPE_DISABLED); retry without the option"))
 	}
 
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)

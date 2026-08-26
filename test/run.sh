@@ -657,6 +657,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_blockmax_ageout' \
     | grep -v 'test/acceptance/reindex_backup' \
     | grep -v 'test/acceptance/backups' \
+    | grep -v 'test/acceptance/backup_dedupe_replicas' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | grep -v 'test/acceptance/drop_vector_index' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
@@ -1137,7 +1138,8 @@ function run_acceptance_backups() {
   build_weaviate_test_image
   echo_green "acceptance — backups"
   run_aof_group "backups" \
-    test/acceptance/backups
+    test/acceptance/backups \
+    test/acceptance/backup_dedupe_replicas
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.

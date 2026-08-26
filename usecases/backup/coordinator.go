@@ -662,8 +662,13 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 
 	mutex := sync.RWMutex{}
 	nodes := make(map[string]string, len(c.descriptor.Nodes))
+	// Aborts must reach every node the request went to, not only the ones that acked: a refusing node may have booked its op slot and would otherwise hold it for the full booking period.
+	contacted := make(map[string]string, len(c.descriptor.Nodes))
 	for req := range reqChan {
 		g.Go(func() error {
+			mutex.Lock()
+			contacted[req.NodeName] = req.NodeHost
+			mutex.Unlock()
 			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
 			if err == nil && resp.Timeout == 0 {
 				err = canCommitErrFromResponse(resp)
@@ -683,7 +688,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 	}
 	abortReq := &AbortRequest{Method: req.Method, ID: c.descriptor.ID, Backend: req.Backend}
 	if err := g.Wait(); err != nil {
-		c.abortAll(ctx, abortReq, nodes)
+		c.abortAll(ctx, abortReq, contacted)
 		return nil, err
 	}
 	return nodes, nil
