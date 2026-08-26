@@ -128,6 +128,11 @@ type coordinator struct {
 	timeoutQueryStatus time.Duration
 	timeoutCanCommit   time.Duration
 	timeoutNextRound   time.Duration
+
+	// replica-dedupe planning cadence
+	dedupeCutoffLead        time.Duration
+	dedupePollInterval      time.Duration
+	dedupeConvergenceBudget time.Duration
 }
 
 // newcoordinator creates an instance which coordinates distributed BRO operations among many shards.
@@ -155,6 +160,10 @@ func newCoordinator(
 		timeoutQueryStatus: _TimeoutQueryStatus,
 		timeoutCanCommit:   _TimeoutCanCommit,
 		timeoutNextRound:   _NextRoundPeriod,
+
+		dedupeCutoffLead:        _DedupeCutoffLead,
+		dedupePollInterval:      _DedupePollInterval,
+		dedupeConvergenceBudget: _DefaultDedupeConvergenceBudget,
 	}
 }
 
