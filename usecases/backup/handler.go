@@ -273,9 +273,7 @@ type BackupRequest struct {
 
 	BaseBackupID string
 
-	// DedupeReplicas opts in to single-replica archiving of shards proven
-	// converged via async-replication checkpoints; the artifact then requires
-	// fan-out-capable versions to restore.
+	// DedupeReplicas opts in to single-replica archiving of convergence-proven shards; the artifact then needs fan-out-capable versions to restore.
 	DedupeReplicas bool
 
 	// DedupeConvergenceTimeoutSeconds bounds the convergence wait; 0 = default.

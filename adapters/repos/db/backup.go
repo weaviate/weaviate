@@ -244,8 +244,7 @@ func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
 	return nodes, nil
 }
 
-// ShardReplicas returns shard name -> replica node names for class, skipping
-// empty node names. Shards with no valid replica are omitted.
+// ShardReplicas returns shard name -> replica node names for class, omitting empty names and replica-less shards.
 func (db *DB) ShardReplicas(ctx context.Context, class string) (map[string][]string, error) {
 	shardReplicas := make(map[string][]string)
 
@@ -804,9 +803,7 @@ func (i *Index) readSchema() (shards []string, state []byte, replicas map[string
 	return
 }
 
-// filterDesignatedShards drops shards designated to another node. Unlisted
-// shards are kept (all-replica fallback), as are shards whose designated node
-// is no longer a replica: exclusion must never orphan a shard.
+// filterDesignatedShards drops shards designated to another still-replica node; anything else is kept so exclusion never orphans a shard.
 func filterDesignatedShards(shardNames []string, designated map[string]string, replicas map[string][]string, nodeName string) []string {
 	if len(designated) == 0 {
 		return shardNames

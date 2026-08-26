@@ -210,8 +210,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return backup.NewErrUnprocessable(err)
 	}
 
-	// Planning runs after the lastOp gate so concurrent backups can't double-create
-	// checkpoints, and before canCommit so the wait stays outside its timeout.
+	// Planning sits after the lastOp gate and before canCommit so the wait stays outside its timeout.
 	var plan *dedupePlan
 	if req.DedupeReplicas && c.checkpointer != nil {
 		budget := time.Duration(req.DedupeConvergenceTimeoutSeconds) * time.Second
@@ -649,8 +648,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 			if err == nil && resp.Timeout == 0 {
 				err = canCommitErrFromResponse(resp)
 			}
-			// A missing ack means an old node that would archive all replicas and
-			// skip the version stamp; abort rather than silently degrade.
+			// A missing ack means an old node that would archive all replicas unstamped; abort rather than silently degrade.
 			if err == nil && req.DedupeReplicas && !resp.DedupeHonored {
 				err = fmt.Errorf("does not support dedupeReplicas (mixed-version cluster); retry without the flag or after upgrading")
 			}

@@ -840,10 +840,7 @@ func (fw *fileWriter) prepare(classTempDir string) error {
 	return nil
 }
 
-// fetch downloads desc's chunks (and incremental base chunks) from store into
-// classTempDir. store fixes the {backupID}/{node} prefix, so a multi-source
-// restore runs one fetch pass per source; chunk ids from different sources may
-// collide and must never share a pass.
+// fetch downloads desc's chunks from store, whose {backupID}/{node} prefix keys the pass; colliding per-source chunk ids must never share a pass.
 func (fw *fileWriter) fetch(ctx context.Context, classTempDir string, desc *backup.ClassDescriptor, store nodeStore, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -884,8 +881,7 @@ func (fw *fileWriter) fetch(ctx context.Context, classTempDir string, desc *back
 	return eg.Wait()
 }
 
-// finalize applies the namespace-strip rename and the pre-1.23 migrator; run
-// once per class, after every fetch pass.
+// finalize applies the namespace-strip rename and pre-1.23 migrator, once per class after every fetch pass.
 func (fw *fileWriter) finalize(classTempDir, descName, materializedName string) error {
 	if materializedName != descName {
 		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(descName))

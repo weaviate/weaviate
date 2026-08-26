@@ -31,8 +31,7 @@ import (
 type classSource struct {
 	node  string
 	store nodeStore
-	// desc is a filtered copy of the source's class descriptor: only the shards
-	// this participant restores from that source, and their chunks.
+	// desc is filtered to the shards this participant restores from that source.
 	desc *backup.ClassDescriptor
 }
 
@@ -41,18 +40,13 @@ type classPlan struct {
 	sources []classSource
 }
 
-// restorePlan is a participant's multi-source staging plan for a fan-out
-// restore of a replica-deduped backup.
+// restorePlan is a participant's multi-source staging plan for a fan-out restore.
 type restorePlan struct {
 	classes         []classPlan
 	compressionType backup.CompressionType
 }
 
-// expandParticipantsForDedupe enrolls every replica node of the archived
-// sharding state as a restore participant, so the single archived copy of each
-// deduped shard is fanned out to all its replicas. It mutates only the restore
-// descriptor, never the artifact, and records the pre-expansion node set on
-// req.SourceNodes.
+// expandParticipantsForDedupe enrolls every replica node of the archived sharding state as a restore participant; it mutates only the restore descriptor and records the pre-expansion node set on req.SourceNodes.
 func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.ClassDescriptor) error {
 	sources := make([]string, 0, len(c.descriptor.Nodes))
 	for node := range c.descriptor.Nodes {
@@ -62,8 +56,7 @@ func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.
 	req.SourceNodes = sources
 	req.DedupeReplicas = true
 
-	// A many-to-one mapping would collide participants and make the reverse
-	// name lookup ambiguous; shrink-topology restore is not supported.
+	// A many-to-one mapping would collide participants; shrink-topology restore is unsupported.
 	byNewName := make(map[string]string, len(c.descriptor.NodeMapping))
 	for oldName, newName := range c.descriptor.NodeMapping {
 		if prev, ok := byNewName[newName]; ok {
@@ -108,8 +101,7 @@ func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.
 	return nil
 }
 
-// shardingStateSubset decodes just what participant planning needs from the
-// archived sharding state.
+// shardingStateSubset decodes just what planning needs from the archived sharding state.
 type shardingStateSubset struct {
 	Physical map[string]struct {
 		BelongsToNodes []string `json:"belongsToNodes"`
@@ -123,9 +115,7 @@ type sourceMeta struct {
 	meta  *backup.BackupDescriptor
 }
 
-// buildFanoutPlan reads every source node's descriptor and derives which shards
-// this participant restores from which source prefix. originalNode is the
-// participant's backup-time name.
+// buildFanoutPlan derives which shards this participant (originalNode, its backup-time name) restores from which source prefix.
 func (r *restorer) buildFanoutPlan(ctx context.Context, originalNode string, req *Request) (*restorePlan, error) {
 	if len(req.SourceNodes) == 0 {
 		return nil, fmt.Errorf("replica-deduped restore request without source nodes")
@@ -207,9 +197,7 @@ func (r *restorer) buildFanoutPlan(ctx context.Context, originalNode string, req
 				return nil, err
 			}
 			if src == "" {
-				// No prefix holds it (empty at backup time), or several do
-				// (non-converged, archived by each replica that had data) and
-				// this node's own copy was empty: faithfully restore nothing.
+				// Zero holders (empty at backup time) or several without an own copy: faithfully restore nothing.
 				r.logger.WithField("action", "restore").WithField("class", class).
 					WithField("shard", shard).Debug("replica-deduped restore: no source copy for this node, skipping shard")
 				continue
@@ -240,9 +228,7 @@ func (r *restorer) buildFanoutPlan(ctx context.Context, originalNode string, req
 	return plan, nil
 }
 
-// resolveShardSource picks the prefix a shard is restored from: the node's own
-// archive when present, else the single foreign holder of a deduped shard.
-// Empty result means nothing to restore for this node (see caller).
+// resolveShardSource picks the own archive when present, else the single foreign holder; empty means nothing to restore.
 func resolveShardSource(metas []sourceMeta, own *sourceMeta, class, shard string) (string, error) {
 	if own != nil {
 		if d := own.meta.GetClassDescriptor(class); d != nil {
@@ -276,9 +262,7 @@ func resolveShardSource(metas []sourceMeta, own *sourceMeta, class, shard string
 	return "", nil
 }
 
-// filterClassDescriptor copies desc keeping only the given shards and the
-// chunks that belong to them. Chunk ids are per-source; never merge the
-// resulting descriptors across sources.
+// filterClassDescriptor keeps only the given shards and their chunks; chunk ids are per-source, never merge across sources.
 func filterClassDescriptor(desc *backup.ClassDescriptor, shards []string) *backup.ClassDescriptor {
 	out := *desc
 	out.Shards = make([]*backup.ShardDescriptor, 0, len(shards))
@@ -296,8 +280,7 @@ func filterClassDescriptor(desc *backup.ClassDescriptor, shards []string) *backu
 	return &out
 }
 
-// restoreFanout stages a multi-source restore plan; the scaffolding matches
-// the single-source restore path.
+// restoreFanout stages a multi-source restore plan with the single-source scaffolding.
 func (r *restorer) restoreFanout(req *Request, plan *restorePlan, store nodeStore) (CanCommitResponse, error) {
 	return r.startRestore(req, store, func(ctx context.Context) error {
 		return r.restoreAllFanout(ctx, plan, req.CPUPercentage, req.Bucket, req.Path, !r.namespacesEnabled)

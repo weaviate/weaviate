@@ -75,22 +75,16 @@ type Request struct {
 
 	BaseBackupID string
 
-	// DedupeReplicas marks a replica-deduped backup: on create it echoes the
-	// user's opt-in, on restore it marks a fan-out restore. Older nodes ignore it.
+	// DedupeReplicas marks a replica-deduped backup (create: opt-in echo, restore: fan-out marker); older nodes ignore it.
 	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
 
-	// DedupeConvergenceTimeoutSeconds bounds convergence planning; consumed by
-	// the coordinator only, 0 means the default budget.
+	// DedupeConvergenceTimeoutSeconds bounds convergence planning, coordinator-side only; 0 = default.
 	DedupeConvergenceTimeoutSeconds int `json:"dedupeConvergenceTimeoutSeconds,omitempty"`
 
-	// ShardDesignations maps class -> shard -> the single node that archives it.
-	// EXCLUSION semantics: a participant skips a local shard only when a
-	// DIFFERENT node is named for it; absent shards are archived by every
-	// replica, so any drift degrades to duplication, never omission.
+	// ShardDesignations (class -> shard -> archiving node) EXCLUDES: a participant skips a shard only when a DIFFERENT node is named, so drift degrades to duplication, never omission.
 	ShardDesignations map[string]map[string]string `json:"shardDesignations,omitempty"`
 
-	// SourceNodes are the original node names whose {backupID}/{node} subtrees
-	// hold descriptors and chunks; set on fan-out restores of deduped backups.
+	// SourceNodes are the original node names whose {backupID}/{node} subtrees hold descriptors and chunks.
 	SourceNodes []string `json:"sourceNodes,omitempty"`
 }
 
@@ -129,8 +123,7 @@ type CanCommitResponse struct {
 	// empty. Older nodes never set this field; consumers must treat the
 	// zero value as [CanCommitErrCannotCommit].
 	ErrKind CanCommitErrorKind `json:"err_kind,omitempty"`
-	// DedupeHonored acks that the participant understood DedupeReplicas. Older
-	// nodes never set it; the coordinator aborts a dedupe backup without it.
+	// DedupeHonored acks DedupeReplicas support; older nodes never set it and the coordinator aborts without it.
 	DedupeHonored bool `json:"dedupe_honored,omitempty"`
 }
 
