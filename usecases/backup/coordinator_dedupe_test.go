@@ -34,8 +34,11 @@ type fakeCheckpointer struct {
 	shardReplicas map[string]map[string][]string
 	replicasErr   map[string]error
 	createErr     map[string]error
+	createPanic   map[string]bool
 	statusErr     map[string]error
+	statusHang    bool
 	converge      map[string]bool
+	convergeAfter map[string]int
 	diverge       map[string]bool
 	partial       map[string]bool
 	cutoffByClass map[string]int64
@@ -52,8 +55,10 @@ func newFakeCheckpointer() *fakeCheckpointer {
 		shardReplicas: map[string]map[string][]string{},
 		replicasErr:   map[string]error{},
 		createErr:     map[string]error{},
+		createPanic:   map[string]bool{},
 		statusErr:     map[string]error{},
 		converge:      map[string]bool{},
+		convergeAfter: map[string]int{},
 		diverge:       map[string]bool{},
 		partial:       map[string]bool{},
 		cutoffByClass: map[string]int64{},
@@ -81,6 +86,9 @@ func (f *fakeCheckpointer) IsAsyncReplicationEnabled(_ context.Context, class st
 func (f *fakeCheckpointer) CreateAsyncCheckpoints(_ context.Context, class string, cutoffMs int64, _ []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.createPanic[class] {
+		panic("create blew up")
+	}
 	f.createCalls = append(f.createCalls, class)
 	if err := f.createErr[class]; err != nil {
 		return err
@@ -96,11 +104,16 @@ func (f *fakeCheckpointer) DeleteAsyncCheckpoints(_ context.Context, class strin
 	return nil
 }
 
-func (f *fakeCheckpointer) GetAsyncCheckpointNodeStatuses(_ context.Context, class string, shards []string,
+func (f *fakeCheckpointer) GetAsyncCheckpointNodeStatuses(ctx context.Context, class string, shards []string,
 ) (map[string][]replica.AsyncCheckpointNodeStatus, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.statusCalls[class]++
+	if f.statusHang {
+		f.mu.Unlock()
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	defer f.mu.Unlock()
 	if err := f.statusErr[class]; err != nil {
 		return nil, err
 	}
@@ -112,6 +125,12 @@ func (f *fakeCheckpointer) GetAsyncCheckpointNodeStatuses(_ context.Context, cla
 	for _, shard := range shards {
 		key := class + "/" + shard
 		switch {
+		case f.converge[key] && f.statusCalls[class] <= f.convergeAfter[key]:
+			for i, node := range f.shardReplicas[class][shard] {
+				out[shard] = append(out[shard], replica.AsyncCheckpointNodeStatus{
+					Node: node, CutoffMs: cutoff, CreatedAt: f.createdAt, Root: hashtree.Digest{uint64(i + 1), 0},
+				})
+			}
 		case f.converge[key]:
 			for _, node := range f.shardReplicas[class][shard] {
 				out[shard] = append(out[shard], replica.AsyncCheckpointNodeStatus{
@@ -144,6 +163,7 @@ func newDedupeCoordinator(f *fakeCheckpointer) *coordinator {
 		dedupeCutoffLead:        10 * time.Millisecond,
 		dedupePollInterval:      5 * time.Millisecond,
 		dedupeConvergenceBudget: 500 * time.Millisecond,
+		dedupePlanningSlack:     200 * time.Millisecond,
 	}
 }
 
@@ -394,6 +414,60 @@ func TestPlanDesignatedShards(t *testing.T) {
 		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
 		assert.Equal(t, 0, plan.designated())
 		assert.Empty(t, f.createCalls)
+	})
+
+	t.Run("late convergence designates after repolls", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
+		f.converge["C1/s1"] = true
+		f.convergeAfter["C1/s1"] = 2
+		c := newDedupeCoordinator(f)
+
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"))
+		assert.Equal(t, 1, plan.designated())
+		assert.GreaterOrEqual(t, f.statusCalls["C1"], 3)
+		assert.Equal(t, []string{"C1"}, f.deleteCalls)
+	})
+
+	t.Run("wedged status RPC is bounded by the planning deadline", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
+		f.statusHang = true
+		c := newDedupeCoordinator(f)
+		c.dedupeConvergenceBudget = 50 * time.Millisecond
+		c.dedupePlanningSlack = 50 * time.Millisecond
+
+		begin := time.Now()
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"))
+		assert.Less(t, time.Since(begin), 5*time.Second)
+		assert.Equal(t, 0, plan.designated())
+		assert.Equal(t, []string{"C1"}, f.deleteCalls)
+	})
+
+	t.Run("panic during create still deletes earlier checkpoints", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["A1"] = map[string][]string{"s1": {"n1", "n2"}}
+		f.shardReplicas["B1"] = map[string][]string{"t1": {"n1", "n2"}}
+		f.createPanic["B1"] = true
+		c := newDedupeCoordinator(f)
+
+		require.Panics(t, func() { c.planDesignatedShards(ctx, []string{"A1", "B1"}, 0, parts("n1", "n2")) })
+		assert.Equal(t, []string{"A1"}, f.deleteCalls)
+	})
+
+	t.Run("external cancel stops planning early", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
+		f.diverge["C1/s1"] = true
+		c := newDedupeCoordinator(f)
+		c.dedupeConvergenceBudget = 10 * time.Second
+		c.lastOp.set(backup.Cancelled)
+
+		begin := time.Now()
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"))
+		assert.Less(t, time.Since(begin), 5*time.Second)
+		assert.Equal(t, 0, plan.designated())
+		assert.Equal(t, []string{"C1"}, f.deleteCalls)
 	})
 }
 

@@ -133,6 +133,7 @@ type coordinator struct {
 	dedupeCutoffLead        time.Duration
 	dedupePollInterval      time.Duration
 	dedupeConvergenceBudget time.Duration
+	dedupePlanningSlack     time.Duration
 }
 
 // newcoordinator creates an instance which coordinates distributed BRO operations among many shards.
@@ -164,6 +165,7 @@ func newCoordinator(
 		dedupeCutoffLead:        _DedupeCutoffLead,
 		dedupePollInterval:      _DedupePollInterval,
 		dedupeConvergenceBudget: _DefaultDedupeConvergenceBudget,
+		dedupePlanningSlack:     _DedupePlanningSlack,
 	}
 }
 

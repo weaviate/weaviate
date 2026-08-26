@@ -41,6 +41,8 @@ const (
 	_DedupePollInterval             = 3 * time.Second
 	_DefaultDedupeConvergenceBudget = 60 * time.Second
 	_DedupeCleanupTimeout           = 10 * time.Second
+	// Headroom over lead+budget for the create/status fan-outs; the resulting deadline is planning's hard stop.
+	_DedupePlanningSlack = 30 * time.Second
 )
 
 // dedupePlan is the outcome of convergence planning for one backup.
@@ -67,6 +69,9 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 	if budget <= 0 {
 		budget = c.dedupeConvergenceBudget
 	}
+	// Hard deadline: the request ctx has none, and a wedged peer RPC would otherwise stall planning while the op slot blocks every subsequent backup.
+	ctx, cancel := context.WithTimeout(ctx, c.dedupeCutoffLead+budget+c.dedupePlanningSlack)
+	defer cancel()
 	plan := &dedupePlan{
 		designations: make(map[string]map[string]string),
 		replicas:     make(map[string]map[string][]string),
@@ -106,37 +111,53 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 		return plan
 	}
 
-	cutoffMs := time.Now().Add(c.dedupeCutoffLead).UnixMilli()
-	created := make([]string, 0, len(candidates))
-	for class, shards := range candidates {
-		if err := c.checkpointer.CreateAsyncCheckpoints(ctx, class, cutoffMs, shards); err != nil {
-			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("create_failed").Inc()
-			c.log.WithField("action", OpCreate).WithField("class", class).
-				Warnf("replica dedupe: class falls back to all-replica backup: create checkpoints: %v", err)
-			delete(candidates, class)
-			continue
-		}
-		created = append(created, class)
+	candidateClasses := make([]string, 0, len(candidates))
+	for class := range candidates {
+		candidateClasses = append(candidateClasses, class)
 	}
+	sort.Strings(candidateClasses)
+
+	cutoffs := make(map[string]int64, len(candidates))
+	created := make([]string, 0, len(candidates))
+	// Registered before any create so a panic mid-loop still deletes what exists; a fresh timeout per class keeps one slow node from starving later deletes.
 	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), _DedupeCleanupTimeout)
-		defer cancel()
+		base := context.WithoutCancel(ctx)
 		for _, class := range created {
-			if err := c.checkpointer.DeleteAsyncCheckpoints(cleanupCtx, class, candidates[class]); err != nil {
+			cleanupCtx, cancelCleanup := context.WithTimeout(base, _DedupeCleanupTimeout)
+			err := c.checkpointer.DeleteAsyncCheckpoints(cleanupCtx, class, candidates[class])
+			cancelCleanup()
+			if err != nil {
 				c.log.WithField("action", OpCreate).WithField("class", class).
 					Warnf("replica dedupe: delete checkpoints: %v", err)
 			}
 		}
 	}()
+	for _, class := range candidateClasses {
+		// Per-class cutoff: one shared cutoff would let serial creates on wide backups overrun the lead and silently reject later classes.
+		cutoffMs := time.Now().Add(c.dedupeCutoffLead).UnixMilli()
+		if err := c.checkpointer.CreateAsyncCheckpoints(ctx, class, cutoffMs, candidates[class]); err != nil {
+			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("create_rpc_failed").Add(float64(len(candidates[class])))
+			c.log.WithField("action", OpCreate).WithField("class", class).
+				Warnf("replica dedupe: class falls back to all-replica backup: create checkpoints: %v", err)
+			delete(candidates, class)
+			continue
+		}
+		cutoffs[class] = cutoffMs
+		created = append(created, class)
+	}
 	if len(candidates) == 0 {
 		return plan
 	}
 
-	if !sleepUntil(ctx, time.UnixMilli(cutoffMs)) {
+	var latestCutoffMs int64
+	for _, cutoffMs := range cutoffs {
+		latestCutoffMs = max(latestCutoffMs, cutoffMs)
+	}
+	if !c.sleepUnlessCancelled(ctx, time.UnixMilli(latestCutoffMs)) {
 		return plan
 	}
 
-	converged := c.pollConvergence(ctx, candidates, plan.replicas, cutoffMs, budget)
+	converged := c.pollConvergence(ctx, candidates, plan.replicas, cutoffs, budget)
 
 	loads := make(map[string]int)
 	classNames := make([]string, 0, len(converged))
@@ -162,7 +183,7 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 
 // pollConvergence polls until every candidate shard converges or drops, returning class -> shard -> replicas for converged shards.
 func (c *coordinator) pollConvergence(ctx context.Context, candidates map[string][]string,
-	replicas map[string]map[string][]string, cutoffMs int64, budget time.Duration,
+	replicas map[string]map[string][]string, cutoffs map[string]int64, budget time.Duration,
 ) map[string]map[string][]string {
 	converged := make(map[string]map[string][]string)
 	pending := make(map[string]map[string]struct{}, len(candidates))
@@ -190,9 +211,10 @@ func (c *coordinator) pollConvergence(ctx context.Context, candidates map[string
 				delete(pending, class)
 				continue
 			}
+			missing := 0
 			for _, shard := range shardNames {
 				entries := statuses[shard]
-				if convergedReplicaSet(entries, replicas[class][shard], cutoffMs) {
+				if convergedReplicaSet(entries, replicas[class][shard], cutoffs[class]) {
 					if converged[class] == nil {
 						converged[class] = make(map[string][]string)
 					}
@@ -201,12 +223,17 @@ func (c *coordinator) pollConvergence(ctx context.Context, candidates map[string
 					continue
 				}
 				// Checkpoint membership is final after create, so an entry absent on the first poll never appears later; only root equality is worth polling for.
-				if firstPoll && !replicaSetCompleteAtCutoff(entries, replicas[class][shard], cutoffMs) {
-					monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("create_failed").Inc()
+				if firstPoll && !replicaSetCompleteAtCutoff(entries, replicas[class][shard], cutoffs[class]) {
+					missing++
 					c.log.WithField("action", OpCreate).WithField("class", class).WithField("shard", shard).
 						Debug("replica dedupe: shard falls back, checkpoint missing on at least one replica")
 					delete(shards, shard)
 				}
+			}
+			if missing > 0 {
+				monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("checkpoint_missing").Add(float64(missing))
+				c.log.WithField("action", OpCreate).WithField("class", class).WithField("shards", missing).
+					Info("replica dedupe: shards fall back to all-replica backup, checkpoint missing on at least one replica")
 			}
 			if len(shards) == 0 {
 				delete(pending, class)
@@ -215,7 +242,7 @@ func (c *coordinator) pollConvergence(ctx context.Context, candidates map[string
 		if len(pending) == 0 || time.Now().After(deadline) {
 			break
 		}
-		if !sleepUntil(ctx, time.Now().Add(c.dedupePollInterval)) {
+		if !c.sleepUnlessCancelled(ctx, time.Now().Add(c.dedupePollInterval)) {
 			break
 		}
 	}
@@ -419,6 +446,25 @@ func uniqueNonEmpty(nodes []string) map[string]struct{} {
 		}
 	}
 	return set
+}
+
+// sleepUnlessCancelled is sleepUntil plus the operation's external cancel signal, polled once per second so Cancel works during planning.
+func (c *coordinator) sleepUnlessCancelled(ctx context.Context, t time.Time) bool {
+	for {
+		if c.lastOp.get().Status == backup.Cancelled {
+			return false
+		}
+		next := time.Now().Add(time.Second)
+		if next.After(t) {
+			next = t
+		}
+		if !sleepUntil(ctx, next) {
+			return false
+		}
+		if !time.Now().Before(t) {
+			return true
+		}
+	}
 }
 
 // sleepUntil blocks until t or ctx cancellation; false on cancellation.
