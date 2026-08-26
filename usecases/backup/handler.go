@@ -318,6 +318,23 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		ret.Timeout = res.Timeout
 		ret.DedupeHonored = req.DedupeReplicas
 	case OpRestore:
+		if req.DedupeReplicas {
+			plan, err := m.restorer.buildFanoutPlan(ctx, nodeName, req)
+			if err != nil {
+				ret.Err = err.Error()
+				ret.ErrKind = CanCommitErrCannotCommit
+				return ret
+			}
+			res, err := m.restorer.restoreFanout(req, plan, store)
+			if err != nil {
+				ret.Err = err.Error()
+				ret.ErrKind = CanCommitErrCannotCommit
+				return ret
+			}
+			ret.Timeout = res.Timeout
+			ret.DedupeHonored = true
+			return ret
+		}
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {
 			ret.Err = err.Error()

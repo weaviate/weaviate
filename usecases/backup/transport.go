@@ -88,6 +88,10 @@ type Request struct {
 	// DIFFERENT node is named for it; absent shards are archived by every
 	// replica, so any drift degrades to duplication, never omission.
 	ShardDesignations map[string]map[string]string `json:"shardDesignations,omitempty"`
+
+	// SourceNodes are the original node names whose {backupID}/{node} subtrees
+	// hold descriptors and chunks; set on fan-out restores of deduped backups.
+	SourceNodes []string `json:"sourceNodes,omitempty"`
 }
 
 // CanCommitErrorKind is a coarse, JSON-stable classification of a remote

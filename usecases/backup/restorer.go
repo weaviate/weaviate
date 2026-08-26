@@ -65,6 +65,14 @@ func (r *restorer) restore(
 	desc *backup.BackupDescriptor,
 	store nodeStore,
 ) (CanCommitResponse, error) {
+	return r.startRestore(req, store, func(ctx context.Context) error {
+		return r.restoreAll(ctx, desc, req.CPUPercentage, store, req.Bucket, req.Path, !r.namespacesEnabled)
+	})
+}
+
+// startRestore reserves the restore slot and runs work in a coordinator-gated
+// goroutine; work stages files locally, RAFT applies them after Finalizing.
+func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx context.Context) error) (CanCommitResponse, error) {
 	expiration := min(req.Duration, _TimeoutShardCommit)
 	ret := CanCommitResponse{
 		Method:  OpCreate,
@@ -126,10 +134,7 @@ func (r *restorer) restore(
 		ctx := r.withCancellation(context.Background(), req.ID, done, r.logger)
 		defer close(done)
 
-		overrideBucket := req.Bucket
-		overridePath := req.Path
-
-		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, !r.namespacesEnabled)
+		err = work(ctx)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -259,19 +264,8 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		}
 		return nil, nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
-	if meta.ID != req.ID {
-		return nil, nil, fmt.Errorf("wrong backup file: restore request asked for %q but the per-node descriptor at %q reports backup ID %q (this happens when metadata from a different backup was placed into this slot, or a prior aborted restore wrote stale state; remove %s/ on the backend and retry with the original backup ID)",
-			req.ID, path.Join(destPath, BackupFile), meta.ID, destPath)
-	}
-	if meta.Status != backup.Success {
-		err = fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)
+	if err := validateNodeMeta(meta, destPath, req.ID); err != nil {
 		return nil, nil, err
-	}
-	if err := checkRestorableVersion(meta.Version, meta.ServerVersion); err != nil {
-		return nil, nil, err
-	}
-	if err := meta.Validate(); err != nil {
-		return nil, nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
 	cs := meta.List()
 	if len(req.Classes) > 0 {
@@ -283,6 +277,25 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 	}
 
 	return meta, cs, nil
+}
+
+// validateNodeMeta checks that a per-node descriptor is the requested,
+// successful, restorable backup.
+func validateNodeMeta(meta *backup.BackupDescriptor, destPath, reqID string) error {
+	if meta.ID != reqID {
+		return fmt.Errorf("wrong backup file: restore request asked for %q but the per-node descriptor at %q reports backup ID %q (this happens when metadata from a different backup was placed into this slot, or a prior aborted restore wrote stale state; remove %s/ on the backend and retry with the original backup ID)",
+			reqID, path.Join(destPath, BackupFile), meta.ID, destPath)
+	}
+	if meta.Status != backup.Success {
+		return fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)
+	}
+	if err := checkRestorableVersion(meta.Version, meta.ServerVersion); err != nil {
+		return err
+	}
+	if err := meta.Validate(); err != nil {
+		return fmt.Errorf("corrupted backup file: %w", err)
+	}
+	return nil
 }
 
 // oneClassSchema allows for creating schema with one class

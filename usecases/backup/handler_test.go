@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,9 +34,11 @@ type fakeSchemaManger struct {
 	lastStripNamespaces bool
 	namespacesEnabled   bool
 	liveEntities        []string
+	restoreClassCalls   atomic.Int32
 }
 
 func (f *fakeSchemaManger) RestoreClass(ctx context.Context, desc *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool, stripNamespaces bool) error {
+	f.restoreClassCalls.Add(1)
 	f.lastNodeMapping = nodeMapping
 	f.lastStripNamespaces = stripNamespaces
 	return f.errRestoreClass
