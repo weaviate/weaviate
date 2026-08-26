@@ -79,6 +79,20 @@ func TestExpandParticipantsForDedupe(t *testing.T) {
 		}
 	})
 
+	t.Run("classes excluded from the restore are ignored", func(t *testing.T) {
+		c, req, schema := newCoord("N1", "N2", "N3")
+		schema = append(schema, backup.ClassDescriptor{
+			Name:          "Class-B",
+			ShardingState: marshalState(t, map[string][]string{"t1": {"N1", "NX"}}),
+		})
+		require.NoError(t, c.expandParticipantsForDedupe(req, schema))
+		require.Len(t, c.descriptor.Nodes, 3)
+		assert.NotContains(t, c.descriptor.Nodes, "NX")
+		for _, nd := range c.descriptor.Nodes {
+			assert.NotContains(t, nd.Classes, "Class-B")
+		}
+	})
+
 	t.Run("non-injective node mapping refused", func(t *testing.T) {
 		c, req, schema := newCoord("N1", "N2", "N3")
 		c.descriptor.NodeMapping = map[string]string{"N2": "N1", "N3": "N1"}
