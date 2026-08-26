@@ -43,6 +43,8 @@ const (
 	_DedupeCleanupTimeout           = 10 * time.Second
 	// Headroom over lead+budget for the create/status fan-outs; the resulting deadline is planning's hard stop.
 	_DedupePlanningSlack = 30 * time.Second
+	// Mirrors the API's documented maximum, which is otherwise enforced only by generated swagger validation.
+	_MaxDedupeConvergenceBudget = 600 * time.Second
 )
 
 // dedupePlan is the outcome of convergence planning for one backup.
@@ -69,6 +71,7 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 	if budget <= 0 {
 		budget = c.dedupeConvergenceBudget
 	}
+	budget = min(budget, _MaxDedupeConvergenceBudget)
 	// Hard deadline: the request ctx has none, and a wedged peer RPC would otherwise stall planning while the op slot blocks every subsequent backup.
 	ctx, cancel := context.WithTimeout(ctx, c.dedupeCutoffLead+budget+c.dedupePlanningSlack)
 	defer cancel()

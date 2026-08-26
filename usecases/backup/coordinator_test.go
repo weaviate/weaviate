@@ -238,6 +238,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
 		})).Return(&CanCommitResponse{}, nil)
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(ErrAny)
+		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 
 		coordinator := *fc.coordinator()
@@ -477,6 +478,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		// Mock GetObject for cancellation check (no existing restore in progress)
 		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
+		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
 
 		coordinator := *fc.coordinator()
 		store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}

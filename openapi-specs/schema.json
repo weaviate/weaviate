@@ -2291,13 +2291,13 @@
           ]
         },
         "dedupeReplicas": {
-          "description": "If true, shards of replicated collections that are provably in sync (via async-replication checkpoints) are archived by a single replica instead of every replica, and a restore copies them back to all replicas. Shards that cannot be proven in sync fall back to being archived by every replica. Requires async replication on replicated collections and a cluster where every node supports this option; such backups can only be restored by versions that support it.",
+          "description": "If true, shards of replicated collections that are provably in sync (via async-replication checkpoints) are archived by a single replica instead of every replica, and a restore copies them back to all replicas. Shards that cannot be proven in sync fall back to being archived by every replica. The proof is the one async replication itself uses (matching object UUIDs and update timestamps at a checkpoint), and the archived copy is the designated replica's state at archive time. Requires async replication on replicated collections and a cluster where every node supports this option; such backups can only be restored by versions that support it, and their restore requires every replica node of the archived sharding state to be resolvable (or mapped via node_mapping).",
           "type": "boolean",
           "default": false,
           "x-nullable": false
         },
         "dedupeConvergenceTimeoutSeconds": {
-          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set.",
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
           "type": "integer",
           "default": 60,
           "minimum": 1,
