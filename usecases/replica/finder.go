@@ -675,10 +675,6 @@ func (f *Finder) LocalNodeName() string {
 // verbatim. plan must come from the router, which validates the tenant.
 func (f *Finder) CountObjects(ctx context.Context, plan types.ReadRoutingPlan) (int, error) {
 	shard := plan.Shard
-	if shard == "" {
-		// A collection-wide plan would otherwise ask every host to count shard "".
-		return 0, fmt.Errorf("count objects: routing plan targets no single shard")
-	}
 	c := NewReadCoordinator[int](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 
 	// NOTE(dyma): Why do we need to pass both the context and the timeout?

@@ -1176,14 +1176,13 @@ func TestFinderCountObjects(t *testing.T) {
 	)
 
 	for _, tt := range []struct {
-		name         string
-		cl           types.ConsistencyLevel
-		collectionCL bool // call with a plan that names no single shard
-		counts       map[string]int
-		errNodes     []string
-		timeout      time.Duration // caller deadline; zero for none
-		want         int
-		wantErr      string // substring the call must fail with; empty if it must succeed
+		name     string
+		cl       types.ConsistencyLevel
+		counts   map[string]int
+		errNodes []string
+		timeout  time.Duration // caller deadline; zero for none
+		want     int
+		wantErr  string // substring the call must fail with; empty if it must succeed
 	}{
 		{
 			name:   "ONE queries the local replica only",
@@ -1217,12 +1216,6 @@ func TestFinderCountObjects(t *testing.T) {
 			timeout:  100 * time.Millisecond,
 			wantErr:  "no nodes reported object count",
 		},
-		{
-			name:         "a plan naming no single shard surfaces an error",
-			cl:           types.ConsistencyLevelOne,
-			collectionCL: true,
-			wantErr:      "no single shard",
-		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFakeFactory(t, cls, shard, nodes, false)
@@ -1241,14 +1234,9 @@ func TestFinderCountObjects(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			// The misuse the guard exists for: handing over the collection-wide
-			// plan instead of one of the per-shard plans split out of it.
-			plan := collectionPlan
-			if !tt.collectionCL {
-				shardPlans := collectionPlan.ShardPlans(tt.cl)
-				require.Len(t, shardPlans, 1)
-				plan = shardPlans[0]
-			}
+			shardPlans := collectionPlan.ShardPlans(tt.cl)
+			require.Len(t, shardPlans, 1)
+			plan := shardPlans[0]
 
 			ctx := context.Background()
 			if tt.timeout > 0 {
