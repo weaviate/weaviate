@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,24 @@ func TestEnqueueReassignAllUninitialized(t *testing.T) {
 
 	_, err := tf.Index.EnqueueReassignAll(t.Context())
 	require.ErrorContains(t, err, "not initialized")
+}
+
+// The scan runs without a shard reference, so it must stop on the index's
+// own lifecycle context even when the caller's context stays alive.
+func TestEnqueueReassignAllStopsOnIndexShutdown(t *testing.T) {
+	tf := createHFreshIndex(t)
+
+	vectors := createTestVectors(4, 3)
+	postingID, posting := createPostingWithVectors(t, &tf, vectors, 300)
+	err := tf.Index.PostingStore.Put(t.Context(), postingID, posting)
+	require.NoError(t, err)
+	err = tf.Index.setPostingVectorIDs(t.Context(), postingID, posting)
+	require.NoError(t, err)
+
+	tf.Index.cancel()
+
+	_, err = tf.Index.EnqueueReassignAll(t.Context())
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestEnqueueReassignAll(t *testing.T) {

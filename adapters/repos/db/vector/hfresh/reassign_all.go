@@ -39,6 +39,11 @@ type ReassignAllStats struct {
 // the reassignment-gate fixes: an idle index runs no maintenance that could
 // correct it. It is deliberately not part of the VectorIndex interface and is
 // only reachable through the debug API.
+//
+// The scan runs without a shard reference, so alongside the caller's ctx it
+// watches the index's own lifecycle context, like the version map warmup: a
+// shard shutdown or drop stops it cooperatively at the next iteration (one
+// in-flight store read or enqueue may race the close, as with warmup).
 func (h *HFresh) EnqueueReassignAll(ctx context.Context) (ReassignAllStats, error) {
 	var stats ReassignAllStats
 
@@ -52,6 +57,9 @@ func (h *HFresh) EnqueueReassignAll(ctx context.Context) (ReassignAllStats, erro
 	// version byte that distinguishes a vector's live copy from stale ones.
 	for postingID := range h.PostingMap.Iter() {
 		err := ctx.Err()
+		if err == nil {
+			err = h.ctx.Err()
+		}
 		if err != nil {
 			return stats, err
 		}

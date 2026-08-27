@@ -760,13 +760,17 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
+		// The scan needs no shard reference: EnqueueReassignAll also watches
+		// the index's own lifecycle context and stops when the shard shuts
+		// down or is dropped, like the version map warmup does.
+		release()
+
 		reassignLogger := logger.
 			WithField("collection", colName).
 			WithField("shard", shardName).
 			WithField("targetVector", targetVector)
 
 		enterrors.GoWrapper(func() {
-			defer release()
 			stats, err := h.EnqueueReassignAll(context.Background())
 			statsLogger := reassignLogger.
 				WithField("postings", stats.Postings).
