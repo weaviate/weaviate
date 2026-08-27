@@ -496,6 +496,10 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 	defer l.mutex.Unlock()
 
 	if !l.loaded {
+		// The shard is out of the shard map before drop runs, so it stops being
+		// counted even when the cleanup below fails partway.
+		defer l.shardOpts.promMetrics.DeleteUnloadedShard()
+
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
@@ -535,9 +539,6 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 				spawnAsyncDelete(deleted, idx.logger)
 			}
 		}
-
-		// decrement unloaded shard count since this shard is being deleted
-		l.shardOpts.promMetrics.DeleteUnloadedShard()
 
 		return nil
 	}

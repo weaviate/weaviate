@@ -14,7 +14,9 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -24,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -311,6 +314,174 @@ func TestReactivationAfterDeferredShutdownCountsOnce(t *testing.T) {
 				"the evicted shard must leave the gauges to the one replacing it")
 		})
 	}
+}
+
+// TestDropStopsCountingTheShard pins that a dropped shard leaves the gauge it
+// was counted in, and that the drop itself completes. The shard is out of the
+// shard map before drop runs, so a count left behind — or taken off the wrong
+// gauge — stands for a shard the node no longer holds.
+func TestDropStopsCountingTheShard(t *testing.T) {
+	ctx := context.Background()
+	const className = "TestDropCounting"
+
+	tests := []struct {
+		name string
+		// prepare leaves the shard in the state it is dropped from.
+		prepare   func(t *testing.T, h *shardMetricsHarness, shardName string)
+		wantError bool
+	}{
+		{
+			name:    "a cold shard",
+			prepare: func(t *testing.T, h *shardMetricsHarness, shardName string) {},
+		},
+		{
+			name: "a loaded shard",
+			prepare: func(t *testing.T, h *shardMetricsHarness, shardName string) {
+				shard := h.repo.GetIndex(className).shards.Load(shardName)
+				require.NoError(t, shard.(*LazyLoadShard).Load(ctx))
+				require.Equal(t, shardGauges{loaded: 1}, h.gauges())
+			},
+		},
+		{
+			name: "a shard shut down while still in the map",
+			prepare: func(t *testing.T, h *shardMetricsHarness, shardName string) {
+				// A request holding the shard makes the shutdown give up and
+				// put the shard back; the last release then completes it, so
+				// the drop meets a shard whose store is already closed.
+				index := h.repo.GetIndex(className)
+				_, release, err := index.GetShard(ctx, shardName)
+				require.NoError(t, err)
+				require.Error(t, index.UnloadLocalShard(ctx, shardName))
+				release()
+				require.Equal(t, shardGauges{unloaded: 1}, h.gauges(),
+					"a shut shard in the map is counted as unloaded")
+			},
+		},
+		{
+			name: "a drop that fails partway",
+			prepare: func(t *testing.T, h *shardMetricsHarness, shardName string) {
+				index := h.repo.GetIndex(className)
+				shard := index.shards.Load(shardName)
+				require.NoError(t, shard.(*LazyLoadShard).Load(ctx))
+				// Files removed underneath the shard fail the drop before it
+				// finishes.
+				require.NoError(t, os.RemoveAll(shardPath(index.path(), shardName)))
+			},
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newShardMetricsHarness(t)
+			shardName := h.addClass(t, className)
+			require.Equal(t, shardGauges{unloaded: 1}, h.gauges())
+			index := h.repo.GetIndex(className)
+
+			tt.prepare(t, h, shardName)
+
+			err := index.dropShards([]string{shardName})
+			if tt.wantError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.NoDirExists(t, shardPath(index.path(), shardName),
+					"a dropped shard must leave no files behind")
+			}
+
+			require.Equal(t, shardGauges{}, h.gauges(),
+				"a dropped shard must leave every gauge")
+		})
+	}
+}
+
+// TestDropDuringDeferredShutdownCountsOnce pins that a shutdown starting while
+// a drop is under way leaves every gauge at zero. Both move the same shard
+// between gauges, so whichever reaches them second has to find the shard
+// already claimed by the first.
+func TestDropDuringDeferredShutdownCountsOnce(t *testing.T) {
+	// The two teardowns differ only in timing, so one round reproduces the
+	// skew about twice in five. Ten rounds keep the odds of missing it under
+	// a percent.
+	const rounds = 10
+
+	h := newShardMetricsHarness(t)
+	for i := 0; i < rounds; i++ {
+		t.Run(fmt.Sprintf("round_%d", i), func(t *testing.T) {
+			dropDuringDeferredShutdown(t, h, fmt.Sprintf("TestDropDuringShutdown%d", i))
+			require.Equal(t, shardGauges{}, h.gauges(),
+				"a shard dropped while a shutdown runs must leave every gauge")
+		})
+	}
+}
+
+// dropDuringDeferredShutdown drops className's only shard while the shutdown
+// that its last reference release triggers is still tearing the shard down.
+func dropDuringDeferredShutdown(t *testing.T, h *shardMetricsHarness, className string) {
+	t.Helper()
+	ctx := context.Background()
+
+	shardName := h.addClass(t, className)
+	index := h.repo.GetIndex(schema.ClassName(className))
+
+	// A request holding the shard makes the unload give up and put the shard
+	// back, leaving shutdownRequested set so the last release completes it.
+	_, release, err := index.GetShard(ctx, shardName)
+	require.NoError(t, err)
+	require.Equal(t, shardGauges{loaded: 1}, h.gauges())
+
+	// A deadline shorter than the shutdown's own retry window ends the wait on
+	// the held reference without changing its outcome.
+	unloadCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	require.Error(t, index.UnloadLocalShard(unloadCtx, shardName))
+
+	lazy, ok := index.shards.Load(shardName).(*LazyLoadShard)
+	require.True(t, ok, "a shard put back after a failed unload stays in the map")
+	shard := lazy.shard
+	require.NotNil(t, shard)
+
+	// Files removed underneath the shard end the drop early, so its metric
+	// bookkeeping runs while the shutdown is still tearing the shard down.
+	require.NoError(t, os.RemoveAll(shardPath(index.path(), shardName)))
+
+	// Both the drop and the shutdown the release triggers queue on
+	// shutdownLock while the test holds it. The drop queues first, so it
+	// reaches the gauges while the shutdown is still waiting.
+	shard.shutdownLock.Lock()
+
+	dropped := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		dropped <- index.dropShards([]string{shardName})
+	}, index.logger)
+
+	// dropShards takes the shard out of the map before drop runs, so this is
+	// the last step observable from here before the drop blocks on the lock.
+	require.Eventually(t, func() bool {
+		return index.shards.Load(shardName) == nil
+	}, 5*time.Second, time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+
+	// The release runs the shutdown on this goroutine, so it blocks too.
+	released := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		release()
+		close(released)
+	}, index.logger)
+	require.Eventually(t, func() bool {
+		return shard.inUseCounter.Load() == 0
+	}, 5*time.Second, time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+
+	shard.shutdownLock.Unlock()
+
+	select {
+	case err := <-dropped:
+		require.Error(t, err, "the drop should fail on the removed files")
+	case <-time.After(time.Minute):
+		t.Fatal("drop did not finish")
+	}
+	<-released
 }
 
 // TestLazyLoadShardMetricsLifecycle tests the full lifecycle of shard metrics:
