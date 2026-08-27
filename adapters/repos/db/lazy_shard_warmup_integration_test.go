@@ -200,15 +200,20 @@ func TestLazyShardBackgroundWarmup(t *testing.T) {
 			name: "an unreadable object count warms the shard", seed: warmupSeed{counted: 3}, minObjects: 5,
 			unreadableCount: true, wantLoaded: true,
 		},
-		// Segments a shutdown flush wrote carry no count sidecar, so the cold count
-		// reads zero for them and only the doc-id counter sees the objects.
+		// Segments a shutdown flush wrote carry no count sidecar, and a shard left
+		// cold never gets one derived, so the sweep weighs a shard by what was
+		// flushed while it last ran and nothing else.
 		{
-			name: "a threshold below the unflushed object count warms the shard",
-			seed: warmupSeed{uncounted: 5}, minObjects: 3, wantLoaded: true,
+			name: "unflushed objects do not count towards the threshold",
+			seed: warmupSeed{uncounted: 5}, minObjects: 3,
 		},
 		{
-			name: "a threshold above the unflushed object count skips the shard",
-			seed: warmupSeed{uncounted: 2}, minObjects: 3,
+			name: "a threshold above the flushed count alone skips the shard",
+			seed: warmupSeed{counted: 2, uncounted: 4}, minObjects: 5,
+		},
+		{
+			name: "a threshold below the flushed count alone warms the shard",
+			seed: warmupSeed{counted: 6, uncounted: 4}, minObjects: 5, wantLoaded: true,
 		},
 	}
 

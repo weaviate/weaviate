@@ -816,14 +816,10 @@ func (i *Index) warmupCandidate(shardName string) bool {
 		return true
 	}
 
-	// Segment sidecars miss the segment a shutdown flush writes and everything
-	// still in a write-ahead log, so they can read zero for a large shard that was
-	// merely restarted. The persisted doc-id counter sees both, and a shard left
-	// cold never gets its sidecars derived, so the skip has to convince both.
-	if written, err := indexcounter.Read(shardPath(i.path(), shardName)); err == nil &&
-		int64(written) > minObjects {
-		return true
-	}
+	// The persisted doc-id counter would see the writes the sidecars miss, but it
+	// counts allocations rather than objects: deletes never lower it, and an update
+	// that changes a vector raises it. A shard that churned its way down to nothing
+	// would read large forever, so the sweep stays with the count that reads short.
 
 	i.logger.WithFields(logrus.Fields{
 		"action":             "skip_shard_warmup",
