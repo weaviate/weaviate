@@ -234,6 +234,13 @@ func (r *fakeRecorder) RecordDistributedTaskUnitFailure(ctx context.Context, nam
 	return nil
 }
 
+func (r *fakeRecorder) RecordDistributedTaskRetryableUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.failed[unitID] = errMsg
+	return nil
+}
+
 func (r *fakeRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -44,6 +44,16 @@ func (s *stubRecorder) RecordDistributedTaskUnitFailure(
 	return nil
 }
 
+func (s *stubRecorder) RecordDistributedTaskRetryableUnitFailure(
+	_ context.Context, _, _ string, _ uint64, _, _, _ string,
+) error {
+	idx := int(s.failureCalls.Add(1)) - 1
+	if idx < len(s.failureResults) {
+		return s.failureResults[idx]
+	}
+	return nil
+}
+
 func (s *stubRecorder) RecordDistributedTaskUnitCompletion(
 	_ context.Context, _, _ string, _ uint64, _, _ string,
 ) error {
