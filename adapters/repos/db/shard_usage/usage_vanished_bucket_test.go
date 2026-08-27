@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // A bucket can be deleted between the lsm directory listing and the size calculation, e.g.
@@ -124,13 +125,15 @@ func writeCountNetAdditions(t *testing.T, path string, count int64) {
 	require.NoError(t, os.WriteFile(path, buf, 0o600))
 }
 
-// A segment's sidecar can be deleted between the objects directory listing and
-// the count read — a load recovering the write-ahead log, or a compaction
-// retiring the segment. Counting the shard without it beats failing the whole
-// count, which reports the shard as empty. Any other read error still surfaces.
+// A segment's sidecar can be deleted between the objects directory listing and the count read,
+// by a load recovering the write-ahead log or a compaction retiring the segment. Counting the
+// shard without it beats failing the whole count, which reports the shard as empty. Any other
+// failure to read the store still surfaces.
 func TestUnloadedObjectsMetricsSkipVanishedSidecar(t *testing.T) {
 	tests := []struct {
 		name string
+		// denyStore takes read access from the objects directory before the count.
+		denyStore bool
 		// counts are written as readable .cna files, one per entry.
 		counts []int64
 		// vanished sidecars are listed by the directory read but resolve to nothing.
@@ -143,6 +146,7 @@ func TestUnloadedObjectsMetricsSkipVanishedSidecar(t *testing.T) {
 		{name: "one sidecar vanished", counts: []int64{3, 4}, vanished: 1, want: 7},
 		{name: "every sidecar vanished", vanished: 2},
 		{name: "corrupt sidecar still fails", counts: []int64{3}, corrupt: true, wantErr: true},
+		{name: "unreadable objects directory still fails", denyStore: true, wantErr: true},
 	}
 
 	for _, tc := range tests {
@@ -165,6 +169,9 @@ func TestUnloadedObjectsMetricsSkipVanishedSidecar(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(objectStore, "segment-corrupt.cna"),
 					make([]byte, 12), 0o600))
 			}
+			if tc.denyStore {
+				denyRead(t, objectStore)
+			}
 
 			usage, err := CalculateUnloadedObjectsMetrics(logrus.New(), indexPath, "shard1", true)
 			if tc.wantErr {
@@ -175,4 +182,100 @@ func TestUnloadedObjectsMetricsSkipVanishedSidecar(t *testing.T) {
 			require.Equal(t, tc.want, usage.Count)
 		})
 	}
+}
+
+// denyRead takes read access away from dirPath, so opening it fails with an error that is
+// not fs.ErrNotExist.
+func denyRead(t *testing.T, dirPath string) {
+	t.Helper()
+	if os.Getuid() == 0 {
+		t.Skip("chmod-based permission denial is a no-op for root")
+	}
+	require.NoError(t, os.Chmod(dirPath, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(dirPath, 0o700) })
+}
+
+// A vector index directory can be deleted between the shard root listing and the walk that reads
+// it, e.g. while a named vector is being dropped. Only that directory drops out of the total, and
+// any other failure to open one still surfaces.
+func TestNonLSMStorageSkipVanishedSubdir(t *testing.T) {
+	// These sum the fixture below, in the two buckets the walk reports.
+	const (
+		wantCommitLogs = 1000 + 3000 // main.hnsw.commitlog.d + main.hfresh.d/sub.queue.d
+		wantOther      = 2000 + 4000 // other_dir + the loose file in main.hfresh.d
+	)
+
+	tests := []struct {
+		name string
+		// remove is deleted after the root listing, as a drop racing the walk does.
+		remove string
+		// deny takes read access instead of deleting, for the errors that are not a vanish.
+		deny           string
+		wantCommitLogs uint64
+		wantOther      uint64
+		wantErr        bool
+	}{
+		{
+			name:           "every subdirectory present",
+			wantCommitLogs: wantCommitLogs,
+			wantOther:      wantOther,
+		},
+		{
+			name:           "commit log directory vanished",
+			remove:         "main.hnsw.commitlog.d",
+			wantCommitLogs: wantCommitLogs - 1000,
+			wantOther:      wantOther,
+		},
+		{
+			name:           "plain directory vanished",
+			remove:         "other_dir",
+			wantCommitLogs: wantCommitLogs,
+			wantOther:      wantOther - 2000,
+		},
+		{
+			name:           "hfresh directory vanished with its subdirectories",
+			remove:         "main.hfresh.d",
+			wantCommitLogs: wantCommitLogs - 3000,
+			wantOther:      wantOther - 4000,
+		},
+		{name: "unreadable commit log directory still fails", deny: "main.hnsw.commitlog.d", wantErr: true},
+		{name: "unreadable hfresh subdirectory still fails", deny: "main.hfresh.d/sub.queue.d", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			shardPath := filepath.Join(t.TempDir(), "shard1")
+			writeSizedFile(t, filepath.Join(shardPath, "main.hnsw.commitlog.d", "f"), 1000)
+			writeSizedFile(t, filepath.Join(shardPath, "other_dir", "f"), 2000)
+			writeSizedFile(t, filepath.Join(shardPath, "main.hfresh.d", "sub.queue.d", "f"), 3000)
+			writeSizedFile(t, filepath.Join(shardPath, "main.hfresh.d", "f"), 4000)
+
+			files, dirs, err := diskio.GetFileWithSizes(shardPath)
+			require.NoError(t, err)
+
+			// the listing is already taken, so the walk below meets the shard mid-drop
+			if tc.remove != "" {
+				require.NoError(t, os.RemoveAll(filepath.Join(shardPath, tc.remove)))
+			}
+			if tc.deny != "" {
+				denyRead(t, filepath.Join(shardPath, tc.deny))
+			}
+
+			commitLogs, other, err := nonLSMStorage(shardPath, files, dirs)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.wantCommitLogs, commitLogs)
+			require.Equal(t, tc.wantOther, other)
+		})
+	}
+}
+
+// writeSizedFile writes a file of the given size, creating its parent directories.
+func writeSizedFile(t *testing.T, path string, size int) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, make([]byte, size), 0o600))
 }

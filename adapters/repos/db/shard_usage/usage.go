@@ -268,23 +268,33 @@ func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (Vect
 	return metrics, nil
 }
 
-// bucketSize sums the sizes of the files in a bucket directory. A bucket that was deleted
-// after the directory listing was taken counts as zero, so dropping one property or vector
-// bucket does not zero out the whole shard's usage.
-func bucketSize(bucketPath string) (uint64, error) {
-	files, _, err := diskio.GetFileWithSizes(bucketPath)
+// listDir lists a directory's files with their sizes and its subdirectory names. A directory that is
+// gone when it is opened lists as empty. One vector index deleted mid-scan is then missing from the
+// total rather than failing the shard's whole usage. A shard's root and its object store are read
+// with diskio.GetFileWithSizes instead, so a shard being dropped still surfaces as an error.
+func listDir(dirPath string) (map[string]int64, []string, error) {
+	files, dirs, err := diskio.GetFileWithSizes(dirPath)
 	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil
+		return nil, nil, nil
 	}
-	if err != nil {
-		return 0, err
-	}
+	return files, dirs, err
+}
 
+func sumSizes(files map[string]int64) uint64 {
 	totalSize := uint64(0)
 	for _, size := range files {
 		totalSize += uint64(size)
 	}
-	return totalSize, nil
+	return totalSize
+}
+
+// bucketSize sums the sizes of the files in a bucket directory, or zero if the bucket is gone.
+func bucketSize(bucketPath string) (uint64, error) {
+	files, _, err := listDir(bucketPath)
+	if err != nil {
+		return 0, err
+	}
+	return sumSizes(files), nil
 }
 
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size from disk
@@ -372,13 +382,18 @@ func CalculateUnloadedIndicesSize(lsmPath string, directories []string) (uint64,
 
 // CalculateNonLSMStorage calculates the full storage used by a shard, including objects, vectors, and indices
 func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
-	var vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize uint64
 	shardPath := filepath.Join(path, shardName)
 
 	files, dirs, err := diskio.GetFileWithSizes(shardPath)
 	if err != nil {
 		return 0, 0, err
 	}
+	return nonLSMStorage(shardPath, files, dirs)
+}
+
+// nonLSMStorage sums a shard's non-LSM storage from a listing of its root taken by the caller.
+func nonLSMStorage(shardPath string, files map[string]int64, dirs []string) (uint64, uint64, error) {
+	var vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize uint64
 
 	// Add sizes of all files in the shard root directory
 	for file, size := range files {
@@ -397,28 +412,20 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 		}
 
 		fullPath := filepath.Join(shardPath, dir)
-		filesSubFolder, subDirs, err := diskio.GetFileWithSizes(fullPath)
+		filesSubFolder, subDirs, err := listDir(fullPath)
 		if err != nil {
 			return 0, 0, err
 		}
 
-		totalSize := uint64(0)
-		for _, size := range filesSubFolder {
-			totalSize += uint64(size)
-		}
+		totalSize := sumSizes(filesSubFolder)
 
 		if strings.HasSuffix(dir, ".hfresh.d") {
 			for _, subDir := range subDirs {
-				subDirPath := filepath.Join(fullPath, subDir)
-				subFiles, _, err := diskio.GetFileWithSizes(subDirPath)
+				subFiles, _, err := listDir(filepath.Join(fullPath, subDir))
 				if err != nil {
 					return 0, 0, err
 				}
-
-				subDirSize := uint64(0)
-				for _, size := range subFiles {
-					subDirSize += uint64(size)
-				}
+				subDirSize := sumSizes(subFiles)
 
 				if strings.HasSuffix(subDir, "commitlog.d") ||
 					strings.HasSuffix(subDir, "snapshot.d") ||
