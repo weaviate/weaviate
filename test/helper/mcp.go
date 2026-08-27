@@ -82,8 +82,9 @@ const MCPInitializeBody = `{"jsonrpc":"2.0","id":1,"method":"initialize","params
 
 // RawMCPRequest sends one plain HTTP request to /v1/mcp and returns the status,
 // headers and body, which the MCP client would mask. A GET asks for an event
-// stream, as a real client would.
-func RawMCPRequest(ctx context.Context, t *testing.T, method, mcpURL, apiKey, body string) (int, http.Header, []byte) {
+// stream, as a real client would. A non-empty sessionID is sent as
+// Mcp-Session-Id.
+func RawMCPRequest(ctx context.Context, t *testing.T, method, mcpURL, apiKey, body, sessionID string) (int, http.Header, []byte) {
 	t.Helper()
 	var reader io.Reader
 	if body != "" {
@@ -91,15 +92,19 @@ func RawMCPRequest(ctx context.Context, t *testing.T, method, mcpURL, apiKey, bo
 	}
 	req, err := http.NewRequestWithContext(ctx, method, mcpURL, reader)
 	require.NoError(t, err)
-	req.Header.Set("Accept", "application/json, text/event-stream")
+	accept := "application/json, text/event-stream"
 	if method == http.MethodGet {
-		req.Header.Set("Accept", "text/event-stream")
+		accept = "text/event-stream"
 	}
+	req.Header.Set("Accept", accept)
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	if sessionID != "" {
+		req.Header.Set("Mcp-Session-Id", sessionID)
 	}
 
 	resp, err := http.DefaultClient.Do(req)

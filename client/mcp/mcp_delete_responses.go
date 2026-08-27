@@ -59,7 +59,7 @@ func NewMcpDeleteOK() *McpDeleteOK {
 /*
 McpDeleteOK describes a response with status code 200, with default header values.
 
-Accepted; the server keeps no session state, so there is nothing to terminate
+Accepted; there is no session state to terminate
 */
 type McpDeleteOK struct {
 }

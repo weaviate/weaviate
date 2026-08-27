@@ -165,7 +165,7 @@ func TestMCPRuntimeConfigToggle(t *testing.T) {
 			require.Eventually(t, func() bool {
 				ctx, cancel := context.WithTimeout(context.Background(), pollInterval)
 				defer cancel()
-				status, _, _ := helper.RawMCPRequest(ctx, t, method, mcpURL, key, body)
+				status, _, _ := helper.RawMCPRequest(ctx, t, method, mcpURL, key, body, "")
 				return status == wantStatus
 			}, pollTimeout, pollInterval, msg)
 		}
@@ -215,7 +215,7 @@ func TestMCPRuntimeConfigToggle(t *testing.T) {
 			verify: func(t *testing.T, mcpURL, key string) {
 				t.Helper()
 				expectMCPStatus(http.MethodPost, http.StatusServiceUnavailable, "MCP endpoint should return 503 when disabled at runtime")(t, mcpURL, key)
-				expectMCPStatus(http.MethodGet, http.StatusServiceUnavailable, "GET should also return 503 when disabled at runtime")(t, mcpURL, key)
+				expectMCPStatus(http.MethodGet, http.StatusMethodNotAllowed, "GET is not in the spec, so it stays 405 while disabled")(t, mcpURL, key)
 			},
 		},
 		{
@@ -224,7 +224,7 @@ func TestMCPRuntimeConfigToggle(t *testing.T) {
 			verify: func(t *testing.T, mcpURL, key string) {
 				t.Helper()
 				expectMCPStatus(http.MethodPost, http.StatusOK, "MCP endpoint should serve 200 when re-enabled")(t, mcpURL, key)
-				expectMCPStatus(http.MethodGet, http.StatusMethodNotAllowed, "GET should be refused with 405 while enabled")(t, mcpURL, key)
+				expectMCPStatus(http.MethodGet, http.StatusMethodNotAllowed, "GET is not in the spec, so it stays 405 while enabled")(t, mcpURL, key)
 			},
 		},
 	}

@@ -11769,56 +11769,15 @@
           }
         }
       },
-      "get": {
-        "description": "Not supported. This server sends no server-to-client notifications, so there is no event stream to open; while the MCP server is enabled, GET returns 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.",
-        "tags": [
-          "mcp"
-        ],
-        "operationId": "mcp.get",
-        "produces": [
-          "application/json",
-          "text/event-stream"
-        ],
-        "responses": {
-          "405": {
-            "description": "GET is not supported; send JSON-RPC requests with POST",
-            "headers": {
-              "Allow": {
-                "type": "string",
-                "description": "Methods this endpoint accepts: POST, DELETE"
-              }
-            },
-            "schema": {
-              "type": "object",
-              "properties": {
-                "error": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "MCP server is disabled",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "error": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      },
       "delete": {
-        "description": "Accepted for compatibility with clients that end their session explicitly; the server keeps no session state, so there is nothing to terminate.",
+        "description": "Accepted so clients that end their session explicitly keep working. The server keeps no session state, so there is nothing to terminate.",
         "tags": [
           "mcp"
         ],
         "operationId": "mcp.delete",
         "responses": {
           "200": {
-            "description": "Accepted; the server keeps no session state, so there is nothing to terminate"
+            "description": "Accepted; there is no session state to terminate"
           },
           "503": {
             "description": "MCP server is disabled",

@@ -48,7 +48,7 @@ func NewMcpDelete(ctx *middleware.Context, handler McpDeleteHandler) *McpDelete 
 /*
 	McpDelete swagger:route DELETE /mcp mcp mcpDelete
 
-Accepted for compatibility with clients that end their session explicitly; the server keeps no session state, so there is nothing to terminate.
+Accepted so clients that end their session explicitly keep working. The server keeps no session state, so there is nothing to terminate.
 */
 type McpDelete struct {
 	Context *middleware.Context

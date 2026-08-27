@@ -25,31 +25,13 @@ func TestMCPGate(t *testing.T) {
 		method     string
 		enabled    bool
 		wantStatus int
-		wantAllow  string
-		wantBody   string
 		wantServed bool
 	}{
-		{
-			name:       "GET while enabled is refused with 405",
-			method:     http.MethodGet,
-			enabled:    true,
-			wantStatus: http.StatusMethodNotAllowed,
-			wantAllow:  "POST, DELETE",
-			wantBody:   mcpGetNotSupportedBody,
-		},
-		{
-			name:       "GET while disabled reports 503",
-			method:     http.MethodGet,
-			enabled:    false,
-			wantStatus: http.StatusServiceUnavailable,
-			wantBody:   mcpDisabledBody,
-		},
 		{
 			name:       "POST while disabled reports 503",
 			method:     http.MethodPost,
 			enabled:    false,
 			wantStatus: http.StatusServiceUnavailable,
-			wantBody:   mcpDisabledBody,
 		},
 		{
 			name:       "POST while enabled reaches the MCP server",
@@ -63,7 +45,6 @@ func TestMCPGate(t *testing.T) {
 			method:     http.MethodDelete,
 			enabled:    false,
 			wantStatus: http.StatusServiceUnavailable,
-			wantBody:   mcpDisabledBody,
 		},
 		{
 			name:       "DELETE while enabled reaches the MCP server",
@@ -77,28 +58,22 @@ func TestMCPGate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			served := false
-			gate := mcpGate{
-				enabled: func() bool { return tt.enabled },
-				server: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			gate := mcpGate(
+				func() bool { return tt.enabled },
+				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					served = true
 					w.WriteHeader(http.StatusOK)
 				}),
-			}
+			)
 
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest(tt.method, "/v1/mcp", nil)
-			if tt.method == http.MethodGet {
-				gate.rejectGet(w, r)
-			} else {
-				gate.serve(w, r)
-			}
+			gate.ServeHTTP(w, httptest.NewRequest(tt.method, "/v1/mcp", nil))
 
 			require.Equal(t, tt.wantStatus, w.Code)
 			require.Equal(t, tt.wantServed, served)
-			require.Equal(t, tt.wantAllow, w.Header().Get("Allow"))
-			if tt.wantBody != "" {
+			if !tt.enabled {
 				require.Equal(t, "application/json", w.Header().Get("Content-Type"))
-				require.JSONEq(t, tt.wantBody, w.Body.String())
+				require.JSONEq(t, mcpDisabledBody, w.Body.String())
 			}
 		})
 	}

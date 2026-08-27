@@ -2973,47 +2973,6 @@ func init() {
       }
     },
     "/mcp": {
-      "get": {
-        "description": "Not supported. This server sends no server-to-client notifications, so there is no event stream to open; while the MCP server is enabled, GET returns 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.",
-        "produces": [
-          "application/json",
-          "text/event-stream"
-        ],
-        "tags": [
-          "mcp"
-        ],
-        "operationId": "mcp.get",
-        "responses": {
-          "405": {
-            "description": "GET is not supported; send JSON-RPC requests with POST",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "error": {
-                  "type": "string"
-                }
-              }
-            },
-            "headers": {
-              "Allow": {
-                "type": "string",
-                "description": "Methods this endpoint accepts: POST, DELETE"
-              }
-            }
-          },
-          "503": {
-            "description": "MCP server is disabled",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "error": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      },
       "post": {
         "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation. Every request is authenticated on its own; no Mcp-Session-Id is issued or required.",
         "consumes": [
@@ -3045,14 +3004,14 @@ func init() {
         }
       },
       "delete": {
-        "description": "Accepted for compatibility with clients that end their session explicitly; the server keeps no session state, so there is nothing to terminate.",
+        "description": "Accepted so clients that end their session explicitly keep working. The server keeps no session state, so there is nothing to terminate.",
         "tags": [
           "mcp"
         ],
         "operationId": "mcp.delete",
         "responses": {
           "200": {
-            "description": "Accepted; the server keeps no session state, so there is nothing to terminate"
+            "description": "Accepted; there is no session state to terminate"
           },
           "503": {
             "description": "MCP server is disabled",
@@ -15273,47 +15232,6 @@ func init() {
       }
     },
     "/mcp": {
-      "get": {
-        "description": "Not supported. This server sends no server-to-client notifications, so there is no event stream to open; while the MCP server is enabled, GET returns 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.",
-        "produces": [
-          "application/json",
-          "text/event-stream"
-        ],
-        "tags": [
-          "mcp"
-        ],
-        "operationId": "mcp.get",
-        "responses": {
-          "405": {
-            "description": "GET is not supported; send JSON-RPC requests with POST",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "error": {
-                  "type": "string"
-                }
-              }
-            },
-            "headers": {
-              "Allow": {
-                "type": "string",
-                "description": "Methods this endpoint accepts: POST, DELETE"
-              }
-            }
-          },
-          "503": {
-            "description": "MCP server is disabled",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "error": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      },
       "post": {
         "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation. Every request is authenticated on its own; no Mcp-Session-Id is issued or required.",
         "consumes": [
@@ -15345,14 +15263,14 @@ func init() {
         }
       },
       "delete": {
-        "description": "Accepted for compatibility with clients that end their session explicitly; the server keeps no session state, so there is nothing to terminate.",
+        "description": "Accepted so clients that end their session explicitly keep working. The server keeps no session state, so there is nothing to terminate.",
         "tags": [
           "mcp"
         ],
         "operationId": "mcp.delete",
         "responses": {
           "200": {
-            "description": "Accepted; the server keeps no session state, so there is nothing to terminate"
+            "description": "Accepted; there is no session state to terminate"
           },
           "503": {
             "description": "MCP server is disabled",

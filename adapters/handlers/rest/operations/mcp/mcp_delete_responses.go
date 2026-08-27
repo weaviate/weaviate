@@ -26,7 +26,7 @@ import (
 const McpDeleteOKCode int = 200
 
 /*
-McpDeleteOK Accepted; the server keeps no session state, so there is nothing to terminate
+McpDeleteOK Accepted; there is no session state to terminate
 
 swagger:response mcpDeleteOK
 */

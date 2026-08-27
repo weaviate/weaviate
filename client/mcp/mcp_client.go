@@ -43,15 +43,13 @@ type ClientOption func(*runtime.ClientOperation)
 type ClientService interface {
 	McpDelete(params *McpDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*McpDeleteOK, error)
 
-	McpGet(params *McpGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) error
-
 	McpPost(params *McpPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*McpPostOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
 
 /*
-McpDelete Accepted for compatibility with clients that end their session explicitly; the server keeps no session state, so there is nothing to terminate.
+McpDelete Accepted so clients that end their session explicitly keep working. The server keeps no session state, so there is nothing to terminate.
 */
 func (a *Client) McpDelete(params *McpDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*McpDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -87,38 +85,6 @@ func (a *Client) McpDelete(params *McpDeleteParams, authInfo runtime.ClientAuthI
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for mcp.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
-}
-
-/*
-McpGet Not supported. This server sends no server-to-client notifications, so there is no event stream to open; while the MCP server is enabled, GET returns 405 with an Allow header listing POST and DELETE. Send JSON-RPC requests with POST.
-*/
-func (a *Client) McpGet(params *McpGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) error {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewMcpGetParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "mcp.get",
-		Method:             "GET",
-		PathPattern:        "/mcp",
-		ProducesMediaTypes: []string{"application/json", "text/event-stream"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &McpGetReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	_, err := a.transport.Submit(op)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 /*
