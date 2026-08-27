@@ -175,12 +175,15 @@ func FromEnv(config *Config) error {
 	// collection later, so a nil setting still warns.
 	if minObjects := config.LazyLoadShardWarmupMinObjects; minObjects != 0 &&
 		(config.EnableLazyLoadShards == nil || *config.EnableLazyLoadShards) {
-		left := fmt.Sprintf("only shards holding more than %d objects are warmed up", minObjects)
+		left := fmt.Sprintf("only shards holding more than %d objects are warmed up, counted "+
+			"from flushed segments — so a shard restarted mid-write reads lower than it "+
+			"holds and can be left out", minObjects)
 		if minObjects < 0 {
 			left = "no shard is warmed up"
 		}
-		logrus.Warnf("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS is %d, so %s; every other shard stays unloaded "+
-			"until first access. "+
+		logrus.Warnf("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS is %d, so on a collection using lazy loading %s. "+
+			"Whatever is left out stays unloaded until first access, and an eager collection ignores "+
+			"the setting and loads all of its shards. "+
 			"An untouched HOT tenant keeps its expired objects, because the TTL sweep skips unloaded shards. "+
 			"Async replication also skips it, so a stale replica is not repaired until something loads it. "+
 			"MAXIMUM_ALLOWED_OBJECTS_COUNT stops counting it, so this node admits writes past its cap.",
