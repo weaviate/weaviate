@@ -63,7 +63,7 @@ func TestErrorGroupWrapper(t *testing.T) {
 }
 
 // The assumption is that the context returned by the group will be cancelled as
-// soon as one goroutine panics, and that Wait reports the panic rather than the
+// soon as one goroutine panics. Wait then reports the panic rather than the
 // cancellation its siblings return because of it.
 func TestErrorGroupWrapperWithContext_Panics(t *testing.T) {
 	cases := []struct {

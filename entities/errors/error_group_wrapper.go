@@ -73,7 +73,7 @@ func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Cont
 // the runtime.
 func (egw *ErrorGroupWrapper) setRecoverPanic() {
 	if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
-		// never calls recover, so the panic reaches the runtime
+		// the no-op never calls recover, so the panic reaches the runtime
 		egw.recoverPanic = func(*error, ...interface{}) {}
 		return
 	}

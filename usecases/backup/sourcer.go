@@ -29,9 +29,9 @@ type Sourcer interface { // implemented by the index
 
 	// BackupDescriptors returns a channel of class descriptors, closed on every exit
 	// of the producer, and stops between classes once ctx is cancelled. A descriptor
-	// carrying an error is written before the close when the producer detects one,
-	// but a recovered panic closes the channel silently: a close is not proof that
-	// every class was described. The caller must drain the channel to close before
+	// carrying an error is written before the close when the producer detects one.
+	// A recovered panic instead closes the channel silently, so a close is not
+	// proof that every class was described. The caller must drain the channel to close before
 	// calling ReleaseBackup for any class, since a descriptor produced after a
 	// release leaves that class marked in progress.
 	//

@@ -1750,8 +1750,8 @@ func returnOrNotFound(fb *fakeBackend, ctx context.Context, backupID, key string
 }
 
 // TestLabelErr pins labelErr's own contract. A step that succeeded has to drop
-// out entirely, since its callers hand the result to errors.Join, and a step
-// that failed has to stay unwrappable: the publishing defer picks cancelled over
+// out entirely, since its callers hand the result to errors.Join. A step that
+// failed has to stay unwrappable. The publishing defer picks cancelled over
 // failed by reading context.Canceled back out.
 func TestLabelErr(t *testing.T) {
 	tests := []struct {

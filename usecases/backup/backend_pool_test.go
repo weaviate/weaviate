@@ -46,7 +46,7 @@ type uploadProbe struct {
 	sourcePath string
 	descs      []backup.ClassDescriptor
 	// onWrite runs while the chunk write is in flight, holding the context that
-	// write was given; returning an error fails it the way a backend rejection does.
+	// write was given. Returning an error fails it the way a backend rejection does.
 	onWrite   func(ctx context.Context, class, key string) error
 	onRelease func(class string)
 	// onDescriptor runs before a class is snapshotted, holding the producer's own
@@ -99,8 +99,8 @@ func (p *uploadProbe) ReleaseBackup(_ context.Context, _, class string) error {
 func (p *uploadProbe) Backupable(context.Context, []string) error { return nil }
 
 // BackupDescriptors produces one descriptor at a time from its own goroutine and
-// stops between classes once ctx is cancelled, as DB.BackupDescriptors does, so a
-// test can observe the pool while a later class has not been snapshotted yet.
+// stops between classes once ctx is cancelled, as DB.BackupDescriptors does. A
+// test can then observe the pool while a later class has not been snapshotted yet.
 func (p *uploadProbe) BackupDescriptors(ctx context.Context, _ string, _ []string, _ []*backup.BackupDescriptor,
 ) <-chan backup.ClassDescriptor {
 	ch := make(chan backup.ClassDescriptor, len(p.descs))
@@ -154,7 +154,8 @@ func (p *uploadProbe) classesSnapshottedAfterRelease() []string {
 }
 
 func (p *uploadProbe) Write(ctx context.Context, _, key, _, _ string, r backup.ReadCloserWithError) (n int64, err error) {
-	// mirrors the real backends, which signal their own failure to the producer
+	// CloseWithError mirrors the real backends, which signal their own failure
+	// to the producer
 	defer func() { r.CloseWithError(err) }()
 	if n, err = io.Copy(io.Discard, r); err != nil {
 		return n, err
@@ -246,7 +247,7 @@ func runUploadWithStat(t *testing.T, ctx context.Context, p *uploadProbe, poolSi
 // newProbeUploader builds the uploader the pool tests drive, along with the
 // arguments and the status slot of the upload. A test whose call to all does not
 // return normally still needs to read the slot, which is what a poll for the
-// node reads, so it is handed out before the call rather than after it.
+// node reads. The slot is therefore handed out before the call, not after it.
 func newProbeUploader(t *testing.T, p *uploadProbe, poolSize int) (*uploader, *backup.BackupDescriptor, []string, *backupStat) {
 	t.Helper()
 	names := make([]string, len(p.descs))
@@ -277,8 +278,8 @@ func classDescriptorWithShards(desc backup.ClassDescriptor, n int) backup.ClassD
 }
 
 // TestUploaderAllUploadsClassesConcurrently pins the two properties one pool for
-// the whole backup buys: every class can be in flight at once even though each
-// holds a single shard, and no class is released while it is still being read.
+// the whole backup buys. Every class can be in flight at once even though each
+// holds a single shard. No class is released while it is still being read.
 func TestUploaderAllUploadsClassesConcurrently(t *testing.T) {
 	classes := []string{"Class-A", "Class-B", "Class-C", "Class-D"}
 	sourcePath := t.TempDir()
@@ -574,7 +575,7 @@ func TestUploaderAllWaitsForDescriptorProducer(t *testing.T) {
 		}
 	}
 	// onDescriptor holds the last class's snapshot open until all stops the
-	// producer. Whichever of the two arms below wins is the assertion: a release
+	// producer. Whichever of the two arms below wins is the assertion. A release
 	// reaching the held class first is the ordering this test exists to catch.
 	p.onDescriptor = func(ctx context.Context, class string) {
 		if class != last {
@@ -664,7 +665,7 @@ func TestUploaderAllStopsDescriptorProducerOnFailure(t *testing.T) {
 
 // TestUploaderAllRejectsPartialDescriptorRun pins that a producer ending without
 // saying why fails the backup. A recovered panic in it closes the channel with no
-// error descriptor, which otherwise reads as "every class was described" and
+// error descriptor. That otherwise reads as "every class was described" and
 // publishes a SUCCESS that omits the classes it never reached.
 func TestUploaderAllRejectsPartialDescriptorRun(t *testing.T) {
 	names := []string{"Class-A", "Class-B", "Class-C"}
@@ -690,7 +691,7 @@ func TestUploaderAllCancelsThePoolBeforeDrainingIt(t *testing.T) {
 	classes := []string{"Class-A", "Class-B"}
 	sourcePath := t.TempDir()
 	p := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, classes...)...)
-	// Class-A is submitted and its shard reaches the backend; Class-B panics on
+	// Class-A is submitted and its shard reaches the backend. Class-B panics on
 	// its way into the pool, leaving Class-A in flight.
 	p.panicOnSourcePathCall = 2
 	p.onWrite = func(ctx context.Context, _, _ string) error {

@@ -273,9 +273,9 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		}
 	}
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
-	// set on the one path that runs the backup to the end, so the defer below can
-	// tell that path from a panic, which leaves err nil on a backup that stopped
-	// somewhere in the middle.
+	// completed is set on the one path that runs the backup to the end. The defer
+	// below reads it to tell that path from a panic, which leaves err nil on a
+	// backup that stopped somewhere in the middle.
 	var completed bool
 
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
@@ -362,10 +362,10 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	eg.SetLimit(max(u.GoPoolSize, 1))
 	// Releasing an index deletes the class's staging dir, which its shard jobs read
 	// from. Defers run in reverse order, so this one drains the pool before the
-	// release in the defer above it. Cancelling first is what bounds the drain: a
+	// release in the defer above it. Cancelling first is what bounds the drain. A
 	// shard job runs under storeTimeout, so waiting on jobs nothing has cancelled
-	// parks the backup for a day. The normal path already waits below; this is for
-	// a panic or an early return.
+	// parks the backup for a day. The normal path already waits below. This defer
+	// is for a panic or an early return.
 	defer func() {
 		cancelPool()
 		_ = eg.Wait()
@@ -397,7 +397,7 @@ Loop:
 		}
 	}
 
-	// Wait before releasing: a class still in the pool is reading its staging dir,
+	// Wait before releasing. A class still in the pool is reading its staging dir,
 	// and the release deletes it. Every class the loop submitted has already
 	// released itself in finish, so this only covers the ones it never reached.
 	poolErr := eg.Wait()
@@ -415,10 +415,11 @@ Loop:
 		totalPreCompressionSize += cu.desc.PreCompressionSizeBytes
 	}
 
-	// descErr first, because it is the real cause. cancelPool has already failed
-	// the in-flight shards with context.Canceled, and the defer above publishes
-	// that as a cancelled backup instead of a failed one. Those shard errors are
-	// not lost: finish logs every class that did not upload in full.
+	// descErr is returned first, because it is the real cause. cancelPool has
+	// already failed the in-flight shards with context.Canceled, and the defer
+	// above publishes that as a cancelled backup instead of a failed one. Those
+	// shard errors are not lost, since finish logs every class that did not
+	// upload in full.
 	if descErr != nil {
 		return descErr
 	}
@@ -498,9 +499,9 @@ func (u *uploader) releaseIndexes(classes []string, bakID string) {
 	}
 }
 
-// classUpload is the state one class's shard jobs share: the descriptor they
-// fill in, and the counters that decide when the class is done and whether it
-// uploaded in full.
+// classUpload is the state one class's shard jobs share. It holds the
+// descriptor they fill in, and the counters that decide when the class is done
+// and whether it uploaded in full.
 type classUpload struct {
 	desc      backup.ClassDescriptor
 	lastChunk atomic.Int32
@@ -520,16 +521,16 @@ type classUpload struct {
 }
 
 // complete reports whether every shard of the class uploaded. Only a complete
-// class may join the backup descriptor: a partial one still lists all its shards
-// but holds chunks for only some, and the restore then skips the rest without
-// reporting anything.
+// class may join the backup descriptor. A partial one still lists all its
+// shards but holds chunks for only some. The restore then skips the rest
+// without reporting anything.
 func (c *classUpload) complete() bool {
 	return int(c.shardsDone.Load()) == len(c.desc.Shards)
 }
 
 // submitClass queues every shard of one class on the shared pool and returns
 // without waiting for them, so the caller can move on to the next class. The
-// returned classUpload is what those jobs write their result into; read it only
+// returned classUpload is what those jobs write their result into. Read it only
 // once the pool has drained.
 func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
 	id string, cdesc backup.ClassDescriptor, overrideBucket, overridePath string,
@@ -555,8 +556,8 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 
 	// finish runs when the last shard job of the class has returned. That is the
 	// earliest the index may be released, since releasing it deletes the staging
-	// dir the jobs read from, and late enough for complete to know whether the
-	// class made it into the backup.
+	// dir the jobs read from. It is also late enough for complete to know whether
+	// the class made it into the backup.
 	cu.finish = func() {
 		cancel()
 		observe()
@@ -583,7 +584,7 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 
 	nShards := len(cu.desc.Shards)
 	if nShards == 0 {
-		// no jobs to queue, so no job will call finish
+		// there are no jobs to queue, so no job will call finish
 		cu.finish()
 		return cu
 	}
