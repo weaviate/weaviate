@@ -15,6 +15,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -72,4 +75,43 @@ func CallToolOnce[I any, O any](ctx context.Context, t *testing.T, tool string, 
 		return err
 	}
 	return nil
+}
+
+// MCPInitializeBody is a minimal initialize request for raw calls to /v1/mcp.
+const MCPInitializeBody = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}`
+
+// RawMCPRequest sends one plain HTTP request to /v1/mcp and returns the status,
+// headers and body, which the MCP client would mask. A GET asks for an event
+// stream, as a real client would. A non-empty sessionID is sent as
+// Mcp-Session-Id.
+func RawMCPRequest(ctx context.Context, t *testing.T, method, mcpURL, apiKey, body, sessionID string) (int, http.Header, []byte) {
+	t.Helper()
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, mcpURL, reader)
+	require.NoError(t, err)
+	accept := "application/json, text/event-stream"
+	if method == http.MethodGet {
+		accept = "text/event-stream"
+	}
+	req.Header.Set("Accept", accept)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	if sessionID != "" {
+		req.Header.Set("Mcp-Session-Id", sessionID)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp.StatusCode, resp.Header, respBody
 }

@@ -223,6 +223,12 @@ func newSchedulerForUnitTest(t *testing.T) *AsyncReplicationScheduler {
 	return sched
 }
 
+// newNullLogger returns a discard logger; live loggers here spill expected recovered-panic stacks into CI output.
+func newNullLogger() *logrus.Logger {
+	logger, _ := test.NewNullLogger()
+	return logger
+}
+
 // newWorkerPoolTestScheduler builds a scheduler at the given target with no running pool, so adjustWorkers' token/spawn accounting can be driven deterministically.
 func newWorkerPoolTestScheduler(t *testing.T, target int) *AsyncReplicationScheduler {
 	t.Helper()
@@ -233,7 +239,7 @@ func newWorkerPoolTestScheduler(t *testing.T, target int) *AsyncReplicationSched
 		targetWorkers: target,
 		scaleDownCh:   make(chan struct{}, maxMaxWorkers),
 		workCh:        make(chan *[]*asyncSchedulerEntry, maxMaxWorkers),
-		logger:        logrus.New(),
+		logger:        newNullLogger(),
 	}
 	t.Cleanup(func() {
 		cancel()
@@ -1016,7 +1022,7 @@ func TestNextRebuildRetryDelay(t *testing.T) {
 func waitAsyncRepDrained(t *testing.T, s *Shard, msg string) {
 	t.Helper()
 	select {
-	case <-s.asyncRepDrained(logrus.New()):
+	case <-s.asyncRepDrained(newNullLogger()):
 	case <-time.After(5 * time.Second):
 		t.Fatal(msg)
 	}
@@ -1112,7 +1118,7 @@ func TestDispatchInvariantRecoverySettlesPendingDone(t *testing.T) {
 // TestAsyncRepDrainObserverSharedAcrossAttempts: bounded waits during one pinned episode share a single waiter goroutine and the observer resets once drained.
 func TestAsyncRepDrainObserverSharedAcrossAttempts(t *testing.T) {
 	s := &Shard{index: &Index{}}
-	logger := logrus.New()
+	logger := newNullLogger()
 
 	s.asyncRepWg.Add(1)
 	ch1 := s.asyncRepDrained(logger)
@@ -1199,7 +1205,7 @@ func TestTryRebuildHashtreeRetriesWhenEnableSkippedByHalt(t *testing.T) {
 
 // TestMayStopAsyncReplicationDrainsWithNilHashtree: teardown must wait for in-flight workers even when it lands in a rebuild's hashtree-nil window.
 func TestMayStopAsyncReplicationDrainsWithNilHashtree(t *testing.T) {
-	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}, logger: logrus.New()}
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}, logger: newNullLogger()}
 	s := &Shard{
 		class:        &models.Class{Class: "TestClass"},
 		index:        idx,
@@ -2296,7 +2302,7 @@ func newBareScheduler(batchSize, workChCap int) *AsyncReplicationScheduler {
 		workCh:                   make(chan *[]*asyncSchedulerEntry, workChCap),
 		asyncReplicationDisabled: configRuntime.NewDynamicValue(false),
 		rootPrefilterBatchSize:   configRuntime.NewDynamicValue(batchSize),
-		logger:                   logrus.New(),
+		logger:                   newNullLogger(),
 	}
 	s.batchPool.New = func() any {
 		b := make([]*asyncSchedulerEntry, 0, 64)
