@@ -59,12 +59,18 @@ func TestStorageOptionsTransport(t *testing.T) {
 	}{
 		{
 			name:        "http adds no transport options",
-			transport:   ucfg.BackupGCS{},
+			transport:   ucfg.BackupGCS{UseGRPC: new(false)},
 			wantOptions: []string{"option.withoutAuthentication"},
 		},
 		{
 			name:         "grpc sizes the connection pool and turns client metrics off",
-			transport:    ucfg.BackupGCS{UseGRPC: true, GRPCConnPool: 8},
+			transport:    ucfg.BackupGCS{UseGRPC: new(true), GRPCConnPool: 8},
+			wantOptions:  []string{"option.withoutAuthentication", connPoolOptionType, "*storage.withDisabledClientMetrics"},
+			wantConnPool: 8,
+		},
+		{
+			name:         "an unset transport takes the grpc options",
+			transport:    ucfg.BackupGCS{GRPCConnPool: 8},
 			wantOptions:  []string{"option.withoutAuthentication", connPoolOptionType, "*storage.withDisabledClientMetrics"},
 			wantConnPool: 8,
 		},
@@ -118,13 +124,18 @@ func TestNewClientTransport(t *testing.T) {
 		wantCalls []string
 	}{
 		{
-			name:      "default speaks the json api over http",
-			transport: ucfg.BackupGCS{},
+			name:      "http speaks the json api",
+			transport: ucfg.BackupGCS{UseGRPC: new(false)},
 			wantCalls: []string{"/storage/v1/b/my-bucket"},
 		},
 		{
 			name:      "grpc speaks the storage grpc api",
-			transport: ucfg.BackupGCS{UseGRPC: true, GRPCConnPool: ucfg.DefaultBackupGCSGRPCConnPool},
+			transport: ucfg.BackupGCS{UseGRPC: new(true), GRPCConnPool: ucfg.DefaultBackupGCSGRPCConnPool},
+			wantCalls: []string{"/google.storage.v2.Storage/GetBucket"},
+		},
+		{
+			name:      "an unset transport speaks the storage grpc api",
+			transport: ucfg.BackupGCS{GRPCConnPool: ucfg.DefaultBackupGCSGRPCConnPool},
 			wantCalls: []string{"/google.storage.v2.Storage/GetBucket"},
 		},
 	}
