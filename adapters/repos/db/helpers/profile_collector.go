@@ -171,25 +171,23 @@ func AddRemoteQueryProfiles(ctx context.Context, queryProfiles []ShardQueryProfi
 	}()
 }
 
-// AttachQueryProfileToResults calls [ExtractQueryProfiles] and attaches the collected
-// [ShardQueryProfile] entries to the first search result's AdditionalProperties.
-// Profile data is per-query (not per-object), so it is only attached to results[0].
-// The data is stored in two formats: "queryProfileRaw" ([][ShardQueryProfile] for gRPC)
-// and "queryProfile" (JSON string for GraphQL).
+// AttachQueryProfileToResults serves GraphQL only: "queryProfile" lives on the per-object
+// _additional map, so results[0] carries it rather than repeating it on every object.
+// GraphQL has no query-level slot, so an empty result set legitimately reports no profile
+// here (gRPC reads it from the context instead, unaffected by an empty result set).
 func AttachQueryProfileToResults(ctx context.Context, results search.Results) search.Results {
 	queryProfiles := ExtractQueryProfiles(ctx)
 	if len(queryProfiles) == 0 || len(results) == 0 {
 		return results
 	}
+	b, err := json.Marshal(queryProfiles)
+	if err != nil {
+		return results
+	}
 	if results[0].AdditionalProperties == nil {
 		results[0].AdditionalProperties = make(models.AdditionalProperties)
 	}
-	// Store raw query profiles for gRPC consumption.
-	results[0].AdditionalProperties["queryProfileRaw"] = queryProfiles
-	// Store JSON string for GraphQL consumption.
-	if b, err := json.Marshal(queryProfiles); err == nil {
-		results[0].AdditionalProperties["queryProfile"] = string(b)
-	}
+	results[0].AdditionalProperties["queryProfile"] = string(b)
 	return results
 }
 

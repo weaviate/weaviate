@@ -51,7 +51,7 @@ func (s *testMigrationStrategy) OnMigrationComplete(_ context.Context, _ ShardLi
 // testShardReindexer wraps a single task into a ShardReindexerV3 for use
 // during shard initialization. It calls task methods synchronously.
 type testShardReindexer struct {
-	task ShardReindexTaskV3
+	task *ShardReindexTaskGeneric
 }
 
 func (r *testShardReindexer) RunBeforeLsmInit(ctx context.Context, shard *Shard) error {

@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
@@ -46,6 +48,16 @@ const (
 	migrationsDir = ".migrations"
 	tmpExt        = ".tmp"
 )
+
+// Subdirectories listInactiveShardFiles skips when it walks a shard for vector
+// index files. lsm/ was already listed by listInactiveLSMFiles. hashtree_uuid/
+// and changelog/ belong in no backup: Shard.ListBackupFiles omits them too, and
+// a shard rebuilds its hashtree and sweeps orphaned change logs when it loads.
+var nonVectorShardDirs = map[string]struct{}{
+	lsmDir:           {},
+	hashTreeDirName:  {},
+	changelogDirName: {},
+}
 
 // Backupable returns whether all given class can be backed up.
 // Refuses if any shard has an in-flight runtime-reindex; this runs in
@@ -251,6 +263,8 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	if useHardlinks {
 		return i.descriptorWithHardlinks(ctx, backupID, desc, classBaseDescrs)
 	}
+	// NO-HARDLINK-BACKUP: only reachable on filesystems without hardlink support.
+	// Removed in v1.40; bugs here are not fixed.
 	return i.descriptorWithoutHardlinks(ctx, backupID, desc, classBaseDescrs)
 }
 
@@ -441,14 +455,8 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", name, relPath, err)
 		}
-		if backup.IsImmutableFile(relPath) {
-			if err := os.Link(src, dst); err != nil {
-				return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
-			}
-		} else {
-			if err := file.CopyFile(src, dst); err != nil {
-				return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
-			}
+		if err := file.CopyFile(src, dst); err != nil {
+			return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
 		}
 	}
 	if err := file.HardlinkFiles(hardlinks); err != nil {
@@ -464,6 +472,8 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 
 // descriptorWithoutHardlinks is the fallback path for filesystems that don't support
 // hardlinks. Compaction remains paused for the entire backup upload duration.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	defer func() {
 		if err != nil {
@@ -507,6 +517,8 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 //
 // For inactive shards, backupProtectedShards is set and backupLock.Lock is held
 // until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
@@ -574,6 +586,8 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 
 // backupInactiveShardWithoutHardlinks backs up an inactive (unloaded) shard by reading
 // its files directly from disk.
+//
+// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID) error {
 	shardDir := shardPath(i.path(), name)
 	if _, err := os.Stat(shardDir); err != nil {
@@ -654,6 +668,8 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 
 	// Release non-hardlink backup protections: clear the protection flag and
 	// release the held backupLock.Lock for each protected shard.
+	//
+	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 	i.backupProtectedShards.Range(func(key, _ any) bool {
 		name := key.(string)
 		i.backupLock.Unlock(name)
@@ -800,12 +816,6 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	}
 	files = append(files, lsmFiles...)
 
-	// List vector index files (all non-lsm subdirectories of the shard).
-	// Expected directories: <target>.hnsw.commitlog.d/, <target>.hnsw.snapshot.d/,
-	// <target>.queue.d/, <target>/ (flat/dynamic index), hashtree_<target>/.
-	// An indiscriminate walk is safe here because INACTIVE shards are fully
-	// quiesced — Shutdown has flushed and closed all stores, so there are no
-	// active commit logs or transient files to exclude.
 	// Note: this reads shardDir, not lsmPath — the two ReadDir calls in this
 	// function and listInactiveLSMFiles operate on different directories with
 	// different traversal semantics.
@@ -813,8 +823,39 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	if err != nil {
 		return nil, fmt.Errorf("read shard dir: %w", err)
 	}
+
+	// The vector indexes keep state as regular files at the shard root, which the
+	// walk below does not reach: the dynamic index's upgrade state and one flat
+	// metadata file per target vector. A restore missing the upgrade state
+	// concludes the index never upgraded and deletes the HNSW graph holding the
+	// only vectors.
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == lsmDir {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if name != dynamicent.StateDBFileName && !flatent.IsMetadataFile(name) {
+			continue
+		}
+		relPath, err := filepath.Rel(rootPath, filepath.Join(shardDir, name))
+		if err != nil {
+			return nil, fmt.Errorf("%s rel path: %w", name, err)
+		}
+		files = append(files, relPath)
+	}
+
+	// List vector index files, walking every shard subdirectory outside
+	// nonVectorShardDirs. Expected: <id>.hnsw.commitlog.d/, <id>.hnsw.snapshot.d/,
+	// <id>.queue.d/ and <id>.hfresh.d/ for a vector index id. Flat and dynamic
+	// state is not a directory; the loop above lists it.
+	// Walking whatever remains is safe here because INACTIVE shards are fully
+	// quiesced — Shutdown has flushed and closed all stores, so there are no
+	// active commit logs or transient files to exclude.
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, skip := nonVectorShardDirs[entry.Name()]; skip {
 			continue
 		}
 		vectorDir := filepath.Join(shardDir, entry.Name())

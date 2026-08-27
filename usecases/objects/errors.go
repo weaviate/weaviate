@@ -78,15 +78,25 @@ func NewErrInvalidUserInput(format string, args ...interface{}) ErrInvalidUserIn
 // ErrInternal indicates something went wrong during processing
 type ErrInternal struct {
 	msg string
+	err error
 }
 
 func (e ErrInternal) Error() string {
 	return e.msg
 }
 
-// NewErrInternal with Errorf signature
+// Unwrap returns the formatted error, through which every cause the format
+// wrapped with %w stays reachable for errors.Is/As. It is never nil, so it
+// cannot be used to probe whether there was a cause at all.
+func (e ErrInternal) Unwrap() error {
+	return e.err
+}
+
+// NewErrInternal with Errorf signature. Operands formatted with %w stay
+// reachable through Unwrap; %v flattens them to text.
 func NewErrInternal(format string, args ...interface{}) ErrInternal {
-	return ErrInternal{msg: fmt.Sprintf(format, args...)}
+	formatted := fmt.Errorf(format, args...)
+	return ErrInternal{msg: formatted.Error(), err: formatted}
 }
 
 // ErrNotFound indicates the desired resource doesn't exist

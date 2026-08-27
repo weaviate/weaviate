@@ -14,6 +14,8 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 
 	"github.com/pkg/errors"
@@ -27,10 +29,13 @@ import (
 
 // GetNodeStatus returns the status of all Weaviate nodes.
 func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, verbosity string) ([]*models.NodeStatus, error) {
-	nodeStatuses := make([]*models.NodeStatus, len(db.schemaGetter.Nodes()))
+	// nodes join and leave while this runs, so the same read has to size the
+	// slice and drive the loop
+	nodeNames := db.schemaGetter.Nodes()
+	nodeStatuses := make([]*models.NodeStatus, len(nodeNames))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
-	for i, nodeName := range db.schemaGetter.Nodes() {
+	for i, nodeName := range nodeNames {
 		i, nodeName := i, nodeName
 		eg.Go(func() error {
 			status, err := db.GetOneNodeStatus(ctx, nodeName, className, shardName, verbosity)
@@ -59,23 +64,34 @@ func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, ve
 
 func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardName, output string) (*models.NodeStatus, error) {
 	if db.schemaGetter.NodeName() == nodeName {
-		return db.LocalNodeStatus(ctx, className, shardName, output), nil
+		status, err := db.LocalNodeStatus(ctx, className, shardName, output)
+		if errors.Is(err, context.DeadlineExceeded) {
+			// a local scan that ran out of time times out this node alone,
+			// instead of failing the status of every node
+			return timedOutNodeStatus(nodeName), nil
+		}
+		return status, err
 	}
 	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, className, shardName, output)
 	if err != nil {
-		var errSendHttpRequest *enterrors.ErrSendHttpRequest
+		// the reported status carries no reason, so the cause is only visible here
+		db.logger.Warnf("node %q did not report its status: %v", nodeName, err)
+
+		// errors.As needs a value target: the client returns these errors by value
+		var errSendHttpRequest enterrors.ErrSendHttpRequest
 		switch {
 		case errors.As(err, &errSendHttpRequest):
 			if errors.Is(errSendHttpRequest.Unwrap(), context.DeadlineExceeded) {
-				nodeTimeout := models.NodeStatusStatusTIMEOUT
-				return &models.NodeStatus{Name: nodeName, Status: &nodeTimeout}, nil
+				return timedOutNodeStatus(nodeName), nil
 			}
 
-			nodeUnavailable := models.NodeStatusStatusUNAVAILABLE
-			return &models.NodeStatus{Name: nodeName, Status: &nodeUnavailable}, nil
+			return unavailableNodeStatus(nodeName), nil
 		case errors.As(err, &enterrors.ErrOpenHttpRequest{}):
-			nodeUnavailable := models.NodeStatusStatusUNAVAILABLE
-			return &models.NodeStatus{Name: nodeName, Status: &nodeUnavailable}, nil
+			return unavailableNodeStatus(nodeName), nil
+		case errors.As(err, &enterrors.ErrUnexpectedStatusCode{}):
+			// a node that answers with an error, e.g. because it is shutting down,
+			// is reported as unavailable instead of failing the status of every node
+			return unavailableNodeStatus(nodeName), nil
 		default:
 			return nil, err
 		}
@@ -83,15 +99,27 @@ func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardNa
 	return status, nil
 }
 
-// IncomingGetNodeStatus returns the index if it exists or nil if it doesn't
-func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, shardName, verbosity string) (*models.NodeStatus, error) {
-	return db.LocalNodeStatus(ctx, className, shardName, verbosity), nil
+func timedOutNodeStatus(nodeName string) *models.NodeStatus {
+	timeout := models.NodeStatusStatusTIMEOUT
+	return &models.NodeStatus{Name: nodeName, Status: &timeout}
 }
 
-func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output string) *models.NodeStatus {
+func unavailableNodeStatus(nodeName string) *models.NodeStatus {
+	unavailable := models.NodeStatusStatusUNAVAILABLE
+	return &models.NodeStatus{Name: nodeName, Status: &unavailable}
+}
+
+// IncomingGetNodeStatus returns the index if it exists or nil if it doesn't.
+// A scan that ran out of time surfaces as an error: the node that asked has
+// timed out on its own request by then and reports this node as timed out.
+func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, shardName, verbosity string) (*models.NodeStatus, error) {
+	return db.LocalNodeStatus(ctx, className, shardName, verbosity)
+}
+
+func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output string) (*models.NodeStatus, error) {
 	if className != "" && db.GetIndex(schema.ClassName(className)) == nil {
 		// class not found
-		return &models.NodeStatus{}
+		return &models.NodeStatus{}, nil
 	}
 
 	var (
@@ -99,7 +127,11 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output 
 		nodeStats *models.NodeStats
 	)
 	if output == verbosity.OutputVerbose {
-		nodeStats = db.localNodeShardStats(ctx, &shards, className, shardName)
+		var err error
+		nodeStats, err = db.localNodeShardStats(ctx, &shards, className, shardName)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	clusterHealthStatus := models.NodeStatusStatusHEALTHY
@@ -118,41 +150,92 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output 
 		OperationalMode: db.config.OperationalMode.Get(),
 	}
 
-	return &status
+	return &status, nil
 }
 
 func (db *DB) localNodeShardStats(ctx context.Context,
 	status *[]*models.NodeShardStatus, className, shardName string,
-) *models.NodeStats {
+) (*models.NodeStats, error) {
 	var objectCount, shardCount int64
 	if className == "" {
-		db.indexLock.RLock()
-		defer db.indexLock.RUnlock()
-		for name, idx := range db.indices {
+		// scanning every shard takes far too long to hold indexLock
+		indices := db.copyIndices()
+		// a fixed order keeps repeated scans from reshuffling the reported collections
+		for _, name := range slices.Sorted(maps.Keys(indices)) {
+			idx := indices[name]
 			if idx == nil {
 				db.logger.WithField("action", "local_node_status_for_all").
 					Warningf("no resource found for index %q", name)
 				continue
 			}
-			objects, shards := idx.getShardsNodeStatus(ctx, status, shardName)
+			objects, shards, err := scanIndexShards(ctx, idx, status, shardName)
+			if err != nil {
+				return nil, err
+			}
 			objectCount, shardCount = objectCount+objects, shardCount+shards
 		}
 		return &models.NodeStats{
 			ObjectCount: objectCount,
 			ShardCount:  shardCount,
-		}
+		}, nil
 	}
+
 	idx := db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		db.logger.WithField("action", "local_node_status_for_class").
 			Warningf("no index found for class %q", className)
-		return nil
+		return nil, nil
 	}
-	objectCount, shardCount = idx.getShardsNodeStatus(ctx, status, shardName)
+	objectCount, shardCount, err := scanIndexShards(ctx, idx, status, shardName)
+	if err != nil {
+		return nil, err
+	}
 	return &models.NodeStats{
 		ObjectCount: objectCount,
 		ShardCount:  shardCount,
+	}, nil
+}
+
+// errIndexClosed stands in for a close whose cause was never signalled, which
+// drop() leaves behind.
+var errIndexClosed = errors.New("collection is closed")
+
+// scanIndexShards appends the shard statuses of one index to status. A closed
+// index and an unfinished scan contribute nothing, but only a collection being
+// deleted may be left out without an error: anything else would report a live
+// collection as empty.
+func scanIndexShards(ctx context.Context, idx *Index,
+	status *[]*models.NodeShardStatus, shardName string,
+) (objectCount, shardCount int64, err error) {
+	idx.dropIndex.RLock()
+	defer idx.dropIndex.RUnlock()
+
+	idx.closeLock.RLock()
+	defer idx.closeLock.RUnlock()
+
+	var shards []*models.NodeShardStatus
+	if idx.closed {
+		err = context.Cause(idx.closeRequestedCtx)
+		if err == nil {
+			err = errIndexClosed
+		}
+	} else {
+		scanCtx, done := idx.cancelOnCloseRequested(ctx)
+		defer done()
+
+		objectCount, shardCount, err = idx.getShardsNodeStatus(scanCtx, &shards, shardName)
 	}
+	if err != nil {
+		// the collection is named only here: the error reaches callers that this
+		// endpoint does not check a read permission against
+		idx.logger.Warnf("node status scan of collection %q stopped: %v", idx.Config.ClassName, err)
+		if errors.Is(err, errIndexDropped) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	*status = append(*status, shards...)
+	return objectCount, shardCount, nil
 }
 
 func (db *DB) localNodeBatchStats() *models.BatchStats {
@@ -170,43 +253,62 @@ func (db *DB) localNodeBatchStats() *models.BatchStats {
 // If shardName is provided, it will only get the status of the specific shard.
 // Otherwise, it will get the status of all shards.
 // Returns the total object count and the number of shards.
-// If an error occurs, the status slice may have been modified and this method
-// may return a partial result.
+// If an error is returned, the counts and the status slice hold a partial result.
 func (i *Index) getShardsNodeStatus(ctx context.Context,
 	status *[]*models.NodeShardStatus, shardName string,
-) (totalCount, shardCount int64) {
-	i.ForEachShard(func(name string, shard ShardLike) error {
-		if err := ctx.Err(); err != nil {
-			return err
+) (totalCount, shardCount int64, err error) {
+	if ctx.Err() != nil {
+		return 0, 0, context.Cause(ctx)
+	}
+
+	shards := map[string]ShardLike{}
+	if err = i.ForEachShard(func(name string, shard ShardLike) error {
+		if shardName == "" || shardName == name {
+			shards[name] = shard
 		}
-		// if shardName is provided, only return the status for the specified shard
-		if shardName != "" && shardName != name {
-			return nil
+		return nil
+	}); err != nil {
+		return 0, 0, err
+	}
+
+	// the state is read once the shard list is fixed, so a shard created while
+	// the scan runs is left out instead of reported with a guessed replica count
+	className := i.Config.ClassName.String()
+	replicationFactor, replicaCounts := i.readReplicationDetails()
+	replicaCountOf := func(name string) int64 {
+		if count, ok := replicaCounts[name]; ok {
+			return count
 		}
+		// a shard the read did not cover holds as many replicas as the collection asks for
+		return replicationFactor
+	}
+
+	// a fixed order keeps repeated scans from reshuffling the reported shards
+	for _, name := range slices.Sorted(maps.Keys(shards)) {
+		if ctx.Err() != nil {
+			return totalCount, shardCount, context.Cause(ctx)
+		}
+		shard := shards[name]
 
 		// Don't force load a lazy shard to get nodes status
-		className := i.Config.ClassName.String()
-		if lazy, ok := shard.(*LazyLoadShard); ok {
-			if !lazy.isLoaded() {
-				numberOfReplicas, replicationFactor := getShardReplicationDetails(i, shard.Name())
-				shardStatus := &models.NodeShardStatus{
-					Name:                 name,
-					Class:                className,
-					VectorIndexingStatus: shard.GetStatus().String(),
-					Loaded:               false,
-					ReplicationFactor:    replicationFactor,
-					NumberOfReplicas:     numberOfReplicas,
-					// don't add compression status as this would trigger loading the shard
-				}
-				*status = append(*status, shardStatus)
-				shardCount++
-				return nil
+		if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.isLoaded() {
+			shardStatus := &models.NodeShardStatus{
+				Name:                 name,
+				Class:                className,
+				VectorIndexingStatus: shard.GetStatus().String(),
+				Loaded:               false,
+				ReplicationFactor:    replicationFactor,
+				NumberOfReplicas:     replicaCountOf(name),
+				// don't add compression status as this would trigger loading the shard
 			}
+			*status = append(*status, shardStatus)
+			shardCount++
+			continue
 		}
 
 		objectCount, err := shard.ObjectCountAsync(ctx)
 		if err != nil {
-			i.logger.Warnf("error while getting object count for shard %s: %w", shard.Name(), err)
+			i.logger.Warnf("error while getting object count for shard %s: %v", shard.Name(), err)
 		}
 
 		totalCount += int64(objectCount)
@@ -222,17 +324,6 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			return nil
 		})
 
-		var compressed bool
-		_ = shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {
-			compressed = compressed || index.Compressed()
-			return nil
-		})
-
-		numberOfReplicas, replicationFactor := getShardReplicationDetails(i, shard.Name())
-		if err != nil {
-			i.logger.Errorf("error while getting number of replicas for shard %s: %w", shard.Name(), err)
-		}
-
 		shardStatus := &models.NodeShardStatus{
 			Name:                   name,
 			Class:                  className,
@@ -243,32 +334,35 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			Loaded:                 true,
 			AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
 			ReplicationFactor:      replicationFactor,
-			NumberOfReplicas:       numberOfReplicas,
+			NumberOfReplicas:       replicaCountOf(name),
 		}
 		*status = append(*status, shardStatus)
 		shardCount++
-		return nil
-	})
-	return totalCount, shardCount
+	}
+	return totalCount, shardCount, nil
 }
 
-func getShardReplicationDetails(i *Index, shardName string) (int64, int64) {
-	var numberOfReplicas int64
-	var replicationFactor int64
+// readReplicationDetails reads the sharding state once for the whole collection,
+// so that scanning it cannot cost a schema read per shard. The map covers only
+// the shards the schema holds when the read runs. A collection the schema does
+// not hold returns a zero factor and a nil map.
+//
+// A collection whose local index outlives its schema entry has been deleted, and
+// does not come back by waiting, so the read does not retry.
+func (i *Index) readReplicationDetails() (replicationFactor int64, replicaCounts map[string]int64) {
 	class := i.Config.ClassName.String()
-	err := i.schemaReader.Read(class, true, func(class *models.Class, state *sharding.State) error {
-		var err error
+	err := i.schemaReader.Read(class, false, func(_ *models.Class, state *sharding.State) error {
 		replicationFactor = state.ReplicationFactor
-		numberOfReplicas, err = state.NumberOfReplicas(shardName)
-		if err != nil {
-			return fmt.Errorf("unable to retrieve number of replicas for class %s: %w", class.Class, err)
+		replicaCounts = make(map[string]int64, len(state.Physical))
+		for shardName, physical := range state.Physical {
+			replicaCounts[shardName] = int64(len(physical.BelongsToNodes))
 		}
 		return nil
 	})
 	if err != nil {
-		i.logger.Errorf("error while getting number of replicas for shard %s: %v", shardName, err)
+		i.logger.Errorf("error while getting replication details of collection %s: %v", class, err)
 	}
-	return numberOfReplicas, replicationFactor
+	return replicationFactor, replicaCounts
 }
 
 func isAnyVectorIndexCompressed(shard ShardLike) bool {
@@ -281,10 +375,13 @@ func isAnyVectorIndexCompressed(shard ShardLike) bool {
 }
 
 func (db *DB) GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error) {
-	nodeStatistics := make([]*models.Statistics, len(db.schemaGetter.Nodes()))
+	// nodes join and leave while this runs, so the same read has to size the
+	// slice and drive the loop
+	nodeNames := db.schemaGetter.Nodes()
+	nodeStatistics := make([]*models.Statistics, len(nodeNames))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
-	for i, nodeName := range db.schemaGetter.Nodes() {
+	for i, nodeName := range nodeNames {
 		i, nodeName := i, nodeName
 		eg.Go(func() error {
 			statistics, err := db.getNodeStatistics(ctx, nodeName)
@@ -364,7 +461,11 @@ func (db *DB) getNodeStatistics(ctx context.Context, nodeName string) (*models.S
 	}
 	statistics, err := db.remoteNode.GetStatistics(ctx, nodeName)
 	if err != nil {
-		var errSendHttpRequest *enterrors.ErrSendHttpRequest
+		// the reported status carries no reason, so the cause is only visible here
+		db.logger.Warnf("node %q did not report its statistics: %v", nodeName, err)
+
+		// errors.As needs a value target: the client returns these errors by value
+		var errSendHttpRequest enterrors.ErrSendHttpRequest
 		switch {
 		case errors.As(err, &errSendHttpRequest):
 			if errors.Is(errSendHttpRequest.Unwrap(), context.DeadlineExceeded) {

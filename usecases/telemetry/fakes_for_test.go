@@ -24,12 +24,17 @@ type fakeNodesStatusGetter struct {
 
 func (n *fakeNodesStatusGetter) LocalNodeStatus(ctx context.Context,
 	className, shardName, verbosity string,
-) *models.NodeStatus {
+) (*models.NodeStatus, error) {
 	args := n.Called(ctx, className, shardName, verbosity)
+	var status *models.NodeStatus
 	if args.Get(0) != nil {
-		return args.Get(0).(*models.NodeStatus)
+		status = args.Get(0).(*models.NodeStatus)
 	}
-	return nil
+	// expectations that set only a status have no error to return
+	if len(args) > 1 {
+		return status, args.Error(1)
+	}
+	return status, nil
 }
 
 type fakeCloudInfoProvider struct {

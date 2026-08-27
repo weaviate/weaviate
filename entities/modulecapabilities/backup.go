@@ -47,11 +47,6 @@ type BackupBackend interface {
 	// AllBackups returns the top level metadata for all attempted backups
 	AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error)
 
-	// WriteToFile writes an object in the specified file with path destPath
-	// The file will be created if it doesn't exist
-	// The file will be overwritten if it exists
-	WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error
-
 	// SourceDataPath is data path of all source files
 	SourceDataPath() string
 

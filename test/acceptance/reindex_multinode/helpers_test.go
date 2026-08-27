@@ -45,6 +45,7 @@ func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...str
 	}
 
 	b := docker.New().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		With3NodeCluster().
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").

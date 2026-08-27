@@ -27,8 +27,8 @@ func createGrpcServer(state *state.State, clientTracker *telemetry.ClientTracker
 func startGrpcServer(server *grpc.Server, state *state.State) {
 	enterrors.GoWrapper(func() {
 		if err := grpcHandler.StartAndListen(server, state); err != nil {
-			state.Logger.WithField("action", "grpc_startup").WithError(err).
-				Fatal("failed to start grpc server")
+			state.Logger.WithField("action", "grpc_startup").
+				Fatalf("failed to start grpc server: %v", err)
 		}
 	}, state.Logger)
 }

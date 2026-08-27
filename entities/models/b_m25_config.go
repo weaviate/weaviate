@@ -29,10 +29,10 @@ import (
 type BM25Config struct {
 
 	// Calibrates term-weight scaling based on the document length (default: 0.75).
-	B float32 `json:"b,omitempty"`
+	B float32 `json:"b"`
 
 	// Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).
-	K1 float32 `json:"k1,omitempty"`
+	K1 float32 `json:"k1"`
 }
 
 // Validate validates this b m25 config

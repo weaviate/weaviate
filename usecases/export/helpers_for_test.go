@@ -257,10 +257,6 @@ func (b *fakeBackend) PutObject(context.Context, string, string, string, string,
 	return nil
 }
 
-func (b *fakeBackend) WriteToFile(context.Context, string, string, string, string, string) error {
-	return nil
-}
-
 func (b *fakeBackend) Read(context.Context, string, string, string, string, io.WriteCloser) (int64, error) {
 	return 0, nil
 }

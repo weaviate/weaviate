@@ -28,7 +28,7 @@ import (
 const SchemaObjectsIndexesUpdateAcceptedCode int = 202
 
 /*
-SchemaObjectsIndexesUpdateAccepted Reindex task submitted.
+SchemaObjectsIndexesUpdateAccepted Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.
 
 swagger:response schemaObjectsIndexesUpdateAccepted
 */
@@ -188,7 +188,7 @@ func (o *SchemaObjectsIndexesUpdateForbidden) WriteResponse(rw http.ResponseWrit
 const SchemaObjectsIndexesUpdateNotFoundCode int = 404
 
 /*
-SchemaObjectsIndexesUpdateNotFound Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.
+SchemaObjectsIndexesUpdateNotFound Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.
 
 swagger:response schemaObjectsIndexesUpdateNotFound
 */
@@ -233,7 +233,7 @@ func (o *SchemaObjectsIndexesUpdateNotFound) WriteResponse(rw http.ResponseWrite
 const SchemaObjectsIndexesUpdateConflictCode int = 409
 
 /*
-SchemaObjectsIndexesUpdateConflict Conflicting reindex task already running.
+SchemaObjectsIndexesUpdateConflict Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task is in flight but not STARTED, so the cancel is refused. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.
 
 swagger:response schemaObjectsIndexesUpdateConflict
 */

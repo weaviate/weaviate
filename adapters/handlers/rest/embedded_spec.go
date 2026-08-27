@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.38.7"
+    "version": "1.38.12"
   },
   "basePath": "/v1",
   "paths": {
@@ -2547,6 +2547,106 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.cluster.statistics.get"
+        ]
+      }
+    },
+    "/experimental/export-db-users": {
+      "post": {
+        "description": "Experimental: this endpoint may change or be removed without notice. Export every database (` + "`" + `db` + "`" + ` user type) user's API-key credential for migration to another cluster. Strong-key users carry their argon2id key hash; imported/weak and revoked users are reported with a null hash and a status naming why they cannot be migrated. Root users only.",
+        "tags": [
+          "experimental"
+        ],
+        "summary": "Export all database-user credentials",
+        "operationId": "exportUsers",
+        "responses": {
+          "200": {
+            "description": "The exported user credentials.",
+            "schema": {
+              "$ref": "#/definitions/UserExportResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.experimental.export-db-users"
+        ]
+      }
+    },
+    "/experimental/import-db-users": {
+      "post": {
+        "description": "Experimental: this endpoint may change or be removed without notice. Recreate exported database (` + "`" + `db` + "`" + ` user type) user credentials on this cluster under a target namespace. Each user is created with its original key hash so the source key keeps working. Returns a per-user result. Only strong-key records are importable. Root users only.",
+        "tags": [
+          "experimental"
+        ],
+        "summary": "Import database-user credentials",
+        "operationId": "importUsers",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UserImportRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The per-user import results.",
+            "schema": {
+              "$ref": "#/definitions/UserImportResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.experimental.import-db-users"
         ]
       }
     },
@@ -5897,7 +5997,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Reindex task submitted.",
+            "description": "Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -5918,13 +6018,13 @@ func init() {
             }
           },
           "404": {
-            "description": "Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.",
+            "description": "Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running.",
+            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task is in flight but not STARTED, so the cancel is refused. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7778,12 +7878,14 @@ func init() {
         "b": {
           "description": "Calibrates term-weight scaling based on the document length (default: 0.75).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         },
         "k1": {
           "description": "Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         }
       }
     },
@@ -7855,6 +7957,13 @@ func init() {
         },
         "include": {
           "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeRoles": {
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8630,6 +8739,57 @@ func init() {
         }
       }
     },
+    "DBUserCredential": {
+      "description": "A single database user's exportable API-key credential. Carries the argon2id key hash for strong-key users; for users whose key cannot be migrated (imported/weak, revoked, or missing a hash) secureHash is null and status names the reason.",
+      "type": "object",
+      "required": [
+        "userId"
+      ],
+      "properties": {
+        "active": {
+          "description": "Whether the user is active. A deactivated (not revoked) user is carried with active=false and reproduced on import.",
+          "type": "boolean"
+        },
+        "apiKeyFirstLetters": {
+          "description": "First 3 letters of the associated API key.",
+          "type": "string",
+          "maxLength": 3
+        },
+        "createdAt": {
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "namespace": {
+          "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
+          "type": "string"
+        },
+        "secureHash": {
+          "description": "The argon2id PHC hash of the user's API key. Null when the key cannot be migrated (see status).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "Export classification. Only 'exported' carries a usable secureHash; the others report why the user was not carried.",
+          "type": "string",
+          "enum": [
+            "exported",
+            "imported_key",
+            "revoked"
+          ]
+        },
+        "userId": {
+          "description": "The name (ID) of the user, without any namespace prefix.",
+          "type": "string"
+        },
+        "userIdentifier": {
+          "description": "The random identifier embedded in the user's API key, used to resolve the key hash. Exactly 16 characters for an importable record; empty when the export reports a user whose key is not carried.",
+          "type": "string"
+        }
+      }
+    },
     "DBUserInfo": {
       "type": "object",
       "required": [
@@ -9174,7 +9334,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -9193,7 +9353,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -9223,6 +9383,7 @@ func init() {
       "type": "object",
       "properties": {
         "status": {
+          "description": "What the server did. ` + "`" + `STARTED` + "`" + `: a reindex task was submitted and ` + "`" + `taskId` + "`" + ` names it. ` + "`" + `CANCELLED` + "`" + `: a cancel stopped the in-flight task named by ` + "`" + `taskId` + "`" + `. ` + "`" + `NO_OP` + "`" + `: a cancel found nothing in flight, and ` + "`" + `taskId` + "`" + ` is absent. Not a closed set: a newer server may answer with a value this client does not know, so report an unrecognized status rather than rejecting the response.",
           "type": "string"
         },
         "taskId": {
@@ -9241,7 +9402,7 @@ func init() {
           ]
         },
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.",
           "type": "boolean"
         },
         "enabled": {
@@ -11746,6 +11907,84 @@ func init() {
         }
       }
     },
+    "UserExportResponse": {
+      "description": "The full set of database-user credential records on the source, one per user.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "users": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DBUserCredential"
+          }
+        }
+      }
+    },
+    "UserImportRequest": {
+      "description": "A batch of database-user credentials to recreate on the target, bound to a single target namespace.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "namespace": {
+          "description": "The target namespace every user in this request is created under. Required on namespace-enabled clusters.",
+          "type": "string"
+        },
+        "users": {
+          "description": "The credential records to import. Only records with a strong (argon2id) secureHash are importable.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DBUserCredential"
+          }
+        }
+      }
+    },
+    "UserImportResponse": {
+      "description": "The per-user outcome of an import batch.",
+      "type": "object",
+      "required": [
+        "results"
+      ],
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UserImportResult"
+          }
+        }
+      }
+    },
+    "UserImportResult": {
+      "description": "The outcome of importing a single database-user credential.",
+      "type": "object",
+      "required": [
+        "userId",
+        "status"
+      ],
+      "properties": {
+        "error": {
+          "description": "The reason, present only when status is 'error'.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The outcome for this user.",
+          "type": "string",
+          "enum": [
+            "created",
+            "reconciled",
+            "skipped_exists",
+            "error"
+          ]
+        },
+        "userId": {
+          "description": "The name (ID) of the user, without any namespace prefix.",
+          "type": "string"
+        }
+      }
+    },
     "UserOwnInfo": {
       "type": "object",
       "required": [
@@ -12170,7 +12409,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.38.7"
+    "version": "1.38.12"
   },
   "basePath": "/v1",
   "paths": {
@@ -14657,6 +14896,106 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.cluster.statistics.get"
+        ]
+      }
+    },
+    "/experimental/export-db-users": {
+      "post": {
+        "description": "Experimental: this endpoint may change or be removed without notice. Export every database (` + "`" + `db` + "`" + ` user type) user's API-key credential for migration to another cluster. Strong-key users carry their argon2id key hash; imported/weak and revoked users are reported with a null hash and a status naming why they cannot be migrated. Root users only.",
+        "tags": [
+          "experimental"
+        ],
+        "summary": "Export all database-user credentials",
+        "operationId": "exportUsers",
+        "responses": {
+          "200": {
+            "description": "The exported user credentials.",
+            "schema": {
+              "$ref": "#/definitions/UserExportResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.experimental.export-db-users"
+        ]
+      }
+    },
+    "/experimental/import-db-users": {
+      "post": {
+        "description": "Experimental: this endpoint may change or be removed without notice. Recreate exported database (` + "`" + `db` + "`" + ` user type) user credentials on this cluster under a target namespace. Each user is created with its original key hash so the source key keeps working. Returns a per-user result. Only strong-key records are importable. Root users only.",
+        "tags": [
+          "experimental"
+        ],
+        "summary": "Import database-user credentials",
+        "operationId": "importUsers",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UserImportRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The per-user import results.",
+            "schema": {
+              "$ref": "#/definitions/UserImportResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.experimental.import-db-users"
         ]
       }
     },
@@ -18117,7 +18456,7 @@ func init() {
         ],
         "responses": {
           "202": {
-            "description": "Reindex task submitted.",
+            "description": "Accepted. On a submit: the reindex task was created, and the body carries status STARTED with its taskId. On cancel:true: status CANCELLED with the cancelled task's taskId, or status NO_OP with no taskId when nothing was in flight.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -18138,13 +18477,13 @@ func init() {
             }
           },
           "404": {
-            "description": "Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.",
+            "description": "Collection or property not found. Reserved for exactly that: a cancel with nothing to cancel is answered with 202.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "409": {
-            "description": "Conflicting reindex task already running.",
+            "description": "Two distinct meanings on this operation. On a submit: a conflicting reindex task is already running on this property. On cancel:true: the target task is in flight but not STARTED, so the cancel is refused. Either it is in a cluster-wide coordination phase (PREPARING or SWAPPING) and past the point at which cancelling is safe, so the caller must wait for it to reach a terminal state, or it carries a status this build does not recognize and has to terminate on the nodes that do.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19998,12 +20337,14 @@ func init() {
         "b": {
           "description": "Calibrates term-weight scaling based on the document length (default: 0.75).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         },
         "k1": {
           "description": "Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-omitempty": false
         }
       }
     },
@@ -20075,6 +20416,13 @@ func init() {
         },
         "include": {
           "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeRoles": {
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -20999,6 +21347,57 @@ func init() {
         }
       }
     },
+    "DBUserCredential": {
+      "description": "A single database user's exportable API-key credential. Carries the argon2id key hash for strong-key users; for users whose key cannot be migrated (imported/weak, revoked, or missing a hash) secureHash is null and status names the reason.",
+      "type": "object",
+      "required": [
+        "userId"
+      ],
+      "properties": {
+        "active": {
+          "description": "Whether the user is active. A deactivated (not revoked) user is carried with active=false and reproduced on import.",
+          "type": "boolean"
+        },
+        "apiKeyFirstLetters": {
+          "description": "First 3 letters of the associated API key.",
+          "type": "string",
+          "maxLength": 3
+        },
+        "createdAt": {
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "namespace": {
+          "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
+          "type": "string"
+        },
+        "secureHash": {
+          "description": "The argon2id PHC hash of the user's API key. Null when the key cannot be migrated (see status).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "Export classification. Only 'exported' carries a usable secureHash; the others report why the user was not carried.",
+          "type": "string",
+          "enum": [
+            "exported",
+            "imported_key",
+            "revoked"
+          ]
+        },
+        "userId": {
+          "description": "The name (ID) of the user, without any namespace prefix.",
+          "type": "string"
+        },
+        "userIdentifier": {
+          "description": "The random identifier embedded in the user's API key, used to resolve the key hash. Exactly 16 characters for an importable record; empty when the export reports a user whose key is not carried.",
+          "type": "string"
+        }
+      }
+    },
     "DBUserInfo": {
       "type": "object",
       "required": [
@@ -21579,7 +21978,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -21598,7 +21997,7 @@ func init() {
       "type": "object",
       "properties": {
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId.",
           "type": "boolean"
         },
         "enabled": {
@@ -21628,6 +22027,7 @@ func init() {
       "type": "object",
       "properties": {
         "status": {
+          "description": "What the server did. ` + "`" + `STARTED` + "`" + `: a reindex task was submitted and ` + "`" + `taskId` + "`" + ` names it. ` + "`" + `CANCELLED` + "`" + `: a cancel stopped the in-flight task named by ` + "`" + `taskId` + "`" + `. ` + "`" + `NO_OP` + "`" + `: a cancel found nothing in flight, and ` + "`" + `taskId` + "`" + ` is absent. Not a closed set: a newer server may answer with a value this client does not know, so report an unrecognized status rather than rejecting the response.",
           "type": "string"
         },
         "taskId": {
@@ -21646,7 +22046,7 @@ func init() {
           ]
         },
         "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. Returns 202 with status CANCELLED once a STARTED task is cancelled, or 409 for any other in-flight status: a cluster-wide coordination phase (PREPARING or SWAPPING), where it is past the point at which cancelling is safe, or a status this build does not recognize, which it cannot prove is safe to stop and which has to terminate on the nodes that do recognize it. A cancel that finds nothing in flight is not an error: it returns 202 with status NO_OP and no taskId. Partial on-disk state is cleaned up by the cancel, and by the next submit if that cleanup could not complete.",
           "type": "boolean"
         },
         "enabled": {
@@ -24340,6 +24740,84 @@ func init() {
       "properties": {
         "apikey": {
           "description": "The API key associated with the user.",
+          "type": "string"
+        }
+      }
+    },
+    "UserExportResponse": {
+      "description": "The full set of database-user credential records on the source, one per user.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "users": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DBUserCredential"
+          }
+        }
+      }
+    },
+    "UserImportRequest": {
+      "description": "A batch of database-user credentials to recreate on the target, bound to a single target namespace.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "namespace": {
+          "description": "The target namespace every user in this request is created under. Required on namespace-enabled clusters.",
+          "type": "string"
+        },
+        "users": {
+          "description": "The credential records to import. Only records with a strong (argon2id) secureHash are importable.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DBUserCredential"
+          }
+        }
+      }
+    },
+    "UserImportResponse": {
+      "description": "The per-user outcome of an import batch.",
+      "type": "object",
+      "required": [
+        "results"
+      ],
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UserImportResult"
+          }
+        }
+      }
+    },
+    "UserImportResult": {
+      "description": "The outcome of importing a single database-user credential.",
+      "type": "object",
+      "required": [
+        "userId",
+        "status"
+      ],
+      "properties": {
+        "error": {
+          "description": "The reason, present only when status is 'error'.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The outcome for this user.",
+          "type": "string",
+          "enum": [
+            "created",
+            "reconciled",
+            "skipped_exists",
+            "error"
+          ]
+        },
+        "userId": {
+          "description": "The name (ID) of the user, without any namespace prefix.",
           "type": "string"
         }
       }

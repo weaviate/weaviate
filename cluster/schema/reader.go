@@ -120,7 +120,8 @@ func (rs SchemaReader) Read(class string, retryIfClassNotFound bool, reader func
 	return rs.retry(func(s *schema) error {
 		return s.Read(class, retryIfClassNotFound, func(class *models.Class, state *sharding.State) error {
 			if err := checkShardingState(state); err != nil {
-				return err
+				// an invalid sharding state does not become valid by waiting
+				return backoff.Permanent(err)
 			}
 			return reader(class, state)
 		})

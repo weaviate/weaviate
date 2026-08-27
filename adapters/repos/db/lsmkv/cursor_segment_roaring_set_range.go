@@ -22,10 +22,11 @@ func (s *segment) newRoaringSetRangeReader() roaringsetrange.InnerReader {
 	if s.readFromMemory {
 		segmentCursor = roaringsetrange.NewSegmentCursorMmap(s.contents[s.dataStartPos:s.dataEndPos])
 	} else {
-		sectionReader := io.NewSectionReader(s.contentFile, int64(s.dataStartPos), int64(s.dataEndPos))
+		payloadSize := int64(s.dataEndPos - s.dataStartPos)
+		sectionReader := io.NewSectionReader(s.contentFile, int64(s.dataStartPos), payloadSize)
 		// since segment reader concurrenlty fetches next segment and merges bitmaps of previous segments
 		// at least 2 buffers needs to be used by cursor not to overwrite data before they are consumed.
-		segmentCursor = roaringsetrange.NewSegmentCursorPread(sectionReader, 2)
+		segmentCursor = roaringsetrange.NewSegmentCursorPread(sectionReader, payloadSize, 2)
 	}
 
 	return roaringsetrange.NewSegmentReader(
@@ -37,8 +38,9 @@ func (s *segment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {
 		return roaringsetrange.NewSegmentCursorMmap(s.contents[s.dataStartPos:s.dataEndPos])
 	}
 
-	sectionReader := io.NewSectionReader(s.contentFile, int64(s.dataStartPos), int64(s.dataEndPos))
+	payloadSize := int64(s.dataEndPos - s.dataStartPos)
+	sectionReader := io.NewSectionReader(s.contentFile, int64(s.dataStartPos), payloadSize)
 	// compactor does not work concurrently, next segment is fetched after previous one gets consumed,
 	// therefore just one buffer is sufficient.
-	return roaringsetrange.NewSegmentCursorPread(sectionReader, 1)
+	return roaringsetrange.NewSegmentCursorPread(sectionReader, payloadSize, 1)
 }

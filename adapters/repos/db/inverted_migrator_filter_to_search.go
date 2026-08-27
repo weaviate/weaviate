@@ -273,6 +273,9 @@ func (m *filterableToSearchableMigrator) isEmptyMapBucket(ctx context.Context, b
 	defer cur.Close()
 
 	key, _ := cur.First(ctx)
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	return key == nil, nil
 }
 

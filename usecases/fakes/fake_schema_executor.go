@@ -95,8 +95,8 @@ func (m *MockSchemaExecutor) AddTenants(class string, req *cmd.AddTenantsRequest
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) UpdateTenants(class string, req *cmd.UpdateTenantsRequest) error {
-	args := m.Called(class, req)
+func (m *MockSchemaExecutor) UpdateTenants(class string, req *cmd.UpdateTenantsRequest, preFreezeStatuses map[string]string) error {
+	args := m.Called(class, req, preFreezeStatuses)
 	return args.Error(0)
 }
 

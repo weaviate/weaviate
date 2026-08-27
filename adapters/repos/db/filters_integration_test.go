@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -36,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -57,6 +60,7 @@ func TestFilters(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -70,7 +74,7 @@ func TestFilters(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -105,6 +109,7 @@ func TestFiltersNoLengthIndex(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -118,7 +123,7 @@ func TestFiltersNoLengthIndex(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -1066,8 +1071,10 @@ var carVectors = [][]float32{
 	{0, 0, 0, 0, 1.1},
 }
 
-func TestGeoPropUpdateJourney(t *testing.T) {
-	dirName := t.TempDir()
+// newGeoTestRepo starts a repo holding className with a single geo property
+// named "location".
+func newGeoTestRepo(t *testing.T, className string) (*DB, *Migrator) {
+	t.Helper()
 
 	logger, _ := test.NewNullLogger()
 	shardState := singleShardState()
@@ -1083,6 +1090,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -1092,36 +1100,55 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
+		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
-	require.Nil(t, err)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+	require.NoError(t, err)
 	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer repo.Shutdown(context.Background())
+	require.NoError(t, repo.WaitForStartup(testCtx()))
+	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 
 	migrator := NewMigrator(repo, logger, "node1")
-
-	t.Run("import schema", func(t *testing.T) {
-		class := &models.Class{
-			Class:               "GeoUpdateTestClass",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
-			Properties: []*models.Property{
-				{
-					Name:     "location",
-					DataType: []string{string(schema.DataTypeGeoCoordinates)},
-				},
+	class := &models.Class{
+		Class:               className,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:     "location",
+				DataType: []string{string(schema.DataTypeGeoCoordinates)},
 			},
-		}
+			{
+				Name:     "name",
+				DataType: []string{string(schema.DataTypeText)},
+			},
+		},
+	}
+	require.NoError(t, migrator.AddClass(context.Background(), class))
+	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{class}}
 
-		migrator.AddClass(context.Background(), class)
-		schemaGetter.schema.Objects = &models.Schema{
-			Classes: []*models.Class{class},
-		}
-	})
+	return repo, migrator
+}
+
+func putGeoObject(t *testing.T, repo *DB, className, name string, id strfmt.UUID, lat, lon float32) {
+	t.Helper()
+
+	require.NoError(t, repo.PutObject(context.Background(), &models.Object{
+		Class: className,
+		ID:    id,
+		Properties: map[string]interface{}{
+			"location": &models.GeoCoordinates{Latitude: &lat, Longitude: &lon},
+			"name":     name,
+		},
+	}, []float32{0.5}, nil, nil, nil, 0))
+}
+
+func TestGeoPropUpdateJourney(t *testing.T) {
+	const className = "GeoUpdateTestClass"
+
+	repo, _ := newGeoTestRepo(t, className)
 
 	ids := []strfmt.UUID{
 		"4002609e-ee57-4404-a0ad-798af7da0004",
@@ -1140,7 +1167,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 		return func(t *testing.T) {
 			for i, id := range ids {
 				repo.PutObject(context.Background(), &models.Object{
-					Class: "GeoUpdateTestClass",
+					Class: className,
 					ID:    id,
 					Properties: map[string]interface{}{
 						"location": &models.GeoCoordinates{
@@ -1160,7 +1187,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 
 	t.Run("verify 1st object found", func(t *testing.T) {
 		res, err := repo.Search(context.Background(),
-			getParamsWithFilter("GeoUpdateTestClass", buildFilter(
+			getParamsWithFilter(className, buildFilter(
 				"location", searchQuery, wgr, schema.DataTypeGeoCoordinates,
 			)))
 
@@ -1177,7 +1204,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 
 	t.Run("verify 2nd object found", func(t *testing.T) {
 		res, err := repo.Search(context.Background(),
-			getParamsWithFilter("GeoUpdateTestClass", buildFilter(
+			getParamsWithFilter(className, buildFilter(
 				"location", searchQuery, wgr, schema.DataTypeGeoCoordinates,
 			)))
 
@@ -1187,6 +1214,220 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 		// notice the opposite order
 		assert.Equal(t, ids[1], res[0].ID)
 	})
+}
+
+// AddProperty writes the shard's property indices while a geo filter reads
+// them, so the searcher must not be handed the live map.
+func TestGeoFilterDuringConcurrentAddProperty(t *testing.T) {
+	className := "GeoConcurrentTestClass"
+	repo, migrator := newGeoTestRepo(t, className)
+
+	putGeoObject(t, repo, className, "location", "4002609e-ee57-4404-a0ad-798af7da0004", 7, 1)
+
+	searchQuery := filters.GeoRange{
+		GeoCoordinates: &models.GeoCoordinates{
+			Latitude:  ptFloat32(6.0),
+			Longitude: ptFloat32(-2.0),
+		},
+		Distance: 400000,
+	}
+
+	const rounds = 25
+	var (
+		wg       sync.WaitGroup
+		errsLock sync.Mutex
+		errs     []error
+	)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			err := migrator.AddProperty(context.Background(), className, &models.Property{
+				Name:     fmt.Sprintf("location%d", i),
+				DataType: []string{string(schema.DataTypeGeoCoordinates)},
+			})
+			if err != nil {
+				errsLock.Lock()
+				errs = append(errs, err)
+				errsLock.Unlock()
+			}
+		}
+	}()
+
+	for reader := 0; reader < 4; reader++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < rounds; i++ {
+				_, err := repo.Search(context.Background(),
+					getParamsWithFilter(className, buildFilter(
+						"location", searchQuery, wgr, schema.DataTypeGeoCoordinates,
+					)))
+				if err != nil {
+					errsLock.Lock()
+					errs = append(errs, err)
+					errsLock.Unlock()
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	require.Empty(t, errs)
+}
+
+// A geo filter resolves against the shard's geo index, so a path that reaches
+// the searcher without those indices matches nothing instead of failing.
+func TestGeoFilterOnFilteredPaths(t *testing.T) {
+	const (
+		nearAID = strfmt.UUID("4002609e-ee57-4404-a0ad-798af7da0004")
+		nearBID = strfmt.UUID("1477aed8-f677-4131-a3ad-4deef6176066")
+		farID   = strfmt.UUID("6b0d9bbb-3b3d-4f3f-8f47-4b1e0e3fbb02")
+	)
+
+	near := filters.GeoRange{
+		GeoCoordinates: &models.GeoCoordinates{
+			Latitude:  ptFloat32(6.0),
+			Longitude: ptFloat32(-2.0),
+		},
+		Distance: 400000,
+	}
+	// no object sits this close to the query point
+	none := filters.GeoRange{GeoCoordinates: near.GeoCoordinates, Distance: 1}
+
+	tests := []struct {
+		name  string
+		geo   filters.GeoRange
+		check func(t *testing.T, repo *DB, className string, filter *filters.LocalFilter)
+	}{
+		{
+			name: "aggregate counts only the objects in range",
+			geo:  near,
+			check: func(t *testing.T, repo *DB, className string, filter *filters.LocalFilter) {
+				res, err := repo.Aggregate(context.Background(), aggregation.Params{
+					ClassName:        schema.ClassName(className),
+					Filters:          filter,
+					IncludeMetaCount: true,
+				}, nil)
+
+				require.NoError(t, err)
+				require.Len(t, res.Groups, 1)
+				assert.Equal(t, 2, res.Groups[0].Count)
+			},
+		},
+		{
+			name: "aggregate counts nothing when the range is empty",
+			geo:  none,
+			check: func(t *testing.T, repo *DB, className string, filter *filters.LocalFilter) {
+				res, err := repo.Aggregate(context.Background(), aggregation.Params{
+					ClassName:        schema.ClassName(className),
+					Filters:          filter,
+					IncludeMetaCount: true,
+				}, nil)
+
+				require.NoError(t, err)
+				require.Len(t, res.Groups, 1)
+				assert.Equal(t, 0, res.Groups[0].Count)
+			},
+		},
+		{
+			name: "grouped aggregate groups only the objects in range",
+			geo:  near,
+			check: func(t *testing.T, repo *DB, className string, filter *filters.LocalFilter) {
+				res, err := repo.Aggregate(context.Background(), aggregation.Params{
+					ClassName: schema.ClassName(className),
+					Filters:   filter,
+					GroupBy: &filters.Path{
+						Class:    schema.ClassName(className),
+						Property: schema.PropertyName("name"),
+					},
+					IncludeMetaCount: true,
+				}, nil)
+
+				require.NoError(t, err)
+				groups := make([]string, 0, len(res.Groups))
+				for _, group := range res.Groups {
+					groups = append(groups, group.GroupedBy.Value.(string))
+				}
+				assert.ElementsMatch(t, []string{"near-a", "near-b"}, groups)
+			},
+		},
+		{
+			name: "batch delete removes only the objects in range",
+			geo:  near,
+			check: func(t *testing.T, repo *DB, className string, filter *filters.LocalFilter) {
+				res, err := repo.BatchDeleteObjects(context.Background(), objects.BatchDeleteParams{
+					ClassName: schema.ClassName(className),
+					Filters:   filter,
+					DryRun:    false,
+				}, time.Now(), nil, "", 0)
+
+				require.NoError(t, err)
+				assert.Equal(t, int64(2), res.Matches)
+				require.Len(t, res.Objects, 2)
+
+				// a wide radius enumerates everything, so the far object must still be there
+				remaining, err := repo.Search(context.Background(),
+					getParamsWithFilter(className, buildFilter("location", filters.GeoRange{
+						GeoCoordinates: near.GeoCoordinates,
+						Distance:       20000000,
+					}, wgr, schema.DataTypeGeoCoordinates)))
+				require.NoError(t, err)
+				require.Len(t, remaining, 1)
+				assert.Equal(t, farID, remaining[0].ID)
+			},
+		},
+		{
+			name: "batch delete dry run reports the matches but keeps them",
+			geo:  near,
+			check: func(t *testing.T, repo *DB, className string, filter *filters.LocalFilter) {
+				res, err := repo.BatchDeleteObjects(context.Background(), objects.BatchDeleteParams{
+					ClassName: schema.ClassName(className),
+					Filters:   filter,
+					DryRun:    true,
+				}, time.Now(), nil, "", 0)
+
+				require.NoError(t, err)
+				assert.Equal(t, int64(2), res.Matches)
+
+				remaining, err := repo.Search(context.Background(),
+					getParamsWithFilter(className, buildFilter("location", filters.GeoRange{
+						GeoCoordinates: near.GeoCoordinates,
+						Distance:       20000000,
+					}, wgr, schema.DataTypeGeoCoordinates)))
+				require.NoError(t, err)
+				require.Len(t, remaining, 3)
+			},
+		},
+		{
+			name: "batch delete removes nothing when the range is empty",
+			geo:  none,
+			check: func(t *testing.T, repo *DB, className string, filter *filters.LocalFilter) {
+				res, err := repo.BatchDeleteObjects(context.Background(), objects.BatchDeleteParams{
+					ClassName: schema.ClassName(className),
+					Filters:   filter,
+					DryRun:    false,
+				}, time.Now(), nil, "", 0)
+
+				require.NoError(t, err)
+				assert.Equal(t, int64(0), res.Matches)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			className := "GeoFilteredPathsTestClass"
+			repo, _ := newGeoTestRepo(t, className)
+			putGeoObject(t, repo, className, "near-a", nearAID, 6.5, -1)
+			putGeoObject(t, repo, className, "near-b", nearBID, 6.4, -1.1)
+			putGeoObject(t, repo, className, "far", farID, 45, 40)
+
+			test.check(t, repo, className, buildFilter(
+				"location", test.geo, wgr, schema.DataTypeGeoCoordinates))
+		})
+	}
 }
 
 // This test prevents a regression on
@@ -1208,6 +1449,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -1221,7 +1463,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -1629,6 +1871,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -1642,7 +1885,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))

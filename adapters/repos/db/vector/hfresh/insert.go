@@ -140,6 +140,14 @@ func (h *HFresh) normalizeVec(vec []float32) []float32 {
 	return vec
 }
 
+// normalizeVecInPlace is the allocation-free variant of normalizeVec for
+// vectors living in pooled buffers that no one else can observe.
+func (h *HFresh) normalizeVecInPlace(vec []float32) {
+	if h.config.DistanceProvider.Type() == "cosine-dot" {
+		distancer.NormalizeInPlace(vec)
+	}
+}
+
 // ensureInitialPosting creates a new posting for vector v if the index is empty
 func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSet, error) {
 	h.initialPostingLock.Lock()

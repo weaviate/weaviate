@@ -74,3 +74,13 @@ func clampBudget(b, limit int) int {
 	}
 	return b
 }
+
+// NumWorkers returns the per-query worker count for a fan-out over nItems:
+// the context budget when present, capped at fallback and nItems, floored
+// at 1 so a zero or negative budget (or nItems of 0) can never silently
+// skip the work. Unlike BudgetFromCtxCapped it deliberately does not honor
+// the sroar merge kill switch: that escape hatch is scoped to sroar merge
+// concurrency, not to vector-index fan-outs.
+func NumWorkers(ctx context.Context, nItems, fallback int) int {
+	return max(1, min(BudgetFromCtx(ctx, fallback), fallback, nItems))
+}

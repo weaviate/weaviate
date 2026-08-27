@@ -114,7 +114,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	).Unregister(ctx)
 	ec.Add(err)
 
-	s.mayStopAsyncReplication()
+	capturedHT := s.mayStopAsyncReplication(true)
 
 	_ = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Flush(); err != nil {
@@ -162,6 +162,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		return nil
 	})
 
+	storeDurable := false
 	if s.store != nil {
 		s.UpdateStatus(storagestate.StatusShutdown.String(), statusReasonShutdown)
 
@@ -169,6 +170,18 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		// only return the store on success from s.initLSMStore()
 		err = s.store.Shutdown(ctx)
 		ec.AddWrapf(err, "stop lsmkv store")
+		storeDurable = err == nil
+	}
+
+	// Publish only after the store flushed: a crash-surviving snapshot must never over-represent the store.
+	if capturedHT != nil && storeDurable {
+		s.dumpHashTreeWithTimeout(capturedHT, hashtreeDumpTimeout)
+	} else if capturedHT != nil {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Warn("skipping hashtree snapshot: store shutdown did not complete cleanly; tree will be rebuilt on next startup")
 	}
 
 	if s.dynamicVectorIndexDB != nil {
@@ -184,7 +197,31 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	return ec.ToError()
 }
 
+// drainRefsForDrop blocks new pins and waits for the in-flight ones to finish,
+// so a drop does not tear the store down underneath a running request.
+// Note: this will keep drainRefsForDrop running for 30 seconds.
+func (s *Shard) drainRefsForDrop() error {
+	s.dropRequested.Store(true)
+
+	return backoff.Retry(func() error {
+		s.shutdownLock.Lock()
+		defer s.shutdownLock.Unlock()
+
+		if inUse := s.inUseCounter.Load(); inUse > 0 {
+			return fmt.Errorf("shard %q holds %d reference(s): %w", s.name, inUse, errShardStillInUse)
+		}
+		return nil
+	}, backoff.WithMaxRetries(backoff.NewConstantBackOff(300*time.Millisecond), 100)) // 30 seconds
+}
+
 const msgReleasedMoreThanOnce = "shard reference released more than once per acquire"
+
+// shutOrDropped reports shard teardown: drop() cancels shutCtx as its first
+// statement but never sets shut, so both signals must be checked. A nil
+// shutCtx (bare test fixtures) reads as not dropped.
+func (s *Shard) shutOrDropped() bool {
+	return s.shut.Load() || (s.shutCtx != nil && s.shutCtx.Err() != nil)
+}
 
 func (s *Shard) preventShutdown() (release func(), err error) {
 	if s.shutdownRequested.Load() {
@@ -192,6 +229,10 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 	}
 	s.shutdownLock.RLock()
 	defer s.shutdownLock.RUnlock()
+
+	if s.dropRequested.Load() {
+		return func() {}, errDropInProgress
+	}
 
 	if s.shut.Load() {
 		return func() {}, errAlreadyShutdown

@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -148,7 +147,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	if id == "" {
 		validatedID, err := generateUUID()
 		if err != nil {
-			return "", NewErrInternal("could not generate id: %v", err)
+			return "", NewErrInternal("could not generate id: %w", err)
 		}
 		return validatedID, err
 	}
@@ -175,10 +174,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 			}
 			return "", err
 		default:
-			if errors.As(err, &authzerrs.Forbidden{}) {
-				return "", err
-			}
-			return "", NewErrInternal("%v", err)
+			return "", NewErrInternal("%w", err)
 		}
 	}
 

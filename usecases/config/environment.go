@@ -64,6 +64,15 @@ const (
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
 	DefaultNamespaceCleanupInterval = 30 * time.Second
+
+	DefaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
+	DefaultReplicaMovementCleanupInterval = time.Hour
+
+	// Interval bounds; 0 stays the explicit disable sentinel. Below the floor a
+	// sweep hammers the leader with full-FSM scans; above the ceiling it
+	// silently never runs. Both are misconfigurations, not preferences.
+	MinReplicaMovementCleanupInterval = time.Minute
+	MaxReplicaMovementCleanupInterval = 168 * time.Hour
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -710,6 +719,10 @@ func FromEnv(config *Config) error {
 
 	config.parseExportConfig()
 
+	if err := config.parseBackupGCSConfig(); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -1061,6 +1074,27 @@ func FromEnv(config *Config) error {
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
+	config.Replication.ReplicaMovementCleanupEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_ENABLED")))
+	config.Replication.ReplicaMovementCleanupIncludeCancelled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED")))
+
+	if err := parser.ParseDynamicDurationWithValidation("REPLICA_MOVEMENT_CLEANUP_MAX_AGE",
+		DefaultReplicaMovementCleanupMaxAge,
+		parser.ValidateDurationGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[time.Duration]) {
+			config.Replication.ReplicaMovementCleanupMaxAge = val
+		}); err != nil {
+		return err
+	}
+
+	if err := parser.ParseDynamicDurationWithValidation("REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		DefaultReplicaMovementCleanupInterval,
+		parser.ValidateDurationZeroOrInRange(MinReplicaMovementCleanupInterval, MaxReplicaMovementCleanupInterval),
+		func(val *configRuntime.DynamicValue[time.Duration]) {
+			config.Replication.ReplicaMovementCleanupInterval = val
+		}); err != nil {
+		return err
+	}
+
 	if err := parseIntVerify(
 		"ASYNC_REPLICATION_SCHEDULER_WORKERS",
 		DefaultAsyncReplicationSchedulerWorkers,
@@ -1405,6 +1439,12 @@ func FromEnv(config *Config) error {
 		config.ReplicaMovementEnabled = entcfg.Enabled(v)
 	}
 
+	// Assign only when set, so an absent env var does not overwrite a
+	// value loaded from the config file.
+	if v := os.Getenv("RUNTIME_REINDEX_ENABLED"); v != "" {
+		config.RuntimeReindexEnabled = entcfg.Enabled(v)
+	}
+
 	revoctorizeCheckDisabled := false
 	if v := os.Getenv("REVECTORIZE_CHECK_DISABLED"); v != "" {
 		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
@@ -1452,6 +1492,9 @@ func FromEnv(config *Config) error {
 
 	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(
 		entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS")))
+
+	config.QueryBatchedContainsEnabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("QUERY_BATCHED_CONTAINS_ENABLED")))
 
 	operationalMode := READ_WRITE
 	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
@@ -2290,4 +2333,46 @@ func (c *Config) parseExportConfig() {
 	if entcfg.Enabled(os.Getenv("EXPORT_SKIP_ACCESS_CHECK")) {
 		c.Export.SkipAccessCheck = true
 	}
+}
+
+const (
+	gcsModuleTransportEnv  = "GCS_MODULE_TRANSPORT"
+	gcsModuleTransportHTTP = "http"
+	gcsModuleTransportGRPC = "grpc"
+)
+
+func (c *Config) parseBackupGCSConfig() error {
+	// An unset GCS_MODULE_TRANSPORT keeps whatever the config file set, an
+	// explicit one overrides it in either direction.
+	switch t := strings.TrimSpace(strings.ToLower(os.Getenv(gcsModuleTransportEnv))); t {
+	case "": // keep the config file value
+	case gcsModuleTransportHTTP:
+		c.BackupGCS.UseGRPC = false
+	case gcsModuleTransportGRPC:
+		c.BackupGCS.UseGRPC = true
+	default:
+		return fmt.Errorf("%s must be %q or %q. Got: %v",
+			gcsModuleTransportEnv, gcsModuleTransportHTTP, gcsModuleTransportGRPC, t)
+	}
+
+	// parseIntVerify always writes the default back, so seed it from the config
+	// file value to keep an unset variable from overwriting it.
+	connPool := DefaultBackupGCSGRPCConnPool
+	if c.BackupGCS.GRPCConnPool != 0 {
+		connPool = c.BackupGCS.GRPCConnPool
+	}
+	if err := parseIntVerify("GCS_MODULE_GRPC_CONN_POOL", connPool,
+		func(val int) { c.BackupGCS.GRPCConnPool = val },
+		validateBackupGCSConnPool); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateBackupGCSConnPool(val int, setting string) error {
+	if val < 1 || val > MaxBackupGCSGRPCConnPool {
+		return fmt.Errorf("%s must be an integer between 1 and %d. Got: %v", setting, MaxBackupGCSGRPCConnPool, val)
+	}
+	return nil
 }

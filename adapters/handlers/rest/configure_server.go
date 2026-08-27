@@ -129,7 +129,7 @@ func configureOIDC(appState *state.State) *oidc.Client {
 		appState.Logger,
 	)
 	if err != nil {
-		appState.Logger.WithField("action", "oidc_init").WithError(err).Fatal("oidc client could not start up")
+		appState.Logger.WithField("action", "oidc_init").Fatalf("oidc client could not start up: %v", err)
 		os.Exit(1)
 	}
 
@@ -143,7 +143,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) *c
 func configureAPIKey(appState *state.State) *apikey.ApiKey {
 	c, err := apikey.New(appState.ServerConfig.Config, appState.Logger, appState.NamespacesController)
 	if err != nil {
-		appState.Logger.WithField("action", "api_keys_init").WithError(err).Fatal("apikey client could not start up")
+		appState.Logger.WithField("action", "api_keys_init").Fatalf("apikey client could not start up: %v", err)
 		os.Exit(1)
 	}
 
@@ -164,13 +164,13 @@ func configureAuthorizer(appState *state.State) error {
 			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
 			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
 			appState.ServerConfig.Config.Namespaces.Enabled,
+			appState.NamespacesController,
 			appState.Logger)
 		if err != nil {
 			return fmt.Errorf("can't init casbin %w", err)
 		}
 
 		appState.AuthzController = rbacController
-		appState.AuthzSnapshotter = rbacController
 		appState.RBAC = rbacController
 		appState.Authorizer = rbacController
 	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {

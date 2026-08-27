@@ -132,3 +132,30 @@ func TestBudgetCapDisabled_KillSwitch(t *testing.T) {
 }
 
 func ptr(i int) *int { return &i }
+
+func TestNumWorkers(t *testing.T) {
+	bg := context.Background()
+
+	tests := []struct {
+		name     string
+		ctx      context.Context
+		nItems   int
+		fallback int
+		want     int
+	}{
+		{"no budget uses fallback", bg, 100, 8, 8},
+		{"no budget capped by item count", bg, 3, 8, 3},
+		{"budget below fallback wins", CtxWithBudget(bg, 2), 100, 8, 2},
+		{"budget above fallback is clamped", CtxWithBudget(bg, 64), 100, 8, 8},
+		{"budget capped by item count", CtxWithBudget(bg, 6), 4, 8, 4},
+		{"zero items floors to one", bg, 0, 8, 1},
+		{"zero budget floors to one", CtxWithBudget(bg, 0), 100, 8, 1},
+		{"negative budget floors to one", CtxWithBudget(bg, -3), 100, 8, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, NumWorkers(tt.ctx, tt.nItems, tt.fallback))
+		})
+	}
+}

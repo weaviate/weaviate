@@ -38,7 +38,7 @@ func TestPutObjectBatchReportsErrorAtEveryGroupPosition(t *testing.T) {
 		// remaining objects form a group whose positions do not start at 0.
 		unresolvableFirst bool
 		schemaVersion     uint64
-		setup             func(t *testing.T, idx *Index)
+		setup             func(t *testing.T, idx *Index, shard *Shard)
 		// wantErrAt maps a position to a substring of the error expected there;
 		// every other position must carry no error.
 		wantErrAt map[int]string
@@ -46,7 +46,7 @@ func TestPutObjectBatchReportsErrorAtEveryGroupPosition(t *testing.T) {
 		{
 			name:          "failed lookup",
 			schemaVersion: schemaVersion,
-			setup: func(t *testing.T, idx *Index) {
+			setup: func(t *testing.T, idx *Index, shard *Shard) {
 				// the caller's own wait succeeds, the one inside the shard lookup does not
 				schemaReader := idx.schemaReader.(*schemaUC.MockSchemaReader)
 				schemaReader.EXPECT().WaitForUpdate(mock.Anything, schemaVersion).Return(nil).Once()
@@ -62,7 +62,7 @@ func TestPutObjectBatchReportsErrorAtEveryGroupPosition(t *testing.T) {
 		{
 			name:              "panicking group",
 			unresolvableFirst: true,
-			setup: func(t *testing.T, idx *Index) {
+			setup: func(t *testing.T, idx *Index, shard *Shard) {
 				router := types.NewMockRouter(t)
 				router.EXPECT().GetWriteReplicasLocation(className, mock.Anything, mock.Anything).
 					RunAndReturn(func(string, string, string) (types.WriteReplicaSet, error) {
@@ -76,11 +76,34 @@ func TestPutObjectBatchReportsErrorAtEveryGroupPosition(t *testing.T) {
 				2: "an unexpected error occurred",
 			},
 		},
+		{
+			name: "read-only shard",
+			setup: func(t *testing.T, idx *Index, shard *Shard) {
+				require.NoError(t, shard.SetStatusReadonly(statusReasonResourcePressure))
+			},
+			wantErrAt: map[int]string{
+				0: "store is read-only",
+				1: "store is read-only",
+				2: "store is read-only",
+			},
+		},
+		{
+			name:              "read-only shard, group not starting at position 0",
+			unresolvableFirst: true,
+			setup: func(t *testing.T, idx *Index, shard *Shard) {
+				require.NoError(t, shard.SetStatusReadonly(statusReasonResourcePressure))
+			},
+			wantErrAt: map[int]string{
+				0: "parse uuid",
+				1: "store is read-only",
+				2: "store is read-only",
+			},
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			idx, _ := refCountTestIndex(t, className)
+			idx, shard := refCountTestIndex(t, className)
 
 			objs := []*storobj.Object{
 				testObject(className), testObject(className), testObject(className),
@@ -88,7 +111,7 @@ func TestPutObjectBatchReportsErrorAtEveryGroupPosition(t *testing.T) {
 			if test.unresolvableFirst {
 				objs[0].Object.ID = strfmt.UUID("not-a-uuid")
 			}
-			test.setup(t, idx)
+			test.setup(t, idx, shard)
 
 			out := idx.putObjectBatch(t.Context(), objs, nil, test.schemaVersion)
 

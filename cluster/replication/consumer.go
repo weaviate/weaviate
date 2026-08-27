@@ -444,6 +444,10 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 				logger.Infof("source shard busy with structural vector op; deferring movement step: %v", err)
 				return api.ShardReplicationState(""), backoff.Permanent(err)
 			}
+			// A cancellation divert is not a failure: skip the error budget.
+			if errors.Is(err, errOpCancelled) {
+				return api.ShardReplicationState(""), backoff.Permanent(err)
+			}
 			logger.Warnf("state transition handler failed: %v", err)
 			// Otherwise, register the error with the FSM
 			if err := c.leaderClient.ReplicationRegisterError(ctx, op.Op.ID, err.Error()); err != nil {
@@ -747,11 +751,16 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	// the seal happens in INTEGRATING after the transition converges.
 	if !replicaExists {
 		if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID); err != nil {
-			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
+			switch {
+			case strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()):
 				// The replica already exists, this is not an error and it got updated after our sanity check
 				// due to eventual consistency of the sharding state.
 				logger.Debug("replica already exists, skipping")
-			} else {
+			case strings.Contains(err.Error(), types.ErrOpCancellationInFlight.Error()):
+				// The FSM will refuse this add forever; divert to the cancel path.
+				logger.Infof("registration refused, op cancelled mid-flight: %v", err)
+				return api.ShardReplicationState(""), errOpCancelled
+			default:
 				logger.Errorf("failure while adding replica to shard: %v", err)
 				return api.ShardReplicationState(""), err
 			}

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
@@ -38,16 +40,24 @@ const (
 	SnapshotVersionLatest
 )
 
+// NamespaceLister reports the namespaces this cluster currently has. Snapshot calls it
+// when it runs rather than at construction, so a snapshot taken later sees namespaces
+// created since boot.
+type NamespaceLister interface {
+	List() []cmd.Namespace
+}
+
 type Manager struct {
 	casbin            *casbin.SyncedCachedEnforcer
 	logger            logrus.FieldLogger
 	authNconf         config.Authentication
 	rbacConf          rbacconf.Config
 	namespacesEnabled bool
+	namespaces        NamespaceLister
 	restoreLock       sync.RWMutex
 }
 
-func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, logger logrus.FieldLogger) (*Manager, error) {
+func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
 	csbin, err := Init(rbacConf, rbacStoragePath, authNconf, namespacesEnabled)
 	if err != nil {
 		return nil, err
@@ -59,6 +69,7 @@ func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Auth
 		authNconf:         authNconf,
 		rbacConf:          rbacConf,
 		namespacesEnabled: namespacesEnabled,
+		namespaces:        namespaces,
 	}, nil
 }
 
@@ -457,14 +468,135 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 	return nil
 }
 
+// apiManagedBuiltInRoles are the built-in roles whose assignments are granted through
+// the API and therefore exist only in the policy store. Root and read-only are absent
+// on purpose: applyPredefinedRoles rebuilds their assignments from configuration on
+// every restore, so carrying them would be discarded work.
+var apiManagedBuiltInRoles = []string{authorization.Admin, authorization.Viewer}
+
+// apiManagedBuiltInGroupings returns the admin and viewer assignments held by subjects
+// qualified with a namespace the selection named. A built-in role can never be selected,
+// so without these rows a namespace's own admin is absent from the snapshot and a fresh
+// cluster has nothing to rebuild it from.
+//
+// Anything outside that namespace stays behind. A db subject strips unconditionally, so
+// another namespace's admin would arrive on the restored cluster as a global identity
+// holding admin. A global or group subject belongs to the source cluster rather than to
+// the namespace being moved.
+func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error) {
+	namespaces := make(map[string]struct{}, len(roles))
+	for _, name := range roles {
+		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
+			namespaces[ns] = struct{}{}
+		}
+	}
+	if len(namespaces) == 0 {
+		return nil, nil
+	}
+
+	inScope := func(subject string) bool {
+		_, _, ns, err := conv.SubjectNamespace(subject)
+		if err != nil || ns == "" {
+			return false
+		}
+		_, ok := namespaces[ns]
+		return ok
+	}
+
+	var out [][]string
+	for _, role := range apiManagedBuiltInRoles {
+		gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(role))
+		if err != nil {
+			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
+		}
+		for _, g := range gs {
+			if len(g) > 0 && inScope(g[0]) {
+				out = append(out, g)
+			}
+		}
+	}
+	return out, nil
+}
+
+// referencedNamespaces returns the namespaces the given rows refer to, in sorted order.
+//
+// Only the prefixes the strip has to resolve are candidates: role names, resource paths,
+// and oidc subjects. A db subject is skipped because it strips unconditionally and never
+// reads this set, so including it would record a namespace the blob does not otherwise
+// mention. A candidate is kept only when the cluster confirms it is a real namespace,
+// which is what separates a namespace prefix from a colon inside a global id such as
+// "urn:foo".
+//
+// The result names only what these rows refer to, never every namespace on the cluster.
+// A backup of one namespace must not disclose the others.
+func (m *Manager) referencedNamespaces(policy, groupingPolicy [][]string) []string {
+	if m.namespaces == nil {
+		return nil
+	}
+
+	candidates := map[string]struct{}{}
+	add := func(name string) {
+		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
+			candidates[ns] = struct{}{}
+		}
+	}
+	for _, p := range policy {
+		if len(p) > 0 {
+			add(conv.TrimRoleNamePrefix(p[0]))
+		}
+		if len(p) > 1 {
+			// Rewrite is the only segment walker the package exposes. Returning each
+			// segment unchanged makes it a read.
+			_, _ = namespacing.RewriteNamespaceSegments(p[1], func(seg string) (string, error) {
+				add(seg)
+				return seg, nil
+			})
+		}
+	}
+	for _, g := range groupingPolicy {
+		if len(g) > 1 {
+			add(conv.TrimRoleNamePrefix(g[1]))
+		}
+		if len(g) > 0 {
+			if user, prefix, err := conv.GetUserAndPrefix(g[0]); err == nil &&
+				prefix == string(authentication.AuthTypeOIDC) {
+				add(user)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	known := map[string]struct{}{}
+	for _, ns := range m.namespaces.List() {
+		known[ns.Name] = struct{}{}
+	}
+	var out []string
+	for ns := range candidates {
+		if _, ok := known[ns]; ok {
+			out = append(out, ns)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // Snapshot is the RBAC state to be used for RAFT snapshots
 type snapshot struct {
 	Policy         [][]string `json:"roles_policies"`
 	GroupingPolicy [][]string `json:"grouping_policies"`
 	Version        int        `json:"version"`
+	Namespaces     []string   `json:"namespaces,omitempty"`
 }
 
-func (m *Manager) Snapshot() ([]byte, error) {
+// Snapshot serialises the RBAC state for RAFT snapshots and backups. Called with
+// no roles it captures the whole store. Called with roles it keeps only those
+// roles' rows: `p` rows are matched on p[0] and `g` rows on g[1], both of which
+// hold the role name, so the assignments and the db:wv_internal_empty placeholder
+// come along too. A selection also carries the admin and viewer grants held by
+// the principals it covers, for the reason given on apiManagedBuiltInGroupings.
+func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	// snapshot isn't always initialized, e.g. when RBAC is disabled
 	if m == nil {
 		return []byte{}, nil
@@ -476,24 +608,68 @@ func (m *Manager) Snapshot() ([]byte, error) {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
-	policy, err := m.casbin.GetPolicy()
-	if err != nil {
-		return nil, err
-	}
-	groupingPolicy, err := m.casbin.GetGroupingPolicy()
-	if err != nil {
-		return nil, err
+	var policy, groupingPolicy [][]string
+	if len(roles) == 0 {
+		var err error
+		policy, err = m.casbin.GetPolicy()
+		if err != nil {
+			return nil, err
+		}
+		groupingPolicy, err = m.casbin.GetGroupingPolicy()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		for _, name := range roles {
+			prefixed := conv.PrefixRoleName(name)
+			ps, err := m.casbin.GetFilteredNamedPolicy("p", 0, prefixed)
+			if err != nil {
+				return nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
+			}
+			gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, prefixed)
+			if err != nil {
+				return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
+			}
+			// Every live role has at least the db:wv_internal_empty placeholder g-row,
+			// so no rows at all means the role is not here. Fail rather than ship a
+			// backup that is quietly missing a role.
+			if len(ps) == 0 && len(gs) == 0 {
+				return nil, fmt.Errorf("role %q not found in snapshot source", name)
+			}
+			policy = append(policy, ps...)
+			groupingPolicy = append(groupingPolicy, gs...)
+		}
+		gs, err := m.apiManagedBuiltInGroupings(roles)
+		if err != nil {
+			return nil, err
+		}
+		groupingPolicy = append(groupingPolicy, gs...)
 	}
 
 	// Use a buffer to stream the JSON encoding
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(snapshot{Policy: policy, GroupingPolicy: groupingPolicy, Version: SnapshotVersionLatest}); err != nil {
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		Policy:         policy,
+		GroupingPolicy: groupingPolicy,
+		Version:        SnapshotVersionLatest,
+		Namespaces:     m.referencedNamespaces(policy, groupingPolicy),
+	}); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
-func (m *Manager) Restore(b []byte) error {
+// ListAllRoles returns every role name known to the store, custom and built-in.
+// includeRoles selectors are matched against this list.
+func (m *Manager) ListAllRoles() ([]string, error) {
+	roles, err := m.GetRoles()
+	if err != nil {
+		return nil, fmt.Errorf("GetRoles: %w", err)
+	}
+	return slices.Collect(maps.Keys(roles)), nil
+}
+
+func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 	// don't overwrite with empty snapshot to avoid overwriting recovery from file
 	// with a non-existent RBAC snapshot when coming from old versions
 	if m == nil || len(b) == 0 {
@@ -506,6 +682,17 @@ func (m *Manager) Restore(b []byte) error {
 	snapshot := snapshot{}
 	if err := json.Unmarshal(b, &snapshot); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+
+	// Keep this above the write lock and ClearPolicy below. A colliding snapshot
+	// has to be refused while the target's state is still untouched, otherwise a
+	// rejected restore wipes the target's roles and then returns an error.
+	if stripNamespaces {
+		stripped, err := stripRBACSnapshot(snapshot, StaticAPIKeyUsers(m.authNconf))
+		if err != nil {
+			return err
+		}
+		snapshot = stripped
 	}
 
 	// Hold the write lock only for the casbin mutation and cache invalidation

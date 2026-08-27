@@ -28,6 +28,7 @@ import (
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/types"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -229,7 +230,7 @@ func makeMaintenanceModeStreamInterceptor(maintenanceModeEnabledForLocalhost fun
 func makeNodeReadyUnaryInterceptor(nodeReady func() bool, servicePrefixes []string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if matchesAnyPrefix(info.FullMethod, servicePrefixes) && !nodeReady() {
-			return nil, status.Error(codes.Unavailable, "node not ready")
+			return nil, status.Error(codes.Unavailable, replica.NodeNotReadyMsg)
 		}
 		return handler(ctx, req)
 	}

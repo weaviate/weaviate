@@ -12,15 +12,9 @@
 package replication
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -72,110 +66,11 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TearDownSuite() {
 }
 
 func (suite *AsyncCheckpointConvergenceTestSuite) TearDownTest() {
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
-	helper.DeleteClassWithoutAssert(suite.T(), "Paragraph", "")
+	helper.DeleteClassEventually(suite.T(), "Paragraph", suite.compose.GetWeaviate().URI())
 }
 
 func TestAsyncCheckpointConvergenceTestSuite(t *testing.T) {
 	suite.Run(t, new(AsyncCheckpointConvergenceTestSuite))
-}
-
-// asyncCheckpointStatusEntry is defined locally (not imported) to keep the
-// acceptance test wire-coupled rather than source-coupled.
-type asyncCheckpointStatusEntry struct {
-	Root        []byte `json:"root"`
-	CutoffMs    int64  `json:"cutoff_ms"`
-	CreatedAtMs int64  `json:"created_at_ms"`
-}
-
-// asyncCheckpointCreate takes caller-supplied createdAtMs so the same value can be pinned across nodes.
-func asyncCheckpointCreate(t *testing.T, clusterURI, className string, shards []string, cutoffMs, createdAtMs int64) {
-	t.Helper()
-	body, err := json.Marshal(map[string]any{
-		"shards":        shards,
-		"cutoff_ms":     cutoffMs,
-		"created_at_ms": createdAtMs,
-	})
-	require.NoError(t, err)
-	resp, err := http.Post(asyncCheckpointURL(clusterURI, className), "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		t.Fatalf("create checkpoint returned %d: %s", resp.StatusCode, respBody)
-	}
-}
-
-func asyncCheckpointDelete(t *testing.T, clusterURI, className string, shards []string) {
-	t.Helper()
-	body, err := json.Marshal(map[string]any{"shards": shards})
-	require.NoError(t, err)
-	req, err := http.NewRequest(http.MethodDelete,
-		asyncCheckpointURL(clusterURI, className), bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		t.Fatalf("delete checkpoint returned %d: %s", resp.StatusCode, respBody)
-	}
-}
-
-// asyncCheckpointStatus returns an empty map when the node hosts none of the requested shards.
-func asyncCheckpointStatus(t *testing.T, clusterURI, className string, shards []string) map[string]asyncCheckpointStatusEntry {
-	t.Helper()
-	u, err := url.Parse(asyncCheckpointURL(clusterURI, className))
-	require.NoError(t, err)
-	if len(shards) > 0 {
-		q := u.Query()
-		for _, s := range shards {
-			q.Add("shards", s)
-		}
-		u.RawQuery = q.Encode()
-	}
-	resp, err := http.Get(u.String())
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status returned %d: %s", resp.StatusCode, body)
-	}
-	var out map[string]asyncCheckpointStatusEntry
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	return out
-}
-
-func asyncCheckpointURL(clusterURI, className string) string {
-	// docker's clusterURI is host:port (no scheme); cluster API speaks plain HTTP.
-	uri := clusterURI
-	if !strings.HasPrefix(uri, "http://") && !strings.HasPrefix(uri, "https://") {
-		uri = "http://" + uri
-	}
-	return fmt.Sprintf("%s/replicas/indices/%s/async-checkpoint", uri, className)
-}
-
-// discoverShards uses the public REST API: the cluster API has no shard-enumeration endpoint.
-func discoverShards(t *testing.T, restURI, className string) []string {
-	t.Helper()
-	uri := restURI
-	if !strings.HasPrefix(uri, "http://") && !strings.HasPrefix(uri, "https://") {
-		uri = "http://" + uri
-	}
-	resp, err := http.Get(fmt.Sprintf("%s/v1/schema/%s/shards", uri, className))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var shards []struct {
-		Name string `json:"name"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&shards))
-	out := make([]string, len(shards))
-	for i, s := range shards {
-		out[i] = s.Name
-	}
-	return out
 }
 
 // TestAsyncCheckpoint_ConvergenceAcrossReplicas asserts the load-bearing
@@ -219,7 +114,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 		common.CreateObjects(t, nodeRESTs[0], batch)
 	})
 
-	shards := discoverShards(t, nodeRESTs[0], paragraphClass.Class)
+	shards := common.DiscoverShards(t, nodeRESTs[0], paragraphClass.Class)
 	require.NotEmpty(t, shards, "class must have at least one shard")
 	t.Logf("class %q hosts %d shard(s): %v", paragraphClass.Class, len(shards), shards)
 
@@ -232,7 +127,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 	t.Run("create checkpoint on every node with the same createdAt", func(t *testing.T) {
 		for i, cluster := range nodeClusters {
 			t.Logf("creating checkpoint on node %d (%s)", i+1, cluster)
-			asyncCheckpointCreate(t, cluster, paragraphClass.Class, shards, cutoffMs, createdAt.UnixMilli())
+			common.CreateAsyncCheckpoint(t, cluster, paragraphClass.Class, shards, cutoffMs, createdAt.UnixMilli())
 		}
 	})
 
@@ -242,7 +137,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			perShard := map[string]map[string]string{} // shard → node → root
 			for i, cluster := range nodeClusters {
-				statuses := asyncCheckpointStatus(t, cluster, paragraphClass.Class, shards)
+				statuses := common.AsyncCheckpointStatus(t, cluster, paragraphClass.Class, shards)
 				for shard, entry := range statuses {
 					if entry.CutoffMs == 0 {
 						// Record asymmetry so the all-nodes-agree check fails loudly.
@@ -318,7 +213,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 			"post-cutoff writes never propagated to all replicas")
 
 		for i, cluster := range nodeClusters {
-			statuses := asyncCheckpointStatus(t, cluster, paragraphClass.Class, shards)
+			statuses := common.AsyncCheckpointStatus(t, cluster, paragraphClass.Class, shards)
 			for shard, entry := range statuses {
 				if entry.CutoffMs == 0 {
 					continue
@@ -333,12 +228,12 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 
 	t.Run("delete clears the checkpoint on every node", func(t *testing.T) {
 		for _, cluster := range nodeClusters {
-			asyncCheckpointDelete(t, cluster, paragraphClass.Class, shards)
+			common.DeleteAsyncCheckpoint(t, cluster, paragraphClass.Class, shards)
 		}
 
 		// Inactive wire contract: CutoffMs == 0, empty root, zero created_at_ms.
 		for i, cluster := range nodeClusters {
-			statuses := asyncCheckpointStatus(t, cluster, paragraphClass.Class, shards)
+			statuses := common.AsyncCheckpointStatus(t, cluster, paragraphClass.Class, shards)
 			for shard, entry := range statuses {
 				assert.Equal(t, int64(0), entry.CutoffMs,
 					"shard %q on node%d should be inactive after delete", shard, i+1)
@@ -377,18 +272,18 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDro
 		batch[i] = articles.NewParagraph().WithContents(fmt.Sprintf("p#%d", i)).Object()
 	}
 	common.CreateObjects(t, node1REST, batch)
-	shards := discoverShards(t, node1REST, paragraphClass.Class)
+	shards := common.DiscoverShards(t, node1REST, paragraphClass.Class)
 
 	createdAt := time.Now().UTC()
 	cutoffMs := createdAt.Add(time.Hour).UnixMilli()
 	for _, c := range []string{node1Cluster, node2Cluster, node3Cluster} {
-		asyncCheckpointCreate(t, c, paragraphClass.Class, shards, cutoffMs, createdAt.UnixMilli())
+		common.CreateAsyncCheckpoint(t, c, paragraphClass.Class, shards, cutoffMs, createdAt.UnixMilli())
 	}
 
 	// Pre-restart: every node has an active checkpoint.
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, c := range []string{node1Cluster, node2Cluster, node3Cluster} {
-			st := asyncCheckpointStatus(t, c, paragraphClass.Class, shards)
+			st := common.AsyncCheckpointStatus(t, c, paragraphClass.Class, shards)
 			for _, e := range st {
 				assert.NotZero(ct, e.CutoffMs, "all nodes should have active checkpoints before restart")
 			}
@@ -402,7 +297,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDro
 
 	postNode3Cluster := compose.GetWeaviateNode(3).ClusterURI()
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-		st := asyncCheckpointStatus(t, postNode3Cluster, paragraphClass.Class, shards)
+		st := common.AsyncCheckpointStatus(t, postNode3Cluster, paragraphClass.Class, shards)
 		for shard, e := range st {
 			assert.Equal(ct, int64(0), e.CutoffMs,
 				"shard %q on the restarted node must report inactive (in-memory durability contract)", shard)
@@ -410,7 +305,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDro
 	}, 30*time.Second, 1*time.Second)
 
 	for _, c := range []string{node1Cluster, node2Cluster} {
-		st := asyncCheckpointStatus(t, c, paragraphClass.Class, shards)
+		st := common.AsyncCheckpointStatus(t, c, paragraphClass.Class, shards)
 		for shard, e := range st {
 			assert.NotZero(t, e.CutoffMs,
 				"shard %q on a non-restarted node must still have its checkpoint", shard)

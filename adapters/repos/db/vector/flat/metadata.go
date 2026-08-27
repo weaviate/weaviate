@@ -13,7 +13,6 @@ package flat
 
 import (
 	"encoding/binary"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -23,11 +22,11 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	bolt "go.etcd.io/bbolt"
 )
 
 const (
-	metadataPrefix       = "meta"
 	vectorMetadataBucket = "vector"
 	quantizationKey      = "quantization"
 
@@ -67,13 +66,7 @@ type RQ8Data struct {
 }
 
 func (index *flat) getMetadataFile() string {
-	if index.targetVector != "" {
-		// This may be redundant as target vector is already validated in the schema
-		cleanTarget := filepath.Clean(index.targetVector)
-		cleanTarget = filepath.Base(cleanTarget)
-		return fmt.Sprintf("%s_%s.db", metadataPrefix, cleanTarget)
-	}
-	return fmt.Sprintf("%s.db", metadataPrefix)
+	return flatent.MetadataFileName(index.targetVector)
 }
 
 func (index *flat) removeMetadataFile(keepFiles bool) error {
@@ -549,8 +542,10 @@ func (index *flat) restoreRQ1FromMsgpack(rq1Data *RQ1Data) error {
 		return errors.Wrap(err, "restore binary rotational quantizer from msgpack")
 	}
 
-	index.compressed.Store(true)
+	// quantizer before compressed flag: readers access it lock-free after
+	// observing Compressed() == true
 	index.quantizer = &BinaryRotationalQuantizerWrapper{BinaryRotationalQuantizer: rq}
+	index.compressed.Store(true)
 	return nil
 }
 
@@ -570,7 +565,9 @@ func (index *flat) restoreRQ8FromMsgpack(rq8Data *RQ8Data) error {
 		return errors.Wrap(err, "restore rotational quantizer from msgpack")
 	}
 
-	index.compressed.Store(true)
+	// quantizer before compressed flag: readers access it lock-free after
+	// observing Compressed() == true
 	index.quantizer = &RotationalQuantizerWrapper{RotationalQuantizer: rq}
+	index.compressed.Store(true)
 	return nil
 }

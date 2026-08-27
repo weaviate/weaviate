@@ -38,6 +38,7 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
 	modgenerativedeepseek "github.com/weaviate/weaviate/modules/generative-deepseek"
+	modgenerativedigitalocean "github.com/weaviate/weaviate/modules/generative-digitalocean"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
@@ -50,6 +51,7 @@ import (
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
 	modmulti2vecnvidia "github.com/weaviate/weaviate/modules/multi2vec-nvidia"
+	modmulti2vectwelvelabs "github.com/weaviate/weaviate/modules/multi2vec-twelvelabs"
 	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
@@ -301,6 +303,12 @@ func (d *Compose) WithMulti2VecJinaAI(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2VecTwelveLabs(apiKey string) *Compose {
+	d.weaviateEnvs["TWELVELABS_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vectwelvelabs.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2MultivecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modmulti2multivecjinaai.Name)
@@ -407,6 +415,12 @@ func (d *Compose) WithGenerativeNvidia(apiKey string) *Compose {
 func (d *Compose) WithGenerativeXAI(apiKey string) *Compose {
 	d.weaviateEnvs["XAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modgenerativexai.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeDigitalOcean(apiKey string) *Compose {
+	d.weaviateEnvs["DIGITALOCEAN_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativedigitalocean.Name)
 	return d
 }
 
@@ -558,6 +572,14 @@ func (d *Compose) WithWeaviateWithAllPorts() *Compose {
 
 func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	d.With1NodeCluster()
+	d.withWeaviateExposeGRPCPort = true
+	return d
+}
+
+// WithWeaviateExposeGRPCPort publishes the gRPC port on a cluster that is sized
+// separately, which the WithGRPC helpers above cannot do because they pick the
+// node count themselves.
+func (d *Compose) WithWeaviateExposeGRPCPort() *Compose {
 	d.withWeaviateExposeGRPCPort = true
 	return d
 }

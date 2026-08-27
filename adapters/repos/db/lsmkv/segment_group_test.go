@@ -16,6 +16,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,6 +27,45 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
+
+// traceEnabled gates whether a hot-path log line is built at all, so a logger it
+// cannot read must still be logged to rather than silently dropped.
+func TestTraceEnabled(t *testing.T) {
+	atLevel := func(level logrus.Level) *logrus.Logger {
+		l, _ := test.NewNullLogger()
+		l.SetLevel(level)
+		return l
+	}
+
+	testCases := []struct {
+		name     string
+		logger   logrus.FieldLogger
+		expected bool
+	}{
+		{name: "logger below trace", logger: atLevel(logrus.InfoLevel), expected: false},
+		{name: "logger at trace", logger: atLevel(logrus.TraceLevel), expected: true},
+		{
+			name:     "entry below trace",
+			logger:   atLevel(logrus.InfoLevel).WithField("action", "lsm_compaction"),
+			expected: false,
+		},
+		{
+			name:     "entry at trace",
+			logger:   atLevel(logrus.TraceLevel).WithField("action", "lsm_compaction"),
+			expected: true,
+		},
+		{name: "unreadable logger", logger: unreadableLogger{}, expected: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, traceEnabled(tc.logger))
+		})
+	}
+}
+
+// unreadableLogger is a FieldLogger whose level traceEnabled cannot inspect.
+type unreadableLogger struct{ logrus.FieldLogger }
 
 // This test proves two things:
 //
@@ -142,7 +182,7 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.
 	v, _, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	expected := []uint64{1}
-	require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "k==v on initial state")
+	require.Equal(t, expected, roaringset.BitmapLayers{v}.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "k==v on initial state")
 
 	// append new segment
 	segment2Data := map[string]*sroar.Bitmap{
@@ -154,7 +194,7 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.
 	v, _, err = sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	expected = []uint64{1}
-	require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "k==v after segment addition on old view")
+	require.Equal(t, expected, roaringset.BitmapLayers{v}.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "k==v after segment addition on old view")
 
 	// prove that new readers will see the most recent view
 	segments, release = sg.getConsistentViewOfSegments()
@@ -162,7 +202,7 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.
 	v, _, err = sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	expected = []uint64{1, 2}
-	require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "k==v on new view after segment addition")
+	require.Equal(t, expected, roaringset.BitmapLayers{v}.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "k==v on new view after segment addition")
 }
 
 func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
@@ -190,12 +230,12 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 		v, _, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 		require.NoError(t, err)
 		expected := []uint64{1}
-		require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "key1 on initial state")
+		require.Equal(t, expected, roaringset.BitmapLayers{v}.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "key1 on initial state")
 
 		v, _, err = sg.roaringSetGet([]byte("key2"), segments, concurrency.SROAR_MERGE)
 		require.NoError(t, err)
 		expected = []uint64{2}
-		require.Equal(t, expected, v.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "key2 on initial state")
+		require.Equal(t, expected, roaringset.BitmapLayers{v}.Flatten(true, concurrency.SROAR_MERGE).ToArray(), "key2 on initial state")
 	}
 	validateView(t, segments)
 
@@ -244,7 +284,7 @@ func TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError(t *testing.T) {
 
 		out, release, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 		require.ErrorIs(t, err, mergeErr)
-		require.Nil(t, out)
+		require.Nil(t, out.Additions)
 		require.NotNil(t, release)
 
 		require.Equal(t, 1, seg0.roaringSetReleases,
@@ -268,7 +308,7 @@ func TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError(t *testing.T) {
 
 		out, release, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
 		require.NoError(t, err)
-		require.NotNil(t, out)
+		require.NotNil(t, out.Additions)
 
 		require.Equal(t, 0, seg0.roaringSetReleases,
 			"success path must not release before the caller does")

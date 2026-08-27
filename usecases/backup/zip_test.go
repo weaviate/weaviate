@@ -40,7 +40,7 @@ func TestZip(t *testing.T) {
 		pathNode = "./test_data/node1"
 		ctx      = context.Background()
 	)
-	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
+	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, ZstdBestCompression, NoCompression} {
 		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
 			pathDest := filepath.Join(t.TempDir(), "test_data", "node1")
 			require.NoError(t, copyDir(pathNode, pathDest))
@@ -83,12 +83,8 @@ func TestZip(t *testing.T) {
 			require.NoError(t, os.MkdirAll(pathDest, 0o755))
 
 			// decompression
-			var compressionType backup.CompressionType
-			if compressionLevel == NoCompression {
-				compressionType = backup.CompressionNone
-			} else {
-				compressionType = backup.CompressionGZIP
-			}
+			compressionType, err := CompressionTypeFromLevel(compressionLevel)
+			require.NoError(t, err)
 			uz, wc := NewUnzip(pathDest, compressionType)
 
 			// decompression reader
@@ -889,7 +885,7 @@ func TestWriteShard(t *testing.T) {
 
 // TestRenamingDuringBackup tests that the backup process can handle files being renamed concurrently
 func TestRenamingDuringBackup(t *testing.T) {
-	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
+	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, ZstdBestCompression, NoCompression} {
 		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "source")
 			dir2 := filepath.Join(t.TempDir(), "dest")
@@ -982,12 +978,8 @@ func TestRenamingDuringBackup(t *testing.T) {
 
 			require.NoError(t, os.RemoveAll(dir))
 
-			var compressionType backup.CompressionType
-			if compressionLevel == NoCompression {
-				compressionType = backup.CompressionNone
-			} else {
-				compressionType = backup.CompressionGZIP
-			}
+			compressionType, err := CompressionTypeFromLevel(compressionLevel)
+			require.NoError(t, err)
 
 			uz, wc := NewUnzip(dir2, compressionType)
 			go func() {
@@ -1018,7 +1010,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 // TestSplitFileRoundTrip tests that files larger than the split file size threshold
 // are correctly split across multiple chunks and restored with proper offsets.
 func TestSplitFileRoundTrip(t *testing.T) {
-	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
+	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, ZstdBestCompression, NoCompression} {
 		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
 			ctx := context.Background()
 			sourceDir := filepath.Join(t.TempDir(), "source")
@@ -1106,12 +1098,8 @@ func TestSplitFileRoundTrip(t *testing.T) {
 			require.Greater(t, len(chunks), 1, "expected multiple chunks due to file splitting")
 
 			// Restore all chunks
-			var compressionType backup.CompressionType
-			if compressionLevel == NoCompression {
-				compressionType = backup.CompressionNone
-			} else {
-				compressionType = backup.CompressionGZIP
-			}
+			compressionType, err := CompressionTypeFromLevel(compressionLevel)
+			require.NoError(t, err)
 
 			for _, chunk := range chunks {
 				uz, wc := NewUnzip(restoreDir, compressionType)

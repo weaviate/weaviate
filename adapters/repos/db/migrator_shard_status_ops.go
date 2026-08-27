@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec errorcompounder.ErrorCompounder) {
@@ -67,7 +68,7 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec e
 	eg.Wait()
 }
 
-func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze []string, ec errorcompounder.ErrorCompounder) {
+func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze []*schemaUC.UpdateTenantPayload, ec errorcompounder.ErrorCompounder) {
 	if m.cloud == nil {
 		ec.Add(fmt.Errorf("offload to cloud module is not enabled"))
 		return
@@ -87,11 +88,22 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 		TenantsProcesses: make([]*command.TenantsProcess, len(freeze)),
 	}
 
-	for uidx, name := range freeze {
+	for uidx, tenant := range freeze {
 		eg.Go(func() error {
+			name := tenant.Name
 			idx.backupLock.RLock(name)
 			defer idx.backupLock.RUnlock(name)
-			originalStatus := models.TenantActivityStatusHOT
+			// the status to restore on abort, as the schema recorded it when the freeze
+			// started. It is never empty here: the schema normalizes before recording.
+			originalStatus := tenant.PreFreezeStatus
+			if originalStatus == "" {
+				originalStatus = models.TenantActivityStatusHOT
+				m.logger.WithFields(logrus.Fields{
+					"action": "freeze_tenant",
+					"name":   class,
+					"tenant": name,
+				}).Error("no pre-freeze status recorded, an abort will report HOT")
+			}
 			shard, release, err := idx.GetShard(ctx, name)
 			if err != nil && !errors.Is(err, errAlreadyShutdown) {
 				m.logger.WithFields(logrus.Fields{
@@ -113,13 +125,23 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 
 			defer release()
 
-			if shard == nil {
-				// shard already does not exist or inactive
-				originalStatus = models.TenantActivityStatusCOLD
-			}
-
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
+
+			// restoreAfterAbort reverses an already-run offloading HaltForTransfer.
+			restoreAfterAbort := func() {
+				if shard == nil {
+					return // no local shard was halted
+				}
+				if err := idx.resumeAfterAbortedOffload(ctx, name); err != nil {
+					m.logger.WithFields(logrus.Fields{
+						"action": "resume_after_aborted_offload",
+						"name":   class,
+						"tenant": name,
+					}).Errorf("resume after aborted offload: %v", err)
+					ec.Add(fmt.Errorf("resume after aborted offload: %w", err))
+				}
+			}
 
 			if shard != nil {
 				if err := shard.HaltForTransfer(ctx, true, 0); err != nil {
@@ -137,6 +159,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 						Op: command.TenantsProcess_OP_ABORT,
 					}
 					ec.Add(err)
+					restoreAfterAbort()
 					return fmt.Errorf("attempt to mark begin offloading: %w", err)
 				}
 			}
@@ -157,6 +180,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 					},
 					Op: command.TenantsProcess_OP_ABORT,
 				}
+				restoreAfterAbort()
 			} else {
 				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
 					Tenant: &command.Tenant{

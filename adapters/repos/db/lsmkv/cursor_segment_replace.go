@@ -21,9 +21,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
-// segmentCursorReaderBufSize matches bufio.NewReader's default so pooled readers
-// behave byte-for-byte like the previous bufio.NewReader(or) call.
-const segmentCursorReaderBufSize = 4096
+// segmentCursorReaderBufSize is the refill size. Skipped bytes drain through the
+// same buffer rather than around it, so one pread covers this many of them, and
+// digest mode — which keeps a short value prefix and skips the remainder of every
+// node — pays that ratio over whole vector payloads. Shrinking it multiplies
+// syscalls across a scan without saving a comparable amount of memory.
+const segmentCursorReaderBufSize = 8192
 
 // segmentCursorReaderPool recycles reusable-cursor read buffers (one per segment
 // per digest RPC), previously the largest allocation source in async-rep scans.
@@ -318,6 +321,9 @@ type segmentCursorReplaceReusable struct {
 	// avoid allocating a MeteredReader+SectionReader+nodeReader per iteration.
 	preadOffset *offsetReader
 	preadReader *bufio.Reader
+	// preadPos is the position preadReader is parked at (-1 = unknown); parses
+	// landing exactly there keep the buffer instead of resetting it.
+	preadPos int64
 }
 
 func (s *segment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
@@ -345,6 +351,7 @@ func (s *segment) newReplaceCursorReusableWithPrefix(valuePrefixLen int) *segmen
 		or := &offsetReader{ra: s.contentFile}
 		c.preadOffset = or
 		c.preadReader = acquireSegmentCursorReader(or)
+		c.preadPos = -1
 	}
 	return c
 }
@@ -408,8 +415,13 @@ func (s *segmentCursorReplaceReusable) parseInto() (*segmentReplaceNode, error) 
 			return &s.reusableNode, err
 		}
 	} else {
-		s.preadOffset.off = int64(s.currOffset)
-		s.preadReader.Reset(s.preadOffset)
+		pos := int64(s.currOffset)
+		if pos != s.preadPos {
+			s.preadOffset.off = pos
+			s.preadReader.Reset(s.preadOffset)
+		}
+		// unknown until the parse succeeds: an error leaves the reader mid-node
+		s.preadPos = -1
 		if s.valuePrefixLen > 0 {
 			if err := ParseReplaceNodeDigestIntoPread(s.preadReader, s.segment.secondaryIndexCount, s.valuePrefixLen, &s.reusableNode); err != nil {
 				return &s.reusableNode, err
@@ -417,6 +429,7 @@ func (s *segmentCursorReplaceReusable) parseInto() (*segmentReplaceNode, error) 
 		} else if err := ParseReplaceNodeIntoPread(s.preadReader, s.segment.secondaryIndexCount, &s.reusableNode); err != nil {
 			return &s.reusableNode, err
 		}
+		s.preadPos = pos + int64(s.reusableNode.offset)
 	}
 
 	if s.reusableNode.tombstone {

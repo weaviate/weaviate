@@ -23,7 +23,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -37,8 +36,6 @@ type restorer struct {
 	node              string // node name
 	logger            logrus.FieldLogger
 	sourcer           Sourcer
-	rbacSourcer       fsm.Snapshotter
-	dynUserSourcer    dynUserSnapshotter
 	backends          BackupBackendProvider
 	namespacesEnabled bool
 	shardSyncChan
@@ -51,15 +48,12 @@ type restorer struct {
 }
 
 func newRestorer(node string, logger logrus.FieldLogger,
-	sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter,
-	backends BackupBackendProvider, namespacesEnabled bool,
+	sourcer Sourcer, backends BackupBackendProvider, namespacesEnabled bool,
 ) *restorer {
 	return &restorer{
 		node:              node,
 		logger:            logger,
 		sourcer:           sourcer,
-		rbacSourcer:       rbacSourcer,
-		dynUserSourcer:    dynUserSourcer,
 		backends:          backends,
 		namespacesEnabled: namespacesEnabled,
 		shardSyncChan:     shardSyncChan{coordChan: make(chan interface{}, 5)},
@@ -138,7 +132,7 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption, !r.namespacesEnabled)
+		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, !r.namespacesEnabled)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -152,10 +146,12 @@ func (r *restorer) restore(
 }
 
 // restoreAll restores classes in temporary directories on the filesystem.
-// The final backup restoration is orchestrated by the raft store.
+// The final backup restoration is orchestrated by the raft store. Roles and
+// dynamic users are not restored here: the coordinator applies them
+// cluster-wide through one RAFT entry once staging has committed.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
-	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
+	store nodeStore, overrideBucket, overridePath string,
 	stripNamespaces bool,
 ) error {
 	compressionType := desc.GetCompressionType()
@@ -165,28 +161,6 @@ func (r *restorer) restoreAll(ctx context.Context,
 	if err := ctx.Err(); err != nil {
 		r.lastOp.set(backup.Cancelled)
 		return fmt.Errorf("restore cancelled: %w", err)
-	}
-
-	if r.dynUserSourcer != nil && len(desc.UserBackups) > 0 && usersRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
-		if err := r.dynUserSourcer.Restore(desc.UserBackups, stripNamespaces); err != nil {
-			return fmt.Errorf("restore users: %w", err)
-		}
-		// Check for cancellation after User restore
-		if err := ctx.Err(); err != nil {
-			r.lastOp.set(backup.Cancelled)
-			return fmt.Errorf("restore cancelled: %w", err)
-		}
-	}
-
-	if r.rbacSourcer != nil && len(desc.RbacBackups) > 0 && rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
-		if err := r.rbacSourcer.Restore(desc.RbacBackups); err != nil {
-			return fmt.Errorf("restore rbac: %w", err)
-		}
-		// Check for cancellation after RBAC restore
-		if err := ctx.Err(); err != nil {
-			r.lastOp.set(backup.Cancelled)
-			return fmt.Errorf("restore cancelled: %w", err)
-		}
 	}
 
 	for _, cdesc := range desc.Classes {

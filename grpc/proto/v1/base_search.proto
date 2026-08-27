@@ -50,6 +50,8 @@ message SearchOperatorOptions {
     OPERATOR_UNSPECIFIED = 0;
     OPERATOR_OR = 1;
     OPERATOR_AND = 2;
+    // Fails unless every searched property shares the same tokenization and analyzer settings.
+    OPERATOR_AND_CROSS = 3;
   }
   Operator operator = 1;
   optional int32 minimum_or_tokens_match = 2;

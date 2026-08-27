@@ -12,17 +12,15 @@
 package hashtree
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
-
-	"github.com/spaolacci/murmur3"
 )
 
 const (
 	compactHashTreeMagicNumber uint32 = 0xD2D2D2D2
-	compactHashtreeVersion     byte   = 1
+
+	compactHashtreeVersion byte = 1
 
 	// magicnumber version capacity checksum
 	compactHashtreeHeaderLength int = 4 + 1 + 8 + DigestLength
@@ -42,8 +40,8 @@ func (ht *CompactHashTree) Serialize(w io.Writer) (n int64, err error) {
 	binary.BigEndian.PutUint64(hdr[hdrOff:], uint64(ht.capacity))
 	hdrOff += 8
 
-	checksum := murmur3.New128().Sum(hdr[:hdrOff])
-	copy(hdr[hdrOff:hdrOff+DigestLength], checksum)
+	checksum := headerChecksum(hdr[:hdrOff])
+	copy(hdr[hdrOff:hdrOff+DigestLength], checksum[:])
 
 	n1, err := w.Write(hdr[:])
 	if err != nil {
@@ -79,15 +77,14 @@ func DeserializeCompactHashTree(r io.Reader) (*CompactHashTree, error) {
 	hdrOff += 4
 
 	if hdr[hdrOff] != compactHashtreeVersion {
-		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[0], compactHashtreeVersion)
+		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[hdrOff], compactHashtreeVersion)
 	}
 	hdrOff++
 
 	capacity := binary.BigEndian.Uint64(hdr[hdrOff:])
 	hdrOff += 8
 
-	checksum := murmur3.New128().Sum(hdr[:hdrOff])
-	if bytes.Equal(hdr[:hdrOff], checksum) {
+	if !validHeaderChecksum(hdr[hdrOff:hdrOff+DigestLength], hdr[:hdrOff]) {
 		return nil, fmt.Errorf("header checksum mismatch")
 	}
 

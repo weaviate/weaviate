@@ -443,8 +443,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 				task.Status = TaskStatusSwapping
 			}
 		}
-		// FinishedAt = when units completed. Scheduler's TTL cleanup excludes
-		// SWAPPING so a stale FinishedAt won't clean a task mid-swap.
+		// FinishedAt = when units completed, for PREPARING and SWAPPING
+		// alike. The TTL cleanup skips both, so this cannot clean a task
+		// mid-coordination.
 		task.FinishedAt = finishedAt
 	}
 
@@ -818,7 +819,9 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	if task.Status != TaskStatusStarted {
+	// Follower apply errors are discarded, so two binaries disagreeing on
+	// what may be cancelled would diverge here silently.
+	if !task.Status.IsCancellable() {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
 
@@ -845,7 +848,15 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	if task.Status == TaskStatusStarted {
+	// This check is all that stands between a STARTED task and deletion:
+	// such a task never had its FinishedAt stamped, so the age check below
+	// reads it as long expired.
+	//
+	// A status this build cannot name is deliberately not refused. The
+	// scheduler's TTL sweep is the only proposer and it reads the leader's
+	// view, so a clean-up for such a task means the rest of the cluster
+	// already considers it done.
+	if task.Status.IsActive() && task.Status.IsRecognized() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
 
@@ -897,11 +908,6 @@ func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, e
 // SliceStable documents the intent.
 func sortTasksForDisplay(tasks []*Task) {
 	sort.SliceStable(tasks, func(i, j int) bool {
-		// "In flight" = STARTED, PREPARING, or SWAPPING (via
-		// [TaskStatus.IsActive]): units still running, OR units done
-		// but per-node PREP / cluster-wide barrier / per-node SWAP /
-		// schema flip not yet committed. All display ahead of terminal
-		// tasks so the freshest user-relevant task surfaces first.
 		iStarted := tasks[i].Status.IsActive()
 		jStarted := tasks[j].Status.IsActive()
 		if iStarted != jStarted {
@@ -922,6 +928,31 @@ func sortTasksForDisplay(tasks []*Task) {
 
 		return tasks[i].ID < tasks[j].ID
 	})
+}
+
+// LocalUnrecognizedDistributedTasks returns this node's own copies of tasks in a
+// status this build never declared, grouped by namespace.
+//
+// The leader-routed list stops carrying such a task once the peers clean
+// their copies up, which is exactly when a leftover local copy starts
+// silently refusing schema mutations.
+func (m *Manager) LocalUnrecognizedDistributedTasks() map[string][]*Task {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result map[string][]*Task
+	for namespace, tasks := range m.tasks {
+		for _, task := range tasks {
+			if task.Status.IsRecognized() {
+				continue
+			}
+			if result == nil {
+				result = map[string][]*Task{}
+			}
+			result[namespace] = append(result[namespace], task.Clone())
+		}
+	}
+	return result
 }
 
 func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, error) {

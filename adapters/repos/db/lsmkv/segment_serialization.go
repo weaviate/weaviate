@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -27,8 +28,11 @@ type segmentReplaceNode struct {
 	value               []byte
 	primaryKey          []byte
 	secondaryIndexCount uint16
-	secondaryKeys       [][]byte
-	offset              int
+	// scratch covers the largest uninterrupted pread read (tombstone + value
+	// length); it lives on the node because a local array escapes into io.ReadFull.
+	scratch       [9]byte
+	secondaryKeys [][]byte
+	offset        int
 }
 
 func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
@@ -181,9 +185,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) (err error) {
 	out.offset = 0
 
-	// 9 bytes covers the largest uninterrupted read (tombstone + value length).
-	// Stack-allocated, no heap allocation.
-	var tmpBuf [9]byte
+	tmpBuf := out.scratch[:]
 
 	if _, err := io.ReadFull(r, tmpBuf[:9]); err != nil {
 		return errors.Wrap(err, "read tombstone and value length")
@@ -257,11 +259,10 @@ func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *seg
 // keeps only the first valuePrefixLen value bytes, so out.value never grows to
 // the full (vector-sized) payload. out.offset still spans the whole node so the
 // cursor advances correctly; skipped bytes are read from r but not allocated.
-func ParseReplaceNodeDigestIntoPread(r io.Reader, secondaryIndexCount uint16, valuePrefixLen int, out *segmentReplaceNode) error {
+func ParseReplaceNodeDigestIntoPread(r *bufio.Reader, secondaryIndexCount uint16, valuePrefixLen int, out *segmentReplaceNode) error {
 	out.offset = 0
 
-	// 9 bytes covers the largest uninterrupted read (tombstone + value length).
-	var tmpBuf [9]byte
+	tmpBuf := out.scratch[:]
 
 	if _, err := io.ReadFull(r, tmpBuf[:9]); err != nil {
 		return errors.Wrap(err, "read tombstone and value length")
@@ -283,12 +284,11 @@ func ParseReplaceNodeDigestIntoPread(r io.Reader, secondaryIndexCount uint16, va
 		return errors.Wrap(err, "read value prefix")
 	}
 	out.offset += int(prefix)
-	if valueLength > prefix {
-		skipped, err := io.CopyN(io.Discard, r, int64(valueLength-prefix))
-		if err != nil {
+	if skip := int(valueLength - prefix); skip > 0 {
+		if _, err := r.Discard(skip); err != nil {
 			return errors.Wrap(err, "skip value remainder")
 		}
-		out.offset += int(skipped)
+		out.offset += skip
 	}
 
 	if _, err := io.ReadFull(r, tmpBuf[:4]); err != nil {
@@ -316,11 +316,10 @@ func ParseReplaceNodeDigestIntoPread(r io.Reader, secondaryIndexCount uint16, va
 		if secKeyLen == 0 {
 			continue
 		}
-		skipped, err := io.CopyN(io.Discard, r, int64(secKeyLen))
-		if err != nil {
+		if _, err := r.Discard(int(secKeyLen)); err != nil {
 			return errors.Wrap(err, "skip secondary key")
 		}
-		out.offset += int(skipped)
+		out.offset += int(secKeyLen)
 	}
 
 	out.secondaryIndexCount = secondaryIndexCount

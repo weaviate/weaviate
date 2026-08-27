@@ -14,7 +14,6 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"io"
 	"math"
 	"math/rand"
 	"runtime"
@@ -64,6 +63,10 @@ type hnsw struct {
 	// indicates the index is shutting down
 	shutdownCtx       context.Context
 	shutdownCtxCancel context.CancelFunc
+	// prefillWg tracks the background cache prefill so Shutdown can wait for it.
+	// The prefiller reads the shard's objects bucket, and the shard tears that
+	// bucket down as soon as the vector indexes report they are shut.
+	prefillWg sync.WaitGroup
 
 	// make sure the very first insert happens just once, otherwise we
 	// accidentally overwrite previous entrypoints on parallel imports on an
@@ -197,6 +200,7 @@ type hnsw struct {
 	shardName             string
 	VectorForIDThunk      common.VectorForID[float32]
 	MultiVectorForIDThunk common.VectorForID[[]float32]
+	vectorFromObject      VectorFromObject
 	shardedNodeLocks      *common.ShardedRWLocks
 	store                 *lsmkv.Store
 
@@ -294,22 +298,18 @@ func New(cfg Config, uc ent.UserConfig,
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	if cfg.Logger == nil {
-		logger := logrus.New()
-		logger.Out = io.Discard
-		cfg.Logger = logger
-	}
+	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
 
 	normalizeOnRead := cfg.DistanceProvider.Type() == "cosine-dot"
 
 	var vectorCache cache.Cache[float32]
 
 	var muveraEncoder *multivector.MuveraEncoder
-	if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
+	if uc.Multivector.Enabled && !uc.Multivector.MuveraEnabled() {
 		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects,
 			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	} else {
-		if uc.Multivector.MuveraConfig.Enabled {
+		if uc.Multivector.MuveraEnabled() {
 			muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
 			err := store.CreateOrLoadBucket(
 				context.Background(),
@@ -390,6 +390,7 @@ func New(cfg Config, uc ent.UserConfig,
 		rqConfig:                          uc.RQ,
 		rescoreConcurrency:                2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:                  common.NewDefaultShardedRWLocks(),
+		vectorFromObject:                  cfg.VectorFromObject,
 
 		store:                     store,
 		allocChecker:              cfg.AllocChecker,
@@ -410,11 +411,11 @@ func New(cfg Config, uc ent.UserConfig,
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
-	index.muvera.Store(uc.Multivector.MuveraConfig.Enabled)
+	index.muvera.Store(uc.Multivector.MuveraEnabled())
 
 	if uc.BQ.Enabled {
 		var err error
-		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
+		if uc.Multivector.Enabled && !uc.Multivector.MuveraEnabled() {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
 				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
@@ -437,7 +438,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 	if uc.Multivector.Enabled {
 		index.multiDistancerProvider = distancer.NewDotProductProvider()
-		if !uc.Multivector.MuveraConfig.Enabled {
+		if !uc.Multivector.MuveraEnabled() {
 			err := index.store.CreateOrLoadBucket(
 				context.Background(),
 				cfg.ID+"_mv_mappings",
@@ -764,20 +765,15 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
+// Drop stops the index exactly as Shutdown does, then removes the commit log's
+// files. Dropping before stopping would leave the maintenance cycles and the
+// tombstone cleanup running against state being torn down underneath them.
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
-	// cancel tombstone cleanup goroutine
-	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
+	if err := h.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
 	}
 
-	if err := h.releaseVectors(); err != nil {
-		return err
-	}
-
-	// cancel commit logger last, as the tombstone cleanup cycle might still
-	// write while it's still running
-	err := h.commitLog.Drop(ctx, keepFiles)
-	if err != nil {
+	if err := h.commitLog.Drop(ctx, keepFiles); err != nil {
 		return errors.Wrap(err, "commit log drop")
 	}
 
@@ -786,6 +782,7 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
+	h.prefillWg.Wait()
 
 	ec := errorcompounder.New()
 	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")

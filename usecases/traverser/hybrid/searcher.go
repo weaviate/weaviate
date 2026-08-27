@@ -71,7 +71,9 @@ type targetVectorParamHelper interface {
 	GetTargetVectorOrDefault(getClass func(string) *models.Class, className string, targetVector []string) ([]string, error)
 }
 
-// Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
+// Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion.
+// The two sets are unioned, never intersected, and alpha can skip either one, so each search func must
+// apply the query's filter itself.
 func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider, schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper) ([]search.Result, error) {
 	var (
 		found   [][]*search.Result

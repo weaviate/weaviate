@@ -87,11 +87,6 @@ func TestBackup_Integration(t *testing.T) {
 		}
 	})
 
-	// let the index age for a second so that
-	// the commitlogger filenames, which are
-	// based on current timestamp, can differ
-	time.Sleep(time.Second)
-
 	t.Run("pause maintenance", func(t *testing.T) {
 		err = combinedCtrl.Deactivate(ctx)
 		require.Nil(t, err)

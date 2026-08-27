@@ -94,6 +94,7 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 				GetViewThunk:          getViewThunk,
 			}
 			cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
+			setDelegatingTempThunk(cfg)
 
 			scheduler.Start()
 			defer scheduler.Close(t.Context())

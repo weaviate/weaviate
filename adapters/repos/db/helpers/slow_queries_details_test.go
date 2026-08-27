@@ -44,3 +44,45 @@ func TestSlowQueryDetailsJourney(t *testing.T) {
 		assert.Equal(t, value, details[key])
 	}
 }
+
+func TestAnnotateSlowQueryLogAppendFunc(t *testing.T) {
+	t.Run("built values append into one list with eager values", func(t *testing.T) {
+		ctx := InitSlowQueryDetails(context.Background())
+		calls := 0
+		AnnotateSlowQueryLogAppendFunc(ctx, "k", func() string {
+			calls++
+			return "lazy"
+		})
+		AnnotateSlowQueryLogAppend(ctx, "k", "eager")
+		require.Equal(t, 1, calls, "build must run exactly once")
+		require.Equal(t, []string{"lazy", "eager"}, ExtractSlowQueryDetails(ctx)["k"])
+	})
+
+	t.Run("nil build is tolerated even with details present", func(t *testing.T) {
+		ctx := InitSlowQueryDetails(context.Background())
+		AnnotateSlowQueryLogAppendFunc[string](ctx, "k", nil)
+		require.NotContains(t, ExtractSlowQueryDetails(ctx), "k")
+	})
+
+	t.Run("build is skipped when ctx carries no details", func(t *testing.T) {
+		calls := 0
+		build := func() string {
+			calls++
+			return "lazy"
+		}
+		AnnotateSlowQueryLogAppendFunc(context.Background(), "k", build)
+		AnnotateSlowQueryLogAppendFunc(nil, "k", build) //nolint:staticcheck // pins the nil-ctx guard
+		require.Zero(t, calls)
+	})
+
+	t.Run("skip path allocates nothing", func(t *testing.T) {
+		ctx := context.Background()
+		reason := "declined"
+		allocs := testing.AllocsPerRun(100, func() {
+			AnnotateSlowQueryLogAppendFunc(ctx, "k", func() map[string]any {
+				return map[string]any{"reason": reason}
+			})
+		})
+		require.Zero(t, allocs, "guards must bail before build; closure must not escape")
+	})
+}

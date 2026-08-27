@@ -60,3 +60,40 @@ func (d *Digest) UnmarshalJSON(b []byte) error {
 
 	return d.UnmarshalBinary(bs)
 }
+
+// SizeDigests resizes buf to hold n digests, reallocating only when capacity is insufficient.
+func SizeDigests(buf []Digest, n int) []Digest {
+	if cap(buf) < n {
+		return make([]Digest, n)
+	}
+	return buf[:n]
+}
+
+// DigestsToBinary encodes digests as fixed DigestLength big-endian records —
+// the shared wire format of the REST binary response and the gRPC encoding=1
+// payload.
+func DigestsToBinary(digests []Digest) []byte {
+	out := make([]byte, 0, len(digests)*DigestLength)
+	var buf [DigestLength]byte
+	for _, d := range digests {
+		binary.BigEndian.PutUint64(buf[:8], d[0])
+		binary.BigEndian.PutUint64(buf[8:], d[1])
+		out = append(out, buf[:]...)
+	}
+	return out
+}
+
+// DigestsFromBinary decodes a DigestsToBinary payload, rejecting any length
+// that is not a whole number of records.
+func DigestsFromBinary(data []byte) ([]Digest, error) {
+	if len(data)%DigestLength != 0 {
+		return nil, fmt.Errorf("invalid digests payload length %d: not a multiple of %d", len(data), DigestLength)
+	}
+	digests := make([]Digest, len(data)/DigestLength)
+	for i := range digests {
+		off := i * DigestLength
+		digests[i][0] = binary.BigEndian.Uint64(data[off : off+8])
+		digests[i][1] = binary.BigEndian.Uint64(data[off+8 : off+DigestLength])
+	}
+	return digests, nil
+}

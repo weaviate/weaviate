@@ -16,6 +16,10 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -137,18 +141,138 @@ func TestCompactor_AbortOnShouldAbort(t *testing.T) {
 				require.NoError(t, err)
 				assert.False(t, compacted)
 				assert.Less(t, elapsed, 3*time.Second, "observed %s", elapsed)
+				assertNoTempFiles(t, dirName)
 			})
 
 			// bridge path: shouldAbort=true exercised through compactOrCleanup;
-			// the bridge inside compactOrCleanup pre-cancels the ctx so the
+			// the bridge inside compactOnceAbortable pre-cancels the ctx so the
 			// compactor sees the abort on its first sample.
 			t.Run("bridge", func(t *testing.T) {
+				var polls atomic.Int64
 				start := time.Now()
-				didWork := bucket.disk.compactOrCleanup(func() bool { return true })
+				didWork := bucket.disk.compactOrCleanup(func() bool {
+					polls.Add(1)
+					return true
+				})
 				elapsed := time.Since(start)
 				assert.False(t, didWork)
+				assert.NotZero(t, polls.Load(), "the bridge must read shouldAbort once there is a pair to merge")
 				assert.Less(t, elapsed, 3*time.Second, "observed %s", elapsed)
+				assertNoTempFiles(t, dirName)
+			})
+
+			// the aborts above must not have compromised the segments. Driven
+			// through compactOrCleanup with a live poller, so the merge runs
+			// alongside the watcher goroutine the bridge starts.
+			t.Run("compaction still succeeds afterwards", func(t *testing.T) {
+				require.True(t, bucket.disk.compactOrCleanup(func() bool { return false }))
+				require.Len(t, bucket.disk.segments, 1)
+
+				_, err = os.Stat(bucket.disk.segments[0].getPath())
+				require.NoError(t, err, "compacted segment must survive on disk")
+				assertNoTempFiles(t, dirName)
 			})
 		})
 	}
+}
+
+// TestCompactor_FailedCompactionDiscardsNewSegment covers the non-abort failure
+// exit: a compactor error must leave no .tmp behind either. The error is injected
+// through shouldSkipKey, which only the set strategy consults.
+func TestCompactor_FailedCompactionDiscardsNewSegment(t *testing.T) {
+	ctx := context.Background()
+	dirName := t.TempDir()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategySetCollection),
+	)
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+	bucket.SetMemtableThreshold(1e9)
+
+	for seg := 0; seg < 2; seg++ {
+		for i := 0; i < 100; i++ {
+			key := []byte(fmt.Sprintf("seg-%d-key-%08d", seg, i))
+			require.NoError(t, bucket.SetAdd(key, [][]byte{[]byte("val")}))
+		}
+		require.NoError(t, bucket.FlushAndSwitch())
+	}
+	require.Len(t, bucket.disk.segments, 2)
+
+	// set after flushing so only the compaction sees the failure
+	bucket.disk.shouldSkipKey = func(key []byte, ctx context.Context) (bool, error) {
+		return false, fmt.Errorf("cannot decide on key %q", key)
+	}
+
+	compacted, err := bucket.disk.compactOnce(ctx)
+	require.Error(t, err)
+	assert.False(t, compacted)
+	assert.Len(t, bucket.disk.segments, 2, "both sources must survive a failed compaction")
+	assertNoTempFiles(t, dirName)
+}
+
+// TestCompactor_FailedSwitchKeepsNewSegment pins the other side of the discard
+// flag. Once switchOnDisk has marked a source for deletion the new file is the
+// only copy of the merged data, so a failure after that point must keep it.
+//
+// The switch is made to fail by planting a directory where stripTmpExtensions
+// renames the new segment to. Segment info in the filename keeps that name
+// distinct from the right segment's own file, which is marked for deletion first.
+func TestCompactor_FailedSwitchKeepsNewSegment(t *testing.T) {
+	ctx := context.Background()
+	dirName := t.TempDir()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace),
+		WithWriteSegmentInfoIntoFileName(true),
+	)
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+	bucket.SetMemtableThreshold(1e9)
+
+	for seg := 0; seg < 2; seg++ {
+		for i := 0; i < 10; i++ {
+			key := []byte(fmt.Sprintf("seg-%d-key-%02d", seg, i))
+			require.NoError(t, bucket.Put(key, []byte("v")))
+		}
+		require.NoError(t, bucket.FlushAndSwitch())
+	}
+	require.Len(t, bucket.disk.segments, 2)
+
+	left, right := bucket.disk.segments[0], bucket.disk.segments[1]
+	leftID, rightID := segmentID(left.getPath()), segmentID(right.getPath())
+	// two level-0 segments compact into level 1
+	blocker := filepath.Join(dirName,
+		"segment-"+rightID+segmentExtraInfo(1, left.getStrategy())+".db")
+	require.NoError(t, os.Mkdir(blocker, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(blocker, "occupied"), []byte("x"), 0o644))
+
+	compacted, err := bucket.disk.compactOnce(ctx)
+	require.Error(t, err, "the planted directory must make the rename fail")
+	assert.False(t, compacted)
+
+	// both sources are marked by now, so the merged data lives only in the .tmp
+	assert.NotEmpty(t, deleteMarkers(t, dirName),
+		"the switch must have marked a source before failing")
+	tmpName := "segment-" + leftID + "_" + rightID +
+		segmentExtraInfo(1, left.getStrategy()) + ".db.tmp"
+	_, err = os.Stat(filepath.Join(dirName, tmpName))
+	require.NoError(t, err, "the new segment must survive a failed switch")
+}
+
+// deleteMarkers lists the files in dir that are marked for deletion.
+func deleteMarkers(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+
+	var names []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), DeleteMarkerSuffix) {
+			names = append(names, e.Name())
+		}
+	}
+	return names
 }

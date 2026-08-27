@@ -57,9 +57,9 @@ type BaseModule struct {
 	// mu mutex to protect shared fields to run concurrently the collection and upload
 	// to avoid interval overlap for the tickers
 	mu sync.RWMutex
-	// collectionsInFlight counts running collection cycles to detect ticks
-	// overlapping a report that takes longer than the collection interval
-	collectionsInFlight atomic.Int32
+	// collectionInFlight guards against overlapping collection cycles when a
+	// report takes longer than the collection interval
+	collectionInFlight atomic.Bool
 }
 
 // NewBaseModule creates a new base module instance
@@ -215,12 +215,10 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 				"interval":     b.interval.String(),
 			}).Debug("collection ticker fired - starting collection cycle")
 
-			enterrors.GoWrapper(func() {
-				b.runCollectAndUpload(ctx)
-			}, b.logger)
-
-			// save last push date
-			b.storeLastPushDate()
+			if b.tryCollectAndUpload(ctx) {
+				// save last push date
+				b.storeLastPushDate()
+			}
 			// ticker is used to reset the interval
 			b.reloadConfig(ticker)
 
@@ -242,22 +240,26 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 	}
 }
 
-// runCollectAndUpload runs one collection cycle. Overlapping cycles are
-// allowed but logged, as they indicate reports taking longer than the
-// collection interval.
-func (b *BaseModule) runCollectAndUpload(ctx context.Context) {
-	if inFlight := b.collectionsInFlight.Add(1); inFlight > 1 {
-		b.logger.Warnf("starting a usage collection cycle while %d previous cycle(s) are still running: usage report generation takes longer than the collection interval", inFlight-1)
+// tryCollectAndUpload starts a collection cycle in the background unless the
+// previous one is still running, in which case the tick is skipped.
+func (b *BaseModule) tryCollectAndUpload(ctx context.Context) bool {
+	if !b.collectionInFlight.CompareAndSwap(false, true) {
+		b.logger.Warn("previous usage collection still in progress - skipping this cycle")
+		b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "skipped").Inc()
+		return false
 	}
-	defer b.collectionsInFlight.Add(-1)
 
-	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessUsageCollection)()
-	if err := b.collectAndUploadUsage(ctx); err != nil {
-		b.logger.Errorf("Failed to collect and upload usage data: %v", err)
-		b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
-	} else {
-		b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
-	}
+	enterrors.GoWrapper(func() {
+		defer b.collectionInFlight.Store(false)
+		defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessUsageCollection)()
+		if err := b.collectAndUploadUsage(ctx); err != nil {
+			b.logger.Errorf("Failed to collect and upload usage data: %v", err)
+			b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
+		} else {
+			b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
+		}
+	}, b.logger)
+	return true
 }
 
 func (b *BaseModule) collectAndUploadUsage(ctx context.Context) error {

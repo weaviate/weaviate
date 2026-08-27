@@ -61,6 +61,7 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 	ctx := context.Background()
 
 	compose, err := docker.New().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviate().
 		// 1s scheduler tick keeps the submit→migration-start latency low so
 		// the PATCH storm reliably overlaps the migration window.

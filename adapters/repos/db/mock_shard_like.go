@@ -525,27 +525,27 @@ func (_c *MockShardLike_AsyncCheckpointRoot_Call) RunAndReturn(run func(context.
 }
 
 // CompareDigests provides a mock function with given fields: ctx, sourceDigests
-func (_m *MockShardLike) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+func (_m *MockShardLike) CompareDigests(ctx context.Context, sourceDigests []types.RepairDigest) ([]types.RepairDigest, error) {
 	ret := _m.Called(ctx, sourceDigests)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CompareDigests")
 	}
 
-	var r0 []types.RepairResponse
+	var r0 []types.RepairDigest
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, []types.RepairResponse) ([]types.RepairResponse, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []types.RepairDigest) ([]types.RepairDigest, error)); ok {
 		return rf(ctx, sourceDigests)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, []types.RepairResponse) []types.RepairResponse); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []types.RepairDigest) []types.RepairDigest); ok {
 		r0 = rf(ctx, sourceDigests)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]types.RepairResponse)
+			r0 = ret.Get(0).([]types.RepairDigest)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, []types.RepairResponse) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, []types.RepairDigest) error); ok {
 		r1 = rf(ctx, sourceDigests)
 	} else {
 		r1 = ret.Error(1)
@@ -561,24 +561,24 @@ type MockShardLike_CompareDigests_Call struct {
 
 // CompareDigests is a helper method to define mock.On call
 //   - ctx context.Context
-//   - sourceDigests []types.RepairResponse
+//   - sourceDigests []types.RepairDigest
 func (_e *MockShardLike_Expecter) CompareDigests(ctx interface{}, sourceDigests interface{}) *MockShardLike_CompareDigests_Call {
 	return &MockShardLike_CompareDigests_Call{Call: _e.mock.On("CompareDigests", ctx, sourceDigests)}
 }
 
-func (_c *MockShardLike_CompareDigests_Call) Run(run func(ctx context.Context, sourceDigests []types.RepairResponse)) *MockShardLike_CompareDigests_Call {
+func (_c *MockShardLike_CompareDigests_Call) Run(run func(ctx context.Context, sourceDigests []types.RepairDigest)) *MockShardLike_CompareDigests_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]types.RepairResponse))
+		run(args[0].(context.Context), args[1].([]types.RepairDigest))
 	})
 	return _c
 }
 
-func (_c *MockShardLike_CompareDigests_Call) Return(_a0 []types.RepairResponse, _a1 error) *MockShardLike_CompareDigests_Call {
+func (_c *MockShardLike_CompareDigests_Call) Return(_a0 []types.RepairDigest, _a1 error) *MockShardLike_CompareDigests_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockShardLike_CompareDigests_Call) RunAndReturn(run func(context.Context, []types.RepairResponse) ([]types.RepairResponse, error)) *MockShardLike_CompareDigests_Call {
+func (_c *MockShardLike_CompareDigests_Call) RunAndReturn(run func(context.Context, []types.RepairDigest) ([]types.RepairDigest, error)) *MockShardLike_CompareDigests_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2908,23 +2908,23 @@ func (_c *MockShardLike_ObjectDigests_Call) RunAndReturn(run func(context.Contex
 }
 
 // ObjectDigestsInRange provides a mock function with given fields: ctx, initialUUID, finalUUID, limit
-func (_m *MockShardLike) ObjectDigestsInRange(ctx context.Context, initialUUID strfmt.UUID, finalUUID strfmt.UUID, limit int) ([]types.RepairResponse, error) {
+func (_m *MockShardLike) ObjectDigestsInRange(ctx context.Context, initialUUID strfmt.UUID, finalUUID strfmt.UUID, limit int) ([]types.RepairDigest, error) {
 	ret := _m.Called(ctx, initialUUID, finalUUID, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ObjectDigestsInRange")
 	}
 
-	var r0 []types.RepairResponse
+	var r0 []types.RepairDigest
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, strfmt.UUID, int) ([]types.RepairResponse, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, strfmt.UUID, int) ([]types.RepairDigest, error)); ok {
 		return rf(ctx, initialUUID, finalUUID, limit)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, strfmt.UUID, int) []types.RepairResponse); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, strfmt.UUID, int) []types.RepairDigest); ok {
 		r0 = rf(ctx, initialUUID, finalUUID, limit)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]types.RepairResponse)
+			r0 = ret.Get(0).([]types.RepairDigest)
 		}
 	}
 
@@ -2958,12 +2958,12 @@ func (_c *MockShardLike_ObjectDigestsInRange_Call) Run(run func(ctx context.Cont
 	return _c
 }
 
-func (_c *MockShardLike_ObjectDigestsInRange_Call) Return(objs []types.RepairResponse, err error) *MockShardLike_ObjectDigestsInRange_Call {
+func (_c *MockShardLike_ObjectDigestsInRange_Call) Return(objs []types.RepairDigest, err error) *MockShardLike_ObjectDigestsInRange_Call {
 	_c.Call.Return(objs, err)
 	return _c
 }
 
-func (_c *MockShardLike_ObjectDigestsInRange_Call) RunAndReturn(run func(context.Context, strfmt.UUID, strfmt.UUID, int) ([]types.RepairResponse, error)) *MockShardLike_ObjectDigestsInRange_Call {
+func (_c *MockShardLike_ObjectDigestsInRange_Call) RunAndReturn(run func(context.Context, strfmt.UUID, strfmt.UUID, int) ([]types.RepairDigest, error)) *MockShardLike_ObjectDigestsInRange_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -3762,6 +3762,54 @@ func (_c *MockShardLike_UpdateStatus_Call) Return(_a0 error) *MockShardLike_Upda
 }
 
 func (_c *MockShardLike_UpdateStatus_Call) RunAndReturn(run func(string, string) error) *MockShardLike_UpdateStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateStatusIf provides a mock function with given fields: cond, status, reason
+func (_m *MockShardLike) UpdateStatusIf(cond func(ShardStatus) bool, status string, reason string) error {
+	ret := _m.Called(cond, status, reason)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateStatusIf")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(func(ShardStatus) bool, string, string) error); ok {
+		r0 = rf(cond, status, reason)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_UpdateStatusIf_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateStatusIf'
+type MockShardLike_UpdateStatusIf_Call struct {
+	*mock.Call
+}
+
+// UpdateStatusIf is a helper method to define mock.On call
+//   - cond func(ShardStatus) bool
+//   - status string
+//   - reason string
+func (_e *MockShardLike_Expecter) UpdateStatusIf(cond interface{}, status interface{}, reason interface{}) *MockShardLike_UpdateStatusIf_Call {
+	return &MockShardLike_UpdateStatusIf_Call{Call: _e.mock.On("UpdateStatusIf", cond, status, reason)}
+}
+
+func (_c *MockShardLike_UpdateStatusIf_Call) Run(run func(cond func(ShardStatus) bool, status string, reason string)) *MockShardLike_UpdateStatusIf_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(func(ShardStatus) bool), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_UpdateStatusIf_Call) Return(_a0 error) *MockShardLike_UpdateStatusIf_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_UpdateStatusIf_Call) RunAndReturn(run func(func(ShardStatus) bool, string, string) error) *MockShardLike_UpdateStatusIf_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -4785,6 +4833,52 @@ func (_c *MockShardLike_hasGeoIndex_Call) Return(_a0 bool) *MockShardLike_hasGeo
 }
 
 func (_c *MockShardLike_hasGeoIndex_Call) RunAndReturn(run func() bool) *MockShardLike_hasGeoIndex_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// hasGeoIndexForProp provides a mock function with given fields: propName
+func (_m *MockShardLike) hasGeoIndexForProp(propName string) bool {
+	ret := _m.Called(propName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for hasGeoIndexForProp")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(string) bool); ok {
+		r0 = rf(propName)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockShardLike_hasGeoIndexForProp_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'hasGeoIndexForProp'
+type MockShardLike_hasGeoIndexForProp_Call struct {
+	*mock.Call
+}
+
+// hasGeoIndexForProp is a helper method to define mock.On call
+//   - propName string
+func (_e *MockShardLike_Expecter) hasGeoIndexForProp(propName interface{}) *MockShardLike_hasGeoIndexForProp_Call {
+	return &MockShardLike_hasGeoIndexForProp_Call{Call: _e.mock.On("hasGeoIndexForProp", propName)}
+}
+
+func (_c *MockShardLike_hasGeoIndexForProp_Call) Run(run func(propName string)) *MockShardLike_hasGeoIndexForProp_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_hasGeoIndexForProp_Call) Return(_a0 bool) *MockShardLike_hasGeoIndexForProp_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_hasGeoIndexForProp_Call) RunAndReturn(run func(string) bool) *MockShardLike_hasGeoIndexForProp_Call {
 	_c.Call.Return(run)
 	return _c
 }

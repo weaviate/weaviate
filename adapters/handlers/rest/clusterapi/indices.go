@@ -174,7 +174,7 @@ type shards interface {
 	DigestObjects(ctx context.Context, indexName, shardName string,
 		ids []strfmt.UUID) (result []types.RepairResponse, err error)
 	DigestObjectsInRange(ctx context.Context, indexName, shardName string,
-		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairDigest, err error)
 	HashTreeLevel(ctx context.Context, indexName, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 
@@ -1128,7 +1128,7 @@ func (i *indices) getHashTreeLevel() http.Handler {
 
 		var discriminant hashtree.Bitset
 		if err := discriminant.Unmarshal(reqPayload); err != nil {
-			http.Error(w, "unmarshal hashtree level params from json: "+err.Error(),
+			http.Error(w, "unmarshal hashtree level discriminant: "+err.Error(),
 				http.StatusBadRequest)
 			return
 		}
@@ -1136,7 +1136,7 @@ func (i *indices) getHashTreeLevel() http.Handler {
 		results, err := i.shards.HashTreeLevel(r.Context(), index, shard, l, &discriminant)
 		if err != nil {
 			http.Error(w, "hashtree level: "+err.Error(),
-				http.StatusInternalServerError)
+				asyncCheckpointHTTPStatus(err))
 			return
 		}
 

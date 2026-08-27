@@ -79,6 +79,7 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -94,11 +95,15 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil,
 	)
 	require.NoError(t, err)
 	repo.SetSchemaGetter(schemaGetter)
-	require.NoError(t, repo.WaitForStartup(ctx))
+	// WaitForStartup without the resource scan: the scan ticks twice a second
+	// against the real disk, so it would undo a resource transition a test makes
+	// by hand. Tests that want one drive the scan themselves.
+	require.NoError(t, repo.init(ctx))
+	repo.startupComplete.Store(true)
 
 	return repo, NewMigrator(repo, logger, "node1"), schemaGetter
 }

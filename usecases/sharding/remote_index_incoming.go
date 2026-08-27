@@ -88,7 +88,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingDigestObjects(ctx context.Context, shardName string,
 		ids []strfmt.UUID) (result []types.RepairResponse, err error)
 	IncomingDigestObjectsInRange(ctx context.Context, shardName string,
-		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairDigest, err error)
 	IncomingHashTreeLevel(ctx context.Context, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	IncomingCountObjects(ctx context.Context, shardName string) (int, error)
@@ -117,7 +117,8 @@ type RemoteIndexIncomingRepo interface {
 	// IncomingFinalizeChangeLog drains the pre-seal in-flight set, seals
 	// the log and returns the final LSN.
 	IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error)
-	// IncomingStopChangeCapture deactivates and removes the log.
+	// IncomingStopChangeCapture deactivates and removes the log; a no-op when
+	// the shard is not loaded.
 	IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error
 }
 
@@ -377,7 +378,7 @@ func (rii *RemoteIndexIncoming) IndexForIncomingWrite(ctx context.Context, index
 
 func (rii *RemoteIndexIncoming) DigestObjectsInRange(ctx context.Context,
 	indexName, shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]types.RepairResponse, error) {
+) ([]types.RepairDigest, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, fmt.Errorf("local index %q not found", indexName)

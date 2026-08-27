@@ -285,11 +285,25 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_TENANT:
 		f = func() {
+			// A namespace that is not active materializes no shard on the
+			// request path, and the schema commits before the DB does, so an
+			// ungated create leaves the tenant listed with nothing behind it.
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.AddTenants(&cmd, schemaOnly)
 		}
 
 	case api.ApplyRequest_TYPE_UPDATE_TENANT:
 		f = func() {
+			// A namespace that is not active holds its shards closed, so the
+			// node executing a status change has no shard to act on and none to
+			// read the tenant's current status from either.
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.UpdateTenants(&cmd, schemaOnly)
 		}
 
@@ -354,6 +368,13 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:
 		f = func() {
 			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_RESTORE_ROLES_AND_USERS:
+		// The payload replaces both stores in full, so checking namespaces row by
+		// row would drop rows silently. applyRestoreRolesAndUsers rejects the
+		// whole entry instead.
+		f = func() {
+			ret.Error = applyRestoreRolesAndUsers(&cmd, st.authZManager, st.dynUserManager, st.namespaceManager)
 		}
 
 	case api.ApplyRequest_TYPE_UPSERT_USER:
@@ -473,6 +494,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID:
 		f = func() {
 			ret.Error = st.replicationManager.ForceDeleteByUuid(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByIds(&cmd)
 		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:

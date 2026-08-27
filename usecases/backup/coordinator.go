@@ -83,6 +83,13 @@ type UserLister interface {
 	ListAllUsers() []string
 }
 
+// RoleLister resolves includeRoles selectors. ListAllRoles returns every role
+// name, custom and built-in, which is the list selectors match against. Nil when
+// RBAC is disabled.
+type RoleLister interface {
+	ListAllRoles() ([]string, error)
+}
+
 // coordinator coordinates a distributed backup and restore operation (DBRO):
 //
 // - It determines what request to send to which shard.
@@ -106,6 +113,8 @@ type coordinator struct {
 	log          logrus.FieldLogger
 	nodeResolver NodeResolver
 	backends     BackupBackendProvider
+	// nil on the backupper, which never restores roles or users.
+	rolesAndUsers rolesAndUsersRestorer
 
 	// state
 	Participants map[string]participantStatus
@@ -127,6 +136,7 @@ func newCoordinator(
 	log logrus.FieldLogger,
 	nodeResolver NodeResolver,
 	backends BackupBackendProvider,
+	rolesAndUsers rolesAndUsersRestorer,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
@@ -135,6 +145,7 @@ func newCoordinator(
 		log:                log,
 		nodeResolver:       nodeResolver,
 		backends:           backends,
+		rolesAndUsers:      rolesAndUsers,
 		Participants:       make(map[string]participantStatus, 16),
 		timeoutNodeDown:    _TimeoutNodeDown,
 		timeoutQueryStatus: _TimeoutQueryStatus,
@@ -197,6 +208,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		CompressionType: compressionType,
 		BaseBackupID:    req.BaseBackupID,
 		Users:           req.Users,
+		Roles:           req.Roles,
 	}
 
 	for key := range c.Participants {
@@ -244,6 +256,11 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	return nil
 }
 
+// rolesAndUsersBlobs are the snapshots applied cluster-wide. A field is empty
+// when the backup lacks that snapshot, the subsystem is off, or the request
+// opted out.
+type rolesAndUsersBlobs struct{ roles, users []byte }
+
 // Restore coordinates a distributed restoration among participants
 func (c *coordinator) Restore(
 	ctx context.Context,
@@ -251,6 +268,7 @@ func (c *coordinator) Restore(
 	req *Request,
 	desc *backup.DistributedBackupDescriptor,
 	schema []backup.ClassDescriptor,
+	blobs rolesAndUsersBlobs,
 ) error {
 	req.Method = OpRestore
 
@@ -354,20 +372,24 @@ func (c *coordinator) Restore(
 			}
 		}
 
-		// Only proceed with schema apply if we successfully transitioned to Finalizing
-		// Skip if status is Cancelled, Failed, or any other non-Finalizing state
+		// Roles and users are applied once staging has committed, even when a
+		// class restore failed: a class that already exists is a class failure,
+		// not a roles-and-users one.
 		if c.descriptor.Status == backup.Finalizing {
 			// Time schema apply phase (Raft commits for each class)
 			schemaApplyStart := time.Now()
 			c.restoreClasses(ctx, schema, req)
 			c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
 
-			// Set final status - restoreClasses may have set Failed, otherwise set Success
+			c.restoreRolesAndUsers(ctx, blobs)
+
+			// Both restore steps only ever set Failed, so a status still in
+			// Finalizing means both succeeded.
 			if c.descriptor.Status == backup.Finalizing {
 				c.descriptor.Status = backup.Success
 			}
 		}
-		c.lastOp.set(c.descriptor.Status)
+		c.publishStatus()
 
 		// Note: No need to check for cancellation after schema apply.
 		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
@@ -449,11 +471,30 @@ func (c *coordinator) restoreClasses(
 	}
 }
 
+// restoreRolesAndUsers applies both snapshots in a single RAFT entry. The strip
+// flag matches the one the class restore uses. Errors append to the descriptor
+// error so a class failure and a roles-and-users failure both reach the
+// operator.
+func (c *coordinator) restoreRolesAndUsers(ctx context.Context, blobs rolesAndUsersBlobs) {
+	if c.rolesAndUsers == nil || (len(blobs.roles) == 0 && len(blobs.users) == 0) {
+		return
+	}
+	strip := !c.schema.NamespacesEnabled()
+	if err := c.rolesAndUsers.RestoreRolesAndUsers(ctx, blobs.roles, blobs.users, strip); err != nil {
+		msg := fmt.Sprintf("restore roles and users: %v", err)
+		if c.descriptor.Error != "" {
+			msg = c.descriptor.Error + "; " + msg
+		}
+		c.descriptor.Error = msg
+		c.descriptor.Status = backup.Failed
+	}
+}
+
 func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *StatusRequest) (*Status, error) {
 	// check if backup is still active
 	st := c.lastOp.get()
 	if st.ID == req.ID {
-		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status}, nil
+		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status, Err: st.Err}, nil
 	}
 	filename := GlobalBackupFile
 	if req.Method == OpRestore {
@@ -479,7 +520,21 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		Size:         float64(meta.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
 		BaseBackupID: meta.BaseBackupID,
 	}
+	if reason, ok := c.lastOp.rememberedFailure(req.ID); ok && !isFinalStatus(meta.Status) {
+		// The operation ended failed and writing that outcome to the backend
+		// is what failed, so the descriptor still reads as in progress. Serving
+		// it would report a failed backup as running for as long as this node
+		// is up.
+		status.Status = backup.Failed
+		status.Err = reason
+	}
 	return status, nil
+}
+
+// isFinalStatus reports whether a stored descriptor status is the operation's
+// last word, and so must not be second-guessed from memory.
+func isFinalStatus(st backup.Status) bool {
+	return st == backup.Success || st == backup.Failed || st == backup.Cancelled
 }
 
 // canCommitErrFromResponse promotes a refused [CanCommitResponse] into a
@@ -506,13 +561,6 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
-
-	// Apply node mapping to the descriptor shall happen before
-	// asking candidates if they agree to participate in DBRO and before creating the request channel.
-	// This ensures that the request channel contains the correct node names and RESOLVES
-	// correctly the NEW node names and hosts if mapping exists.
-	// NOTE: This could be leveraged for adjusting number of nodes in the schema (as future implementation).
-	c.descriptor.ApplyNodeMapping()
 
 	reqChan := make(chan *Request)
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
@@ -542,6 +590,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				Backend:           req.Backend,
 				Classes:           gr.Classes,
 				Users:             req.Users,
+				Roles:             req.Roles,
 				Duration:          _BookingPeriod,
 				NodeMapping:       c.descriptor.NodeMapping,
 				Compression:       req.Compression,
@@ -714,9 +763,20 @@ func (c *coordinator) commit(ctx context.Context,
 			reason = "restore canceled by user"
 		}
 	}
-	c.lastOp.set(c.descriptor.Status)
 	c.descriptor.Error = reason
+	c.publishStatus()
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
+}
+
+// publishStatus mirrors the descriptor's outcome on the slot, which is what a
+// poll reads until the descriptor is written to object storage. A failure goes
+// through setFailed so it is never published without the reason next to it.
+func (c *coordinator) publishStatus() {
+	if c.descriptor.Status == backup.Failed {
+		c.lastOp.setFailed(c.descriptor.Error)
+		return
+	}
+	c.lastOp.set(c.descriptor.Status)
 }
 
 // queryAll queries all participant and store their statuses internally

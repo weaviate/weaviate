@@ -218,18 +218,6 @@ func TestCleanupReplace_InPlaceSwitch_MidSwitchCrashRecovery(t *testing.T) {
 				}
 			}
 
-			// assertNoTempFiles asserts recovery removed all segment .tmp leftovers.
-			assertNoTempFiles := func(t *testing.T, dir string) {
-				t.Helper()
-				entries, err := os.ReadDir(dir)
-				require.NoError(t, err)
-				for _, e := range entries {
-					if strings.HasPrefix(e.Name(), "segment-") && strings.HasSuffix(e.Name(), ".tmp") {
-						t.Errorf("leftover temp file after recovery: %s", e.Name())
-					}
-				}
-			}
-
 			// crash after the sidecars were marked but before the new .db.tmp was
 			// renamed onto the old .db: the old .db is still live, the .db.tmp is a
 			// leftover. Recovery deletes the .db.tmp and keeps the old data.
@@ -289,5 +277,17 @@ func copyDir(t *testing.T, src, dst string) {
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("copy dir: %v: %s", err, out.String())
+	}
+}
+
+// assertNoTempFiles asserts no segment .tmp file is left in dir.
+func assertNoTempFiles(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "segment-") && strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("leftover temp file: %s", e.Name())
+		}
 	}
 }

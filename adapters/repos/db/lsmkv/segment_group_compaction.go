@@ -29,7 +29,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -271,9 +273,66 @@ func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
 }
 
-// compactOnce performs one compaction iteration. Cancelling ctx aborts
-// the in-flight merge (sampled every compactor.AbortCheckEveryN keys).
-func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err error) {
+// discardSegmentFile closes f and removes path, for a new segment file that is
+// not going to be switched in. Failures are joined into err: a leftover .tmp
+// would be renamed onto a live segment name by a later init.
+func discardSegmentFile(f *os.File, path string, err error) error {
+	// f is already closed if the failure came after the write finished
+	if closeErr := f.Close(); closeErr != nil && !stderrors.Is(closeErr, os.ErrClosed) {
+		err = stderrors.Join(err, fmt.Errorf("close new segment file %q: %w", path, closeErr))
+	}
+	if removeErr := os.Remove(path); removeErr != nil && !stderrors.Is(removeErr, os.ErrNotExist) {
+		err = stderrors.Join(err, fmt.Errorf("remove new segment file %q: %w", path, removeErr))
+	}
+	return err
+}
+
+// abortPollInterval bounds how often the poller reads shouldAbort.
+const abortPollInterval = 50 * time.Millisecond
+
+// compactOnce performs one compaction iteration.
+func (sg *SegmentGroup) compactOnce(ctx context.Context) (bool, error) {
+	return sg.compactOnceAbortable(ctx, nil)
+}
+
+// watchAbort returns a context cancelled once shouldAbort turns true. The poller
+// lives until the returned cancel runs, so callers must always call it.
+func (sg *SegmentGroup) watchAbort(ctx context.Context,
+	shouldAbort cyclemanager.ShouldAbortCallback,
+) (context.Context, context.CancelFunc) {
+	// read before deriving, so a panicking callback leaves no context behind
+	aborting := shouldAbort()
+	ctx, cancel := context.WithCancel(ctx)
+	if aborting {
+		cancel()
+		return ctx, cancel
+	}
+
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(abortPollInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if shouldAbort() {
+					cancel()
+					return
+				}
+			}
+		}
+	}, sg.logger)
+	return ctx, cancel
+}
+
+// compactOnceAbortable performs one compaction iteration. Cancelling ctx, or
+// shouldAbort turning true, aborts the in-flight merge (sampled every
+// compactor.AbortCheckEveryN keys). Its shouldAbort bridge is built only once
+// there is a pair to merge, so an idle cycle needs no context, goroutine or ticker.
+func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
+	shouldAbort cyclemanager.ShouldAbortCallback,
+) (compacted bool, err error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
 	// be an append because of a new flush cycle, so we do not need to guarantee
@@ -332,6 +391,12 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	backgroundDone := monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessCompaction)
 	defer backgroundDone()
 
+	if shouldAbort != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = sg.watchAbort(ctx, shouldAbort)
+		defer cancel()
+	}
+
 	var left, right Segment
 	func() {
 		sg.maintenanceLock.RLock()
@@ -358,11 +423,21 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 		return false, err
 	}
 
+	// Until switchOnDisk marks a source segment for deletion, both sources still
+	// hold everything this file has, so discarding it on every exit before the
+	// switch costs nothing and leaves no .tmp for a later init to adopt.
+	discardNewSegment := true
+	defer func() {
+		if discardNewSegment {
+			err = discardSegmentFile(f, path, err)
+		}
+	}()
+
 	secondaryIndices := left.getSecondaryIndexCount()
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
 
-	// aborted=true tells the caller to close the partial .tmp and bail
+	// aborted=true tells the caller to bail without reporting an error
 	runCompactor := func(do func(context.Context) error) (aborted bool, err error) {
 		if err := do(ctx); err != nil {
 			if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
@@ -371,14 +446,6 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		return false, nil
-	}
-
-	abortAndClose := func() error {
-		// orphan .tmp is cleaned by segment_group.init on next start
-		if err := f.Close(); err != nil {
-			return fmt.Errorf("close aborted compactor output: %w", err)
-		}
-		return nil
 	}
 
 	switch strategy {
@@ -400,7 +467,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
@@ -412,7 +479,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
@@ -424,7 +491,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategyRoaringSet:
 		c := roaringset.NewCompactor(f, left.newRoaringSetCursor(), right.newRoaringSetCursor(),
@@ -436,7 +503,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 
 	case segmentindex.StrategyRoaringSetRange:
@@ -448,7 +515,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategyInverted:
 		avgPropLen, _ := sg.GetAveragePropertyLength()
@@ -481,7 +548,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
@@ -501,7 +568,9 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	}
 
 	replacer := newSegmentReplacer(sg, pair[0], pair[1], newSegment)
-	oldLeft, oldRight, err := replacer.switchOnDisk()
+	oldLeft, oldRight, err := replacer.switchOnDisk(func() {
+		discardNewSegment = false
+	})
 	if err != nil {
 		return false, fmt.Errorf("replace compacted segments on disk: %w", err)
 	}

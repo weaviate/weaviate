@@ -14,10 +14,12 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -95,7 +97,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	m.indexer.AssertExpectations(t)
 
 	// Create a new FSM that will restore from it's state from the disk (using snapshot and logs)
-	s := NewFSM(m.cfg, nil, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(m.cfg, nil, prometheus.NewPedanticRegistry())
 	m.store = &s
 	// We refresh the mock schema to ensure that we can assert no calls except Open are sent to the database
 	m.indexer = fakes.NewMockSchemaExecutor()
@@ -118,6 +120,83 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 
 	// Ensure there was no supplementary call to the underlying DB as we were just recovering the schema
 	m.indexer.AssertExpectations(t)
+}
+
+// TestSnapshotRestoreReloadsDBBeforeWaitToRestoreDB pins the startup ordering
+// that decides where progress logging can live. On a node restarting with a
+// snapshot, the DB reload runs inside raft.NewRaft, inside Store.Open —
+// before the caller can invoke WaitToRestoreDB. So WaitToRestoreDB returns
+// having logged nothing, and only the tracker inside reloadDBFromSchema can
+// report that load.
+func TestSnapshotRestoreReloadsDBBeforeWaitToRestoreDB(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+
+	// Seed a node: one class, then snapshot as the last raft entry so the
+	// reopen restores through the snapshot path.
+	m.indexer.On("Open", Anything).Return(nil)
+	require.NoError(t, srv.Open(ctx, m.indexer))
+	require.NoError(t, srv.store.Notify(m.cfg.NodeID, addr))
+	require.NoError(t, srv.WaitUntilDBRestored(ctx, time.Second, make(chan struct{})))
+	require.True(t, tryNTimesWithWait(20, time.Millisecond*200, srv.store.IsLeader))
+
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	m.indexer.On("AddClass", Anything).Return(nil)
+	m.parser.On("ParseClass", mock.Anything).Return(nil)
+	cls := &models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
+	ss := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", Status: "S0"}}}
+	_, err := srv.AddClass(ctx, cls, ss)
+	require.NoError(t, err)
+
+	require.NoError(t, srv.store.raft.Barrier(2*time.Second).Error())
+	require.NoError(t, srv.store.raft.Snapshot().Error())
+
+	m.indexer.On("Close", Anything).Return(nil)
+	require.NoError(t, srv.Close(ctx))
+
+	// Reopen from disk. TriggerSchemaUpdateCallbacks runs inside the reload,
+	// so it records whether Open had already returned at that moment.
+	s := NewFSM(m.cfg, nil, prometheus.NewPedanticRegistry())
+	m.store = &s
+	m.indexer = fakes.NewMockSchemaExecutor()
+	srv = NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+
+	logHook := logrustest.NewLocal(m.logger)
+	countMsg := func(msg string) int {
+		n := 0
+		for _, e := range logHook.AllEntries() {
+			if e.Message == msg {
+				n++
+			}
+		}
+		return n
+	}
+
+	var openReturned, reloadRanDuringOpen atomic.Bool
+	m.indexer.On("Open", Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Run(func(mock.Arguments) {
+		reloadRanDuringOpen.Store(!openReturned.Load())
+	}).Return()
+
+	require.NoError(t, srv.Open(ctx, m.indexer))
+	openReturned.Store(true)
+
+	m.indexer.AssertCalled(t, "TriggerSchemaUpdateCallbacks")
+	assert.True(t, reloadRanDuringOpen.Load(),
+		"the snapshot-path reload must run inside Open, via raft.NewRaft restoring the FSM")
+	assert.True(t, m.store.dbLoaded.Load(),
+		"the DB must be fully loaded by the time Open returns")
+	assert.Equal(t, 1, countMsg("local DB loaded from schema"),
+		"the tracker inside reloadDBFromSchema is what reported this load")
+
+	require.NoError(t, srv.WaitUntilDBRestored(ctx, time.Second, make(chan struct{})))
+	assert.Equal(t, 0, countMsg("waiting for database to be restored"),
+		"WaitToRestoreDB never logs on this path: the load finished before it was called")
+
+	m.indexer.On("Close", Anything).Return(nil)
+	require.NoError(t, srv.Close(ctx))
 }
 
 func getTenantStatus(t *testing.T, schemaReader interface{}, className, tenantName string) string {

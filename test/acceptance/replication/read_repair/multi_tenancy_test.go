@@ -105,7 +105,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("RestartNode-3", func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, 3)
-			time.Sleep(time.Second)
+			common.WaitForNodeReadyForTenant(t, compose.ContainerURI(3), "Paragraph", paragraphIDs[0], tenantID.String())
 		})
 	})
 
@@ -139,7 +139,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("RestartNode-3", func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, 3)
-			time.Sleep(time.Second)
+			common.WaitForNodeReadyForTenant(t, compose.ContainerURI(3), "Paragraph", paragraphIDs[0], tenantID.String())
 		})
 	})
 
@@ -198,7 +198,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("RestartNode-3", func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, 3)
-			time.Sleep(time.Second)
+			common.WaitForNodeReadyForTenant(t, compose.ContainerURI(3), "Paragraph", paragraphIDs[0], tenantID.String())
 		})
 	})
 
@@ -233,7 +233,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("RestartNode-3", func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, 3)
-			time.Sleep(time.Second)
+			common.WaitForNodeReadyForTenant(t, compose.ContainerURI(3), "Paragraph", paragraphIDs[0], tenantID.String())
 		})
 	})
 
@@ -243,7 +243,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			common.StartNodeAt(ctx, t, compose, 3)
+			common.StopNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("OnNode-2", func(t *testing.T) {
@@ -254,6 +254,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("RestartNode-3", func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, 3)
+			common.WaitForNodeReadyForTenant(t, compose.ContainerURI(3), "Paragraph", paragraphIDs[0], tenantID.String())
 		})
 	})
 
@@ -274,6 +275,7 @@ func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 
 		t.Run("RestartNode-2", func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, 2)
+			common.WaitForNodeReadyForTenant(t, compose.ContainerURI(2), "Paragraph", paragraphIDs[0], tenantID.String())
 		})
 	})
 }

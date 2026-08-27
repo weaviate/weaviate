@@ -859,9 +859,15 @@ func (p *Participant) submitShardJobs(
 	// the source bucket already contain the precomputed counts, so each
 	// segment just reads 12 bytes from disk. The count is needed by
 	// computeRanges to split the key space for parallel scanning.
+	//
+	// The scan only uses cursors, and bloom filters answer point lookups.
+	// Leaving them on reads a filter per segment for lookups that never
+	// happen, and a missing or unreadable one is rebuilt and written into a
+	// directory that is about to be deleted.
 	snapshotBucket, err := lsmkv.NewSnapshotBucket(ctx, snap.dir,
 		p.logger, lsmkv.WithStrategy(snap.strategy),
-		lsmkv.WithCalcCountNetAdditions(true))
+		lsmkv.WithCalcCountNetAdditions(true),
+		lsmkv.WithUseBloomFilter(false))
 	if err != nil {
 		os.RemoveAll(snap.dir)
 		err = fmt.Errorf("open snapshot bucket for %s/%s: %w", snap.className, snap.shardName, err)

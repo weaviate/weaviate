@@ -32,7 +32,7 @@ func requireBitmapValid(t *testing.T, bm *sroar.Bitmap) {
 
 func newTrackingOps(t *testing.T) *BitmapOps {
 	t.Helper()
-	pool := roaringset.NewBitmapBufPoolTracking()
+	pool := roaringset.NewBitmapBufPoolTrackingForTests()
 	t.Cleanup(func() {
 		if n := pool.Outstanding(); n != 0 {
 			t.Errorf("pool: %d bitmap buffer(s) not released", n)

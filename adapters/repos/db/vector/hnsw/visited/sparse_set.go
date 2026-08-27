@@ -15,32 +15,51 @@ import (
 	"math"
 	"math/bits"
 	"slices"
-	"sync"
 )
 
 type segment struct {
 	words []uint64
 }
 
+// maxSlabSegments caps how many segments' worth of words a single slab
+// allocation holds: 64KiB at the production collisionRate of 4096.
+const maxSlabSegments = 128
+
 type segmentedBitSet struct {
-	segments    []segment
-	pool        *sync.Pool
-	wordsPerSeg int
+	segments     []segment
+	slab         []uint64
+	wordsPerSeg  int
+	nextSlabSegs int
 }
 
-func newSegmentedBitSet(size, collisionRate int) *segmentedBitSet {
-	cr := uint64(collisionRate)
-	wordsPerSeg := int((cr + 63) >> 6)
-
+func newSegmentedBitSet(segCount, collisionRate int) *segmentedBitSet {
 	return &segmentedBitSet{
-		segments:    make([]segment, size/collisionRate+1),
-		wordsPerSeg: wordsPerSeg,
-		pool: &sync.Pool{
-			New: func() interface{} {
-				return make([]uint64, wordsPerSeg)
-			},
-		},
+		segments:     make([]segment, segCount),
+		wordsPerSeg:  (collisionRate + 63) >> 6,
+		nextSlabSegs: 1,
 	}
+}
+
+// allocSegment hands out one segment's worth of words, carved from a shared
+// slab so that activating thousands of segments costs one allocation per slab
+// instead of one (plus interface boxing) each, and keeps the segments of a
+// query contiguous in memory. Slabs grow geometrically from a single segment
+// up to maxSlabSegments: a set that only ever activates one segment (small
+// index, small tenant shard) pays exactly one segment's worth of memory,
+// while large sets reach the full slab size within a handful of refills.
+// The returned words are always zeroed: fresh slabs come zeroed from make,
+// and previously handed-out segments are cleared by Reset before their cb bit
+// can be observed unset again. The three-index slice caps each segment at
+// wordsPerSeg so an accidental append cannot bleed into the neighboring
+// segment.
+func (b *segmentedBitSet) allocSegment() []uint64 {
+	if len(b.slab) < b.wordsPerSeg {
+		b.slab = make([]uint64, b.nextSlabSegs*b.wordsPerSeg)
+		b.nextSlabSegs = min(b.nextSlabSegs*2, maxSlabSegments)
+	}
+	words := b.slab[:b.wordsPerSeg:b.wordsPerSeg]
+	b.slab = b.slab[b.wordsPerSeg:]
+	return words
 }
 
 type SparseSet struct {
@@ -59,17 +78,14 @@ func NewSparseSet(size, collisionRate int) *SparseSet {
 	cr := uint64(collisionRate)
 
 	cb := make([]uint64, (size/int(cr))/64+1)
+	// Align segments length to collidingBitSet domain (cb words * 64 bits).
 	segCount := len(cb) * 64
 
 	s := &SparseSet{
 		collisionRate:    cr,
 		collisionShift:   uint8(bits.TrailingZeros64(cr)),
 		collidingBitSet:  cb,
-		segmentedBitSets: newSegmentedBitSet(size, collisionRate),
-	}
-	// Align segments length to collidingBitSet domain.
-	if len(s.segmentedBitSets.segments) < segCount {
-		s.segmentedBitSets.segments = make([]segment, segCount)
+		segmentedBitSets: newSegmentedBitSet(segCount, collisionRate),
 	}
 	s.maxNodeExclusive = uint64(len(cb)) * 64 * cr
 	return s
@@ -172,11 +188,12 @@ func (s *SparseSet) CheckAndVisit(node uint64) bool {
 	segActive := cb[cbWord]&cbMask != 0
 	seg := &segs[segmentedIndex]
 
-	// Lazily allocate segment on first activation this query.
+	// Lazily allocate segment on first activation this query. No clear
+	// needed: allocSegment guarantees zeroed words, and retained segments
+	// were cleared by Reset.
 	if !segActive {
 		if seg.words == nil {
-			seg.words = s.segmentedBitSets.pool.Get().([]uint64)
-			clear(seg.words)
+			seg.words = s.segmentedBitSets.allocSegment()
 		}
 		cb[cbWord] |= cbMask
 		s.touchedSegs = append(s.touchedSegs, uint32(segmentedIndex))

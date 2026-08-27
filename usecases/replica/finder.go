@@ -43,6 +43,9 @@ var (
 	ErrAsyncCheckpointStale = errors.New("checkpoint createdAt is not newer than the active one")
 	// ErrAsyncReplicationNotActive maps to HTTP 412 / FailedPrecondition.
 	ErrAsyncReplicationNotActive = errors.New("async replication is not active on this shard")
+	// Skip-reason refinements; both wrap ErrAsyncReplicationNotActive so existing errors.Is checks keep matching.
+	ErrReplicaMaintenance = fmt.Errorf("%w: peer in maintenance mode", ErrAsyncReplicationNotActive)
+	ErrReplicaBooting     = fmt.Errorf("%w: peer not ready", ErrAsyncReplicationNotActive)
 	// ErrAsyncCheckpointCutoffInPast maps to HTTP 412 / FailedPrecondition.
 	ErrAsyncCheckpointCutoffInPast = errors.New("checkpoint cutoff is not in this node's future")
 	// MsgCLevel consistency level cannot be achieved
@@ -60,6 +63,24 @@ var (
 )
 
 const AsyncCheckpointMaxShardsPerRequest = 10_000
+
+// Readiness-gate messages; clients map gRPC Unavailable to retry-later only on these (transport Unavailable stays loud).
+const (
+	NodeNotReadyMsg       = "node not ready"
+	LocalIndexNotReadyMsg = "local index not ready"
+)
+
+// AsyncReplicationSkipReason returns the skip-metric label for a retry-later error.
+func AsyncReplicationSkipReason(err error) string {
+	switch {
+	case errors.Is(err, ErrReplicaMaintenance):
+		return "maintenance"
+	case errors.Is(err, ErrReplicaBooting):
+		return "node_boot"
+	default:
+		return "not_active"
+	}
+}
 
 // AsyncCheckpointCreatedAtSkewTolerance prevents a single far-future createdAt
 // from blocking every later legitimate create via the strict-greater-than
@@ -359,12 +380,14 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
 
+	// reused across levels and targets; only safe while targets are probed sequentially
+	var digests []hashtree.Digest
+
 	collectDiffForTargetNode := func(targetNodeAddress, targetNodeName string) (*ShardDifferenceReader, error) {
 		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
 		defer cancel()
 
 		height := ht.Height()
-		digests := make([]hashtree.Digest, hashtree.LeavesCount(height))
 
 		discriminant := hashtree.NewBitset(1) // nodesAtLevel(0) = 1
 		discriminant.Set(0)                   // seed at root
@@ -372,17 +395,27 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		var leaf *hashtree.Bitset
 
 		for l := 0; l <= height; l++ {
-			if _, err := ht.Level(l, discriminant, digests); err != nil {
+			need := discriminant.SetCount()
+			digests = hashtree.SizeDigests(digests, need)
+
+			n, err := ht.Level(l, discriminant, digests)
+			if err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
+			}
+			// a short local write would leave stale digests from a previous level or target
+			if n != need {
+				return nil, fmt.Errorf("%q: local hashtree level %d wrote %d digests, expected %d",
+					targetNodeAddress, l, n, need)
 			}
 
 			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, discriminant)
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
-			if len(levelDigests) == 0 {
-				// peer agrees at this level
-				break
+			// anything but one digest per set bit reads as a failed target, never as convergence
+			if len(levelDigests) != need {
+				return nil, fmt.Errorf("%q: hashtree level %d returned %d digests, expected %d",
+					targetNodeAddress, l, len(levelDigests), need)
 			}
 
 			nextDiscriminant, levelDiffCount, err := hashtree.LevelDiff(l, height, discriminant, digests, levelDigests)
@@ -424,7 +457,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	// If the caller provided a list of target node overrides, filter the replicas to only include
 	// the relevant overrides so that we only "push" updates to the specified nodes.
 	localNodeName := f.LocalNodeName()
-	targetNodesToUse := routingPlan.NodeNames()
+	var targetNodesToUse []string
 	if len(targetNodeOverrides) > 0 {
 		targetNodesToUse = make([]string, 0, len(targetNodeOverrides))
 		for _, override := range targetNodeOverrides {
@@ -432,10 +465,12 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 				targetNodesToUse = append(targetNodesToUse, override.TargetNode)
 			}
 		}
+	} else {
+		targetNodesToUse = routingPlan.NodeNames()
 	}
 
-	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas()))
-	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
+	replicaNodeNames := make([]string, 0, len(targetNodesToUse))
+	replicasHostAddrs := make([]string, 0, len(targetNodesToUse))
 	for _, replica := range targetNodesToUse {
 		replicaHostAddr, ok := f.nodeResolver.NodeHostname(replica)
 		if ok {
@@ -458,6 +493,8 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
 	}
 
+	notReadyTargets := 0
+	sawConverged := false
 	for i, targetNodeAddress := range replicasHostAddrs {
 		targetNodeName := replicaNodeNames[i]
 		if targetNodeAddress == localHostAddr {
@@ -466,7 +503,16 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 		diffReader, err := collectDiffForTargetNode(targetNodeAddress, targetNodeName)
 		if err != nil {
-			if !errors.Is(err, replicaerrors.ErrNoDiffFound) {
+			switch {
+			case errors.Is(err, replicaerrors.ErrNoDiffFound):
+				sawConverged = true
+			case errors.Is(err, ErrAsyncReplicationNotActive):
+				// Not-ready peer (unloaded or hashtree initializing): retry-later,
+				// not a fault — kept out of the error compounder so callers can
+				// classify the aggregate by errors.Is.
+				f.metrics.IncAsyncReplicationTargetSkip(err)
+				notReadyTargets++
+			default:
 				ec.Add(err)
 			}
 			continue
@@ -480,20 +526,25 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, err
 	}
 
+	if notReadyTargets > 0 && !sawConverged {
+		// Nothing was verified this cycle — it must not read as convergence.
+		return nil, fmt.Errorf("%w: %d target replica(s) not ready", ErrAsyncReplicationNotActive, notReadyTargets)
+	}
+
 	return &ShardDifferenceReader{}, replicaerrors.ErrNoDiffFound
 }
 
 func (f *Finder) DigestObjectsInRange(ctx context.Context,
 	shardName string, host string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (ds []types.RepairResponse, err error) {
+) (ds []types.RepairDigest, err error) {
 	return f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
 }
 
 // CompareDigests is a thin transport wrapper around the remote shard's
 // comparator; see RClient.CompareDigests for the contract.
 func (f *Finder) CompareDigests(ctx context.Context,
-	shardName string, host string, digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	shardName string, host string, digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	return f.client.CompareDigests(ctx, host, f.class, shardName, digests)
 }
 
@@ -511,18 +562,24 @@ func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
 		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
 	}
 
-	var hosts []string
-	for _, node := range routingPlan.NodeNames() {
-		if node == localNodeName {
+	replicas := routingPlan.Replicas()
+	hosts := make([]string, 0, len(replicas))
+	for _, replica := range replicas {
+		if replica.NodeName == localNodeName {
 			continue
 		}
-		addr, ok := f.nodeResolver.NodeHostname(node)
+		addr, ok := f.nodeResolver.NodeHostname(replica.NodeName)
 		if !ok || addr == localHostAddr {
 			continue
 		}
 		hosts = append(hosts, addr)
 	}
 	return hosts, nil
+}
+
+// TargetHostAddrsForShard exposes per-shard replica host resolution for the scheduler's cross-class pre-filter.
+func (f *Finder) TargetHostAddrsForShard(shardName string) ([]string, error) {
+	return f.targetHostAddrsForShard(shardName)
 }
 
 // prefilterMaxShardsPerRPC caps shards per CompareHashTreeRoots request to bound
@@ -564,7 +621,7 @@ func (f *Finder) PrefilterShardRoots(ctx context.Context,
 	}
 
 	var stats PrefilterStats
-	chunk := make(map[string]hashtree.Digest, prefilterMaxShardsPerRPC)
+	chunk := make(map[string]hashtree.Digest, min(len(roots), prefilterMaxShardsPerRPC))
 	flush := func(host string) {
 		if len(chunk) == 0 {
 			return

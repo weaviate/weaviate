@@ -23,7 +23,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
 func TestAuditOrphanReindexTrackers_NilLookup_Refuses(t *testing.T) {
@@ -762,31 +761,6 @@ func TestIsLegacyTrackerWithoutPayload_Boundary(t *testing.T) {
 			assert.Equal(t, c.wantLegacy, legacy,
 				"mtime offset %v expected legacy=%v, got %v (mtime=%v, processStart=%v)",
 				c.offset, c.wantLegacy, legacy, gotMtime, processStartTime)
-		})
-	}
-}
-
-// TestIsLiveReindexTaskStatus_TerminalReleasesOwnership pins the
-// status to ownership matrix the audit's knownTask closure uses:
-// STARTED/PREPARING/SWAPPING are live; FAILED/CANCELLED/FINISHED
-// release ownership.
-func TestIsLiveReindexTaskStatus_TerminalReleasesOwnership(t *testing.T) {
-	cases := []struct {
-		status distributedtask.TaskStatus
-		live   bool
-	}{
-		{distributedtask.TaskStatusStarted, true},
-		{distributedtask.TaskStatusPreparing, true},
-		{distributedtask.TaskStatusSwapping, true},
-		{distributedtask.TaskStatusFinished, false},
-		{distributedtask.TaskStatusFailed, false},
-		{distributedtask.TaskStatusCancelled, false},
-		{distributedtask.TaskStatus("UNKNOWN_FUTURE_STATE"), false},
-		{distributedtask.TaskStatus(""), false},
-	}
-	for _, c := range cases {
-		t.Run(string(c.status), func(t *testing.T) {
-			assert.Equal(t, c.live, IsLiveReindexTaskStatus(c.status))
 		})
 	}
 }

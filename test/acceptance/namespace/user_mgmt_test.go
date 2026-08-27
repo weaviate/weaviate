@@ -92,6 +92,9 @@ func TestNamespacedAdminLifecycle(t *testing.T) {
 	require.Equal(t, "bob", *bobFromAdmin.UserID)
 	require.Empty(t, bobFromAdmin.Namespace)
 
+	// A namespaced admin (non-root) sees the api-key first letters.
+	require.Equal(t, bobKey[:3], bobFromAdmin.APIKeyFirstLetters)
+
 	// Admin can read bob's roles via the short id — proves the authz-handler
 	// resolver + matcher specialization end to end (bob has no roles yet).
 	require.Empty(t, helper.GetRolesForUser(t, "bob", nsAdminKey, false))
@@ -195,8 +198,10 @@ func TestNamespacedViewerDeniedUserMutations(t *testing.T) {
 
 	viewerKey := createNamespacedViewerUser(t, "dan", ns, adminKey)
 
-	// Reads: allowed.
-	require.Equal(t, "bob", *helper.GetUser(t, "bob", viewerKey).UserID)
+	// Reads: allowed, but a non-admin never sees the api-key first letters.
+	bobFromViewer := helper.GetUser(t, "bob", viewerKey)
+	require.Equal(t, "bob", *bobFromViewer.UserID)
+	require.Empty(t, bobFromViewer.APIKeyFirstLetters)
 	require.Len(t, helper.ListAllUsers(t, viewerKey), 2)
 
 	// Mutations: 403.

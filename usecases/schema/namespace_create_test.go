@@ -161,7 +161,6 @@ func TestAddClass(t *testing.T) {
 				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
 					return c.Class == tt.wantClass
 				}), mock.Anything).Return(nil)
-				sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
 			}
 
 			got, _, err := handler.AddClass(context.Background(), tt.principal, class)
@@ -231,7 +230,6 @@ func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 				capturedState = s
 				return true
 			})).Return(nil)
-			sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
 
 			class := &models.Class{
 				Class:             tt.inputName,
@@ -295,7 +293,6 @@ func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 			sm.storageCandidates = tt.candidates
 			handler.namespacesExister = tt.exister
 
-			sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
 			class := &models.Class{
 				Class:             "Movies",
 				Vectorizer:        "model1",
@@ -336,7 +333,6 @@ func TestAddClass_RejectsExplicitDesiredCount(t *testing.T) {
 			handler.namespacesExister = fakeNamespacesExister{byName: map[string]cmd.Namespace{
 				"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
 			}}
-			sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil).Maybe()
 
 			class := &models.Class{
 				Class:             "Movies",
@@ -365,7 +361,6 @@ func TestAddClass_MTRejectsShardingConfig(t *testing.T) {
 	handler.namespacesExister = fakeNamespacesExister{byName: map[string]cmd.Namespace{
 		"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
 	}}
-	sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil).Maybe()
 
 	class := &models.Class{
 		Class:              "Movies",
@@ -391,7 +386,6 @@ func TestAddClass_AcceptsExplicitDesiredCountOne(t *testing.T) {
 		"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
 	}}
 	sm.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-	sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
 
 	class := &models.Class{
 		Class:             "Movies",
@@ -424,7 +418,6 @@ func TestAddClass_OmittedShardingConfigPinsToHomeNode(t *testing.T) {
 		capturedState = s
 		return true
 	})).Return(nil)
-	sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
 
 	class := &models.Class{
 		Class:             "Movies",
@@ -476,7 +469,6 @@ func TestAddClass_ShardCapAppliesAfterOverride(t *testing.T) {
 			if !tt.expectExceeds {
 				sm.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 			}
-			sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
 
 			class := &models.Class{
 				Class:             "Movies",

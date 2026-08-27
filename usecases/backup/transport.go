@@ -47,6 +47,10 @@ type Request struct {
 	// means the participant keeps its whole-cluster user-snapshot default.
 	Users []string
 
+	// Resolved from BackupRequest.IncludeRoles by the scheduler. Empty
+	// means the participant keeps its whole-cluster RBAC-snapshot default.
+	Roles []string
+
 	// Duration
 	Duration time.Duration
 

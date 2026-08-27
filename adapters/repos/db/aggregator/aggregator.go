@@ -21,10 +21,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/modules"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -46,7 +48,8 @@ type Aggregator struct {
 	store                   *lsmkv.Store
 	params                  aggregation.Params
 	getSchema               schemaUC.SchemaGetter
-	classSearcher           inverted.ClassSearcher // to support ref-filters
+	propIndices             propertyspecific.Indices // to support geo-filters
+	classSearcher           inverted.ClassSearcher   // to support ref-filters
 	vectorIndex             vectorIndex
 	stopwordProvider        *stopwords.Provider
 	shardVersion            uint16
@@ -69,6 +72,10 @@ type Aggregator struct {
 	// bucketPinResolver, when non-nil, is propagated to every BM25Searcher
 	// built by this aggregator. See [inverted.SearchableBucketPinningResolver].
 	bucketPinResolver inverted.SearchableBucketPinningResolver
+	// batchedContainsEnabled is propagated to the inverted.Searcher built
+	// by this aggregator. Nil (the default) means the batched Contains
+	// resolution stays off.
+	batchedContainsEnabled *runtime.DynamicValue[bool]
 }
 
 // WithSearchableBucketPinningResolver: nil (the default) keeps non-pinning behavior.
@@ -79,8 +86,16 @@ func (a *Aggregator) WithSearchableBucketPinningResolver(
 	return a
 }
 
+// WithBatchedContainsEnabled: nil (the default) keeps the batched Contains
+// resolution off. See [inverted.Searcher.WithBatchedContainsEnabled].
+func (a *Aggregator) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Aggregator {
+	a.batchedContainsEnabled = v
+	return a
+}
+
 func New(store *lsmkv.Store, params aggregation.Params,
-	getSchema schemaUC.SchemaGetter, classSearcher inverted.ClassSearcher,
+	getSchema schemaUC.SchemaGetter, propIndices propertyspecific.Indices,
+	classSearcher inverted.ClassSearcher,
 	stopwordProvider *stopwords.Provider, shardVersion uint16,
 	vectorIndex vectorIndex, logger logrus.FieldLogger,
 	propLenTracker *inverted.JsonShardMetaData,
@@ -96,6 +111,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		store:                   store,
 		params:                  params,
 		getSchema:               getSchema,
+		propIndices:             propIndices,
 		classSearcher:           classSearcher,
 		stopwordProvider:        stopwordProvider,
 		shardVersion:            shardVersion,

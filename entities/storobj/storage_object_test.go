@@ -850,6 +850,51 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 	}
 }
 
+func TestUnmarshalProperties(t *testing.T) {
+	tests := []struct {
+		name            string
+		props           []byte
+		want            map[string]interface{}
+		wantErrContains string
+	}{
+		{
+			name:  "requested property present",
+			props: []byte(`{"text":"a","other":1}`),
+			want:  map[string]interface{}{"text": "a"},
+		},
+		{
+			name:  "requested property absent",
+			props: []byte(`{"other":1}`),
+			want:  map[string]interface{}{},
+		},
+		{
+			name:  "no properties at all",
+			props: []byte{},
+			want:  map[string]interface{}{},
+		},
+		{
+			name:            "property blob without its opening brace",
+			props:           []byte(`"text":"a"}`),
+			wantErrContains: "malformed",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := map[string]interface{}{}
+			err := UnmarshalProperties(test.props, got, [][]string{{"text"}})
+
+			if test.wantErrContains != "" {
+				require.ErrorContains(t, err, test.wantErrContains)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
+		})
+	}
+}
+
 func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 	before := FromObject(
 		&models.Object{
@@ -1239,15 +1284,15 @@ func TestMultiVectorFromBinary(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	outVector1, err := MultiVectorFromBinary(asBinary, nil, "vector1")
+	outVector1, err := MultiVectorFromBinary(asBinary, "vector1")
 	require.Nil(t, err)
 	assert.Equal(t, vector1, outVector1)
 
-	outVector2, err := MultiVectorFromBinary(asBinary, nil, "vector2")
+	outVector2, err := MultiVectorFromBinary(asBinary, "vector2")
 	require.Nil(t, err)
 	assert.Equal(t, vector2, outVector2)
 
-	outVector3, err := MultiVectorFromBinary(asBinary, nil, "vector3")
+	outVector3, err := MultiVectorFromBinary(asBinary, "vector3")
 	require.Nil(t, err)
 	assert.Equal(t, vector3, outVector3)
 

@@ -144,10 +144,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// ShardReindexTaskGeneric is a strategy-parameterized implementation of
-// ShardReindexTaskV3. All lifecycle logic (state machine, merge/swap/tidy,
-// object iteration, progress tracking) lives here, with strategy-specific
-// behavior delegated to a MigrationStrategy.
+// ShardReindexTaskGeneric is a strategy-parameterized reindex task. All
+// lifecycle logic (state machine, merge/swap/tidy, object iteration,
+// progress tracking) lives here, with strategy-specific behavior
+// delegated to a MigrationStrategy.
 //
 // See the file-level phase-contract godoc above for the prep / atomic
 // swap / deferred-rename invariants that every code path in this file

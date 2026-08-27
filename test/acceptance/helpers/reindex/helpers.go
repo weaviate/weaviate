@@ -15,6 +15,7 @@ package reindexhelpers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -483,4 +485,22 @@ func WithEnv(
 	SetupClass(t, class, props)
 	ImportObjects(t, class, objects)
 	body()
+}
+
+// SingleNodeCompose is the single-node configuration the runtime-reindex
+// suites share: the feature flag on (the server default is off, so a suite
+// that bypasses this silently tests nothing), the legacy searchable path
+// off, and a 1s scheduler tick so task transitions land inside test
+// timeouts. Callers needing extra env keep chaining before Start.
+func SingleNodeCompose() *docker.Compose {
+	return docker.New().
+		WithWeaviate().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
+		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1")
+}
+
+// StartSingleNode starts [SingleNodeCompose] with no further tuning.
+func StartSingleNode(ctx context.Context) (*docker.DockerCompose, error) {
+	return SingleNodeCompose().Start(ctx)
 }

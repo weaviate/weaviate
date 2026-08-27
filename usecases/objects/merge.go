@@ -116,6 +116,11 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
 	if err != nil {
+		// Extending the collection needs its own permission; reporting a denial
+		// as invalid input would hide the missing grant behind a 422.
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
 	}
 	maxSchemaVersion = max(maxSchemaVersion, autoSchemaVersion)

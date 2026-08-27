@@ -54,6 +54,9 @@ type fakeSchemaManager struct {
 	// test controls
 	AddTenantsSchemaVersion uint64
 	AutoSchemaVersion       uint64
+	ClassVersion            uint64
+	AddClassPropertyErr     error
+	WaitForUpdateErr        error
 	// observed
 	WaitedSchemaVersion    uint64
 	MaxWaitedSchemaVersion uint64
@@ -117,7 +120,7 @@ func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
 		if err != nil {
 			return res, err
 		}
-		res[name] = versioned.Class{Class: cls}
+		res[name] = versioned.Class{Class: cls, Version: f.ClassVersion}
 	}
 	return res, nil
 }
@@ -165,6 +168,10 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
 	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
+	if f.AddClassPropertyErr != nil {
+		return nil, 0, f.AddClassPropertyErr
+	}
+
 	existing := map[string]int{}
 	var existedClass *models.Class
 	for _, c := range f.GetSchemaResponse.Objects.Classes {
@@ -204,6 +211,11 @@ func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uin
 		f.MaxWaitedSchemaVersion = schemaVersion
 	}
 	f.WaitedVersions = append(f.WaitedVersions, schemaVersion)
+	// The real WaitForUpdate returns nil for version 0 without consulting RAFT,
+	// so the fake must not fail there either.
+	if schemaVersion > 0 {
+		return f.WaitForUpdateErr
+	}
 	return nil
 }
 
@@ -283,6 +295,7 @@ func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects
 func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchReferences,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchReferences, error) {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }
@@ -290,6 +303,7 @@ func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchRefe
 func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (BatchDeleteResult, error) {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(params)
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
 }
@@ -302,6 +316,7 @@ func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *a
 func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
 	id strfmt.UUID, deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(className, id, deletionTime)
 	return args.Error(0)
 }
@@ -380,6 +395,8 @@ type fakeModulesProvider struct {
 	mock.Mock
 	customExtender  *fakeExtender
 	customProjector *fakeProjector
+	// test control
+	ExtendErr error
 }
 
 func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
@@ -446,6 +463,10 @@ func (p *fakeModulesProvider) VectorizerName(className string) (string, error) {
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{}, capability string,
 ) (search.Results, error) {
+	if p.ExtendErr != nil {
+		return nil, p.ExtendErr
+	}
+
 	txt2vec := newNearCustomTextModule(p.getExtender(), p.getProjector(), &fakePathBuilder{})
 	additionalProperties := txt2vec.AdditionalProperties()
 	if err := p.checkCapabilities(additionalProperties, moduleParams, capability); err != nil {
@@ -817,7 +838,7 @@ func getFakeModulesProviderWithCustomExtenders(
 	customProjector *fakeProjector,
 	opts ...func(provider *fakeModulesProvider),
 ) *fakeModulesProvider {
-	p := &fakeModulesProvider{mock.Mock{}, customExtender, customProjector}
+	p := &fakeModulesProvider{customExtender: customExtender, customProjector: customProjector}
 	p.applyOptions(opts...)
 	return p
 }

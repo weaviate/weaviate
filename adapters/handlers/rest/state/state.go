@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -54,15 +53,14 @@ import (
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC             *oidc.Client
-	AnonymousAccess  *anonymous.Client
-	APIKey           *apikey.ApiKey
-	APIKeyRemote     *apikey.RemoteApiKey
-	Authorizer       authorization.Authorizer
-	AuthzController  authorization.Controller
-	AuthzSnapshotter fsm.Snapshotter
-	RBAC             *rbac.Manager
-	Crons            *cron.Crons
+	OIDC            *oidc.Client
+	AnonymousAccess *anonymous.Client
+	APIKey          *apikey.ApiKey
+	APIKeyRemote    *apikey.RemoteApiKey
+	Authorizer      authorization.Authorizer
+	AuthzController authorization.Controller
+	RBAC            *rbac.Manager
+	Crons           *cron.Crons
 
 	ServerConfig  *config.WeaviateConfig
 	LDIntegration *configRuntime.LDIntegration

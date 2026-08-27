@@ -29,20 +29,18 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// return value map[int]error gives the error for the index as it received it
+// PutObjectBatch returns one error per object, in input order, refusals of the
+// whole batch included. The caller maps position i onto that object's position
+// in its own batch, so a shorter slice reports the objects it omits as written.
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	if err := s.isReadOnly(); err != nil {
-		return []error{err}
+		return duplicateErr(err, len(objects))
 	}
 
 	if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects)), s.index.Config.ClassName.String()); err != nil {
-		errs := make([]error, len(objects))
-		for i := range errs {
-			errs[i] = err
-		}
-		return errs
+		return duplicateErr(err, len(objects))
 	}
 
 	return s.putBatch(ctx, objects)

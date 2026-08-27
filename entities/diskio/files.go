@@ -67,7 +67,9 @@ func Fsync(path string) error {
 	return f.Sync()
 }
 
-// GetFileWithSizes gets all files in a directory including their filesize
+// GetFileWithSizes gets all files in a directory including their filesize. Symlinks are not
+// followed. Callers that only need the subdirectory names should use GetSubdirNames, which
+// avoids a stat per entry.
 func GetFileWithSizes(dirPath string) (map[string]int64, []string, error) {
 	dir, err := os.Open(dirPath)
 	if err != nil {
@@ -92,6 +94,31 @@ func GetFileWithSizes(dirPath string) (map[string]int64, []string, error) {
 	}
 
 	return fileSizes, dirs, nil
+}
+
+// GetSubdirNames returns the names of the subdirectories of dirPath. Entry types come from the
+// directory read itself where the filesystem reports them, avoiding a stat per entry. Symlinks
+// are not followed, so a symlink pointing at a directory is not returned.
+func GetSubdirNames(dirPath string) ([]string, error) {
+	dir, err := os.Open(dirPath)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+
+	entries, err := dir.ReadDir(-1)
+	if err != nil {
+		return nil, err
+	}
+
+	var dirs []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			dirs = append(dirs, entry.Name())
+		}
+	}
+
+	return dirs, nil
 }
 
 // GetDirSize calculates the total size of a directory recursively

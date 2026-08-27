@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -1419,26 +1421,9 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 func TestSnapshotMultiBlockNodeLossRepro(t *testing.T) {
 	const size = 2000
 
-	c, err := packedconn.NewWithMaxLayer(2)
-	require.Nil(t, err)
-	c.ReplaceLayer(0, connsSlice1)
-
-	state := &DeserializationResult{
-		Entrypoint: 1,
-		Level:      6,
-		Compressed: false,
-		Nodes:      make([]*vertex, size),
-		Tombstones: make(map[uint64]struct{}),
-	}
 	// every slot is a live node — no nil slots, no tombstones — so the ONLY
 	// way a node can go missing on round-trip is the block-boundary bug.
-	for i := 0; i < size; i++ {
-		state.Nodes[i] = &vertex{
-			id:          uint64(i),
-			level:       i % 6,
-			connections: c,
-		}
-	}
+	state := snapshotStateWithNodes(t, size, 0)
 
 	dir := t.TempDir()
 	id := "test"
@@ -1529,6 +1514,124 @@ func TestSnapshotCleanedTombstoneKeepsSlotAlignment(t *testing.T) {
 		}
 		require.NotNilf(t, restored.Nodes[i], "node %d must survive", i)
 		require.Equalf(t, i, restored.Nodes[i].level, "node %d shifted id/level", i)
+	}
+}
+
+func snapshotStateWithNodes(t *testing.T, size, levelOffset int) *DeserializationResult {
+	t.Helper()
+
+	c, err := packedconn.NewWithMaxLayer(2)
+	require.NoError(t, err)
+	c.ReplaceLayer(0, connsSlice1)
+
+	state := &DeserializationResult{
+		Entrypoint: 1,
+		Level:      6,
+		Nodes:      make([]*vertex, size),
+		Tombstones: make(map[uint64]struct{}),
+	}
+	for i := 0; i < size; i++ {
+		state.Nodes[i] = &vertex{id: uint64(i), level: (i + levelOffset) % 6, connections: c}
+	}
+	return state
+}
+
+// TestReadSnapshotConcurrent pins that snapshots read at the same time keep
+// their own content, since the readers share their block buffers.
+func TestReadSnapshotConcurrent(t *testing.T) {
+	const shards = 4
+	const readsPerShard = 5
+
+	dir := t.TempDir()
+
+	paths := make([]string, shards)
+	loggers := make([]*hnswCommitLogger, shards)
+	sizes := make([]int, shards)
+
+	for s := 0; s < shards; s++ {
+		id := fmt.Sprintf("shard-%d", s)
+		sizes[s] = 100 * (s + 1)
+		loggers[s] = createTestCommitLoggerForSnapshots(t, dir, id)
+		paths[s] = filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+		require.NoError(t, loggers[s].writeSnapshot(snapshotStateWithNodes(t, sizes[s], s), paths[s]))
+	}
+
+	var wg sync.WaitGroup
+	for s := 0; s < shards; s++ {
+		for range readsPerShard {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				// assert rather than require: require stops the calling goroutine,
+				// which here is not the one running the test
+				restored, err := loggers[s].readStateFrom(paths[s])
+				if !assert.NoError(t, err) || !assert.Len(t, restored.Nodes, sizes[s]) {
+					return
+				}
+
+				for i := 0; i < sizes[s]; i++ {
+					node := restored.Nodes[i]
+					if !assert.NotNilf(t, node, "shard %d node %d missing", s, i) {
+						return
+					}
+					if !assert.Equalf(t, (i+s)%6, node.level, "shard %d node %d holds another shard's data", s, i) {
+						return
+					}
+				}
+			}()
+		}
+	}
+	wg.Wait()
+}
+
+// TestReadSnapshotRejectsTruncatedBody pins that a truncated body fails instead
+// of reporting success with the nodes that happened to survive.
+func TestReadSnapshotRejectsTruncatedBody(t *testing.T) {
+	const size = 200
+
+	tests := []struct {
+		name string
+		// truncateTo returns the size the snapshot file is truncated to
+		truncateTo func(fileSize, blockSize int64) int64
+		wantErr    string
+	}{
+		{
+			name:       "last block cut in half",
+			truncateTo: func(fileSize, blockSize int64) int64 { return fileSize - blockSize/2 },
+			wantErr:    "is not a whole number of",
+		},
+		{
+			// the body is a whole number of blocks, so the remainder is the metadata
+			name:       "body missing entirely",
+			truncateTo: func(fileSize, blockSize int64) int64 { return fileSize % blockSize },
+			wantErr:    "is not a whole number of",
+		},
+		{
+			// whole blocks still pass their own checksum, so only the node count
+			// recorded in the metadata catches this
+			name:       "last block removed",
+			truncateTo: func(fileSize, blockSize int64) int64 { return fileSize - blockSize },
+			wantErr:    "metadata declares",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			id := "test"
+			cl := createTestCommitLoggerForSnapshots(t, dir, id)
+
+			snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+			require.NoError(t, cl.writeSnapshot(snapshotStateWithNodes(t, size, 0), snapshotPath))
+
+			info, err := os.Stat(snapshotPath)
+			require.NoError(t, err)
+			require.NoError(t, os.Truncate(snapshotPath, test.truncateTo(info.Size(), cl.snapshotBlockSize)))
+
+			_, err = cl.readStateFrom(snapshotPath)
+			require.ErrorContains(t, err, test.wantErr)
+		})
 	}
 }
 
@@ -2101,6 +2204,44 @@ func TestCleanupCompactV2TempFiles(t *testing.T) {
 		// don't create commitlog dir
 		require.NoError(t, newLogger(rootDir, "main").cleanupCompactV2TempFiles())
 	})
+}
+
+// A snapshot is named after the last commit log it covers, and a commit log can
+// be named a little ahead of the clock.
+func TestInitSnapshotLastCreatedAt(t *testing.T) {
+	tests := []struct {
+		name        string
+		offset      time.Duration
+		wantClamped bool
+	}{
+		{name: "snapshot named in the past", offset: -time.Hour},
+		{name: "snapshot named ahead of the clock", offset: time.Hour, wantClamped: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			id := "snapshot-last-created-at"
+
+			snapshotDir := snapshotDirectory(rootDir, id)
+			require.NoError(t, os.MkdirAll(snapshotDir, 0o755))
+			stamp := time.Now().Add(tc.offset).Unix()
+			require.NoError(t, os.WriteFile(
+				filepath.Join(snapshotDir, fmt.Sprintf("%d.snapshot", stamp)), nil, 0o644))
+
+			cl, err := NewCommitLogger(rootDir, id, logrus.New(), cyclemanager.NewCallbackGroupNoop(),
+				WithSnapshotDisabled(false), WithSnapshotCreateInterval(time.Hour))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, cl.Shutdown(context.Background())) })
+
+			if tc.wantClamped {
+				assert.False(t, cl.snapshotLastCreatedAt.After(time.Now()),
+					"a snapshot dated ahead of the clock delays the next snapshot by the same amount")
+				return
+			}
+			assert.Equal(t, stamp, cl.snapshotLastCreatedAt.Unix())
+		})
+	}
 }
 
 func TestSnapshotFileName(t *testing.T) {

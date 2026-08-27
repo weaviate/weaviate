@@ -30,6 +30,9 @@ type CreateTenantPayload struct {
 type UpdateTenantPayload struct {
 	Name   string
 	Status string
+	// PreFreezeStatus is the status the tenant held when the freeze started. An
+	// aborted freeze reports it back so the schema restores it; empty otherwise.
+	PreFreezeStatus string
 }
 
 // Migrator represents both the input and output interface of the Composer

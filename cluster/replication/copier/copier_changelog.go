@@ -111,8 +111,8 @@ func (c *Copier) FinalizeChangeLog(ctx context.Context, srcNodeId, indexName, sh
 	return resp.FinalLsn, nil
 }
 
-// StopChangeCapture deactivates the source log and removes its file. Safe to
-// call on an unknown opID; the server treats it as a no-op.
+// StopChangeCapture deactivates the source log and removes its file. The server
+// treats an unknown opID or an unloaded source shard as a no-op.
 func (c *Copier) StopChangeCapture(ctx context.Context, srcNodeId, indexName, shardName, opID string) error {
 	client, err := c.dialSource(ctx, srcNodeId)
 	if err != nil {

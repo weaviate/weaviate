@@ -134,12 +134,8 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	beforePersistence := time.Now()
 	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
 
-	// Ensure that the local schema has caught up to the version we used to validate
-	if err := b.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
-		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
-	}
 	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, maxSchemaVersion); err != nil {
-		return nil, NewErrInternal("batch objects: %#v", err)
+		return nil, NewErrInternal("batch objects: %w", err)
 	}
 
 	// Reaggregate a unanimous limit-exceeded into a top-level error so

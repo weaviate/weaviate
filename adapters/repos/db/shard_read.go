@@ -218,7 +218,7 @@ func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]
 
 func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int) (
-	objs []types.RepairResponse, err error,
+	objs []types.RepairDigest, err error,
 ) {
 	initialUUID16, err := uuid.Parse(initialUUID.String())
 	if err != nil {
@@ -230,7 +230,8 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	}
 
 	// Digest mode: only the header is read below, so skip the full value copy.
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).
+		CursorReplaceDigestReusableRange(storobj.MarshallerV1HeaderLen, initialUUID16[:], finalUUID16[:])
 	defer cursor.Close()
 
 	return collectObjectDigests(ctx, cursor, initialUUID16[:], finalUUID16[:], limit)
@@ -240,7 +241,7 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 // digests with key <= finalKey. The cursor is reused across calls by the
 // async-replication scan, so it must not be opened/closed here.
 func collectObjectDigests(ctx context.Context, cursor *lsmkv.CursorReplace,
-	initialKey, finalKey []byte, limit int) (objs []types.RepairResponse, err error,
+	initialKey, finalKey []byte, limit int) (objs []types.RepairDigest, err error,
 ) {
 	n := 0
 
@@ -259,8 +260,8 @@ func collectObjectDigests(ctx context.Context, cursor *lsmkv.CursorReplace,
 			return objs, fmt.Errorf("cannot parse object uuid: %w", err)
 		}
 
-		objs = append(objs, types.RepairResponse{
-			ID:         uuidParsed.String(),
+		objs = append(objs, types.RepairDigest{
+			ID:         uuidParsed,
 			UpdateTime: updateTime,
 		})
 
@@ -277,38 +278,35 @@ func collectObjectDigests(ctx context.Context, cursor *lsmkv.CursorReplace,
 // tombstones), so the source resolves any tombstone collision later via the
 // post-Overwrite resolveObjectConflict path.
 //
-// sourceDigests must be in strict lex UUID order; out-of-order input is rejected
-// rather than silently mis-joined.
-func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+// sourceDigests must be in strict lex order of the parsed UUID bytes;
+// order is enforced mid-join: out-of-order input is rejected, not silently mis-joined.
+func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.RepairDigest) ([]types.RepairDigest, error) {
 	if len(sourceDigests) == 0 {
 		return nil, nil
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	// Digest mode: only the header is read below (localTime), skip the full value.
-	cursor := bucket.CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
+	firstUUID := sourceDigests[0].ID
+	lastUUID := sourceDigests[len(sourceDigests)-1].ID
+
+	// Digest mode: only the header is read below (localTime), skip the full
+	// value. The join only inspects keys within the source digest span, so the
+	// memtable snapshot is bounded to it (input is in strict lex order).
+	cursor := bucket.CursorReplaceDigestReusableRange(storobj.MarshallerV1HeaderLen, firstUUID[:], lastUUID[:])
 	defer cursor.Close()
 
-	firstUUID, err := uuid.Parse(sourceDigests[0].ID)
-	if err != nil {
-		return nil, fmt.Errorf("parse source uuid %q: %w", sourceDigests[0].ID, err)
-	}
 	cursorKey, cursorVal := cursor.Seek(firstUUID[:])
 
-	result := make([]types.RepairResponse, 0, len(sourceDigests))
+	result := make([]types.RepairDigest, 0, len(sourceDigests))
 	var prevUUID uuid.UUID
-	var prevID string
 	for i, d := range sourceDigests {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		srcUUID, err := uuid.Parse(d.ID)
-		if err != nil {
-			return nil, fmt.Errorf("parse source uuid %q: %w", d.ID, err)
-		}
+		srcUUID := d.ID
 		if i > 0 && bytes.Compare(srcUUID[:], prevUUID[:]) <= 0 {
-			return nil, fmt.Errorf("source digests not in strict lex order: %q after %q", d.ID, prevID)
+			return nil, fmt.Errorf("source digests not in strict lex order: %q after %q", srcUUID, prevUUID)
 		}
 
 		for cursorKey != nil && bytes.Compare(cursorKey, srcUUID[:]) < 0 {
@@ -318,18 +316,17 @@ func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.Repair
 		if cursorKey != nil && bytes.Equal(cursorKey, srcUUID[:]) {
 			_, localTime, err := storobj.DocIDAndTimeFromBinary(cursorVal)
 			if err != nil {
-				return nil, fmt.Errorf("extract update time for %q: %w", d.ID, err)
+				return nil, fmt.Errorf("extract update time for %q: %w", srcUUID, err)
 			}
 			if d.UpdateTime > localTime {
-				result = append(result, types.RepairResponse{ID: d.ID, UpdateTime: localTime})
+				result = append(result, types.RepairDigest{ID: d.ID, UpdateTime: localTime})
 			}
 			cursorKey, cursorVal = cursor.Next()
 		} else {
-			result = append(result, types.RepairResponse{ID: d.ID, UpdateTime: 0})
+			result = append(result, types.RepairDigest{ID: d.ID, UpdateTime: 0})
 		}
 
 		prevUUID = srcUUID
-		prevID = d.ID
 	}
 
 	return result, nil
@@ -359,7 +356,15 @@ func (s *Shard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	return true, nil
 }
 
-func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (*storobj.Object, error) {
+// objectByIndexIDWithProps resolves a doc ID to an object holding only the
+// properties in propExtraction; vectors and unrequested properties stay
+// undecoded. A nil propExtraction decodes every property. Read and decode
+// failures keep their own type and only a missing object is reported as
+// storobj.ErrNotFound, because the geo index takes that as "the doc is gone"
+// and tombstones it.
+func (s *Shard) objectByIndexIDWithProps(ctx context.Context, indexID uint64,
+	propExtraction *storobj.PropertyExtraction,
+) (*storobj.Object, error) {
 	keyBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
@@ -380,9 +385,9 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 			"uuid found for docID, but object is nil")
 	}
 
-	obj, err := storobj.FromBinaryDisk(bytes, className)
+	obj, err := storobj.FromBinaryOptionalDisk(bytes, className, additional.Properties{}, propExtraction)
 	if err != nil {
-		return nil, errors.Wrap(err, "unmarshal kind object")
+		return nil, errors.Wrapf(err, "unmarshal object of docID %d", indexID)
 	}
 
 	return obj, nil
@@ -417,7 +422,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 	}
 
 	container.Buff = newBuff
-	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, targetVector)
 	if err != nil {
 		var eTV storobj.ErrTargetVectorNotFound
 		if stderrors.As(err, &eTV) {
@@ -484,7 +489,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 	}
 
 	container.Buff = newBuff
-	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, targetVector)
 	if err != nil {
 		var eTV storobj.ErrTargetVectorNotFound
 		if stderrors.As(err, &eTV) {
@@ -535,11 +540,12 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		if filters != nil {
 			filterDocIds, err = inverted.NewSearcher(s.index.logger, s.store,
-				s.index.getSchema.ReadOnlyClass, s.propertyIndices,
+				s.index.getSchema.ReadOnlyClass, s.propertyIndicesSnapshot(),
 				s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 				s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit,
 				s.bitmapFactory).
 				WithTokenizationResolver(s.TokenizationFor).
+				WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
 				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
 			if err != nil {
 				return nil, nil, err
@@ -552,7 +558,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		bm25Config := s.index.GetInvertedIndexConfig().BM25
 		logger := s.index.logger.WithFields(logrus.Fields{"class": s.index.Config.ClassName, "shard": s.name})
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
-			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(),
+			s.index.getSchema.ReadOnlyClass, s.index.classSearcher, s.index.getStopwordProvider(),
 			s.GetPropertyLengthTracker(), logger, s.versioner.Version()).
 			WithTokenizationResolver(s.TokenizationFor).
 			WithSearchableBucketPinningResolver(s.PinTokenizationAndSearchableBucket)
@@ -570,9 +576,10 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
-		s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
+		s.propertyIndicesSnapshot(), s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		WithTokenizationResolver(s.TokenizationFor).
+		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties,
 			s.index.Config.InvertedSorterDisabled)
 	return objs, nil, err
@@ -895,9 +902,10 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
-		s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
+		s.propertyIndicesSnapshot(), s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		WithTokenizationResolver(s.TokenizationFor).
+		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "build inverted filter allow list")
@@ -946,7 +954,10 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return err
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return err
+	}
 
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]

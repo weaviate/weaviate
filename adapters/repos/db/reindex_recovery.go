@@ -359,9 +359,9 @@ func (t *ShardReindexTaskGeneric) constrainToShard(collection, shardName string)
 	t.config.selectedShardsByCollection[collection] = map[string]struct{}{
 		shardName: {},
 	}
-	// Give each per-shard task a unique name so RegisterTask doesn't
-	// drop duplicates when several shards of the same collection are
-	// recovered.
+	// Give each per-shard task a unique name so log lines and error
+	// messages stay distinguishable when several shards of the same
+	// collection are recovered.
 	if !strings.Contains(t.name, "[recovery:") {
 		t.name = fmt.Sprintf("%s[recovery:%s/%s]", t.name, collection, shardName)
 		t.logger = t.logger.WithField("task", t.name)

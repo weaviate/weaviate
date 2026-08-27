@@ -79,6 +79,16 @@ func WaitForNodeReadyForClass(t *testing.T, hostURI, class string, probeID strfm
 	}, 120*time.Second, 500*time.Millisecond)
 }
 
+// WaitForNodeReadyForTenant is WaitForNodeReadyForClass for multi-tenant classes;
+// probeID must exist in tenant on all replicas.
+func WaitForNodeReadyForTenant(t *testing.T, hostURI, class string, probeID strfmt.UUID, tenant string) {
+	t.Helper()
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		_, err := GetTenantObjectCL(t, hostURI, class, probeID, tenant, types.ConsistencyLevelAll)
+		require.NoError(ct, err)
+	}, 120*time.Second, 500*time.Millisecond)
+}
+
 func GetClass(t *testing.T, host, class string) *models.Class {
 	t.Helper()
 	helper.SetupClient(host)
@@ -128,6 +138,12 @@ func GetTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant st
 	t.Helper()
 	helper.SetupClient(host)
 	return helper.TenantObject(t, class, id, tenant)
+}
+
+func GetTenantObjectCL(t *testing.T, host, class string, id strfmt.UUID, tenant string, cl types.ConsistencyLevel) (*models.Object, error) {
+	t.Helper()
+	helper.SetupClient(host)
+	return helper.TenantObjectCL(t, class, id, tenant, cl)
 }
 
 func ObjectExistsCL(t *testing.T, host, class string, id strfmt.UUID, cl types.ConsistencyLevel) (bool, error) {

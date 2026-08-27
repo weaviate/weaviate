@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/usecases/config"
@@ -319,12 +320,18 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.
 		return nil, err
 	}
 
+	// Own the collector here so the profile outlives the result set: the deeper inits
+	// are idempotent and will write into this one.
+	if searchParams.AdditionalProperties.QueryProfile {
+		ctx = helpers.InitQueryProfileCollector(ctx)
+	}
+
 	res, err := s.traverser.GetClass(restCtx.AddPrincipalToContext(ctx, principal), principal, searchParams)
 	if err != nil {
 		return nil, err
 	}
 
-	return replier.Search(res, before, searchParams, newSchemaResolver(getClass))
+	return replier.Search(ctx, res, before, searchParams, newSchemaResolver(getClass))
 }
 
 func (s *Service) validateClassAndProperty(getClass classGetterWithAuthzFunc, searchParams dto.GetParams) error {

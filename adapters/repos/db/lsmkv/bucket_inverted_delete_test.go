@@ -457,3 +457,91 @@ func TestBlockMaxWand_DeferTombstone_FlagEquivalence(t *testing.T) {
 	require.NotContains(t, deferred, tombstonedDocID)
 	require.NotContains(t, legacy, tombstonedDocID)
 }
+
+// TestBlockMaxAndCrossProp_DeferTombstone_FlagEquivalence guards against
+// divergence between the deferred (scoring-time) and legacy (advance-time)
+// tombstone paths in the cross-property AND.
+func TestBlockMaxAndCrossProp_DeferTombstone_FlagEquivalence(t *testing.T) {
+	ctx := context.Background()
+	tombstonedDocID := uint64(42)
+	queryTerms := []string{"t0", "t1"}
+
+	// each term's postings live in a different property bucket, so every match
+	// requires the cross-property merge
+	newPropBucket := func(key []byte) *Bucket {
+		dirName := t.TempDir()
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyInverted))
+		require.Nil(t, err)
+		b.SetMemtableThreshold(1e9)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		// varying tf so per-doc scores differ — top-K ordering becomes meaningful
+		for id := uint64(10); id <= 50; id++ {
+			require.NoError(t, b.MapSet(key,
+				NewMapPairFromDocIdAndTf(id, float32(id), 1, false)))
+		}
+		require.NoError(t, b.FlushAndSwitch())
+
+		// cross-segment tombstone for doc 42
+		tomb := NewMapPairFromDocIdAndTf(tombstonedDocID, 1, 1, true)
+		require.NoError(t, b.MapSet(key, tomb))
+		require.NoError(t, b.MapDeleteKey(key, tomb.Key))
+		require.NoError(t, b.FlushAndSwitch())
+		return b
+	}
+
+	buckets := []*Bucket{
+		newPropBucket([]byte(queryTerms[0])),
+		newPropBucket([]byte(queryTerms[1])),
+	}
+
+	runQuery := func(deferToScore bool) map[uint64]float32 {
+		deferTombstoneToScore = deferToScore
+
+		N := 1000
+		allResults := make([][][]*SegmentBlockMax, 0, len(buckets))
+		var releases []func()
+		defer func() {
+			for _, release := range releases {
+				release()
+			}
+		}()
+		for _, b := range buckets {
+			view := b.GetConsistentView()
+			releases = append(releases, view.release)
+			diskTerms, _, _, err := b.createDiskTermFromCV(ctx, view, float64(N), nil,
+				queryTerms, "", 1, []int{1, 1},
+				schema.BM25Config{K1: 1.2, B: 0.75})
+			require.NoError(t, err)
+			allResults = append(allResults, diskTerms)
+		}
+
+		mergedTerms, ok := BuildCrossPropMergedTerms(allResults, len(queryTerms))
+		require.True(t, ok)
+
+		out := make(map[uint64]float32)
+		h := DoBlockMaxAndCrossProp(ctx, N, mergedTerms, 1.0, true, len(queryTerms), nullLogger())
+		for h.Len() > 0 {
+			it := h.Pop()
+			out[it.ID] = it.Dist
+		}
+		return out
+	}
+
+	orig := deferTombstoneToScore
+	t.Cleanup(func() { deferTombstoneToScore = orig })
+
+	deferred := runQuery(true)
+	legacy := runQuery(false)
+
+	// 41 docs written per property, 1 tombstoned — the Len guard catches
+	// "cross-prop returned nothing"
+	const expectedHits = 40
+	require.Len(t, deferred, expectedHits)
+	require.Len(t, legacy, expectedHits)
+	require.Equal(t, legacy, deferred)
+	require.NotContains(t, deferred, tombstonedDocID)
+	require.NotContains(t, legacy, tombstonedDocID)
+}

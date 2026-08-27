@@ -327,7 +327,7 @@ func TestRestoreAllCancellation(t *testing.T) {
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("test/path")
 
-		restorer := newRestorer("node1", nil, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend}, false)
+		restorer := newRestorer("node1", nil, sourcer, &fakeBackupBackendProvider{backend: backend}, false)
 		restorer.lastOp.set(backup.Transferring)
 
 		desc := &backup.BackupDescriptor{
@@ -346,7 +346,7 @@ func TestRestoreAllCancellation(t *testing.T) {
 
 		err := restorer.restoreAll(cancelledCtx, desc, 50, nodeStore{
 			objectStore: objectStore{backend: backend, backupId: backupID},
-		}, "", "", models.RestoreConfigRolesOptionsNoRestore, models.RestoreConfigUsersOptionsNoRestore, false)
+		}, "", "", false)
 
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "restore cancelled")
