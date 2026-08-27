@@ -88,6 +88,19 @@ func (s *backupStat) renew(id string, path string, overrideBucket, overridePath 
 	return ""
 }
 
+// cancelIfInFlight marks the slot Cancelled iff it currently holds id, so an
+// external Cancel reaches the create path's planning and commit polls.
+func (s *backupStat) cancelIfInFlight(id string) bool {
+	s.Lock()
+	defer s.Unlock()
+	if id == "" || s.reqState.ID != id {
+		return false
+	}
+	s.reqState.Status = backup.Cancelled
+	s.reqState.Err = errCancelled.Error()
+	return true
+}
+
 func (s *backupStat) reset() {
 	s.Lock()
 	s.reqState.ID = ""
