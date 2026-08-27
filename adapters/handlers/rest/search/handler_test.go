@@ -96,6 +96,8 @@ func movieClass() *models.Class {
 			{Name: "year", DataType: schema.DataTypeInt.PropString()},
 			{Name: "poster", DataType: schema.DataTypeBlob.PropString()},
 			{Name: "hasAuthor", DataType: []string{"Author"}},
+			// multi-target: the reference points at either collection
+			{Name: "basedOn", DataType: []string{"Book", "Comic"}},
 		},
 	}
 }
@@ -110,6 +112,40 @@ func authorClass() *models.Class {
 		Properties: []*models.Property{
 			{Name: "name", DataType: schema.DataTypeText.PropString()},
 			{Name: "age", DataType: schema.DataTypeInt.PropString()},
+			// second hop: Movie -> Author -> Studio
+			{Name: "worksFor", DataType: []string{"Studio"}},
+		},
+	}
+}
+
+func studioClass() *models.Class {
+	return &models.Class{
+		Class: "Studio",
+		Properties: []*models.Property{
+			{Name: "name", DataType: schema.DataTypeText.PropString()},
+			{Name: "logo", DataType: schema.DataTypeBlob.PropString()},
+			// third hop, for the depth-limit tests
+			{Name: "ownedBy", DataType: []string{"Studio"}},
+		},
+	}
+}
+
+func bookClass() *models.Class {
+	return &models.Class{
+		Class: "Book",
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "isbn", DataType: schema.DataTypeText.PropString()},
+		},
+	}
+}
+
+func comicClass() *models.Class {
+	return &models.Class{
+		Class: "Comic",
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "issue", DataType: schema.DataTypeInt.PropString()},
 		},
 	}
 }
@@ -129,16 +165,21 @@ func newTestHandler(t *testing.T) *testDeps {
 			classes: map[string]*models.Class{
 				"Movie":  movieClass(),
 				"Author": authorClass(),
+				"Studio": studioClass(),
+				"Book":   bookClass(),
+				"Comic":  comicClass(),
 			},
 		},
 		authorizer: mocks.NewMockAuthorizer(),
 	}
 	deps.handler = NewHandler(HandlerConfig{
-		Traverser:      deps.searcher,
-		SchemaReader:   deps.schemaReader,
-		Authorizer:     deps.authorizer,
-		DefaultLimit:   10,
-		MaximumResults: 10000,
+		Traverser:    deps.searcher,
+		SchemaReader: deps.schemaReader,
+		Authorizer:   deps.authorizer,
+		DefaultLimit: 10,
+		// matches DefaultQueryCrossReferenceDepthLimit
+		CrossRefDepthLimit: 5,
+		MaximumResults:     10000,
 		// happy-path fixture: the experimental feature is enabled
 		Enabled: runtime.NewDynamicValue(true),
 		Logger:  logrus.New(),
@@ -569,7 +610,7 @@ func (a *denyCollections) Calls() []mocks.AuthZReq { return a.requests }
 // reference selection or a where filter are authorized, not just the primary.
 func TestHandlerAuthorizesReferencedCollections(t *testing.T) {
 	for name, body := range map[string]string{
-		"reference selection": `{"query":["space"],"returnProperties":["hasAuthor.name"]}`,
+		"reference selection": `{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnProperties":["name"]}]}`,
 		"where filter across a reference": `{"query":["space"],"where":` +
 			`{"path":["hasAuthor","Author","name"],"operator":"Equal","valueText":"x"}}`,
 	} {
@@ -654,11 +695,11 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(fmt.Errorf("remote client vectorize: connection refused")),
 				"explorer: get class: vectorize params"),
-			wantStatus: http.StatusBadGateway,
+			wantStatus: http.StatusInternalServerError,
 		},
 		{
 			// ORDERING GUARD: the no-vectorizer error arrives wrapped inside
-			// ErrQueryVectorization; 422 must win over 502
+			// ErrQueryVectorization; 422 must win over 500
 			name: "no vectorizer configured",
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(
@@ -863,9 +904,9 @@ func TestNearObjectHandlerHappyPath(t *testing.T) {
 // TestNearObjectSourceObjectErrorMapping builds the source-object errors via
 // their real producer types, replicating the explorer's wrap chain (it wraps
 // every vector-resolution failure in ErrQueryVectorization): the typed
-// matches must win over the 502 mapping, or an unknown id would surface as
-// an embedding-provider failure. near-object declares no 502 at all, so an
-// untyped failure has to come out as the declared 500.
+// matches must win over the wrapper's 500 mapping, or an unknown id would
+// surface as a generic internal error. An untyped failure has to come out as
+// the declared 500.
 func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -876,7 +917,8 @@ func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
 			name: "unknown source object id",
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(
-					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNotFound(fmt.Errorf("vector not found")))),
+					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNotFound(
+						fmt.Errorf("nearObject search-object with id 73f2eb5f-5abf-447a-81ca-74b1dd168247 not found")))),
 				"explorer: get class: vectorize search vector"),
 			wantStatus: http.StatusBadRequest,
 		},

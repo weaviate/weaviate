@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	nearTextArgs "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
@@ -480,64 +481,251 @@ func TestParseReturnProperties(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
 
-	t.Run("dot-path selects across a reference", func(t *testing.T) {
+	t.Run("a reference property is a 400 pointing at returnReferences", func(t *testing.T) {
+		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"returnProperties":["hasAuthor"]}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "select it with returnReferences")
+	})
+}
+
+// refProp finds the reference selection for name in the built params.
+func refProp(t *testing.T, searcher *fakeSearcher, name string) search.SelectProperty {
+	t.Helper()
+	for _, prop := range searcher.lastParams.Properties {
+		if prop.Name == name {
+			return prop
+		}
+	}
+	t.Fatalf("no selection for reference %q in %v", name, searcher.lastParams.Properties)
+	return search.SelectProperty{}
+}
+
+func refPropNames(props search.SelectProperties) []string {
+	names := make([]string, len(props))
+	for i, prop := range props {
+		names[i] = prop.Name
+	}
+	return names
+}
+
+func TestParseReturnReferences(t *testing.T) {
+	t.Run("selects the reference and its properties", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"returnProperties":["title","hasAuthor.name"]}`)
+			`{"query":["space"],"returnProperties":["title"],
+			  "returnReferences":[{"linkOn":"hasAuthor","returnProperties":["name"]}]}`)
 		require.Nil(t, apiErr)
+
 		props := searcher.lastParams.Properties
 		require.Len(t, props, 2)
-		refProp := props[1]
-		assert.Equal(t, "hasAuthor", refProp.Name)
-		require.Len(t, refProp.Refs, 1)
-		assert.Equal(t, "Author", refProp.Refs[0].ClassName)
-		require.Len(t, refProp.Refs[0].RefProperties, 1)
-		assert.Equal(t, "name", refProp.Refs[0].RefProperties[0].Name)
+		assert.Equal(t, "title", props[0].Name)
+
+		ref := refProp(t, searcher, "hasAuthor")
+		require.Len(t, ref.Refs, 1)
+		assert.Equal(t, "Author", ref.Refs[0].ClassName)
+		assert.Equal(t, []string{"name"}, refPropNames(ref.Refs[0].RefProperties))
+		assert.False(t, searcher.lastParams.AdditionalProperties.NoProps)
 	})
 
-	t.Run("dot-paths with the same root merge", func(t *testing.T) {
+	t.Run("omitted returnProperties selects all non-ref non-blob of the target", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"returnProperties":["hasAuthor.name","hasAuthor.age"]}`)
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor"}]}`)
 		require.Nil(t, apiErr)
-		props := searcher.lastParams.Properties
-		require.Len(t, props, 1)
-		require.Len(t, props[0].Refs, 1)
-		require.Len(t, props[0].Refs[0].RefProperties, 2)
+		ref := refProp(t, searcher, "hasAuthor")
+		// worksFor (ref) is excluded
+		assert.ElementsMatch(t, []string{"name", "age"}, refPropNames(ref.Refs[0].RefProperties))
 	})
 
-	t.Run("bare reference name selects all target properties", func(t *testing.T) {
+	t.Run("empty returnProperties selects none", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"returnProperties":["hasAuthor"]}`)
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnProperties":[]}]}`)
 		require.Nil(t, apiErr)
-		props := searcher.lastParams.Properties
-		require.Len(t, props, 1)
-		require.Len(t, props[0].Refs, 1)
-		refProps := props[0].Refs[0].RefProperties
-		names := make([]string, len(refProps))
-		for i, prop := range refProps {
-			names[i] = prop.Name
+		ref := refProp(t, searcher, "hasAuthor")
+		assert.Empty(t, ref.Refs[0].RefProperties)
+	})
+
+	t.Run("references alone still count as a selection", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnProperties":[],"returnReferences":[{"linkOn":"hasAuthor"}]}`)
+		require.Nil(t, apiErr)
+		assert.False(t, searcher.lastParams.AdditionalProperties.NoProps)
+	})
+
+	t.Run("case is normalized like every other property name", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[{"linkOn":"HasAuthor","returnProperties":["Name"]}]}`)
+		require.Nil(t, apiErr)
+		ref := refProp(t, searcher, "hasAuthor")
+		assert.Equal(t, []string{"name"}, refPropNames(ref.Refs[0].RefProperties))
+	})
+
+	for name, tc := range map[string]struct {
+		body    string
+		status  int
+		message string
+	}{
+		"unknown reference property": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"nope"}]}`,
+			http.StatusBadRequest, "no such prop",
+		},
+		"not a reference property": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"title"}]}`,
+			http.StatusBadRequest, "returnProperties",
+		},
+		"empty linkOn": {
+			`{"query":["space"],"returnReferences":[{"linkOn":""}]}`,
+			http.StatusBadRequest, "linkOn",
+		},
+		"unknown property on the target": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnProperties":["nope"]}]}`,
+			http.StatusBadRequest, "no such prop",
+		},
+		"target collection the reference does not point at": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","targetCollection":"Book"}]}`,
+			http.StatusBadRequest, "does not target collection",
+		},
+		"multi-target without targetCollection": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"basedOn"}]}`,
+			http.StatusBadRequest, "needs targetCollection",
+		},
+		"multi-target with an unknown target": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"basedOn","targetCollection":"Author"}]}`,
+			http.StatusBadRequest, "does not target collection",
+		},
+		"duplicate selector for the same target": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor"},{"linkOn":"hasAuthor"}]}`,
+			http.StatusBadRequest, "duplicate selector",
+		},
+		"reference property in a selector's returnProperties": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnProperties":["worksFor"]}]}`,
+			http.StatusBadRequest, "select it with returnReferences",
+		},
+	} {
+		t.Run(name+" is a 400", func(t *testing.T) {
+			_, apiErr := buildParams(t, movieClass(), tc.body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tc.status, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tc.message)
+		})
+	}
+
+	t.Run("single-target accepts its own target collection", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","targetCollection":"Author"}]}`)
+		require.Nil(t, apiErr)
+		ref := refProp(t, searcher, "hasAuthor")
+		assert.Equal(t, "Author", ref.Refs[0].ClassName)
+		assert.False(t, ref.IncludeTypeName, "single-target selections need no discriminator")
+	})
+
+	t.Run("multi-target selects one target per selector, merged into one selection", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[
+			   {"linkOn":"basedOn","targetCollection":"Book","returnProperties":["isbn"]},
+			   {"linkOn":"basedOn","targetCollection":"Comic","returnProperties":["issue"]}]}`)
+		require.Nil(t, apiErr)
+
+		// one selection with one SelectClass per target: the resolver indexes
+		// selections by name and would drop a second entry
+		ref := refProp(t, searcher, "basedOn")
+		assert.True(t, ref.IncludeTypeName, "multi-target selections carry the collection discriminator")
+		require.Len(t, ref.Refs, 2)
+		assert.Equal(t, "Book", ref.Refs[0].ClassName)
+		assert.Equal(t, []string{"isbn"}, refPropNames(ref.Refs[0].RefProperties))
+		assert.Equal(t, "Comic", ref.Refs[1].ClassName)
+		assert.Equal(t, []string{"issue"}, refPropNames(ref.Refs[1].RefProperties))
+	})
+
+	t.Run("recursion selects a second hop", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnProperties":["name"],
+			   "returnReferences":[{"linkOn":"worksFor","returnProperties":["name"]}]}]}`)
+		require.Nil(t, apiErr)
+
+		ref := refProp(t, searcher, "hasAuthor")
+		refProps := ref.Refs[0].RefProperties
+		require.Len(t, refProps, 2)
+		assert.Equal(t, "name", refProps[0].Name)
+		nested := refProps[1]
+		assert.Equal(t, "worksFor", nested.Name)
+		require.Len(t, nested.Refs, 1)
+		assert.Equal(t, "Studio", nested.Refs[0].ClassName)
+		assert.Equal(t, []string{"name"}, refPropNames(nested.Refs[0].RefProperties))
+	})
+
+	t.Run("blobs stay out of an implicit target selection", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor",
+			   "returnReferences":[{"linkOn":"worksFor"}]}]}`)
+		require.Nil(t, apiErr)
+		ref := refProp(t, searcher, "hasAuthor")
+		nested := ref.Refs[0].RefProperties[len(ref.Refs[0].RefProperties)-1]
+		// logo (blob) and ownedBy (ref) are excluded
+		assert.Equal(t, []string{"name"}, refPropNames(nested.Refs[0].RefProperties))
+	})
+}
+
+func TestParseReturnReferencesMetadata(t *testing.T) {
+	t.Run("supported keys map onto the referenced object", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor",
+			   "returnMetadata":["id","creationTime","lastUpdateTime"]}]}`)
+		require.Nil(t, apiErr)
+		addl := refProp(t, searcher, "hasAuthor").Refs[0].AdditionalProperties
+		assert.True(t, addl.ID)
+		assert.True(t, addl.CreationTimeUnix)
+		assert.True(t, addl.LastUpdateTimeUnix)
+		assert.False(t, addl.NoProps)
+	})
+
+	t.Run("id-only selection tells the db it needs no properties", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor",
+			   "returnProperties":[],"returnMetadata":["id"]}]}`)
+		require.Nil(t, apiErr)
+		assert.True(t, refProp(t, searcher, "hasAuthor").Refs[0].AdditionalProperties.NoProps)
+	})
+
+	// a referenced object has no retrieval values, so they are not in the
+	// vocabulary at all: the swagger enum rejects them at bind, and the
+	// handler's own parser is the direct-call fallback
+	for _, entry := range []string{"distance", "certainty", "score", "explainScore", "nope"} {
+		t.Run(entry+" is not a reference metadata key", func(t *testing.T) {
+			_, apiErr := buildParams(t, movieClass(),
+				fmt.Sprintf(`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnMetadata":[%q]}]}`, entry))
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "expected one of id, creationTime, lastUpdateTime")
+		})
+	}
+}
+
+// TestReturnReferencesDepthLimit: the traverser's own probe is untyped and
+// would surface as a 500, so the handler rejects the same nesting first.
+func TestReturnReferencesDepthLimit(t *testing.T) {
+	// Movie -> Author -> Studio -> Studio -> ... , one selector per hop
+	selector := func(hops int) string {
+		body := `{"linkOn":"worksFor"`
+		for i := 1; i < hops; i++ {
+			body += `,"returnReferences":[{"linkOn":"ownedBy"`
 		}
-		assert.ElementsMatch(t, []string{"name", "age"}, names)
+		body += strings.Repeat("}]", hops-1) + "}"
+		return body
+	}
+
+	t.Run("within the limit", func(t *testing.T) {
+		// hasAuthor + worksFor + 2 x ownedBy = depth 5
+		_, apiErr := buildParams(t, movieClass(), fmt.Sprintf(
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnReferences":[%s]}]}`, selector(3)))
+		require.Nil(t, apiErr)
 	})
 
-	t.Run("dot-path on a non-ref property is a 400", func(t *testing.T) {
-		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"returnProperties":["title.name"]}`)
+	t.Run("beyond the limit is a 400", func(t *testing.T) {
+		_, apiErr := buildParams(t, movieClass(), fmt.Sprintf(
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnReferences":[%s]}]}`, selector(4)))
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
-	})
-
-	t.Run("two reference hops are deferred with a 422", func(t *testing.T) {
-		_, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"returnProperties":["hasAuthor.name.first"]}`)
-		require.NotNil(t, apiErr)
-		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-		assert.Contains(t, apiErr.Error(), "not yet supported")
-	})
-
-	t.Run("unknown property on the referenced class is a 400", func(t *testing.T) {
-		_, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"returnProperties":["hasAuthor.nope"]}`)
-		require.NotNil(t, apiErr)
-		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "QUERY_CROSS_REFERENCE_DEPTH_LIMIT")
 	})
 }
 
