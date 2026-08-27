@@ -134,9 +134,9 @@ func midPropTidyRunSwapWithRecover(ctx context.Context, task *ShardReindexTaskGe
 
 // midPropTidyRunTidyExpectingPanicError runs tidyBackupBuckets and
 // returns the error it surfaces. When the testHookPostPropTidy hook
-// panics inside one of the goroutines, the wrapper's deferFunc recovers
-// and the error returned from eg.Wait() carries the substring "panic
-// occurred" (see [entities/errors/error_group_wrapper.go] line ~92).
+// panics inside one of the goroutines, the wrapper's recoverPanic
+// returns it as that goroutine's error, and eg.Wait() carries the
+// substring "panic occurred".
 func midPropTidyRunTidyExpectingPanicError(ctx context.Context, task *ShardReindexTaskGeneric,
 	shard *Shard, rt reindexTracker, props []string,
 ) error {

@@ -27,9 +27,13 @@ type Sourcer interface { // implemented by the index
 	// Backupable returns whether all given class can be backed up.
 	Backupable(_ context.Context, classes []string) error
 
-	// BackupDescriptors returns a channel of class descriptors.
-	// Class descriptor records everything needed to restore a class
-	// If an error happens a descriptor with an error will be written to the channel just before closing it.
+	// BackupDescriptors returns a channel of class descriptors, closed on every exit
+	// of the producer, and stops between classes once ctx is cancelled. A descriptor
+	// carrying an error is written before the close when the producer detects one.
+	// A recovered panic instead closes the channel silently, so a close is not
+	// proof that every class was described. The caller must drain the channel to close before
+	// calling ReleaseBackup for any class, since a descriptor produced after a
+	// release leaves that class marked in progress.
 	//
 	// BackupDescriptors acquires resources so that a call to ReleaseBackup() is mandatory to free acquired resources.
 	BackupDescriptors(_ context.Context, bakid string, classes []string, baseDescr []*backup.BackupDescriptor,

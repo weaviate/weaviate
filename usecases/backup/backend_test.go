@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1746,4 +1747,39 @@ func returnOrNotFound(fb *fakeBackend, ctx context.Context, backupID, key string
 		return
 	}
 	fb.On("GetObject", ctx, backupID, key).Return(body, nil)
+}
+
+// TestLabelErr pins labelErr's own contract. A step that succeeded has to drop
+// out entirely, since its callers hand the result to errors.Join. A step that
+// failed has to stay unwrappable. The publishing defer picks cancelled over
+// failed by reading context.Canceled back out.
+func TestLabelErr(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "the step succeeded"},
+		{
+			name: "the step failed",
+			err:  errors.New(backendFullMsg),
+			want: "producer: " + backendFullMsg,
+		},
+		{
+			name: "the step was cancelled",
+			err:  context.Canceled,
+			want: "producer: context canceled",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := labelErr("producer", tt.err)
+			if tt.want == "" {
+				require.NoError(t, got)
+				return
+			}
+			require.EqualError(t, got, tt.want)
+			require.ErrorIs(t, got, tt.err)
+		})
+	}
 }
