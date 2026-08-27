@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path"
 	"reflect"
 	"sync"
@@ -119,6 +120,10 @@ func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx con
 				} else {
 					status.Status = backup.Failed
 					monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessRestore)
+				}
+				// Staged files of a failed attempt would otherwise be adopted by a later RAFT-applied RestoreClassDir.
+				if rerr := os.RemoveAll(path.Join(store.SourceDataPath(), TempDirectory)); rerr != nil {
+					r.logger.WithField("backup_id", req.ID).Warnf("remove restore staging dir: %v", rerr)
 				}
 			}
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)

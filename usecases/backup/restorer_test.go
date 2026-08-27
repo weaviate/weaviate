@@ -15,6 +15,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -410,6 +412,45 @@ func TestRestoreBookingExpiration(t *testing.T) {
 
 			require.NoError(t, r.OnAbort(context.Background(), &AbortRequest{ID: req.ID}))
 			require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+		})
+	}
+}
+
+func TestRestoreFailureCleansStaging(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		workErr     error
+		wantStaging bool
+	}{
+		{name: "failure removes staged files", workErr: ErrAny, wantStaging: false},
+		{name: "success keeps staged files for raft apply", wantStaging: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dataPath := t.TempDir()
+			backend := newFakeBackend()
+			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
+			backend.On("SourceDataPath").Return(dataPath)
+			r := newRestorer(nodeName, logrus.New(), &fakeSourcer{}, nil, false)
+			store := nodeStore{objectStore{backend, "1/" + nodeName, "", "", nodeName}}
+
+			staged := filepath.Join(dataPath, TempDirectory, "Class-A")
+			require.NoError(t, os.MkdirAll(staged, os.ModePerm))
+			require.NoError(t, os.WriteFile(filepath.Join(staged, "chunk-1"), []byte("stale"), 0o644))
+
+			req := &Request{Method: OpRestore, ID: "1"}
+			_, err := r.startRestore(req, store, func(context.Context) error { return tc.workErr })
+			require.NoError(t, err)
+			require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+
+			_, statErr := os.Stat(staged)
+			if tc.wantStaging {
+				require.NoError(t, statErr)
+			} else {
+				require.ErrorIs(t, statErr, os.ErrNotExist)
+			}
 		})
 	}
 }
