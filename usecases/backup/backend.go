@@ -474,6 +474,16 @@ func nonEmptyErrMsg(err error) string {
 	return failureWithoutReason
 }
 
+// labelErr names the step err came from, and reports nil for a step that
+// succeeded. Labelling a nil error with %w instead renders "%!w(<nil>)" for the
+// step that worked, in text the status API serves verbatim.
+func labelErr(label string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", label, err)
+}
+
 func (u *uploader) releaseIndexes(classes []string, bakID string) {
 	for _, class := range classes {
 		className := class
@@ -688,9 +698,7 @@ func (u *uploader) compress(ctx context.Context,
 			// Use CloseWithError to signal any producer error to the consumer,
 			// so the consumer's read fails instead of seeing EOF.
 			closeErr := zip.CloseWithError(err)
-			if err != nil || closeErr != nil {
-				err = fmt.Errorf("producer: %w, close: %w", err, closeErr)
-			}
+			err = errors.Join(err, labelErr("close", closeErr))
 		}()
 
 		if err := ctx.Err(); err != nil {
@@ -740,10 +748,8 @@ func (u *uploader) compress(ctx context.Context,
 	// the producer to fail with "closed pipe". We need both errors to show
 	// the actual cause (consumer error), not just the symptom (closed pipe).
 	consumerErr := eg.Wait()
-	if producerErr != nil || consumerErr != nil {
-		return fileSizeExceededInfo, preCompressionSize.Load(), fmt.Errorf("producer: %w, consumer: %w", producerErr, consumerErr)
-	}
-	return fileSizeExceededInfo, preCompressionSize.Load(), nil
+	return fileSizeExceededInfo, preCompressionSize.Load(),
+		errors.Join(labelErr("producer", producerErr), labelErr("consumer", consumerErr))
 }
 
 // calculateShardPreCompressionSize calculates the total size of a shard before compression

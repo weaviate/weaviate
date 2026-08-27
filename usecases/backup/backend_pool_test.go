@@ -531,6 +531,8 @@ func TestUploaderAllFailures(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErr)
 			assert.Equal(t, tc.wantStatus, desc.Status)
+			assert.NotContains(t, desc.Error, "%!w(",
+				"a step of the upload that succeeded must not be reported as an error")
 
 			for _, c := range desc.Classes {
 				assert.NotEqual(t, failing, c.Name, "a class that did not finish must not be in the descriptor")
