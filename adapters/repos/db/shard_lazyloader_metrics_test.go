@@ -257,6 +257,62 @@ func TestShardRemovalStopsCountingIt(t *testing.T) {
 	})
 }
 
+// TestReactivationAfterDeferredShutdownCountsOnce pins that a reactivation
+// stops counting the shut shard it evicts. A shutdown that finds the shard in
+// use puts it back in the map and completes later, once the last reference
+// drops; a reactivation then evicts that entry and initializes a fresh shard.
+// Left counted, the evicted entry keeps shards_unloaded standing for a shard
+// the node no longer holds.
+func TestReactivationAfterDeferredShutdownCountsOnce(t *testing.T) {
+	ctx := context.Background()
+	const className = "TestReactivationCounting"
+
+	tests := []struct {
+		name       string
+		reactivate func(t *testing.T, h *shardMetricsHarness, shardName string)
+	}{
+		{
+			name: "load for replica movement",
+			reactivate: func(t *testing.T, h *shardMetricsHarness, shardName string) {
+				require.NoError(t, h.migrator.LoadShardForMovement(ctx, className, shardName))
+			},
+		},
+		{
+			name: "write request",
+			reactivate: func(t *testing.T, h *shardMetricsHarness, shardName string) {
+				_, release, err := h.repo.GetIndex(className).getOrInitShard(ctx, shardName)
+				require.NoError(t, err)
+				release()
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newShardMetricsHarness(t)
+			shardName := h.addClass(t, className)
+			index := h.repo.GetIndex(className)
+
+			// A request holding the shard makes the shutdown give up and put
+			// the shard back in the map.
+			_, release, err := index.GetShard(ctx, shardName)
+			require.NoError(t, err)
+			require.Equal(t, shardGauges{loaded: 1}, h.gauges())
+			require.Error(t, index.UnloadLocalShard(ctx, shardName))
+
+			// The last release completes the shutdown, leaving a shard in the
+			// map that is shut but still counted.
+			release()
+			require.Equal(t, shardGauges{unloaded: 1}, h.gauges())
+
+			tt.reactivate(t, h, shardName)
+
+			require.Equal(t, shardGauges{loaded: 1}, h.gauges(),
+				"the evicted shard must leave the gauges to the one replacing it")
+		})
+	}
+}
+
 // TestLazyLoadShardMetricsLifecycle tests the full lifecycle of shard metrics:
 // 1. Creating a shard increments ShardsUnloaded
 // 2. Loading a shard transitions from Unloaded -> Loading -> Loaded

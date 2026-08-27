@@ -46,6 +46,16 @@ func shardKnownShut(s ShardLike) bool {
 	}
 }
 
+// evictShutShard takes a cleanly-shut entry out of the shard map and stops
+// counting it, so the shard that replaces it is the only one counted. A
+// completed shutdown leaves the shard counted as unloaded, which holds only
+// while it stays in the map. Callers hold the shard's create lock.
+func (i *Index) evictShutShard(shardName string) {
+	if _, ok := i.shards.LoadAndDelete(shardName); ok {
+		i.metrics.baseMetrics.DeleteUnloadedShard()
+	}
+}
+
 // teardownError returns the sticky deep-teardown failure, nil when the shard
 // is live or cleanly shut.
 func (s *Shard) teardownError() error {
