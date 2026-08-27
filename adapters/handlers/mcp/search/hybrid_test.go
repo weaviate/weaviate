@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -542,4 +543,48 @@ func TestHybrid_StructuredFilterFlowsThrough(t *testing.T) {
 		assert.Equal(t, filters.OperatorAnd, trav.gotParams.Filters.Root.Operator)
 		assert.Len(t, trav.gotParams.Filters.Root.Operands, 2)
 	})
+}
+
+// TestHybrid_ArgumentValidation pins the alpha and limit checks and the
+// fusion default the traverser receives.
+func TestHybrid_ArgumentValidation(t *testing.T) {
+	alpha := func(v float64) *float64 { return &v }
+	limit := func(v int) *int { return &v }
+
+	cases := []struct {
+		name      string
+		alpha     *float64
+		limit     *int
+		wantErr   string
+		wantAlpha float64
+	}{
+		{name: "alpha below 0", alpha: alpha(-0.1), wantErr: "alpha must be between 0 and 1"},
+		{name: "alpha above 1", alpha: alpha(1.5), wantErr: "alpha must be between 0 and 1"},
+		{name: "alpha 0", alpha: alpha(0), wantAlpha: 0},
+		{name: "alpha 1", alpha: alpha(1), wantAlpha: 1},
+		{name: "alpha omitted uses the default", wantAlpha: common_filters.DefaultAlpha},
+		{name: "limit below 0", limit: limit(-1), wantErr: "limit must be 0 or greater"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, trav := newSearcher(t, &models.Principal{}, false, nil)
+			_, err := s.Hybrid(context.Background(), bearerReq(), QueryHybridArgs{
+				CollectionName: "Things", Query: "x", Alpha: tc.alpha, Limit: tc.limit,
+			})
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				require.Nil(t, trav.gotParams.HybridSearch, "rejected arguments must not reach the traverser")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.wantAlpha, trav.gotParams.HybridSearch.Alpha)
+			require.Equal(t, common_filters.HybridFusionDefault, trav.gotParams.HybridSearch.FusionAlgorithm)
+			if tc.limit == nil {
+				require.Nil(t, trav.gotParams.Pagination)
+			} else {
+				require.Equal(t, *tc.limit, trav.gotParams.Pagination.Limit)
+			}
+		})
+	}
 }
