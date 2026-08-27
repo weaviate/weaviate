@@ -709,6 +709,13 @@ func setupDebugHandlers(appState *state.State) {
 	// to run on a healthy index. Call via something like:
 	// curl -X POST "localhost:6060/debug/index/reassign/vector?collection=Foo&shard=abc123&vector=default"
 	http.HandleFunc("/debug/index/reassign/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// unlike its read-only siblings, this endpoint starts a corpus-wide
+		// mutating job — do not let a probing GET trigger it
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed, use POST", http.StatusMethodNotAllowed)
+			return
+		}
+
 		colName := r.URL.Query().Get("collection")
 		shardName := r.URL.Query().Get("shard")
 		targetVector := r.URL.Query().Get("vector")

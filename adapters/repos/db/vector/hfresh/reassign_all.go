@@ -17,7 +17,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-// ReassignAllStats reports what a EnqueueReassignAll scan covered. Enqueued
+// ReassignAllStats reports what an EnqueueReassignAll scan covered. Enqueued
 // counts enqueue requests, not distinct vectors: a vector stored in several
 // postings is requested once per live copy and deduplicated by the task
 // queue.
