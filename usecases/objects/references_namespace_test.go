@@ -1243,6 +1243,10 @@ func (a *denyContainingAuthorizer) Authorize(ctx context.Context, principal *mod
 	return nil
 }
 
+func (a *denyContainingAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
+}
+
 func (a *denyContainingAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	return a.Authorize(ctx, principal, verb, resources...)
 }

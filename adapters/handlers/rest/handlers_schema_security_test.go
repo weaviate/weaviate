@@ -34,11 +34,17 @@ import (
 type denyAuthorizer struct {
 	forbidden authzerrors.Forbidden
 	verb      string
+	class     string
 	resources []string
 }
 
 func (d *denyAuthorizer) Authorize(_ context.Context, _ *models.Principal, verb string, resources ...string) error {
 	d.verb, d.resources = verb, resources
+	return d.forbidden
+}
+
+func (d *denyAuthorizer) AuthorizeAndRequireActiveNamespace(_ context.Context, _ *models.Principal, verb string, class string, resources ...string) error {
+	d.verb, d.class, d.resources = verb, class, resources
 	return d.forbidden
 }
 

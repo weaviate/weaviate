@@ -19,9 +19,15 @@ import (
 
 // Authorizer always makes a yes/no decision on a specific resource. Which
 // authorization technique is used in the background (e.g. RBAC, adminlist,
-// ...) is hidden through this interface
+// ...) is hidden through this interface, except that only RBAC reads
+// namespace state.
 type Authorizer interface {
 	Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error
+	// AuthorizeAndRequireActiveNamespace runs Authorize, then requires class's
+	// namespace to be active, so a denied caller never learns that state. Pass the
+	// qualified name the resources were built from. Every state but active,
+	// deleting included, returns RequireActive's sentinel unwrapped, never a Forbidden.
+	AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error
 	// AuthorizeSilent Silent authorization without audit logs
 	AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error
 	// FilterAuthorizedResources authorize the passed resources with best effort approach, it will return
@@ -37,6 +43,13 @@ type DummyAuthorizer struct{}
 // Authorize on the DummyAuthorizer will allow any subject access to any
 // resource
 func (d *DummyAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	return nil
+}
+
+// AuthorizeAndRequireActiveNamespace skips the namespace check, because
+// usecases/namespaces depends on this package. That is safe only while
+// Config.Validate refuses NAMESPACES_ENABLED without RBAC.
+func (d *DummyAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
 	return nil
 }
 

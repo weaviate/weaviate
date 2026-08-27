@@ -1489,8 +1489,9 @@ func TestSchedulerList(t *testing.T) {
 			assert.Equal(t, authorization.READ, call.Verb)
 			assert.Equal(t, authorization.Backups(), call.Resources)
 		}
-		assert.True(t, calls[0].Silent, "the probe must not log a denial for callers who hold no blanket READ")
-		assert.False(t, calls[1].Silent,
+		assert.Equal(t, mocks.MethodAuthorizeSilent, calls[0].Method,
+			"the probe must not log a denial for callers who hold no blanket READ")
+		assert.Equal(t, mocks.MethodAuthorize, calls[1].Method,
 			"nothing else authorizes this endpoint, so the grant must reach the audit log")
 	})
 

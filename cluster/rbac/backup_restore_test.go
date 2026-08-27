@@ -37,6 +37,13 @@ func (l listerOf) List() []cmd.Namespace {
 	return out
 }
 
+func (l listerOf) GetNamespace(name string) (cmd.Namespace, bool) {
+	if !slices.Contains(l, name) {
+		return cmd.Namespace{}, false
+	}
+	return cmd.Namespace{Name: name, State: cmd.NamespaceStateActive}, true
+}
+
 // snapshotOf builds a backup blob from a manager holding exactly the given
 // roles. The source knows the namespaces its role names carry, so the blob
 // gets a Namespaces list exactly as a real backup would.
