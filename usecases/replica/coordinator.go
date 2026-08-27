@@ -341,8 +341,20 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
-	level := readRoutingPlan.IntConsistencyLevel
-	hosts := readRoutingPlan.HostAddresses()
+	replyCh, level := c.pull(ctx, readRoutingPlan, op, timeout)
+	return replyCh, level, nil
+}
+
+// pull is Pull against an already resolved plan, for callers that would
+// otherwise have the router resolve the same shard twice. The fullread goes to
+// plan.HostAddresses()[0], so a direct candidate must be ordered first.
+func (c *coordinator[T, any]) pull(ctx context.Context,
+	plan types.ReadRoutingPlan,
+	op readOp[T],
+	timeout time.Duration,
+) (<-chan Result[T], int) {
+	level := plan.IntConsistencyLevel
+	hosts := plan.HostAddresses()
 	replyCh := make(chan Result[T], level)
 	f := func() {
 		start := time.Now()
@@ -442,7 +454,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 	}
 	enterrors.GoWrapper(f, c.log)
 
-	return replyCh, level, nil
+	return replyCh, level
 }
 
 // hostRetry tracks how long we should wait to retry this host again
