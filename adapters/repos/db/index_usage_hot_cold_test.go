@@ -122,6 +122,7 @@ func TestIndex_UsageForCollection_LoadedAndUnloadedAgree(t *testing.T) {
 			require.Len(t, loaded.Shards[0].NamedVectors, len(vectorConfigs))
 			assert.Equal(t, loaded.Shards[0].NamedVectors, unloaded.Shards[0].NamedVectors)
 			assert.Equal(t, loaded.Shards[0].FullShardStorageBytes, unloaded.Shards[0].FullShardStorageBytes)
+			assert.Equal(t, loaded.Shards[0].ObjectsCount, unloaded.Shards[0].ObjectsCount)
 
 			// the first cold report leaves its saved usage in the shard directory, so
 			// a second one walks a directory the loaded shard never has

@@ -285,7 +285,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, count, 2)
 
-	require.NoError(t, b.Shutdown(ctx))
+	crashBucket(t, b)
 	dbFiles, walFiles := countDbAndWalFiles(t, dirName)
 	require.Equal(t, dbFiles, 0)
 	require.Equal(t, walFiles, 1)
@@ -319,7 +319,7 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 4, count)
 
-	require.NoError(t, b.Shutdown(ctx))
+	crashBucket(t, b)
 	dbFiles, walFiles = countDbAndWalFiles(t, dirName)
 	require.Equal(t, dbFiles, 1)
 	require.Equal(t, walFiles, 1)

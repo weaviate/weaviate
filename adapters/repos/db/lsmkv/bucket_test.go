@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -670,6 +671,108 @@ func verifyFileInfo(t *testing.T, path string, oldEntries []string, segmentInfo 
 	return fileNames
 }
 
+// TestShutdownLeavesObjectsCounted pins what Shutdown leaves on disk for a
+// bucket whose object count is read off disk while its shard is unloaded.
+func TestShutdownLeavesObjectsCounted(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	tests := []struct {
+		name         string
+		opts         []BucketOption
+		readOnly     bool
+		putErr       error
+		wantSegments int
+		wantWALs     int
+		wantCounters int
+	}{
+		{
+			name:         "counted bucket flushes a segment carrying its counter",
+			opts:         []BucketOption{WithCalcCountNetAdditions(true)},
+			wantSegments: 1,
+			wantCounters: 1,
+		},
+		{
+			name:     "uncounted bucket keeps its write-ahead log",
+			opts:     []BucketOption{WithCalcCountNetAdditions(false)},
+			wantWALs: 1,
+		},
+		{
+			name:         "read-only counted bucket keeps its write-ahead log",
+			opts:         []BucketOption{WithCalcCountNetAdditions(true)},
+			readOnly:     true,
+			wantWALs:     1,
+			wantCounters: 0,
+		},
+		{
+			// the read-only status refuses FlushAndSwitch, so the segment Shutdown
+			// writes anyway carries no count until the bucket loads again
+			name:         "read-only counted bucket cannot count a segment it must flush",
+			opts:         []BucketOption{WithCalcCountNetAdditions(true), WithMinWalThreshold(0)},
+			readOnly:     true,
+			wantSegments: 1,
+			wantCounters: 0,
+		},
+		{
+			name:         "immutable counted bucket shuts down without flushing",
+			opts:         []BucketOption{WithCalcCountNetAdditions(true), WithImmutable(true)},
+			putErr:       ErrImmutable,
+			wantSegments: 0,
+			wantWALs:     0,
+			wantCounters: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dirName := t.TempDir()
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				append(tt.opts, WithStrategy(StrategyReplace))...,
+			)
+			require.NoError(t, err)
+
+			require.ErrorIs(t, b.Put([]byte("hello1"), []byte("world1")), tt.putErr)
+			if tt.readOnly {
+				b.UpdateStatus(storagestate.StatusReadOnly)
+			}
+			require.NoError(t, b.Shutdown(ctx))
+
+			fileTypes := getFileTypeCount(t, dirName)
+			require.Equal(t, tt.wantSegments, fileTypes[".db"])
+			require.Equal(t, tt.wantWALs, fileTypes[".wal"])
+			require.Equal(t, tt.wantCounters, fileTypes[".cna"])
+		})
+	}
+}
+
+// TestShutdownTearsDownWhenCountFlushFails pins that a count flush Shutdown
+// cannot complete still leaves the bucket torn down, and that its caller is
+// told. An unregistered bucket whose segments are never closed outlives the
+// process; a missing count file is recomputed the next time the bucket loads.
+func TestShutdownTearsDownWhenCountFlushFails(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	dirName := t.TempDir()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
+
+	// a directory that takes no new file fails the segment write
+	require.NoError(t, os.Chmod(dirName, 0o500))
+	t.Cleanup(func() { require.NoError(t, os.Chmod(dirName, 0o700)) })
+
+	require.Error(t, b.Shutdown(ctx))
+	require.Nil(t, b.disk.segments, "SegmentGroup.shutdown clears the list once it has closed every segment")
+}
+
 func TestNetCountComputationAtInit(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -699,7 +802,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	require.Equal(t, 0, fileTypes[".wal"])
 	require.Equal(t, 4, fileTypes[".cna"])
 
-	// Create a single segment with all deletions - shutdown so the cna files are not written right away, but at startup
+	// Create a single segment with all deletions
 	require.NoError(t, b.Delete([]byte("hello1")))
 	require.NoError(t, b.Delete([]byte("hello2")))
 	require.NoError(t, b.Delete([]byte("hello3")))
@@ -709,7 +812,10 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	fileTypes = getFileTypeCount(t, dirName)
 	require.Equal(t, 5, fileTypes[".db"])
 	require.Equal(t, 0, fileTypes[".wal"])
-	require.Equal(t, 4, fileTypes[".cna"]) // cna file for new segment not yet computed
+	require.Equal(t, 5, fileTypes[".cna"]) // Shutdown's FlushAndSwitch writes the count file
+
+	// a segment whose count file is gone recomputes it when the bucket loads
+	removeFilesWithExt(t, dirName, ".cna")
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace), WithMinWalThreshold(0),
@@ -719,7 +825,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	fileTypes = getFileTypeCount(t, dirName)
 	require.Equal(t, 5, fileTypes[".db"])
 	require.Equal(t, 0, fileTypes[".wal"])
-	require.Equal(t, 5, fileTypes[".cna"]) // now computed after startup
+	require.Equal(t, 5, fileTypes[".cna"]) // recomputed when the bucket loaded
 
 	count, err = b.Count(ctx)
 	require.NoError(t, err)
@@ -814,7 +920,7 @@ func TestCountApproximate(t *testing.T) {
 		requireApprox(t, b, 6)
 	})
 
-	t.Run("counter is rebuilt from the WAL on reopen", func(t *testing.T) {
+	t.Run("counter is rebuilt from the WAL after a crash", func(t *testing.T) {
 		dirName := t.TempDir()
 		newFromDir := func() *Bucket {
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
@@ -829,7 +935,8 @@ func TestCountApproximate(t *testing.T) {
 		putKeys(t, b, 3)
 		require.NoError(t, b.Delete([]byte("key-00")))
 		requireApprox(t, b, 2)
-		require.NoError(t, b.Shutdown(ctx))
+
+		crashBucket(t, b)
 		require.Equal(t, 0, getFileTypeCount(t, dirName)[".db"], "data must survive as WAL, not a segment")
 
 		b = newFromDir()
@@ -852,6 +959,26 @@ func getFileTypeCount(t *testing.T, path string) map[string]int {
 		fileTypes[filepath.Ext(entry.Name())] += 1
 	}
 	return fileTypes
+}
+
+// crashBucket abandons a bucket the way a process kill does: its write-ahead log
+// is synced, but nothing flushed the memtable into a segment. Only the registry
+// entry is released, so the same directory can be opened again.
+func crashBucket(t *testing.T, b *Bucket) {
+	t.Helper()
+	require.True(t, b.getAndUpdateWritesSinceLastSync(), "commit log did not sync")
+	GlobalBucketRegistry.Remove(b.registeredPath)
+}
+
+func removeFilesWithExt(t *testing.T, path, ext string) {
+	t.Helper()
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ext {
+			require.NoError(t, os.Remove(filepath.Join(path, entry.Name())))
+		}
+	}
 }
 
 // TestBucketReplaceStrategyConsistentView verifies that a Bucket using the

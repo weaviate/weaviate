@@ -162,6 +162,9 @@ type usageIndexParams struct {
 	// for every object under every configured named vector.
 	vectorDimensions  int
 	dimensionTracking dimensionTracking
+	// flushOnlyAtShutdown leaves the objects in the memtable, so shutting the
+	// index down is what puts them on disk, the way a deactivated tenant does.
+	flushOnlyAtShutdown bool
 }
 
 // setupPopulatedLazyIndex creates an index for a multi-tenant class, populates
@@ -324,11 +327,12 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 	shard, release, err := index.GetShard(ctx, tenantName)
 	require.NoError(t, err)
 	require.NotNil(t, shard)
-	// FlushMemtables deactivates the background flush cycle before flushing, so
-	// it cannot race with the cycle's own FlushAndSwitch (which would nil out
-	// b.flushing under the other goroutine and panic). Poking a single bucket's
-	// FlushMemtable directly skips that guard.
-	require.NoError(t, shard.Store().FlushMemtables(ctx))
+	if !params.flushOnlyAtShutdown {
+		// FlushMemtables deactivates the background flush cycle before flushing, so
+		// the cycle cannot start a FlushAndSwitch mid-flush. Poking a single bucket's
+		// FlushMemtable directly skips that guard.
+		require.NoError(t, shard.Store().FlushMemtables(ctx))
+	}
 	release()
 
 	require.NoError(t, index.Shutdown(ctx))

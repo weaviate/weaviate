@@ -44,10 +44,11 @@ func TestUnloadedShardUsageSavedToDisk(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name             string
-		savedVersion     int
-		savedFingerprint string
-		wantObjectsCount int64
+		name                string
+		savedVersion        int
+		savedFingerprint    string
+		flushOnlyAtShutdown bool
+		wantObjectsCount    int64
 	}{
 		{
 			name:             "usage of the current version is served",
@@ -74,6 +75,15 @@ func TestUnloadedShardUsageSavedToDisk(t *testing.T) {
 			savedFingerprint: "",
 			wantObjectsCount: populatedObjectsCount,
 		},
+		{
+			// the shard never loads, so its count comes from the count file the
+			// shutdown flush left on disk
+			name:                "objects flushed only at shutdown are recomputed",
+			savedVersion:        types.UsageDiskVersion - 1,
+			savedFingerprint:    currentFingerprint,
+			flushOnlyAtShutdown: true,
+			wantObjectsCount:    populatedObjectsCount,
+		},
 	}
 
 	for _, tt := range tests {
@@ -81,7 +91,7 @@ func TestUnloadedShardUsageSavedToDisk(t *testing.T) {
 			ctx := context.Background()
 			tenantName := "test-tenant"
 
-			index, _ := setupPopulatedLazyIndex(ctx, t, usageIndexParams{})
+			index, _ := setupPopulatedLazyIndex(ctx, t, usageIndexParams{flushOnlyAtShutdown: tt.flushOnlyAtShutdown})
 			t.Cleanup(func() { _ = index.Shutdown(ctx) })
 
 			writeSavedShardUsage(t, index.path(), tenantName, &types.UsageDisk{

@@ -187,7 +187,7 @@ type Bucket struct {
 	// Net additions keep track of number of elements stored in bucket (of type replace).
 	// As some buckets don't have to provide Count info (see flat index),
 	// tracking additions can be disabled.
-	// ON by default
+	// OFF by default
 	calcCountNetAdditions bool
 
 	forceCompaction     bool
@@ -1734,6 +1734,15 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		b.metrics.ObserveBucketShutdownDurationByStrategy(b.strategy, time.Since(start))
 	}()
 
+	// must run before b.disk.shutdown: only FlushAndSwitch writes the count file
+	// an unloaded shard reads, and it needs the previous segments to do so.
+	var countFlushErr error
+	if b.calcCountNetAdditions && b.readOnlyErr() == nil {
+		if err := b.FlushAndSwitch(); err != nil {
+			countFlushErr = err
+		}
+	}
+
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err
 	}
@@ -1776,6 +1785,12 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		}
 	}
 	b.flushLock.Unlock()
+
+	// a failed FlushAndSwitch left b.flushing set and nothing else clears it,
+	// so report the error instead of waiting for it below
+	if countFlushErr != nil {
+		return countFlushErr
+	}
 
 	if b.flushing == nil {
 		// active has flushing, no one else was currently flushing, it's safe to

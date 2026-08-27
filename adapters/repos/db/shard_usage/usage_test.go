@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestShardPathDimensionsLSM(t *testing.T) {
@@ -154,15 +155,44 @@ func TestCalculateUnloadedObjectsMetrics(t *testing.T) {
 	ctx := context.Background()
 	tenantName := "tenant"
 
-	for _, metadata := range []bool{true, false} {
-		t.Run(fmt.Sprintf("metadata=%v", metadata), func(t *testing.T) {
+	tests := []struct {
+		name string
+		// writeMetadata stores the count in a .metadata sidecar instead of a .cna one
+		writeMetadata bool
+		// minWalThreshold decides whether Shutdown keeps the memtable in the
+		// write-ahead log; both values must still leave a counted segment
+		minWalThreshold int64
+	}{
+		{name: "cna sidecar, wal below the reuse threshold", minWalThreshold: config.DefaultPersistenceMaxReuseWalSize},
+		{name: "cna sidecar, wal above the reuse threshold", minWalThreshold: 0},
+		{name: "metadata sidecar, wal below the reuse threshold", writeMetadata: true, minWalThreshold: config.DefaultPersistenceMaxReuseWalSize},
+		{name: "metadata sidecar, wal above the reuse threshold", writeMetadata: true, minWalThreshold: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			dirName := t.TempDir()
 			bucketFolder := shardPathObjectsLSM(dirName, tenantName)
 
 			b, err := lsmkv.NewBucketCreator().NewBucket(ctx, bucketFolder, "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithCalcCountNetAdditions(true), lsmkv.WithWriteMetadata(metadata))
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithCalcCountNetAdditions(true), lsmkv.WithWriteMetadata(tt.writeMetadata), lsmkv.WithMinWalThreshold(tt.minWalThreshold))
 			require.NoError(t, err)
-			defer b.Shutdown(ctx)
+
+			sidecarSuffix := lsmkv.CountNetAdditionsFileSuffix
+			if tt.writeMetadata {
+				sidecarSuffix = lsmkv.MetadataFileSuffix
+			}
+			requireOnDisk := func(segments, wals, sidecars int, count int64) {
+				t.Helper()
+				fileTypes := getFileTypeCount(t, bucketFolder)
+				require.Equal(t, segments, fileTypes[".db"])
+				require.Equal(t, wals, fileTypes[".wal"])
+				require.Equal(t, sidecars, fileTypes[sidecarSuffix])
+
+				metrics, err := CalculateUnloadedObjectsMetrics(logger, dirName, tenantName, true)
+				require.NoError(t, err)
+				require.Equal(t, count, metrics.Count)
+			}
 
 			require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
 			require.NoError(t, b.FlushMemtable())
@@ -173,34 +203,18 @@ func TestCalculateUnloadedObjectsMetrics(t *testing.T) {
 			require.NoError(t, b.Put([]byte("hello4"), []byte("world4")))
 			require.NoError(t, b.FlushMemtable())
 
-			fileTypes := getFileTypeCount(t, bucketFolder)
-			require.Equal(t, 4, fileTypes[".db"])
-			require.Equal(t, 0, fileTypes[".wal"])
-			if metadata {
-				require.Equal(t, 4, fileTypes[".metadata"])
-			} else {
-				require.Equal(t, 4, fileTypes[".cna"])
-			}
-
-			metrics, err := CalculateUnloadedObjectsMetrics(logger, dirName, "tenant", true)
-			require.NoError(t, err)
-			require.Equal(t, metrics.Count, int64(4))
+			requireOnDisk(4, 0, 4, 4)
 
 			// add another key but dont flush => will not be included in count
 			require.NoError(t, b.Put([]byte("hello5"), []byte("world5")))
 
-			fileTypes = getFileTypeCount(t, bucketFolder)
-			require.Equal(t, 4, fileTypes[".db"])
-			require.Equal(t, 1, fileTypes[".wal"])
-			if metadata {
-				require.Equal(t, 4, fileTypes[".metadata"])
-			} else {
-				require.Equal(t, 4, fileTypes[".cna"])
-			}
+			requireOnDisk(4, 1, 4, 4)
 
-			metrics, err = CalculateUnloadedObjectsMetrics(logger, dirName, "tenant", true)
-			require.NoError(t, err)
-			require.Equal(t, metrics.Count, int64(4))
+			// Shutdown must leave every object in a segment carrying its count, or
+			// a shard that never loads reports fewer objects than it holds
+			require.NoError(t, b.Shutdown(ctx))
+
+			requireOnDisk(5, 0, 5, 5)
 		})
 	}
 }

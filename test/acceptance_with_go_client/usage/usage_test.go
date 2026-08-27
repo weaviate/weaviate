@@ -1767,9 +1767,9 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 		require.Len(t, colUsage.Shards, 1)
 		shard := colUsage.Shards[0]
 		require.Equal(t, strings.ToLower(expectedStatus), shard.Status)
-		if expectedStatus == models.TenantActivityStatusACTIVE {
-			require.Equal(t, int64(numObjects), shard.ObjectsCount)
-		}
+		// a deactivated tenant is counted from the segments its shutdown left, so
+		// both paths owe the same number
+		require.Equal(t, int64(numObjects), shard.ObjectsCount)
 		require.Equal(t, expected, namedVectorDimensionalities(t, shard))
 
 		for _, v := range shard.NamedVectors {
