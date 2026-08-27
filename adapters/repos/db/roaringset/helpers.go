@@ -48,24 +48,29 @@ func Condense(bm *sroar.Bitmap) *sroar.Bitmap {
 // to reduce the amount of times BitmapFactory has to reallocate.
 const defaultIdIncrement = uint64(1024)
 
-type MaxIdGetterFunc func() uint64
+// DocIDCountGetterFunc reports how many doc IDs have been allocated, one past
+// the highest ever allocated; deletion does not lower it. Exclusive rather than
+// inclusive so that "none" has its own value: an inclusive last-ID getter has to
+// report something for a shard holding nothing, and every candidate either
+// underflows or names a document.
+type DocIDCountGetterFunc func() uint64
 
 // BitmapFactory exists to provide prefilled bitmaps using pool (reducing allocation of memory)
 // and favor cloning (faster) over prefilling bitmap from scratch each time bitmap is requested
 type BitmapFactory struct {
 	bufPool        BitmapBufPool
-	maxIdGetter    MaxIdGetterFunc
+	countGetter    DocIDCountGetterFunc
 	lock           *sync.RWMutex
 	prefilled      *sroar.Bitmap
 	prefilledMaxId uint64
 }
 
-func NewBitmapFactory(bufPool BitmapBufPool, maxIdGetter MaxIdGetterFunc) *BitmapFactory {
-	prefilledMaxId := maxIdGetter() + defaultIdIncrement
+func NewBitmapFactory(bufPool BitmapBufPool, countGetter DocIDCountGetterFunc) *BitmapFactory {
+	prefilledMaxId := countGetter() + defaultIdIncrement
 
 	return &BitmapFactory{
 		bufPool:        bufPool,
-		maxIdGetter:    maxIdGetter,
+		countGetter:    countGetter,
 		lock:           new(sync.RWMutex),
 		prefilled:      sroar.Prefill(prefilledMaxId),
 		prefilledMaxId: prefilledMaxId,
@@ -77,22 +82,34 @@ func (bmf *BitmapFactory) BufPool() BitmapBufPool {
 	return bmf.bufPool
 }
 
+// DocIDCount returns how many doc IDs have ever been allocated — deletion does
+// not lower it — for a caller sizing a worst-case bitmap footprint. It reads the
+// same getter GetBitmap reads, at a different instant, so a write landing
+// between the two makes them differ.
+func (bmf *BitmapFactory) DocIDCount() uint64 {
+	return bmf.countGetter()
+}
+
 // GetBitmap returns a prefilled bitmap, which is cloned from a shared internal.
 // This method is safe to call concurrently. The purpose behind sharing an
 // internal bitmap, is that a Clone() operation is cheaper than prefilling
-// a bitmap up to <maxDocID>
+// a bitmap up to count.
+//
+// The universe is the half-open range [0, count), so a shard that has allocated
+// no doc ID gets an empty bitmap rather than one holding a document that does
+// not exist.
 func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
-	var maxId, prefilledMaxId uint64
+	var count, prefilledMaxId uint64
 
 	cloned, release = func() (*sroar.Bitmap, func()) {
 		bmf.lock.RLock()
 		defer bmf.lock.RUnlock()
 
-		maxId = bmf.maxIdGetter()
+		count = bmf.countGetter()
 		prefilledMaxId = bmf.prefilledMaxId
 
-		// No need to expand, maxId is included
-		if maxId <= prefilledMaxId {
+		// No need to expand, the whole range is covered
+		if count <= prefilledMaxId {
 			return bmf.bufPool.CloneToBuf(bmf.prefilled)
 		}
 		return nil, nil
@@ -103,23 +120,23 @@ func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
 			bmf.lock.Lock()
 			defer bmf.lock.Unlock()
 
-			maxId = bmf.maxIdGetter()
+			count = bmf.countGetter()
 			prefilledMaxId = bmf.prefilledMaxId
 
 			// 2nd check to ensure bitmap wasn't expanded by
 			// concurrent request white waiting for write lock
-			if maxId <= prefilledMaxId {
+			if count <= prefilledMaxId {
 				return bmf.bufPool.CloneToBuf(bmf.prefilled)
 			}
 
 			// expand bitmap with additional ids
-			prefilledMaxId = maxId + defaultIdIncrement
+			prefilledMaxId = count + defaultIdIncrement
 			bmf.prefilled.FillUp(prefilledMaxId)
 			bmf.prefilledMaxId = prefilledMaxId
 			return bmf.bufPool.CloneToBuf(bmf.prefilled)
 		}()
 	}
-	cloned.RemoveRange(maxId+1, prefilledMaxId+1)
+	cloned.RemoveRange(count, prefilledMaxId+1)
 	return cloned, release
 }
 

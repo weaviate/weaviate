@@ -212,8 +212,9 @@ func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
 		return fmt.Errorf("init index counter: %w", err)
 	}
 	s.counter = counter
-	// counter is incremented whenever new docID is fetched, therefore last docID is lower by 1
-	s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool, func() uint64 { return s.counter.Get() - 1 })
+	// The counter is incremented whenever a new docID is fetched and never
+	// decremented on delete, so it is the count of IDs ever allocated.
+	s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool, s.counter.Get)
 
 	dataPresent := s.counter.PreviewNext() != 0
 	versionPath := path.Join(s.path(), "version")
