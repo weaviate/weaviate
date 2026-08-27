@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -50,13 +51,15 @@ const (
 
 // newWarmupIndex opens a multi-tenant index over dirName, one lazy shard per
 // tenant, with the startup sweep gated at minObjects. A nil allocChecker gives
-// every load the dummy monitor, which allows all of them.
+// every load the dummy monitor, which allows all of them. The returned hook
+// holds the sweep's own log, which reports what it did with every shard.
 func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	allocChecker memwatch.AllocChecker, tenants ...string,
-) *Index {
+) (*Index, *test.Hook) {
 	t.Helper()
 	ctx := context.Background()
-	logger, _ := test.NewNullLogger()
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
 
 	class := newClassWithWarmProp(warmupClassName)
 	class.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
@@ -120,12 +123,45 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 		LazyLoadShardWarmupMinObjects: minObjects,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
-		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil,
+		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{},
+		monitoring.GetMetrics(),
 		class, nil, scheduler, nil, allocChecker,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
-	return index
+	return index, hook
+}
+
+// sweepDoneMessage is what the startup sweep logs once it has walked every shard.
+const sweepDoneMessage = "finished loading all shards"
+
+// requireSweepTally asserts how many shards the startup sweep reported under
+// each outcome, waiting for it to finish. An outcome absent from want must have
+// counted nothing.
+func requireSweepTally(t *testing.T, hook *test.Hook, want map[monitoring.WarmupOutcome]int) {
+	t.Helper()
+
+	var tally logrus.Fields
+	require.Eventually(t, func() bool {
+		for _, entry := range hook.AllEntries() {
+			if entry.Message != sweepDoneMessage {
+				continue
+			}
+			tally = entry.Data
+			return true
+		}
+		return false
+	}, 30*time.Second, 50*time.Millisecond, "the sweep should log what it did with every shard")
+
+	for _, outcome := range []monitoring.WarmupOutcome{
+		monitoring.WarmupLoaded,
+		monitoring.WarmupFailed,
+		monitoring.WarmupSkippedNotCold,
+		monitoring.WarmupSkippedEmpty,
+		monitoring.WarmupSkippedBelowThreshold,
+	} {
+		require.Equal(t, want[outcome], tally[string(outcome)], "shards reported as %q", outcome)
+	}
 }
 
 // coldWarmupShard returns a tenant's shard, asserting it is an unloaded lazy one.
@@ -158,7 +194,7 @@ func seedWarmupTenants(t *testing.T, dirName string, seeds map[string]warmupSeed
 		tenants = append(tenants, tenant)
 	}
 
-	index := newWarmupIndex(t, dirName, -1, nil, tenants...)
+	index, _ := newWarmupIndex(t, dirName, -1, nil, tenants...)
 	for tenant, seed := range seeds {
 		writeCountedObjects(t, coldWarmupShard(t, index, tenant), warmupClassName, seed.counted)
 		if seed.uncounted > 0 {
@@ -185,20 +221,36 @@ func TestLazyShardBackgroundWarmup(t *testing.T) {
 		// unreadableCount removes the shard's objects bucket directory, so
 		// LazyLoadShard.ObjectCountAsync fails instead of returning a count.
 		unreadableCount bool
-		wantLoaded      bool
+		// wantOutcome is what the sweep should report for the shard. It is empty
+		// where a negative threshold means no sweep runs.
+		wantOutcome monitoring.WarmupOutcome
 	}{
 		{name: "a negative threshold warms nothing", seed: warmupSeed{counted: 3}, minObjects: -1},
-		{name: "the default warms a non-empty shard", seed: warmupSeed{counted: 3}, minObjects: 0, wantLoaded: true},
-		{name: "the default skips an empty shard", minObjects: 0},
-		{name: "a threshold above the object count skips the shard", seed: warmupSeed{counted: 3}, minObjects: 5},
-		{name: "a threshold at the object count skips the shard", seed: warmupSeed{counted: 3}, minObjects: 3},
+		{
+			name: "the default warms a non-empty shard",
+			seed: warmupSeed{counted: 3}, minObjects: 0, wantOutcome: monitoring.WarmupLoaded,
+		},
+		{
+			name:       "the default skips an empty shard",
+			minObjects: 0, wantOutcome: monitoring.WarmupSkippedEmpty,
+		},
+		{
+			name: "a threshold above the object count skips the shard",
+			seed: warmupSeed{counted: 3}, minObjects: 5,
+			wantOutcome: monitoring.WarmupSkippedBelowThreshold,
+		},
+		{
+			name: "a threshold at the object count skips the shard",
+			seed: warmupSeed{counted: 3}, minObjects: 3,
+			wantOutcome: monitoring.WarmupSkippedBelowThreshold,
+		},
 		{
 			name: "a threshold below the object count warms the shard",
-			seed: warmupSeed{counted: 3}, minObjects: 2, wantLoaded: true,
+			seed: warmupSeed{counted: 3}, minObjects: 2, wantOutcome: monitoring.WarmupLoaded,
 		},
 		{
 			name: "an unreadable object count warms the shard", seed: warmupSeed{counted: 3}, minObjects: 5,
-			unreadableCount: true, wantLoaded: true,
+			unreadableCount: true, wantOutcome: monitoring.WarmupLoaded,
 		},
 		// Segments a shutdown flush wrote carry no count sidecar, and a shard left
 		// cold never gets one derived, so the sweep weighs a shard by what was
@@ -206,14 +258,16 @@ func TestLazyShardBackgroundWarmup(t *testing.T) {
 		{
 			name: "unflushed objects do not count towards the threshold",
 			seed: warmupSeed{uncounted: 5}, minObjects: 3,
+			wantOutcome: monitoring.WarmupSkippedBelowThreshold,
 		},
 		{
 			name: "a threshold above the flushed count alone skips the shard",
 			seed: warmupSeed{counted: 2, uncounted: 4}, minObjects: 5,
+			wantOutcome: monitoring.WarmupSkippedBelowThreshold,
 		},
 		{
 			name: "a threshold below the flushed count alone warms the shard",
-			seed: warmupSeed{counted: 6, uncounted: 4}, minObjects: 5, wantLoaded: true,
+			seed: warmupSeed{counted: 6, uncounted: 4}, minObjects: 5, wantOutcome: monitoring.WarmupLoaded,
 		},
 	}
 
@@ -227,17 +281,18 @@ func TestLazyShardBackgroundWarmup(t *testing.T) {
 					path.Join(shardPathLSM(indexPath, tenant), helpers.ObjectsBucketLSM)))
 			}
 
-			index := newWarmupIndex(t, dirName, tt.minObjects, nil, tenant)
+			index, hook := newWarmupIndex(t, dirName, tt.minObjects, nil, tenant)
 			defer index.Shutdown(ctx)
 
 			lazy := coldWarmupShard(t, index, tenant)
 
-			if tt.wantLoaded {
+			if tt.wantOutcome == monitoring.WarmupLoaded {
 				// The sweep ticks once per second, so allow generous slack.
 				require.Eventually(t, lazy.isLoaded, 30*time.Second, 50*time.Millisecond,
 					"background warmup should materialize the shard")
 				require.Eventually(t, index.allShardsReady.Load, 30*time.Second, 50*time.Millisecond,
 					"allShardsReady should be published once the sweep completes")
+				requireSweepTally(t, hook, map[monitoring.WarmupOutcome]int{tt.wantOutcome: 1})
 				return
 			}
 
@@ -246,12 +301,17 @@ func TestLazyShardBackgroundWarmup(t *testing.T) {
 					"allShardsReady must be published immediately when no sweep runs")
 				require.Never(t, lazy.isLoaded, 2*time.Second, 100*time.Millisecond,
 					"no sweep should run at all")
+				for _, entry := range hook.AllEntries() {
+					require.NotEqual(t, sweepDoneMessage, entry.Message,
+						"a sweep that never runs must report no tally")
+				}
 			} else {
 				require.Eventually(t, index.allShardsReady.Load, 10*time.Second, 50*time.Millisecond,
 					"allShardsReady should be published once the sweep has skipped every shard")
 				// allShardsReady is published from the sweep goroutine's last deferred
 				// call, so it implies the sweep is over and no later load is possible.
 				require.False(t, lazy.isLoaded(), "a shard the sweep leaves out must stay cold")
+				requireSweepTally(t, hook, map[monitoring.WarmupOutcome]int{tt.wantOutcome: 1})
 			}
 
 			// Leaving a shard out of the sweep must keep it loadable on demand.
@@ -282,7 +342,7 @@ func TestLazyShardBackgroundWarmupSkipsSpendNoTick(t *testing.T) {
 	dirName := t.TempDir()
 	tenants := seedWarmupTenants(t, dirName, seeds)
 
-	index := newWarmupIndex(t, dirName, minObjects, nil, tenants...)
+	index, _ := newWarmupIndex(t, dirName, minObjects, nil, tenants...)
 	defer index.Shutdown(ctx)
 
 	// The green path is one tick, so the budget only separates it from a tick per
@@ -406,7 +466,7 @@ func TestLazyShardBackgroundWarmupContinuesAfterFailedLoad(t *testing.T) {
 			tenants := seedWarmupTenants(t, dirName, seeds)
 
 			checker := newRefusingAllocChecker(tt.refuse)
-			index := newWarmupIndex(t, dirName, tt.minObjects, checker, tenants...)
+			index, hook := newWarmupIndex(t, dirName, tt.minObjects, checker, tenants...)
 			defer index.Shutdown(ctx)
 
 			// Published from the sweep goroutine's last deferred call, so it means
@@ -430,6 +490,121 @@ func TestLazyShardBackgroundWarmupContinuesAfterFailedLoad(t *testing.T) {
 				"the sweep must attempt every candidate shard, whatever the ones before it did")
 			require.Equal(t, tt.wantLoaded, loaded,
 				"every candidate the guard allowed must end up loaded")
+			requireSweepTally(t, hook, map[monitoring.WarmupOutcome]int{
+				monitoring.WarmupLoaded:                tt.wantLoaded,
+				monitoring.WarmupFailed:                len(tt.refuse),
+				monitoring.WarmupSkippedBelowThreshold: tt.cold,
+			})
+		})
+	}
+}
+
+// TestLazyShardWarmupSkipsShardNoLongerCold pins what the sweep reports for a
+// shard it listed at startup but found nothing to warm: a request loaded it
+// first, or the tenant is gone. A negative threshold keeps the sweep from
+// running, so the decision is read without one racing it.
+func TestLazyShardWarmupSkipsShardNoLongerCold(t *testing.T) {
+	ctx := context.Background()
+
+	const tenant = "busy-tenant"
+
+	tests := []struct {
+		name string
+		// asked is the shard name the sweep would ask about.
+		asked string
+		// loadFirst materializes the tenant's shard before the decision is read.
+		loadFirst bool
+	}{
+		{name: "a shard a request loaded first", asked: tenant, loadFirst: true},
+		{name: "a name the index no longer holds", asked: "vanished-tenant"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dirName := t.TempDir()
+			seedWarmupTenants(t, dirName, map[string]warmupSeed{tenant: {counted: 3}})
+
+			index, _ := newWarmupIndex(t, dirName, -1, nil, tenant)
+			defer index.Shutdown(ctx)
+
+			if tt.loadFirst {
+				require.NoError(t, coldWarmupShard(t, index, tenant).Load(ctx))
+			}
+
+			shouldWarm, outcome := index.warmupCandidate(tt.asked)
+
+			require.False(t, shouldWarm, "a shard with nothing left to warm is no candidate")
+			require.Equal(t, monitoring.WarmupSkippedNotCold, outcome)
+		})
+	}
+}
+
+// TestLazyShardWarmupLoadOutcome pins what a load reports back to the startup
+// sweep, so a load the sweep performed is counted apart from one it found
+// nothing to do. A negative threshold keeps the sweep from running, so the
+// outcome is read without one racing it.
+func TestLazyShardWarmupLoadOutcome(t *testing.T) {
+	ctx := context.Background()
+
+	const tenant = "busy-tenant"
+
+	tests := []struct {
+		name string
+		// objects is what the tenant holds on disk before the load is asked for.
+		objects int
+		// asked is the shard name the sweep would load.
+		asked string
+		// loadFirst materializes the tenant's shard first, standing in for a
+		// request that arrived while the sweep was waiting for its tick.
+		loadFirst   bool
+		wantOutcome monitoring.WarmupOutcome
+		wantLoaded  bool
+	}{
+		{
+			name:    "a cold shard is loaded and counted as loaded",
+			objects: 3, asked: tenant,
+			wantOutcome: monitoring.WarmupLoaded, wantLoaded: true,
+		},
+		{
+			name:    "a shard a request took during the tick counts as no load",
+			objects: 3, asked: tenant, loadFirst: true,
+			wantOutcome: monitoring.WarmupSkippedNotCold, wantLoaded: true,
+		},
+		{
+			name:    "a name the index no longer holds counts as no load",
+			objects: 3, asked: "vanished-tenant",
+			wantOutcome: monitoring.WarmupSkippedNotCold,
+		},
+		{
+			name:    "a shard that never held an object counts as empty",
+			objects: 0, asked: tenant,
+			wantOutcome: monitoring.WarmupSkippedEmpty,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dirName := t.TempDir()
+			seedWarmupTenants(t, dirName, map[string]warmupSeed{tenant: {counted: tt.objects}})
+
+			index, _ := newWarmupIndex(t, dirName, -1, nil, tenant)
+			defer index.Shutdown(ctx)
+
+			if tt.loadFirst {
+				require.NoError(t, coldWarmupShard(t, index, tenant).Load(ctx))
+			}
+
+			outcome, err := index.loadLocalShardIfActive(tt.asked)
+
+			require.NoError(t, err)
+			require.Equal(t, tt.wantOutcome, outcome)
+
+			stored := index.shards.Load(tenant)
+			require.NotNil(t, stored, "the tenant's shard must stay registered")
+			lazy, ok := stored.(*LazyLoadShard)
+			require.True(t, ok, "lazy mode should store a wrapper, got %T", stored)
+			require.Equal(t, tt.wantLoaded, lazy.isLoaded(),
+				"only a shard the load reported as loaded may end up loaded")
 		})
 	}
 }

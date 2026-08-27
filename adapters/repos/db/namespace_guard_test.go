@@ -1686,7 +1686,9 @@ func TestGuardBackgroundLoad(t *testing.T) {
 			idx := indexForGuardTest(t, tc.className, tc.exister(t))
 			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 
-			err := idx.loadLocalShardIfActive("t1")
+			outcome, err := idx.loadLocalShardIfActive("t1")
+			require.Empty(t, outcome,
+				"a refused load and a failed one both count against no shard")
 			if tc.wantLoad {
 				require.ErrorIs(t, err, errInjectedMemoryPressure)
 			} else {
@@ -1703,7 +1705,9 @@ func TestGuardBackgroundLoad(t *testing.T) {
 		idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 		idx.closed = true
 
-		require.NoError(t, idx.loadLocalShardIfActive("t1"))
+		outcome, err := idx.loadLocalShardIfActive("t1")
+		require.NoError(t, err)
+		require.Empty(t, outcome, "a closing index counts against no shard")
 	})
 
 	// A state that cannot be read refuses the load like a closed namespace does,
@@ -1714,7 +1718,9 @@ func TestGuardBackgroundLoad(t *testing.T) {
 			idx := indexForGuardTest(t, class, tc.exister(t))
 			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 
-			require.NoError(t, idx.loadLocalShardIfActive("t1"))
+			outcome, err := idx.loadLocalShardIfActive("t1")
+			require.NoError(t, err)
+			require.Empty(t, outcome, "an unreadable namespace counts against no shard")
 		})
 	}
 

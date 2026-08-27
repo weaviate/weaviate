@@ -167,6 +167,11 @@ weaviate_shards{state="loaded",registration="lazy"}
 
 `registration` is decided per collection when its index is built, so one node can report both. `LAZY_LOAD_SHARD_COUNT_THRESHOLD=0` forces every collection `lazy` and the deprecated `DISABLE_LAZY_LOAD_SHARDS` forces every collection `eager`; with neither set, a collection is `eager` unless it is multi-tenant and its local shard count or on-disk size crosses `LAZY_LOAD_SHARD_COUNT_THRESHOLD` / `LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB`. All eight series are exported from startup, so a node with no lazy collections scrapes zero rather than omitting the series.
 
+#### Shard Loading Metrics
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_lazy_shard_warmup_decisions_total` | Number of shards the startup warmup sweep considered, by what it did with each: `loaded`, `failed`, `skipped_not_cold`, `skipped_empty`, `skipped_below_threshold` | `Counter` | `outcome` | - Low 
+
 #### Shard Load Limiter Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
