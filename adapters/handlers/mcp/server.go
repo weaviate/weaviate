@@ -97,6 +97,10 @@ func (s *MCPServer) Handler() http.Handler {
 // listing — calls to disabled tools are also rejected by the tool handlers.
 func (s *MCPServer) registerToolFilter() {
 	server.WithToolFilter(func(ctx context.Context, tools []mcplib.Tool) []mcplib.Tool {
+		// tools/call filters just the called tool; let it through so the handler can return the write-disabled hint.
+		if len(tools) == 1 && s.writeToolNames[tools[0].Name] {
+			return tools
+		}
 		writeEnabled := s.creator.IsWriteAccessEnabled()
 		s.metrics.ObserveListed(writeEnabled)
 		if writeEnabled {

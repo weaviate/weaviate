@@ -19,17 +19,20 @@ import (
 	"testing"
 	"time"
 
+	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
 // TestMCPTransport checks what a raw HTTP client sees on /v1/mcp: GET is
-// refused, no session id is issued, and requests work with or without one.
+// refused, no session id is issued, requests work with or without one, and
+// the MCP-Protocol-Version header is checked.
 func TestMCPTransport(t *testing.T) {
 	// A session id as issued by older, stateful builds. Clients that connected
 	// before an upgrade keep sending it.
 	const staleSessionID = "mcp-session-0b1c9f5e-1111-2222-3333-444444444444"
 	const toolsListBody = `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`
+	const getConfigBody = `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"weaviate-collections-get-config","arguments":{}}}`
 
 	newCtx := func(t *testing.T) context.Context {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -81,5 +84,32 @@ func TestMCPTransport(t *testing.T) {
 			status, _, body := helper.RawMCPRequest(newCtx(t), t, http.MethodDelete, testMCPURL, testAPIKey, "", sessionID)
 			require.Equal(t, http.StatusOK, status, string(body))
 		}
+	})
+
+	t.Run("a protocol version header alone is enough for tools/list and tools/call", func(t *testing.T) {
+		versionHeader := http.Header{"MCP-Protocol-Version": {mcplib.LATEST_PROTOCOL_VERSION}}
+
+		status, _, body := helper.RawMCPRequest(newCtx(t), t, http.MethodPost, testMCPURL, testAPIKey, toolsListBody, "", versionHeader)
+		require.Equal(t, http.StatusOK, status, string(body))
+		requireTools(t, body)
+
+		status, _, body = helper.RawMCPRequest(newCtx(t), t, http.MethodPost, testMCPURL, testAPIKey, getConfigBody, "", versionHeader)
+		require.Equal(t, http.StatusOK, status, string(body))
+		var called struct {
+			Result struct {
+				IsError bool `json:"isError"`
+			} `json:"result"`
+			Error any `json:"error"`
+		}
+		require.NoError(t, json.Unmarshal(body, &called))
+		require.Nil(t, called.Error, string(body))
+		require.False(t, called.Result.IsError, string(body))
+	})
+
+	t.Run("an unsupported protocol version is refused with 400", func(t *testing.T) {
+		bogus := http.Header{"MCP-Protocol-Version": {"bogus"}}
+		status, _, body := helper.RawMCPRequest(newCtx(t), t, http.MethodPost, testMCPURL, testAPIKey, toolsListBody, "", bogus)
+		require.Equal(t, http.StatusBadRequest, status, string(body))
+		require.JSONEq(t, `{"error":"unsupported MCP protocol version: bogus"}`, string(body))
 	})
 }
