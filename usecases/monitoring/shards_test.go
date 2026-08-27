@@ -181,4 +181,51 @@ func TestShards(t *testing.T) {
 
 		assert.Equal(t, float64(1), unloadedCount) // dec
 	})
+
+	t.Run("record_warmup_outcome", func(t *testing.T) {
+		// invariant: each outcome counts on its own series and on no other.
+		outcomes := []WarmupOutcome{
+			WarmupLoaded,
+			WarmupFailed,
+			WarmupSkippedNotCold,
+			WarmupSkippedEmpty,
+			WarmupSkippedBelowThreshold,
+		}
+
+		readAll := func() map[WarmupOutcome]float64 {
+			counts := make(map[WarmupOutcome]float64, len(outcomes))
+			for _, outcome := range outcomes {
+				counts[outcome] = testutil.ToFloat64(
+					m.LazyShardWarmupDecisions.WithLabelValues(string(outcome)))
+			}
+			return counts
+		}
+
+		for _, recorded := range outcomes {
+			t.Run(string(recorded), func(t *testing.T) {
+				before := readAll()
+
+				m.RecordWarmupOutcome(recorded)
+
+				after := readAll()
+				for _, outcome := range outcomes {
+					want := before[outcome]
+					if outcome == recorded {
+						want++
+					}
+					assert.Equal(t, want, after[outcome], "outcome %q", outcome)
+				}
+			})
+		}
+	})
+
+	t.Run("nil_metrics_record_nothing", func(t *testing.T) {
+		// An index built without monitoring passes nil here, so every helper has
+		// to tolerate it.
+		var nilMetrics *PrometheusMetrics
+
+		assert.NotPanics(t, func() {
+			nilMetrics.RecordWarmupOutcome(WarmupLoaded)
+		})
+	})
 }

@@ -687,7 +687,11 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		}
 
 		now := time.Now()
-		var loaded, skipped, failed int
+		tally := map[monitoring.WarmupOutcome]int{}
+		recordOutcome := func(outcome monitoring.WarmupOutcome) {
+			tally[outcome]++
+			promMetrics.RecordWarmupOutcome(outcome)
+		}
 
 		for _, shardName := range hotShardNames {
 			if abortIfClosing() {
@@ -697,8 +701,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			// The decision comes before the tick so only shards that will load wait a
 			// second. At a positive threshold each skip still costs one directory
 			// listing, unpaced.
-			if !i.warmupCandidate(shardName) {
-				skipped++
+			if shouldWarm, outcome := i.warmupCandidate(shardName); !shouldWarm {
+				recordOutcome(outcome)
 				continue
 			}
 
@@ -714,24 +718,26 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				// The memory guard a load fails on is node-wide and transient, so it
 				// says nothing about the shards behind this one. The sweep runs once
 				// per index lifetime, and nothing retries what it walks past.
-				failed++
+				recordOutcome(monitoring.WarmupFailed)
 				i.logger.
 					WithField("action", "load_shard").
 					WithField("shard_name", shardName).
 					Errorf("failed to load shard, warming the rest anyway: %v", err)
 				continue
 			}
-			loaded++
+			recordOutcome(monitoring.WarmupLoaded)
 		}
 
 		i.logger.
 			WithFields(logrus.Fields{
-				"action":  "load_all_shards",
-				"class":   i.Config.ClassName.String(),
-				"took":    time.Since(now).String(),
-				"loaded":  loaded,
-				"skipped": skipped,
-				"failed":  failed,
+				"action":                  "load_all_shards",
+				"class":                   i.Config.ClassName.String(),
+				"took":                    time.Since(now).String(),
+				"loaded":                  tally[monitoring.WarmupLoaded],
+				"failed":                  tally[monitoring.WarmupFailed],
+				"skipped_not_cold":        tally[monitoring.WarmupSkippedNotCold],
+				"skipped_empty":           tally[monitoring.WarmupSkippedEmpty],
+				"skipped_below_threshold": tally[monitoring.WarmupSkippedBelowThreshold],
 			}).
 			Debug("finished loading all shards")
 	}
@@ -752,29 +758,30 @@ func (i *Index) unloadedShardIsEmpty(shardName string) bool {
 }
 
 // warmupCandidate reports whether the startup sweep should load this shard, and
-// is asked before the sweep spends a tick on it. A count it cannot read answers
-// true: a shard is loaded rather than left cold on a number nobody could take.
-func (i *Index) warmupCandidate(shardName string) bool {
+// where it should not, the outcome naming why. It is asked before the sweep
+// spends a tick on the shard. A count it cannot read answers true: a shard is
+// loaded rather than left cold on a number nobody could take.
+func (i *Index) warmupCandidate(shardName string) (bool, monitoring.WarmupOutcome) {
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
 
 	shard := i.shards.Load(shardName)
 	if shard == nil {
-		return false
+		return false, monitoring.WarmupSkippedNotCold
 	}
 	lazyShard, ok := shard.(*LazyLoadShard)
 	if !ok || lazyShard.isLoaded() {
-		return false
+		return false, monitoring.WarmupSkippedNotCold
 	}
 
 	// avoid footprint of empty shards
 	if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
-		return false
+		return false, monitoring.WarmupSkippedEmpty
 	}
 
 	minObjects := i.Config.LazyLoadShardWarmupMinObjects
 	if minObjects == 0 {
-		return true
+		return true, ""
 	}
 
 	count, err := lazyShard.ObjectCountAsync(i.closingCtx)
@@ -787,10 +794,10 @@ func (i *Index) warmupCandidate(shardName string) bool {
 		} else {
 			entry.Warnf("failed to count objects of unloaded shard, warming it up anyway: %v", err)
 		}
-		return true
+		return true, ""
 	}
 	if count > minObjects {
-		return true
+		return true, ""
 	}
 
 	// The persisted doc-id counter would see the writes the sidecars miss, but it
@@ -805,7 +812,7 @@ func (i *Index) warmupCandidate(shardName string) bool {
 		"object_count":       count,
 		"warmup_min_objects": minObjects,
 	}).Debug("shard holds too few objects to warm up; it loads on first access")
-	return false
+	return false, monitoring.WarmupSkippedBelowThreshold
 }
 
 func (i *Index) loadLocalShardIfActive(shardName string) error {

@@ -11,6 +11,35 @@
 
 package monitoring
 
+// WarmupOutcome is the value of the closed `outcome` label on
+// weaviate_lazy_shard_warmup_decisions_total: what the startup sweep that loads
+// lazy shards did with one of them.
+type WarmupOutcome string
+
+const (
+	// WarmupLoaded: the sweep loaded the shard.
+	WarmupLoaded WarmupOutcome = "loaded"
+	// WarmupFailed: the sweep attempted the load and it failed.
+	WarmupFailed WarmupOutcome = "failed"
+	// WarmupSkippedNotCold: no cold shard was left to warm, the shard having
+	// loaded or been deleted since the sweep listed it.
+	WarmupSkippedNotCold WarmupOutcome = "skipped_not_cold"
+	// WarmupSkippedEmpty: the shard has never held an object.
+	WarmupSkippedEmpty WarmupOutcome = "skipped_empty"
+	// WarmupSkippedBelowThreshold: the shard holds too few objects for
+	// LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS.
+	WarmupSkippedBelowThreshold WarmupOutcome = "skipped_below_threshold"
+)
+
+// RecordWarmupOutcome records what the startup warmup sweep did with one shard.
+func (pm *PrometheusMetrics) RecordWarmupOutcome(outcome WarmupOutcome) {
+	if pm == nil {
+		return
+	}
+
+	pm.LazyShardWarmupDecisions.WithLabelValues(string(outcome)).Inc()
+}
+
 // Move the shard from unloaded to in progress
 func (pm *PrometheusMetrics) StartLoadingShard() {
 	if pm == nil {

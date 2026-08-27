@@ -132,6 +132,8 @@ type PrometheusMetrics struct {
 	ShardsLoading   prometheus.Gauge
 	ShardsUnloading prometheus.Gauge
 
+	LazyShardWarmupDecisions *prometheus.CounterVec
+
 	// ShardHaltForTransferForceResume: non-zero means a transfer was
 	// force-resumed mid-stream — compaction may have raced the transfer.
 	ShardHaltForTransferForceResume *prometheus.CounterVec
@@ -794,6 +796,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "shards_unloading",
 			Help: "Number of shards in process of unloading",
 		}),
+		LazyShardWarmupDecisions: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_lazy_shard_warmup_decisions_total",
+			Help: "Number of shards the startup warmup sweep considered, by what it did with each",
+		}, []string{"outcome"}),
 
 		ShardHaltForTransferForceResume: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "shard_halt_for_transfer_force_resume_total",

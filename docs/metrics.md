@@ -144,6 +144,11 @@ This document is the single source of truth for Prometheus metrics exposed by We
 | `weaviate_<module>_operation_latency_seconds` | Latency of usage operations in seconds | `Histogram` | `operation` | - Low 
 | `weaviate_<module>_uploaded_file_size_bytes` | Size of the last uploaded usage file in bytes | `Gauge` | `-` | - Low 
 
+#### Shard Loading Metrics
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_lazy_shard_warmup_decisions_total` | Number of shards the startup warmup sweep considered, by what it did with each: `loaded`, `failed`, `skipped_not_cold`, `skipped_empty`, `skipped_below_threshold` | `Counter` | `outcome` | - Low 
+
 #### Shard Load Limiter Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
