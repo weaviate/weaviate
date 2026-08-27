@@ -718,34 +718,70 @@ func TestUploaderAllCancelsThePoolBeforeDrainingIt(t *testing.T) {
 }
 
 // TestUploaderAllDoesNotPublishSuccessOnPanic pins that a backup that stopped
-// part way through is not published as one that finished. A panic unwinds
-// through the publishing defer with the named error still nil, and a node
-// reporting success is a node the coordinator counts as done.
+// part way through is not published as finished. A node reporting success is a
+// node the coordinator counts as done. A panic in the descriptor loop leaves
+// the named error nil. One in a shard job arrives as the pool's error, which
+// has to name the crash rather than the cancellation its siblings return.
 func TestUploaderAllDoesNotPublishSuccessOnPanic(t *testing.T) {
 	classes := []string{"Class-A", "Class-B"}
-	sourcePath := t.TempDir()
-	p := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, classes...)...)
-	p.panicOnSourcePathCall = 2
-
-	finished := make(chan struct{})
-	u, desc, names, stat := newProbeUploader(t, p, len(classes))
-	go func() {
-		defer close(finished)
-		defer func() { _ = recover() }()
-		_ = u.all(context.Background(), names, desc, nil, "", "")
-	}()
-
-	select {
-	case <-finished:
-	case <-time.After(probeTimeout):
-		t.Fatal("all never returned")
+	tests := []struct {
+		name string
+		// panicIn arranges for the named goroutine to panic.
+		panicIn func(p *uploadProbe)
+		// poolSize 1 leaves the other shard jobs queued, so they start after the
+		// panic and return the cancellation.
+		poolSize int
+		// wantErrContains also names what the injector rests on, so a guard added
+		// against it makes the case fail rather than pass for another reason.
+		wantErrContains []string
+	}{
+		{
+			name:     "descriptor loop",
+			panicIn:  func(p *uploadProbe) { p.panicOnSourcePathCall = 2 },
+			poolSize: len(classes),
+		},
+		{
+			name: "shard job",
+			panicIn: func(p *uploadProbe) {
+				// a nil descriptor panics in createFileList, which runs before compress
+				// installs its own recovery around the consumer goroutine
+				p.descs[0] = classDescriptorWithShards(p.descs[0], 2)
+				p.descs[0].Shards[0] = nil
+			},
+			poolSize:        1,
+			wantErrContains: []string{"panic occurred", "nil pointer"},
+		},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sourcePath := t.TempDir()
+			p := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, classes...)...)
+			tt.panicIn(p)
 
-	got := stat.get()
-	assert.Equal(t, backup.Failed, got.Status,
-		"a backup that panicked part way through must not be published as successful")
-	assert.NotEmpty(t, got.Err, "the failure has to carry a reason a poll can read")
+			finished := make(chan struct{})
+			u, desc, names, stat := newProbeUploader(t, p, tt.poolSize)
+			go func() {
+				defer close(finished)
+				defer func() { _ = recover() }()
+				_ = u.all(context.Background(), names, desc, nil, "", "")
+			}()
 
-	_, _, meta := p.snapshot()
-	assert.NotEqual(t, backup.Success, meta.Status)
+			select {
+			case <-finished:
+			case <-time.After(probeTimeout):
+				t.Fatal("all never returned")
+			}
+
+			got := stat.get()
+			assert.Equal(t, backup.Failed, got.Status,
+				"a backup that panicked part way through must not be published as successful")
+			assert.NotEmpty(t, got.Err, "the failure has to carry a reason a poll can read")
+			for _, want := range tt.wantErrContains {
+				assert.Contains(t, got.Err, want)
+			}
+
+			_, _, meta := p.snapshot()
+			assert.NotEqual(t, backup.Success, meta.Status)
+		})
+	}
 }
