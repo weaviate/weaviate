@@ -74,8 +74,8 @@ func newObjectCountObserver(indices ...*Index) (*nodeWideMetricsObserver, *DB, p
 	return newNodeWideMetricsObserver(db), db, gauge
 }
 
-// countingShard reports count and never fails. Maybe() because a walk that
-// stops early leaves the shards behind it uncounted.
+// countingShard reports count and never fails. Its expectation is Maybe(),
+// because a walk that stops early leaves the shards behind it uncounted.
 func countingShard(t *testing.T, count int64) *MockShardLike {
 	t.Helper()
 
@@ -84,8 +84,8 @@ func countingShard(t *testing.T, count int64) *MockShardLike {
 	return shard
 }
 
-// untouchedShard fails the test if anything asks it for a count, which is what
-// an expectation cannot do: testify caps a call count from above, never at zero.
+// untouchedShard fails the test if anything asks it for a count. An expectation
+// cannot do that, because testify caps a call count from above, never at zero.
 func untouchedShard(t *testing.T) *MockShardLike {
 	t.Helper()
 
@@ -219,8 +219,8 @@ func TestObserveObjectCount(t *testing.T) {
 func TestObserveObjectCountReleasesIndexLock(t *testing.T) {
 	counting := make(chan struct{})
 	release := make(chan struct{})
-	// Deferred as well as called, so a failed assertion below still lets the
-	// walk finish instead of leaving it parked on release.
+	// releaseOnce is deferred as well as called, so a failed assertion below
+	// still lets the walk finish instead of leaving it parked on release.
 	releaseOnce := sync.OnceFunc(func() { close(release) })
 	defer releaseOnce()
 
@@ -258,10 +258,10 @@ func TestObserveObjectCountWalkStoppedByCloseRequest(t *testing.T) {
 		name   string
 		cause  error
 		shards []string
-		// countAwaitsCancel holds the shard's count open until the request
-		// reaches walkCtx, which is what a shard honouring its context would do.
-		// Both real ObjectCountAsync implementations ignore it and return at
-		// once, which is the shape the one-shard rows below use.
+		// countAwaitsCancel holds the shard's count open until closeRequestedCtx
+		// reaches walkCtx, as a shard honouring its context would. Both real
+		// ObjectCountAsync implementations ignore it and return at once, which is
+		// the shape the one-shard rows below use.
 		countAwaitsCancel bool
 		want              float64
 	}{
@@ -280,7 +280,7 @@ func TestObserveObjectCountWalkStoppedByCloseRequest(t *testing.T) {
 			want:              gaugeUntouched,
 		},
 		// A close during the last shard leaves no callback to observe it, so the
-		// walk has to answer for the cancellation after it returns.
+		// walk checks the close request again after ForEachShard returns.
 		{
 			name:   "a delete during the only shard still counts that collection zero",
 			cause:  errIndexDropped,
@@ -302,7 +302,7 @@ func TestObserveObjectCountWalkStoppedByCloseRequest(t *testing.T) {
 			var counted atomic.Int32
 
 			// Whichever shard the walk reaches first requests the close, so no shard
-			// behind it is counted whichever order the shards come in.
+			// behind it is counted, whatever order the shards come in.
 			requestClose := func(ctx context.Context) (int64, error) {
 				counted.Add(1)
 				once.Do(func() { stopping.signalCloseRequested(tt.cause) })

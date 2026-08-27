@@ -129,12 +129,11 @@ func (o *nodeWideMetricsObserver) observeShards() {
 }
 
 // Collect and publish the node-wide object_count metric, only when every index
-// reports allShardsReady. A walk an index stops leaves the gauge at its previous
-// value rather than publishing a partial sum, and a collection being deleted
-// counts zero. A single shard whose directory check or object count fails is
-// logged and skipped instead, so the published total is short by that shard.
+// reports allShardsReady. An index whose walk stops leaves the gauge at its
+// previous value instead of a partial sum. A deleted collection counts zero.
+// A shard that fails its directory check or count is left out of the total.
 func (o *nodeWideMetricsObserver) observeObjectCount() {
-	// One copy serves both loops: taking a second for the sum would let an index
+	// One copy serves both loops. Taking a second for the sum would let an index
 	// created in between be counted without its allShardsReady being checked.
 	indices := o.db.copyIndices()
 
@@ -153,14 +152,13 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 	for _, index := range indices {
 		count, err := o.indexObjectCount(index)
 		if errors.Is(err, errIndexDropped) {
-			// A collection being deleted really is losing its objects, so the
-			// rest of the node still has a total worth publishing.
+			// A collection being deleted is losing its objects, so the rest of
+			// the node still has a total worth publishing.
 			continue
 		}
 		if err != nil {
 			// Setting ObjectCount to the shards counted so far would report
-			// objects the node never lost. It keeps its previous value instead,
-			// which only this line explains.
+			// objects the node never lost, so the gauge keeps its previous value.
 			o.db.logger.WithFields(logrus.Fields{
 				"action": "skip_observe_node_wide_metrics",
 				"class":  index.Config.ClassName,
@@ -184,13 +182,14 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 }
 
 // indexObjectCount sums one index's shard object counts without holding
-// indexLock, because a cold shard reads its count off disk. The walk stops at
-// the next shard once a drop or shutdown is requested: DeleteIndex takes
-// dropIndex while holding indexLock, so a walk that kept dropIndex.RLock would
-// block every index lookup on the node. A stopped walk has no total, and its
-// error carries the cause so the caller can tell a deleted collection from one
-// it must not leave out.
+// indexLock, because a cold shard reads its count off disk. A stopped walk
+// returns no total, and its error names the cause so the caller can tell a
+// delete from a shutdown.
 func (o *nodeWideMetricsObserver) indexObjectCount(index *Index) (int64, error) {
+	// The walk stops at the next shard once a close is requested rather than
+	// holding this across every shard. A long hold parks DeleteIndex on
+	// dropIndex.Lock, and readers taking dropIndex.RLock under indexLock queue
+	// behind it.
 	index.dropIndex.RLock()
 	defer index.dropIndex.RUnlock()
 
@@ -245,8 +244,8 @@ func (o *nodeWideMetricsObserver) indexObjectCount(index *Index) (int64, error) 
 
 	// A callback only checks on entry, so a close request arriving during the
 	// last shard's count has no callback left to stop the walk. Both checks read
-	// the request rather than walkCtx: cancelOnCloseRequested propagates it
-	// through context.AfterFunc, whose goroutine can still be unscheduled here.
+	// closeRequestedCtx rather than walkCtx, whose cancellation runs in a
+	// context.AfterFunc goroutine that may not have been scheduled yet.
 	if index.closeRequestedCtx.Err() != nil {
 		return 0, context.Cause(index.closeRequestedCtx)
 	}
