@@ -292,12 +292,13 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	f := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
-		c.commit(ctx, &statusReq, nodes, false)
+		nodeMetas := c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
 		if c.descriptor.Status == backup.Success && plan != nil && plan.designated() > 0 {
-			if err := c.verifyDesignatedCoverage(ctx, &statusReq, plan); err != nil {
+			if err := c.verifyDesignatedCoverage(ctx, &statusReq, plan, nodeMetas); err != nil {
 				c.descriptor.Status = backup.Failed
 				c.descriptor.Error = err.Error()
+				c.publishStatus()
 				c.log.WithFields(logFields).Errorf("coordinator: designated-shard coverage check failed: %v", err)
 			}
 		}
@@ -723,11 +724,12 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 
 // commit tells each participant to commit its backup operation
 // It stores the final result in the provided backend
+// It returns the per-node descriptors read while aggregating sizes (creates only), so callers can reuse them instead of re-reading.
 func (c *coordinator) commit(ctx context.Context,
 	req *StatusRequest,
 	node2Addr map[string]string,
 	toleratePartialFailure bool,
-) {
+) map[string]*backup.BackupDescriptor {
 	// create a new copy for commitAll and queryAll to mutate
 	node2Host := make(map[string]string, len(node2Addr))
 	for k, v := range node2Addr {
@@ -739,7 +741,7 @@ func (c *coordinator) commit(ctx context.Context,
 		c.log.WithField("backup_id", req.ID).Info("commit aborted: operation was cancelled externally")
 		c.descriptor.Status = backup.Cancelled
 		c.descriptor.Error = errCancelled.Error()
-		return
+		return nil
 	}
 
 	nFailures := c.commitAll(ctx, req, node2Host)
@@ -758,7 +760,7 @@ func (c *coordinator) commit(ctx context.Context,
 			}
 			c.descriptor.Status = backup.Cancelled
 			c.descriptor.Error = errCancelled.Error()
-			return
+			return nil
 		}
 
 		select {
@@ -768,7 +770,7 @@ func (c *coordinator) commit(ctx context.Context,
 			c.log.WithField("backup_id", req.ID).Info("commit polling aborted: context cancelled")
 			c.descriptor.Status = backup.Cancelled
 			c.descriptor.Error = "restore cancelled: context cancelled"
-			return
+			return nil
 		}
 		retryAfter = c.timeoutNextRound
 		nFailures += c.queryAll(ctx, req, node2Host)
@@ -788,6 +790,7 @@ func (c *coordinator) commit(ctx context.Context,
 	reason := ""
 	groups := c.descriptor.Nodes
 	var totalPreCompressionSize int64
+	nodeMetas := make(map[string]*backup.BackupDescriptor, len(c.Participants))
 
 	// Read backup descriptors from each node to aggregate pre-compression sizes
 	for node, p := range c.Participants {
@@ -828,6 +831,7 @@ func (c *coordinator) commit(ctx context.Context,
 					}
 
 					if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path); err == nil {
+						nodeMetas[node] = meta
 						st.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
 						totalPreCompressionSize += meta.PreCompressionSizeBytes
 						c.log.WithFields(logrus.Fields{
@@ -858,6 +862,7 @@ func (c *coordinator) commit(ctx context.Context,
 	c.descriptor.Error = reason
 	c.publishStatus()
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
+	return nodeMetas
 }
 
 // publishStatus mirrors the descriptor's outcome on the slot, which is what a

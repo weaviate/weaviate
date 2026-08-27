@@ -519,7 +519,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.Empty(t, fc.backend.glMeta.ID, "aborted mixed-version create must leave the backend prefix empty")
 	})
 
-	runCommittedDedupeBackup := func(t *testing.T, nodeMeta backup.BackupDescriptor, canCommitMatcher interface{}) (*fakeCoordinator, *fakeCheckpointer) {
+	runCommittedDedupeBackup := func(t *testing.T, nodeMeta backup.BackupDescriptor, canCommitMatcher interface{}, getObject func(fc *fakeCoordinator)) (*fakeCoordinator, *fakeCheckpointer, *coordinator) {
 		t.Helper()
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
@@ -546,13 +546,30 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		mockBackendProvider := NewMockBackupBackendProvider(t)
 		coordinator.backends = mockBackendProvider
 		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil)
-		fc.backend.On("GetObject", any, any, any, any, any).Return(marshalMeta(nodeMeta), nil)
+		if getObject == nil {
+			getObject = func(fc *fakeCoordinator) {
+				fc.backend.On("GetObject", any, any, any, any, any).Return(marshalMeta(nodeMeta), nil)
+			}
+		}
+		getObject(fc)
 
 		req := newDedupeReq()
 		store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
 		require.NoError(t, coordinator.Backup(ctx, store, &req))
 		<-fc.backend.doneChan
-		return fc, f
+		return fc, f, &coordinator
+	}
+
+	countGetObjectCalls := func(t *testing.T, fc *fakeCoordinator, c *coordinator) int {
+		t.Helper()
+		require.Eventually(t, func() bool { return c.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+		n := 0
+		for i := range fc.backend.Calls {
+			if fc.backend.Calls[i].Method == "GetObject" {
+				n++
+			}
+		}
+		return n
 	}
 
 	t.Run("success stamps v3 and ships projected designations", func(t *testing.T) {
@@ -565,22 +582,43 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		nodeMeta := backup.BackupDescriptor{Status: backup.Success, Classes: []backup.ClassDescriptor{
 			{Name: "Class-A", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "N1"}}},
 		}}
-		fc, f := runCommittedDedupeBackup(t, nodeMeta, match)
+		fc, f, c := runCommittedDedupeBackup(t, nodeMeta, match, nil)
 
 		got := fc.backend.glMeta
 		assert.Equal(t, backup.Success, got.Status)
 		assert.Equal(t, VersionDedupeReplicas, got.Version)
 		assert.True(t, got.DedupeReplicas)
 		assert.Equal(t, []string{"Class-A"}, f.deleteCalls)
+		assert.Equal(t, len(nodes), countGetObjectCalls(t, fc, c), "coverage verify must reuse the descriptors commit already read")
+	})
+
+	t.Run("coverage verify re-reads only nodes commit could not", func(t *testing.T) {
+		t.Parallel()
+		nodeMeta := backup.BackupDescriptor{Status: backup.Success, Classes: []backup.ClassDescriptor{
+			{Name: "Class-A", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "N1"}}},
+		}}
+		getObject := func(fc *fakeCoordinator) {
+			fc.backend.On("GetObject", any, backupID+"/N1", any, any, any).Return(nil, ErrAny).Once()
+			fc.backend.On("GetObject", any, backupID, any, any, any).Return(nil, ErrAny)
+			fc.backend.On("GetObject", any, backupID+"/N1", any, any, any).Return(marshalMeta(nodeMeta), nil)
+			fc.backend.On("GetObject", any, backupID+"/N2", any, any, any).Return(marshalMeta(nodeMeta), nil)
+		}
+		fc, _, c := runCommittedDedupeBackup(t, nodeMeta, any, getObject)
+
+		assert.Equal(t, backup.Success, fc.backend.glMeta.Status)
+		assert.Equal(t, 4, countGetObjectCalls(t, fc, c), "one failed commit read, its legacy-detect probe, one commit read, one verify fallback re-read")
 	})
 
 	t.Run("designated shard missing from archive fails the backup", func(t *testing.T) {
 		t.Parallel()
-		fc, _ := runCommittedDedupeBackup(t, backup.BackupDescriptor{Status: backup.Success}, any)
+		fc, _, c := runCommittedDedupeBackup(t, backup.BackupDescriptor{Status: backup.Success}, any, nil)
 
 		got := fc.backend.glMeta
 		assert.Equal(t, backup.Failed, got.Status)
 		assert.Contains(t, got.Error, "designated shard")
+		reason, ok := c.lastOp.rememberedFailure(backupID)
+		require.True(t, ok, "coverage failure must be published to the slot, not only the stored descriptor")
+		assert.Contains(t, reason, "designated shard")
 	})
 
 	t.Run("flag off keeps wire payload legacy", func(t *testing.T) {
