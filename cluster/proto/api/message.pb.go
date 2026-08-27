@@ -281,6 +281,7 @@ const (
 	QueryRequest_TYPE_GET_USERS_OR_GROUPS_WITH_ROLES                  QueryRequest_Type = 34
 	QueryRequest_TYPE_GET_USERS                                       QueryRequest_Type = 61
 	QueryRequest_TYPE_USER_IDENTIFIER_EXISTS                          QueryRequest_Type = 62
+	QueryRequest_TYPE_EXPORT_USERS                                    QueryRequest_Type = 64
 	QueryRequest_TYPE_GET_NAMESPACES                                  QueryRequest_Type = 63
 	QueryRequest_TYPE_RESOLVE_ALIAS                                   QueryRequest_Type = 100
 	QueryRequest_TYPE_GET_ALIASES                                     QueryRequest_Type = 101
@@ -315,6 +316,7 @@ var (
 		34:  "TYPE_GET_USERS_OR_GROUPS_WITH_ROLES",
 		61:  "TYPE_GET_USERS",
 		62:  "TYPE_USER_IDENTIFIER_EXISTS",
+		64:  "TYPE_EXPORT_USERS",
 		63:  "TYPE_GET_NAMESPACES",
 		100: "TYPE_RESOLVE_ALIAS",
 		101: "TYPE_GET_ALIASES",
@@ -346,6 +348,7 @@ var (
 		"TYPE_GET_USERS_OR_GROUPS_WITH_ROLES":                  34,
 		"TYPE_GET_USERS":                                       61,
 		"TYPE_USER_IDENTIFIER_EXISTS":                          62,
+		"TYPE_EXPORT_USERS":                                    64,
 		"TYPE_GET_NAMESPACES":                                  63,
 		"TYPE_RESOLVE_ALIAS":                                   100,
 		"TYPE_GET_ALIASES":                                     101,
@@ -2556,11 +2559,11 @@ const file_api_message_proto_rawDesc = "" +
 	"\x13TYPE_CLUSTER_ID_SET\x10\x90\x03\"\x04\bc\x10c\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
-	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xaa\b\n" +
+	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xc1\b\n" +
 	"\fQueryRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.QueryRequest.TypeR\x04type\x12\x1f\n" +
 	"\vsub_command\x18\x02 \x01(\fR\n" +
-	"subCommand\"\xb6\a\n" +
+	"subCommand\"\xcd\a\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10TYPE_GET_CLASSES\x10\x01\x12\x13\n" +
@@ -2577,7 +2580,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\x17TYPE_GET_USERS_FOR_ROLE\x10!\x12'\n" +
 	"#TYPE_GET_USERS_OR_GROUPS_WITH_ROLES\x10\"\x12\x12\n" +
 	"\x0eTYPE_GET_USERS\x10=\x12\x1f\n" +
-	"\x1bTYPE_USER_IDENTIFIER_EXISTS\x10>\x12\x17\n" +
+	"\x1bTYPE_USER_IDENTIFIER_EXISTS\x10>\x12\x15\n" +
+	"\x11TYPE_EXPORT_USERS\x10@\x12\x17\n" +
 	"\x13TYPE_GET_NAMESPACES\x10?\x12\x16\n" +
 	"\x12TYPE_RESOLVE_ALIAS\x10d\x12\x14\n" +
 	"\x10TYPE_GET_ALIASES\x10e\x12!\n" +

@@ -12,6 +12,7 @@
 package compression_test
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"math/rand"
@@ -24,8 +25,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/test/docker"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestCompression_AdaptSegments(t *testing.T) {
