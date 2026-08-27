@@ -459,28 +459,28 @@ func TestEnvironmentBackupGCS(t *testing.T) {
 		wantErr  string
 	}{
 		{
-			name:     "unset selects http",
+			name:     "unset leaves the transport unset, which means grpc",
 			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
-			name:     "empty selects http",
+			name:     "empty leaves the transport unset, which means grpc",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": ""},
 			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
 			name:     "http",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "http"},
-			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+			expected: BackupGCS{UseGRPC: new(false), GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
 			name:     "grpc",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
 			name:     "transport is case insensitive and trimmed",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": " gRPC "},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
 			name:    "unknown transport is rejected",
@@ -490,17 +490,17 @@ func TestEnvironmentBackupGCS(t *testing.T) {
 		{
 			name:     "connection pool overrides the default",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "16"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 16},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 16},
 		},
 		{
 			name:     "connection pool of one is accepted",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "1"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 1},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 1},
 		},
 		{
 			name:     "connection pool at the cap is accepted",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "64"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: MaxBackupGCSGRPCConnPool},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: MaxBackupGCSGRPCConnPool},
 		},
 		{
 			name:    "connection pool of zero is rejected",
@@ -529,43 +529,48 @@ func TestEnvironmentBackupGCS(t *testing.T) {
 		},
 		{
 			name:     "unset transport keeps the config file value",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 		},
 		{
 			name:     "empty transport keeps the config file value",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": ""},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
+		},
+		{
+			name:     "a config file pinned to http stays on http",
+			start:    BackupGCS{UseGRPC: new(false), GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(false), GRPCConnPool: 32},
 		},
 		{
 			name:     "http overrides the config file transport",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "http"},
-			expected: BackupGCS{GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(false), GRPCConnPool: 32},
 		},
 		{
 			name:     "grpc overrides the config file transport",
-			start:    BackupGCS{GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(false), GRPCConnPool: 32},
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 		},
 		{
 			name:     "connection pool overrides the config file value",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 			env:      map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "16"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 16},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 16},
 		},
 		{
 			name:     "config file connection pool out of range is left for validation",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 100},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 100},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 100},
 		},
 		{
 			name:     "connection pool overrides an out of range config file value",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 100},
 			env:      map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "8"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 8},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 8},
 		},
 	}
 
