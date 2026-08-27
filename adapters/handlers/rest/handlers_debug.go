@@ -761,11 +761,15 @@ func setupDebugHandlers(appState *state.State) {
 		enterrors.GoWrapper(func() {
 			defer release()
 			stats, err := h.EnqueueReassignAll(context.Background())
+			statsLogger := reassignLogger.
+				WithField("postings", stats.Postings).
+				WithField("entries", stats.Entries).
+				WithField("enqueued", stats.Enqueued)
 			if err != nil {
-				reassignLogger.WithField("stats", stats).Error(err)
+				statsLogger.Error(err)
 				return
 			}
-			reassignLogger.WithField("stats", stats).Info("reassign-all enqueue completed")
+			statsLogger.Info("reassign-all enqueue completed")
 		}, reassignLogger)
 
 		reassignLogger.Info("reassign-all enqueue started")
