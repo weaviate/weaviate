@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -1076,20 +1077,30 @@ func TestBackupDescriptorsClosesChannelWhenCancelled(t *testing.T) {
 // exists for. GoWrapper recovers a panic and lets the goroutine end, so a close
 // that is not deferred leaves the caller draining a channel with no sender.
 func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
-	logger, _ := tlog.NewNullLogger()
+	// The integration suite exports this, which turns GoWrapper's recover off.
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+	logger, hook := tlog.NewNullLogger()
 	// A zero-value Index panics inside descriptor on its nil logger.
 	db := &DB{logger: logger, indices: map[string]*Index{indexID("Class-A"): {}}}
 
 	ch := db.BackupDescriptors(context.Background(), "backup-1", []string{"Class-A"}, nil)
 
-	for {
-		select {
-		case _, ok := <-ch:
-			if !ok {
-				return
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("BackupDescriptors never closed the descriptor channel after the producer panicked")
-		}
+	select {
+	case d, ok := <-ch:
+		require.False(t, ok, "descriptor %q was sent, so the producer returned instead of panicking", d.Name)
+	case <-time.After(5 * time.Second):
+		t.Fatal("BackupDescriptors never closed the descriptor channel after the producer panicked")
 	}
+
+	// GoWrapper logs the recovery after the deferred close ran. Returning at close
+	// would let t.Setenv restore the flag while the recover is still reading it.
+	require.Eventually(t, func() bool {
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "Recovered from panic") {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "the producer goroutine never recovered a panic")
 }
