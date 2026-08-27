@@ -249,6 +249,19 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		delete(c.Participants, key)
 	}
 
+	// A Cancel that lands during planning only marks the slot; honor it here so
+	// no participant is ever contacted for a cancelled backup.
+	if c.lastOp.get().Status == backup.Cancelled {
+		c.descriptor.Status = backup.Cancelled
+		c.descriptor.Error = errCancelled.Error()
+		c.descriptor.CompletedAt = time.Now().UTC()
+		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, req.Bucket, req.Path); err != nil {
+			c.log.WithField("backup_id", req.ID).Errorf("coordinator: put cancelled meta: %v", err)
+		}
+		c.lastOp.reset()
+		return backup.NewErrUnprocessable(fmt.Errorf("backup %s: %w", req.ID, errCancelled))
+	}
+
 	nodes, err := c.canCommit(ctx, req, plan)
 	if err != nil {
 		c.lastOp.reset()

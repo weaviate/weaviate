@@ -496,6 +496,12 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		}
 	}
 
+	// Participant aborts only reach nodes already committed to the op; the slot
+	// signal is what stops a create still in its planning/convergence wait.
+	if s.backupper.lastOp.cancelIfInFlight(backupID) {
+		s.logger.WithField("backup_id", backupID).Info("cancel: signalled in-flight backup coordinator")
+	}
+
 	nodes, err := s.backupper.Nodes(ctx, &Request{
 		Method:  OpCreate,
 		Backend: backend,
