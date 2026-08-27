@@ -85,8 +85,9 @@ func TestEnqueueReassignAll(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, 2, stats.Postings)
-	require.Equal(t, 6, stats.Entries, "8 stored entries minus 1 deleted minus 1 stale")
-	require.Equal(t, 6, stats.Enqueued)
+	require.Equal(t, 6, stats.Enqueued, "8 stored entries minus 1 deleted minus 1 stale")
+	require.Equal(t, 1, stats.SkippedDeleted)
+	require.Equal(t, 1, stats.SkippedStale)
 
 	for _, id := range []uint64{101, 102, 103, 104, 201, 202} {
 		require.True(t, tf.Index.taskQueue.reassignList.Contains(id),

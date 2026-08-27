@@ -20,11 +20,14 @@ import (
 // ReassignAllStats reports what an EnqueueReassignAll scan covered. Enqueued
 // counts enqueue requests, not distinct vectors: a vector stored in several
 // postings is requested once per live copy and deduplicated by the task
-// queue.
+// queue. The skipped counters measure index bloat: SkippedStale entries are
+// invalidated copies left behind by earlier reassignments and not yet
+// garbage collected, SkippedDeleted entries belong to deleted vectors.
 type ReassignAllStats struct {
-	Postings int `json:"postings"`
-	Entries  int `json:"entries"`
-	Enqueued int `json:"enqueued"`
+	Postings       int `json:"postings"`
+	Enqueued       int `json:"enqueued"`
+	SkippedDeleted int `json:"skippedDeleted"`
+	SkippedStale   int `json:"skippedStale"`
 }
 
 // EnqueueReassignAll walks every posting and enqueues a reassignment task for
@@ -78,10 +81,14 @@ func (h *HFresh) EnqueueReassignAll(ctx context.Context) (ReassignAllStats, erro
 			if err != nil {
 				return stats, errors.Wrapf(err, "failed to get version for vector %d", v.ID())
 			}
-			if version.Deleted() || version != v.Version() {
+			if version.Deleted() {
+				stats.SkippedDeleted++
 				continue
 			}
-			stats.Entries++
+			if version != v.Version() {
+				stats.SkippedStale++
+				continue
+			}
 
 			err = h.taskQueue.EnqueueReassign(postingID, v.ID())
 			if err != nil {

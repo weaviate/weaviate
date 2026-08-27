@@ -774,8 +774,9 @@ func setupDebugHandlers(appState *state.State) {
 			stats, err := h.EnqueueReassignAll(context.Background())
 			statsLogger := reassignLogger.
 				WithField("postings", stats.Postings).
-				WithField("entries", stats.Entries).
-				WithField("enqueued", stats.Enqueued)
+				WithField("enqueued", stats.Enqueued).
+				WithField("skippedDeleted", stats.SkippedDeleted).
+				WithField("skippedStale", stats.SkippedStale)
 			if err != nil {
 				statsLogger.Error(err)
 				return
