@@ -21,7 +21,9 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // buildResponse converts the traverser's raw results into the
@@ -29,7 +31,7 @@ import (
 // selected non-reference properties under "properties", reference selections
 // under "references" and the requested retrieval metadata under "metadata",
 // plus tookMs. Vectors are never returned; there is no count field.
-func buildResponse(res []any, params dto.GetParams, took time.Duration) (*models.SearchResponse, error) {
+func buildResponse(res []any, params dto.GetParams, principal *models.Principal, took time.Duration) (*models.SearchResponse, error) {
 	results := make([]*models.SearchResultObject, len(res))
 	for i, raw := range res {
 		asMap, ok := raw.(map[string]any)
@@ -55,9 +57,9 @@ func buildResponse(res []any, params dto.GetParams, took time.Duration) (*models
 				continue
 			}
 			if len(prop.Refs) > 0 {
-				if refs := buildRefProperty(value, prop); refs != nil {
+				if refs := buildReferences(value, prop, principal); refs != nil {
 					if obj.References == nil {
-						obj.References = map[string][]models.JSONObject{}
+						obj.References = map[string][]models.SearchResultReference{}
 					}
 					obj.References[prop.Name] = refs
 				}
@@ -128,39 +130,123 @@ func pruneObjectFields(fields map[string]any, props []search.SelectProperty) map
 	return out
 }
 
-// buildRefProperty renders a cross-reference as an array of objects carrying
-// the selected one-hop properties, e.g. [{"name": "..."}].
-func buildRefProperty(value any, prop search.SelectProperty) []models.JSONObject {
+// buildReferences renders one cross-reference as the array of referenced
+// objects, each shaped like a search hit. A referenced object is matched to
+// its selection by class, so a multi-target reference renders each object
+// against the selection its own collection was given.
+func buildReferences(value any, prop search.SelectProperty, principal *models.Principal) []models.SearchResultReference {
 	refsRaw, ok := value.([]any)
 	if !ok || len(prop.Refs) == 0 {
 		return nil
 	}
-
-	refs := make([]models.JSONObject, 0, len(refsRaw))
+	refs := make([]models.SearchResultReference, 0, len(refsRaw))
 	for _, refRaw := range refsRaw {
 		localRef, ok := refRaw.(search.LocalRef)
 		if !ok {
 			continue
 		}
-		fields := make(map[string]any, len(prop.Refs[0].RefProperties))
-		for _, refProp := range prop.Refs[0].RefProperties {
-			refValue, ok := localRef.Fields[refProp.Name]
-			if !ok || refValue == nil {
-				continue
-			}
-			// object-typed properties of the referenced collection get the
-			// same nested pruning as root-level objects
-			if refProp.IsObject {
-				if nested := buildObjectProperty(refValue, refProp.Props); nested != nil {
-					fields[refProp.Name] = nested
-				}
-				continue
-			}
-			fields[refProp.Name] = refValue
+		selected := prop.FindSelectClass(schema.ClassName(localRef.Class))
+		if selected == nil {
+			// a target the request did not select
+			continue
 		}
-		refs = append(refs, fields)
+
+		ref := models.SearchResultReference{
+			Properties: buildRefProperties(localRef.Fields, selected.RefProperties),
+			Metadata:   buildReferenceMetadata(localRef.Fields, selected.AdditionalProperties),
+		}
+		if prop.IncludeTypeName {
+			ref.Collection = namespacing.StripOwnNamespace(principal, localRef.Class)
+		}
+		if nested := buildNestedReferences(localRef.Fields, selected.RefProperties, principal); nested != nil {
+			ref.References = nested
+		}
+		refs = append(refs, ref)
 	}
 	return refs
+}
+
+// buildRefProperties renders a referenced object's selected non-reference
+// properties. The storage layer hands over every property of the referenced
+// object, so selecting here is what keeps unselected (possibly blob) fields
+// out of the reply.
+func buildRefProperties(fields map[string]any, props search.SelectProperties) map[string]models.JSONObject {
+	out := make(map[string]models.JSONObject, len(props))
+	for _, prop := range props {
+		if len(prop.Refs) > 0 {
+			continue
+		}
+		value, ok := fields[prop.Name]
+		if !ok || value == nil {
+			continue
+		}
+		if prop.IsObject {
+			if nested := buildObjectProperty(value, prop.Props); nested != nil {
+				out[prop.Name] = nested
+			}
+			continue
+		}
+		out[prop.Name] = value
+	}
+	return out
+}
+
+// buildNestedReferences renders the references selected one hop deeper.
+func buildNestedReferences(fields map[string]any, props search.SelectProperties,
+	principal *models.Principal,
+) map[string][]models.SearchResultReference {
+	var out map[string][]models.SearchResultReference
+	for _, prop := range props {
+		if len(prop.Refs) == 0 {
+			continue
+		}
+		value, ok := fields[prop.Name]
+		if !ok || value == nil {
+			continue
+		}
+		refs := buildReferences(value, prop, principal)
+		if refs == nil {
+			continue
+		}
+		if out == nil {
+			out = map[string][]models.SearchResultReference{}
+		}
+		out[prop.Name] = refs
+	}
+	return out
+}
+
+// buildReferenceMetadata renders a referenced object's metadata. Only the
+// keys the engine can resolve for a referenced object are available: its id
+// (always carried in the fields) plus the timestamps the ref resolver adds
+// when they are selected.
+func buildReferenceMetadata(fields map[string]any, addl additional.Properties) *models.SearchResultReferenceMetadata {
+	metadata := &models.SearchResultReferenceMetadata{}
+	populated := false
+
+	if addl.ID {
+		if id, ok := fields["id"].(strfmt.UUID); ok {
+			metadata.ID = &id
+			populated = true
+		}
+	}
+	if addl.CreationTimeUnix {
+		if creationTime, ok := fields["creationTimeUnix"].(int64); ok {
+			metadata.CreationTime = &creationTime
+			populated = true
+		}
+	}
+	if addl.LastUpdateTimeUnix {
+		if lastUpdateTime, ok := fields["lastUpdateTimeUnix"].(int64); ok {
+			metadata.LastUpdateTime = &lastUpdateTime
+			populated = true
+		}
+	}
+
+	if !populated {
+		return nil
+	}
+	return metadata
 }
 
 // buildMetadata picks the requested retrieval metadata out of the
