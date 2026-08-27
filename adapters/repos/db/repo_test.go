@@ -285,6 +285,54 @@ func TestDB_scanStartupProgressDuringLoad(t *testing.T) {
 	}
 }
 
+// listAnswer holds what LocalIndexClassNames or GetLocalShardNames returned, sent
+// out of the goroutine that called it.
+type listAnswer struct {
+	names []string
+	err   error
+}
+
+// callParkedOnIndexLock starts list and returns once it waits for indexLock inside
+// DB.<method>. A sleep cannot prove the call got past the entry check.
+func callParkedOnIndexLock(t *testing.T, method string, list func() ([]string, error)) <-chan listAnswer {
+	t.Helper()
+
+	done := make(chan listAnswer, 1)
+	caller := make(chan string, 1)
+	go func() {
+		var self [64]byte
+		caller <- strings.Fields(string(self[:runtime.Stack(self[:], false)]))[1]
+		names, err := list()
+		done <- listAnswer{names: names, err: err}
+	}()
+
+	// Match only this call's goroutine, since a row that failed earlier can
+	// leave one parked on another DB's indexLock.
+	want := "goroutine " + <-caller + " ["
+	buf := make([]byte, 1<<20)
+	var last string
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		n := runtime.Stack(buf, true)
+		if n == len(buf) {
+			buf = make([]byte, 2*len(buf)) // a truncated dump reads as never parked
+			continue
+		}
+		for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+			if !strings.HasPrefix(g, want) {
+				continue
+			}
+			if strings.Contains(g, ".(*DB)."+method+"(") &&
+				strings.Contains(g, "RWMutex).RLock(") {
+				return done
+			}
+			last = g
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the call never parked on indexLock, last seen at:\n%s", last)
+		}
+	}
+}
+
 func TestLocalIndexClassNames(t *testing.T) {
 	dbWithIndices := func(t *testing.T, classNames ...string) *DB {
 		t.Helper()
@@ -296,52 +344,6 @@ func TestLocalIndexClassNames(t *testing.T) {
 			db.indices[indexID(idx.Config.ClassName)] = idx
 		}
 		return db
-	}
-
-	type answer struct {
-		names []string
-		err   error
-	}
-
-	// callParkedOnIndexLock starts the accessor and returns once it waits for
-	// indexLock in copyIndices. A sleep cannot prove the call got past the entry check.
-	callParkedOnIndexLock := func(t *testing.T, db *DB) <-chan answer {
-		t.Helper()
-
-		done := make(chan answer, 1)
-		caller := make(chan string, 1)
-		go func() {
-			var self [64]byte
-			caller <- strings.Fields(string(self[:runtime.Stack(self[:], false)]))[1]
-			names, err := db.LocalIndexClassNames()
-			done <- answer{names: names, err: err}
-		}()
-
-		// Match only this call's goroutine, since a row that failed earlier can
-		// leave one parked on another DB's indexLock.
-		want := "goroutine " + <-caller + " ["
-		buf := make([]byte, 1<<20)
-		var last string
-		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
-			n := runtime.Stack(buf, true)
-			if n == len(buf) {
-				buf = make([]byte, 2*len(buf)) // a truncated dump reads as never parked
-				continue
-			}
-			for _, g := range strings.Split(string(buf[:n]), "\n\n") {
-				if !strings.HasPrefix(g, want) {
-					continue
-				}
-				if strings.Contains(g, ".LocalIndexClassNames(") &&
-					strings.Contains(g, "RWMutex).RLock(") {
-					return done
-				}
-				last = g
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("the call never parked on indexLock, last seen at:\n%s", last)
-			}
-		}
 	}
 
 	tests := []struct {
@@ -397,14 +399,15 @@ func TestLocalIndexClassNames(t *testing.T) {
 		db.indexLock.Lock()
 		defer db.indexLock.Unlock()
 
-		done := make(chan answer, 1)
+		done := make(chan listAnswer, 1)
 		go func() {
 			names, err := db.LocalIndexClassNames()
-			done <- answer{names: names, err: err}
+			done <- listAnswer{names: names, err: err}
 		}()
 
 		select {
 		case got := <-done:
+			require.ErrorIs(t, got.err, ErrIndexClosing)
 			require.ErrorIs(t, got.err, errIndexShutdown)
 			assert.Nil(t, got.names, "a refusal carries no names a caller could diff against")
 		case <-time.After(2 * time.Second):
@@ -418,13 +421,14 @@ func TestLocalIndexClassNames(t *testing.T) {
 		db := dbWithIndices(t, "Product")
 
 		db.indexLock.Lock()
-		done := callParkedOnIndexLock(t, db)
+		done := callParkedOnIndexLock(t, "LocalIndexClassNames", db.LocalIndexClassNames)
 
 		close(db.shutdown)
 		db.indexLock.Unlock()
 
 		select {
 		case got := <-done:
+			require.ErrorIs(t, got.err, ErrIndexClosing)
 			require.ErrorIs(t, got.err, errIndexShutdown)
 			assert.Nil(t, got.names, "the list describes a node whose indices are all closed")
 		case <-time.After(5 * time.Second):
@@ -448,13 +452,13 @@ func TestLocalIndexClassNames(t *testing.T) {
 			t.Error("Shutdown took indexLock before closing db.shutdown")
 		}
 
-		done := make(chan answer, 1)
+		done := make(chan listAnswer, 1)
 		go func() {
 			names, err := db.LocalIndexClassNames()
-			done <- answer{names: names, err: err}
+			done <- listAnswer{names: names, err: err}
 		}()
 
-		var got answer
+		var got listAnswer
 		select {
 		case got = <-done:
 		case <-time.After(2 * time.Second):
@@ -465,5 +469,142 @@ func TestLocalIndexClassNames(t *testing.T) {
 		require.NoError(t, <-stopped)
 		require.ErrorIs(t, got.err, errIndexShutdown)
 		assert.Nil(t, got.names, "a refusal carries no names a caller could diff against")
+	})
+}
+
+func TestGetLocalShardNames(t *testing.T) {
+	dbWithShards := func(t *testing.T, collection string, shardNames ...string) (*DB, *Index) {
+		t.Helper()
+
+		logger, _ := test.NewNullLogger()
+		shards := make(map[string]ShardLike, len(shardNames))
+		for _, name := range shardNames {
+			// GetLocalShardNames reads only the shard names, so these mocks expect no call.
+			shards[name] = NewMockShardLike(t)
+		}
+		idx := newTestIndex(t, logger, collection, nil, shards)
+		idx.Config.RootPath = t.TempDir()
+
+		return &DB{
+			indices:  map[string]*Index{indexID(idx.Config.ClassName): idx},
+			shutdown: make(chan struct{}),
+		}, idx
+	}
+
+	t.Run("it lists every resident shard", func(t *testing.T) {
+		db, _ := dbWithShards(t, "Product", "s1", "s2")
+
+		got, err := db.GetLocalShardNames("Product")
+
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"s1", "s2"}, got)
+	})
+
+	// A shutdown variant and a drop variant would run identical code, because
+	// enterRead refuses on i.closed alone and never reads the cause.
+	t.Run("a closing index refuses", func(t *testing.T) {
+		db, idx := dbWithShards(t, "Product", "s1")
+		idx.signalCloseRequested(errIndexDropped)
+		require.NoError(t, idx.beginClose())
+
+		got, err := db.GetLocalShardNames("Product")
+
+		require.ErrorIs(t, err, ErrIndexClosing)
+		// errAlreadyShutdown is the half of the double %w nothing else holds.
+		// Collapsing the wrap to "%w: %v" keeps every other row here passing.
+		require.ErrorIs(t, err, errAlreadyShutdown)
+		// The enterRead refusal carries the cause too.
+		require.ErrorIs(t, err, errIndexDropped)
+		require.ErrorContains(t, err, `"Product"`,
+			"an operator reading one line needs the collection it was asked about")
+		assert.Nil(t, got, "a refusal carries no names a caller could diff against")
+	})
+
+	// The delete has not reached beginClose, so ForEachShard walks every shard and
+	// only the check after the walk refuses.
+	t.Run("an index committed for deletion refuses after collecting names", func(t *testing.T) {
+		db, idx := dbWithShards(t, "Product", "s1", "s2")
+		idx.signalCloseRequested(errIndexDropped)
+
+		got, err := db.GetLocalShardNames("Product")
+
+		require.ErrorIs(t, err, ErrIndexClosing)
+		require.ErrorIs(t, err, errIndexDropped)
+		require.NotErrorIs(t, err, errAlreadyShutdown)
+		assert.Nil(t, got, "a refusal carries no names a caller could diff against")
+	})
+
+	// ForEachLoadedShard would skip this never-loaded shard.
+	t.Run("it lists a resident shard that has never loaded", func(t *testing.T) {
+		db, idx := dbWithShards(t, "Product", "s1")
+		idx.shards.Store("cold", &LazyLoadShard{})
+
+		got, err := db.GetLocalShardNames("Product")
+
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"s1", "cold"}, got)
+	})
+
+	// A schema change holds indexLock while DB.Shutdown begins, so DB.GetIndex returns
+	// an open index and only the check after the walk can refuse.
+	t.Run("a node stop that begins during the lookup refuses", func(t *testing.T) {
+		db, _ := dbWithShards(t, "Product", "s1")
+
+		db.indexLock.Lock()
+		done := callParkedOnIndexLock(t, "GetLocalShardNames", func() ([]string, error) {
+			return db.GetLocalShardNames("Product")
+		})
+
+		close(db.shutdown)
+		db.indexLock.Unlock()
+
+		select {
+		case got := <-done:
+			require.ErrorIs(t, got.err, ErrIndexClosing)
+			require.ErrorIs(t, got.err, errIndexShutdown)
+			assert.Nil(t, got.names, "a refusal carries no names a caller could diff against")
+		case <-time.After(5 * time.Second):
+			t.Fatal("still blocked after indexLock was released")
+		}
+	})
+
+	// The node stop has to be answered before db.GetIndex, which parks on
+	// indexLock for the whole of DB.Shutdown's close loop.
+	t.Run("a node stopping refuses before it looks the index up", func(t *testing.T) {
+		db, _ := dbWithShards(t, "Product", "s1")
+		close(db.shutdown)
+
+		got, err := db.GetLocalShardNames("Product")
+
+		require.ErrorIs(t, err, ErrIndexClosing)
+		require.ErrorIs(t, err, errIndexShutdown)
+		assert.Nil(t, got, "a refusal carries no names a caller could diff against")
+	})
+
+	t.Run("a collection with no index is not found", func(t *testing.T) {
+		db, _ := dbWithShards(t, "Product", "s1")
+
+		_, err := db.GetLocalShardNames("Absent")
+
+		require.ErrorContains(t, err, `collection "Absent" not found`)
+		require.NotErrorIs(t, err, ErrIndexClosing)
+	})
+
+	// A skipped exitRead passes every other row but leaves beginClose hanging in
+	// inflight.Wait.
+	t.Run("the index is still closable after a successful call", func(t *testing.T) {
+		db, idx := dbWithShards(t, "Product", "s1")
+		_, err := db.GetLocalShardNames("Product")
+		require.NoError(t, err)
+
+		closed := make(chan error, 1)
+		go func() { closed <- idx.beginClose() }()
+
+		select {
+		case err := <-closed:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("beginClose never drained: the read was entered and not exited")
+		}
 	})
 }
