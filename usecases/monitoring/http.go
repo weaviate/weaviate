@@ -112,3 +112,20 @@ func (c *countingReadCloser) Read(p []byte) (int, error) {
 func (c *countingReadCloser) Close() error {
 	return c.r.Close()
 }
+
+// BytesRead reports how many bytes of r's body have been read so far.
+// [InstrumentHandler] records the same count as http_request_size_bytes. It
+// is also the only body size available for a chunked request, whose
+// ContentLength is -1.
+//
+// ok is false when r.Body is not the instrumented reader. That happens when
+// monitoring is off, and when the caller sits outside [InstrumentHandler],
+// which restores the original body once its own ServeHTTP returns. Callers
+// must then skip their observation rather than record the zero.
+func BytesRead(r *http.Request) (int64, bool) {
+	cr, ok := r.Body.(*countingReadCloser)
+	if !ok {
+		return 0, false
+	}
+	return cr.read, true
+}

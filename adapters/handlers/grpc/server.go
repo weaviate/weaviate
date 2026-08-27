@@ -26,6 +26,7 @@ import (
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -149,6 +150,7 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 		startTime := time.Now()
 		reqSizeBytes := float64(proto.Size(req.(proto.Message)))
 		reqSizeMB := float64(reqSizeBytes) / (1024 * 1024)
+		ctx, batchNamespace := restCtx.WithBatchNamespaceSlot(ctx)
 		// Invoke the handler to process the request
 		resp, err := handler(ctx, req)
 
@@ -165,7 +167,11 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 		// Metric uses non-standard base unit ms, use ms for backwards compatibility
 		metrics.BatchTime.WithLabelValues("total_api_level_grpc", "n/a", "n/a").
 			Observe(float64(duration.Milliseconds()))
-		metrics.BatchSizeBytes.WithLabelValues("grpc").Observe(reqSizeBytes)
+		namespace := batchNamespace.Namespace
+		if metrics.Group {
+			namespace = ""
+		}
+		metrics.BatchSizeBytes.WithLabelValues("grpc", namespace).Observe(reqSizeBytes)
 
 		return resp, err
 	}
