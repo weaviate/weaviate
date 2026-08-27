@@ -135,6 +135,10 @@ func TestSortedKeysEmpty(t *testing.T) {
 			for range keys.All() {
 				t.Fatal("an empty list must yield nothing")
 			}
+			// The empty range of an empty list is legal.
+			var sub SortedKeys
+			assert.NotPanics(t, func() { sub = keys.Sub(0, 0) })
+			assert.Zero(t, sub.Len())
 		})
 	}
 }
@@ -296,6 +300,124 @@ func collect(keys SortedKeys) []string {
 		out = append(out, string(k))
 	}
 	return out
+}
+
+// TestSortedKeysRange covers both layouts through every accessor, because a
+// subrange is read back the same ways the whole list is and the two layouts
+// narrow by different means — the fixed one cuts the slab, the variable one
+// keeps it whole and cuts only the offsets.
+func TestSortedKeysRange(t *testing.T) {
+	// Two fixtures, because Build collapses equal-width keys into the layout
+	// carrying no offsets — a same-width list would run the fixed arm twice and
+	// leave the offsets arm untested.
+	varyingWidths := []string{"a", "bb", "ccc", "dddd", "eeeee"}
+	oneWidth := []string{"aa", "bb", "cc", "dd", "ee"}
+
+	layouts := []struct {
+		name  string
+		all   []string
+		build func(keys []string) SortedKeys
+		// wantOffsets is which arm the fixture must reach, stated rather than
+		// derived from the subtest name
+		wantOffsets bool
+	}{
+		{
+			name: "variable width", all: varyingWidths, wantOffsets: true,
+			build: func(keys []string) SortedKeys { return buildVariable(t, keys) },
+		},
+		{name: "fixed width", all: oneWidth, build: buildFixed(t, 2)},
+	}
+
+	ranges := []struct {
+		name     string
+		from, to int
+	}{
+		{"a middle range", 1, 4},
+		{"from the start", 0, 2},
+		{"to the end", 3, 5},
+		{"the whole list", 0, 5},
+		{"one key", 2, 3},
+		{"none", 2, 2},
+	}
+
+	for _, lay := range layouts {
+		t.Run(lay.name, func(t *testing.T) {
+			keys := lay.build(lay.all)
+			// the fixture has to reach the arm the subtest is named for
+			require.Equal(t, lay.wantOffsets, keys.offs != nil,
+				"fixture must build the layout under test")
+
+			for _, r := range ranges {
+				t.Run(r.name, func(t *testing.T) {
+					want := lay.all[r.from:r.to]
+					sub := keys.Sub(r.from, r.to)
+
+					require.Equal(t, len(want), sub.Len())
+					assert.Equal(t, want, collect(sub), "All must yield the subrange")
+					for i, w := range want {
+						assert.Equalf(t, w, string(sub.At(i)), "At(%d)", i)
+					}
+					// a subrange is a list in its own right: a reader handed one
+					// walks it from 0, so it has to be ascending on its own terms
+					assert.True(t, sub.isAscending())
+				})
+			}
+
+			t.Run("the pieces of a split cover the whole list", func(t *testing.T) {
+				var rejoined []string
+				for _, bound := range [][2]int{{0, 2}, {2, 2}, {2, 5}} {
+					rejoined = append(rejoined, collect(keys.Sub(bound[0], bound[1]))...)
+				}
+				assert.Equal(t, lay.all, rejoined)
+			})
+
+			t.Run("subranging does not disturb the list it came from", func(t *testing.T) {
+				_ = keys.Sub(1, 3)
+				assert.Equal(t, lay.all, collect(keys))
+			})
+
+			// Both layouts have the parent's remaining keys past a subrange's
+			// end, and reaching them must fail rather than answer with a
+			// neighbour's key.
+			t.Run("reading past a subrange panics", func(t *testing.T) {
+				sub := keys.Sub(0, 2)
+				assert.Panics(t, func() { _ = sub.At(sub.Len()) },
+					"At past the subrange must not reach the next one")
+				assert.Panics(t, func() { _ = keys.Sub(0, keys.Len()+1) },
+					"a subrange wider than the list must not be built")
+			})
+
+			// A subrange is a list in its own right, so it refuses what the list
+			// it came from refuses.
+			t.Run("a subrange of a subrange cannot reach its parent's keys", func(t *testing.T) {
+				sub := keys.Sub(1, 3)
+				require.Equal(t, 2, sub.Len())
+
+				assert.Panics(t, func() { _ = sub.Sub(0, sub.Len()+1) },
+					"one key past the subrange")
+				assert.Panics(t, func() { _ = sub.Sub(0, sub.Len()+3) },
+					"several keys past the subrange, all of them the parent's")
+				assert.Equal(t, lay.all[1:3], collect(sub.Sub(0, sub.Len())),
+					"the whole subrange is still legal")
+			})
+
+			t.Run("an inverted range is refused rather than answering empty", func(t *testing.T) {
+				// empty by arithmetic, so an unchecked reslice builds it
+				assert.Panics(t, func() { _ = keys.Sub(2, 1) })
+				assert.Panics(t, func() { _ = keys.Sub(-1, 2) })
+			})
+		})
+	}
+
+	t.Run("the zero value refuses every range, as At does", func(t *testing.T) {
+		// w == 0 slices to [0:0:0] for any argument pair
+		var zero SortedKeys
+		assert.Panics(t, func() { _ = zero.Sub(0, 5) })
+		assert.Panics(t, func() { _ = zero.Sub(3, 9) })
+		assert.Panics(t, func() { _ = zero.Sub(0, -1) })
+		assert.NotPanics(t, func() { _ = zero.Sub(0, 0) },
+			"the empty range of an empty list is legal")
+	})
 }
 
 // TestVarKeyBuilderBuild is the variable-width counterpart to
