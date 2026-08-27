@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -548,6 +549,43 @@ func (db *DB) copyIndices() map[string]*Index {
 	return indices
 }
 
+// shuttingDown reports whether DB.Shutdown has begun.
+func (db *DB) shuttingDown() bool {
+	select {
+	case <-db.shutdown:
+		return true
+	default:
+		return false
+	}
+}
+
+// LocalIndexClassNames returns the sorted class names this node holds an index for,
+// qualified as <ns>:<Class> where the class has a namespace. A name is not evidence
+// the index is open. The one error is errIndexShutdown, for a node stop. A call that
+// entered before the stop waits it out, with no context to cut the wait short.
+func (db *DB) LocalIndexClassNames() ([]string, error) {
+	if db.shuttingDown() {
+		return nil, errIndexShutdown
+	}
+
+	indices := db.copyIndices()
+
+	// copyIndices waits on indexLock while DB.Shutdown closes every index, so a stop
+	// may have begun since the check above.
+	if db.shuttingDown() {
+		return nil, errIndexShutdown
+	}
+
+	names := make([]string, 0, len(indices))
+	for _, index := range indices {
+		// indexID lowercases the map key. Config.ClassName keeps the schema's case and
+		// is written once at construction, so reading it needs no lock.
+		names = append(names, index.Config.ClassName.String())
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
 // GetLocalShardNames returns the names of all shards local to this node for
 // the given collection. Returns an error if the collection is not found or has
 // no local shards.
@@ -694,7 +732,8 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {
-	// Close, never send: the sole receiver is the resource-scan loop, and a recovered panic there would leave an unbuffered send hanging the whole shutdown until SIGKILL.
+	// Close, never send: a send reaches one receiver, and a recovered panic in
+	// scanResourceUsage would hang the whole shutdown on it until SIGKILL.
 	db.shutdownOnce.Do(func() { close(db.shutdown) })
 	db.bitmapBufPoolClose()
 
