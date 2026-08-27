@@ -2973,23 +2973,8 @@ func init() {
       }
     },
     "/mcp": {
-      "get": {
-        "description": "Opens an SSE stream for receiving MCP server-sent events.",
-        "produces": [
-          "text/event-stream"
-        ],
-        "tags": [
-          "mcp"
-        ],
-        "operationId": "mcp.get",
-        "responses": {
-          "200": {
-            "description": "SSE event stream"
-          }
-        }
-      },
       "post": {
-        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation. Every request is authenticated on its own; no Mcp-Session-Id is issued or required.",
         "consumes": [
           "application/json"
         ],
@@ -3004,18 +2989,40 @@ func init() {
         "responses": {
           "200": {
             "description": "JSON-RPC response or SSE stream"
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
       "delete": {
-        "description": "Terminates an MCP session.",
+        "description": "Accepted so clients that end their session explicitly keep working. The server keeps no session state, so there is nothing to terminate.",
         "tags": [
           "mcp"
         ],
         "operationId": "mcp.delete",
         "responses": {
           "200": {
-            "description": "Session terminated"
+            "description": "Accepted; there is no session state to terminate"
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
@@ -15225,23 +15232,8 @@ func init() {
       }
     },
     "/mcp": {
-      "get": {
-        "description": "Opens an SSE stream for receiving MCP server-sent events.",
-        "produces": [
-          "text/event-stream"
-        ],
-        "tags": [
-          "mcp"
-        ],
-        "operationId": "mcp.get",
-        "responses": {
-          "200": {
-            "description": "SSE event stream"
-          }
-        }
-      },
       "post": {
-        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation. Every request is authenticated on its own; no Mcp-Session-Id is issued or required.",
         "consumes": [
           "application/json"
         ],
@@ -15256,18 +15248,40 @@ func init() {
         "responses": {
           "200": {
             "description": "JSON-RPC response or SSE stream"
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
       "delete": {
-        "description": "Terminates an MCP session.",
+        "description": "Accepted so clients that end their session explicitly keep working. The server keeps no session state, so there is nothing to terminate.",
         "tags": [
           "mcp"
         ],
         "operationId": "mcp.delete",
         "responses": {
           "200": {
-            "description": "Session terminated"
+            "description": "Accepted; there is no session state to terminate"
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }

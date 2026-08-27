@@ -271,9 +271,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		McpMcpDeleteHandler: mcp.McpDeleteHandlerFunc(func(params mcp.McpDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation mcp.McpDelete has not yet been implemented")
 		}),
-		McpMcpGetHandler: mcp.McpGetHandlerFunc(func(params mcp.McpGetParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation mcp.McpGet has not yet been implemented")
-		}),
 		McpMcpPostHandler: mcp.McpPostHandlerFunc(func(params mcp.McpPostParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation mcp.McpPost has not yet been implemented")
 		}),
@@ -632,8 +629,6 @@ type WeaviateAPI struct {
 	ReplicationListReplicationHandler replication.ListReplicationHandler
 	// McpMcpDeleteHandler sets the operation handler for the mcp delete operation
 	McpMcpDeleteHandler mcp.McpDeleteHandler
-	// McpMcpGetHandler sets the operation handler for the mcp get operation
-	McpMcpGetHandler mcp.McpGetHandler
 	// McpMcpPostHandler sets the operation handler for the mcp post operation
 	McpMcpPostHandler mcp.McpPostHandler
 	// MetaMetaGetHandler sets the operation handler for the meta get operation
@@ -1027,9 +1022,6 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.McpMcpDeleteHandler == nil {
 		unregistered = append(unregistered, "mcp.McpDeleteHandler")
-	}
-	if o.McpMcpGetHandler == nil {
-		unregistered = append(unregistered, "mcp.McpGetHandler")
 	}
 	if o.McpMcpPostHandler == nil {
 		unregistered = append(unregistered, "mcp.McpPostHandler")
@@ -1562,10 +1554,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/mcp"] = mcp.NewMcpDelete(o.context, o.McpMcpDeleteHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/mcp"] = mcp.NewMcpGet(o.context, o.McpMcpGetHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
