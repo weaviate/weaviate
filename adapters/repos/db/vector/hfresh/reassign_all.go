@@ -47,14 +47,13 @@ func (h *HFresh) EnqueueReassignAll(ctx context.Context) (ReassignAllStats, erro
 		return stats, errors.New("index is not initialized")
 	}
 
-	maxID := h.Centroids.GetMaxID()
-	for postingID := uint64(0); postingID <= maxID; postingID++ {
+	// The posting map enumerates the allocated posting IDs; the posting is
+	// still read from the store because only its entries carry the per-copy
+	// version byte that distinguishes a vector's live copy from stale ones.
+	for postingID := range h.PostingMap.Iter() {
 		err := ctx.Err()
 		if err != nil {
 			return stats, err
-		}
-		if !h.Centroids.Exists(postingID) {
-			continue
 		}
 
 		posting, err := h.PostingStore.Get(ctx, postingID)
