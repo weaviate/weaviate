@@ -19,9 +19,17 @@ import (
 
 // Authorizer always makes a yes/no decision on a specific resource. Which
 // authorization technique is used in the background (e.g. RBAC, adminlist,
-// ...) is hidden through this interface
+// ...) is hidden through this interface, except that only RBAC reads
+// namespace state.
 type Authorizer interface {
 	Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error
+	// AuthorizeAndRequireActiveNamespace runs Authorize first, so a caller
+	// denied the resource never learns the namespace's state, then requires
+	// class's namespace to be active. Pass the resolved qualified name the
+	// resources were built from. A namespace refusal is RequireActive's
+	// sentinel, unwrapped and never a Forbidden — RequireActive rather than
+	// AdmitDestructiveApply, so a deleting namespace refuses here.
+	AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error
 	// AuthorizeSilent Silent authorization without audit logs
 	AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error
 	// FilterAuthorizedResources authorize the passed resources with best effort approach, it will return
@@ -37,6 +45,15 @@ type DummyAuthorizer struct{}
 // Authorize on the DummyAuthorizer will allow any subject access to any
 // resource
 func (d *DummyAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	return nil
+}
+
+// AuthorizeAndRequireActiveNamespace skips the namespace check: this package
+// sits inside usecases/namespaces' import closure and cannot import it. Safe
+// only while Config.Validate requires RBAC whenever NAMESPACES_ENABLED is set;
+// once a single collection can be suspended without that requirement, this
+// must refuse instead.
+func (d *DummyAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
 	return nil
 }
 

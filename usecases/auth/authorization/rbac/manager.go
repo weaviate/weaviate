@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -40,10 +41,12 @@ const (
 	SnapshotVersionLatest
 )
 
-// NamespaceLister reports the namespaces this cluster currently has. Snapshot calls it
-// when it runs rather than at construction, so a snapshot taken later sees namespaces
-// created since boot.
+// NamespaceLister reports the namespaces this cluster currently has. List is called
+// by Snapshot when it runs rather than at construction, so a snapshot taken later
+// sees namespaces created since boot. Exister answers the per-request state check in
+// AuthorizeAndRequireActiveNamespace.
 type NamespaceLister interface {
+	usecasesNamespaces.Exister
 	List() []cmd.Namespace
 }
 
@@ -57,7 +60,17 @@ type Manager struct {
 	restoreLock       sync.RWMutex
 }
 
+// New builds the RBAC manager. namespaces must be non-nil when namespacesEnabled is
+// true, because a manager that cannot read namespace state panics on the first
+// namespace-qualified class. The check catches only a nil interface. A caller
+// passing a typed nil pointer gets a Manager that panics on that first read. It also
+// panics on Snapshot once a role name, resource path or oidc subject names a namespace,
+// because referencedNamespaces resolves those without reading namespacesEnabled.
 func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
+	if namespacesEnabled && namespaces == nil {
+		return nil, fmt.Errorf("NAMESPACES_ENABLED=true requires a namespace lister")
+	}
+
 	csbin, err := Init(rbacConf, rbacStoragePath, authNconf, namespacesEnabled)
 	if err != nil {
 		return nil, err

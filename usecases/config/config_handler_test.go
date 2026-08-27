@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/swag"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 
@@ -471,6 +472,7 @@ func TestConfigValidation_Namespaces(t *testing.T) {
 		namespacesEnabled bool
 		disableGraphQL    bool
 		rbacEnabled       bool
+		adminList         bool
 		// wantErrSubstr is empty when no namespace cross-field error is expected.
 		wantErrSubstr string
 	}{
@@ -496,6 +498,14 @@ func TestConfigValidation_Namespaces(t *testing.T) {
 			wantErrSubstr:     "NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true",
 		},
 		{
+			name:              "namespaces enabled with adminlist instead of RBAC — requires RBAC error",
+			namespacesEnabled: true,
+			disableGraphQL:    true,
+			rbacEnabled:       false,
+			adminList:         true,
+			wantErrSubstr:     "NAMESPACES_ENABLED=true requires RBAC to be enabled",
+		},
+		{
 			name:              "namespaces enabled with DISABLE_GRAPHQL and RBAC — no namespace error",
 			namespacesEnabled: true,
 			disableGraphQL:    true,
@@ -508,7 +518,10 @@ func TestConfigValidation_Namespaces(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := &Config{
 				Authentication: Authentication{APIKey: StaticAPIKey{Enabled: true, Users: []string{"u"}, AllowedKeys: []string{"k"}}},
-				Authorization:  Authorization{Rbac: rbacconf.Config{Enabled: tc.rbacEnabled}},
+				Authorization: Authorization{
+					Rbac:      rbacconf.Config{Enabled: tc.rbacEnabled},
+					AdminList: adminlist.Config{Enabled: tc.adminList, Users: []string{"admin"}},
+				},
 				DisableGraphQL: runtime.NewDynamicValue(tc.disableGraphQL),
 				Namespaces:     Namespaces{Enabled: tc.namespacesEnabled},
 			}

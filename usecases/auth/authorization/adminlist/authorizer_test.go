@@ -473,3 +473,32 @@ func Test_AdminList_DenialKeepsReadOnlyGroup(t *testing.T) {
 		})
 	}
 }
+
+// TestAdminList_AuthorizeAndRequireActiveNamespace pins that the method still
+// authorizes: it skips only the namespace check, which this package cannot run.
+func TestAdminList_AuthorizeAndRequireActiveNamespace(t *testing.T) {
+	tests := []struct {
+		name        string
+		username    string
+		wantAllowed bool
+	}{
+		{name: "an admin is allowed", username: "johndoe", wantAllowed: true},
+		{name: "a non-admin is forbidden", username: "janedoe"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := New(Config{Enabled: true, Users: []string{"johndoe"}})
+
+			err := authorizer.AuthorizeAndRequireActiveNamespace(context.Background(),
+				&models.Principal{Username: tt.username}, "R", "alpha:Movies", "things")
+
+			if tt.wantAllowed {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+		})
+	}
+}

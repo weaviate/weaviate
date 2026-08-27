@@ -26,10 +26,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 func newTestManager(t *testing.T) *Manager {
-	return newTestManagerWithNamespaces(t, nil)
+	return newTestManagerWithNamespaces(t, usecasesNamespaces.NewController(logrus.New()))
 }
 
 func newTestManagerWithNamespaces(t *testing.T, namespaces rbac.NamespaceLister) *Manager {

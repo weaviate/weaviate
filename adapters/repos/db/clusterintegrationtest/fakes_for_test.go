@@ -571,6 +571,10 @@ func (f *fakeAuthorizer) Authorize(ctx context.Context, _ *models.Principal, _ s
 	return nil
 }
 
+func (f *fakeAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, _ *models.Principal, _ string, _ string, _ ...string) error {
+	return nil
+}
+
 func (f *fakeAuthorizer) AuthorizeSilent(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
 	return nil
 }

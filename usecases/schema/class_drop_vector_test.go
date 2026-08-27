@@ -204,21 +204,32 @@ type denyNthAuthorizer struct {
 	deny   error
 }
 
-func (a *denyNthAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+func (a *denyNthAuthorizer) nth() error {
 	a.n++
-	_ = a.inner.Authorize(ctx, principal, verb, resources...)
 	if a.n == a.denyAt {
 		return a.deny
 	}
 	return nil
 }
 
+func (a *denyNthAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	_ = a.inner.Authorize(ctx, principal, verb, resources...)
+	return a.nth()
+}
+
+func (a *denyNthAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	_ = a.inner.AuthorizeAndRequireActiveNamespace(ctx, principal, verb, class, resources...)
+	return a.nth()
+}
+
 func (a *denyNthAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.Authorize(ctx, principal, verb, resources...)
+	_ = a.inner.AuthorizeSilent(ctx, principal, verb, resources...)
+	return a.nth()
 }
 
 func (a *denyNthAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	if err := a.Authorize(ctx, principal, verb, resources...); err != nil {
+	_, _ = a.inner.FilterAuthorizedResources(ctx, principal, verb, resources...)
+	if err := a.nth(); err != nil {
 		return nil, err
 	}
 	return resources, nil

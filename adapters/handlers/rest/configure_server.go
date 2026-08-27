@@ -163,13 +163,27 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 }
 
 func configureAuthorizer(appState *state.State) error {
+	// configureOIDC and configureAPIKey take appState.NamespacesController
+	// earlier in boot and neither rejects a typed nil, so this is the first
+	// place it is checked.
+	if appState.ServerConfig.Config.Namespaces.Enabled && appState.NamespacesController == nil {
+		return fmt.Errorf("NAMESPACES_ENABLED=true requires a namespace controller, but it wasn't initialized")
+	}
+
+	// A nil *Controller widened into the interface would leave namespaceLister
+	// non-nil, so referencedNamespaces' nil check misses it and Snapshot panics.
+	var namespaceLister rbac.NamespaceLister
+	if appState.NamespacesController != nil {
+		namespaceLister = appState.NamespacesController
+	}
+
 	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
 		// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
 		rbacController, err := rbac.New(
 			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
 			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
 			appState.ServerConfig.Config.Namespaces.Enabled,
-			appState.NamespacesController,
+			namespaceLister,
 			appState.Logger)
 		if err != nil {
 			return fmt.Errorf("can't init casbin %w", err)

@@ -1328,8 +1328,9 @@ func TestSchedulerList(t *testing.T) {
 			assert.Equal(t, authorization.READ, call.Verb)
 			assert.Equal(t, authorization.Backups(), call.Resources)
 		}
-		assert.True(t, calls[0].Silent, "the probe must not log a denial for callers who hold no blanket READ")
-		assert.False(t, calls[1].Silent,
+		assert.Equal(t, mocks.MethodAuthorizeSilent, calls[0].Method,
+			"the probe must not log a denial for callers who hold no blanket READ")
+		assert.Equal(t, mocks.MethodAuthorize, calls[1].Method,
 			"nothing else authorizes this endpoint, so the grant must reach the audit log")
 	})
 
@@ -2568,7 +2569,8 @@ func makeRbacSnapshot(t *testing.T, roleNames ...string) []byte {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
-		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, true, nil, logger)
+		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}},
+		true, namespaces.NewController(logger), logger)
 	require.NoError(t, err)
 	perms := make(map[string][]authorization.Policy, len(roleNames))
 	for _, r := range roleNames {
@@ -2591,7 +2593,8 @@ func makeRbacSnapshotWithSubjects(t *testing.T, role string, dbUserIDs ...string
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
-		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, true, nil, logger)
+		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}},
+		true, namespaces.NewController(logger), logger)
 	require.NoError(t, err)
 	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
 		role: {{

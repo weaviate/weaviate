@@ -70,6 +70,15 @@ func (a *Authorizer) Authorize(ctx context.Context, principal *models.Principal,
 	return fmt.Errorf("adminlist: %w", errors.NewForbidden(principal, verb, resources...))
 }
 
+// AuthorizeAndRequireActiveNamespace skips the namespace check: this package
+// sits inside usecases/namespaces' import closure and cannot import it. Safe
+// only while Config.Validate requires RBAC whenever NAMESPACES_ENABLED is set;
+// once a single collection can be suspended without that requirement, this
+// must refuse instead.
+func (a *Authorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
+}
+
 func (a *Authorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	return a.Authorize(ctx, principal, verb, resources...)
 }

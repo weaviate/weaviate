@@ -966,22 +966,45 @@ func setupTestManagerWithAPIKey(t *testing.T, logger *logrus.Logger, apiKey conf
 		false, nil, logger)
 }
 
-// fakeNamespaceLister reports a fixed namespace set, standing in for the cluster's
-// namespace controller.
-type fakeNamespaceLister []string
+// fakeNamespaceLister reports a fixed namespace set and each namespace's state,
+// standing in for the cluster's namespace controller.
+type fakeNamespaceLister map[string]cmd.NamespaceState
 
-func (f fakeNamespaceLister) List() []cmd.Namespace {
-	out := make([]cmd.Namespace, 0, len(f))
-	for _, name := range f {
-		out = append(out, cmd.Namespace{Name: name})
+// activeNamespaces builds a lister holding each named namespace in the active state.
+func activeNamespaces(names ...string) fakeNamespaceLister {
+	out := make(fakeNamespaceLister, len(names))
+	for _, name := range names {
+		out[name] = cmd.NamespaceStateActive
 	}
 	return out
 }
 
+func (f fakeNamespaceLister) List() []cmd.Namespace {
+	out := make([]cmd.Namespace, 0, len(f))
+	for name, state := range f {
+		out = append(out, cmd.Namespace{Name: name, State: state})
+	}
+	return out
+}
+
+func (f fakeNamespaceLister) GetNamespace(name string) (cmd.Namespace, bool) {
+	state, ok := f[name]
+	if !ok {
+		return cmd.Namespace{}, false
+	}
+	return cmd.Namespace{Name: name, State: state}, true
+}
+
 // setupNSEnabledTestManager is setupTestManager with namespacesEnabled=true:
 // admin/viewer get the narrowed shape, root/read-only stay wildcard. The caller's
-// namespaces are the ones a snapshot may record.
+// namespaces are the ones a snapshot may record, all of them active.
 func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger, namespaces ...string) (*Manager, error) {
+	return setupNSEnabledTestManagerWithLister(t, logger, activeNamespaces(namespaces...))
+}
+
+// setupNSEnabledTestManagerWithLister is setupNSEnabledTestManager for a caller
+// that needs namespaces in a state other than active, or none at all.
+func setupNSEnabledTestManagerWithLister(t *testing.T, logger *logrus.Logger, lister NamespaceLister) (*Manager, error) {
 	tmpDir, err := os.MkdirTemp("", "rbac-test-ns-*")
 	if err != nil {
 		return nil, err
@@ -996,7 +1019,7 @@ func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger, namespaces .
 
 	return New(policyPath, rbacconf.Config{Enabled: true},
 		config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}},
-		true, fakeNamespaceLister(namespaces), logger)
+		true, lister, logger)
 }
 
 // TestNarrowedViewerVsReadOnly_ClusterReadDenied asserts enforcement of
