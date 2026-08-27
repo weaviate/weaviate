@@ -281,6 +281,176 @@ func TestOneCenter(t *testing.T) {
 	}
 }
 
+func repeatVector(v []float32, n int) [][]float32 {
+	data := make([][]float32, n)
+	for i := range data {
+		data[i] = slices.Clone(v)
+	}
+	return data
+}
+
+func constantVector(d int, value float32) []float32 {
+	v := make([]float32, d)
+	for j := range v {
+		v[j] = value
+	}
+	return v
+}
+
+// blobWithOutliers returns a dense blob of normally distributed points
+// followed by nOutliers identical points at distance `offset` per dimension.
+func blobWithOutliers(nBlob int, nOutliers int, d int, offset float32, seed uint64) [][]float32 {
+	data := generateData(nBlob, d, normal, seed)
+	for range nOutliers {
+		data = append(data, constantVector(d, offset))
+	}
+	return data
+}
+
+// assertCentersMatchMembership asserts the core invariant of FitBalanced:
+// for each cluster, the returned center is the mean of the vectors whose
+// returned label points to it. The balanced membership legitimately violates
+// nearest-centroid assignment for the points moved by balancing, so
+// nearest-centroid is deliberately not asserted.
+func assertCentersMatchMembership(t *testing.T, km *KMeans, data [][]float32, labels []uint32) {
+	t.Helper()
+	sums := make([][]float64, km.K)
+	for c := range km.K {
+		sums[c] = make([]float64, km.dimensions)
+	}
+	counts := make([]int, km.K)
+	for i, c := range labels {
+		counts[c]++
+		for j, v := range km.seg(data[i]) {
+			sums[c][j] += float64(v)
+		}
+	}
+	for c := range km.K {
+		if counts[c] == 0 {
+			continue
+		}
+		for j := range km.dimensions {
+			mean := sums[c][j] / float64(counts[c])
+			assert.InDelta(t, mean, float64(km.Centers[c][j]), 1e-3,
+				"cluster %d dimension %d: center must be the mean of the cluster's balanced members", c, j)
+		}
+	}
+}
+
+func balancedClusterSizes(t *testing.T, labels []uint32, k int) []int {
+	t.Helper()
+	counts := make([]int, k)
+	for _, c := range labels {
+		assert.Less(t, int(c), k)
+		counts[c]++
+	}
+	return counts
+}
+
+func TestFitBalancedCentersMatchMembership(t *testing.T) {
+	d := 4
+	k := 2
+
+	cases := []struct {
+		name string
+		data [][]float32
+	}{
+		{
+			name: "normal data",
+			data: generateData(300, d, normal, seed),
+		},
+		{
+			// Most points are copies of one vector, so the initial centers
+			// typically both land on a duplicate and one cluster starts out
+			// empty, leaving its center at the initialization value until the
+			// clusters separate.
+			name: "duplicates with distinct minority",
+			data: append(repeatVector(constantVector(d, 0.1), 194), repeatVector(constantVector(d, 0.9), 6)...),
+		},
+		{
+			// Every point is identical: the second cluster stays empty for the
+			// entire run and updateCenters keeps its initialization center,
+			// while balancing still splits the membership roughly in half.
+			name: "all duplicates",
+			data: repeatVector(constantVector(d, 0.5), 200),
+		},
+	}
+
+	for _, tc := range cases {
+		for _, variant := range kMeansVariants {
+			t.Run(fmt.Sprintf("%s-%v-%v", tc.name, variant.Initialization, variant.Assignment), func(t *testing.T) {
+				km := newDeterministicKMeans(k, d, variant)
+				labels, err := km.FitBalanced(tc.data)
+				assert.NoError(t, err)
+				assert.Len(t, labels, len(tc.data))
+
+				counts := balancedClusterSizes(t, labels, k)
+				assert.LessOrEqual(t, absInt(counts[0]-counts[1]), 10,
+					"membership must be balanced within the threshold")
+
+				assertCentersMatchMembership(t, km, tc.data, labels)
+			})
+		}
+	}
+}
+
+// A dense blob plus two far outliers, sized above the hfresh split floor of
+// 192 vectors. Lloyd's iterations isolate the outliers in a two-point cluster,
+// and balancing then moves roughly half the blob in with them. The returned
+// center for that cluster must be the mean of the balanced membership (roughly
+// offset*4/n per dimension because the cluster has about n/2 members), not the
+// mean of just the two outliers (offset per dimension).
+func TestFitBalancedOutlierBlobSplit(t *testing.T) {
+	d := 4
+	k := 2
+	nBlob := 198
+	nOutliers := 2
+	offset := float32(1000)
+	data := blobWithOutliers(nBlob, nOutliers, d, offset, seed)
+	n := nBlob + nOutliers
+
+	for _, variant := range kMeansVariants {
+		t.Run(fmt.Sprintf("%v-%v", variant.Initialization, variant.Assignment), func(t *testing.T) {
+			km := newDeterministicKMeans(k, d, variant)
+			labels, err := km.FitBalanced(data)
+			assert.NoError(t, err)
+			assert.Len(t, labels, n)
+
+			counts := balancedClusterSizes(t, labels, k)
+			assert.LessOrEqual(t, absInt(counts[0]-counts[1]), 10,
+				"balancing must backfill the outlier cluster from the blob")
+
+			assertCentersMatchMembership(t, km, data, labels)
+		})
+	}
+}
+
+// FitBalanced never runs the assignment loop when IterationThreshold <= 1,
+// because initialization counts as the first iteration. There is then no
+// assignment to balance and the membership is returned as the zero value:
+// every point in cluster 0.
+func TestFitBalancedWithoutIterations(t *testing.T) {
+	n := 100
+	d := 4
+	data := generateData(n, d, normal, seed)
+	for _, variant := range kMeansVariants {
+		for _, iterationThreshold := range []int{0, 1} {
+			km := newDeterministicKMeans(2, d, variant)
+			km.IterationThreshold = iterationThreshold
+			labels, err := km.FitBalanced(data)
+			assert.NoError(t, err)
+			assert.Equal(t, make([]uint32, n), labels)
+		}
+	}
+}
+
+func absInt(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
 func BenchmarkKMeansFit(b *testing.B) {
 	distribution := []Distribution{normal, uniform}
 	dimensions := []int{4, 8, 16, 32}
