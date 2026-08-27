@@ -120,11 +120,7 @@ func initializeDimensions(t *testing.T, tf *TestHFresh, vector []float32) {
 	quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(tf.Index.dims), 42, tf.Index.config.DistanceProvider)
 	require.NoError(t, err)
 	tf.Index.quantizer = quantizer
-	tf.Index.Centroids.SetQuantizer(tf.Index.quantizer)
-	tf.Index.distancer = &Distancer{
-		quantizer: tf.Index.quantizer,
-		distancer: tf.Index.config.DistanceProvider,
-	}
+	tf.Index.distancer = NewDistancer(tf.Index.quantizer, tf.Index.config.DistanceProvider)
 	tf.Index.initDone = true
 }
 
