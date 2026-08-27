@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
@@ -126,12 +128,17 @@ func (o *nodeWideMetricsObserver) observeShards() {
 	}
 }
 
-// Collect and publish aggregated object_count metric iff all indices report allShardsReady=true.
+// Collect and publish the node-wide object_count metric, only when every index
+// reports allShardsReady. A walk an index stops leaves the gauge at its previous
+// value rather than publishing a partial sum, and a collection being deleted
+// counts zero. A single shard whose directory check or object count fails is
+// logged and skipped instead, so the published total is short by that shard.
 func (o *nodeWideMetricsObserver) observeObjectCount() {
-	o.db.indexLock.RLock()
-	defer o.db.indexLock.RUnlock()
+	// One copy serves both loops: taking a second for the sum would let an index
+	// created in between be counted without its allShardsReady being checked.
+	indices := o.db.copyIndices()
 
-	for _, index := range o.db.indices {
+	for _, index := range indices {
 		if !index.allShardsReady.Load() {
 			o.db.logger.WithFields(logrus.Fields{
 				"action": "skip_observe_node_wide_metrics",
@@ -143,33 +150,24 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 	start := time.Now()
 
 	totalObjectCount := int64(0)
-	for _, index := range o.db.indices {
-		index.ForEachShard(func(name string, shard ShardLike) error {
-			index.shardCreateLocks.RLock(name)
-			defer index.shardCreateLocks.RUnlock(name)
-			exists, err := index.tenantDirExists(name)
-			if err != nil {
-				o.db.logger.
-					WithField("action", "observe_node_wide_metrics").
-					WithField("shard", name).
-					WithField("class", index.Config.ClassName).
-					Warnf("error while checking if shard exists: %v", err)
-				return nil
-			}
-			if !exists {
-				// shard was deleted in the meantime or is newly created and hasn't been written to disk, skip
-				return nil
-			}
-			objectCount, err := shard.ObjectCountAsync(context.Background())
-			if err != nil {
-				o.db.logger.WithField("action", "observe_node_wide_metrics").
-					WithField("shard", name).
-					WithField("class", index.Config.ClassName).
-					Warnf("error while getting object count for shard: %v", err)
-			}
-			totalObjectCount += objectCount
-			return nil
-		})
+	for _, index := range indices {
+		count, err := o.indexObjectCount(index)
+		if errors.Is(err, errIndexDropped) {
+			// A collection being deleted really is losing its objects, so the
+			// rest of the node still has a total worth publishing.
+			continue
+		}
+		if err != nil {
+			// Setting ObjectCount to the shards counted so far would report
+			// objects the node never lost. It keeps its previous value instead,
+			// which only this line explains.
+			o.db.logger.WithFields(logrus.Fields{
+				"action": "skip_observe_node_wide_metrics",
+				"class":  index.Config.ClassName,
+			}).Warnf("skip node-wide metrics, object count walk stopped: %v", err)
+			return
+		}
+		totalObjectCount += count
 	}
 
 	o.db.promMetrics.ObjectCount.With(prometheus.Labels{
@@ -183,6 +181,76 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 		"took":         took,
 		"object_count": totalObjectCount,
 	}).Debug("observed node wide metrics")
+}
+
+// indexObjectCount sums one index's shard object counts without holding
+// indexLock, because a cold shard reads its count off disk. The walk stops at
+// the next shard once a drop or shutdown is requested: DeleteIndex takes
+// dropIndex while holding indexLock, so a walk that kept dropIndex.RLock would
+// block every index lookup on the node. A stopped walk has no total, and its
+// error carries the cause so the caller can tell a deleted collection from one
+// it must not leave out.
+func (o *nodeWideMetricsObserver) indexObjectCount(index *Index) (int64, error) {
+	index.dropIndex.RLock()
+	defer index.dropIndex.RUnlock()
+
+	index.closeLock.RLock()
+	defer index.closeLock.RUnlock()
+
+	if index.closed {
+		err := context.Cause(index.closeRequestedCtx)
+		if err == nil {
+			err = errIndexClosed
+		}
+		return 0, err
+	}
+
+	walkCtx, done := index.cancelOnCloseRequested(context.Background())
+	defer done()
+
+	var total int64
+	err := index.ForEachShard(func(name string, shard ShardLike) error {
+		if index.closeRequestedCtx.Err() != nil {
+			return context.Cause(index.closeRequestedCtx)
+		}
+
+		index.shardCreateLocks.RLock(name)
+		defer index.shardCreateLocks.RUnlock(name)
+		exists, err := index.tenantDirExists(name)
+		if err != nil {
+			o.db.logger.
+				WithField("action", "observe_node_wide_metrics").
+				WithField("shard", name).
+				WithField("class", index.Config.ClassName).
+				Warnf("error while checking if shard exists: %v", err)
+			return nil
+		}
+		if !exists {
+			// shard was deleted in the meantime or is newly created and hasn't been written to disk, skip
+			return nil
+		}
+		objectCount, err := shard.ObjectCountAsync(walkCtx)
+		if err != nil {
+			o.db.logger.WithField("action", "observe_node_wide_metrics").
+				WithField("shard", name).
+				WithField("class", index.Config.ClassName).
+				Warnf("error while getting object count for shard: %v", err)
+		}
+		total += objectCount
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	// A callback only checks on entry, so a close request arriving during the
+	// last shard's count has no callback left to stop the walk. Both checks read
+	// the request rather than walkCtx: cancelOnCloseRequested propagates it
+	// through context.AfterFunc, whose goroutine can still be unscheduled here.
+	if index.closeRequestedCtx.Err() != nil {
+		return 0, context.Cause(index.closeRequestedCtx)
+	}
+	return total, nil
 }
 
 // NOTE(dyma): should this also chech that all indices report allShardsReady == true?
