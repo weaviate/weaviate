@@ -688,7 +688,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 			}
 			// A missing ack means an old node that would archive all replicas unstamped; abort rather than silently degrade.
 			if err == nil && req.DedupeReplicas && !resp.DedupeHonored {
-				err = fmt.Errorf("does not support dedupeReplicas (mixed-version cluster); retry without the flag or after upgrading")
+				err = backup.NewErrUnprocessable(fmt.Errorf("does not support dedupeReplicas (mixed-version cluster); retry without the flag or after upgrading"))
 			}
 			if err != nil {
 				return fmt.Errorf("node %q: %w", req.NodeName, err)
