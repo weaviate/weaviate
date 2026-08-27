@@ -380,7 +380,7 @@ func projectDesignations(plan *dedupePlan, nodeName string) map[string]map[strin
 
 // verifyDesignatedCoverage confirms every designated shard is present in its designated node's uploaded descriptor.
 // A miss means the shard is in nobody's archive (replica set changed mid-backup) and the backup must fail rather than report Success over silent loss.
-func (c *coordinator) verifyDesignatedCoverage(ctx context.Context, req *StatusRequest, plan *dedupePlan) error {
+func (c *coordinator) verifyDesignatedCoverage(ctx context.Context, req *StatusRequest, plan *dedupePlan, nodeMetas map[string]*backup.BackupDescriptor) error {
 	byNode := make(map[string]map[string][]string)
 	for class, shards := range plan.designations {
 		for shard, node := range shards {
@@ -396,9 +396,14 @@ func (c *coordinator) verifyDesignatedCoverage(ctx context.Context, req *StatusR
 	}
 	sort.Strings(nodes)
 	for _, node := range nodes {
-		meta, err := c.readNodeMeta(ctx, req, node)
-		if err != nil {
-			return fmt.Errorf("verify designated shards of node %q: %w", node, err)
+		// commit already fetched most per-node descriptors; re-read only the ones it could not.
+		meta := nodeMetas[node]
+		if meta == nil {
+			var err error
+			meta, err = c.readNodeMeta(ctx, req, node)
+			if err != nil {
+				return fmt.Errorf("verify designated shards of node %q: %w", node, err)
+			}
 		}
 		classNames := make([]string, 0, len(byNode[node]))
 		for class := range byNode[node] {
