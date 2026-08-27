@@ -2359,9 +2359,9 @@ func (c *Config) parseBackupGCSConfig() error {
 	switch t := strings.TrimSpace(strings.ToLower(os.Getenv(gcsModuleTransportEnv))); t {
 	case "": // keep the config file value
 	case gcsModuleTransportHTTP:
-		c.BackupGCS.UseGRPC = false
+		c.BackupGCS.UseGRPC = new(false)
 	case gcsModuleTransportGRPC:
-		c.BackupGCS.UseGRPC = true
+		c.BackupGCS.UseGRPC = new(true)
 	default:
 		return fmt.Errorf("%s must be %q or %q. Got: %v",
 			gcsModuleTransportEnv, gcsModuleTransportHTTP, gcsModuleTransportGRPC, t)

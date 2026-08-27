@@ -202,6 +202,9 @@ func (b *GCSBackend) GetWeaviateEnv() map[string]string {
 		"BACKUP_GCS_BUCKET":              b.BucketName(),
 		"BACKUP_GCS_USE_AUTH":            "false",
 		"GOOGLE_APPLICATION_CREDENTIALS": "", // Empty for emulator
+		// The emulator serves the JSON API only, so it cannot answer the gRPC
+		// transport the module otherwise defaults to.
+		"GCS_MODULE_TRANSPORT": "http",
 	}
 }
 
