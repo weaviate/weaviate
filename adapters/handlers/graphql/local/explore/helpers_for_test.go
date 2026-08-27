@@ -45,6 +45,10 @@ func (a *fakeAuthorizer) Authorize(ctx context.Context, principal *models.Princi
 	return nil
 }
 
+func (a *fakeAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resource ...string) error {
+	return nil
+}
+
 func (a *fakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resource ...string) error {
 	return nil
 }

@@ -96,6 +96,70 @@ func (_c *MockAuthorizer_Authorize_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
+// AuthorizeAndRequireActiveNamespace provides a mock function with given fields: ctx, principal, verb, class, resources
+func (_m *MockAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	_va := make([]interface{}, len(resources))
+	for _i := range resources {
+		_va[_i] = resources[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, principal, verb, class)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AuthorizeAndRequireActiveNamespace")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *models.Principal, string, string, ...string) error); ok {
+		r0 = rf(ctx, principal, verb, class, resources...)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockAuthorizer_AuthorizeAndRequireActiveNamespace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AuthorizeAndRequireActiveNamespace'
+type MockAuthorizer_AuthorizeAndRequireActiveNamespace_Call struct {
+	*mock.Call
+}
+
+// AuthorizeAndRequireActiveNamespace is a helper method to define mock.On call
+//   - ctx context.Context
+//   - principal *models.Principal
+//   - verb string
+//   - class string
+//   - resources ...string
+func (_e *MockAuthorizer_Expecter) AuthorizeAndRequireActiveNamespace(ctx interface{}, principal interface{}, verb interface{}, class interface{}, resources ...interface{}) *MockAuthorizer_AuthorizeAndRequireActiveNamespace_Call {
+	return &MockAuthorizer_AuthorizeAndRequireActiveNamespace_Call{Call: _e.mock.On("AuthorizeAndRequireActiveNamespace",
+		append([]interface{}{ctx, principal, verb, class}, resources...)...)}
+}
+
+func (_c *MockAuthorizer_AuthorizeAndRequireActiveNamespace_Call) Run(run func(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string)) *MockAuthorizer_AuthorizeAndRequireActiveNamespace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]string, len(args)-4)
+		for i, a := range args[4:] {
+			if a != nil {
+				variadicArgs[i] = a.(string)
+			}
+		}
+		run(args[0].(context.Context), args[1].(*models.Principal), args[2].(string), args[3].(string), variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *MockAuthorizer_AuthorizeAndRequireActiveNamespace_Call) Return(_a0 error) *MockAuthorizer_AuthorizeAndRequireActiveNamespace_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockAuthorizer_AuthorizeAndRequireActiveNamespace_Call) RunAndReturn(run func(context.Context, *models.Principal, string, string, ...string) error) *MockAuthorizer_AuthorizeAndRequireActiveNamespace_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // AuthorizeSilent provides a mock function with given fields: ctx, principal, verb, resources
 func (_m *MockAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	_va := make([]interface{}, len(resources))
@@ -239,7 +303,8 @@ func (_c *MockAuthorizer_FilterAuthorizedResources_Call) RunAndReturn(run func(c
 func NewMockAuthorizer(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockAuthorizer {
+},
+) *MockAuthorizer {
 	mock := &MockAuthorizer{}
 	mock.Mock.Test(t)
 

@@ -225,7 +225,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				require.Len(t, authorizer.Calls(), 1, "Authorizer must be called")
 				assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
 					"execution must abort with Authorizer error")
-				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources},
+				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources, Method: mocks.MethodAuthorize},
 					authorizer.Calls()[0], "correct parameters must have been used on Authorizer")
 			})
 		}
