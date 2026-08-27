@@ -3327,7 +3327,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	shutdownCtx, done := i.cancelOnCloseRequested(ctx)
 	defer done()
 
-	if err := shutdownOrRestoreShard(shutdownCtx, &i.shards, shardName, shardLike, i.logger); err != nil {
+	if err := shutdownOrRestoreShard(shutdownCtx, i, shardName, shardLike); err != nil {
 		if errors.Is(err, errAlreadyShutdown) {
 			// The shard is shut, which is the outcome this call asked for. It
 			// is worth a line: reaching it means the shutdown burned its retry

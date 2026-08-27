@@ -1561,6 +1561,12 @@ func indexForBootTest(t *testing.T, className string, e namespaces.Exister, read
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
+	// shutdownOrRestoreShard dereferences idx.metrics, so an index without one
+	// panics when a test unloads a shard. Passing nil for prom produces the same
+	// *Metrics a node without monitoring has, one whose baseMetrics is nil.
+	metrics, err := NewMetrics(logger, nil, className, "n/a")
+	require.NoError(t, err)
+
 	idx := &Index{
 		Config: IndexConfig{
 			ClassName:            schema.ClassName(className),
@@ -1570,6 +1576,7 @@ func indexForBootTest(t *testing.T, className string, e namespaces.Exister, read
 		namespace:         namespacing.NamespaceFromQualified(className),
 		namespacesExister: e,
 		logger:            logger,
+		metrics:           metrics,
 		schemaReader:      reader,
 		shardCreateLocks:  esync.NewKeyRWLocker(),
 		closingCtx:        ctx,

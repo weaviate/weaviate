@@ -34,29 +34,38 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// TestLazyLoadShardMetricsLifecycle tests the full lifecycle of shard metrics:
-// 1. Creating a shard increments ShardsUnloaded
-// 2. Loading a shard transitions from Unloaded -> Loading -> Loaded
-// 3. Dropping a shard transitions from Loaded -> Unloading -> Unloaded
-func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
-	ctx := context.Background()
-	dirName := t.TempDir()
-	logger, _ := test.NewNullLogger()
-	className := "TestMetricsLifecycle"
+// shardGauges is a reading of all four shard gauges at one moment, so a test
+// asserts the whole set rather than the one gauge it expects to move.
+type shardGauges struct {
+	loaded    float64
+	loading   float64
+	unloaded  float64
+	unloading float64
+}
 
-	// Get metrics instance
+// shardMetricsHarness is a lazy-loading repo whose shard gauges start at zero,
+// so a test reads them as counts of its own shards.
+type shardMetricsHarness struct {
+	repo         *DB
+	migrator     *Migrator
+	metrics      *monitoring.PrometheusMetrics
+	schemaGetter *fakeSchemaGetter
+}
+
+func newShardMetricsHarness(t *testing.T) *shardMetricsHarness {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+
 	baseMetrics := monitoring.GetMetrics()
 	metricsCopy := *baseMetrics
 	metricsCopy.Registerer = monitoring.NoopRegisterer
 	metrics := &metricsCopy
 
-	// Reset shard metrics to known state
 	metrics.ShardsLoaded.Set(0)
 	metrics.ShardsLoading.Set(0)
 	metrics.ShardsUnloaded.Set(0)
 	metrics.ShardsUnloading.Set(0)
 
-	// Create db with metrics
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
@@ -80,7 +89,7 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 
 	repo, err := New(logger, "node1", Config{
-		RootPath:                  dirName,
+		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
@@ -93,11 +102,172 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	repo.SetSchemaGetter(schemaGetter)
-	err = repo.WaitForStartup(testCtx())
-	require.NoError(t, err)
-	defer repo.Shutdown(context.Background())
+	require.NoError(t, repo.WaitForStartup(testCtx()))
+	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 
-	migrator := NewMigrator(repo, logger, "node1")
+	return &shardMetricsHarness{
+		repo:         repo,
+		migrator:     NewMigrator(repo, logger, "node1"),
+		metrics:      metrics,
+		schemaGetter: schemaGetter,
+	}
+}
+
+// addClass registers className and returns the name of its only shard, left cold.
+func (h *shardMetricsHarness) addClass(t *testing.T, className string) string {
+	t.Helper()
+	class := &models.Class{
+		Class:               className,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+	}
+	require.NoError(t, h.migrator.AddClass(context.Background(), class))
+	h.schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+
+	var shardName string
+	h.repo.GetIndex(schema.ClassName(className)).shards.Range(func(name string, _ ShardLike) error {
+		shardName = name
+		return nil
+	})
+	require.NotEmpty(t, shardName, "the new class should have registered a shard")
+	return shardName
+}
+
+func (h *shardMetricsHarness) gauges() shardGauges {
+	return shardGauges{
+		loaded:    testutil.ToFloat64(h.metrics.ShardsLoaded),
+		loading:   testutil.ToFloat64(h.metrics.ShardsLoading),
+		unloaded:  testutil.ToFloat64(h.metrics.ShardsUnloaded),
+		unloading: testutil.ToFloat64(h.metrics.ShardsUnloading),
+	}
+}
+
+// TestShardRemovalStopsCountingIt pins that a shard taken out of the shard map
+// leaves the shard gauges. Shutdown alone moves it to unloaded, which is right
+// only while it stays in the map: counted after removal, every tenant
+// deactivation raises shards_unloaded for a shard the node no longer holds.
+func TestShardRemovalStopsCountingIt(t *testing.T) {
+	ctx := context.Background()
+	const className = "TestShardRemovalCounting"
+
+	tests := []struct {
+		name string
+		// loadFirst materializes the shard before it is removed.
+		loadFirst bool
+		remove    func(t *testing.T, h *shardMetricsHarness, shardName string)
+		want      shardGauges
+	}{
+		{
+			name: "ShutdownShard on a cold shard",
+			remove: func(t *testing.T, h *shardMetricsHarness, shardName string) {
+				require.NoError(t, h.migrator.ShutdownShard(ctx, className, shardName))
+			},
+		},
+		{
+			name:      "ShutdownShard on a loaded shard",
+			loadFirst: true,
+			remove: func(t *testing.T, h *shardMetricsHarness, shardName string) {
+				require.NoError(t, h.migrator.ShutdownShard(ctx, className, shardName))
+			},
+		},
+		{
+			name: "UnloadLocalShard on a cold shard",
+			remove: func(t *testing.T, h *shardMetricsHarness, shardName string) {
+				require.NoError(t, h.repo.GetIndex(className).UnloadLocalShard(ctx, shardName))
+			},
+		},
+		{
+			name:      "UnloadLocalShard on a loaded shard",
+			loadFirst: true,
+			remove: func(t *testing.T, h *shardMetricsHarness, shardName string) {
+				require.NoError(t, h.repo.GetIndex(className).UnloadLocalShard(ctx, shardName))
+			},
+		},
+		{
+			name:      "IncomingReinitShard counts the shard it puts back once",
+			loadFirst: true,
+			remove: func(t *testing.T, h *shardMetricsHarness, shardName string) {
+				require.NoError(t, h.repo.GetIndex(className).IncomingReinitShard(ctx, shardName))
+			},
+			want: shardGauges{unloaded: 1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newShardMetricsHarness(t)
+			shardName := h.addClass(t, className)
+			require.Equal(t, shardGauges{unloaded: 1}, h.gauges(),
+				"a new lazy shard is counted as unloaded")
+
+			if tt.loadFirst {
+				shard := h.repo.GetIndex(className).shards.Load(shardName)
+				require.NoError(t, shard.(*LazyLoadShard).Load(ctx))
+				require.Equal(t, shardGauges{loaded: 1}, h.gauges())
+			}
+
+			tt.remove(t, h, shardName)
+
+			require.Equal(t, tt.want, h.gauges())
+		})
+	}
+
+	t.Run("a shard put back after a failed shutdown stays counted", func(t *testing.T) {
+		// GetShard holds the shard, so Shutdown gives up after its retries and
+		// shutdownOrRestoreShard puts the live instance back in the map. A shard in
+		// the map is one the node still holds, so it keeps its place in the gauges.
+		h := newShardMetricsHarness(t)
+		shardName := h.addClass(t, className)
+
+		index := h.repo.GetIndex(className)
+		_, release, err := index.GetShard(ctx, shardName)
+		require.NoError(t, err)
+		require.Equal(t, shardGauges{loaded: 1}, h.gauges())
+
+		require.Error(t, index.UnloadLocalShard(ctx, shardName),
+			"a shard in use cannot be shut down")
+		require.Equal(t, shardGauges{loaded: 1}, h.gauges())
+
+		release()
+	})
+
+	t.Run("a name the index does not hold moves no gauge", func(t *testing.T) {
+		h := newShardMetricsHarness(t)
+		h.addClass(t, className)
+
+		require.NoError(t, h.repo.GetIndex(className).UnloadLocalShard(ctx, "no-such-shard"))
+
+		require.Equal(t, shardGauges{unloaded: 1}, h.gauges(),
+			"the class's own shard must keep its count")
+	})
+
+	t.Run("deactivating and activating in turn does not accumulate", func(t *testing.T) {
+		h := newShardMetricsHarness(t)
+		shardName := h.addClass(t, className)
+
+		for range 3 {
+			require.NoError(t, h.migrator.ShutdownShard(ctx, className, shardName))
+			require.Equal(t, shardGauges{}, h.gauges(),
+				"a deactivated shard must leave the gauges every time")
+
+			require.NoError(t, h.migrator.LoadShardForMovement(ctx, className, shardName))
+			require.Equal(t, shardGauges{loaded: 1}, h.gauges(),
+				"an activated shard must be counted once, not once per activation")
+		}
+	})
+}
+
+// TestLazyLoadShardMetricsLifecycle tests the full lifecycle of shard metrics:
+// 1. Creating a shard increments ShardsUnloaded
+// 2. Loading a shard transitions from Unloaded -> Loading -> Loaded
+// 3. Dropping a shard transitions from Loaded -> Unloading -> Unloaded
+func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
+	ctx := context.Background()
+	className := "TestMetricsLifecycle"
+
+	h := newShardMetricsHarness(t)
+	repo, metrics, migrator, schemaGetter := h.repo, h.metrics, h.migrator, h.schemaGetter
+	var err error
 
 	t.Run("create shard increments unloaded count", func(t *testing.T) {
 		// Add class - this creates a shard in unloaded state
