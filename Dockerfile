@@ -55,8 +55,8 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
 FROM alpine:3.24 AS weaviate
-RUN apk upgrade --no-cache libcrypto3 libssl3 openssl musl musl-utils zlib && \
-    apk add --no-cache bc ca-certificates openssl && mkdir ./modules
+RUN apk upgrade --no-cache && \
+    apk add --no-cache bc ca-certificates "openssl>=3.5.8-r0" && mkdir ./modules
 COPY --from=server_builder /weaviate-server /bin/weaviate
 COPY --from=server_builder /runtime/go-ego/ /go/pkg/mod/github.com/go-ego/
 ENTRYPOINT ["/bin/weaviate"]

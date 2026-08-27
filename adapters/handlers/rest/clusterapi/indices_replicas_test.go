@@ -74,6 +74,15 @@ func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 			assert.True(t, res.StatusCode == maintenanceModeExpectedHTTPStatus, "expected %d, got %d", maintenanceModeExpectedHTTPStatus, res.StatusCode)
 		})
 	}
+
+	t.Run("POST on the cross-class root compare returns maintenance mode status", func(t *testing.T) {
+		req, err := http.NewRequest("POST", server.URL+shared.CompareHashTreeRootsMultiPath, nil)
+		assert.Nil(t, err)
+		res, err := http.DefaultClient.Do(req)
+		assert.Nil(t, err)
+		defer res.Body.Close()
+		assert.Equal(t, maintenanceModeExpectedHTTPStatus, res.StatusCode)
+	})
 }
 
 func newOverwriteServer(t *testing.T) (*httptest.Server, string) {

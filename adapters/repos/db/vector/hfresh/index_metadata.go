@@ -262,7 +262,6 @@ func (h *HFresh) restoreDimensions(dims uint32) error {
 			return errors.Wrap(err, "could not create quantizer")
 		}
 		h.quantizer = quantizer
-		h.Centroids.SetQuantizer(h.quantizer)
 		h.distancer = NewDistancer(h.quantizer, h.config.DistanceProvider)
 		if err := h.persistQuantizationData(); err != nil {
 			return errors.Wrap(err, "could not persist RQ data")
@@ -319,7 +318,6 @@ func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 	}
 
 	h.quantizer = rq
-	h.Centroids.SetQuantizer(rq)
 	h.distancer = NewDistancer(rq, h.config.DistanceProvider)
 
 	return nil

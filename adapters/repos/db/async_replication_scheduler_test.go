@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -222,6 +223,12 @@ func newSchedulerForUnitTest(t *testing.T) *AsyncReplicationScheduler {
 	return sched
 }
 
+// newNullLogger returns a discard logger; live loggers here spill expected recovered-panic stacks into CI output.
+func newNullLogger() *logrus.Logger {
+	logger, _ := test.NewNullLogger()
+	return logger
+}
+
 // newWorkerPoolTestScheduler builds a scheduler at the given target with no running pool, so adjustWorkers' token/spawn accounting can be driven deterministically.
 func newWorkerPoolTestScheduler(t *testing.T, target int) *AsyncReplicationScheduler {
 	t.Helper()
@@ -232,7 +239,7 @@ func newWorkerPoolTestScheduler(t *testing.T, target int) *AsyncReplicationSched
 		targetWorkers: target,
 		scaleDownCh:   make(chan struct{}, maxMaxWorkers),
 		workCh:        make(chan *[]*asyncSchedulerEntry, maxMaxWorkers),
-		logger:        logrus.New(),
+		logger:        newNullLogger(),
 	}
 	t.Cleanup(func() {
 		cancel()
@@ -1015,7 +1022,7 @@ func TestNextRebuildRetryDelay(t *testing.T) {
 func waitAsyncRepDrained(t *testing.T, s *Shard, msg string) {
 	t.Helper()
 	select {
-	case <-s.asyncRepDrained(logrus.New()):
+	case <-s.asyncRepDrained(newNullLogger()):
 	case <-time.After(5 * time.Second):
 		t.Fatal(msg)
 	}
@@ -1111,7 +1118,7 @@ func TestDispatchInvariantRecoverySettlesPendingDone(t *testing.T) {
 // TestAsyncRepDrainObserverSharedAcrossAttempts: bounded waits during one pinned episode share a single waiter goroutine and the observer resets once drained.
 func TestAsyncRepDrainObserverSharedAcrossAttempts(t *testing.T) {
 	s := &Shard{index: &Index{}}
-	logger := logrus.New()
+	logger := newNullLogger()
 
 	s.asyncRepWg.Add(1)
 	ch1 := s.asyncRepDrained(logger)
@@ -1198,7 +1205,7 @@ func TestTryRebuildHashtreeRetriesWhenEnableSkippedByHalt(t *testing.T) {
 
 // TestMayStopAsyncReplicationDrainsWithNilHashtree: teardown must wait for in-flight workers even when it lands in a rebuild's hashtree-nil window.
 func TestMayStopAsyncReplicationDrainsWithNilHashtree(t *testing.T) {
-	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}, logger: logrus.New()}
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}, logger: newNullLogger()}
 	s := &Shard{
 		class:        &models.Class{Class: "TestClass"},
 		index:        idx,
@@ -2277,6 +2284,14 @@ func TestSchedulerClose_BoundedAndCancelsContextsWhenShardsStillRegistered(t *te
 	assert.True(t, errorLogged, "Close() must log an error when shards are still registered")
 }
 
+// zeroCoalesceWindow disables dispatch coalescing for tests that expect immediate batches.
+func zeroCoalesceWindow(t *testing.T) {
+	t.Helper()
+	prev := prefilterCoalesceWindow
+	prefilterCoalesceWindow = 0
+	t.Cleanup(func() { prefilterCoalesceWindow = prev })
+}
+
 // durationPtr is a helper that returns a pointer to a time.Duration value.
 func durationPtr(d time.Duration) *time.Duration { return &d }
 
@@ -2284,11 +2299,10 @@ func durationPtr(d time.Duration) *time.Duration { return &d }
 func newBareScheduler(batchSize, workChCap int) *AsyncReplicationScheduler {
 	s := &AsyncReplicationScheduler{
 		entries:                  make(map[*Shard]*asyncSchedulerEntry),
-		dispatchBuckets:          make(map[*Index][]*asyncSchedulerEntry),
 		workCh:                   make(chan *[]*asyncSchedulerEntry, workChCap),
 		asyncReplicationDisabled: configRuntime.NewDynamicValue(false),
 		rootPrefilterBatchSize:   configRuntime.NewDynamicValue(batchSize),
-		logger:                   logrus.New(),
+		logger:                   newNullLogger(),
 	}
 	s.batchPool.New = func() any {
 		b := make([]*asyncSchedulerEntry, 0, 64)
@@ -2516,8 +2530,7 @@ func TestClassifyBatchExcludesIneligible(t *testing.T) {
 
 	sched.classifyBatch(batch, scratch)
 
-	assert.Empty(t, scratch.roots, "no eligible shard ⇒ no roots collected")
-	assert.Empty(t, scratch.eligible)
+	assert.Empty(t, scratch.classes, "no eligible shard ⇒ no roots collected")
 	for _, e := range batch {
 		assert.False(t, scratch.skip[e], "ineligible shards must take the full descent")
 	}
@@ -2563,7 +2576,7 @@ func TestPrefilterCtxCancelledByIndexClose(t *testing.T) {
 			idx, closeIndex := newIndex()
 			defer closeIndex()
 			// time.Hour: a done ctx can only mean a stop signal propagated.
-			ctx, cancel := sched.prefilterCtx(idx, time.Hour)
+			ctx, cancel := sched.prefilterCtx(time.Hour, idx)
 			defer cancel()
 			require.NoError(t, ctx.Err())
 
@@ -2594,7 +2607,7 @@ func TestPrefilterCtxHonoursTimeout(t *testing.T) {
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	defer idx.closingCancel()
 
-	ctx, cancel := sched.prefilterCtx(idx, 50*time.Millisecond)
+	ctx, cancel := sched.prefilterCtx(50*time.Millisecond, idx)
 	defer cancel()
 
 	select {
@@ -2613,7 +2626,7 @@ func TestPrefilterCtxNilIndex(t *testing.T) {
 
 	idx := &Index{Config: IndexConfig{ClassName: "C"}}
 
-	ctx, cancel := sched.prefilterCtx(idx, time.Hour)
+	ctx, cancel := sched.prefilterCtx(time.Hour, idx)
 	defer cancel()
 	require.NoError(t, ctx.Err())
 
@@ -2670,7 +2683,8 @@ func TestDispatchDueCoalescing(t *testing.T) {
 		assert.ElementsMatch(t, []int{1, 1, 1, 1}, drainBatchSizes(sched.workCh))
 	})
 
-	t.Run("distinct indexes are batched separately", func(t *testing.T) {
+	t.Run("distinct indexes merge into one cross-class batch", func(t *testing.T) {
+		zeroCoalesceWindow(t)
 		sched := newBareScheduler(512, 16)
 		a := &Index{Config: IndexConfig{ClassName: "A"}}
 		b := &Index{Config: IndexConfig{ClassName: "B"}}
@@ -2683,7 +2697,7 @@ func TestDispatchDueCoalescing(t *testing.T) {
 
 		sched.dispatchDueLocked()
 
-		assert.ElementsMatch(t, []int{3, 2}, drainBatchSizes(sched.workCh))
+		assert.ElementsMatch(t, []int{5}, drainBatchSizes(sched.workCh))
 	})
 
 	t.Run("full channel rolls unsent entries back into the heap", func(t *testing.T) {
@@ -2706,6 +2720,7 @@ func TestDispatchDueCoalescing(t *testing.T) {
 // TestDeferDescentReDispatchesSingletons: a coalesced batch of diverging shards is
 // deferred and re-dispatched as singletons so descent spreads across the pool.
 func TestDeferDescentReDispatchesSingletons(t *testing.T) {
+	zeroCoalesceWindow(t)
 	sched := newBareScheduler(512, 16)
 	sched.ctx = context.Background()
 	sched.resultCh = make(chan asyncSchedulerResult, 32)
@@ -2792,6 +2807,9 @@ func TestDeregisterSettlesQueuedDone(t *testing.T) {
 		{name: "descendDirect dispatch", descendDirect: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			prev := prefilterCoalesceWindow
+			prefilterCoalesceWindow = 0
+			t.Cleanup(func() { prefilterCoalesceWindow = prev })
 			sched := newBareScheduler(512, 4)
 			sched.ctx = context.Background()
 			sched.resultCh = make(chan asyncSchedulerResult, 8)
@@ -2833,6 +2851,7 @@ func TestDrainSkipsSettledDones(t *testing.T) {
 
 // TestStaleBatchDroppedAfterReRegister: a previous registration's stranded batch is dropped; the new one runs once.
 func TestStaleBatchDroppedAfterReRegister(t *testing.T) {
+	zeroCoalesceWindow(t)
 	sched := newBareScheduler(512, 4)
 	sched.ctx = context.Background()
 	sched.resultCh = make(chan asyncSchedulerResult, 8)
@@ -3034,7 +3053,7 @@ func TestDispatcherPanicSettlesReservationsAndUnblocks(t *testing.T) {
 	}
 }
 
-// TestSettleDispatchBucketsOnExit: reservations stranded in dispatchBuckets are settled and cleared.
+// TestSettleDispatchBucketsOnExit: reservations stranded in dispatchPending are settled and cleared.
 func TestSettleDispatchBucketsOnExit(t *testing.T) {
 	sched := newBareScheduler(512, 1)
 	idx := &Index{Config: IndexConfig{ClassName: "C"}}
@@ -3042,17 +3061,18 @@ func TestSettleDispatchBucketsOnExit(t *testing.T) {
 	s.asyncRepWg.Add(1)
 	entry := &asyncSchedulerEntry{shard: s, inFlight: true}
 	entry.pendingDone.Store(true)
-	sched.dispatchBuckets[idx] = append(sched.dispatchBuckets[idx], entry)
+	sched.dispatchPending = append(sched.dispatchPending, entry)
 
 	sched.settleDispatchBucketsOnExit()
 
-	awaitAsyncRepWg(t, s, "stranded bucket reservation must settle")
+	awaitAsyncRepWg(t, s, "stranded pending reservation must settle")
 	assert.False(t, entry.inFlight)
-	assert.Empty(t, sched.dispatchBuckets)
+	assert.Empty(t, sched.dispatchPending)
 }
 
-// TestDispatchBucketsEmptiedEveryPass: no *Index key may survive a dispatch pass, or dropped collections stay pinned forever.
+// TestDispatchBucketsEmptiedEveryPass: no entry pointer may survive a dispatch pass, or dropped collections stay pinned forever.
 func TestDispatchBucketsEmptiedEveryPass(t *testing.T) {
+	zeroCoalesceWindow(t)
 	tests := []struct {
 		name           string
 		batchSize      int
@@ -3061,7 +3081,7 @@ func TestDispatchBucketsEmptiedEveryPass(t *testing.T) {
 		wantBatchSizes []int
 		wantHeapLen    int
 	}{
-		{"after coalesced dispatch", 512, 16, map[string]int{"A": 3, "B": 2}, []int{3, 2}, 0},
+		{"after cross-class merged dispatch", 512, 16, map[string]int{"A": 3, "B": 2}, []int{5}, 0},
 		{"after mid-pass full batch", 2, 16, map[string]int{"C": 4}, []int{2, 2}, 0},
 		{"after full-channel rollback", 512, 0, map[string]int{"C": 3}, nil, 3},
 	}
@@ -3079,7 +3099,7 @@ func TestDispatchBucketsEmptiedEveryPass(t *testing.T) {
 
 			assert.ElementsMatch(t, tc.wantBatchSizes, drainBatchSizes(sched.workCh))
 			assert.Len(t, sched.h, tc.wantHeapLen)
-			assert.Empty(t, sched.dispatchBuckets)
+			assert.Empty(t, sched.dispatchPending)
 		})
 	}
 }
@@ -3168,4 +3188,195 @@ func TestRecordRootPrefilterNoDiffCancelRaceLeavesStatsEmpty(t *testing.T) {
 	<-done
 
 	require.Empty(t, s.getAsyncReplicationStats(context.Background()))
+}
+
+type fakeCrossClassComparer func(ctx context.Context, host string, classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error)
+
+func (f fakeCrossClassComparer) CompareHashTreeRootsMulti(ctx context.Context, host string,
+	classes map[string]map[string]hashtree.Digest,
+) (*replica.CompareHashTreeRootsMultiResp, error) {
+	return f(ctx, host, classes)
+}
+
+func newPrefilterShard(t *testing.T, class, name string) *asyncSchedulerEntry {
+	ht, err := hashtree.NewHashTree(1)
+	require.NoError(t, err)
+	s := &Shard{index: &Index{Config: IndexConfig{ClassName: entschema.ClassName(class)}}, class: &models.Class{Class: class}, name: name}
+	s.hashtree = ht
+	s.hashtreeFullyInitialized = true
+	return &asyncSchedulerEntry{shard: s}
+}
+
+// TestClassifyCrossClass covers skip/descend outcomes across hosts, classes, and fallback paths.
+func TestClassifyCrossClass(t *testing.T) {
+	okAll := func(classes map[string]map[string]hashtree.Digest) *replica.CompareHashTreeRootsMultiResp {
+		resp := &replica.CompareHashTreeRootsMultiResp{Classes: map[string]replica.CompareHashTreeRootsMultiClassResp{}}
+		for cls := range classes {
+			resp.Classes[cls] = replica.CompareHashTreeRootsMultiClassResp{}
+		}
+		return resp
+	}
+	type shardSpec struct{ class, name string }
+	type responder func(map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error)
+	refuse := func(map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+		return nil, errors.New("connection refused")
+	}
+	tests := []struct {
+		name        string
+		shards      []shardSpec
+		hosts       map[string][]string
+		hostErrs    map[string]error
+		respond     map[string]responder
+		fallback    func(map[string]hashtree.Digest) map[string]struct{}
+		nilComparer bool
+		wantSkip    map[string]bool
+	}{
+		{
+			name:     "all hosts report in sync",
+			shards:   []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:    map[string][]string{"s1": {"h1", "h2"}, "s2": {"h1", "h2"}},
+			wantSkip: map[string]bool{"s1": true, "s2": true},
+		},
+		{
+			name:   "diverging shard descends",
+			shards: []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:  map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond: map[string]responder{
+				"h1": func(classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+					resp := okAll(classes)
+					resp.Classes["A"] = replica.CompareHashTreeRootsMultiClassResp{DivergingShards: []string{"s1"}}
+					return resp, nil
+				},
+			},
+			wantSkip: map[string]bool{"s1": false, "s2": true},
+		},
+		{
+			name:   "class error descends only that class",
+			shards: []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:  map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond: map[string]responder{
+				"h1": func(classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+					resp := okAll(classes)
+					resp.Classes["A"] = replica.CompareHashTreeRootsMultiClassResp{Error: "index not loaded"}
+					return resp, nil
+				},
+			},
+			wantSkip: map[string]bool{"s1": false, "s2": true},
+		},
+		{
+			name:   "class missing from response descends",
+			shards: []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:  map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond: map[string]responder{
+				"h1": func(classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+					resp := okAll(classes)
+					delete(resp.Classes, "B")
+					return resp, nil
+				},
+			},
+			wantSkip: map[string]bool{"s1": true, "s2": false},
+		},
+		{
+			name:     "transport error descends the host tuples",
+			shards:   []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:    map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond:  map[string]responder{"h1": refuse},
+			wantSkip: map[string]bool{"s1": false, "s2": false},
+		},
+		{
+			name:     "one healthy and one erroring host descends",
+			shards:   []shardSpec{{"A", "s1"}},
+			hosts:    map[string][]string{"s1": {"h1", "h2"}},
+			respond:  map[string]responder{"h2": refuse},
+			wantSkip: map[string]bool{"s1": false},
+		},
+		{
+			name:   "unsupported peer falls back per class",
+			shards: []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:  map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond: map[string]responder{
+				"h1": func(map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+					return nil, replica.ErrCompareHashTreeRootsUnsupported
+				},
+			},
+			fallback: func(roots map[string]hashtree.Digest) map[string]struct{} {
+				if _, ok := roots["s1"]; ok {
+					return map[string]struct{}{"s1": {}}
+				}
+				return nil
+			},
+			wantSkip: map[string]bool{"s1": false, "s2": true},
+		},
+		{
+			name:        "nil comparer falls back per class",
+			shards:      []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:       map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			nilComparer: true,
+			fallback:    func(map[string]hashtree.Digest) map[string]struct{} { return nil },
+			wantSkip:    map[string]bool{"s1": true, "s2": true},
+		},
+		{
+			name:     "no remote targets skips",
+			shards:   []shardSpec{{"A", "s1"}},
+			hosts:    map[string][]string{"s1": {}},
+			wantSkip: map[string]bool{"s1": true},
+		},
+		{
+			name:     "host resolution error descends",
+			shards:   []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:    map[string][]string{"s2": {"h1"}},
+			hostErrs: map[string]error{"s1": errors.New("no routing plan")},
+			wantSkip: map[string]bool{"s1": false, "s2": true},
+		},
+		{
+			name:   "responder panic forces full descent",
+			shards: []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:  map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond: map[string]responder{
+				"h1": func(map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+					panic("boom")
+				},
+			},
+			wantSkip: map[string]bool{"s1": false, "s2": false},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			asyncRepTargetHostsSeam = func(s *Shard) ([]string, error) {
+				if err := tc.hostErrs[s.name]; err != nil {
+					return nil, err
+				}
+				return tc.hosts[s.name], nil
+			}
+			t.Cleanup(func() { asyncRepTargetHostsSeam = nil })
+			if tc.fallback != nil {
+				asyncRepPerClassFallbackSeam = func(_ context.Context, roots map[string]hashtree.Digest) (map[string]struct{}, replica.PrefilterStats) {
+					return tc.fallback(roots), replica.PrefilterStats{OK: 1}
+				}
+				t.Cleanup(func() { asyncRepPerClassFallbackSeam = nil })
+			}
+			sched := newBareScheduler(512, 1)
+			sched.ctx = context.Background()
+			if !tc.nilComparer {
+				sched.crossClassComparer = fakeCrossClassComparer(func(_ context.Context, host string, classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+					if r := tc.respond[host]; r != nil {
+						return r(classes)
+					}
+					return okAll(classes), nil
+				})
+			}
+			batch := make([]*asyncSchedulerEntry, 0, len(tc.shards))
+			byName := map[string]*asyncSchedulerEntry{}
+			for _, sp := range tc.shards {
+				entry := newPrefilterShard(t, sp.class, sp.name)
+				batch = append(batch, entry)
+				byName[sp.name] = entry
+			}
+			scratch := newBatchScratch()
+			sched.classifyBatch(batch, scratch)
+			for name, want := range tc.wantSkip {
+				assert.Equal(t, want, scratch.skip[byName[name]], name)
+			}
+		})
+	}
 }

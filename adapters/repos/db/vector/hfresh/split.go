@@ -209,13 +209,16 @@ func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uin
 
 	reassignedVectors := make(map[uint64]struct{})
 
-	newPostingCentroid0, err := h.Centroids.Get(newPostingIDs[0])
-	if err != nil {
-		return errors.Wrapf(err, "failed to get centroid for posting %d", newPostingIDs[0])
+	// Use the split results directly rather than re-fetching through
+	// Centroids.Get: they carry the true float centroid (Get returns the
+	// centroid HNSW's 8-bit reconstruction) along with its 1-bit code.
+	newPostingCentroid0 := &Centroid{
+		Uncompressed: newPostings[0].Uncompressed,
+		Compressed:   newPostings[0].Centroid,
 	}
-	newPostingCentroid1, err := h.Centroids.Get(newPostingIDs[1])
-	if err != nil {
-		return errors.Wrapf(err, "failed to get centroid for posting %d", newPostingIDs[1])
+	newPostingCentroid1 := &Centroid{
+		Uncompressed: newPostings[1].Uncompressed,
+		Compressed:   newPostings[1].Centroid,
 	}
 	newPostingCentroids := [2]*Centroid{newPostingCentroid0, newPostingCentroid1}
 

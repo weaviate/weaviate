@@ -26,7 +26,7 @@ import (
 const McpDeleteOKCode int = 200
 
 /*
-McpDeleteOK Session terminated
+McpDeleteOK Accepted; there is no session state to terminate
 
 swagger:response mcpDeleteOK
 */
@@ -45,4 +45,49 @@ func (o *McpDeleteOK) WriteResponse(rw http.ResponseWriter, producer runtime.Pro
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
+}
+
+// McpDeleteServiceUnavailableCode is the HTTP code returned for type McpDeleteServiceUnavailable
+const McpDeleteServiceUnavailableCode int = 503
+
+/*
+McpDeleteServiceUnavailable MCP server is disabled
+
+swagger:response mcpDeleteServiceUnavailable
+*/
+type McpDeleteServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *McpDeleteServiceUnavailableBody `json:"body,omitempty"`
+}
+
+// NewMcpDeleteServiceUnavailable creates McpDeleteServiceUnavailable with default headers values
+func NewMcpDeleteServiceUnavailable() *McpDeleteServiceUnavailable {
+
+	return &McpDeleteServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the mcp delete service unavailable response
+func (o *McpDeleteServiceUnavailable) WithPayload(payload *McpDeleteServiceUnavailableBody) *McpDeleteServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the mcp delete service unavailable response
+func (o *McpDeleteServiceUnavailable) SetPayload(payload *McpDeleteServiceUnavailableBody) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *McpDeleteServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
