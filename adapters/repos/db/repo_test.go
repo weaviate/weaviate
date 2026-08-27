@@ -12,10 +12,15 @@
 package db
 
 import (
+	"context"
 	"fmt"
+	"runtime"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -279,4 +284,240 @@ func TestDB_scanStartupProgressDuringLoad(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLocalIndexClassNames(t *testing.T) {
+	dbWithIndices := func(t *testing.T, classNames ...string) *DB {
+		t.Helper()
+
+		db := &DB{indices: map[string]*Index{}, shutdown: make(chan struct{})}
+		for _, name := range classNames {
+			idx := newTestIndex(t, nil, name, nil, nil)
+			idx.Config.RootPath = t.TempDir()
+			db.indices[indexID(idx.Config.ClassName)] = idx
+		}
+		return db
+	}
+
+	type answer struct {
+		names []string
+		err   error
+	}
+
+	// callParkedOnIndexLock starts the accessor and returns once it is waiting for
+	// indexLock inside copyIndices. A sleep would also be satisfied by a goroutine
+	// the scheduler never ran, leaving the entry check to answer the stop.
+	callParkedOnIndexLock := func(t *testing.T, db *DB) <-chan answer {
+		t.Helper()
+
+		done := make(chan answer, 1)
+		caller := make(chan string, 1)
+		go func() {
+			var self [64]byte
+			caller <- strings.Fields(string(self[:runtime.Stack(self[:], false)]))[1]
+			names, err := db.LocalIndexClassNames()
+			done <- answer{names: names, err: err}
+		}()
+
+		// This call's goroutine only: a row that failed earlier can leave one
+		// parked on another DB's indexLock.
+		want := "goroutine " + <-caller + " ["
+		buf := make([]byte, 1<<20)
+		var last string
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+			n := runtime.Stack(buf, true)
+			if n == len(buf) {
+				buf = make([]byte, 2*len(buf)) // a truncated dump reads as never parked
+				continue
+			}
+			for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+				if !strings.HasPrefix(g, want) {
+					continue
+				}
+				if strings.Contains(g, ".LocalIndexClassNames(") &&
+					strings.Contains(g, "RWMutex).RLock(") {
+					return done
+				}
+				last = g
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("the call never parked on indexLock, last seen at:\n%s", last)
+			}
+		}
+	}
+
+	tests := []struct {
+		name    string
+		classes []string
+		want    []string
+	}{
+		{name: "no indices", want: []string{}},
+		{name: "one index", classes: []string{"Product"}, want: []string{"Product"}},
+		{
+			// Go randomises map order, and the listed order is no rotation of the
+			// sorted one, so an implementation that never sorts fails this row.
+			name:    "several indices come back sorted",
+			classes: []string{"zeta:Product", "alpha:Product", "Movie"},
+			want:    []string{"Movie", "alpha:Product", "zeta:Product"},
+		},
+		{
+			// indexID lowercases the map key, so only Config.ClassName keeps the
+			// schema's case. DesiredOpenLocalShardNames looks a name up exactly and
+			// reports a lowercased one as not found.
+			name:    "a name keeps its case",
+			classes: []string{"MyNs:MyCollection"},
+			want:    []string{"MyNs:MyCollection"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := dbWithIndices(t, tc.classes...).LocalIndexClassNames()
+
+			require.NoError(t, err)
+			require.NotNil(t, got, "a caller ranging over this needs no nil check")
+			assert.Equal(t, tc.want, got)
+		})
+	}
+
+	// forEachIndexOutsideIndexLock skips a closed index, so a caller iterating with
+	// it would miss a collection. This accessor lists one beginClose already closed.
+	t.Run("a closed index is still listed", func(t *testing.T) {
+		db := dbWithIndices(t, "Product")
+		for _, idx := range db.indices {
+			require.NoError(t, idx.beginClose())
+		}
+
+		got, err := db.LocalIndexClassNames()
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Product"}, got)
+	})
+
+	// LocalIndexClassNames reads each *Index after copyIndices releases indexLock,
+	// so it runs beside the indexLock section of DeleteIndex. The goroutine deletes
+	// the map entry rather than calling DeleteIndex, whose drop writes no field read
+	// here.
+	t.Run("it runs beside a concurrent delete", func(t *testing.T) {
+		db := dbWithIndices(t, "Product", "Movie")
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			db.indexLock.Lock()
+			delete(db.indices, indexID("Movie"))
+			db.indexLock.Unlock()
+		}()
+
+		var got answer
+		go func() {
+			defer wg.Done()
+			got.names, got.err = db.LocalIndexClassNames()
+		}()
+		wg.Wait()
+
+		require.NoError(t, got.err)
+		assert.Contains(t, [][]string{{"Movie", "Product"}, {"Product"}}, got.names,
+			"the answer is the class set from before or after the delete, never a torn one")
+	})
+
+	// Shutdown closes db.shutdown before it takes indexLock, so a caller arriving
+	// later answers from the channel. Holding the lock is what fails this row without
+	// the entry check.
+	t.Run("it refuses a stop already under way without waiting for the lock", func(t *testing.T) {
+		db := dbWithIndices(t, "Product")
+		close(db.shutdown)
+
+		db.indexLock.Lock()
+		defer db.indexLock.Unlock()
+
+		done := make(chan answer, 1)
+		go func() {
+			names, err := db.LocalIndexClassNames()
+			done <- answer{names: names, err: err}
+		}()
+
+		select {
+		case got := <-done:
+			require.ErrorIs(t, got.err, errIndexShutdown)
+			assert.Nil(t, got.names, "a refusal carries no names a caller could diff against")
+		case <-time.After(2 * time.Second):
+			t.Fatal("queued behind indexLock instead of answering from db.shutdown")
+		}
+	})
+
+	// DB.Shutdown write-holds indexLock across every index close, and an RWMutex
+	// acquire takes no context, so a call landing on a stop waits the whole stop out.
+	t.Run("it blocks while indexLock is write-held", func(t *testing.T) {
+		db := dbWithIndices(t, "Product")
+
+		db.indexLock.Lock()
+		done := callParkedOnIndexLock(t, db)
+
+		db.indexLock.Unlock()
+		select {
+		case got := <-done:
+			require.NoError(t, got.err)
+			assert.Equal(t, []string{"Product"}, got.names)
+		case <-time.After(5 * time.Second):
+			t.Fatal("still blocked after indexLock was released")
+		}
+	})
+
+	// A call already parked on indexLock cleared the entry check before the stop
+	// began, so waiting for it to park is what fails this row without the post-lock
+	// check.
+	t.Run("it refuses a stop that begins while it is parked", func(t *testing.T) {
+		db := dbWithIndices(t, "Product")
+
+		db.indexLock.Lock()
+		done := callParkedOnIndexLock(t, db)
+
+		close(db.shutdown)
+		db.indexLock.Unlock()
+
+		select {
+		case got := <-done:
+			require.ErrorIs(t, got.err, errIndexShutdown)
+			assert.Nil(t, got.names, "the list describes a node whose indices are all closed")
+		case <-time.After(5 * time.Second):
+			t.Fatal("still blocked after indexLock was released")
+		}
+	})
+
+	// The entry check only beats a stop because DB.Shutdown closes db.shutdown before
+	// it takes indexLock. The rows above close it themselves; this one drives Shutdown.
+	t.Run("it refuses a real stop that has not yet taken indexLock", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		db := newShutdownTestDB(t, logger, 0)
+
+		db.indexLock.Lock()
+		stopped := make(chan error, 1)
+		go func() { stopped <- db.Shutdown(context.Background()) }()
+
+		select {
+		case <-db.shutdown:
+		case <-time.After(5 * time.Second):
+			t.Error("Shutdown took indexLock before closing db.shutdown")
+		}
+
+		done := make(chan answer, 1)
+		go func() {
+			names, err := db.LocalIndexClassNames()
+			done <- answer{names: names, err: err}
+		}()
+
+		var got answer
+		select {
+		case got = <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("queued behind the stop instead of answering from db.shutdown")
+		}
+
+		db.indexLock.Unlock()
+		require.NoError(t, <-stopped)
+		require.ErrorIs(t, got.err, errIndexShutdown)
+		assert.Nil(t, got.names, "a refusal carries no names a caller could diff against")
+	})
 }
