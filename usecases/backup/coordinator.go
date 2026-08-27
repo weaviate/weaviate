@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/types"
@@ -198,6 +199,9 @@ func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]strin
 // Backup coordinates a distributed backup among participants
 func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
 	req.Method = OpCreate
+	if req.AttemptID == "" {
+		req.AttemptID = uuid.NewString()
+	}
 	leader := c.nodeResolver.LeaderID()
 	if leader == "" {
 		return fmt.Errorf("backup Op %s: %w, try again later", req.Method, types.ErrLeaderNotFound)
@@ -207,7 +211,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	if prevID := c.lastOp.renew(req.ID, req.AttemptID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
 	compressionType, err := CompressionTypeFromLevel(req.Level)
@@ -282,6 +286,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		Bucket:       req.Bucket,
 		Path:         req.Path,
 		BaseBackupID: req.BaseBackupID,
+		AttemptID:    req.AttemptID,
 	}
 
 	f := func() {
@@ -325,6 +330,9 @@ func (c *coordinator) Restore(
 	blobs rolesAndUsersBlobs,
 ) error {
 	req.Method = OpRestore
+	if req.AttemptID == "" {
+		req.AttemptID = uuid.NewString()
+	}
 
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
@@ -336,7 +344,7 @@ func (c *coordinator) Restore(
 	}
 
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	if prevID := c.lastOp.renew(desc.ID, req.AttemptID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("restoration %s already in progress", prevID))
 	}
 
@@ -372,12 +380,12 @@ func (c *coordinator) Restore(
 	// initial put so restore status is immediately available
 	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 		c.lastOp.reset()
-		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
-		c.abortAll(ctx, req, nodes)
+		abortReq := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, AttemptID: req.AttemptID}
+		c.abortAll(ctx, abortReq, nodes)
 		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
-	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
+	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath, AttemptID: req.AttemptID}
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
@@ -625,6 +633,11 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 	if req.Method == OpRestore && req.DedupeReplicas {
 		timeout = _TimeoutDedupeRestoreCanCommit
 	}
+	// Early ackers must outwait the slowest sibling's canCommit: Commit is only dispatched after every node acks.
+	booking := _BookingPeriod
+	if req.Method == OpRestore && req.DedupeReplicas {
+		booking = timeout + _BookingPeriod
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -657,7 +670,8 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 				Classes:           gr.Classes,
 				Users:             req.Users,
 				Roles:             req.Roles,
-				Duration:          _BookingPeriod,
+				Duration:          booking,
+				AttemptID:         req.AttemptID,
 				NodeMapping:       c.descriptor.NodeMapping,
 				Compression:       req.Compression,
 				Bucket:            req.Bucket,
@@ -699,7 +713,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 			return nil
 		})
 	}
-	abortReq := &AbortRequest{Method: req.Method, ID: c.descriptor.ID, Backend: req.Backend}
+	abortReq := &AbortRequest{Method: req.Method, ID: c.descriptor.ID, Backend: req.Backend, AttemptID: req.AttemptID}
 	if err := g.Wait(); err != nil {
 		c.abortAll(ctx, abortReq, contacted)
 		return nil, err
@@ -761,8 +775,8 @@ func (c *coordinator) commit(ctx context.Context,
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	}
 	if !toleratePartialFailure && nFailures > 0 {
-		req := &AbortRequest{Method: req.Method, ID: req.ID, Backend: req.Backend}
-		c.abortAll(context.Background(), req, node2Addr)
+		abortReq := &AbortRequest{Method: req.Method, ID: req.ID, Backend: req.Backend, AttemptID: req.AttemptID}
+		c.abortAll(context.Background(), abortReq, node2Addr)
 	}
 	c.descriptor.CompletedAt = time.Now().UTC()
 	// For restore operations, successful staging means "Transferred" (ready for schema apply)

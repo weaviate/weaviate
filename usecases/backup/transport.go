@@ -86,6 +86,9 @@ type Request struct {
 
 	// SourceNodes are the original node names whose {backupID}/{node} subtrees hold descriptors and chunks.
 	SourceNodes []string `json:"sourceNodes,omitempty"`
+
+	// AttemptID distinguishes coordinator attempts sharing a backup ID; older nodes ignore it.
+	AttemptID string `json:"attemptId,omitempty"`
 }
 
 // CanCommitErrorKind is a coarse, JSON-stable classification of a remote
@@ -140,6 +143,9 @@ type StatusRequest struct {
 	Path string
 
 	BaseBackupID string
+
+	// AttemptID gates which coordinator attempt an abort may cancel; empty means legacy ID-only matching.
+	AttemptID string `json:"attemptId,omitempty"`
 }
 
 type StatusResponse struct {

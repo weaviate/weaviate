@@ -19,8 +19,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -377,4 +379,61 @@ func TestWithCancellation(t *testing.T) {
 			t.Error("abort signal should have been sent")
 		}
 	})
+}
+
+func TestRestoreBookingExpiration(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		dedupe  bool
+		want    time.Duration
+		booking time.Duration
+	}{
+		{name: "legacy clamped to shard commit timeout", booking: 10 * time.Minute, want: _TimeoutShardCommit},
+		{name: "legacy below the clamp", booking: 5 * time.Second, want: 5 * time.Second},
+		{name: "dedupe honors the widened booking", dedupe: true, booking: _TimeoutDedupeRestoreCanCommit + _BookingPeriod, want: _TimeoutDedupeRestoreCanCommit + _BookingPeriod},
+		{name: "dedupe clamped to the widened limit", dedupe: true, booking: 10 * time.Minute, want: _TimeoutDedupeRestoreCanCommit + _BookingPeriod},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			backend := newFakeBackend()
+			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
+			backend.On("SourceDataPath").Return(t.TempDir())
+			r := newRestorer(nodeName, logrus.New(), &fakeSourcer{}, nil, false)
+			store := nodeStore{objectStore{backend, "1/" + nodeName, "", "", nodeName}}
+			req := &Request{Method: OpRestore, ID: "1", Duration: tc.booking, DedupeReplicas: tc.dedupe}
+
+			ret, err := r.startRestore(req, store, func(context.Context) error { return nil })
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, ret.Timeout)
+
+			require.NoError(t, r.OnAbort(context.Background(), &AbortRequest{ID: req.ID}))
+			require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+		})
+	}
+}
+
+func TestOnAbortAttemptGate(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		slotAttempt string
+		reqAttempt  string
+		wantSignal  bool
+	}{
+		{name: "same attempt aborts", slotAttempt: "a1", reqAttempt: "a1", wantSignal: true},
+		{name: "foreign attempt is ignored", slotAttempt: "a1", reqAttempt: "a2", wantSignal: false},
+		{name: "legacy abort without attempt", slotAttempt: "a1", reqAttempt: "", wantSignal: true},
+		{name: "legacy slot without attempt", slotAttempt: "", reqAttempt: "a2", wantSignal: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := shardSyncChan{coordChan: make(chan interface{}, 5), logger: logrus.New()}
+			require.Empty(t, c.lastOp.renew("1", tc.slotAttempt, "p", "", ""))
+			require.NoError(t, c.OnAbort(context.Background(), &AbortRequest{ID: "1", AttemptID: tc.reqAttempt}))
+			assert.Equal(t, tc.wantSignal, len(c.coordChan) == 1)
+		})
+	}
 }

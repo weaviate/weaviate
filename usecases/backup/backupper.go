@@ -46,7 +46,7 @@ func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sou
 		rbacSourcer:    rbacSourcer,
 		dynUserSourcer: dynUserSourcer,
 		backends:       backends,
-		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
+		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5), logger: logger},
 	}
 }
 
@@ -114,7 +114,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	}
 
 	// make sure there is no active backup
-	if prevID := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	if prevID := b.lastOp.renew(id, req.AttemptID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
 
