@@ -418,7 +418,7 @@ func TestCoordinatedRestoreFanout(t *testing.T) {
 		ctx   = context.Background()
 		nodes = []string{"N1", "N2", "N3"}
 		now   = time.Now().UTC()
-		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", ""}
+		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", "", ""}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 
@@ -451,8 +451,8 @@ func TestCoordinatedRestoreFanout(t *testing.T) {
 		fc := newFakeCoordinator(newFakeNodeResolver(nodes))
 		for _, n := range nodes {
 			fc.client.On("CanCommit", any, n, mock.MatchedBy(matchFanout)).Return(ack, nil)
-			fc.client.On("Commit", any, n, sReq).Return(nil)
-			fc.client.On("Status", any, n, sReq).Return(sresp, nil)
+			fc.client.On("Commit", any, n, matchStatusReq(sReq)).Return(nil)
+			fc.client.On("Status", any, n, matchStatusReq(sReq)).Return(sresp, nil)
 		}
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
@@ -499,12 +499,12 @@ func TestCoordinatedRestoreFanout(t *testing.T) {
 		failed := &StatusResponse{Status: backup.Failed, ID: backupID, Method: OpRestore, Err: "disk full"}
 		for _, n := range nodes {
 			fc.client.On("CanCommit", any, n, mock.MatchedBy(matchFanout)).Return(ack, nil)
-			fc.client.On("Commit", any, n, sReq).Return(nil)
+			fc.client.On("Commit", any, n, matchStatusReq(sReq)).Return(nil)
 			fc.client.On("Abort", any, n, any).Return(nil).Maybe()
 		}
-		fc.client.On("Status", any, "N1", sReq).Return(sresp, nil)
-		fc.client.On("Status", any, "N2", sReq).Return(failed, nil)
-		fc.client.On("Status", any, "N3", sReq).Return(sresp, nil)
+		fc.client.On("Status", any, "N1", matchStatusReq(sReq)).Return(sresp, nil)
+		fc.client.On("Status", any, "N2", matchStatusReq(sReq)).Return(failed, nil)
+		fc.client.On("Status", any, "N3", matchStatusReq(sReq)).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil)

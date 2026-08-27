@@ -414,7 +414,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, err
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, ""}
+	req := &StatusRequest{Method: OpCreate, ID: backupID, Backend: backend, Bucket: store.bucket, Path: store.path}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
@@ -438,7 +438,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalRestoreFile, overrideBucket, overridePath); err != nil {
 		return nil, err
 	}
-	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, ""}
+	req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {

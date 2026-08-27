@@ -480,7 +480,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		ctx          = context.Background()
 		nodes        = []string{"N1", "N2"}
 		classes      = []string{"Class-A"}
-		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
+		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", "", ""}
 		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 		nodeResolver = newFakeNodeResolver(nodes)
 	)
@@ -531,10 +531,10 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1, DedupeHonored: true}
 		fc.client.On("CanCommit", any, nodes[0], canCommitMatcher).Return(ack, nil)
 		fc.client.On("CanCommit", any, nodes[1], canCommitMatcher).Return(ack, nil)
-		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
-		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
-		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.client.On("Commit", any, nodes[0], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Commit", any, nodes[1], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Status", any, nodes[0], matchStatusReq(sReq)).Return(sresp, nil)
+		fc.client.On("Status", any, nodes[1], matchStatusReq(sReq)).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 

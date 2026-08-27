@@ -56,7 +56,7 @@ func newRestorer(node string, logger logrus.FieldLogger,
 		sourcer:           sourcer,
 		backends:          backends,
 		namespacesEnabled: namespacesEnabled,
-		shardSyncChan:     shardSyncChan{coordChan: make(chan interface{}, 5)},
+		shardSyncChan:     shardSyncChan{coordChan: make(chan interface{}, 5), logger: logger},
 	}
 }
 
@@ -72,7 +72,11 @@ func (r *restorer) restore(
 
 // startRestore reserves the restore slot and runs work in a coordinator-gated goroutine; RAFT applies staged files after Finalizing.
 func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx context.Context) error) (CanCommitResponse, error) {
-	expiration := min(req.Duration, _TimeoutShardCommit)
+	limit := _TimeoutShardCommit
+	if req.DedupeReplicas {
+		limit = _TimeoutDedupeRestoreCanCommit + _BookingPeriod
+	}
+	expiration := min(req.Duration, limit)
 	ret := CanCommitResponse{
 		Method:  OpCreate,
 		ID:      req.ID,
@@ -88,7 +92,7 @@ func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx con
 	}
 
 	// make sure there is no active restore
-	if prevID := r.lastOp.renew(req.ID, destPath, req.Bucket, req.Path); prevID != "" {
+	if prevID := r.lastOp.renew(req.ID, req.AttemptID, destPath, req.Bucket, req.Path); prevID != "" {
 		err := fmt.Errorf("restore %s already in progress", prevID)
 		return ret, err
 	}
