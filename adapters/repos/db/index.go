@@ -687,7 +687,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		}
 
 		now := time.Now()
-		var loaded, skipped int
+		var loaded, skipped, failed int
 
 		for _, shardName := range hotShardNames {
 			if abortIfClosing() {
@@ -711,11 +711,15 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			}
 
 			if err := i.loadLocalShardIfActive(shardName); err != nil {
+				// The memory guard a load fails on is node-wide and transient, so it
+				// says nothing about the shards behind this one. The sweep runs once
+				// per index lifetime, and nothing retries what it walks past.
+				failed++
 				i.logger.
 					WithField("action", "load_shard").
 					WithField("shard_name", shardName).
-					Errorf("failed to load shard: %v", err)
-				return
+					Errorf("failed to load shard, warming the rest anyway: %v", err)
+				continue
 			}
 			loaded++
 		}
@@ -727,6 +731,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				"took":    time.Since(now).String(),
 				"loaded":  loaded,
 				"skipped": skipped,
+				"failed":  failed,
 			}).
 			Debug("finished loading all shards")
 	}

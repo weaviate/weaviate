@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sync"
 	"testing"
 	"time"
 
@@ -36,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -47,8 +49,11 @@ const (
 )
 
 // newWarmupIndex opens a multi-tenant index over dirName, one lazy shard per
-// tenant, with the startup sweep gated at minObjects.
-func newWarmupIndex(t *testing.T, dirName string, minObjects int64, tenants ...string) *Index {
+// tenant, with the startup sweep gated at minObjects. A nil allocChecker gives
+// every load the dummy monitor, which allows all of them.
+func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
+	allocChecker memwatch.AllocChecker, tenants ...string,
+) *Index {
 	t.Helper()
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
@@ -116,7 +121,7 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64, tenants ...s
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
 		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil,
-		class, nil, scheduler, nil, nil,
+		class, nil, scheduler, nil, allocChecker,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
@@ -153,7 +158,7 @@ func seedWarmupTenants(t *testing.T, dirName string, seeds map[string]warmupSeed
 		tenants = append(tenants, tenant)
 	}
 
-	index := newWarmupIndex(t, dirName, -1, tenants...)
+	index := newWarmupIndex(t, dirName, -1, nil, tenants...)
 	for tenant, seed := range seeds {
 		writeCountedObjects(t, coldWarmupShard(t, index, tenant), warmupClassName, seed.counted)
 		if seed.uncounted > 0 {
@@ -222,7 +227,7 @@ func TestLazyShardBackgroundWarmup(t *testing.T) {
 					path.Join(shardPathLSM(indexPath, tenant), helpers.ObjectsBucketLSM)))
 			}
 
-			index := newWarmupIndex(t, dirName, tt.minObjects, tenant)
+			index := newWarmupIndex(t, dirName, tt.minObjects, nil, tenant)
 			defer index.Shutdown(ctx)
 
 			lazy := coldWarmupShard(t, index, tenant)
@@ -277,7 +282,7 @@ func TestLazyShardBackgroundWarmupSkipsSpendNoTick(t *testing.T) {
 	dirName := t.TempDir()
 	tenants := seedWarmupTenants(t, dirName, seeds)
 
-	index := newWarmupIndex(t, dirName, minObjects, tenants...)
+	index := newWarmupIndex(t, dirName, minObjects, nil, tenants...)
 	defer index.Shutdown(ctx)
 
 	// The green path is one tick, so the budget only separates it from a tick per
@@ -293,5 +298,139 @@ func TestLazyShardBackgroundWarmupSkipsSpendNoTick(t *testing.T) {
 		require.True(t, ok, "lazy mode should store a wrapper, got %T", stored)
 		require.Equal(t, tenant == bigTenant, lazy.isLoaded(),
 			"only the tenant above the threshold should be warmed, checked %q", tenant)
+	}
+}
+
+// refusingAllocChecker refuses the load attempts named in refuse, counted from
+// one, and allows every other. LazyLoadShard.Load asks it before it materializes
+// a shard, so refusing is how a test fails one load without touching its files.
+type refusingAllocChecker struct {
+	mu     sync.Mutex
+	refuse map[int]bool
+	calls  int
+}
+
+func newRefusingAllocChecker(refuse []int) *refusingAllocChecker {
+	refused := make(map[int]bool, len(refuse))
+	for _, call := range refuse {
+		refused[call] = true
+	}
+	return &refusingAllocChecker{refuse: refused}
+}
+
+func (c *refusingAllocChecker) CheckAlloc(int64) error { return nil }
+
+func (c *refusingAllocChecker) CheckMappingAndReserve(int64, int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.calls++
+	if c.refuse[c.calls] {
+		return fmt.Errorf("no mappings left for load attempt %d", c.calls)
+	}
+	return nil
+}
+
+func (c *refusingAllocChecker) Refresh(bool) {}
+
+// attempts reports how many shards the sweep tried to load.
+func (c *refusingAllocChecker) attempts() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.calls
+}
+
+// TestLazyShardBackgroundWarmupContinuesAfterFailedLoad pins that one shard
+// failing to load leaves the rest of the sweep intact. The guard a load fails on
+// is node-wide and transient, so it says nothing about the shards behind that
+// one. The sweep runs once, and nothing retries what it walks past.
+func TestLazyShardBackgroundWarmupContinuesAfterFailedLoad(t *testing.T) {
+	ctx := context.Background()
+
+	// Seeded either side of the threshold the skip case uses, so warm tenants are
+	// swept and cold ones are passed over before a load is ever attempted.
+	const (
+		warmObjects = 5
+		coldObjects = 1
+		skipAtFour  = 4
+	)
+
+	tests := []struct {
+		name string
+		// warm tenants sit above the threshold and are load candidates; cold ones
+		// sit below it and the sweep skips them without attempting a load.
+		warm       int
+		cold       int
+		minObjects int64
+		// refuse names the load attempts the memory guard fails, counted from one.
+		// The sweep walks shards in map order, so a case can fix which attempt
+		// fails, never which tenant.
+		refuse       []int
+		wantLoaded   int
+		wantAttempts int
+	}{
+		{
+			name: "a failure on the first shard leaves the rest to load",
+			warm: 3, refuse: []int{1}, wantLoaded: 2, wantAttempts: 3,
+		},
+		{
+			name: "a failure in the middle leaves the rest to load",
+			warm: 3, refuse: []int{2}, wantLoaded: 2, wantAttempts: 3,
+		},
+		{
+			name: "every shard failing still leaves every shard attempted",
+			warm: 3, refuse: []int{1, 2, 3}, wantLoaded: 0, wantAttempts: 3,
+		},
+		{
+			name: "no failure loads every shard",
+			warm: 3, wantLoaded: 3, wantAttempts: 3,
+		},
+		{
+			name: "a failure leaves the shards below the threshold skipped, not attempted",
+			warm: 2, cold: 1, minObjects: skipAtFour, refuse: []int{1},
+			wantLoaded: 1, wantAttempts: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			seeds := map[string]warmupSeed{}
+			for i := range tt.warm {
+				seeds[fmt.Sprintf("warm-tenant-%d", i)] = warmupSeed{counted: warmObjects}
+			}
+			for i := range tt.cold {
+				seeds[fmt.Sprintf("cold-tenant-%d", i)] = warmupSeed{counted: coldObjects}
+			}
+
+			dirName := t.TempDir()
+			tenants := seedWarmupTenants(t, dirName, seeds)
+
+			checker := newRefusingAllocChecker(tt.refuse)
+			index := newWarmupIndex(t, dirName, tt.minObjects, checker, tenants...)
+			defer index.Shutdown(ctx)
+
+			// Published from the sweep goroutine's last deferred call, so it means
+			// the sweep is over however it ended — including the abandoning return
+			// this test exists to catch.
+			require.Eventually(t, index.allShardsReady.Load, 30*time.Second, 50*time.Millisecond,
+				"allShardsReady should be published once the sweep is over")
+
+			loaded := 0
+			for _, tenant := range tenants {
+				stored := index.shards.Load(tenant)
+				require.NotNil(t, stored, "shard of tenant %q must be registered", tenant)
+				lazy, ok := stored.(*LazyLoadShard)
+				require.True(t, ok, "lazy mode should store a wrapper, got %T", stored)
+				if lazy.isLoaded() {
+					loaded++
+				}
+			}
+
+			require.Equal(t, tt.wantAttempts, checker.attempts(),
+				"the sweep must attempt every candidate shard, whatever the ones before it did")
+			require.Equal(t, tt.wantLoaded, loaded,
+				"every candidate the guard allowed must end up loaded")
+		})
 	}
 }
