@@ -871,6 +871,7 @@ case $CONFIG in
       GOOGLE_CLOUD_PROJECT=project-id \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
+      GCS_MODULE_TRANSPORT=http \
       BACKUP_GCS_BUCKET=weaviate-backups \
       ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
       CLUSTER_IN_LOCALHOST=true \
@@ -892,6 +893,7 @@ case $CONFIG in
       GOOGLE_CLOUD_PROJECT=project-id \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
+      GCS_MODULE_TRANSPORT=http \
       BACKUP_GCS_BUCKET=weaviate-backups \
       ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
       CLUSTER_IN_LOCALHOST=true \
@@ -916,6 +918,7 @@ case $CONFIG in
       GOOGLE_CLOUD_PROJECT=project-id \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
+      GCS_MODULE_TRANSPORT=http \
       BACKUP_GCS_BUCKET=weaviate-backups \
       ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
       CLUSTER_IN_LOCALHOST=true \
@@ -966,6 +969,7 @@ local-usage-gcs)
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
+      GCS_MODULE_TRANSPORT=http \
       BACKUP_GCS_BUCKET=weaviate-backups \
       USAGE_GCS_BUCKET=weaviate-usage \
       USAGE_GCS_PREFIX=billing-usage \

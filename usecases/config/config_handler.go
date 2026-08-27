@@ -886,16 +886,23 @@ const (
 // GCS_MODULE_ prefix marks it as covering both clients that module builds, the
 // backup one and the export one, unlike the backup-only BACKUP_GCS_BUCKET.
 type BackupGCS struct {
-	// UseGRPC switches from the JSON/HTTP API to the gRPC API. The throughput
-	// gRPC adds comes from DirectPath, which only applies inside GCP, and from
-	// spreading requests over GRPCConnPool channels.
+	// UseGRPC picks the gRPC API over the JSON/HTTP API. The throughput gRPC
+	// adds comes from DirectPath, which only applies inside GCP, and from
+	// spreading requests over GRPCConnPool channels. Nil means unset and falls
+	// back to gRPC; set it to false to go back to HTTP.
 	// Env: GCS_MODULE_TRANSPORT (http or grpc).
-	UseGRPC bool `json:"use_grpc" yaml:"use_grpc"`
+	UseGRPC *bool `json:"use_grpc" yaml:"use_grpc"`
 
 	// GRPCConnPool is how many gRPC channels each client opens. Zero means
 	// unset and falls back to DefaultBackupGCSGRPCConnPool.
 	// Env: GCS_MODULE_GRPC_CONN_POOL.
 	GRPCConnPool int `json:"grpc_conn_pool" yaml:"grpc_conn_pool"`
+}
+
+// UseGRPCOrDefault reports whether the module talks to GCS over gRPC,
+// defaulting to true.
+func (b BackupGCS) UseGRPCOrDefault() bool {
+	return b.UseGRPC == nil || *b.UseGRPC
 }
 
 // Validate bounds a connection pool that came from the config file. Values from
