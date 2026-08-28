@@ -49,8 +49,9 @@ const (
 
 // dedupePlan is the outcome of convergence planning for one backup.
 type dedupePlan struct {
-	designations map[string]map[string]string // class -> shard -> archiving node
-	replicas     map[string]map[string][]string
+	designations    map[string]map[string]string // class -> shard -> archiving node
+	replicas        map[string]map[string][]string
+	candidateShards int // dedupe-eligible shards found at discovery, before any drop
 }
 
 // designated counts shards assigned to a single archiving node.
@@ -60,6 +61,11 @@ func (p *dedupePlan) designated() int {
 		n += len(shards)
 	}
 	return n
+}
+
+// fallback counts candidate shards that ended up archived by all replicas.
+func (p *dedupePlan) fallback() int {
+	return p.candidateShards - p.designated()
 }
 
 // planDesignatedShards designates one archiving node per convergence-proven shard; failures only downgrade shards to all-replica fallback, and checkpoints are deleted before returning (archiving needs no live checkpoint).
@@ -109,6 +115,9 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 			sort.Strings(shards)
 			candidates[class] = shards
 		}
+	}
+	for _, shards := range candidates {
+		plan.candidateShards += len(shards)
 	}
 	if len(candidates) == 0 {
 		return plan

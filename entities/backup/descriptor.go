@@ -59,6 +59,9 @@ type DistributedBackupDescriptor struct {
 	Roles                   []string                   `json:"roles,omitempty"`
 	// DedupeReplicas marks a replica-deduped artifact (Version 3.x): restore must fan shards out to all replicas.
 	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
+	// DedupeDesignatedShards/DedupeFallbackShards record the dedupe planning outcome; both zero on legacy artifacts.
+	DedupeDesignatedShards int `json:"dedupeDesignatedShards,omitempty"`
+	DedupeFallbackShards   int `json:"dedupeFallbackShards,omitempty"`
 }
 
 // Len returns how many nodes exist in d

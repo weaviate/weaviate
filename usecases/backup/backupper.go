@@ -164,8 +164,9 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			baseBackupID = ""
 		}
 
+		// DedupeEffective, not DedupeReplicas: the version tracks the coordinator's planning outcome, uniform across node descriptors.
 		version := Version
-		if req.DedupeReplicas {
+		if req.DedupeEffective {
 			version = VersionDedupeReplicas
 		}
 		result := backup.BackupDescriptor{
@@ -176,7 +177,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			ServerVersion:   config.ServerVersion,
 			CompressionType: &compressionType,
 			BaseBackupID:    baseBackupID,
-			DedupeReplicas:  req.DedupeReplicas,
+			DedupeReplicas:  req.DedupeEffective,
 		}
 
 		b.logger.WithFields(logFields).Info("starting backup")
