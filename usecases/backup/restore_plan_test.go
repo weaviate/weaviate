@@ -400,7 +400,7 @@ func TestRestoreFanoutStagesFromMultipleSources(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	r := &restorer{node: "nodeB", logger: logger}
-	require.NoError(t, r.restoreOneFanout(context.Background(), cp, backup.CompressionNone, 1, "", "", false))
+	require.NoError(t, r.restoreOneFanout(context.Background(), cp, backup.CompressionNone, 1, "", "", false, &stagedDirs{}))
 
 	classTempDir := filepath.Join(restoreDir, TempDirectory, e.className)
 	e.verify(classTempDir, []string{"s1/segment-1.db", "s2/segment-1.db"})

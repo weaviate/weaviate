@@ -338,13 +338,13 @@ func filterClassDescriptor(desc *backup.ClassDescriptor, shards []string) *backu
 
 // restoreFanout stages a multi-source restore plan with the single-source scaffolding.
 func (r *restorer) restoreFanout(req *Request, plan *restorePlan, store nodeStore) (CanCommitResponse, error) {
-	return r.startRestore(req, store, func(ctx context.Context) error {
-		return r.restoreAllFanout(ctx, plan, req.CPUPercentage, req.Bucket, req.Path, !r.namespacesEnabled)
+	return r.startRestore(req, store, func(ctx context.Context, staged *stagedDirs) error {
+		return r.restoreAllFanout(ctx, plan, req.CPUPercentage, req.Bucket, req.Path, !r.namespacesEnabled, staged)
 	})
 }
 
 func (r *restorer) restoreAllFanout(ctx context.Context, plan *restorePlan,
-	cpuPercentage int, overrideBucket, overridePath string, stripNamespaces bool,
+	cpuPercentage int, overrideBucket, overridePath string, stripNamespaces bool, staged *stagedDirs,
 ) error {
 	r.lastOp.set(backup.Transferring)
 	for _, cp := range plan.classes {
@@ -352,7 +352,7 @@ func (r *restorer) restoreAllFanout(ctx context.Context, plan *restorePlan,
 			r.lastOp.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
-		if err := r.restoreOneFanout(ctx, cp, plan.compressionType, cpuPercentage, overrideBucket, overridePath, stripNamespaces); err != nil {
+		if err := r.restoreOneFanout(ctx, cp, plan.compressionType, cpuPercentage, overrideBucket, overridePath, stripNamespaces, staged); err != nil {
 			if errors.Is(err, context.Canceled) {
 				r.lastOp.set(backup.Cancelled)
 			}
@@ -366,7 +366,7 @@ func (r *restorer) restoreAllFanout(ctx context.Context, plan *restorePlan,
 
 func (r *restorer) restoreOneFanout(ctx context.Context, cp classPlan,
 	compressionType backup.CompressionType, cpuPercentage int,
-	overrideBucket, overridePath string, stripNamespaces bool,
+	overrideBucket, overridePath string, stripNamespaces bool, staged *stagedDirs,
 ) error {
 	totalShards := 0
 	for _, src := range cp.sources {
@@ -386,7 +386,8 @@ func (r *restorer) restoreOneFanout(ctx context.Context, cp classPlan,
 	}
 
 	fw := newFileWriter(r.sourcer, cp.sources[0].store, r.logger).
-		WithPoolPercentage(cpuPercentage)
+		WithPoolPercentage(cpuPercentage).
+		withStagedRecorder(staged.record)
 
 	materializedName := cp.name
 	if stripNamespaces {

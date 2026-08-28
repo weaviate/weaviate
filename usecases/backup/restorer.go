@@ -19,6 +19,7 @@ import (
 	"os"
 	"path"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -61,18 +62,36 @@ func newRestorer(node string, logger logrus.FieldLogger,
 	}
 }
 
+// stagedDirs records the staging dirs one restore attempt created; cleanup removes exactly those, never a sibling attempt's.
+type stagedDirs struct {
+	mu   sync.Mutex
+	dirs []string
+}
+
+func (s *stagedDirs) record(dir string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dirs = append(s.dirs, dir)
+}
+
+func (s *stagedDirs) list() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.dirs)
+}
+
 func (r *restorer) restore(
 	req *Request,
 	desc *backup.BackupDescriptor,
 	store nodeStore,
 ) (CanCommitResponse, error) {
-	return r.startRestore(req, store, func(ctx context.Context) error {
-		return r.restoreAll(ctx, desc, req.CPUPercentage, store, req.Bucket, req.Path, !r.namespacesEnabled)
+	return r.startRestore(req, store, func(ctx context.Context, staged *stagedDirs) error {
+		return r.restoreAll(ctx, desc, req.CPUPercentage, store, req.Bucket, req.Path, !r.namespacesEnabled, staged)
 	})
 }
 
 // startRestore reserves the restore slot and runs work in a coordinator-gated goroutine; RAFT applies staged files after Finalizing.
-func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx context.Context) error) (CanCommitResponse, error) {
+func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx context.Context, staged *stagedDirs) error) (CanCommitResponse, error) {
 	limit := _TimeoutShardCommit
 	if req.DedupeReplicas {
 		limit = _TimeoutDedupeRestoreCanCommit + _BookingPeriod
@@ -99,6 +118,7 @@ func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx con
 	}
 	r.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 
+	staged := &stagedDirs{}
 	f := func() {
 		var err error
 		status := Status{
@@ -121,9 +141,11 @@ func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx con
 					status.Status = backup.Failed
 					monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessRestore)
 				}
-				// Staged files of a failed attempt would otherwise be adopted by a later RAFT-applied RestoreClassDir.
-				if rerr := os.RemoveAll(path.Join(store.SourceDataPath(), TempDirectory)); rerr != nil {
-					r.logger.WithField("backup_id", req.ID).Warnf("remove restore staging dir: %v", rerr)
+				// A later RAFT-applied RestoreClassDir would adopt leftovers; remove only what this attempt staged.
+				for _, dir := range staged.list() {
+					if rerr := os.RemoveAll(dir); rerr != nil {
+						r.logger.WithField("backup_id", req.ID).Warnf("remove restore staging dir %s: %v", dir, rerr)
+					}
 				}
 			}
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
@@ -142,7 +164,7 @@ func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx con
 		ctx := r.withCancellation(context.Background(), req.ID, done, r.logger)
 		defer close(done)
 
-		err = work(ctx)
+		err = work(ctx, staged)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -162,7 +184,7 @@ func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx con
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath string,
-	stripNamespaces bool,
+	stripNamespaces bool, staged *stagedDirs,
 ) error {
 	compressionType := desc.GetCompressionType()
 	r.lastOp.set(backup.Transferring)
@@ -179,7 +201,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 			r.lastOp.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, cpuPercentage, store, overrideBucket, overridePath, stripNamespaces, staged); err != nil {
 			if errors.Is(err, context.Canceled) {
 				r.lastOp.set(backup.Cancelled)
 				return fmt.Errorf("restore cancelled: %w", err)
@@ -206,7 +228,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
 	cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
-	stripNamespaces bool,
+	stripNamespaces bool, staged *stagedDirs,
 ) (err error) {
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
@@ -219,7 +241,8 @@ func (r *restorer) restoreOne(ctx context.Context,
 	}
 
 	fw := newFileWriter(r.sourcer, store, r.logger).
-		WithPoolPercentage(cpuPercentage)
+		WithPoolPercentage(cpuPercentage).
+		withStagedRecorder(staged.record)
 
 	// Pre-v1.23 versions store files in a flat format
 	if serverVersion < "1.23" {
