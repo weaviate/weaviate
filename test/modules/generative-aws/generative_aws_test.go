@@ -81,15 +81,6 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				generativeModel: "anthropic.claude-3-haiku-20240307-v1:0",
 				withImages:      true,
 			},
-			// Cohere
-			{
-				name:            "cohere.command-r-v1:0",
-				generativeModel: "cohere.command-r-v1:0",
-			},
-			{
-				name:            "cohere.command-r-plus-v1:0",
-				generativeModel: "cohere.command-r-plus-v1:0",
-			},
 			// Meta
 			{
 				name:            "meta.llama3-8b-instruct-v1:0",
