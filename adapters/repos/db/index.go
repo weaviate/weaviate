@@ -681,6 +681,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		defer ticker.Stop()
 
 		now := time.Now()
+		var failed int
 
 		for _, shardName := range hotShardNames {
 			select {
@@ -697,13 +698,17 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 						Errorf("failed to load all shards: %v", i.closingCtx.Err())
 					return
 				default:
-					err := i.loadLocalShardIfActive(shardName)
-					if err != nil {
+					if err := i.loadLocalShardIfActive(shardName); err != nil {
+						failed++
 						i.logger.
 							WithField("action", "load_shard").
 							WithField("shard_name", shardName).
-							Errorf("failed to load shard: %v", err)
-						return
+							Errorf("failed to load shard, loading the rest anyway: %v", err)
+						// A failure says nothing about the shards behind this one:
+						// memory pressure is node-wide and transient, anything else
+						// is specific to this shard. Stopping here would leave the
+						// rest cold until something touches them.
+						continue
 					}
 				}
 			}
@@ -712,6 +717,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		i.logger.
 			WithField("action", "load_all_shards").
 			WithField("took", time.Since(now).String()).
+			WithField("failed", failed).
 			Debug("finished loading all shards")
 	}
 
