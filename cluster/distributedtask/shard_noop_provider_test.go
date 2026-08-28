@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -79,6 +81,9 @@ type mockRecorder struct {
 	progresses map[string]float32 // suID → last progress
 	completed  []string           // suIDs that completed
 	failed     map[string]string  // suID → error message
+	// completionErr makes the completion call refuse, which is the only way a
+	// test reaches processOneUnit's give-up path.
+	completionErr error
 }
 
 func newMockRecorder() *mockRecorder {
@@ -98,6 +103,9 @@ func (r *mockRecorder) UpdateDistributedTaskUnitProgress(_ context.Context, _, _
 func (r *mockRecorder) RecordDistributedTaskUnitCompletion(_ context.Context, _, _ string, _ uint64, _, suID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.completionErr != nil {
+		return r.completionErr
+	}
 	r.completed = append(r.completed, suID)
 	return nil
 }
@@ -163,14 +171,26 @@ func newProviderFixture(t *testing.T, nodeID string, lister ShardLister) *provid
 	return &providerFixture{provider: p, recorder: rec, hook: hook}
 }
 
-// hasEntry reports whether the hook holds an entry at level.
-func hasEntry(hook *logrustest.Hook, level logrus.Level) bool {
+// newTaskHandle builds the handle a test passes to a provider method it calls
+// directly, rather than through StartTask.
+func newTaskHandle() *shardNoopTaskHandle {
+	return &shardNoopTaskHandle{stopCh: make(chan struct{}), doneCh: make(chan struct{})}
+}
+
+// entriesAt returns the hook's entries at level, in the order they were logged.
+func entriesAt(hook *logrustest.Hook, level logrus.Level) []*logrus.Entry {
+	var out []*logrus.Entry
 	for _, e := range hook.AllEntries() {
 		if e.Level == level {
-			return true
+			out = append(out, e)
 		}
 	}
-	return false
+	return out
+}
+
+// hasEntry reports whether the hook holds an entry at level.
+func hasEntry(hook *logrustest.Hook, level logrus.Level) bool {
+	return len(entriesAt(hook, level)) > 0
 }
 
 // awaitEntry waits for the provider's goroutine to log at level and returns that
@@ -178,17 +198,9 @@ func hasEntry(hook *logrustest.Hook, level logrus.Level) bool {
 func awaitEntry(t *testing.T, hook *logrustest.Hook, level logrus.Level) *logrus.Entry {
 	t.Helper()
 
-	at := func() *logrus.Entry {
-		for _, e := range hook.AllEntries() {
-			if e.Level == level {
-				return e
-			}
-		}
-		return nil
-	}
-	require.Eventually(t, func() bool { return at() != nil }, 5*time.Second, 10*time.Millisecond,
-		"the provider never logged at %s", level)
-	return at()
+	require.Eventually(t, func() bool { return len(entriesAt(hook, level)) > 0 },
+		5*time.Second, 10*time.Millisecond, "the provider never logged at %s", level)
+	return entriesAt(hook, level)[0]
 }
 
 // newTask creates a Task with sensible defaults (ID "test-task", Version 1,
@@ -603,7 +615,7 @@ func TestListLocalShards(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newProviderFixture(t, "node1", tc.lister)
 			f.provider.retryBase = time.Millisecond
-			handle := &shardNoopTaskHandle{stopCh: make(chan struct{}), doneCh: make(chan struct{})}
+			handle := newTaskHandle()
 			if tc.stopAtCall > 0 {
 				tc.lister.onCall = func(n int) {
 					if n == tc.stopAtCall {
@@ -669,7 +681,7 @@ func TestListLocalShardsSkipsTheLastWait(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newProviderFixture(t, "node1", tc.lister)
 			f.provider.retryBase = 10 * time.Millisecond
-			handle := &shardNoopTaskHandle{stopCh: make(chan struct{}), doneCh: make(chan struct{})}
+			handle := newTaskHandle()
 			tc.lister.onCall = func(n int) {
 				if n == maxListAttempts {
 					close(handle.stopCh)
@@ -685,6 +697,195 @@ func TestListLocalShardsSkipsTheLastWait(t *testing.T) {
 				assert.Contains(t, awaitEntry(t, f.hook, logrus.ErrorLevel).Message,
 					"failed to list local shards after retries")
 			}
+		})
+	}
+}
+
+// The recorder retry has to tell three answers apart. A call works, or works
+// only on a later attempt, or never works. The last leaves fn's record
+// unwritten, which the caller has to see.
+func TestRetryRecorderCall(t *testing.T) {
+	tests := []struct {
+		name         string
+		failures     int
+		stopAtCall   int
+		wantCalls    int
+		wantWarns    int
+		wantRecorded bool
+		wantGaveUp   bool
+	}{
+		{
+			name:      "the first attempt works",
+			wantCalls: 1, wantRecorded: true,
+		},
+		{
+			// The retry exists for this row. A recorder that refuses twice and
+			// then answers must not cost the unit its completion.
+			name:      "a later attempt works",
+			failures:  2,
+			wantCalls: 3, wantWarns: 2, wantRecorded: true,
+		},
+		{
+			name:      "the recorder never answers",
+			failures:  maxRecorderAttempts,
+			wantCalls: maxRecorderAttempts, wantWarns: maxRecorderAttempts,
+			wantGaveUp: true,
+		},
+		{
+			// A terminated task stops inside the wait rather than running out
+			// its attempts, and stopping is not a give-up.
+			name:       "a terminated task stops on its first wait",
+			failures:   maxRecorderAttempts,
+			stopAtCall: 1,
+			wantCalls:  1, wantWarns: 1,
+		},
+		{
+			// Without the last-attempt guard the closed channel wins the select,
+			// and the give-up line never gets written.
+			name:       "a terminated task on the last attempt still reports the give-up",
+			failures:   maxRecorderAttempts,
+			stopAtCall: maxRecorderAttempts,
+			wantCalls:  maxRecorderAttempts, wantWarns: maxRecorderAttempts,
+			wantGaveUp: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newProviderFixture(t, "node1", nil)
+			f.provider.retryBase = time.Millisecond
+			handle := newTaskHandle()
+
+			refusal := fmt.Errorf("recorder is unavailable")
+
+			calls := 0
+			recorded := f.provider.retryRecorderCall("test-task", "u1", handle, func() error {
+				calls++
+				if calls == tc.stopAtCall {
+					close(handle.stopCh)
+				}
+				if calls <= tc.failures {
+					return refusal
+				}
+				return nil
+			})
+
+			assert.Equal(t, tc.wantCalls, calls)
+			assert.Equal(t, tc.wantRecorded, recorded,
+				"the caller decides whether to write a marker on this")
+
+			warns := entriesAt(f.hook, logrus.WarnLevel)
+			require.Len(t, warns, tc.wantWarns)
+			for i, w := range warns {
+				assert.Equal(t, "test-task", w.Data["taskID"], "an operator runs two of these at once")
+				assert.Equal(t, "u1", w.Data["uID"])
+				assert.Contains(t, w.Message, "recorder is unavailable",
+					"an operator reading one line needs why the recorder refused")
+				assert.NotContains(t, w.Data, logrus.ErrorKey)
+				assert.Contains(t, w.Message, "recorder call failed, retrying")
+				assert.Equal(t, i+1, w.Data["attempt"])
+			}
+
+			errs := entriesAt(f.hook, logrus.ErrorLevel)
+			if !tc.wantGaveUp {
+				assert.Empty(t, errs)
+				return
+			}
+			require.Len(t, errs, 1)
+			assert.Contains(t, errs[0].Message, "recorder call failed after all retries")
+			assert.Contains(t, errs[0].Message, "recorder is unavailable")
+			assert.Equal(t, "test-task", errs[0].Data["taskID"])
+			assert.Equal(t, "u1", errs[0].Data["uID"])
+			assert.NotContains(t, errs[0].Data, logrus.ErrorKey)
+		})
+	}
+}
+
+// The marker writes are the only place this provider reports a filesystem
+// refusal. os.MkdirAll and os.WriteFile put the path in the error, so moving that
+// error out of the message loses the only record of which file refused.
+func TestMarkerWriteFailuresNameTheCause(t *testing.T) {
+	tests := []struct {
+		name    string
+		blocked func(p *ShardNoopProvider, task *Task, uID string) string
+		fire    func(p *ShardNoopProvider, task *Task, uID string)
+		wantMsg string
+	}{
+		{
+			name:    "a group marker dir that cannot be created",
+			blocked: func(p *ShardNoopProvider, _ *Task, _ string) string { return p.syntheticMarkerDir() },
+			fire: func(p *ShardNoopProvider, task *Task, uID string) {
+				_ = p.OnGroupCompleted(task, "g1", []string{uID})
+			},
+			wantMsg: "failed to create marker dir",
+		},
+		{
+			name: "a group marker file whose path is a directory",
+			blocked: func(p *ShardNoopProvider, task *Task, uID string) string {
+				return filepath.Join(p.syntheticMarkerDir(), "dtm-finalize", task.ID, "g1", uID)
+			},
+			fire: func(p *ShardNoopProvider, task *Task, uID string) {
+				_ = p.OnGroupCompleted(task, "g1", []string{uID})
+			},
+			wantMsg: "failed to write marker file",
+		},
+		{
+			name:    "a completion marker dir that cannot be created",
+			blocked: func(p *ShardNoopProvider, _ *Task, _ string) string { return p.syntheticMarkerDir() },
+			fire:    func(p *ShardNoopProvider, task *Task, _ string) { _ = p.OnTaskCompleted(task) },
+			wantMsg: "failed to create completion marker dir",
+		},
+		{
+			name: "a completion marker file whose path is a directory",
+			blocked: func(p *ShardNoopProvider, task *Task, _ string) string {
+				return filepath.Join(p.syntheticMarkerDir(), "dtm-complete", task.ID, "done-node1")
+			},
+			fire:    func(p *ShardNoopProvider, task *Task, _ string) { _ = p.OnTaskCompleted(task) },
+			wantMsg: "failed to write completion marker",
+		},
+		{
+			name:    "a processing marker dir that cannot be created",
+			blocked: func(p *ShardNoopProvider, _ *Task, _ string) string { return p.syntheticMarkerDir() },
+			fire: func(p *ShardNoopProvider, task *Task, uID string) {
+				p.processOneUnit(context.Background(), task, newTaskHandle(), uID, ShardNoopProviderPayload{}, 0)
+			},
+			wantMsg: "failed to create processing marker dir",
+		},
+		{
+			name: "a processing marker file whose path is a directory",
+			blocked: func(p *ShardNoopProvider, task *Task, uID string) string {
+				return filepath.Join(p.syntheticMarkerDir(), "dtm-process", task.ID, uID)
+			},
+			fire: func(p *ShardNoopProvider, task *Task, uID string) {
+				p.processOneUnit(context.Background(), task, newTaskHandle(), uID, ShardNoopProviderPayload{}, 0)
+			},
+			wantMsg: "failed to write processing marker",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newProviderFixture(t, "node1", nil)
+			task := &Task{TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1}, Namespace: "ns"}
+
+			// A regular file where a directory belongs refuses MkdirAll, and a
+			// directory where the marker belongs refuses WriteFile. Neither needs
+			// a mode change, so the rows pass as root and on any filesystem.
+			blocked := tc.blocked(f.provider, task, "u1")
+			require.NoError(t, os.MkdirAll(filepath.Dir(blocked), 0o755))
+			if strings.HasSuffix(tc.wantMsg, "dir") {
+				require.NoError(t, os.WriteFile(blocked, []byte("not a directory"), 0o644))
+			} else {
+				require.NoError(t, os.MkdirAll(blocked, 0o755))
+			}
+
+			tc.fire(f.provider, task, "u1")
+
+			entry := awaitEntry(t, f.hook, logrus.ErrorLevel)
+			assert.Contains(t, entry.Message, tc.wantMsg)
+			assert.Contains(t, entry.Message, blocked,
+				"an operator reading one line needs the path that refused")
+			assert.NotContains(t, entry.Data, logrus.ErrorKey)
 		})
 	}
 }
@@ -761,4 +962,27 @@ func TestShardNoopProviderWaitsForShards(t *testing.T) {
 			assert.ElementsMatch(t, tc.wantClaimed, f.recorder.getCompleted())
 		})
 	}
+}
+
+// The marker says the unit was processed, so an unrecorded completion must not
+// leave one behind. Nothing else in the provider reconciles the two records.
+func TestProcessOneUnitWritesNoMarkerWithoutACompletion(t *testing.T) {
+	f := newProviderFixture(t, "node1", nil)
+	f.provider.retryBase = time.Millisecond
+	f.recorder.completionErr = fmt.Errorf("task is no longer running")
+	task := &Task{TaskDescriptor: TaskDescriptor{ID: "test-task", Version: 1}, Namespace: "ns"}
+
+	f.provider.processOneUnit(context.Background(), task, newTaskHandle(), "u1",
+		ShardNoopProviderPayload{}, 0)
+
+	assert.Empty(t, f.recorder.getCompleted())
+	_, err := os.Stat(filepath.Join(f.provider.syntheticMarkerDir(), "dtm-process", task.ID, "u1"))
+	assert.True(t, os.IsNotExist(err),
+		"a marker outliving an unrecorded completion is the on-disk record disagreeing with the task")
+
+	// The only run that reaches these fields through a call site rather than a
+	// literal, so a swapped (uID, task.ID) at any of the three shows up here.
+	warn := awaitEntry(t, f.hook, logrus.WarnLevel)
+	assert.Equal(t, "test-task", warn.Data["taskID"])
+	assert.Equal(t, "u1", warn.Data["uID"])
 }

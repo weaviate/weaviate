@@ -32,6 +32,10 @@ const ShardNoopProviderNamespace = "shard-noop"
 // backoff, so the default covers about 24 s of a node registering its shards.
 const maxListAttempts = 10
 
+// maxRecorderAttempts bounds the retryRecorderCall retry. Its two waits of
+// retryBase cover about 1 s of a recorder refusing.
+const maxRecorderAttempts = 3
+
 // ShardLister provides local shard names for a collection, allowing the
 // [ShardNoopProvider] to determine unit ownership based on real shard
 // topology without importing the db package. An implementation returns
@@ -92,7 +96,8 @@ type ShardNoopProvider struct {
 
 	shardLister ShardLister
 
-	// retryBase scales the backoff between GetLocalShardNames attempts. Only a
+	// retryBase is the base delay between this provider's retry attempts, ramped
+	// by attempt number in listLocalShards and flat in retryRecorderCall. Only a
 	// test shortens it, since NewShardNoopProvider is the sole constructor.
 	retryBase time.Duration
 
@@ -200,7 +205,7 @@ func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGr
 			}
 		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			p.logger.WithError(err).Error("shard-noop provider: failed to create marker dir")
+			p.logger.Errorf("shard-noop provider: failed to create marker dir: %v", err)
 			continue
 		}
 		var markerName string
@@ -216,7 +221,7 @@ func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGr
 		}
 		path := filepath.Join(dir, markerName)
 		if err := os.WriteFile(path, []byte(fmt.Sprintf("finalized by %s", p.nodeID)), 0o644); err != nil {
-			p.logger.WithError(err).Error("shard-noop provider: failed to write marker file")
+			p.logger.Errorf("shard-noop provider: failed to write marker file: %v", err)
 		}
 	}
 
@@ -276,7 +281,7 @@ func (p *ShardNoopProvider) OnTaskCompleted(task *Task) error {
 		dir = filepath.Join(p.syntheticMarkerDir(), "dtm-complete", task.ID)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		p.logger.WithError(err).Error("shard-noop provider: failed to create completion marker dir")
+		p.logger.Errorf("shard-noop provider: failed to create completion marker dir: %v", err)
 	} else {
 		var markerName string
 		if payload.Collection != "" {
@@ -286,7 +291,7 @@ func (p *ShardNoopProvider) OnTaskCompleted(task *Task) error {
 		}
 		path := filepath.Join(dir, markerName)
 		if err := os.WriteFile(path, []byte(fmt.Sprintf("completed by %s, status=%s", p.nodeID, task.Status)), 0o644); err != nil {
-			p.logger.WithError(err).Error("shard-noop provider: failed to write completion marker")
+			p.logger.Errorf("shard-noop provider: failed to write completion marker: %v", err)
 		}
 	}
 
@@ -480,10 +485,10 @@ func (p *ShardNoopProvider) shouldProcessUnit(uID string, u *Unit, payload Shard
 
 // processOneUnit handles a single unit's lifecycle (progress, delay, complete/fail).
 func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, handle *shardNoopTaskHandle, uID string, payload ShardNoopProviderPayload, processingDelay time.Duration) {
-	p.logger.WithField("uID", uID).WithField("nodeID", p.nodeID).
+	p.logger.WithField("taskID", task.ID).WithField("uID", uID).WithField("nodeID", p.nodeID).
 		Info("shard-noop provider: processing unit")
 
-	p.retryRecorderCall(handle, func() error {
+	p.retryRecorderCall(task.ID, uID, handle, func() error {
 		return p.recorder.UpdateDistributedTaskUnitProgress(
 			ctx, task.Namespace, task.ID, task.Version, p.nodeID, uID, 0.5,
 		)
@@ -508,7 +513,7 @@ func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, hand
 	}
 
 	if payload.FailUnitID == uID {
-		p.retryRecorderCall(handle, func() error {
+		p.retryRecorderCall(task.ID, uID, handle, func() error {
 			return p.recorder.RecordDistributedTaskUnitFailure(
 				ctx, task.Namespace, task.ID, task.Version, p.nodeID, uID, "dummy failure",
 			)
@@ -516,11 +521,15 @@ func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, hand
 		return
 	}
 
-	p.retryRecorderCall(handle, func() error {
+	if !p.retryRecorderCall(task.ID, uID, handle, func() error {
 		return p.recorder.RecordDistributedTaskUnitCompletion(
 			ctx, task.Namespace, task.ID, task.Version, p.nodeID, uID,
 		)
-	})
+	}) {
+		// The marker below says the unit was processed, so it must not outlive
+		// a completion the FSM never recorded.
+		return
+	}
 
 	// Write processing marker into the shard directory (collection-aware) or
 	// {dataRoot}/.dtm/dtm-process/{taskID}/ (synthetic).
@@ -537,7 +546,7 @@ func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, hand
 		dir = filepath.Join(p.syntheticMarkerDir(), "dtm-process", task.ID)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		p.logger.WithError(err).Error("shard-noop provider: failed to create processing marker dir")
+		p.logger.Errorf("shard-noop provider: failed to create processing marker dir: %v", err)
 	} else {
 		var markerName string
 		if payload.Collection != "" {
@@ -547,7 +556,7 @@ func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, hand
 		}
 		path := filepath.Join(dir, markerName)
 		if err := os.WriteFile(path, []byte(fmt.Sprintf("processed by %s", p.nodeID)), 0o644); err != nil {
-			p.logger.WithError(err).Error("shard-noop provider: failed to write processing marker")
+			p.logger.Errorf("shard-noop provider: failed to write processing marker: %v", err)
 		}
 	}
 }
@@ -564,21 +573,30 @@ func (h *shardNoopTaskHandle) Terminate() {
 
 func (h *shardNoopTaskHandle) Done() <-chan struct{} { return h.doneCh }
 
-// retryRecorderCall retries a recorder operation up to 3 times with a 500ms delay between attempts.
-// It respects the stop channel and returns early if termination is requested.
-func (p *ShardNoopProvider) retryRecorderCall(handle *shardNoopTaskHandle, fn func() error) {
-	for attempt := 0; attempt < 3; attempt++ {
-		err := fn()
-		if err == nil {
-			return
+// retryRecorderCall runs fn until it succeeds or maxRecorderAttempts is spent,
+// waiting retryBase between attempts. recorded is false where fn's record never
+// landed, which is a terminated task or a spent retry.
+func (p *ShardNoopProvider) retryRecorderCall(taskID, uID string, handle *shardNoopTaskHandle,
+	fn func() error,
+) (recorded bool) {
+	logger := p.logger.WithField("taskID", taskID).WithField("uID", uID)
+
+	var err error
+	for attempt := 0; attempt < maxRecorderAttempts; attempt++ {
+		if err = fn(); err == nil {
+			return true
 		}
-		p.logger.WithError(err).WithField("attempt", attempt+1).
-			Warn("shard-noop provider: recorder call failed, retrying")
-		select {
-		case <-handle.stopCh:
-			return
-		case <-time.After(500 * time.Millisecond):
+		logger.WithField("attempt", attempt+1).
+			Warnf("shard-noop provider: recorder call failed, retrying: %v", err)
+		// The last attempt has nothing left to wait for.
+		if attempt < maxRecorderAttempts-1 {
+			select {
+			case <-handle.stopCh:
+				return false
+			case <-time.After(p.retryBase):
+			}
 		}
 	}
-	p.logger.Error("shard-noop provider: recorder call failed after all retries")
+	logger.Errorf("shard-noop provider: recorder call failed after all retries: %v", err)
+	return false
 }
