@@ -778,14 +778,15 @@ func (h *int64MinHeap) Pop() interface{} {
 
 // fileWriter downloads files from object store and writes files to the destination folder destDir
 type fileWriter struct {
-	sourcer    Sourcer
-	backend    nodeStore
-	tempDir    string
-	destDir    string
-	movedFiles []string // files successfully moved to destination folder
-	GoPoolSize int
-	migrator   func(classPath string) error
-	logger     logrus.FieldLogger
+	sourcer        Sourcer
+	backend        nodeStore
+	tempDir        string
+	destDir        string
+	movedFiles     []string // files successfully moved to destination folder
+	GoPoolSize     int
+	migrator       func(classPath string) error
+	stagedRecorder func(string) // notified before a class staging dir is (re)created
+	logger         logrus.FieldLogger
 }
 
 func newFileWriter(sourcer Sourcer, backend nodeStore,
@@ -805,6 +806,11 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 
 func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 	fw.GoPoolSize = routinePoolSize(p)
+	return fw
+}
+
+func (fw *fileWriter) withStagedRecorder(f func(string)) *fileWriter {
+	fw.stagedRecorder = f
 	return fw
 }
 
@@ -831,6 +837,10 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, m
 
 // prepare resets the class staging directory; run once per class, before any fetch pass.
 func (fw *fileWriter) prepare(classTempDir string) error {
+	// Record before mutating disk so a partially-staged dir is still cleaned on failure.
+	if fw.stagedRecorder != nil {
+		fw.stagedRecorder(classTempDir)
+	}
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}

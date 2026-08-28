@@ -350,7 +350,7 @@ func TestRestoreAllCancellation(t *testing.T) {
 
 		err := restorer.restoreAll(cancelledCtx, desc, 50, nodeStore{
 			objectStore: objectStore{backend: backend, backupId: backupID},
-		}, "", "", false)
+		}, "", "", false, &stagedDirs{})
 
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "restore cancelled")
@@ -406,7 +406,7 @@ func TestRestoreBookingExpiration(t *testing.T) {
 			store := nodeStore{objectStore{backend, "1/" + nodeName, "", "", nodeName}}
 			req := &Request{Method: OpRestore, ID: "1", Duration: tc.booking, DedupeReplicas: tc.dedupe}
 
-			ret, err := r.startRestore(req, store, func(context.Context) error { return nil })
+			ret, err := r.startRestore(req, store, func(context.Context, *stagedDirs) error { return nil })
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, ret.Timeout)
 
@@ -419,12 +419,14 @@ func TestRestoreBookingExpiration(t *testing.T) {
 func TestRestoreFailureCleansStaging(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		workErr     error
-		wantStaging bool
+		name    string
+		stage   bool
+		workErr error
+		wantOwn bool
 	}{
-		{name: "failure removes staged files", workErr: ErrAny, wantStaging: false},
-		{name: "success keeps staged files for raft apply", wantStaging: true},
+		{name: "failure removes only dirs this attempt staged", stage: true, workErr: ErrAny, wantOwn: false},
+		{name: "failure before staging removes nothing", workErr: ErrAny, wantOwn: false},
+		{name: "success keeps staged dirs for raft apply", stage: true, wantOwn: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -436,23 +438,68 @@ func TestRestoreFailureCleansStaging(t *testing.T) {
 			r := newRestorer(nodeName, logrus.New(), &fakeSourcer{}, nil, false)
 			store := nodeStore{objectStore{backend, "1/" + nodeName, "", "", nodeName}}
 
-			staged := filepath.Join(dataPath, TempDirectory, "Class-A")
-			require.NoError(t, os.MkdirAll(staged, os.ModePerm))
-			require.NoError(t, os.WriteFile(filepath.Join(staged, "chunk-1"), []byte("stale"), 0o644))
+			foreign := filepath.Join(dataPath, TempDirectory, "Class-Foreign")
+			require.NoError(t, os.MkdirAll(foreign, os.ModePerm))
+			require.NoError(t, os.WriteFile(filepath.Join(foreign, "chunk-1"), []byte("stale"), 0o644))
+			own := filepath.Join(dataPath, TempDirectory, "Class-A")
 
 			req := &Request{Method: OpRestore, ID: "1"}
-			_, err := r.startRestore(req, store, func(context.Context) error { return tc.workErr })
+			_, err := r.startRestore(req, store, func(_ context.Context, staged *stagedDirs) error {
+				if tc.stage {
+					staged.record(own)
+					if err := os.MkdirAll(own, os.ModePerm); err != nil {
+						return err
+					}
+					if err := os.WriteFile(filepath.Join(own, "chunk-1"), []byte("data"), 0o644); err != nil {
+						return err
+					}
+				}
+				return tc.workErr
+			})
 			require.NoError(t, err)
 			require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
 
-			_, statErr := os.Stat(staged)
-			if tc.wantStaging {
+			_, statErr := os.Stat(foreign)
+			require.NoError(t, statErr)
+			_, statErr = os.Stat(own)
+			if tc.wantOwn {
 				require.NoError(t, statErr)
 			} else {
 				require.ErrorIs(t, statErr, os.ErrNotExist)
 			}
 		})
 	}
+}
+
+func TestRestoreFailureKeepsPriorAttemptStaging(t *testing.T) {
+	t.Parallel()
+	dataPath := t.TempDir()
+	backend := newFakeBackend()
+	backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
+	backend.On("SourceDataPath").Return(dataPath)
+	r := newRestorer(nodeName, logrus.New(), &fakeSourcer{}, nil, false)
+	store := nodeStore{objectStore{backend, "1/" + nodeName, "", "", nodeName}}
+
+	staged := filepath.Join(dataPath, TempDirectory, "Class-A")
+	req1 := &Request{Method: OpRestore, ID: "1"}
+	_, err := r.startRestore(req1, store, func(_ context.Context, s *stagedDirs) error {
+		s.record(staged)
+		if err := os.MkdirAll(staged, os.ModePerm); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(staged, "chunk-1"), []byte("data"), 0o644)
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+	require.DirExists(t, staged)
+
+	req2 := &Request{Method: OpRestore, ID: "2", Duration: 20 * time.Millisecond}
+	_, err = r.startRestore(req2, store, func(context.Context, *stagedDirs) error { return nil })
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+
+	require.DirExists(t, staged)
+	require.FileExists(t, filepath.Join(staged, "chunk-1"))
 }
 
 func TestOnAbortAttemptGate(t *testing.T) {
