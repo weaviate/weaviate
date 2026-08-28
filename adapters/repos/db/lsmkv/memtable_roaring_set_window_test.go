@@ -29,13 +29,12 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// TestRoaringSetGetWindowMatchesPerKey is the differential the batch read has to
-// survive: for any memtable and any batch, reading the batch in one pass must
-// answer exactly what reading each key on its own does. The two walk the tree
-// completely differently — one descends per key, the other advances two cursors
-// past each other — so agreement is the property worth pinning, and the shapes
-// below are the ones where a cursor can overshoot: batches far sparser than the
-// memtable, far denser, disjoint from it, and sharing only their ends.
+// TestRoaringSetGetWindowMatchesPerKey is the differential the batch read has
+// to survive: reading a batch in one pass must answer exactly what reading
+// each key on its own does. The two walk the tree completely differently —
+// one descends per key, the other advances two cursors past each other — so
+// the shapes below target where a cursor can overshoot: batches far sparser
+// or denser than the memtable, disjoint from it, or sharing only their ends.
 func TestRoaringSetGetWindowMatchesPerKey(t *testing.T) {
 	t.Parallel()
 
@@ -112,15 +111,11 @@ func TestRoaringSetGetWindowRandomized(t *testing.T) {
 	}
 }
 
-// TestRoaringSetGetWindowMatchesWholeBatch pins that reading a batch in windows answers
-// exactly what reading it whole does.
-//
-// The caller windows a large batch so the lock is held briefly and only one
-// window's bitmaps are held at a time, which only works if the boundaries are
-// invisible: every window starts with its own descent rather than where the
-// last one stopped, so a key sitting on a boundary is the one a mistake drops
-// or double-counts. Window size 1 is the degenerate end of that — every key is
-// its own boundary.
+// TestRoaringSetGetWindowMatchesWholeBatch pins that reading a batch in
+// windows answers exactly what reading it whole does. Each window starts with
+// its own descent rather than where the last one stopped, so a key on a
+// window boundary is the one a mistake would drop or double-count; window
+// size 1 is the degenerate case where every key is a boundary.
 func TestRoaringSetGetWindowMatchesWholeBatch(t *testing.T) {
 	t.Parallel()
 
@@ -137,9 +132,8 @@ func TestRoaringSetGetWindowMatchesWholeBatch(t *testing.T) {
 		fillWindowOK(t, m, keys, 0, keys.Len(), whole)
 
 		for _, w := range []int{1, 2, 3, 7, 1000} {
-			// One slot per key, handed over a window at a time, exactly as the
-			// batch reader does it. Writing outside its window would index past
-			// the subslice rather than land in a neighbour's slot.
+			// One slot per key, handed over a window at a time, as the batch
+			// reader does it.
 			got := make([]roaringset.BitmapLayer, keys.Len())
 			for from := 0; from < keys.Len(); from += w {
 				to := min(from+w, keys.Len())
@@ -151,18 +145,13 @@ func TestRoaringSetGetWindowMatchesWholeBatch(t *testing.T) {
 	}
 }
 
-// TestRoaringSetGetWindowRangeGuards separates the ranges that can be answered
-// by reading nothing from the ones nobody asked for. A range outside the batch
-// cannot be answered with "this memtable holds none of those keys", and a slice
-// too short for its range has nowhere to put the last rows.
-//
-// A slice longer than the range is legal, and pinned here as such: fillWindow
-// holds one buffer at the widest a window gets and asks for the narrower range
-// its budget settled on.
-//
-// None of the erroring shapes is reachable from fillWindow, which always
-// produces a range inside the batch and a slice at least its width. They are the
-// arithmetic a second caller would get wrong.
+// TestRoaringSetGetWindowRangeGuards covers the rejected shapes: a range
+// outside the batch, and a slice that is not exactly as wide as its range. A
+// longer slice is rejected rather than tolerated, because the read clears
+// everything it is given, so only an exact length makes what it erases the
+// slots it was asked for. None of the erroring shapes is reachable from
+// fillWindow, which slices exactly the range it asks for — they are the
+// arithmetic a second caller could get wrong.
 func TestRoaringSetGetWindowRangeGuards(t *testing.T) {
 	t.Parallel()
 
@@ -178,9 +167,9 @@ func TestRoaringSetGetWindowRangeGuards(t *testing.T) {
 		{name: "empty at the start", from: 0, to: 0, slots: 0},
 		{name: "empty at the end", from: 3, to: 3, slots: 0},
 		{name: "empty in the middle", from: 1, to: 1, slots: 0},
-		{name: "slice longer than the window", from: 0, to: 2, slots: 3},
-		{name: "whole batch passed for a late window", from: 1, to: 3, slots: 3},
-		{name: "slots for an empty window", from: 1, to: 1, slots: 3},
+		{name: "slice longer than the window", from: 0, to: 2, slots: 3, wantErr: true},
+		{name: "whole batch passed for a late window", from: 1, to: 3, slots: 3, wantErr: true},
+		{name: "slots for an empty window", from: 1, to: 1, slots: 3, wantErr: true},
 		{name: "inverted", from: 2, to: 1, slots: 0, wantErr: true},
 		{name: "before the first key", from: -1, to: 2, slots: 3, wantErr: true},
 		{name: "one past the last", from: 0, to: 4, slots: 4, wantErr: true},
@@ -203,11 +192,9 @@ func TestRoaringSetGetWindowRangeGuards(t *testing.T) {
 	}
 }
 
-// TestRoaringSetGetWindowDropsEmptySides pins which clone the read uses. A row
-// written to but never deleted from still has both bitmaps allocated in the
-// tree, and the window must hand back a nil deletion side rather than an empty
-// one — that nil is what the reader's presence test reads. Plain Clone would
-// return an allocated empty bitmap and go unnoticed everywhere else.
+// TestRoaringSetGetWindowDropsEmptySides pins that a row's unused side comes
+// back nil, not an allocated-but-empty bitmap: that nil is what the reader's
+// presence test relies on, even though the tree itself allocates both sides.
 func TestRoaringSetGetWindowDropsEmptySides(t *testing.T) {
 	t.Parallel()
 
@@ -231,10 +218,9 @@ func TestRoaringSetGetWindowDropsEmptySides(t *testing.T) {
 	}
 }
 
-// TestRoaringSetGetWindowClearsWhatItIsGiven pins that absence is answered as
-// absence even when the caller hands over a buffer it has used before. The read
-// only writes the slots whose keys it holds, so anything left in the others
-// would be read as a row this memtable has for that key.
+// TestRoaringSetGetWindowClearsWhatItIsGiven pins that a reused, dirty buffer
+// answers the same as a fresh one: the read only writes slots for keys it
+// holds, so a stale slot would otherwise read as a row present.
 func TestRoaringSetGetWindowClearsWhatItIsGiven(t *testing.T) {
 	t.Parallel()
 
@@ -269,11 +255,10 @@ func TestRoaringSetGetWindowClearsWhatItIsGiven(t *testing.T) {
 	}
 }
 
-// TestRoaringSetGetWindowCopiesWhatItYields pins that the rows leave the read
-// owning nothing of the memtable. The walk hands out the tree's own nodes, so
-// only the copy keeps a caller from editing the memtable through the row it was
-// given. The race detector catches the concurrent half of that; this catches the
-// half that is wrong even single-threaded.
+// TestRoaringSetGetWindowCopiesWhatItYields pins that mutating a returned row
+// never reaches the memtable — the walk hands out the tree's own nodes, so
+// only the copy protects it. This is the single-threaded half of that
+// contract; the race detector covers the concurrent half.
 func TestRoaringSetGetWindowCopiesWhatItYields(t *testing.T) {
 	t.Parallel()
 
@@ -325,10 +310,8 @@ func memtableWith(t *testing.T, keys []string) *Memtable {
 	})
 	require.NoError(t, err)
 
-	// Every third key also carries a deletion, and every fifth carries only
-	// one. Additions alone would make the deletion half of every comparison
-	// vacuous, and a deletion-only row is the shape whose layer has a nil
-	// Additions — the one a fold that assumes otherwise drops.
+	// Every third key also carries a deletion, every fifth carries only a
+	// deletion (a layer with a nil Additions, which a careless fold drops).
 	for i, k := range keys {
 		if i%5 != 0 {
 			require.NoError(t, m.roaringSetAddOne([]byte(k), uint64(i)))
@@ -340,9 +323,8 @@ func memtableWith(t *testing.T, keys []string) *Memtable {
 	return m
 }
 
-// layerDocsOf renders layers as their doc IDs, which is the only way to compare
-// two reads of the same rows: each read clones, so the bitmaps are never the
-// same objects.
+// layerDocsOf renders layers as their doc IDs, since each read clones and the
+// bitmaps are never the same objects to compare directly.
 func layerDocsOf(layers []roaringset.BitmapLayer) []layerDocs {
 	out := make([]layerDocs, len(layers))
 	for i, l := range layers {
@@ -388,13 +370,10 @@ func singleLetterKeys() []string {
 	return out
 }
 
-// TestMemtableLayersAreNeverBothNil pins what makes a window slot readable at
-// all. The slot is a plain BitmapLayer whose zero value says "no row for this
-// key", which only tells absent from present because every node a memtable
-// builds allocates both of its bitmaps. That invariant belongs to roaringset, not
-// to whatever reads a window, so it is checked rather than assumed: a
-// node-creation path leaving both nil would make keys the memtable holds read as
-// absent.
+// TestMemtableLayersAreNeverBothNil pins the invariant a window slot's zero
+// value relies on to mean "absent": every node a memtable builds must
+// allocate at least one of its two bitmaps. A node-creation path that left
+// both nil would make a held key read as absent.
 func TestMemtableLayersAreNeverBothNil(t *testing.T) {
 	t.Parallel()
 	rnd := rand.New(rand.NewSource(5))
@@ -426,10 +405,8 @@ func TestMemtableLayersAreNeverBothNil(t *testing.T) {
 		into := make([]roaringset.BitmapLayer, keys.Len())
 		fillWindowOK(t, m, keys, 0, keys.Len(), into)
 
-		// A node with both bitmaps nil leaves its slot untouched, which is what
-		// absence looks like, so it goes missing from this list rather than
-		// arriving as a zero layer. Comparing against what the memtable was
-		// given is what catches it.
+		// A node with both bitmaps nil would leave its slot untouched — missing
+		// from this list rather than arriving as a zero layer.
 		reported := make([]string, 0, len(into))
 		for i, layer := range into {
 			if layer.Additions != nil || layer.Deletions != nil {
@@ -443,16 +420,13 @@ func TestMemtableLayersAreNeverBothNil(t *testing.T) {
 	}
 }
 
-// TestRoaringSetGetWindowStopsAtTheBudget pins what bounds a window's memory.
-// The key count caps how many rows a fill clones and nothing caps how big a row
-// is, so without this a property with few values and many documents each turns
-// one window into a multiple of what the constant suggests.
+// TestRoaringSetGetWindowStopsAtTheBudget pins the byte budget as a second
+// bound on window memory alongside the key count: nothing else caps how big a
+// single row is.
 func TestRoaringSetGetWindowStopsAtTheBudget(t *testing.T) {
 	t.Parallel()
 
-	// Rows wide enough that a couple of them exhaust any budget worth setting.
-	// Documents are spread so each lands in its own container, which is what
-	// makes a row cost bytes rather than compress to nothing.
+	// Documents spread one per container, so a row costs real bytes.
 	const rows, docsPerRow = 8, 4096
 	batch := make([]string, rows)
 	for i := range batch {
@@ -505,33 +479,27 @@ func TestRoaringSetGetWindowStopsAtTheBudget(t *testing.T) {
 	}
 }
 
-// fillWindowOK reads a window and fails the test if it errors, so the callers
-// that only care about what landed in dst stay one line. The bytes it reports
-// are asserted where that is the subject.
+// fillWindowOK reads a window and fails the test if it errors, so callers that
+// only care about what landed in dst stay one line.
 func fillWindowOK(t *testing.T, m memtable, keys inverted.SortedKeys, from, to int, dst []roaringset.BitmapLayer) {
 	t.Helper()
-	// A budget nothing here can reach, so these callers read the whole range
-	// they asked for. The budget's own behaviour is covered separately.
+	// Unbudgeted, so these callers always get the whole range they asked for.
 	fill, err := m.roaringSetGetWindow(keys, from, to, dst, math.MaxInt)
 	require.NoError(t, err)
 	require.Equal(t, to, fill.To, "an unbudgeted read must fill the whole range")
 }
 
-// TestRoaringSetGetWindowHoldsAtMostTheBudget pins the ceiling the budget
-// enforces, which a fixture of equally sized rows cannot reach: spending there
-// lands on the budget and never past it, so the same numbers come out whether a
-// row is priced before it is copied or after. One fat row among thin ones is what
-// tells the two apart, and it is the shape the budget exists for — a property
-// whose values carry wildly different document counts.
+// TestRoaringSetGetWindowHoldsAtMostTheBudget pins that pricing a row before
+// copying it (not after) matters: only a fat row among thin ones can tell the
+// two apart, since equally sized rows always land on the budget the same way
+// either way.
 func TestRoaringSetGetWindowHoldsAtMostTheBudget(t *testing.T) {
 	t.Parallel()
 
 	const keyCount, thinDocs, fatDocs = 8, 8, 4096
 
-	// Sixty-four apart, and each key's documents are its own, so no two rows share a
-	// container. What costs bytes here is the document count: the fat row's four
-	// thousand fill a handful of containers densely, where the thin rows' eight share
-	// one.
+	// Each key's documents are 64 apart and its own, so no two rows share a
+	// container.
 	docsFor := func(key, n int) []uint64 {
 		docs := make([]uint64, n)
 		for j := range docs {
@@ -566,10 +534,8 @@ func TestRoaringSetGetWindowHoldsAtMostTheBudget(t *testing.T) {
 	t.Run("a fat row past the first ends the window before it", func(t *testing.T) {
 		m, keys := build(t, keyCount-1)
 
-		// Just past what the thin rows cost, so they all fit and the fat one cannot.
-		// Not exactly their total: a budget landing on it stops a walk that prices
-		// rows after copying them too, since its running total reaches the budget at
-		// the same boundary, and the case would pass either way.
+		// One byte past the thin rows' total: exactly their total would also
+		// pass under price-after-copy pricing, so it wouldn't distinguish the two.
 		thin := costOf(t, m, keys, 0, keyCount-1)
 		budget := thin + 1
 		require.Less(t, budget, thin+costOf(t, m, keys, keyCount-1, keyCount),

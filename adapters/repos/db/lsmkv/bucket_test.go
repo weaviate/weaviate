@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sync"
 	"testing"
 	"time"
 
@@ -798,6 +797,9 @@ func TestCountApproximate(t *testing.T) {
 		switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
 		require.NoError(t, err)
 		require.True(t, switched)
+		// Registered above the assertions so a failure among them still lands the
+		// flush: Shutdown waits on b.flushing with no bound.
+		t.Cleanup(func() { completeParkedFlush(t, b) })
 
 		require.NoError(t, b.Put([]byte("key-new"), []byte("value")))
 		require.NoError(t, b.Put([]byte("key-new-2"), []byte("value")))
@@ -805,13 +807,7 @@ func TestCountApproximate(t *testing.T) {
 		requireApprox(t, b, 6)
 		requireExact(t, b, 6)
 
-		// complete the flush the way FlushAndSwitch does
-		b.waitForZeroWriters(b.flushing)
-		segmentPath, err := b.flushing.flush()
-		require.NoError(t, err)
-		segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
-		require.NoError(t, err)
-		require.NoError(t, b.atomicallyAddDiskSegmentAndRemoveFlushing(segment))
+		completeParkedFlush(t, b)
 		requireApprox(t, b, 6)
 	})
 
@@ -2250,14 +2246,24 @@ type testMemtable struct {
 	// memtable read error mid-way through a consistent-view lookup.
 	roaringSetGetErr error
 	// roaringSetGetWindowErr is the same for the windowed read, which fails a
-	// whole window rather than one key.
-	roaringSetGetWindowErr error
+	// whole window rather than one key. No Memtable produces either error today:
+	// its two argument guards are ones fillWindow satisfies by construction, and
+	// the walk itself only errors from a cursor that returns none.
+	// roaringSetGetWindowErrBytes is what a failing read reports having copied
+	// already, which is what fillWindow's counting arm exists for.
+	roaringSetGetWindowErr      error
+	roaringSetGetWindowErrBytes int
 	// Call counts for the two ways a memtable is read. Each is one acquisition
 	// of its read lock, which is the cost the batch path exists to reduce, so
 	// counting them is how a test states that reduction rather than inferring
 	// it from a timing.
 	roaringSetGetCalls       int
 	roaringSetGetWindowCalls int
+	// ranges is [from, To) per windowed read, for a test stating that no key is
+	// read twice across a batch. Every read of this double lands here, a
+	// fixture's own pricing probe included, and a read that failed records the
+	// range it was asked for rather than what it filled.
+	ranges [][2]int
 }
 
 func (t *testMemtable) incWriterCount() {
@@ -2269,14 +2275,22 @@ func (t *testMemtable) roaringSetGetWindow(
 	keys inverted.SortedKeys, from, to int, into []roaringset.BitmapLayer, budget int,
 ) (windowFill, error) {
 	t.roaringSetGetWindowCalls++
-	if t.roaringSetGetWindowErr != nil {
-		// To as the real walk reports it when a read fails part way: the range it
-		// was asked for, since it cannot say how far it got. The caller discards
-		// the fill on an error, so this only keeps the double from being the looser
-		// of the two.
-		return windowFill{To: to}, t.roaringSetGetWindowErr
+
+	// To as the real walk reports it when a read fails part way: the range it
+	// was asked for, since it cannot say how far it got. The caller drops To on
+	// an error but does count Bytes, so the rows copied before the failure are
+	// what a test sets roaringSetGetWindowErrBytes to describe.
+	fill, err := windowFill{To: to, Bytes: t.roaringSetGetWindowErrBytes}, t.roaringSetGetWindowErr
+	if err == nil {
+		fill, err = t.Memtable.roaringSetGetWindow(keys, from, to, into, budget)
+	} else {
+		// The real walk clears dst before it reads anything, so an injected
+		// failure has to leave the same zeroed slots behind it.
+		clear(into)
 	}
-	return t.Memtable.roaringSetGetWindow(keys, from, to, into, budget)
+
+	t.ranges = append(t.ranges, [2]int{from, fill.To})
+	return fill, err
 }
 
 func (t *testMemtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
@@ -3170,15 +3184,9 @@ func TestApplyToObjectDigestsWithFlushingMemtable(t *testing.T) {
 	require.True(t, switched)
 	require.NotNil(t, b.flushing, "the scan must run against a live flushing memtable")
 
-	// Shutdown blocks until b.flushing clears, so land it even if an assertion below fails.
-	landFlushing := sync.OnceFunc(func() {
-		segmentPath, err := b.flushing.flush()
-		require.NoError(t, err)
-		segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
-		require.NoError(t, err)
-		require.NoError(t, b.atomicallyAddDiskSegmentAndRemoveFlushing(segment))
-	})
-	t.Cleanup(landFlushing)
+	// Registered above the assertions so a failure among them still lands the
+	// flush: Shutdown waits on b.flushing with no bound.
+	t.Cleanup(func() { completeParkedFlush(t, b) })
 
 	require.NoError(t, b.Delete(keyB))
 	require.NoError(t, b.Put(keyD, objValue(t, keyD, 5, updateTime)))
@@ -3190,7 +3198,7 @@ func TestApplyToObjectDigestsWithFlushingMemtable(t *testing.T) {
 	}
 	require.Equal(t, want, scan(t, b))
 
-	landFlushing()
+	completeParkedFlush(t, b)
 
 	require.Equal(t, want, scan(t, b), "root must not depend on whether the flushing memtable had landed")
 }

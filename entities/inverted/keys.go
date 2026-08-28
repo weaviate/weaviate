@@ -117,15 +117,12 @@ func (k SortedKeys) All() iter.Seq2[int, []byte] {
 }
 
 // FirstAtOrAfter returns the first position in [from, to) whose key is at or
-// past target, or to if there is none. It is a lower bound over a window of the
-// list rather than the whole of it, which is what a caller walking two sorted
-// runs past each other needs: to is where its window ends, and a search running
-// past that would answer with a key the caller is not reading.
+// past target, or to if there is none. It searches a sub-range rather than the
+// whole list, which is what a caller walking two sorted runs past each other
+// needs.
 //
-// from is a hint, not a bound the answer has to clear — a target already at or
-// before keys[from] answers from. The cost is one comparison for a caller that
-// knows it is behind, and the alternative is a precondition that answers wrongly
-// and silently when it is broken.
+// from is a hint, not a bound the answer has to clear: a target already at or
+// before keys[from] answers from.
 //
 // to is required, not a hint: 0 <= from <= to <= Len(), unchecked. Trimming a
 // range the caller got wrong would answer as if they had got it right.

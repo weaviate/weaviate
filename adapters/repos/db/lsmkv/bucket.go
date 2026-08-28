@@ -638,6 +638,7 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 }
 
 type BucketConsistentView struct {
+	// Active is always set; Flushing is nil unless a flush is in flight.
 	Active   memtable
 	Flushing memtable
 	Disk     []Segment

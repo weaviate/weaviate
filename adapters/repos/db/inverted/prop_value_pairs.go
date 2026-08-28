@@ -391,16 +391,11 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 	before := time.Now()
 	var dbm docBitmap
 
-	// Released after the annotation below rather than before it: deferred calls
-	// run in reverse, so registering the release first leaves the annotation to
-	// read the reader and the result while the segments they came from are still
-	// mapped.
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	// Named before the annotation so its closure can reach the reader, and nil
-	// until there is one — a filter rejected while opening it is timed without
-	// inventing counts for work that never happened.
+	// Nil until there is a reader, so a filter rejected while opening one is
+	// timed without inventing counts for work that never happened.
 	var reader *lsmkv.RoaringSetBatchReader
 	// Deferred so a filter that fails partway is timed and reports what it did
 	// before it stopped.
@@ -420,17 +415,20 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 				"batched_keys": pv.containsKeys.Len(),
 			}
 			// What the batching itself did, so a slow batched filter can be told
-			// from a filter that was merely slow. Without these the log says the
-			// read was batched and how big the batch was, and nothing about the
-			// memtable work that is this path's own.
+			// from a filter that was merely slow.
 			if reader != nil {
 				st := reader.Stats()
 				fields["window_fills"] = st.Fills
 				fields["window_narrowed_fills"] = st.NarrowedFills
-				fields["window_keys_read"] = st.KeysRead
+				fields["batch_keys_served"] = st.KeysServed
 				fields["window_bytes_peak"] = st.BytesPeak
 				fields["window_bytes_copied"] = st.BytesCopied
-				fields["memtables_read"] = st.Memtables
+				fields["memtable_reads"] = st.MemtableReads
+				// Without this the read count cannot be normalized: reads per
+				// fill run from one to one per memtable, so a ratio of 1.0
+				// cannot be told from two memtables whose every fill skipped
+				// one.
+				fields["memtables"] = st.Memtables
 			}
 			return fields
 		})

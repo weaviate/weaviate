@@ -429,13 +429,10 @@ func TestBuildDropsDuplicatesAcrossShapes(t *testing.T) {
 }
 
 // TestFirstAtOrAfter pins the gallop against a linear scan, over every
-// (from, to, target) the list admits and both layouts, since the two index the
-// slab differently and the search reaches keys by index.
-//
-// to is swept as well as from: it is the caller's window rather than the list's
-// end, and a stride running past it would answer with a key outside the window.
-// So are targets at or before keys[from], which the answer is from — the case a
-// precondition would have made undefined.
+// (from, to, target) the list admits and both layouts, since the two index
+// the slab differently. to is swept along with from since it is the caller's
+// window, not the list's end, and a stride running past it must not answer
+// with a key outside that window.
 func TestFirstAtOrAfter(t *testing.T) {
 	t.Parallel()
 
@@ -445,15 +442,12 @@ func TestFirstAtOrAfter(t *testing.T) {
 	}{
 		{name: "variable width", build: buildVariable},
 		{name: "fixed width", build: fixedBuilder(1)},
-		// Wider than the keys, so the slab is strided rather than packed and an
-		// index the search reaches has to be scaled by the width to find its key.
-		// The builder zero-pads, and the scan below compares the padded keys the
-		// same way the search does.
+		// Wider than the keys and zero-padded, so the slab is strided rather
+		// than packed.
 		{name: "fixed width, padded", build: fixedBuilder(8)},
 	}
-	// Every other printable byte: gaps between the keys, so a target can fall on
-	// one or between two, and enough of them that the gallop's stride doubles
-	// several times instead of finding its answer inside the first step.
+	// Every other printable byte, so a target can fall on a key or in the gap
+	// between two, with enough gaps that the gallop's stride doubles a few times.
 	var letters []string
 	for c := byte('!'); c <= '~'; c += 2 {
 		letters = append(letters, string(c))
@@ -466,8 +460,7 @@ func TestFirstAtOrAfter(t *testing.T) {
 			keys := layout.build(t, letters)
 			n := keys.Len()
 
-			// On the first key, in the gap after it, and the same at the middle and
-			// the end, plus a target before every key and one past all of them.
+			// First key, its gap, middle, end, and one before/after all of them.
 			last := len(letters) - 1
 			targets := []string{
 				"", letters[0], next(letters[0]),
@@ -493,10 +486,9 @@ func TestFirstAtOrAfter(t *testing.T) {
 	}
 }
 
-// TestFirstAtOrAfterOutsideItsRange pins what the godoc says the caller must not
-// do, so the documented behaviour is the tested one rather than whatever the
-// arithmetic happens to produce. Both are caller errors that nothing checks: the
-// alternative is trimming them to fit, which answers as if the caller were right.
+// TestFirstAtOrAfterOutsideItsRange pins the two caller errors the godoc
+// warns about but nothing checks, so the documented behaviour is the tested
+// one rather than whatever the arithmetic happens to produce.
 func TestFirstAtOrAfterOutsideItsRange(t *testing.T) {
 	t.Parallel()
 
@@ -506,8 +498,6 @@ func TestFirstAtOrAfterOutsideItsRange(t *testing.T) {
 		t.Parallel()
 
 		keys := buildVariable(t, letters)
-		// Every target, since the answer comes from the range and not from the
-		// search: with from past to there is nothing to search.
 		for _, target := range []string{"", "a", "e", "z"} {
 			assert.Equalf(t, 4, keys.FirstAtOrAfter(4, 2, []byte(target)),
 				"target %q", target)
@@ -518,8 +508,6 @@ func TestFirstAtOrAfterOutsideItsRange(t *testing.T) {
 		t.Parallel()
 
 		keys := buildVariable(t, letters)
-		// A target past every key makes the gallop walk to to, which the caller
-		// has put beyond what the list holds.
 		require.Panics(t, func() {
 			keys.FirstAtOrAfter(0, keys.Len()+8, []byte("z"))
 		})

@@ -13,6 +13,7 @@ package roaringset
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -384,12 +385,10 @@ func Test_BitmapLayers_Merge(t *testing.T) {
 	}
 }
 
-// Test_BitmapLayers_FlattenFirstLayerWithoutAdditions covers a first layer that
-// only deletes, which every later layer's deletions would otherwise be applied
-// to as a nil receiver. A delete-only row is ordinary — a memtable that has
-// only ever removed a document produces one — but Flatten reaches the case only
-// when the caller does not clone, and every production caller does; cloning a
-// nil bitmap yields an empty one, so no production caller reaches it.
+// Test_BitmapLayers_FlattenFirstLayerWithoutAdditions covers a first layer
+// with a nil Additions, which every later layer's deletions would otherwise
+// apply to as a nil receiver. Only reachable when the caller does not clone;
+// every production caller does, so this is defensive.
 func Test_BitmapLayers_FlattenFirstLayerWithoutAdditions(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -415,15 +414,42 @@ func Test_BitmapLayers_FlattenFirstLayerWithoutAdditions(t *testing.T) {
 	}
 }
 
-// Test_BitmapLayer_CloneDroppingEmpty pins what the variant does differently
-// from [BitmapLayer.Clone]: a side holding nothing comes back nil rather than
-// as an allocated empty bitmap. Nothing else asserts it, so swapping the one
-// call site used Clone, no other test would fail.
-//
-// Dropping a side is what puts nil layers in front of [LayerMerger], which has
-// to fold them as it would empty ones — TestNilAndEmptyBitmapsMergeAlike is
-// where that equivalence is pinned.
-func Test_BitmapLayer_CloneDroppingEmpty(t *testing.T) {
+// Test_BitmapLayer_LenInBytes pins the price against a count taken from the
+// bitmaps themselves. Every other byte assertion in the tree is relative —
+// derived from a first row's price, or from what CloneIfWithin reported — so a
+// term missing here is invisible everywhere downstream.
+func Test_BitmapLayer_LenInBytes(t *testing.T) {
+	additions, deletions := NewBitmap(), NewBitmap()
+	additions.Set(1)
+	deletions.Set(2)
+	additionsLen, deletionsLen := len(additions.ToBuffer()), len(deletions.ToBuffer())
+	require.Positive(t, additionsLen, "the fixture must cost something, or this proves nothing")
+	require.Positive(t, deletionsLen, "the fixture must cost something, or this proves nothing")
+
+	tests := []struct {
+		name  string
+		layer BitmapLayer
+		want  int
+	}{
+		{name: "both nil", layer: BitmapLayer{}, want: 0},
+		{name: "allocated but empty", layer: BitmapLayer{NewBitmap(), NewBitmap()}, want: 0},
+		{name: "additions only", layer: BitmapLayer{Additions: additions}, want: additionsLen},
+		{name: "deletions only", layer: BitmapLayer{Deletions: deletions}, want: deletionsLen},
+		{name: "both sides populated", layer: BitmapLayer{additions, deletions}, want: additionsLen + deletionsLen},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, tc.layer.LenInBytes())
+		})
+	}
+}
+
+// Test_BitmapLayer_CloneIfWithin pins what it does differently from
+// [BitmapLayer.Clone]: a side holding nothing comes back nil rather than an
+// allocated empty bitmap. That's what puts nil layers in front of
+// [LayerMerger] — see TestNilAndEmptyBitmapsMergeAlike for the fold side.
+func Test_BitmapLayer_CloneIfWithin(t *testing.T) {
 	populated := func(v uint64) *sroar.Bitmap {
 		bm := NewBitmap()
 		bm.Set(v)
@@ -446,7 +472,10 @@ func Test_BitmapLayer_CloneDroppingEmpty(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := tc.layer.CloneDroppingEmpty()
+			got, cost, ok := tc.layer.CloneIfWithin(math.MaxInt)
+			require.True(t, ok, "nothing is refused at an unlimited budget")
+			require.Equal(t, tc.layer.LenInBytes(), cost,
+				"the clone reports the layer's own price rather than one of its own; what that price is, Test_BitmapLayer_LenInBytes pins")
 
 			for _, side := range []struct {
 				name string
@@ -465,6 +494,69 @@ func Test_BitmapLayer_CloneDroppingEmpty(t *testing.T) {
 				assert.Equalf(t, side.want, side.got.ToArray(), "%s", side.name)
 				assert.NotSamef(t, side.src, side.got, "%s must be a copy, not the original", side.name)
 			}
+		})
+	}
+}
+
+// Test_BitmapLayer_CloneIfWithin_Budget pins the pricing half: a row
+// that does not fit is priced but not copied, so a caller can decide against it
+// without paying. The cost is the same either way, or the caller could not use
+// it to decide.
+func Test_BitmapLayer_CloneIfWithin_Budget(t *testing.T) {
+	bm := NewBitmap()
+	bm.Set(1)
+	populated := BitmapLayer{Additions: bm}
+
+	_, full, ok := populated.CloneIfWithin(math.MaxInt)
+	require.True(t, ok)
+	require.Positive(t, full, "the fixture must cost something, or this proves nothing")
+
+	tests := []struct {
+		name     string
+		layer    BitmapLayer
+		budget   int
+		wantOK   bool
+		wantCost int
+		wantDocs []uint64
+	}{
+		{
+			name: "a row over budget is refused", layer: populated,
+			budget: full - 1, wantOK: false, wantCost: full,
+		},
+		{
+			name: "a row that exactly fits is taken", layer: populated,
+			budget: full, wantOK: true, wantCost: full,
+			wantDocs: []uint64{1},
+		},
+		{
+			// An empty layer costs nothing, so even a zero budget takes it, and
+			// only ok separates it from a refusal.
+			name: "a layer holding nothing is not a refusal", layer: BitmapLayer{},
+			budget: 0, wantOK: true, wantCost: 0,
+		},
+		{
+			// The caller subtracted what it had already spent, and a window
+			// whose always-taken first row overshot hands the next key a
+			// negative budget.
+			name: "nothing fits a budget below zero", layer: BitmapLayer{},
+			budget: -1, wantOK: false, wantCost: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, cost, ok := tc.layer.CloneIfWithin(tc.budget)
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.wantCost, cost, "the cost is reported either way")
+
+			if tc.wantDocs == nil {
+				assert.Nil(t, got.Additions)
+				assert.Nil(t, got.Deletions)
+				return
+			}
+			require.NotNil(t, got.Additions, "a row that was taken must be copied")
+			assert.Equal(t, tc.wantDocs, got.Additions.ToArray())
+			assert.Nil(t, got.Deletions)
 		})
 	}
 }
@@ -539,15 +631,11 @@ func Test_BitmapLayers_Merge_PanicSliceBoundOutOfRange(t *testing.T) {
 }
 
 // TestNilAndEmptyBitmapsMergeAlike pins that a nil bitmap and an empty one are
-// interchangeable to the merger, which is what lets a reader leave an empty one
-// nil rather than pay to clone it.
-//
-// The case worth the test is not AndNot or Or but Add's first branch: with
-// nothing merged yet it adopts the layer's additions and returns, so a nil
-// there leaves nothing merged and that layer's deletions are never applied.
-// Sound, because a deletion only has to apply to layers older than itself and
-// nothing merged means no older layer contributed — but sound by argument
-// rather than by construction, so it is checked.
+// interchangeable to the merger, letting a reader leave an empty side nil
+// rather than pay to clone it. The case that matters is Add's first branch:
+// with nothing merged yet, it adopts the layer's additions and returns, so a
+// nil there means that layer's deletions are never applied — sound only
+// because no older layer could have contributed anything to delete yet.
 func TestNilAndEmptyBitmapsMergeAlike(t *testing.T) {
 	nilIfEmpty := func(b *sroar.Bitmap) *sroar.Bitmap {
 		if b != nil && b.IsEmpty() {
@@ -598,15 +686,9 @@ func TestNilAndEmptyBitmapsMergeAlike(t *testing.T) {
 	}
 }
 
-// TestLayerHoldingNothingMergesAsIfAbsent pins what the windowed reader encodes
-// absence with. It drops a layer whose sides are both empty, so a key the
-// memtable holds an empty row for is folded as if the memtable did not hold it
-// — the same shape an empty write produces, which reaches the tree through an
-// ordinary AddList with no values.
-//
-// The two are indistinguishable to the fold and to nothing else: an empty layer
-// deletes nothing and adds nothing. A consumer reading layers rather than
-// folding them would see a difference, and none does.
+// TestLayerHoldingNothingMergesAsIfAbsent pins that a layer with both sides
+// empty (the shape an AddList with no values produces) folds exactly as if
+// the memtable did not hold that key at all.
 func TestLayerHoldingNothingMergesAsIfAbsent(t *testing.T) {
 	empty := func() BitmapLayer { return BitmapLayer{Additions: sroar.NewBitmap(), Deletions: sroar.NewBitmap()} }
 

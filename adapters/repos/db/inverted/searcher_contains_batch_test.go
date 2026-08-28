@@ -14,6 +14,7 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -679,13 +680,11 @@ func TestFetchContainsBatch_ReadsRows(t *testing.T) {
 	}
 }
 
-// readerAnnotationFields are the slow-query fields only a reader can fill, so a
-// filter that never opened one must carry none of them. Named once because both
-// halves of that pair have to name the same set: listing them twice is how one
-// drifts and the guard stops being pinned.
+// readerAnnotationFields are the slow-query fields only a reader can fill,
+// named once so both halves of the present/absent guard below use the same set.
 var readerAnnotationFields = []string{
-	"window_fills", "window_narrowed_fills", "window_keys_read",
-	"window_bytes_peak", "window_bytes_copied", "memtables_read",
+	"window_fills", "window_narrowed_fills", "batch_keys_served",
+	"window_bytes_peak", "window_bytes_copied", "memtable_reads", "memtables",
 }
 
 // TestFetchContainsBatch_AnnotatesSlowQueryLog pins the slow-query annotation
@@ -727,10 +726,8 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.Contains(t, entries[0], "took_string")
 	})
 
-	// What the batching itself did, which is what separates a batched filter that
-	// went slow from one that merely ran during a slow query. On its own fixture
-	// because the shared one flushes, and a reader over a flushed bucket drops the
-	// active memtable, so the fields that count memtable work all read zero.
+	// Own fixture, unflushed: the shared one flushes, and a reader over a
+	// flushed bucket drops the active memtable, reading all memtable fields as zero.
 	t.Run("the annotation carries the reader's work", func(t *testing.T) {
 		g := newContainsBatchGateFixture(t)
 		writeContainsRowsUnflushed(t, g, "prop-int", map[string][]uint64{"a": {1, 2}, "b": {2, 3}})
@@ -751,14 +748,64 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.True(t, ok)
 		require.Len(t, entries, 1)
 
-		require.Equal(t, 1, entries[0]["memtables_read"], "the unflushed rows must be read from the active memtable")
-		require.Equal(t, 2, entries[0]["window_keys_read"], "both keys were folded")
-		// A bound, not a count: how many windows a batch costs is pinned in
-		// TestBatchReaderStatsReportTheWork. What matters here is that the four
-		// are wired through at all, which zeros would not show.
+		require.Equal(t, 1, entries[0]["memtable_reads"], "one fill of the one active memtable")
+		require.Equal(t, 2, entries[0]["batch_keys_served"], "both keys were folded")
+		// Just wired through, not pinned to a value; window-fill counting is
+		// TestBatchReaderStatsReportTheWork's job.
 		require.GreaterOrEqual(t, entries[0]["window_fills"], 1)
 		require.Greater(t, entries[0]["window_bytes_peak"], 0)
 		require.Greater(t, entries[0]["window_bytes_copied"], 0)
+		// Nothing here reaches the byte budget, so the only right answer is zero
+		// — and every other stat is non-zero, so this also catches the field
+		// being wired to one of them.
+		require.Equal(t, 0, entries[0]["window_narrowed_fills"], "no window ended on the budget")
+	})
+
+	// Wide enough to take several fills, so a wiring that reported one
+	// acquisition per batch shows up. window_fills and memtable_reads cannot
+	// diverge here: that takes a second memtable, which this package cannot
+	// reach.
+	t.Run("the annotation counts memtable acquisitions", func(t *testing.T) {
+		g := newContainsBatchGateFixture(t)
+
+		const n = 2*1024 + 50
+		rows := make(map[string][]uint64, n)
+		names := make([][]byte, n)
+		for i := range names {
+			names[i] = []byte(fmt.Sprintf("k%06d", i))
+			rows[string(names[i])] = []uint64{uint64(i)}
+		}
+		writeContainsRowsUnflushed(t, g, "prop-int", rows)
+
+		// A batch this wide takes the Accumulator fold, which the gate fixture's
+		// searcher has no factory for.
+		g.searcher.bitmapFactory = roaringset.NewBitmapFactory(
+			roaringset.NewBitmapBufPoolTrackingForTests(), func() uint64 { return 300_000 })
+
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		pv := &propValuePair{
+			prop:               "prop-int",
+			operator:           filters.ContainsAny,
+			containsKeys:       keysFrom(t, names...),
+			hasFilterableIndex: true,
+			Class:              g.class,
+		}
+		dbm, err := pv.fetchContainsBatch(ctx, g.searcher)
+		require.NoError(t, err)
+		defer dbm.release()
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+
+		fills, ok := entries[0]["window_fills"].(int)
+		require.True(t, ok)
+		require.Greater(t, fills, 1, "the batch must span windows, or this proves nothing")
+		require.Equal(t, fills, entries[0]["memtable_reads"],
+			"the one memtable is read once per fill, not once per batch")
+		// Asserted here rather than beside a single-fill batch, where it would
+		// equal the fill count and could not be told from it.
+		require.Equal(t, 1, entries[0]["memtables"], "one memtable, and nothing flushing behind it")
 	})
 
 	// The annotation counts keys, not the values the filter named, and the two
@@ -802,8 +849,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.Equal(t, 0, entries[0]["count"])
 		require.Equal(t, true, entries[0]["failed"],
 			"a zero count means nothing without this: an empty result looks identical")
-		// No reader was built, so the reader's own fields must be absent rather
-		// than present and zero — which is what the guard around them is for.
+		// No reader was built, so these fields must be absent, not present-and-zero.
 		for _, k := range readerAnnotationFields {
 			require.NotContains(t, entries[0], k,
 				"a filter that never opened a reader must not report the reader's work")
@@ -825,11 +871,8 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.Equal(t, "prop-int", entries[0]["prop"])
 		require.Equal(t, 0, entries[0]["count"])
 		require.Equal(t, true, entries[0]["failed"])
-		// The reader was opened, so its fields are present where the case above
-		// has them absent. That pair is what holds the guard in place, and it is
-		// the only thing proving the reader is read on the failing path at all.
-		// The values are not asserted: this fixture flushes, so what the reader
-		// found is beside the point here.
+		// The reader was opened, so these fields must be present (values
+		// unasserted; this fixture flushes, so what the reader found doesn't matter).
 		for _, k := range readerAnnotationFields {
 			require.Contains(t, entries[0], k,
 				"a fold that opened a reader must report its work even when it failed")

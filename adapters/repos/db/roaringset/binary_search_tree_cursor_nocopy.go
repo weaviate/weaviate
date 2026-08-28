@@ -18,17 +18,12 @@ import (
 )
 
 // BinarySearchTreeCursorNoCopy is an [InnerCursor] that walks the tree's own
-// nodes, handing out their keys and bitmaps rather than copies.
+// nodes, handing out their keys and bitmaps rather than copies. Unlike
+// [NewBinarySearchTreeCursor], it allocates nothing but itself.
 //
-// It locks nothing, so the caller carries what the copy would otherwise carry:
-// hold the tree's read lock for the cursor's whole lifetime, or use it only
-// where no writer can reach the tree at all. What it yields belongs to the
-// tree — mutating a bitmap corrupts it, and anything kept past the lock must be
-// copied first.
-//
-// Skipping the copy is what makes it worth having: [NewBinarySearchTreeCursor]
-// condenses and allocates every node's bitmaps before the first read, and this one
-// allocates only itself.
+// It locks nothing. The caller must hold the tree's read lock for the cursor's
+// whole lifetime, or otherwise keep writers away. What it yields belongs to the
+// tree, so anything kept past that lock must be copied.
 type BinarySearchTreeCursorNoCopy struct {
 	root *BinarySearchNode
 	node *BinarySearchNode
@@ -62,10 +57,9 @@ func (c *BinarySearchTreeCursorNoCopy) Next() ([]byte, BitmapLayer, error) {
 	return c.current()
 }
 
-// Seek moves to the first node whose key is greater than or equal to key,
-// descending the tree rather than scanning, and reports NotFound past the end.
-// A Seek that finds nothing leaves the position alone, so whatever Next would
-// have returned before it, Next still returns after.
+// Seek moves to the first node with key >= key by descending the tree, and
+// reports NotFound past the end. On NotFound the position is left unchanged,
+// so Next behaves as if Seek were never called.
 func (c *BinarySearchTreeCursorNoCopy) Seek(key []byte) ([]byte, BitmapLayer, error) {
 	var found *BinarySearchNode
 	for node := c.root; node != nil; {
