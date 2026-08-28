@@ -129,12 +129,15 @@ func TestIndex_UsageForCollection_MissingShardFiles(t *testing.T) {
 			assert.Equal(t, int64(0), shardUsage.ObjectsCount, "missing shard must be recorded as empty")
 			assert.Equal(t, uint64(0), shardUsage.ObjectsStorageBytes)
 
-			// an empty shard must spell its status the same way a computed one does
+			// an empty shard must spell its status, and mark that it is not in memory,
+			// the same way a computed one does
 			wantStatus := strings.ToLower(models.TenantActivityStatusACTIVE)
 			if tt.loadAndDelete {
 				wantStatus = strings.ToLower(models.TenantActivityStatusINACTIVE)
 			}
 			assert.Equal(t, wantStatus, shardUsage.Status)
+			assert.Equal(t, !tt.loadAndDelete, shardUsage.LazyUnloaded,
+				"an unloaded lazy shard is marked, an inactive one is not")
 		})
 	}
 }

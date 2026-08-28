@@ -63,6 +63,38 @@ func (pm *PrometheusMetrics) moveShardState(reg ShardRegistration, from, to Shar
 	pm.enterShardState(reg, to)
 }
 
+// WarmupOutcome is the value of the closed `outcome` label on
+// weaviate_lazy_shard_warmup_decisions_total: what the startup sweep that loads
+// lazy shards did with one of them.
+type WarmupOutcome string
+
+const (
+	// WarmupLoaded: the sweep loaded the shard.
+	WarmupLoaded WarmupOutcome = "loaded"
+	// WarmupFailed: the sweep attempted the load and it failed.
+	WarmupFailed WarmupOutcome = "failed"
+	// WarmupSkippedShardGone: the index no longer holds the shard, its tenant
+	// having been deactivated or deleted since the sweep listed it.
+	WarmupSkippedShardGone WarmupOutcome = "skipped_shard_gone"
+	// WarmupSkippedAlreadyLoaded: something reached the shard before the sweep
+	// did, so there was nothing left to load.
+	WarmupSkippedAlreadyLoaded WarmupOutcome = "skipped_already_loaded"
+	// WarmupSkippedEmpty: the shard has never held an object.
+	WarmupSkippedEmpty WarmupOutcome = "skipped_empty"
+	// WarmupSkippedBelowThreshold: the shard holds too few objects for
+	// LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS.
+	WarmupSkippedBelowThreshold WarmupOutcome = "skipped_below_threshold"
+)
+
+// RecordWarmupOutcome records what the startup warmup sweep did with one shard.
+func (pm *PrometheusMetrics) RecordWarmupOutcome(outcome WarmupOutcome) {
+	if pm == nil {
+		return
+	}
+
+	pm.LazyShardWarmupDecisions.WithLabelValues(string(outcome)).Inc()
+}
+
 // Move the shard from unloaded to in progress. Only a lazy shard loads this
 // way; an eager one is born loaded.
 func (pm *PrometheusMetrics) StartLoadingShard() {
