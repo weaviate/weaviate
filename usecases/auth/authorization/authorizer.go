@@ -28,7 +28,12 @@ type Authorizer interface {
 	// class's namespace to be active. Pass the resolved qualified name the
 	// resources were built from. A namespace refusal is RequireActive's
 	// sentinel, unwrapped and never a Forbidden — RequireActive rather than
-	// AdmitDestructiveApply, so a deleting namespace refuses here.
+	// AdmitDestructiveApply, so a deleting namespace refuses here. A caller past
+	// Authorize is therefore told the namespace's state, including that no such
+	// namespace exists, and reads the sentinel's own text rather than
+	// namespaces.PublicMessage's. A confined caller is told only its own
+	// namespace's state, because namespacing.Resolve rejects a qualified
+	// class name from it before these resources are built.
 	AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error
 	// AuthorizeSilent Silent authorization without audit logs
 	AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error

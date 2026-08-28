@@ -57,12 +57,15 @@ func (a *Auth) Authorize(ctx context.Context, req mcp.CallToolRequest, verb stri
 // on the specified collection and tenant data, matching the authorization pattern
 // used by the gRPC endpoint (service.go classGetterWithAuthzFunc): use
 // CollectionsData when no tenant is specified, ShardsData when one is.
+// It also requires the collection's namespace to be active; that refusal is a
+// usecases/namespaces sentinel, not a Forbidden, so observeAuthzFailure records
+// no metric for it.
 func (a *Auth) AuthorizeCollectionData(ctx context.Context, principal *models.Principal, verb, collection, tenant string) error {
 	resources := authorization.CollectionsData(collection)
 	if tenant != "" {
 		resources = authorization.ShardsData(collection, tenant)
 	}
-	if err := a.authorizer.Authorize(ctx, principal, verb, resources...); err != nil {
+	if err := a.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, verb, collection, resources...); err != nil {
 		a.observeAuthzFailure(err)
 		return err
 	}

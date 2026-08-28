@@ -103,7 +103,8 @@ func nodeIndexFromName(t *testing.T, nodeName string) int {
 func uriForNode(t *testing.T, nodeName string) string {
 	t.Helper()
 
-	return sharedCompose.GetWeaviateNode(nodeIndexFromName(t, nodeName)).URI()
+	restURI, _ := nodeURIs(t, nodeName)
+	return restURI
 }
 
 // requireShardsEventually waits for the cluster-wide shard set to settle on

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -387,6 +388,8 @@ func TestAggregateHandlerTenantAuthorization(t *testing.T) {
 	calls := deps.authorizer.Calls()
 	require.NotEmpty(t, calls)
 	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, mocks.MethodAuthorizeAndRequireActiveNamespace, calls[0].Method)
+	assert.Equal(t, "Movie", calls[0].Class, "the shard shape reaches the gate with the same class")
 	assert.Equal(t, "tenantA", deps.searcher.lastAggregateParams.Tenant)
 }
 

@@ -87,10 +87,17 @@ func (r *recordingTraverser) GetClass(ctx context.Context, principal *models.Pri
 
 func newSearcher(t *testing.T, principal *models.Principal, namespacesEnabled bool, aliases map[string]string) (*WeaviateSearcher, *recordingTraverser) {
 	t.Helper()
+	return newSearcherWithAuthorizer(t, principal, namespacesEnabled, aliases, &authorization.DummyAuthorizer{})
+}
+
+func newSearcherWithAuthorizer(t *testing.T, principal *models.Principal, namespacesEnabled bool,
+	aliases map[string]string, authorizer authorization.Authorizer,
+) (*WeaviateSearcher, *recordingTraverser) {
+	t.Helper()
 	composer := func(token string, _ []string) (*models.Principal, error) {
 		return principal, nil
 	}
-	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
+	authHandler := auth.NewAuth(false, composer, authorizer, nil)
 	trav := &recordingTraverser{}
 	logger, _ := test.NewNullLogger()
 	return NewWeaviateSearcher(

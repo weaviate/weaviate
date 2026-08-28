@@ -541,6 +541,8 @@ func TestHandlerTenantAuthorization(t *testing.T) {
 	calls := deps.authorizer.Calls()
 	require.NotEmpty(t, calls)
 	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, mocks.MethodAuthorizeAndRequireActiveNamespace, calls[0].Method)
+	assert.Equal(t, "Movie", calls[0].Class, "the shard shape reaches the gate with the same class")
 	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
 }
 
@@ -635,6 +637,9 @@ func TestAliasDenialKeepsAuthorizerShape(t *testing.T) {
 type denyCollections struct {
 	denied   map[string]bool
 	requests []mocks.AuthZReq
+	// refusal is what a denied collection comes back with. Nil means the
+	// Forbidden the real authorizer produces.
+	refusal error
 }
 
 func (a *denyCollections) authorize(req mocks.AuthZReq) error {
@@ -642,6 +647,9 @@ func (a *denyCollections) authorize(req mocks.AuthZReq) error {
 	for _, r := range req.Resources {
 		for name := range a.denied {
 			if strings.Contains(r, "/collections/"+name+"/") {
+				if a.refusal != nil {
+					return a.refusal
+				}
 				p := req.Principal
 				if p == nil {
 					p = &models.Principal{Username: "anonymous"}

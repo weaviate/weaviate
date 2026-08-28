@@ -104,7 +104,7 @@ func TestAuthorizeAndRequireActiveNamespace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, _ := test.NewNullLogger()
+			logger, hook := test.NewNullLogger()
 			m, err := setupNSEnabledTestManagerWithLister(t, logger, tt.lister(t))
 			require.NoError(t, err)
 
@@ -121,16 +121,23 @@ func TestAuthorizeAndRequireActiveNamespace(t *testing.T) {
 			var forbidden authzErrors.Forbidden
 			if tt.wantForbidden {
 				require.ErrorAs(t, err, &forbidden)
+				require.False(t, namespaceRefusalLogged(hook, tt.class),
+					"a denied caller must not appear as a namespace refusal")
 				return
 			}
 			if tt.wantErr == nil {
 				require.NoError(t, err)
+				require.False(t, namespaceRefusalLogged(hook, tt.class))
 				return
 			}
 			require.ErrorIs(t, err, tt.wantErr)
 			require.Equal(t, tt.wantErr, err, "the sentinel must reach the caller unwrapped")
 			require.False(t, errors.As(err, &forbidden),
 				"the namespace sentinel must not reach the caller as a permission failure")
+			// Authorize logs the same request as allowed just above, so without this
+			// line an operator sees only allowed decisions for requests turned away.
+			require.True(t, namespaceRefusalLogged(hook, tt.class),
+				"the refusal must be visible in the audit log")
 		})
 	}
 }
@@ -234,6 +241,20 @@ func TestAuthorizeAndRequireActiveNamespaceWarnsOnUnqualifiedClass(t *testing.T)
 				"a class naming no namespace must be visible in the log")
 		})
 	}
+}
+
+// namespaceRefusalLogged reports whether the audit log carries this class's
+// namespace refusal.
+func namespaceRefusalLogged(hook *test.Hook, class string) bool {
+	for _, e := range hook.AllEntries() {
+		if e.Level != logrus.InfoLevel || !strings.Contains(e.Message, "namespace refused the request") {
+			continue
+		}
+		if got, ok := e.Data["class"].(string); ok && got == class {
+			return true
+		}
+	}
+	return false
 }
 
 // grantDataRead gives the user READ over the whole data domain, so a row's
