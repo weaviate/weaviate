@@ -230,3 +230,54 @@ func TestShardsExportsEveryStateAtStartup(t *testing.T) {
 		}, "series %v must exist", labels)
 	}
 }
+
+// TestWarmupOutcomeCountsOnItsOwnSeries pins each outcome to one series, so a
+// dashboard summing them reads the sweep's decisions without double counting.
+func TestWarmupOutcomeCountsOnItsOwnSeries(t *testing.T) {
+	m := GetMetrics()
+
+	outcomes := []WarmupOutcome{
+		WarmupLoaded,
+		WarmupFailed,
+		WarmupSkippedShardGone,
+		WarmupSkippedAlreadyLoaded,
+		WarmupSkippedEmpty,
+		WarmupSkippedBelowThreshold,
+	}
+
+	readAll := func() map[WarmupOutcome]float64 {
+		counts := make(map[WarmupOutcome]float64, len(outcomes))
+		for _, outcome := range outcomes {
+			counts[outcome] = testutil.ToFloat64(
+				m.LazyShardWarmupDecisions.WithLabelValues(string(outcome)))
+		}
+		return counts
+	}
+
+	for _, recorded := range outcomes {
+		t.Run(string(recorded), func(t *testing.T) {
+			before := readAll()
+
+			m.RecordWarmupOutcome(recorded)
+
+			after := readAll()
+			for _, outcome := range outcomes {
+				want := before[outcome]
+				if outcome == recorded {
+					want++
+				}
+				assert.Equal(t, want, after[outcome], "outcome %q", outcome)
+			}
+		})
+	}
+}
+
+// TestRecordWarmupOutcomeToleratesNilMetrics covers an index built without
+// monitoring, which passes nil here.
+func TestRecordWarmupOutcomeToleratesNilMetrics(t *testing.T) {
+	var nilMetrics *PrometheusMetrics
+
+	assert.NotPanics(t, func() {
+		nilMetrics.RecordWarmupOutcome(WarmupLoaded)
+	})
+}

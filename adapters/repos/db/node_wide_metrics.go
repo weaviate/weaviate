@@ -252,9 +252,8 @@ func (o *nodeWideMetricsObserver) indexObjectCount(index *Index) (int64, error) 
 	return total, nil
 }
 
-// NOTE(dyma): should this also chech that all indices report allShardsReady == true?
-// Otherwise getCurrentActivity may end up loading lazy-loaded shards just to check
-// their activity, which is redundant on a cold shard?
+// Needs no allShardsReady check: an unloaded shard reports no activity without
+// being loaded.
 func (o *nodeWideMetricsObserver) observeActivity() {
 	start := time.Now()
 	current := o.getCurrentActivity()

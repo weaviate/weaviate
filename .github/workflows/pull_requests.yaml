@@ -586,6 +586,8 @@ jobs:
             test: "--only-module-text2vec-digitalocean"
           - name: "generative-digitalocean"
             test: "--only-module-generative-digitalocean"
+          - name: "generative-meta"
+            test: "--only-module-generative-meta"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -645,6 +647,7 @@ jobs:
           ANTHROPIC_APIKEY: ${{ secrets.ANTHROPIC_APIKEY }}
           JINAAI_APIKEY: ${{ secrets.JINAAI_APIKEY }}
           DIGITALOCEAN_APIKEY: ${{ secrets.DIGITALOCEAN_APIKEY }}
+          META_APIKEY: ${{ secrets.META_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})

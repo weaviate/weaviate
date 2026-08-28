@@ -227,9 +227,8 @@ func writeSavedShardUsage(t *testing.T, indexPath, shardName string, saved *type
 	require.NoError(t, os.WriteFile(savedShardUsagePath(indexPath, shardName), data, 0o600))
 }
 
-// markSavedShardUsage stamps savedObjectsCount on the usage a report saved, leaving
-// everything the cache validates untouched.
-func markSavedShardUsage(t *testing.T, indexPath, shardName string) {
+// readSavedShardUsage reads back the file a report saved for a cold shard.
+func readSavedShardUsage(t *testing.T, indexPath, shardName string) *types.UsageDisk {
 	t.Helper()
 
 	data, err := os.ReadFile(savedShardUsagePath(indexPath, shardName))
@@ -237,6 +236,15 @@ func markSavedShardUsage(t *testing.T, indexPath, shardName string) {
 	saved := &types.UsageDisk{}
 	require.NoError(t, json.Unmarshal(data, saved))
 	require.NotNil(t, saved.ShardUsage, "the first report must have saved usage")
+	return saved
+}
+
+// markSavedShardUsage stamps savedObjectsCount on the usage a report saved, leaving
+// everything the cache validates untouched.
+func markSavedShardUsage(t *testing.T, indexPath, shardName string) {
+	t.Helper()
+
+	saved := readSavedShardUsage(t, indexPath, shardName)
 	saved.ShardUsage.ObjectsCount = savedObjectsCount
 	writeSavedShardUsage(t, indexPath, shardName, saved)
 }
