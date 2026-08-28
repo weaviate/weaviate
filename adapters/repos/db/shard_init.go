@@ -40,6 +40,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
 	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
+	registration monitoring.ShardRegistration,
 ) (_ *Shard, err error) {
 	start := time.Now()
 	index.logger.WithFields(logrus.Fields{
@@ -94,6 +95,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		bitmapBufPool:                   bitmapBufPool,
 		HFreshEnabled:                   index.HFreshEnabled,
 		lazySegmentLoadingEnabled:       lazyLoadSegments,
+		registration:                    registration,
 	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())

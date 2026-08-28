@@ -115,7 +115,14 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
+		// The caller drains this channel to close before it releases any index, so
+		// every way out of this goroutine has to leave the channel closed.
+		defer close(ds)
 		for _, c := range classes {
+			if err := ctx.Err(); err != nil {
+				ds <- backup.ClassDescriptor{Name: c, BackupID: bakid, Error: err}
+				return
+			}
 			desc := backup.ClassDescriptor{Name: c, BackupID: bakid}
 			func() {
 				idx := db.GetIndex(schema.ClassName(c))
@@ -148,7 +155,6 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 				break
 			}
 		}
-		close(ds)
 	}
 	enterrors.GoWrapper(f, db.logger)
 	return ds

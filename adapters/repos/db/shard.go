@@ -515,6 +515,11 @@ type Shard struct {
 	// or incorrect metric updates during partial initialization cleanup.
 	metricsRegistered atomic.Bool
 
+	// registration is the weaviate_shards series this shard counts against. The
+	// wrapper knows it, this shard does not: shutdown and drop run as methods
+	// here with no way back to the LazyLoadShard that may hold it.
+	registration monitoring.ShardRegistration
+
 	// tornStoreReported keeps reportTornStoreAccess to one line per shard
 	tornStoreReported atomic.Bool
 }

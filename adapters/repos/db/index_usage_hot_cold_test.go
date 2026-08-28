@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"maps"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -133,6 +134,69 @@ func TestIndex_UsageForCollection_LoadedAndUnloadedAgree(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, recomputed.Shards, 1)
 			assert.Equal(t, loaded.Shards[0].FullShardStorageBytes, recomputed.Shards[0].FullShardStorageBytes)
+		})
+	}
+}
+
+// TestIndex_UsageForCollection_LazyUnloadedShard pins how a hot tenant is reported
+// while its lazy shard sits unloaded: it bills like a loaded one, and only the mark
+// separates it from a node serving every tenant from memory.
+func TestIndex_UsageForCollection_LazyUnloadedShard(t *testing.T) {
+	active := strings.ToLower(models.TenantActivityStatusACTIVE)
+
+	tests := []struct {
+		name string
+		// load asks for the shard before the report runs, so the lazy shard is loaded
+		load             bool
+		wantLazyUnloaded bool
+	}{
+		{
+			name: "hot tenant whose shard is loaded",
+			load: true,
+		},
+		{
+			name:             "hot tenant whose shard stays unloaded",
+			wantLazyUnloaded: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			tenantName := "test-tenant"
+
+			index, vectorConfigs := setupPopulatedLazyIndex(ctx, t, usageIndexParams{})
+			t.Cleanup(func() { _ = index.Shutdown(ctx) })
+
+			release := func() {}
+			if tt.load {
+				var err error
+				_, release, err = index.GetShard(ctx, tenantName)
+				require.NoError(t, err)
+			}
+			usage, err := index.usageForCollection(ctx, semaphore.NewWeighted(1), true, vectorConfigs)
+			release()
+			require.NoError(t, err)
+			require.Len(t, usage.Shards, 1)
+			assert.Equal(t, active, usage.Shards[0].Status, "a hot tenant reports an active shard either way")
+			assert.Equal(t, tt.wantLazyUnloaded, usage.Shards[0].LazyUnloaded)
+			assert.Equal(t, populatedObjectsCount, usage.Shards[0].ObjectsCount)
+
+			if !tt.wantLazyUnloaded {
+				return
+			}
+			// status and mark describe the tenant now, so neither may travel with the
+			// numbers the cold path saved: it may be deactivated before the next report
+			saved := readSavedShardUsage(t, index.path(), tenantName)
+			assert.Empty(t, saved.ShardUsage.Status, "the saved usage must carry no status")
+			assert.False(t, saved.ShardUsage.LazyUnloaded, "the saved usage must not carry the mark")
+
+			// the second report is served from that file and still has to describe the tenant
+			cached, err := index.usageForCollection(ctx, semaphore.NewWeighted(1), true, vectorConfigs)
+			require.NoError(t, err)
+			require.Len(t, cached.Shards, 1)
+			assert.Equal(t, active, cached.Shards[0].Status, "usage served from disk must report the tenant active")
+			assert.True(t, cached.Shards[0].LazyUnloaded, "usage served from disk must carry the mark")
 		})
 	}
 }

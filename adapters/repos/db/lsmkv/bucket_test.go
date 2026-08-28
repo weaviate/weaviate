@@ -881,6 +881,7 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 	ctx := context.Background()
 
 	diskSegments := &SegmentGroup{
+		logger:   nullLogger(),
 		strategy: StrategyReplace,
 		segments: []Segment{
 			newFakeReplaceSegment(map[string][]byte{
@@ -1029,6 +1030,7 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 			"key1": []byte("value1"),
 		}),
 		disk: &SegmentGroup{
+			logger:   nullLogger(),
 			strategy: StrategyReplace,
 			segments: []Segment{},
 		},
