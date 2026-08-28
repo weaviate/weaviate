@@ -164,35 +164,91 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	return err
 }
 
-// shutdownOrRestoreShard closes a shard already removed from the shard map
-// and, when the close fails with the instance still live, puts it back —
-// leaving a live instance out of the map lets a later (re)load double-open
-// the directory. Callers hold the shard's create lock and classify
-// errAlreadyShutdown themselves (terminal, not a failure).
+// ShardUnloadOutcome says which outcome an unload attempt reached. The strings are
+// meant to be recorded per class and used as Prometheus label values. Renaming one
+// after that ships empties any dashboard panel selecting on it, with no error.
+type ShardUnloadOutcome string
+
+const (
+	// ShardUnloadOutcomeUnloaded says the shard is not in the map, whether this
+	// call removed it, a concurrent completion did, or it was never there.
+	ShardUnloadOutcomeUnloaded ShardUnloadOutcome = "unloaded"
+	// ShardUnloadOutcomeRefusedInUse says the shard is still held and back in the
+	// map, refusing new pins until its last reference drops.
+	ShardUnloadOutcomeRefusedInUse ShardUnloadOutcome = "refused_in_use"
+	// ShardUnloadOutcomeTorn says the shard is marked shut but not fully closed. It
+	// stays in the map serving its sticky teardown error until the process restarts
+	// or Index.dropShards takes it out. A restart converges the class, since startup
+	// does not load a shard the sharding state says is not open here.
+	ShardUnloadOutcomeTorn ShardUnloadOutcome = "torn"
+	// ShardUnloadOutcomeIndexClosing says the index itself is closing, so no later
+	// attempt helps this process. Index.UnloadLocalShard produces it, not this file.
+	ShardUnloadOutcomeIndexClosing ShardUnloadOutcome = "index_closing"
+	// ShardUnloadOutcomeFailed is the residual. No real shard reaches it, since a
+	// failed teardown is reported as torn.
+	ShardUnloadOutcomeFailed ShardUnloadOutcome = "failed"
+)
+
+// shardUnloadOutcomes registers every declared outcome, so a constant added to the
+// type without being registered here fails the exhaustive lint. Membership is all
+// it checks.
+//
+//exhaustive:enforce
+var shardUnloadOutcomes = map[ShardUnloadOutcome]struct{}{
+	ShardUnloadOutcomeUnloaded:     {},
+	ShardUnloadOutcomeRefusedInUse: {},
+	ShardUnloadOutcomeTorn:         {},
+	ShardUnloadOutcomeIndexClosing: {},
+	ShardUnloadOutcomeFailed:       {},
+}
+
+// shutdownOrRestoreShard closes a shard already removed from the shard map. It puts
+// the shard back when the close fails with the instance still live, since a live
+// instance out of the map lets a later load double-open the directory. Callers hold
+// the shard's create lock, and an errAlreadyShutdown return is the outcome they
+// asked for rather than a failure.
 //
 // A shard that stays out of the map stops being counted. Shutdown alone only
 // moves it from loaded to unloaded, which is right while it stays in the map;
 // counted after removal, every tenant deactivation raises shards_unloaded for a
 // shard the node no longer holds.
-func shutdownOrRestoreShard(ctx context.Context, idx *Index, name string, shard ShardLike) error {
+//
+// The outcome reads shard state and the returned error together, so Shard.Shutdown
+// must keep errShardStillInUse and the context error matchable by errors.Is.
+//
+//	Shutdown returned nil or errAlreadyShutdown       → unloaded
+//	not restored, so a concurrent completion won      → unloaded
+//	restored and shardTeardownError is non-nil        → torn
+//	restored, live, refused in use or ctx cancelled   → refused_in_use
+//	restored and live for any other reason            → failed
+//
+// A close request cancelling the backoff lands in the refused_in_use row, where no
+// later attempt is in fact available. Index.UnloadLocalShard remaps it.
+func shutdownOrRestoreShard(ctx context.Context, idx *Index, name string, shard ShardLike) (ShardUnloadOutcome, error) {
 	shards, logger := &idx.shards, idx.logger
 
 	err := shard.Shutdown(ctx)
 	if err == nil || errors.Is(err, errAlreadyShutdown) {
 		idx.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
-		return err
+		return ShardUnloadOutcomeUnloaded, err
 	}
 	if restoreShardIfStillAlive(shards, name, shard) {
 		if terr := shardTeardownError(shard); terr != nil {
 			logger.WithField("action", "shard_shutdown").
 				WithField("shard", name).
-				Errorf("teardown failed mid-way; torn shard retained in the map (holds its leaked handles, unavailable until restart): %v", err)
-		} else {
-			logger.WithField("action", "shard_shutdown").
-				WithField("shard", name).
-				Errorf("shutdown failed; live shard restored to the active map to prevent a duplicate instance: %v", err)
+				Errorf("teardown failed mid-way; torn shard retained in the map (holds its leaked handles, unavailable until restart): %v", terr)
+			return ShardUnloadOutcomeTorn, err
 		}
-		return err
+		logger.WithField("action", "shard_shutdown").
+			WithField("shard", name).
+			Errorf("shutdown failed; live shard restored to the active map to prevent a duplicate instance: %v", err)
+		// A cancelled backoff carries the context error in place of the refusal,
+		// and both mean the shard is still held.
+		if errors.Is(err, errShardStillInUse) ||
+			errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return ShardUnloadOutcomeRefusedInUse, err
+		}
+		return ShardUnloadOutcomeFailed, err
 	}
 	// Not restored and not torn: the shard is CLEANLY shut — the concurrent
 	// deferred completion (last ref release) won the race while this attempt
@@ -201,7 +257,7 @@ func shutdownOrRestoreShard(ctx context.Context, idx *Index, name string, shard 
 	// already-shut case, not a failure (a cold-tenant batch would otherwise
 	// fail whole on one racy tenant).
 	idx.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
-	return errAlreadyShutdown
+	return ShardUnloadOutcomeUnloaded, errAlreadyShutdown
 }
 
 // restoreShardIfStillAlive puts a shard whose Shutdown failed back into the

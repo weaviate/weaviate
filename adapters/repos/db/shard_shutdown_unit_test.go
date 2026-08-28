@@ -14,11 +14,13 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -179,4 +181,124 @@ func TestShardKnownShut(t *testing.T) {
 	require.True(t, restoreShardIfStillAlive(&m, "torn", torn),
 		"a torn shard is retained as the last reference to its leaked handles")
 	require.NotNil(t, m.Load("torn"))
+}
+
+// TestShardUnloadOutcomeStrings pins each constant's exact string, because a rename
+// compiles and passes every other test. The table and shardUnloadOutcomes are
+// checked against each other both ways.
+func TestShardUnloadOutcomeStrings(t *testing.T) {
+	want := map[ShardUnloadOutcome]string{
+		ShardUnloadOutcomeUnloaded:     "unloaded",
+		ShardUnloadOutcomeRefusedInUse: "refused_in_use",
+		ShardUnloadOutcomeTorn:         "torn",
+		ShardUnloadOutcomeIndexClosing: "index_closing",
+		ShardUnloadOutcomeFailed:       "failed",
+	}
+
+	for outcome, str := range want {
+		require.Equal(t, str, string(outcome))
+		require.Contains(t, shardUnloadOutcomes, outcome,
+			"an outcome this table pins has to be registered")
+	}
+	for outcome := range shardUnloadOutcomes {
+		require.Contains(t, want, outcome, "a registered outcome has to be pinned here")
+	}
+}
+
+// TestShutdownOrRestoreShardOutcome drives the classification directly. A mock takes
+// shardTeardownError's and shardStillAlive's default arms, so it is always restored
+// and never torn, and these rows cover the error-shaped arms only.
+func TestShutdownOrRestoreShardOutcome(t *testing.T) {
+	tests := []struct {
+		name        string
+		shutdownErr error
+		want        ShardUnloadOutcome
+	}{
+		{
+			name: "a clean shutdown",
+			want: ShardUnloadOutcomeUnloaded,
+		},
+		{
+			name:        "a shard that was already shut",
+			shutdownErr: errAlreadyShutdown,
+			want:        ShardUnloadOutcomeUnloaded,
+		},
+		{
+			// performShutdown wraps the sentinel, so a bare one would leave the
+			// unwrapping this classification depends on unexercised.
+			name:        "a shard still serving requests",
+			shutdownErr: fmt.Errorf("shard %q: %w", "s1", errShardStillInUse),
+			want:        ShardUnloadOutcomeRefusedInUse,
+		},
+		{
+			// A cancelled backoff carries the context error rather than the
+			// refusal, and the shard is held either way.
+			name:        "a backoff that ran out of time",
+			shutdownErr: context.DeadlineExceeded,
+			want:        ShardUnloadOutcomeRefusedInUse,
+		},
+		{
+			name:        "a backoff ended by a close request",
+			shutdownErr: context.Canceled,
+			want:        ShardUnloadOutcomeRefusedInUse,
+		},
+		{
+			// The residual arm, which nothing else in the package reaches.
+			name:        "a teardown that failed for its own reason",
+			shutdownErr: errors.New("bucket close failed"),
+			want:        ShardUnloadOutcomeFailed,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			shard := NewMockShardLike(t)
+			shard.On("Shutdown", mock.Anything).Return(tc.shutdownErr)
+			idx, _ := indexForShutdownOutcomeTest(t)
+
+			got, err := shutdownOrRestoreShard(context.Background(), idx, "s1", shard)
+
+			require.Equal(t, tc.want, got)
+			if tc.shutdownErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.shutdownErr)
+		})
+	}
+}
+
+// TestShutdownOrRestoreShardOutcomeTorn covers the arm a mock cannot reach, since
+// shardTeardownError's default arm means a mock is never torn.
+func TestShutdownOrRestoreShardOutcomeTorn(t *testing.T) {
+	torn := &Shard{shutdownLock: new(sync.RWMutex), teardownErr: errors.New("bucket close failed")}
+	torn.shut.Store(true)
+	idx, hook := indexForShutdownOutcomeTest(t)
+
+	got, err := shutdownOrRestoreShard(context.Background(), idx, "s1", torn)
+
+	require.Equal(t, ShardUnloadOutcomeTorn, got)
+	require.ErrorIs(t, err, errTeardownFailed)
+	require.NotNil(t, idx.shards.Load("s1"), "a torn shard is retained in the map")
+
+	// Shutdown wraps the sticky error here, so this cannot tell terr from err. It
+	// catches the line losing the cause altogether.
+	entry := hook.LastEntry()
+	require.NotNil(t, entry)
+	require.Contains(t, entry.Message, "bucket close failed")
+}
+
+// indexForShutdownOutcomeTest builds the minimum Index shutdownOrRestoreShard
+// reads: the shard map it restores into, the logger it reports a failed close on,
+// and the metrics it stops counting an unloaded shard with. Passing nil for prom
+// produces the same *Metrics a node without monitoring has, one whose baseMetrics
+// is nil.
+func indexForShutdownOutcomeTest(t *testing.T) (*Index, *test.Hook) {
+	t.Helper()
+
+	logger, hook := test.NewNullLogger()
+	metrics, err := NewMetrics(logger, nil, "Abc", "n/a")
+	require.NoError(t, err)
+
+	return &Index{logger: logger, metrics: metrics, shards: shardMap{}}, hook
 }
