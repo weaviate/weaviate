@@ -81,6 +81,7 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentAddition(t *testing.T) 
 		"key1": []byte("value1"),
 	}
 	sg := &SegmentGroup{
+		logger:   nullLogger(),
 		strategy: StrategyReplace,
 		segments: []Segment{newFakeReplaceSegment(segmentData)},
 	}
@@ -770,6 +771,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 			"key1": []byte("value1"),
 		}
 		sg := &SegmentGroup{
+			logger:   nullLogger(),
 			strategy: StrategyReplace,
 			segments: []Segment{newFakeReplaceSegment(segmentData)},
 		}
@@ -786,6 +788,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 			"key1": []byte("value1"),
 		}
 		sg := &SegmentGroup{
+			logger:   nullLogger(),
 			strategy: StrategyReplace,
 			segments: []Segment{newFakeReplaceSegment(segmentData)},
 		}
@@ -807,6 +810,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 			"key1": []byte("new-value"),
 		})
 		sg := &SegmentGroup{
+			logger:   nullLogger(),
 			strategy: StrategyReplace,
 			segments: []Segment{seg1, seg2}, // seg2 is newer (higher index)
 		}
@@ -823,6 +827,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 			"key1": []byte("value1"),
 		}
 		sg := &SegmentGroup{
+			logger:   nullLogger(),
 			strategy: StrategyReplace,
 			segments: []Segment{newFakeReplaceSegment(segmentData)},
 		}
@@ -851,6 +856,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 			"key2": []byte("value2"),
 		})
 		sg := &SegmentGroup{
+			logger:   nullLogger(),
 			strategy: StrategyReplace,
 			segments: []Segment{seg1, seg2},
 		}
