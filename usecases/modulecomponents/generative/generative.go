@@ -58,7 +58,10 @@ func ParseImageProperties(inputBase64Images []*string, inputImagePropertyNames [
 	if len(storedBase64ImagesArray) > 0 {
 		for _, storedBase64Images := range storedBase64ImagesArray {
 			for _, inputImagePropertyName := range inputImagePropertyNames {
-				images = append(images, storedBase64Images[inputImagePropertyName])
+				// An object that does not carry the requested property contributes no image.
+				if image := storedBase64Images[inputImagePropertyName]; image != nil {
+					images = append(images, image)
+				}
 			}
 		}
 	}

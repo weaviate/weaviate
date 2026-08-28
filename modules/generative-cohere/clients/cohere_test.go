@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	cohereparams "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -199,4 +200,57 @@ func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
 
 func (f fakeClassConfig) Config() *config.Config {
 	return nil
+}
+
+func TestGenerateWithMissingImageProperty(t *testing.T) {
+	earth := "earth-base64"
+
+	tests := []struct {
+		name             string
+		imageProperties  []string
+		props            []*modulecapabilities.GenerateProperties
+		expectedContents int
+	}{
+		{
+			name:             "requested property is absent from the object",
+			imageProperties:  []string{"thumbnail"},
+			props:            []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "value"}, Blob: map[string]*string{"image": &earth}}},
+			expectedContents: 1,
+		},
+		{
+			name:            "one of two objects is missing the property",
+			imageProperties: []string{"image"},
+			props: []*modulecapabilities.GenerateProperties{
+				{Text: map[string]string{"prop": "value"}, Blob: map[string]*string{"image": &earth}},
+				{Text: map[string]string{"prop": "other"}, Blob: map[string]*string{"other": &earth}},
+			},
+			expectedContents: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotPayload generateInput
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				require.NoError(t, json.Unmarshal(body, &gotPayload))
+				w.Write([]byte(`{"message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}`))
+			}))
+			defer server.Close()
+
+			c := New("apiKey", time.Minute, nullLogger())
+			_, err := c.GenerateAllResults(context.Background(), tt.props, "task",
+				cohereparams.Params{ImageProperties: tt.imageProperties}, false, &fakeClassConfig{baseURL: server.URL})
+			require.NoError(t, err)
+
+			require.Len(t, gotPayload.Messages, 1)
+			assert.Len(t, gotPayload.Messages[0].Content, tt.expectedContents)
+			for _, c := range gotPayload.Messages[0].Content {
+				if c.Type == contentTypeImageUrl {
+					require.NotNil(t, c.ImageURL)
+					assert.NotContains(t, c.ImageURL.URL, "base64,%!s(*string=<nil>)")
+				}
+			}
+		})
+	}
 }

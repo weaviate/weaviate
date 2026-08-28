@@ -20,6 +20,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -274,4 +275,61 @@ func TestOpenAIApiErrorDecode(t *testing.T) {
 
 func ptString(in string) *string {
 	return &in
+}
+
+func TestGenerateWithMissingImageProperty(t *testing.T) {
+	earth := "earth-base64"
+
+	tests := []struct {
+		name          string
+		imageProps    []string
+		props         []*modulecapabilities.GenerateProperties
+		expectedParts int
+	}{
+		{
+			name:          "requested property is absent from the object",
+			imageProps:    []string{"thumbnail"},
+			props:         []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "value"}, Blob: map[string]*string{"image": &earth}}},
+			expectedParts: 0,
+		},
+		{
+			name:       "one of two objects is missing the property",
+			imageProps: []string{"image"},
+			props: []*modulecapabilities.GenerateProperties{
+				{Text: map[string]string{"prop": "value"}, Blob: map[string]*string{"image": &earth}},
+				{Text: map[string]string{"prop": "other"}, Blob: map[string]*string{"other": &earth}},
+			},
+			expectedParts: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotPayload map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				require.NoError(t, json.Unmarshal(body, &gotPayload))
+				w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+			}))
+			defer server.Close()
+
+			c := New("openAIApiKey", "", "", time.Minute, nullLogger())
+			c.buildUrl = func(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
+				return fakeBuildUrl(server.URL, isAzure, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
+			}
+
+			_, err := c.GenerateAllResults(context.Background(), tt.props, "task",
+				openaiparams.Params{Model: "gpt-4o", ImageProperties: tt.imageProps}, false, nil)
+			require.NoError(t, err)
+
+			messages := gotPayload["messages"].([]any)
+			require.Len(t, messages, 1)
+			content := messages[0].(map[string]any)["content"]
+			if tt.expectedParts == 0 {
+				assert.Equal(t, `task: [{"prop":"value"}]`, content)
+				return
+			}
+			assert.Len(t, content, tt.expectedParts)
+		})
+	}
 }
