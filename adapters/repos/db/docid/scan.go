@@ -31,7 +31,7 @@ import (
 
 const contextCheckInterval = 50 // check context every 50 iterations, every iteration adds too much overhead
 
-// ObjectScanFn is called once per object, if false or an error is returned,
+// ObjectScanFn is called once per object, if an error is returned,
 // the scanning will stop
 type ObjectScanFn func(prop *models.PropertySchema, docID uint64) error
 
@@ -136,14 +136,14 @@ func (os *objectScannerLSM) scan() error {
 
 				// majority of time is spend reading the objects => do the analyses sequentially to not cause races
 				// when analysing the results
-				if func() error {
+				if err := func() error {
 					lock.Lock()
 					defer lock.Unlock()
 					if err := os.scanFn(&properties, id); err != nil {
-						return errors.Wrapf(err, "scan")
+						return errors.Wrapf(err, "scan object %d", id)
 					}
 					return nil
-				}() != nil {
+				}(); err != nil {
 					return err
 				}
 			}
