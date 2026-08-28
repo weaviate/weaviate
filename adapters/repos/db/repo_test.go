@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -491,15 +492,6 @@ func TestGetLocalShardNames(t *testing.T) {
 		}, idx
 	}
 
-	t.Run("it lists every resident shard", func(t *testing.T) {
-		db, _ := dbWithShards(t, "Product", "s1", "s2")
-
-		got, err := db.GetLocalShardNames("Product")
-
-		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"s1", "s2"}, got)
-	})
-
 	// A shutdown variant and a drop variant would run identical code, because
 	// enterRead refuses on i.closed alone and never reads the cause.
 	t.Run("a closing index refuses", func(t *testing.T) {
@@ -510,8 +502,8 @@ func TestGetLocalShardNames(t *testing.T) {
 		got, err := db.GetLocalShardNames("Product")
 
 		require.ErrorIs(t, err, ErrIndexClosing)
-		// errAlreadyShutdown is the half of the double %w nothing else holds.
-		// Collapsing the wrap to "%w: %v" keeps every other row here passing.
+		require.NotErrorIs(t, err, clusterSchema.ErrClassNotFound)
+		// Only this assertion fails if errAlreadyShutdown's %w becomes %v.
 		require.ErrorIs(t, err, errAlreadyShutdown)
 		// The enterRead refusal carries the cause too.
 		require.ErrorIs(t, err, errIndexDropped)
@@ -581,13 +573,40 @@ func TestGetLocalShardNames(t *testing.T) {
 		assert.Nil(t, got, "a refusal carries no names a caller could diff against")
 	})
 
-	t.Run("a collection with no index is not found", func(t *testing.T) {
+	t.Run("a collection with no index wraps ErrClassNotFound", func(t *testing.T) {
 		db, _ := dbWithShards(t, "Product", "s1")
 
-		_, err := db.GetLocalShardNames("Absent")
+		got, err := db.GetLocalShardNames("Absent")
 
-		require.ErrorContains(t, err, `collection "Absent" not found`)
+		require.ErrorIs(t, err, clusterSchema.ErrClassNotFound)
 		require.NotErrorIs(t, err, ErrIndexClosing)
+		require.ErrorContains(t, err, `collection "Absent"`,
+			"an operator reading one line needs the collection it was asked about")
+		assert.Nil(t, got)
+	})
+
+	// A caller diffs this against the shards it should hold, so an empty set
+	// has to be an answer rather than a refusal.
+	t.Run("it counts 0 and N shards", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			shards []string
+		}{
+			{name: "no local shards"},
+			{name: "several local shards", shards: []string{"s1", "s2", "s3"}},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				db, _ := dbWithShards(t, "Product", tc.shards...)
+
+				got, err := db.GetLocalShardNames("Product")
+
+				require.NoError(t, err)
+				assert.NotNil(t, got, "a caller ranging over this needs no nil check")
+				assert.ElementsMatch(t, tc.shards, got)
+			})
+		}
 	})
 
 	// A skipped exitRead passes every other row but leaves beginClose hanging in

@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -595,13 +596,15 @@ var errIndexClosingForShutdown = fmt.Errorf("%w: %w", ErrIndexClosing, errIndexS
 // node stop or a collection delete.
 var ErrIndexClosing = stderrors.New("collection index is closing")
 
-// GetLocalShardNames returns the names of every shard of the collection
-// resident on this node, and an error if the collection is not found or has no
-// local shards. It walks the shard map through ForEachShard rather than
-// ForEachLoadedShard, so a resident but never-loaded LazyLoadShard counts and
-// is not forced to load. An index closing, or already committed for deletion,
-// refuses with an error wrapping ErrIndexClosing rather than a partial set. The
-// two causes, a node stop and a delete, are collapsed outside this package.
+// GetLocalShardNames returns the names of every shard of the collection on this
+// node, including a lazy shard that never loaded, without loading it. A shard
+// added or removed during the call may or may not be listed. ([]string{}, nil)
+// means this node holds no shard of the collection.
+//
+// ErrIndexClosing means the index is closing for a delete, or DB.Shutdown has
+// begun. A call that finds DB.Shutdown holding indexLock waits for DB.Shutdown to
+// return. cluster/schema.ErrClassNotFound means this node holds no index for the
+// class, and comes back after about 150 ms of DB.GetIndex retries.
 func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
 	if db.shuttingDown() {
 		return nil, errIndexClosingForShutdown
@@ -609,7 +612,7 @@ func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
 
 	index := db.GetIndex(schema.ClassName(collection))
 	if index == nil {
-		return nil, fmt.Errorf("collection %q not found", collection)
+		return nil, fmt.Errorf("%w: collection %q", clusterSchema.ErrClassNotFound, collection)
 	}
 	if err := index.enterRead(); err != nil {
 		// The refusal wraps enterRead's error and the close cause, so errors.Is
@@ -619,7 +622,7 @@ func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
 	}
 	defer index.exitRead()
 
-	var names []string
+	names := make([]string, 0)
 	if err := index.ForEachShard(func(name string, _ ShardLike) error {
 		names = append(names, name)
 		return nil
@@ -635,9 +638,6 @@ func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
 	// closeRequestedCause also sees a delete that has not closed the index yet.
 	if cause := index.closeRequestedCause(); cause != nil {
 		return nil, fmt.Errorf("%w %q: %w", ErrIndexClosing, collection, cause)
-	}
-	if len(names) == 0 {
-		return nil, fmt.Errorf("collection %q has no local shards", collection)
 	}
 	return names, nil
 }
