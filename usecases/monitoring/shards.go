@@ -73,9 +73,12 @@ const (
 	WarmupLoaded WarmupOutcome = "loaded"
 	// WarmupFailed: the sweep attempted the load and it failed.
 	WarmupFailed WarmupOutcome = "failed"
-	// WarmupSkippedNotCold: no cold shard was left to warm, the shard having
-	// loaded or been deleted since the sweep listed it.
-	WarmupSkippedNotCold WarmupOutcome = "skipped_not_cold"
+	// WarmupSkippedShardGone: the index no longer holds the shard, its tenant
+	// having been deactivated or deleted since the sweep listed it.
+	WarmupSkippedShardGone WarmupOutcome = "skipped_shard_gone"
+	// WarmupSkippedAlreadyLoaded: something reached the shard before the sweep
+	// did, so there was nothing left to load.
+	WarmupSkippedAlreadyLoaded WarmupOutcome = "skipped_already_loaded"
 	// WarmupSkippedEmpty: the shard has never held an object.
 	WarmupSkippedEmpty WarmupOutcome = "skipped_empty"
 	// WarmupSkippedBelowThreshold: the shard holds too few objects for

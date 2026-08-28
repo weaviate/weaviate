@@ -239,7 +239,8 @@ func TestWarmupOutcomeCountsOnItsOwnSeries(t *testing.T) {
 	outcomes := []WarmupOutcome{
 		WarmupLoaded,
 		WarmupFailed,
-		WarmupSkippedNotCold,
+		WarmupSkippedShardGone,
+		WarmupSkippedAlreadyLoaded,
 		WarmupSkippedEmpty,
 		WarmupSkippedBelowThreshold,
 	}

@@ -156,7 +156,8 @@ func requireSweepTally(t *testing.T, hook *test.Hook, want map[monitoring.Warmup
 	for _, outcome := range []monitoring.WarmupOutcome{
 		monitoring.WarmupLoaded,
 		monitoring.WarmupFailed,
-		monitoring.WarmupSkippedNotCold,
+		monitoring.WarmupSkippedShardGone,
+		monitoring.WarmupSkippedAlreadyLoaded,
 		monitoring.WarmupSkippedEmpty,
 		monitoring.WarmupSkippedBelowThreshold,
 	} {
@@ -499,11 +500,11 @@ func TestLazyShardBackgroundWarmupContinuesAfterFailedLoad(t *testing.T) {
 	}
 }
 
-// TestLazyShardWarmupSkipsShardNoLongerCold pins what the sweep reports for a
-// shard it listed at startup but found nothing to warm: a request loaded it
-// first, or the tenant is gone. A negative threshold keeps the sweep from
-// running, so the decision is read without one racing it.
-func TestLazyShardWarmupSkipsShardNoLongerCold(t *testing.T) {
+// TestLazyShardWarmupSkipsShardWithNothingToWarm pins what the sweep reports for
+// a shard it listed at startup but found nothing to warm, counting a shard a
+// request took apart from a tenant that is gone. A negative threshold keeps the
+// sweep from running, so the decision is read without one racing it.
+func TestLazyShardWarmupSkipsShardWithNothingToWarm(t *testing.T) {
 	ctx := context.Background()
 
 	const tenant = "busy-tenant"
@@ -513,10 +514,17 @@ func TestLazyShardWarmupSkipsShardNoLongerCold(t *testing.T) {
 		// asked is the shard name the sweep would ask about.
 		asked string
 		// loadFirst materializes the tenant's shard before the decision is read.
-		loadFirst bool
+		loadFirst   bool
+		wantOutcome monitoring.WarmupOutcome
 	}{
-		{name: "a shard a request loaded first", asked: tenant, loadFirst: true},
-		{name: "a name the index no longer holds", asked: "vanished-tenant"},
+		{
+			name: "a shard a request loaded first", asked: tenant, loadFirst: true,
+			wantOutcome: monitoring.WarmupSkippedAlreadyLoaded,
+		},
+		{
+			name: "a name the index no longer holds", asked: "vanished-tenant",
+			wantOutcome: monitoring.WarmupSkippedShardGone,
+		},
 	}
 
 	for _, tt := range tests {
@@ -534,7 +542,7 @@ func TestLazyShardWarmupSkipsShardNoLongerCold(t *testing.T) {
 			shouldWarm, outcome := index.warmupCandidate(tt.asked)
 
 			require.False(t, shouldWarm, "a shard with nothing left to warm is no candidate")
-			require.Equal(t, monitoring.WarmupSkippedNotCold, outcome)
+			require.Equal(t, tt.wantOutcome, outcome)
 		})
 	}
 }
@@ -568,12 +576,12 @@ func TestLazyShardWarmupLoadOutcome(t *testing.T) {
 		{
 			name:    "a shard a request took during the tick counts as no load",
 			objects: 3, asked: tenant, loadFirst: true,
-			wantOutcome: monitoring.WarmupSkippedNotCold, wantLoaded: true,
+			wantOutcome: monitoring.WarmupSkippedAlreadyLoaded, wantLoaded: true,
 		},
 		{
 			name:    "a name the index no longer holds counts as no load",
 			objects: 3, asked: "vanished-tenant",
-			wantOutcome: monitoring.WarmupSkippedNotCold,
+			wantOutcome: monitoring.WarmupSkippedShardGone,
 		},
 		{
 			name:    "a shard that never held an object counts as empty",

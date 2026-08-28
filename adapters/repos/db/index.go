@@ -763,7 +763,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				"took":                    time.Since(now).String(),
 				"loaded":                  tally[monitoring.WarmupLoaded],
 				"failed":                  tally[monitoring.WarmupFailed],
-				"skipped_not_cold":        tally[monitoring.WarmupSkippedNotCold],
+				"skipped_shard_gone":      tally[monitoring.WarmupSkippedShardGone],
+				"skipped_already_loaded":  tally[monitoring.WarmupSkippedAlreadyLoaded],
 				"skipped_empty":           tally[monitoring.WarmupSkippedEmpty],
 				"skipped_below_threshold": tally[monitoring.WarmupSkippedBelowThreshold],
 			}).
@@ -795,11 +796,11 @@ func (i *Index) warmupCandidate(shardName string) (bool, monitoring.WarmupOutcom
 
 	shard := i.shards.Load(shardName)
 	if shard == nil {
-		return false, monitoring.WarmupSkippedNotCold
+		return false, monitoring.WarmupSkippedShardGone
 	}
 	lazyShard, ok := shard.(*LazyLoadShard)
 	if !ok || lazyShard.isLoaded() {
-		return false, monitoring.WarmupSkippedNotCold
+		return false, monitoring.WarmupSkippedAlreadyLoaded
 	}
 
 	// avoid footprint of empty shards
@@ -870,12 +871,12 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	// check if set to inactive in the meantime by concurrent call
 	shard := i.shards.Load(shardName)
 	if shard == nil {
-		return monitoring.WarmupSkippedNotCold, nil
+		return monitoring.WarmupSkippedShardGone, nil
 	}
 
 	lazyShard, ok := shard.(*LazyLoadShard)
 	if !ok {
-		return monitoring.WarmupSkippedNotCold, nil
+		return monitoring.WarmupSkippedAlreadyLoaded, nil
 	}
 
 	// avoid footprint of empty shards
@@ -894,7 +895,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 		return "", err
 	}
 	if !loaded {
-		return monitoring.WarmupSkippedNotCold, nil
+		return monitoring.WarmupSkippedAlreadyLoaded, nil
 	}
 
 	return monitoring.WarmupLoaded, nil
