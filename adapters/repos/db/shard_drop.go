@@ -47,9 +47,9 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	if wasCounted {
 		defer func() {
 			if countedUnloaded {
-				s.metrics.baseMetrics.DeleteUnloadedShard()
+				s.metrics.baseMetrics.DeleteUnloadedShard(s.registration)
 			} else {
-				s.metrics.baseMetrics.DeleteLoadedShard()
+				s.metrics.baseMetrics.DeleteLoadedShard(s.registration)
 			}
 		}()
 	}
