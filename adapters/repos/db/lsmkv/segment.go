@@ -175,6 +175,10 @@ type diskIndex interface {
 	// value (or the exact value if present)
 	Seek(key []byte) (segmentindex.Node, error)
 
+	// SeekOffsets returns only the payload position (start, end) of the node
+	// Seek would return; prefer it where Node.Key is not read.
+	SeekOffsets(key []byte) (start, end uint64, err error)
+
 	// Next returns the node holding the smallest key strictly greater than key,
 	// or lsmkv.NotFound past the highest key.
 	Next(key []byte) (segmentindex.Node, error)

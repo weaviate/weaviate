@@ -53,16 +53,7 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 // or lsmkv.NotFound. Unlike Get it materializes nothing, so prefer it on hot
 // paths that never read Node.Key.
 func (t *DiskTree) GetOffsets(key []byte) (start, end uint64, err error) {
-	pos, _, err := t.descend(key, descentEqual)
-	if err != nil {
-		return 0, 0, err
-	}
-	start = binary.LittleEndian.Uint64(t.data[pos:])
-	end = binary.LittleEndian.Uint64(t.data[pos+8:])
-	if end < start {
-		return 0, 0, reversedPayloadRange(start, end)
-	}
-	return start, end, nil
+	return t.offsetsAt(t.descend(key, descentEqual))
 }
 
 // Contains reports whether the tree holds key, without materializing it. It
@@ -85,10 +76,32 @@ func (t *DiskTree) Seek(key []byte) (Node, error) {
 	return t.materializeNode(t.descend(key, descentGreaterThanEqual))
 }
 
+// SeekOffsets returns the payload position (start, end) of the node holding the
+// smallest key >= key, or lsmkv.NotFound. Unlike Seek it allocates nothing, so
+// prefer it wherever the key is not read — a segment cursor takes its key from
+// the payload it goes on to parse.
+func (t *DiskTree) SeekOffsets(key []byte) (start, end uint64, err error) {
+	return t.offsetsAt(t.descend(key, descentGreaterThanEqual))
+}
+
 // Next returns the node holding the smallest key strictly greater than key, or
 // lsmkv.NotFound if the tree holds no such key.
 func (t *DiskTree) Next(key []byte) (Node, error) {
 	return t.materializeNode(t.descend(key, descentGreaterThan))
+}
+
+// offsetsAt reads the payload bounds of the node a descent ended on. pos must
+// come from a descent, whose bounds checks are what make the loads here safe.
+func (t *DiskTree) offsetsAt(pos, _ uint64, err error) (uint64, uint64, error) {
+	if err != nil {
+		return 0, 0, err
+	}
+	start := binary.LittleEndian.Uint64(t.data[pos:])
+	end := binary.LittleEndian.Uint64(t.data[pos+8:])
+	if end < start {
+		return 0, 0, reversedPayloadRange(start, end)
+	}
+	return start, end, nil
 }
 
 // reversedPayloadRange reports a payload range that runs backwards, which a

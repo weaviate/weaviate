@@ -45,6 +45,11 @@ func (s *stubDiskIndex) GetOffsets(key []byte) (start, end uint64, err error) {
 }
 
 func (s *stubDiskIndex) Seek(key []byte) (segmentindex.Node, error) { panic("not implemented") }
+
+func (s *stubDiskIndex) SeekOffsets(key []byte) (start, end uint64, err error) {
+	panic("not implemented")
+}
+
 func (s *stubDiskIndex) Next(key []byte) (segmentindex.Node, error) { panic("not implemented") }
 func (s *stubDiskIndex) AllKeys() ([][]byte, error)                 { panic("not implemented") }
 func (s *stubDiskIndex) Size() int                                  { panic("not implemented") }

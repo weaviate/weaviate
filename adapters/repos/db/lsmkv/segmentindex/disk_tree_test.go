@@ -92,6 +92,9 @@ func TestDiskTreeCorruptDataNeverPanics(t *testing.T) {
 				require.NotPanics(t, func() {
 					_, _, offsetsErr = dTree.GetOffsets(q)
 				}, "GetOffsets panicked at truncation=%d query=%q", trunc, q)
+				require.NotPanics(t, func() {
+					_, _, _ = dTree.SeekOffsets(q)
+				}, "SeekOffsets panicked at truncation=%d query=%q", trunc, q)
 				var contains bool
 				require.NotPanics(t, func() {
 					contains, _ = dTree.Contains(q)
@@ -269,7 +272,13 @@ func FuzzDiskTreeRead(f *testing.F) {
 				assert.Equal(t, node.End, gEnd)
 			}
 
-			_, _ = tree.Seek(query)
+			seekNode, seekErr := tree.Seek(query)
+			sStart, sEnd, sErr := tree.SeekOffsets(query)
+			assert.Equal(t, seekErr == nil, sErr == nil, "Seek and SeekOffsets disagree")
+			if seekErr == nil && sErr == nil {
+				assert.Equal(t, seekNode.Start, sStart)
+				assert.Equal(t, seekNode.End, sEnd)
+			}
 			_, _ = tree.Next(query)
 			contains, containsErr = tree.Contains(query)
 			allKeys, allKeysErr = tree.AllKeys()
@@ -413,6 +422,7 @@ func TestDiskTreeCorruptChildPointerErrors(t *testing.T) {
 				{"GetOffsets", func() error { _, _, err := tree.GetOffsets(branch.probe); return err }},
 				{"Contains", func() error { _, err := tree.Contains(branch.probe); return err }},
 				{"Seek", func() error { _, err := tree.Seek(branch.probe); return err }},
+				{"SeekOffsets", func() error { _, _, err := tree.SeekOffsets(branch.probe); return err }},
 				{"Next", func() error { _, err := tree.Next(branch.probe); return err }},
 			}
 			for _, read := range reads {
@@ -442,6 +452,7 @@ func TestDiskTreeShortBufferErrors(t *testing.T) {
 		{"GetOffsets", func(t *DiskTree) error { _, _, err := t.GetOffsets([]byte("aaa")); return err }},
 		{"Contains", func(t *DiskTree) error { _, err := t.Contains([]byte("aaa")); return err }},
 		{"Seek", func(t *DiskTree) error { _, err := t.Seek([]byte("aaa")); return err }},
+		{"SeekOffsets", func(t *DiskTree) error { _, _, err := t.SeekOffsets([]byte("aaa")); return err }},
 		{"Next", func(t *DiskTree) error { _, err := t.Next([]byte("aaa")); return err }},
 	}
 
@@ -504,6 +515,7 @@ func TestDiskTreeReversedPayloadRangeErrors(t *testing.T) {
 		{"Get", func() error { _, err := tree.Get(probe); return err }},
 		{"GetOffsets", func() error { _, _, err := tree.GetOffsets(probe); return err }},
 		{"Seek", func() error { _, err := tree.Seek(probe); return err }},
+		{"SeekOffsets", func() error { _, _, err := tree.SeekOffsets(probe); return err }},
 		{"Next", func() error { _, err := tree.Next(below); return err }},
 		// a caller that skips a lower segment's row on this answer would drop a
 		// row no read path will serve
@@ -721,6 +733,7 @@ func TestDiskTreeSeekAllocatesOnlyTheKey(t *testing.T) {
 		fn   func(key []byte) (uint64, uint64, error)
 	}{
 		{"GetOffsets", tree.GetOffsets},
+		{"SeekOffsets", tree.SeekOffsets},
 	}
 	for _, read := range offsets {
 		t.Run(read.name, func(t *testing.T) {
@@ -740,8 +753,11 @@ func assertSeek(t *testing.T, tree *DiskTree, keys []Key, probe []byte) {
 
 	want, found := firstAtOrAbove(keys, probe)
 	node, err := tree.Seek(probe)
+	start, end, offsetsErr := tree.SeekOffsets(probe)
+
 	if !found {
 		require.ErrorIs(t, err, lsmkv.NotFound, "Seek past the last key")
+		require.ErrorIs(t, offsetsErr, lsmkv.NotFound, "SeekOffsets past the last key")
 		return
 	}
 
@@ -749,6 +765,11 @@ func assertSeek(t *testing.T, tree *DiskTree, keys []Key, probe []byte) {
 	require.Equal(t, want.Key, node.Key, "Seek(%x) returned the wrong key", probe)
 	require.Equal(t, uint64(want.ValueStart), node.Start)
 	require.Equal(t, uint64(want.ValueEnd), node.End)
+
+	// SeekOffsets answers the same descent without the key
+	require.NoError(t, offsetsErr)
+	require.Equal(t, node.Start, start)
+	require.Equal(t, node.End, end)
 }
 
 func assertNext(t *testing.T, tree *DiskTree, keys []Key, probe []byte) {

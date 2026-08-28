@@ -39,16 +39,16 @@ func (sg *SegmentGroup) newCollectionCursors() ([]innerCursorCollection, func())
 }
 
 func (s *segmentCursorCollection) seek(key []byte) ([]byte, []value, error) {
-	node, err := s.segment.index.Seek(key)
+	start, end, err := s.segment.index.SeekOffsets(key)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	parsed, err := s.parseCollectionNode(nodeOffset{node.Start, node.End})
+	parsed, err := s.parseCollectionNode(nodeOffset{start, end})
 	// make sure to set the next offset before checking the error. The error
 	// could be 'entities.Deleted' which would require that the offset is still advanced
 	// for the next cycle
-	s.nextOffset = node.End
+	s.nextOffset = end
 	if err != nil {
 		return parsed.primaryKey, nil, err
 	}

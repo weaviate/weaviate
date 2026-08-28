@@ -12,10 +12,12 @@
 package lsmkv
 
 import (
+	"context"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 // TestReplaceCursorConsistentView verifies that a cursor opened on a Bucket with
@@ -206,4 +208,77 @@ func TestCursorInMemWithTombstones(t *testing.T) {
 	}
 	ct.Close()
 	require.Equal(t, map[string]bool{"aaa": true, "bbb": true, "ccc": true}, seen)
+}
+
+// TestCursorWithSecondaryIndexOnDiskSegment smoke-tests the one cursor that
+// walks a segment by its secondary index, and the only reader of
+// diskIndex.Next: secondary keys do not follow payload order, so it cannot scan
+// the data section sequentially and takes a fresh index descent per row.
+func TestCursorWithSecondaryIndexOnDiskSegment(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+	// the secondary order is the reverse of the primary one, so a cursor that
+	// walked the payload instead of the secondary index would be visibly wrong
+	records := []struct{ primary, secondary string }{
+		{"pk-1", "sec-8"},
+		{"pk-2", "sec-6"},
+		{"pk-3", "sec-4"},
+		{"pk-4", "sec-2"},
+	}
+	for _, r := range records {
+		require.NoError(t, b.Put([]byte(r.primary), []byte("value-"+r.primary),
+			WithSecondaryKey(0, []byte(r.secondary))))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+
+	t.Run("walk from the first secondary key", func(t *testing.T) {
+		c := b.CursorWithSecondaryIndex(0)
+		defer c.Close()
+
+		var seen []string
+		for key, value := c.First(); key != nil; key, value = c.Next() {
+			seen = append(seen, string(key))
+			require.NotEmpty(t, value)
+			// a cursor that re-answers the same key would otherwise spin until
+			// the package's test budget runs out
+			require.LessOrEqual(t, len(seen), len(records), "cursor did not advance")
+		}
+		require.Equal(t, []string{"sec-2", "sec-4", "sec-6", "sec-8"}, seen)
+	})
+
+	t.Run("seek lands on the first key at or above the probe", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			seek    string
+			wantKey string
+			wantVal string
+		}{
+			{name: "exact match", seek: "sec-4", wantKey: "sec-4", wantVal: "value-pk-3"},
+			{name: "between two keys", seek: "sec-5", wantKey: "sec-6", wantVal: "value-pk-2"},
+			{name: "below the smallest", seek: "sec-0", wantKey: "sec-2", wantVal: "value-pk-4"},
+			{name: "past the highest", seek: "sec-9"},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				c := b.CursorWithSecondaryIndex(0)
+				defer c.Close()
+
+				key, value := c.Seek([]byte(test.seek))
+				if test.wantKey == "" {
+					require.Nil(t, key)
+					return
+				}
+				require.Equal(t, test.wantKey, string(key))
+				require.Equal(t, test.wantVal, string(value))
+			})
+		}
+	})
 }

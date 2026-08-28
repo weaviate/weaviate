@@ -106,11 +106,11 @@ func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 		},
 		firstOffsetFn: func() (uint64, error) {
 			index := s.secondaryIndices[pos]
-			n, err := index.Seek(nil)
+			start, _, err := index.SeekOffsets(nil)
 			if err != nil {
 				return 0, err
 			}
-			return n.Start, nil
+			return start, nil
 		},
 		nextOffsetFn: func(n *segmentReplaceNode) (uint64, error) {
 			index := s.secondaryIndices[pos]
@@ -153,15 +153,15 @@ func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorRepl
 }
 
 func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
-	node, err := s.index.Seek(key)
+	start, end, err := s.index.SeekOffsets(key)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	s.currOffset = node.Start
+	s.currOffset = start
 
-	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End},
-		s.segment.contents[node.Start:node.End])
+	err = s.parseReplaceNodeInto(nodeOffset{start: start, end: end},
+		s.segment.contents[start:end])
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -392,11 +392,11 @@ func (s *segmentCursorReplaceReusable) next() (*segmentReplaceNode, error) {
 // seek positions at the first node with key >= the given key; next() then
 // continues sequentially. Returns lsmkv.NotFound past the highest key.
 func (s *segmentCursorReplaceReusable) seek(key []byte) (*segmentReplaceNode, error) {
-	node, err := s.segment.index.Seek(key)
+	start, _, err := s.segment.index.SeekOffsets(key)
 	if err != nil {
 		return nil, err
 	}
-	s.currOffset = node.Start
+	s.currOffset = start
 	return s.parseInto()
 }
 
