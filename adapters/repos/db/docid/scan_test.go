@@ -58,14 +58,14 @@ func TestScanObjectsLSM(t *testing.T) {
 			store, pointers := storeWithObjects(t, tt.objectCount, logger)
 
 			var calls atomic.Int64
-			scan := func(_ *models.PropertySchema, _ uint64) error {
+			scan := func(_ context.Context, _ *models.PropertySchema, _ uint64) error {
 				if int(calls.Add(1)) == tt.failOnCall {
 					return errScanFn
 				}
 				return nil
 			}
 
-			err := ScanObjectsLSM(store, pointers, scan, []string{"name"}, logger)
+			err := ScanObjectsLSM(context.Background(), store, pointers, scan, []string{"name"}, logger)
 
 			if tt.failOnCall == 0 {
 				require.NoError(t, err)
@@ -77,21 +77,144 @@ func TestScanObjectsLSM(t *testing.T) {
 	}
 }
 
+func TestScanObjectsLSMCancellation(t *testing.T) {
+	const someObjects = 100
+
+	// ten doc IDs per worker, so the first worker's range holds the whole of what
+	// the two part-way rows observe and no other worker can reach scanFn
+	tenPerWorker := 10 * scanConcurrency()
+
+	tests := []struct {
+		name string
+		// doc IDs beyond storedObjects resolve to no object, so the loop skips
+		// them without ever reaching scanFn
+		storedObjects int
+		pointerCount  int
+		// otherwise the first scanFn call cancels, part way through the scan
+		cancelBeforeScan bool
+		maxScanCalls     int
+	}{
+		{
+			name:             "cancelled before the scan, every doc ID resolves",
+			storedObjects:    someObjects,
+			pointerCount:     someObjects,
+			cancelBeforeScan: true,
+			maxScanCalls:     0,
+		},
+		{
+			name:             "cancelled before the scan, no doc ID resolves",
+			storedObjects:    0,
+			pointerCount:     someObjects,
+			cancelBeforeScan: true,
+			maxScanCalls:     0,
+		},
+		{
+			name:             "cancelled before the scan, no doc IDs at all",
+			storedObjects:    0,
+			pointerCount:     0,
+			cancelBeforeScan: true,
+			maxScanCalls:     0,
+		},
+		{
+			// only the first worker's range resolves, so it alone reaches scanFn and
+			// the count below is its own behaviour rather than a race between workers
+			name:          "cancelled part way through, every doc ID resolves",
+			storedObjects: 10,
+			pointerCount:  tenPerWorker,
+			maxScanCalls:  1,
+		},
+		{
+			name:          "cancelled part way through, only the first doc ID resolves",
+			storedObjects: 1,
+			pointerCount:  tenPerWorker,
+			maxScanCalls:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			store, pointers := storeWithObjects(t, tt.storedObjects, logger)
+			for i := len(pointers); i < tt.pointerCount; i++ {
+				pointers = append(pointers, uint64(i))
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tt.cancelBeforeScan {
+				cancel()
+			}
+
+			var calls atomic.Int64
+			var sawCancel atomic.Bool
+			scan := func(scanCtx context.Context, _ *models.PropertySchema, _ uint64) error {
+				calls.Add(1)
+				cancel()
+				// cancelling the caller's context propagates to children before it
+				// returns, so a scanCtx derived from it is already cancelled here
+				sawCancel.Store(scanCtx.Err() != nil)
+				return nil
+			}
+
+			err := ScanObjectsLSM(ctx, store, pointers, scan, []string{"name"}, logger)
+
+			require.ErrorIs(t, err, context.Canceled)
+			require.LessOrEqual(t, calls.Load(), int64(tt.maxScanCalls))
+			if calls.Load() > 0 {
+				require.True(t, sawCancel.Load(), "scanFn was handed a context the caller cannot cancel")
+			}
+		})
+	}
+}
+
+// Sweeps what the per-doc-ID context poll in scan costs, on the two shapes the
+// loop takes: every doc ID resolving to an object, and none of them resolving.
+func BenchmarkScanObjectsLSM(b *testing.B) {
+	const docIDCount = 50000
+
+	benchmarks := []struct {
+		name          string
+		storedObjects int
+	}{
+		{name: "every doc ID resolves", storedObjects: docIDCount},
+		{name: "no doc ID resolves", storedObjects: 0},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			logger, _ := test.NewNullLogger()
+			store, pointers := storeWithObjects(b, bm.storedObjects, logger)
+			for i := len(pointers); i < docIDCount; i++ {
+				pointers = append(pointers, uint64(i))
+			}
+			scan := func(_ context.Context, _ *models.PropertySchema, _ uint64) error { return nil }
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := ScanObjectsLSM(context.Background(), store, pointers, scan,
+					[]string{"name"}, logger); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 // storeWithObjects returns a store holding count objects keyed by their UUID,
 // with the docID secondary index ScanObjectsLSM resolves pointers through, and
 // the docIDs of those objects.
-func storeWithObjects(t *testing.T, count int, logger logrus.FieldLogger) (*lsmkv.Store, []uint64) {
+func storeWithObjects(tb testing.TB, count int, logger logrus.FieldLogger) (*lsmkv.Store, []uint64) {
 	ctx := context.Background()
-	dir := t.TempDir()
+	dir := tb.TempDir()
 
 	store, err := lsmkv.New(dir, dir, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, store.Shutdown(ctx)) })
+	require.NoError(tb, err)
+	tb.Cleanup(func() { require.NoError(tb, store.Shutdown(ctx)) })
 
-	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
+	require.NoError(tb, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
 		lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1)))
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
@@ -105,15 +228,15 @@ func storeWithObjects(t *testing.T, count int, logger logrus.FieldLogger) (*lsmk
 		obj.SetID(strfmt.UUID(id.String()))
 		obj.Object.Properties = map[string]interface{}{"name": fmt.Sprintf("object-%d", i)}
 		objBytes, err := obj.MarshalBinary()
-		require.NoError(t, err)
+		require.NoError(tb, err)
 
 		// the shard write path keys objects by the UUID's 16 raw bytes
 		idBytes, err := id.MarshalBinary()
-		require.NoError(t, err)
+		require.NoError(tb, err)
 
 		docIDBytes := make([]byte, 8)
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		require.NoError(t, bucket.Put(idBytes, objBytes,
+		require.NoError(tb, bucket.Put(idBytes, objBytes,
 			lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)))
 	}
 
