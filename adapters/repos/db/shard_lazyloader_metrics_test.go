@@ -56,6 +56,10 @@ type shardMetricsHarness struct {
 }
 
 func newShardMetricsHarness(t *testing.T) *shardMetricsHarness {
+	return newShardMetricsHarnessWithLazyLoading(t, true)
+}
+
+func newShardMetricsHarnessWithLazyLoading(t *testing.T, lazyLoading bool) *shardMetricsHarness {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 
@@ -68,6 +72,9 @@ func newShardMetricsHarness(t *testing.T) *shardMetricsHarness {
 	metrics.ShardsLoading.Set(0)
 	metrics.ShardsUnloaded.Set(0)
 	metrics.ShardsUnloading.Set(0)
+	for _, labels := range monitoring.AllShardLabels() {
+		metrics.Shards.WithLabelValues(labels...).Set(0)
+	}
 
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
@@ -96,7 +103,7 @@ func newShardMetricsHarness(t *testing.T) *shardMetricsHarness {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-		EnableLazyLoadShards:      boolPtr(true),
+		EnableLazyLoadShards:      boolPtr(lazyLoading),
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
@@ -116,7 +123,7 @@ func newShardMetricsHarness(t *testing.T) *shardMetricsHarness {
 	}
 }
 
-// addClass registers className and returns the name of its only shard, left cold.
+// addClass registers className and returns the name of its only shard, left unloaded.
 func (h *shardMetricsHarness) addClass(t *testing.T, className string) string {
 	t.Helper()
 	class := &models.Class{
@@ -145,6 +152,82 @@ func (h *shardMetricsHarness) gauges() shardGauges {
 	}
 }
 
+// gaugesFor reads the same four states out of weaviate_shards for one
+// registration, so a test can tell an eagerly-opened shard from a lazy one.
+func (h *shardMetricsHarness) gaugesFor(reg monitoring.ShardRegistration) shardGauges {
+	read := func(state monitoring.ShardState) float64 {
+		return testutil.ToFloat64(h.metrics.Shards.WithLabelValues(string(state), string(reg)))
+	}
+	return shardGauges{
+		loaded:    read(monitoring.ShardStateLoaded),
+		loading:   read(monitoring.ShardStateLoading),
+		unloaded:  read(monitoring.ShardStateUnloaded),
+		unloading: read(monitoring.ShardStateUnloading),
+	}
+}
+
+// TestShardRegistrationSplitsLoadedFromUnloaded pins the question
+// weaviate_shards exists to answer: of the shards a lazy collection holds,
+// which are loaded and which are still unloaded — and that an eager collection
+// never reports a lazy one.
+func TestShardRegistrationSplitsLoadedFromUnloaded(t *testing.T) {
+	ctx := context.Background()
+	const className = "TestShardRegistrationSplit"
+
+	tests := []struct {
+		name        string
+		lazyLoading bool
+		// registration is the series the collection's shards count against.
+		registration monitoring.ShardRegistration
+		// atRest is the split before anything touches the shard.
+		atRest shardGauges
+		// afterAccess is the split once the shard has been opened.
+		afterAccess shardGauges
+	}{
+		{
+			name:         "a lazy collection registers its shard unloaded and opens it on access",
+			lazyLoading:  true,
+			registration: monitoring.ShardRegistrationLazy,
+			atRest:       shardGauges{unloaded: 1},
+			afterAccess:  shardGauges{loaded: 1},
+		},
+		{
+			name:         "an eager collection opens its shard at creation",
+			lazyLoading:  false,
+			registration: monitoring.ShardRegistrationEager,
+			atRest:       shardGauges{loaded: 1},
+			afterAccess:  shardGauges{loaded: 1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newShardMetricsHarnessWithLazyLoading(t, tt.lazyLoading)
+			shardName := h.addClass(t, className)
+
+			other := monitoring.ShardRegistrationEager
+			if tt.registration == monitoring.ShardRegistrationEager {
+				other = monitoring.ShardRegistrationLazy
+			}
+
+			require.Equal(t, tt.atRest, h.gaugesFor(tt.registration))
+			require.Equal(t, shardGauges{}, h.gaugesFor(other),
+				"the collection must not report shards under the other registration")
+			require.Equal(t, tt.atRest, h.gauges(),
+				"the legacy gauges must agree with the sum over registrations")
+
+			shard := h.repo.GetIndex(className).shards.Load(shardName)
+			if lazyShard, ok := shard.(*LazyLoadShard); ok {
+				require.NoError(t, lazyShard.Load(ctx))
+			}
+
+			require.Equal(t, tt.afterAccess, h.gaugesFor(tt.registration))
+			require.Equal(t, shardGauges{}, h.gaugesFor(other))
+			require.Equal(t, tt.afterAccess, h.gauges())
+		})
+	}
+}
+
 // TestShardRemovalStopsCountingIt pins that a shard taken out of the shard map
 // leaves the shard gauges. Shutdown alone moves it to unloaded, which is right
 // only while it stays in the map: counted after removal, every tenant
@@ -161,7 +244,7 @@ func TestShardRemovalStopsCountingIt(t *testing.T) {
 		want      shardGauges
 	}{
 		{
-			name: "ShutdownShard on a cold shard",
+			name: "ShutdownShard on an unloaded shard",
 			remove: func(t *testing.T, h *shardMetricsHarness, shardName string) {
 				require.NoError(t, h.migrator.ShutdownShard(ctx, className, shardName))
 			},
@@ -174,7 +257,7 @@ func TestShardRemovalStopsCountingIt(t *testing.T) {
 			},
 		},
 		{
-			name: "UnloadLocalShard on a cold shard",
+			name: "UnloadLocalShard on an unloaded shard",
 			remove: func(t *testing.T, h *shardMetricsHarness, shardName string) {
 				require.NoError(t, h.repo.GetIndex(className).UnloadLocalShard(ctx, shardName))
 			},
@@ -331,7 +414,7 @@ func TestDropStopsCountingTheShard(t *testing.T) {
 		wantError bool
 	}{
 		{
-			name:    "a cold shard",
+			name:    "an unloaded shard",
 			prepare: func(t *testing.T, h *shardMetricsHarness, shardName string) {},
 		},
 		{

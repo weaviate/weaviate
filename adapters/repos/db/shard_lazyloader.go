@@ -145,7 +145,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
 		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
-		l.shardOpts.bitmapBufPool)
+		l.shardOpts.bitmapBufPool, monitoring.ShardRegistrationLazy)
 	if err != nil {
 		l.shardOpts.promMetrics.FailLoadingShard()
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
@@ -498,7 +498,7 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 	if !l.loaded {
 		// The shard is out of the shard map before drop runs, so it stops being
 		// counted even when the cleanup below fails partway.
-		defer l.shardOpts.promMetrics.DeleteUnloadedShard()
+		defer l.shardOpts.promMetrics.DeleteUnloadedShard(monitoring.ShardRegistrationLazy)
 
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()

@@ -132,6 +132,11 @@ type PrometheusMetrics struct {
 	ShardsLoading   prometheus.Gauge
 	ShardsUnloading prometheus.Gauge
 
+	// Shards supersedes the four gauges above: summing its states reproduces
+	// each of them, and the registration label splits them into the shards
+	// opened at creation and the ones a lazy collection opened on access.
+	Shards *prometheus.GaugeVec
+
 	// ShardHaltForTransferForceResume: non-zero means a transfer was
 	// force-resumed mid-stream — compaction may have raced the transfer.
 	ShardHaltForTransferForceResume *prometheus.CounterVec
@@ -793,6 +798,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "shards_unloading",
 			Help: "Number of shards in process of unloading",
 		}),
+		Shards: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "weaviate_shards",
+			Help: "Number of shards the node holds, by lifecycle state and by whether the collection opens its shards eagerly at creation or lazily on first access",
+		}, []string{"state", "registration"}),
 
 		ShardHaltForTransferForceResume: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "shard_halt_for_transfer_force_resume_total",
@@ -966,6 +975,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 	if err := m.initObjectsTtl(); err != nil {
 		panic(err)
 	}
+
+	InitGaugeVec(m.Shards, AllShardLabels())
 
 	return m
 }
