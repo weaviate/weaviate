@@ -173,6 +173,7 @@ func (db *DB) init(ctx context.Context) error {
 					)
 					return lazyLoadShardEnabled
 				}(),
+				LazyLoadShardWarmupMinObjects:       db.config.LazyLoadShardWarmupMinObjects,
 				ForceFullReplicasSearch:             db.config.ForceFullReplicasSearch,
 				TransferInactivityTimeout:           db.config.TransferInactivityTimeout,
 				HaltForTransferTimeout:              db.config.HaltForTransferTimeout,
@@ -228,6 +229,8 @@ func (db *DB) init(ctx context.Context) error {
 				"action":                  "lazy_shard_auto_detection",
 				"class":                   class.Class,
 				"enable_lazy_load_shards": lazyLoadShardEnabled,
+				"background_warmup":       idx.Config.backgroundWarmupEnabled(),
+				"warmup_min_objects":      db.config.LazyLoadShardWarmupMinObjects,
 				"local_shard_count":       localActiveShardsCount,
 				"total_shard_size_bytes":  totalShardSizeBytes,
 				"count_threshold":         db.config.LazyLoadShardCountThreshold,

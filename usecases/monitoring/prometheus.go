@@ -137,6 +137,8 @@ type PrometheusMetrics struct {
 	// opened at creation and the ones a lazy collection opened on access.
 	Shards *prometheus.GaugeVec
 
+	LazyShardWarmupDecisions *prometheus.CounterVec
+
 	// ShardHaltForTransferForceResume: non-zero means a transfer was
 	// force-resumed mid-stream — compaction may have raced the transfer.
 	ShardHaltForTransferForceResume *prometheus.CounterVec
@@ -802,6 +804,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "weaviate_shards",
 			Help: "Number of shards the node holds, by lifecycle state and by whether the collection opens its shards eagerly at creation or lazily on first access",
 		}, []string{"state", "registration"}),
+
+		LazyShardWarmupDecisions: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_lazy_shard_warmup_decisions_total",
+			Help: "Number of shards the startup warmup sweep considered, by what it did with each",
+		}, []string{"outcome"}),
 
 		ShardHaltForTransferForceResume: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "shard_halt_for_transfer_force_resume_total",

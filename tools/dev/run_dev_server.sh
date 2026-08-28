@@ -546,6 +546,18 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
+   local-meta)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+      DEFAULT_VECTORIZER_MODULE=none
+      ENABLE_MODULES="generative-meta"
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
 
   local-qna-openai)
       CONTEXTIONARY_URL=localhost:9999 \

@@ -24,25 +24,21 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
-func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
+const baseURL = "https://api.meta.ai"
+
+func testGenerativeMeta(rest, grpc string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(rest)
 		helper.SetupGRPCClient(t, grpc)
-		// Define path to test/helper/sample-schema/planets/data folder
 		dataFolderPath := "../../../test/helper/sample-schema/planets/data"
-		// Data
 		data := planets.Planets
-		// Define class
 		class := planets.BaseClass("PlanetsGenerativeTest")
 		class.VectorConfig = map[string]models.VectorConfig{
 			"description": {
-				Vectorizer: map[string]interface{}{
-					"text2vec-aws": map[string]interface{}{
-						"properties":         []interface{}{"description"},
+				Vectorizer: map[string]any{
+					"text2vec-model2vec": map[string]any{
+						"properties":         []any{"description"},
 						"vectorizeClassName": false,
-						"service":            "bedrock",
-						"region":             region,
-						"model":              "amazon.titan-embed-text-v2:0",
 					},
 				},
 				VectorIndexType: "flat",
@@ -51,81 +47,38 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 		tests := []struct {
 			name               string
 			generativeModel    string
-			absentModuleConfig bool
 			withImages         bool
-			maxTokens          int64
+			absentModuleConfig bool
 		}{
-			// Amazon Nova
 			{
-				name:            "amazon.nova-micro-v1:0",
-				generativeModel: "amazon.nova-micro-v1:0",
-			},
-			{
-				name:            "amazon.nova-lite-v1:0",
-				generativeModel: "amazon.nova-lite-v1:0",
+				name:            "muse-spark-1.2",
+				generativeModel: "muse-spark-1.2",
 				withImages:      true,
 			},
 			{
-				name:            "amazon.nova-pro-v1:0",
-				generativeModel: "amazon.nova-pro-v1:0",
-				withImages:      true,
-			},
-			// Anthropic
-			{
-				name:            "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-				generativeModel: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-				maxTokens:       4000,
-			},
-			{
-				name:            "anthropic.claude-3-haiku-20240307-v1:0",
-				generativeModel: "anthropic.claude-3-haiku-20240307-v1:0",
-				withImages:      true,
-			},
-			// Meta
-			{
-				name:            "meta.llama3-8b-instruct-v1:0",
-				generativeModel: "meta.llama3-8b-instruct-v1:0",
-			},
-			{
-				name:            "meta.llama3-70b-instruct-v1:0",
-				generativeModel: "meta.llama3-70b-instruct-v1:0",
+				name:            "muse-spark-1.1",
+				generativeModel: "muse-spark-1.1",
 			},
 			{
 				name:               "absent module config",
-				generativeModel:    "meta.llama3-70b-instruct-v1:0",
+				generativeModel:    "muse-spark-1.2",
 				absentModuleConfig: true,
-			},
-			// Mistral AI
-			{
-				name:            "mistral.mistral-7b-instruct-v0:2",
-				generativeModel: "mistral.mistral-7b-instruct-v0:2",
-			},
-			{
-				name:            "mistral.mixtral-8x7b-instruct-v0:1",
-				generativeModel: "mistral.mixtral-8x7b-instruct-v0:1",
-			},
-			{
-				name:            "mistral.mistral-large-2402-v1:0",
-				generativeModel: "mistral.mistral-large-2402-v1:0",
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				if tt.absentModuleConfig {
 					t.Log("skipping adding module config configuration to class")
+					class.ModuleConfig = nil
 				} else {
-					class.ModuleConfig = map[string]interface{}{
-						"generative-aws": map[string]interface{}{
-							"service": "bedrock",
-							"region":  region,
-							"model":   tt.generativeModel,
+					class.ModuleConfig = map[string]any{
+						"generative-meta": map[string]any{
+							"model": tt.generativeModel,
 						},
 					}
 				}
-				// create schema
 				helper.CreateClass(t, class)
 				defer helper.DeleteClass(t, class.Class)
-				// create objects
 				t.Run("create objects", func(t *testing.T) {
 					if tt.withImages {
 						planets.InsertObjectsWithImages(t, class.Class, dataFolderPath)
@@ -145,52 +98,50 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 						})
 					}
 				})
-				// generative task
-				if tt.absentModuleConfig {
-					t.Log("skipping create tweet tests with default values as e2e tests rely on specific AWS settings")
-				} else {
+				if !tt.absentModuleConfig {
 					t.Run("create a tweet", func(t *testing.T) {
 						planets.CreateTweetTest(t, class.Class)
 					})
+				}
+				t.Run("create a tweet with params", func(t *testing.T) {
+					params := "meta:{temperature:0.1 topP:0.9 reasoningEffort:low}"
+					if tt.absentModuleConfig {
+						params = fmt.Sprintf("meta:{temperature:0.1 topP:0.9 reasoningEffort:low model:%q baseURL:%q}", tt.generativeModel, baseURL)
+					}
+					planets.CreateTweetTestWithParams(t, class.Class, params)
+				})
+				if !tt.absentModuleConfig {
 					t.Run("create a tweet using grpc", func(t *testing.T) {
 						planets.CreateTweetTestGRPC(t, class.Class)
 					})
 				}
-				t.Run("create a tweet with params", func(t *testing.T) {
-					params := "aws:{temperature:0.1}"
-					if tt.absentModuleConfig {
-						params = fmt.Sprintf("aws:{temperature:0.1 maxTokens:500 service:\"bedrock\" region:\"%s\" model:\"%s\"}", region, tt.generativeModel)
-					}
-					planets.CreateTweetTestWithParams(t, class.Class, params)
-				})
 
-				params := func() *pb.GenerativeAWS {
-					params := &pb.GenerativeAWS{
-						Model:       grpchelper.ToPtr(tt.generativeModel),
-						Temperature: grpchelper.ToPtr(0.9),
+				params := func() *pb.GenerativeMeta {
+					params := &pb.GenerativeMeta{
+						Model:            grpchelper.ToPtr(tt.generativeModel),
+						MaxTokens:        grpchelper.ToPtr(int64(2000)),
+						Temperature:      grpchelper.ToPtr(0.9),
+						TopP:             grpchelper.ToPtr(0.9),
+						FrequencyPenalty: grpchelper.ToPtr(0.1),
+						PresencePenalty:  grpchelper.ToPtr(0.1),
+						ReasoningEffort:  pb.GenerativeMeta_REASONING_EFFORT_LOW.Enum(),
 					}
 					if tt.absentModuleConfig {
-						params.Region = grpchelper.ToPtr(region)
-						params.Service = grpchelper.ToPtr("bedrock")
-					}
-					if tt.maxTokens != 0 {
-						params.MaxTokens = &tt.maxTokens
+						params.BaseUrl = grpchelper.ToPtr(baseURL)
 					}
 					return params
 				}
-
 				t.Run("create a tweet with params using grpc", func(t *testing.T) {
 					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
-						ReturnMetadata: false, // no metadata for aws
-						Kind:           &pb.GenerativeProvider_Aws{Aws: params()},
+						ReturnMetadata: true,
+						Kind:           &pb.GenerativeProvider_Meta{Meta: params()},
 					})
 				})
+
 				if tt.withImages {
 					t.Run("image prompt", func(t *testing.T) {
 						t.Run("graphql", func(t *testing.T) {
-							prompt := "Caption image"
-							params := "aws:{imageProperties:\"image\"}"
-							planets.CreatePromptTestWithParams(t, class.Class, prompt, params)
+							planets.CreatePromptTestWithParams(t, class.Class, "Describe image", "meta:{imageProperties:\"image\"}")
 						})
 
 						singlePrompt := "Give a short answer: What's on the image?"
@@ -200,8 +151,8 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 							params := params()
 							params.ImageProperties = &pb.TextArray{Values: []string{"image"}}
 							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
-								ReturnMetadata: false,
-								Kind:           &pb.GenerativeProvider_Aws{Aws: params},
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Meta{Meta: params},
 							})
 						})
 
@@ -214,8 +165,8 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 							params := params()
 							params.Images = &pb.TextArray{Values: []string{earth, mars}}
 							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
-								ReturnMetadata: false,
-								Kind:           &pb.GenerativeProvider_Aws{Aws: params},
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Meta{Meta: params},
 							})
 						})
 
@@ -229,8 +180,18 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 							params.Images = &pb.TextArray{Values: []string{earth, mars}}
 							params.ImageProperties = &pb.TextArray{Values: []string{"image"}}
 							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
-								ReturnMetadata: false,
-								Kind:           &pb.GenerativeProvider_Aws{Aws: params},
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Meta{Meta: params},
+							})
+						})
+
+						// "name" is a text property, so it contributes no image.
+						t.Run("grpc image property that holds no image", func(t *testing.T) {
+							params := params()
+							params.ImageProperties = &pb.TextArray{Values: []string{"image", "name"}}
+							planets.CreatePromptTestWithParamsGRPC(t, class.Class, singlePrompt, groupPrompt, &pb.GenerativeProvider{
+								ReturnMetadata: true,
+								Kind:           &pb.GenerativeProvider_Meta{Meta: params},
 							})
 						})
 					})

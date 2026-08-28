@@ -121,19 +121,27 @@ func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) {
 }
 
 func (l *LazyLoadShard) Load(ctx context.Context) error {
+	_, err := l.loadIfCold(ctx)
+	return err
+}
+
+// loadIfCold builds the shard unless it is loaded already, and reports whether
+// this call is the one that built it. The startup sweep counts only the loads it
+// performed, and a request can take the shard first.
+func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
 	if l.loaded {
-		return nil
+		return false, nil
 	}
 
 	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
-		return errors.Wrap(err, "memory pressure: cannot load shard")
+		return false, errors.Wrap(err, "memory pressure: cannot load shard")
 	}
 
 	if err := l.shardLoadLimiter.Acquire(ctx); err != nil {
-		return fmt.Errorf("acquiring permit to load shard: %w", err)
+		return false, fmt.Errorf("acquiring permit to load shard: %w", err)
 	}
 	defer l.shardLoadLimiter.Release()
 
@@ -159,7 +167,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		l.shardOpts.promMetrics.FailLoadingShard()
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
-		return errors.New(msg)
+		return false, errors.New(msg)
 	}
 
 	l.shardOpts.promMetrics.FinishLoadingShard()
@@ -168,7 +176,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.shard = shard
 	l.loaded = true
 
-	return nil
+	return true, nil
 }
 
 func (l *LazyLoadShard) Index() *Index {
