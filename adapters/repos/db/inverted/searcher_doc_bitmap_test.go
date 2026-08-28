@@ -64,18 +64,14 @@ type spyContainsBatchReader struct {
 	reader  *lsmkv.RoaringSetBatchReader
 	fixture *containsBatchFixture
 	keys    entsInverted.SortedKeys
-	// pos tracks the walk so the spy can name the key each read is for, since Next
-	// is handed no index and the fixture records by key.
-	pos int
+	pos     int // tracks the walk so Next can name the key each read is for
 }
 
 func (r *spyContainsBatchReader) Len() int { return r.keys.Len() }
 
 func (r *spyContainsBatchReader) Next(mergeConc int) (*sroar.Bitmap, func(), error) {
 	s := r.fixture
-	// A fold reading past the batch is the reader's error to report, not a
-	// panic here.
-	if r.pos < r.keys.Len() {
+	if r.pos < r.keys.Len() { // past the batch is the reader's error to report, not a panic here
 		s.reads = append(s.reads, string(r.keys.At(r.pos)))
 		if s.onRead != nil {
 			s.onRead(len(s.reads))
@@ -83,14 +79,8 @@ func (r *spyContainsBatchReader) Next(mergeConc int) (*sroar.Bitmap, func(), err
 	}
 	bm, release, err := r.reader.Next(mergeConc)
 	if err != nil {
-		// The contract the folds are written against: an error and neither a row
-		// nor a release. Wrapping the nil release would hand back a closure that
-		// panics, and a double looser than the reader it stands in for would let
-		// a fold mishandle the error path and still pass.
-		//
-		// The position stays where it is for the same reason: the reader does not
-		// advance its own on a failed read, so a double that advanced would name
-		// the following key for a read that never happened.
+		// Matches the real reader's error contract (no row, no release, position
+		// unchanged) so a fold that mishandles this path doesn't pass anyway.
 		return nil, nil, err
 	}
 	r.pos++
@@ -106,10 +96,9 @@ func newContainsBatchFixture(t *testing.T, ctx context.Context, rows map[string]
 }
 
 // newContainsBatchFixtureSplit flushes one set of rows and leaves the other in
-// the active memtable. A fully flushed bucket has an empty active memtable, the
-// reader drops it from the view, and the windowed read never runs — so the
-// unflushed half is the only way a fold here reaches the reader it was built
-// for. Passing nil for it gives the all-flushed bucket most tests want.
+// the active memtable — a fully flushed bucket drops its empty active memtable
+// from the view, so the windowed read never runs. Passing nil for unflushed
+// gives the all-flushed bucket most tests want.
 func newContainsBatchFixtureSplit(t *testing.T, ctx context.Context,
 	flushed, unflushed map[string][]uint64,
 ) *containsBatchFixture {
@@ -137,17 +126,14 @@ func newContainsBatchFixtureSplit(t *testing.T, ctx context.Context,
 }
 
 // TestDocBitmapContainsBatch_ReadsUnflushedRows folds a batch whose rows are
-// split between disk and the active memtable, over enough keys to cross several
-// windows. It is the only test that takes the fold, the reader, the windowing
-// and the memtable walk together; the rest flush first and so exercise the disk
-// path with the memtable skipped.
+// split between disk and the active memtable, the only test that exercises
+// the fold, the reader, the windowing and the memtable walk together — the
+// rest flush first and skip the memtable.
 func TestDocBitmapContainsBatch_ReadsUnflushedRows(t *testing.T) {
 	ctx := context.Background()
 
-	// Three windows at the production size of 1024, so the walk crosses two
-	// boundaries and ends on a narrower one, which is where an off-by-one in the
-	// window's end shows. The size is not reachable from here — the exported
-	// constructor picks it — so this is a key count rather than a multiple of it.
+	// Three windows at the production size of 1024, crossing two boundaries and
+	// ending on a narrower one — where an off-by-one in the window's end shows.
 	const n = 2500
 	flushed, unflushed := map[string][]uint64{}, map[string][]uint64{}
 	batch := make([][]byte, 0, n)
@@ -246,13 +232,9 @@ func TestDocBitmapContainsBatch_UnsupportedOperator(t *testing.T) {
 
 // TestDocBitmapContainsBatch_NoKeys pins the fold's other defensive backstop:
 // its accumulator is the first row it reads, so zero keys has no result to
-// return. Erroring keeps that a loud caller bug rather than a docBitmap with a
-// nil bitmap flowing into the merges. fetchContainsBatch answers the empty case
-// before calling in, which TestFetchContainsBatch_EmptyKeySet pins.
-//
-// The count that decides it is the reader's, because the reader is what the
-// fold walks. Taking it off pv instead lets a reader holding nothing reach a
-// fold that runs no iterations and returns a nil bitmap with no error.
+// return, and it errors rather than let a nil bitmap flow into the merges.
+// The count that gates it is the reader's, not pv's — checked here by giving
+// pv keys while the reader stays empty.
 func TestDocBitmapContainsBatch_NoKeys(t *testing.T) {
 	ctx := context.Background()
 	fixture := newContainsBatchFixture(t, ctx, map[string][]uint64{"present-a": {1, 2, 3}})
@@ -343,7 +325,10 @@ func TestDocBitmapContainsBatch_ReadError(t *testing.T) {
 					keys:                pv.containsKeys,
 				},
 				pv)
-			require.ErrorContains(t, err, "read row")
+			// Which of the three keys failed: the fold reports a position
+			// because a six-figure batch gives an operator nothing else to go
+			// on, and "poison" sorts second of the three.
+			require.ErrorContains(t, err, "read row 2 of 3")
 			require.ErrorContains(t, err, "injected read failure")
 			require.Equal(t, docBitmap{}, dbm, "a failed read must not yield a partial result")
 
@@ -411,15 +396,10 @@ func TestDocBitmapContainsBatch_ContainsNoneFold(t *testing.T) {
 	require.Equal(t, []string{"missing", "present-a", "present-b"}, fixture.reads)
 }
 
-// TestDocBitmapContainsBatch_AccumulatorGateReadsTheReader pins which count
-// picks the fold. Both the emptiness guard and the gate read the reader rather
-// than pv.containsKeys, and every other test hands the two the same length —
-// so reading the gate off pv instead would be invisible to all of them.
-//
-// The reader carries enough keys for the accumulator and pv carries fewer, so
-// the two disagree about which side of the gate the batch falls on. The result
-// has to be the union of what the reader holds either way; what would change is
-// the fold that produced it, which the read counts make visible.
+// TestDocBitmapContainsBatch_AccumulatorGateReadsTheReader pins that the
+// accumulator gate counts the reader's keys, not pv.containsKeys: it hands
+// the reader enough keys to cross the gate and pv fewer, then checks which
+// fold ran through the release-count side effect below.
 func TestDocBitmapContainsBatch_AccumulatorGateReadsTheReader(t *testing.T) {
 	oldGate := containsAnyAccumulatorMinKeys
 	containsAnyAccumulatorMinKeys = 3
@@ -444,10 +424,8 @@ func TestDocBitmapContainsBatch_AccumulatorGateReadsTheReader(t *testing.T) {
 	require.Equal(t, []string{"present-a", "present-b", "present-c"}, fixture.reads,
 		"every key of the reader's batch must be read")
 
-	// Which fold ran, stated as something observable: the accumulator deposits
-	// each row and releases it straight away, so every read is released during
-	// the fold. The incremental fold adopts its first row instead and hands that
-	// release to the caller, so one fewer.
+	// The accumulator releases every row it deposits; the incremental fold
+	// adopts its first row and hands that release to the caller instead, one fewer.
 	require.Equal(t, len(fixture.reads), fixture.releaseCalls,
 		"the reader's count puts this batch on the accumulator side of the gate")
 	dbm.release()

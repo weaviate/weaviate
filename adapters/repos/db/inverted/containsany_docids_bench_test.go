@@ -561,6 +561,96 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 			uint64(unflushedDocID), "ContainsNone must exclude it")
 	})
 
+	// The case above reaches a memtable inside a single window. This one makes
+	// the batch wider than one window as well, which is the combination the
+	// batching exists for and which nothing else reaches through filter
+	// parsing — the windowing itself is proven a level down, against readers
+	// those tests assemble themselves.
+	t.Run("a batch spanning windows over a live memtable", func(t *testing.T) {
+		g := newContainsFixture(t, 5_000)
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+
+		// Written after the fixture's flush, so these keys exist only in the
+		// active memtable.
+		const liveValues = 64
+		bucket := g.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+		values := make([]string, 0, 2048+liveValues)
+		wantIDs := map[uint64]struct{}{}
+		for i := 0; i < liveValues; i++ {
+			value := fmt.Sprintf("live_%04d", i)
+			require.NoError(t, bucket.RoaringSetAddList([]byte(value), []uint64{uint64(i)}))
+			values = append(values, value)
+			wantIDs[uint64(i)] = struct{}{}
+		}
+
+		// Wide enough that one window cannot hold the batch. The assertion on
+		// window_fills below is what states that, rather than this number.
+		flushed, flushedIDs := g.sampleValues(2048)
+		values = append(values, flushed...)
+		for _, id := range flushedIDs {
+			wantIDs[id] = struct{}{}
+		}
+
+		batched := g.resolveDocIDs(t, ctx, containsFilter(filters.ContainsAny, values))
+		desugared := g.resolveDocIDs(t, context.Background(),
+			equalCompoundFilter(filters.ContainsAny, values))
+		require.Equal(t, desugared, batched,
+			"a batch spanning windows over a live memtable must resolve what the desugared compound does")
+
+		want := make([]uint64, 0, len(wantIDs))
+		for id := range wantIDs {
+			want = append(want, id)
+		}
+		sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+		require.Equal(t, want, batched)
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+		fills, ok := entries[0]["window_fills"].(int)
+		require.True(t, ok)
+		require.Greater(t, fills, 1, "the batch must refill, or this covers only the single-window case")
+		reads, ok := entries[0]["memtable_reads"].(int)
+		require.True(t, ok)
+		require.Positive(t, reads, "the keys written after the flush are only reachable through a memtable")
+	})
+
+	// ContainsAll is the one fold that stops before the end of its batch, and
+	// every ContainsAll elsewhere in this package either keeps a non-empty
+	// intersection or runs against a corpus with no live memtable at all. Here
+	// the first two keys hold disjoint documents, so the intersection empties
+	// on the second and the last two are never asked for — the shape the Fills
+	// godoc names, where a whole window is charged and part of it never served.
+	t.Run("ContainsAll whose intersection empties over a live memtable", func(t *testing.T) {
+		g := newContainsFixture(t, 200)
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+
+		bucket := g.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+		values := []string{"live_a", "live_b", "live_c", "live_d"}
+		// live_a and live_b share no document, so the fold empties at live_b.
+		for value, docID := range map[string]uint64{
+			"live_a": 1, "live_b": 2, "live_c": 1, "live_d": 1,
+		} {
+			require.NoError(t, bucket.RoaringSetAddList([]byte(value), []uint64{docID}))
+		}
+
+		batched := g.resolveDocIDs(t, ctx, containsFilter(filters.ContainsAll, values))
+		desugared := g.resolveDocIDs(t, context.Background(),
+			equalCompoundFilter(filters.ContainsAll, values))
+		require.Equal(t, desugared, batched,
+			"a ContainsAll that empties early over a memtable must resolve what the desugared compound does")
+		require.Empty(t, batched, "live_a and live_b share no document")
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+		require.Equal(t, 2, entries[0]["batch_keys_served"],
+			"the fold must stop at the key that empties the intersection, not walk the batch")
+		reads, ok := entries[0]["memtable_reads"].(int)
+		require.True(t, ok)
+		require.Positive(t, reads, "these keys are only reachable through a memtable")
+	})
+
 	t.Run("[]interface{} values from the API layer", func(t *testing.T) {
 		values := []string{containsSharedValues[0], containsSharedValues[1], benchValue(11)}
 		iface := make([]interface{}, len(values))
