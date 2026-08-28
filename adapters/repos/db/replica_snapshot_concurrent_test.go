@@ -85,7 +85,8 @@ func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
 	index.db = stubDBWithNoLiveReindex()
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop())
+		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
+		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
 	index.shards.Store("shard1", shard)
 
