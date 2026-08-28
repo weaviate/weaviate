@@ -519,14 +519,18 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.Empty(t, fc.backend.glMeta.ID, "aborted mixed-version create must leave the backend prefix empty")
 	})
 
-	runCommittedDedupeBackup := func(t *testing.T, nodeMeta backup.BackupDescriptor, canCommitMatcher interface{}, getObject func(fc *fakeCoordinator)) (*fakeCoordinator, *fakeCheckpointer, *coordinator) {
+	runCommittedDedupeBackup := func(t *testing.T, nodeMeta backup.BackupDescriptor, canCommitMatcher interface{}, getObject func(fc *fakeCoordinator), checkpointer func(f *fakeCheckpointer)) (*fakeCoordinator, *fakeCheckpointer, *coordinator) {
 		t.Helper()
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 
 		f := newFakeCheckpointer()
-		f.shardReplicas["Class-A"] = map[string][]string{"s1": {"N1", "N2"}}
-		f.converge["Class-A/s1"] = true
+		if checkpointer == nil {
+			f.shardReplicas["Class-A"] = map[string][]string{"s1": {"N1", "N2"}}
+			f.converge["Class-A/s1"] = true
+		} else {
+			checkpointer(f)
+		}
 
 		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1, DedupeHonored: true}
 		fc.client.On("CanCommit", any, nodes[0], canCommitMatcher).Return(ack, nil)
@@ -582,14 +586,36 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		nodeMeta := backup.BackupDescriptor{Status: backup.Success, Classes: []backup.ClassDescriptor{
 			{Name: "Class-A", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "N1"}}},
 		}}
-		fc, f, c := runCommittedDedupeBackup(t, nodeMeta, match, nil)
+		fc, f, c := runCommittedDedupeBackup(t, nodeMeta, match, nil, nil)
 
 		got := fc.backend.glMeta
 		assert.Equal(t, backup.Success, got.Status)
 		assert.Equal(t, VersionDedupeReplicas, got.Version)
 		assert.True(t, got.DedupeReplicas)
+		assert.Equal(t, 1, got.DedupeDesignatedShards)
+		assert.Equal(t, 0, got.DedupeFallbackShards)
 		assert.Equal(t, []string{"Class-A"}, f.deleteCalls)
 		assert.Equal(t, len(nodes), countGetObjectCalls(t, fc, c), "coverage verify must reuse the descriptors commit already read")
+	})
+
+	t.Run("zero designations stamp the legacy version", func(t *testing.T) {
+		t.Parallel()
+		match := mock.MatchedBy(func(r *Request) bool {
+			return r.Method == OpCreate && r.ID == backupID && r.DedupeReplicas &&
+				!r.DedupeEffective && len(r.ShardDesignations) == 0
+		})
+		nodeMeta := backup.BackupDescriptor{Status: backup.Success, Classes: []backup.ClassDescriptor{
+			{Name: "Class-A", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "N1"}, {Name: "s1", Node: "N2"}}},
+		}}
+		fc, _, c := runCommittedDedupeBackup(t, nodeMeta, match, nil, func(*fakeCheckpointer) {})
+
+		require.Eventually(t, func() bool { return c.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+		got := fc.backend.glMeta
+		assert.Equal(t, backup.Success, got.Status)
+		assert.Equal(t, Version, got.Version)
+		assert.False(t, got.DedupeReplicas)
+		assert.Zero(t, got.DedupeDesignatedShards)
+		assert.Zero(t, got.DedupeFallbackShards)
 	})
 
 	t.Run("coverage verify re-reads only nodes commit could not", func(t *testing.T) {
@@ -603,7 +629,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 			fc.backend.On("GetObject", any, backupID+"/N1", any, any, any).Return(marshalMeta(nodeMeta), nil)
 			fc.backend.On("GetObject", any, backupID+"/N2", any, any, any).Return(marshalMeta(nodeMeta), nil)
 		}
-		fc, _, c := runCommittedDedupeBackup(t, nodeMeta, any, getObject)
+		fc, _, c := runCommittedDedupeBackup(t, nodeMeta, any, getObject, nil)
 
 		assert.Equal(t, backup.Success, fc.backend.glMeta.Status)
 		assert.Equal(t, 4, countGetObjectCalls(t, fc, c), "one failed commit read, its legacy-detect probe, one commit read, one verify fallback re-read")
@@ -611,7 +637,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 
 	t.Run("designated shard missing from archive fails the backup", func(t *testing.T) {
 		t.Parallel()
-		fc, _, c := runCommittedDedupeBackup(t, backup.BackupDescriptor{Status: backup.Success}, any, nil)
+		fc, _, c := runCommittedDedupeBackup(t, backup.BackupDescriptor{Status: backup.Success}, any, nil, nil)
 
 		got := fc.backend.glMeta
 		assert.Equal(t, backup.Failed, got.Status)
@@ -625,7 +651,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		t.Parallel()
 		raw, err := json.Marshal(&Request{Method: OpCreate, ID: backupID, Classes: classes})
 		require.NoError(t, err)
-		for _, key := range []string{"dedupeReplicas", "shardDesignations", "dedupeConvergenceTimeoutSeconds"} {
+		for _, key := range []string{"dedupeReplicas", "dedupeEffective", "shardDesignations", "dedupeConvergenceTimeoutSeconds"} {
 			assert.NotContains(t, string(raw), key)
 		}
 		raw, err = json.Marshal(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1})
@@ -635,6 +661,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		var legacy Request
 		require.NoError(t, json.Unmarshal([]byte(`{"Method":"create","ID":"x"}`), &legacy))
 		assert.False(t, legacy.DedupeReplicas)
+		assert.False(t, legacy.DedupeEffective)
 		assert.Nil(t, legacy.ShardDesignations)
 	})
 }

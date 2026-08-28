@@ -229,10 +229,13 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		}
 		plan = c.planDesignatedShards(ctx, req.Classes, budget, participants)
 	}
+	// Stamp from the planning outcome: a zero-dedupe artifact is physically legacy and must stay restorable on pre-3.0 releases.
+	dedupeEffective := plan != nil && plan.designated() > 0
 	version := Version
-	if req.DedupeReplicas {
+	if dedupeEffective {
 		version = VersionDedupeReplicas
 	}
+	req.DedupeEffective = dedupeEffective
 
 	c.descriptor = &backup.DistributedBackupDescriptor{
 		StartedAt:       time.Now().UTC(),
@@ -246,7 +249,11 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		BaseBackupID:    req.BaseBackupID,
 		Users:           req.Users,
 		Roles:           req.Roles,
-		DedupeReplicas:  req.DedupeReplicas,
+		DedupeReplicas:  dedupeEffective,
+	}
+	if plan != nil {
+		c.descriptor.DedupeDesignatedShards = plan.designated()
+		c.descriptor.DedupeFallbackShards = plan.fallback()
 	}
 
 	for key := range c.Participants {
@@ -681,6 +688,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 				RbacRestoreOption: req.RbacRestoreOption,
 				BaseBackupID:      c.descriptor.BaseBackupID,
 				DedupeReplicas:    req.DedupeReplicas,
+				DedupeEffective:   req.DedupeEffective,
 				ShardDesignations: projectDesignations(plan, originalName),
 				SourceNodes:       req.SourceNodes,
 			}

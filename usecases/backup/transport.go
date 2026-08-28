@@ -78,6 +78,9 @@ type Request struct {
 	// DedupeReplicas marks a replica-deduped backup (create: opt-in echo, restore: fan-out marker); older nodes ignore it.
 	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
 
+	// DedupeEffective is the planning outcome (designated shards exist) and alone drives stamping; DedupeReplicas keeps carrying the request flag for the capability guard.
+	DedupeEffective bool `json:"dedupeEffective,omitempty"`
+
 	// DedupeConvergenceTimeoutSeconds bounds convergence planning, coordinator-side only; 0 = default.
 	DedupeConvergenceTimeoutSeconds int `json:"dedupeConvergenceTimeoutSeconds,omitempty"`
 

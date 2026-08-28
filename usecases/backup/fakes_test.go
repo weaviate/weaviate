@@ -95,6 +95,12 @@ func (fb *fakeBackend) getMetaBaseBackupID() string {
 	return fb.meta.BaseBackupID
 }
 
+func (fb *fakeBackend) getMetaStamp() (string, bool) {
+	fb.RLock()
+	defer fb.RUnlock()
+	return fb.meta.Version, fb.meta.DedupeReplicas
+}
+
 func newFakeBackend() *fakeBackend {
 	return &fakeBackend{
 		doneChan: make(chan bool),
