@@ -35,67 +35,95 @@ import (
 // A component-test like test suite that makes sure that every available UC is
 // potentially protected with the Authorization plugin
 
+var errAuthzFake = errors.New("just a test fake")
+
 func Test_Kinds_Authorization(t *testing.T) {
 	type testCase struct {
 		methodName        string
 		additionalArgs    []interface{}
 		expectedVerb      string
 		expectedResources []string
+		// authorizedBySchemaManager marks a method that authorizes through
+		// schema.Handler.GetClass instead of calling the authorizer itself.
+		authorizedBySchemaManager bool
 	}
+
+	queryTenant := "tenant"
 
 	tests := []testCase{
 		// single kind
 		{
-			methodName:        "AddObject",
-			additionalArgs:    []interface{}{(*models.Object)(nil)},
-			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.ShardsMetadata("", ""),
+			methodName: "AddObject",
+			additionalArgs: []interface{}{
+				&models.Object{Class: "class", ID: "foo", Tenant: "tenant"},
+				(*additional.ReplicationProperties)(nil),
+			},
+			expectedVerb:      authorization.CREATE,
+			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 		{
-			methodName:        "ValidateObject",
-			additionalArgs:    []interface{}{(*models.Object)(nil)},
+			methodName: "ValidateObject",
+			additionalArgs: []interface{}{
+				&models.Object{Class: "class", ID: "foo", Tenant: "tenant"},
+				(*additional.ReplicationProperties)(nil),
+			},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "")},
+			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
 		},
 		{
-			methodName:        "GetObject",
-			additionalArgs:    []interface{}{"", strfmt.UUID("foo"), additional.Properties{}},
+			methodName: "GetObject",
+			additionalArgs: []interface{}{
+				"class", strfmt.UUID("foo"),
+				additional.Properties{},
+				(*additional.ReplicationProperties)(nil), "tenant",
+			},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
 		},
 		{
-			methodName:        "DeleteObject",
-			additionalArgs:    []interface{}{"class", strfmt.UUID("foo")},
+			methodName: "DeleteObject",
+			additionalArgs: []interface{}{
+				"class", strfmt.UUID("foo"),
+				(*additional.ReplicationProperties)(nil), "tenant",
+			},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
-		},
-		{ // deprecated by the one above
-			methodName:        "DeleteObject",
-			additionalArgs:    []interface{}{"class", strfmt.UUID("foo")},
-			expectedVerb:      authorization.DELETE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
 		},
 		{
-			methodName:        "UpdateObject",
-			additionalArgs:    []interface{}{"class", strfmt.UUID("foo"), (*models.Object)(nil)},
+			// the path class and id differ from the body, so the row pins which
+			// source update.go builds the authz resource from
+			methodName: "UpdateObject",
+			additionalArgs: []interface{}{
+				"pathClass", strfmt.UUID("11111111-1111-1111-1111-111111111111"),
+				&models.Object{Class: "class", ID: "foo", Tenant: "tenant"},
+				(*additional.ReplicationProperties)(nil),
+			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
-		},
-		{ // deprecated by the one above
-			methodName:        "UpdateObject",
-			additionalArgs:    []interface{}{"class", strfmt.UUID("foo"), (*models.Object)(nil)},
-			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
 		},
 		{
 			methodName: "MergeObject",
 			additionalArgs: []interface{}{
-				&models.Object{Class: "class", ID: "foo"},
+				&models.Object{Class: "class", ID: "foo", Tenant: "tenant"},
 				(*additional.ReplicationProperties)(nil),
 			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
 		},
+		{
+			methodName:        "HeadObject",
+			additionalArgs:    []interface{}{"class", strfmt.UUID("foo"), (*additional.ReplicationProperties)(nil), "tenant"},
+			expectedVerb:      authorization.READ,
+			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+		},
+		{ // the deprecated route carries no class, which widens the resource to every collection
+			methodName:        "HeadObject",
+			additionalArgs:    []interface{}{"", strfmt.UUID("foo"), (*additional.ReplicationProperties)(nil), ""},
+			expectedVerb:      authorization.READ,
+			expectedResources: []string{authorization.Objects("", "", "foo")},
+		},
+
+		// class lookups
 		{
 			methodName:        "GetObjectsClass",
 			additionalArgs:    []interface{}{strfmt.UUID("foo")},
@@ -103,57 +131,60 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedResources: []string{authorization.Objects("", "", "foo")},
 		},
 		{
-			methodName:        "GetObjectClassFromName",
-			additionalArgs:    []interface{}{strfmt.UUID("foo")},
-			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
-		},
-		{
-			methodName:        "HeadObject",
-			additionalArgs:    []interface{}{"class", strfmt.UUID("foo")},
-			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
-		},
-		{ // deprecated by the one above
-			methodName:        "HeadObject",
-			additionalArgs:    []interface{}{"", strfmt.UUID("foo")},
-			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
+			methodName:                "GetObjectClassFromName",
+			additionalArgs:            []interface{}{"class"},
+			authorizedBySchemaManager: true,
 		},
 
 		// query objects
 		{
+			// Query authorizes the whole collection, so the tenant never reaches the resource
 			methodName:        "Query",
-			additionalArgs:    []interface{}{new(QueryParams)},
+			additionalArgs:    []interface{}{&QueryParams{Class: "class", Tenant: &queryTenant}},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.ShardsMetadata("", "")[0]},
+			expectedResources: authorization.CollectionsData("class"),
 		},
-
 		{ // list objects is deprecated by query
-			methodName:        "GetObjects",
-			additionalArgs:    []interface{}{(*int64)(nil), (*int64)(nil), (*string)(nil), (*string)(nil), additional.Properties{}},
+			methodName: "GetObjects",
+			additionalArgs: []interface{}{
+				(*int64)(nil), (*int64)(nil), (*string)(nil), (*string)(nil), (*string)(nil),
+				additional.Properties{},
+				"tenant",
+			},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "")},
+			expectedResources: []string{authorization.Objects("", "tenant", "")},
 		},
 
 		// reference on objects
 		{
-			methodName:        "AddObjectReference",
-			additionalArgs:    []interface{}{AddReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}, (*models.SingleRef)(nil)},
+			methodName: "AddObjectReference",
+			additionalArgs: []interface{}{
+				&AddReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
+				(*additional.ReplicationProperties)(nil), "tenant",
+			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 		{
-			methodName:        "DeleteObjectReference",
-			additionalArgs:    []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
-			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
+			methodName: "DeleteObjectReference",
+			additionalArgs: []interface{}{
+				&DeleteReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
+				(*additional.ReplicationProperties)(nil), "tenant",
+			},
+			// READ is the first of two decisions. The UPDATE at references_delete.go:63
+			// is the gate on the write, and this fixture cannot observe it because the
+			// authorizer fails the first call.
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 		{
-			methodName:        "UpdateObjectReferences",
-			additionalArgs:    []interface{}{&PutReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}},
+			methodName: "UpdateObjectReferences",
+			additionalArgs: []interface{}{
+				&PutReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
+				(*additional.ReplicationProperties)(nil), "tenant",
+			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "", "foo")},
+			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 	}
 
@@ -172,33 +203,36 @@ func Test_Kinds_Authorization(t *testing.T) {
 		principal := &models.Principal{}
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
-			if test.methodName != "MergeObject" {
-				continue
-			}
 			t.Run(test.methodName, func(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
 				cfg := &config.WeaviateConfig{}
 				authorizer := mocks.NewMockAuthorizer()
-				authorizer.SetErr(errors.New("just a test fake"))
+				authorizer.SetErr(errAuthzFake)
 				vectorRepo := &fakeVectorRepo{}
 				manager := NewManager(schemaManager,
 					cfg, logger, authorizer,
-					vectorRepo, getFakeModulesProvider(), nil, nil,
+					vectorRepo, getFakeModulesProvider(), &fakeMetrics{}, nil,
 					NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
-				out, _ := callFuncByName(manager, test.methodName, args...)
+				out, err := callFuncByName(manager, test.methodName, args...)
+				require.NoError(t, err)
 
-				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
-				aerr := out[len(out)-1].Interface().(error)
-				var customErr *Error
-				if !errors.As(aerr, &customErr) || !customErr.Forbidden() {
-					assert.Equal(t, errors.New("just a test fake"), aerr,
-						"execution must abort with authorizer error")
+				if test.authorizedBySchemaManager {
+					require.Empty(t, authorizer.Calls(), "authorizer must not be called directly")
+					require.Equal(t, []string{"Class"}, schemaManager.GetClassCalls,
+						"the schema manager must run the check")
+					return
 				}
 
+				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources},
 					authorizer.Calls()[0], "correct parameters must have been used on authorizer")
+
+				returned := out[len(out)-1]
+				require.False(t, returned.IsNil(), "execution must abort with an error")
+				require.ErrorIs(t, returned.Interface().(error), errAuthzFake,
+					"execution must abort with the authorizer error")
 			})
 		}
 	})
@@ -218,34 +252,34 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		{
 			methodName: "AddObjects",
 			additionalArgs: []interface{}{
-				[]*models.Object{{}},
+				[]*models.Object{{Class: "class", Tenant: "tenant"}},
 				[]*string{},
 				&additional.ReplicationProperties{},
 			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.ShardsData("", ""),
+			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 		{
 			methodName: "AddReferences",
 			additionalArgs: []interface{}{
-				[]*models.BatchReference{{From: uri + "/ref", To: uri, Tenant: ""}},
+				[]*models.BatchReference{{From: uri + "/ref", To: uri, Tenant: "tenant"}},
 				&additional.ReplicationProperties{},
 			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.ShardsData("Class", ""),
+			expectedResources: authorization.ShardsData("Class", "tenant"),
 		},
 		{
 			methodName: "DeleteObjects",
 			additionalArgs: []interface{}{
-				&models.BatchDeleteMatch{},
+				&models.BatchDeleteMatch{Class: "class"},
 				(*int64)(nil),
 				(*bool)(nil),
 				(*string)(nil),
 				&additional.ReplicationProperties{},
-				"",
+				"tenant",
 			},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: authorization.ShardsData("", ""),
+			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 	}
 
@@ -265,23 +299,29 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		principal := &models.Principal{}
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
-			schemaManager := &fakeSchemaManager{}
-			cfg := &config.WeaviateConfig{}
-			authorizer := mocks.NewMockAuthorizer()
-			authorizer.SetErr(errors.New("just a test fake"))
-			vectorRepo := &fakeVectorRepo{}
-			modulesProvider := getFakeModulesProvider()
-			manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil,
-				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			t.Run(test.methodName, func(t *testing.T) {
+				schemaManager := &fakeSchemaManager{}
+				cfg := &config.WeaviateConfig{}
+				authorizer := mocks.NewMockAuthorizer()
+				authorizer.SetErr(errAuthzFake)
+				vectorRepo := &fakeVectorRepo{}
+				modulesProvider := getFakeModulesProvider()
+				manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil,
+					NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 
-			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
-			out, _ := callFuncByName(manager, test.methodName, args...)
+				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
+				out, err := callFuncByName(manager, test.methodName, args...)
+				require.NoError(t, err)
 
-			require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
-			assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
-				"execution must abort with authorizer error")
-			assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources},
-				authorizer.Calls()[0], "correct parameters must have been used on authorizer")
+				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
+				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources},
+					authorizer.Calls()[0], "correct parameters must have been used on authorizer")
+
+				returned := out[len(out)-1]
+				require.False(t, returned.IsNil(), "execution must abort with an error")
+				require.ErrorIs(t, returned.Interface().(error), errAuthzFake,
+					"execution must abort with the authorizer error")
+			})
 		}
 	})
 }
