@@ -58,7 +58,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		}
 		knownClasses[className] = vClass[className]
 
-		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, className, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 

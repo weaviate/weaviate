@@ -396,10 +396,9 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 		})
 	}
 
-	// A read cannot materialize a shard, so a write is what puts the request
-	// path's namespace check on a shard the boot skipped. As the global
-	// operator, since the namespace's own key stops authenticating while it is
-	// suspended and would be turned away before ever reaching a shard.
+	// These writes name a collection the boot skipped, and the gate refuses them
+	// before any shard is consulted. They run as the global operator, because the
+	// namespace's own key stops authenticating while it is suspended.
 	//
 	// The client is process-wide, so each write below puts it back before the
 	// next subtest reads it.
@@ -415,11 +414,12 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 	}
 
 	// Someone suspended this on purpose, so the write should be turned away with
-	// a 422. It answers 500 instead: the object endpoints map only invalid-input
-	// and multi-tenancy errors to 422, so a namespace refusal falls through to
-	// the default arm the way the alias handlers used to. What is pinned here is
-	// that the write is refused and still says why; swap the type for
-	// ObjectsCreateUnprocessableEntity once the object endpoints gain the arm.
+	// a 422. It answers 500 instead: addObject's ladder in
+	// adapters/handlers/rest/handlers_objects.go has no arm for a namespace-state
+	// error, so the refusal falls to its default. What is pinned here is that the
+	// write is refused and still says why; swap the type for
+	// ObjectsCreateUnprocessableEntity once that ladder grows a
+	// NamespaceErrRendersUnprocessable arm, as handlers_aliases.go already has.
 	//
 	// These run as the operator, who sees the full message; the shorter one a
 	// namespaced user gets is out of reach here, because their key stops working
@@ -449,7 +449,9 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 	// of its own, so the status the single-object endpoints give does not cover
 	// it. (A batch create cannot stand in here: it reports per-object failures
 	// inside a 200 and never reaches that ladder.) Its ladder has the same gap,
-	// and inverts with the one above.
+	// and inverts with the one above. The request path refuses this before the
+	// shard is reached, so the message below is the gate's rather than the
+	// closed shard's.
 	t.Run("a batch delete in the suspended namespace is refused", func(t *testing.T) {
 		helper.SetupClient(uriForNode(t, shardOwner))
 		t.Cleanup(func() { helper.SetupClient(originalURI) })

@@ -30,7 +30,7 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 	if err != nil {
 		return false, &Error{err.Error(), StatusUnprocessableEntity, err}
 	}
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, tenant)); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, className, authorization.Objects(className, tenant)); err != nil {
 		return false, &Error{err.Error(), StatusForbidden, err}
 	}
 

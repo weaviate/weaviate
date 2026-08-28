@@ -37,7 +37,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 		return nil, NewErrInvalidUserInput("%v", err)
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant)); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, class, authorization.Objects(class, tenant)); err != nil {
 		return nil, err
 	}
 
