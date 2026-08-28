@@ -3504,14 +3504,21 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	return nil
 }
 
-// UnloadLocalShard closes a shard and takes it out of the shard map. A shard
-// that is already gone or already shut is success — the caller wanted it not
-// loaded, and it is not. Every returned error means the shard is still loaded:
-// errAlreadyShutdown once the index is closed, and errIndexShutdown or
-// errIndexDropped while its close is only requested.
-func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
+// UnloadLocalShard closes a shard and takes it out of the shard map. A shard that
+// is already gone or already shut is success — the caller wanted it not loaded, and
+// it is not. Every returned error means the shard is still loaded: errAlreadyShutdown
+// once the index is closed, and errIndexShutdown or errIndexDropped while its close
+// is only requested.
+//
+// Here, unlike at shutdownOrRestoreShard, unloaded holds exactly when the error is
+// nil. It means the name is not in this class's map, which a name from another class
+// satisfies too, since nothing checks the name belongs here.
+func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) (ShardUnloadOutcome, error) {
+	// enterRead refuses only once beginClose has run, so every refusal here is the
+	// index closing rather than this shard failing. The wrap is what a caller outside
+	// this package classifies on, the way the two listers' refusals already do.
 	if err := i.enterRead(); err != nil {
-		return err
+		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, err)
 	}
 	defer i.exitRead()
 
@@ -3520,7 +3527,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 
 	shardLike, ok := i.shards.LoadAndDelete(shardName)
 	if !ok {
-		return nil // shard was not found, nothing to unload
+		return ShardUnloadOutcomeUnloaded, nil // shard was not found, nothing to unload
 	}
 
 	// The shutdown retries for seconds while enterRead holds the index open. A
@@ -3528,25 +3535,32 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	shutdownCtx, done := i.cancelOnCloseRequested(ctx)
 	defer done()
 
-	if _, err := shutdownOrRestoreShard(shutdownCtx, i, shardName, shardLike); err != nil {
+	outcome, err := shutdownOrRestoreShard(shutdownCtx, i, shardName, shardLike)
+	if err != nil {
 		if errors.Is(err, errAlreadyShutdown) {
 			// The shard is shut, which is the outcome this call asked for. It
 			// is worth a line: reaching it means the shutdown burned its retry
 			// backoff holding shardCreateLocks.
 			i.logger.WithField("shard", shardName).
 				Debugf("shard was already shut or dropped: %v", err)
-			return nil
+			return ShardUnloadOutcomeUnloaded, nil
 		}
 		// backoff reports the aborted wait as a plain cancellation, so only
 		// context.Cause names the teardown. The two are joined because a shutdown
 		// that failed on its own also cancels, and that is what to act on.
-		if shutdownCtx.Err() != nil && ctx.Err() == nil && errors.Is(err, context.Canceled) {
+		closedByUs := shutdownCtx.Err() != nil && ctx.Err() == nil
+		if closedByUs && errors.Is(err, context.Canceled) {
 			err = fmt.Errorf("%w: %w", context.Cause(shutdownCtx), err)
 		}
-		return errors.Wrapf(err, "shutdown shard %q", shardName)
+		// Our own close ended the wait, so no later attempt in this process helps.
+		// shutdownOrRestoreShard cannot tell whose cancellation it saw.
+		if closedByUs && outcome == ShardUnloadOutcomeRefusedInUse {
+			outcome = ShardUnloadOutcomeIndexClosing
+		}
+		return outcome, errors.Wrapf(err, "shutdown shard %q", shardName)
 	}
 
-	return nil
+	return outcome, nil
 }
 
 func (i *Index) GetShard(ctx context.Context, shardName string) (

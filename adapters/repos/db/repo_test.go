@@ -23,11 +23,13 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -819,4 +821,96 @@ func TestAccessorsAgreeOnOneClassName(t *testing.T) {
 			assert.ElementsMatch(t, []string{"s1", "s2"}, local)
 		})
 	}
+}
+
+// TestUnloadShard covers DB.UnloadShard, the entry point the namespace-suspension
+// sweep calls. The rows that matter most are the two the error alone cannot tell
+// apart. A closing index and a missing class both refuse, and only the outcome says
+// which.
+func TestUnloadShard(t *testing.T) {
+	// newDropTestIndex wires the create locks and cycle callbacks UnloadLocalShard
+	// takes, which newTestIndex does not.
+	dbWithShard := func(t *testing.T, className, shardName string) (*DB, *Index) {
+		t.Helper()
+		idx, _ := newDropTestIndex(t)
+		idx.Config.ClassName = schema.ClassName(className)
+		idx.namespace = namespacing.NamespaceFromQualified(className)
+		shard := NewMockShardLike(t)
+		shard.On("Shutdown", mock.Anything).Return(nil).Maybe()
+		idx.shards.Store(shardName, shard)
+		return &DB{
+			indices:  map[string]*Index{indexID(idx.Config.ClassName): idx},
+			shutdown: make(chan struct{}),
+		}, idx
+	}
+
+	t.Run("a class with no local index fails the whole call", func(t *testing.T) {
+		db, _ := dbWithShard(t, "Product", "s1")
+
+		outcome, err := db.UnloadShard(context.Background(), "Absent", "s1")
+
+		require.ErrorIs(t, err, clusterSchema.ErrClassNotFound)
+		assert.Equal(t, ShardUnloadOutcomeFailed, outcome,
+			"a missing class is not an unload outcome, and a consumer tells it apart by the error")
+	})
+
+	t.Run("a resident idle shard unloads", func(t *testing.T) {
+		db, idx := dbWithShard(t, "Product", "s1")
+
+		outcome, err := db.UnloadShard(context.Background(), "Product", "s1")
+
+		require.NoError(t, err)
+		assert.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
+		assert.Nil(t, idx.shards.Load("s1"), "the shard reaching UnloadLocalShard is the delegation")
+	})
+
+	t.Run("a name not in this class's map reports unloaded", func(t *testing.T) {
+		db, _ := dbWithShard(t, "Product", "s1")
+
+		outcome, err := db.UnloadShard(context.Background(), "Product", "no-such-shard")
+
+		require.NoError(t, err)
+		assert.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
+	})
+
+	// unloaded means the name is not in this class's map. Nothing checks the name
+	// belongs here, so a mis-routed name reads the same and releases nothing.
+	t.Run("a name held by another class is left where it is", func(t *testing.T) {
+		db, _ := dbWithShard(t, "Product", "s1")
+		_, other := dbWithShard(t, "Order", "s2")
+		db.indices[indexID(other.Config.ClassName)] = other
+
+		outcome, err := db.UnloadShard(context.Background(), "Product", "s2")
+
+		require.NoError(t, err)
+		assert.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
+		assert.NotNil(t, other.shards.Load("s2"), "the wrong class must not release it")
+	})
+
+	t.Run("a closing index reports index_closing, not the adjacent failed", func(t *testing.T) {
+		db, idx := dbWithShard(t, "Product", "s1")
+		require.NoError(t, idx.beginClose())
+
+		outcome, err := db.UnloadShard(context.Background(), "Product", "s1")
+
+		require.ErrorIs(t, err, errAlreadyShutdown)
+		require.ErrorIs(t, err, ErrIndexClosing,
+			"a caller outside this package classifies the refusal on this sentinel")
+		assert.Equal(t, ShardUnloadOutcomeIndexClosing, outcome,
+			"UnloadShard's own failed literal sits one arm away, and a flatten to it would pass a weaker row")
+	})
+
+	// The row that fails if someone later adds a namespace gate here, which the godoc
+	// forbids and the suspension sweep depends on.
+	t.Run("a suspended namespace still unloads", func(t *testing.T) {
+		db, idx := dbWithShard(t, namespacedClass, "s1")
+		exister := existerWithState(t, api.NamespaceStateSuspended)
+		db.namespacesExister, idx.namespacesExister = exister, exister
+
+		outcome, err := db.UnloadShard(context.Background(), namespacedClass, "s1")
+
+		require.NoError(t, err)
+		assert.Equal(t, ShardUnloadOutcomeUnloaded, outcome)
+		assert.Nil(t, idx.shards.Load("s1"))
+	})
 }

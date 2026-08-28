@@ -181,11 +181,13 @@ const (
 	// or Index.dropShards takes it out. A restart converges the class, since startup
 	// does not load a shard the sharding state says is not open here.
 	ShardUnloadOutcomeTorn ShardUnloadOutcome = "torn"
-	// ShardUnloadOutcomeIndexClosing says the index itself is closing, so no later
-	// attempt helps this process. Index.UnloadLocalShard produces it, not this file.
+	// ShardUnloadOutcomeIndexClosing says the index is closing or its close has been
+	// requested, so a later attempt in this process is unlikely to help. Only
+	// Index.UnloadLocalShard and DB.UnloadShard produce it, never this file.
 	ShardUnloadOutcomeIndexClosing ShardUnloadOutcome = "index_closing"
-	// ShardUnloadOutcomeFailed is the residual. No real shard reaches it, since a
-	// failed teardown is reported as torn.
+	// ShardUnloadOutcomeFailed is the residual. No shard teardown reaches it, since a
+	// failed teardown is reported as torn. DB.UnloadShard returns it for a class this
+	// node holds no index for, which a consumer tells apart by ErrClassNotFound.
 	ShardUnloadOutcomeFailed ShardUnloadOutcome = "failed"
 )
 

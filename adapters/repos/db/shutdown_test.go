@@ -707,7 +707,12 @@ func TestCloseRequestAbortsShardUnload(t *testing.T) {
 			idx.shards.Store("t1", shard)
 
 			unloadDone := make(chan error, 1)
-			go func() { unloadDone <- idx.UnloadLocalShard(context.Background(), "t1") }()
+			unloadOutcome := make(chan ShardUnloadOutcome, 1)
+			go func() {
+				outcome, err := idx.UnloadLocalShard(context.Background(), "t1")
+				unloadOutcome <- outcome
+				unloadDone <- err
+			}()
 			<-entered
 
 			closeDone := make(chan error, 1)
@@ -716,6 +721,8 @@ func TestCloseRequestAbortsShardUnload(t *testing.T) {
 			select {
 			case err := <-unloadDone:
 				require.ErrorIs(t, err, tt.cause)
+				require.Equal(t, ShardUnloadOutcomeIndexClosing, <-unloadOutcome,
+					"our own close ended the wait, so no later attempt in this process helps")
 			case <-time.After(5 * time.Second):
 				t.Fatal("the unload kept waiting on the shard shutdown through the close request")
 			}

@@ -50,6 +50,25 @@ func TestLocalIndexClassNamesRefusesWithErrIndexClosing(t *testing.T) {
 	require.Nil(t, names, "a refusal carries no names a caller could diff against")
 }
 
+// The unload half of the same claim: a sweep classifying both accessors in one loop
+// has to match one condition one way. This reaches the entry arm; the enterRead arm
+// below it needs an index whose close was begun, which no exported call can produce.
+func TestUnloadShardRefusesWithErrIndexClosing(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	d, err := db.New(logger, "node1", db.Config{
+		RootPath:                  t.TempDir(),
+		MaxImportGoroutinesFactor: 1,
+	}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, d.Shutdown(context.Background()))
+
+	outcome, err := d.UnloadShard(context.Background(), "Product", "s1")
+
+	require.ErrorIs(t, err, db.ErrIndexClosing)
+	require.Equal(t, db.ShardUnloadOutcomeIndexClosing, outcome,
+		"the outcome and the error have to agree on which condition refused")
+}
+
 // A db.DB literal compiles from outside the package even though every field of it
 // is private, and the zero value is all an external caller can build. GetIndex
 // reads its nil index map, spends four backoff attempts and hands back nil.

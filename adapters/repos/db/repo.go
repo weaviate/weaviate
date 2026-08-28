@@ -648,6 +648,28 @@ func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
 	return names, nil
 }
 
+// UnloadShard releases one shard for a caller outside this package, as the unload
+// counterpart of DB.ReopenShard. It applies no namespace gate by design, since a
+// sweep calls it because the namespace was suspended and a gate would stop the sweep
+// converging. unloaded says the name is not in this class's shard map, which a name
+// belonging to another class satisfies too. A class with no local index is the one
+// whole-call failure, reported as failed beside cluster/schema.ErrClassNotFound.
+//
+// The shutting-down check narrows rather than closes the window where GetIndex blocks
+// on db.indexLock, which DB.Shutdown holds across every index. The lock is taken
+// after the check.
+func (db *DB) UnloadShard(ctx context.Context, className, shardName string) (ShardUnloadOutcome, error) {
+	if db.shuttingDown() {
+		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, errIndexShutdown)
+	}
+
+	index := db.GetIndex(schema.ClassName(className))
+	if index == nil {
+		return ShardUnloadOutcomeFailed, fmt.Errorf("%w: collection %q", clusterSchema.ErrClassNotFound, className)
+	}
+	return index.UnloadLocalShard(ctx, shardName)
+}
+
 // IndexExists returns if an index exists
 func (db *DB) IndexExists(className schema.ClassName) bool {
 	return db.GetIndex(className) != nil

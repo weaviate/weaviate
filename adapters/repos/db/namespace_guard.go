@@ -238,7 +238,8 @@ func (db *DB) NamespaceStateForClass(className string) (api.NamespaceState, erro
 // path refuses to do while the namespace comes back. The shard is loaded outright
 // rather than registered lazily, since no request would come along to load it. A
 // namespace that keeps no shards open is still refused, so a stale reopen cannot
-// revive a suspended one.
+// revive a suspended one. DB.UnloadShard is the unload counterpart, deliberately
+// ungated and in repo.go.
 func (db *DB) ReopenShard(ctx context.Context, className, shardName string) error {
 	index := db.GetIndex(schema.ClassName(className))
 	if index == nil {

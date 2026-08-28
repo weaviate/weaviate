@@ -259,14 +259,16 @@ func TestShardRemovalStopsCountingIt(t *testing.T) {
 		{
 			name: "UnloadLocalShard on an unloaded shard",
 			remove: func(t *testing.T, h *shardMetricsHarness, shardName string) {
-				require.NoError(t, h.repo.GetIndex(className).UnloadLocalShard(ctx, shardName))
+				_, err := h.repo.GetIndex(className).UnloadLocalShard(ctx, shardName)
+				require.NoError(t, err)
 			},
 		},
 		{
 			name:      "UnloadLocalShard on a loaded shard",
 			loadFirst: true,
 			remove: func(t *testing.T, h *shardMetricsHarness, shardName string) {
-				require.NoError(t, h.repo.GetIndex(className).UnloadLocalShard(ctx, shardName))
+				_, err := h.repo.GetIndex(className).UnloadLocalShard(ctx, shardName)
+				require.NoError(t, err)
 			},
 		},
 		{
@@ -310,8 +312,8 @@ func TestShardRemovalStopsCountingIt(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, shardGauges{loaded: 1}, h.gauges())
 
-		require.Error(t, index.UnloadLocalShard(ctx, shardName),
-			"a shard in use cannot be shut down")
+		_, err = index.UnloadLocalShard(ctx, shardName)
+		require.Error(t, err, "a shard in use cannot be shut down")
 		require.Equal(t, shardGauges{loaded: 1}, h.gauges())
 
 		release()
@@ -321,7 +323,8 @@ func TestShardRemovalStopsCountingIt(t *testing.T) {
 		h := newShardMetricsHarness(t)
 		h.addClass(t, className)
 
-		require.NoError(t, h.repo.GetIndex(className).UnloadLocalShard(ctx, "no-such-shard"))
+		_, err := h.repo.GetIndex(className).UnloadLocalShard(ctx, "no-such-shard")
+		require.NoError(t, err)
 
 		require.Equal(t, shardGauges{unloaded: 1}, h.gauges(),
 			"the class's own shard must keep its count")
@@ -384,7 +387,8 @@ func TestReactivationAfterDeferredShutdownCountsOnce(t *testing.T) {
 			_, release, err := index.GetShard(ctx, shardName)
 			require.NoError(t, err)
 			require.Equal(t, shardGauges{loaded: 1}, h.gauges())
-			require.Error(t, index.UnloadLocalShard(ctx, shardName))
+			_, err = index.UnloadLocalShard(ctx, shardName)
+			require.Error(t, err)
 
 			// The last release completes the shutdown, leaving a shard in the
 			// map that is shut but still counted.
@@ -434,7 +438,8 @@ func TestDropStopsCountingTheShard(t *testing.T) {
 				index := h.repo.GetIndex(className)
 				_, release, err := index.GetShard(ctx, shardName)
 				require.NoError(t, err)
-				require.Error(t, index.UnloadLocalShard(ctx, shardName))
+				_, err = index.UnloadLocalShard(ctx, shardName)
+				require.Error(t, err)
 				release()
 				require.Equal(t, shardGauges{unloaded: 1}, h.gauges(),
 					"a shut shard in the map is counted as unloaded")
@@ -517,7 +522,8 @@ func dropDuringDeferredShutdown(t *testing.T, h *shardMetricsHarness, className 
 	// the held reference without changing its outcome.
 	unloadCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
-	require.Error(t, index.UnloadLocalShard(unloadCtx, shardName))
+	_, err = index.UnloadLocalShard(unloadCtx, shardName)
+	require.Error(t, err)
 
 	lazy, ok := index.shards.Load(shardName).(*LazyLoadShard)
 	require.True(t, ok, "a shard put back after a failed unload stays in the map")
