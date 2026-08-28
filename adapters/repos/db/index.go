@@ -336,8 +336,8 @@ type Index struct {
 	closingCtx    context.Context
 	closingCancel context.CancelFunc
 
-	// always true if lazy shard loading is off, in the case of lazy shard
-	// loading will be set to true once the last shard was loaded.
+	// True once the startup sweep is over. Shards it skips or fails to load stay
+	// cold, so this does not mean every shard is loaded.
 	allShardsReady atomic.Bool
 	allocChecker   memwatch.AllocChecker
 
@@ -686,10 +686,12 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return nil
 	}
 
-	// NOTE(dyma):
-	// 1. So "lazy-loaded" shards are actually loaded "half-eagerly"?
-	// 2. If <-ctx.Done or we fail to load a shard, should allShardsReady still report true?
+	// Lazy loading is only half lazy: the sweep materializes every hot shard, one
+	// per second, minus what LazyLoadShardWarmupMinObjects leaves out.
 	initLazyShardsInBackground := func() {
+		// Fires on every exit, a closing index and a failed load included: the
+		// node-wide object count reads a cold shard from disk, and staying false
+		// would suppress it for every index on the node.
 		defer i.allShardsReady.Store(true)
 
 		ticker := time.NewTicker(time.Second)
