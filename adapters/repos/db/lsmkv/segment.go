@@ -155,6 +155,13 @@ type segment struct {
 	segmentFileSuperseded bool
 }
 
+// Get, GetOffsets, Seek, SeekOffsets and Next report an absent key as
+// lsmkv.NotFound; Contains reports one as (false, nil). Any other error means
+// the index could not be read, and taking it for absence drops keys the segment
+// still holds.
+//
+// Next serves the secondary-index cursor, which no caller in this repository
+// reaches. Seek has no caller at all.
 type diskIndex interface {
 	// Get return lsmkv.NotFound in case no node can be found
 	Get(key []byte) (segmentindex.Node, error)
@@ -168,6 +175,8 @@ type diskIndex interface {
 	// value (or the exact value if present)
 	Seek(key []byte) (segmentindex.Node, error)
 
+	// Next returns the node holding the smallest key strictly greater than key,
+	// or lsmkv.NotFound past the highest key.
 	Next(key []byte) (segmentindex.Node, error)
 
 	// AllKeys in no specific order, e.g. for building a bloom filter
@@ -196,7 +205,8 @@ type diskIndex interface {
 	// with ForEachNodeInRange.
 	SplitNodeRanges(parts int) [][2]int
 
-	// Contains reports whether key is present, without materializing it.
+	// Contains reports whether key is present, without materializing it. An
+	// absent key is (false, nil); an unreadable index is (false, err).
 	Contains(key []byte) (bool, error)
 }
 

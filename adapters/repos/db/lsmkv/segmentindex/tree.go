@@ -226,13 +226,13 @@ func (t *Tree) MarshalBinaryInto(w io.Writer) (int64, error) {
 		if t.exists(t.left(i)) {
 			leftOffset = int64(offsets[t.left(i)])
 		} else {
-			leftOffset = -1
+			leftOffset = noChild
 		}
 
 		if t.exists(t.right(i)) {
 			rightOffset = int64(offsets[t.right(i)])
 		} else {
-			rightOffset = -1
+			rightOffset = noChild
 		}
 
 		if len(node.Key) > math.MaxUint32 {
@@ -611,10 +611,10 @@ func vebOffsets(order, mapping []int32, nodeCount int, nodeSize func(sortedIdx i
 }
 
 // childOffset returns the serialized byte offset of the child at heap position
-// childPos, or -1 when that position holds no node.
+// childPos, or noChild when that position holds no node.
 func childOffset(offsetOf []int64, mapping []int32, childPos int) int64 {
 	if childPos < len(mapping) && mapping[childPos] >= 0 {
 		return offsetOf[mapping[childPos]]
 	}
-	return -1
+	return noChild
 }
