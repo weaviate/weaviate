@@ -226,8 +226,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 		return nil, fmt.Errorf("tenant exists: %w", err)
 	}
 	if !exists {
-		// no numbers to read from disk, but an active tenant whose lazy shard is not
-		// in memory is marked here the same way a computed one is
+		// no numbers to read from disk, but an unloaded lazy shard is still marked
 		lazyShard, isLazy := shard.(*LazyLoadShard)
 		return emptyShardUsageWithNameAndActivity(shardName, localStatus, isLazy && !lazyShard.isLoaded()), nil
 	}
@@ -239,8 +238,8 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 	switch localStatus {
 	case models.TenantActivityStatusACTIVE, models.TenantActivityStatusHOT:
 		// active tenants can be either fully loaded or lazy loaded. Lazy shards should _not_ be loaded just for
-		// usage calculation, so their usage is read from disk like an inactive shard's — they still report an
-		// active status, marked as unloaded
+		// usage calculation, so their usage is read from disk like an inactive shard's. They
+		// still report an active status, marked as unloaded.
 		lazyShard, isLazy := shard.(*LazyLoadShard)
 		if isLazy {
 			// distinguish between loaded and unloaded lazy shards - make sure that the shard is not loaded
@@ -297,8 +296,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 		return nil, err2
 	}
 	// both fields describe the tenant now, not its files, so neither is left to the
-	// calculations above: one of them saves its result to disk, and a tenant
-	// deactivated later would keep serving whatever was saved with it
+	// calculation above that saves its result to disk and serves it again later
 	shardUsage.Status = strings.ToLower(localStatus)
 	shardUsage.LazyUnloaded = unloadedLazy
 	return shardUsage, nil
@@ -501,8 +499,7 @@ func unloadedVectorUsage(targetVector string, vectorConfig models.VectorConfig,
 // calculateUnloadedShardUsage computes usage for a cold shard from disk. vectorConfigs must
 // contain only active vectors — a dropped vector's entry carries a nil VectorIndexConfig —
 // and vectorConfigsFingerprint must be their [shardusage.VectorConfigsFingerprint]. The result
-// carries no tenant status: it is saved to disk and served again later, when the tenant may
-// have a different one.
+// carries no tenant status: it is saved to disk and served when the tenant may have changed.
 func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig, vectorConfigsFingerprint string) (*types.ShardUsage, error) {
 	if shardusage.ComputedUsageDataExists(i.path(), shardName) {
 		// usage has been pre-calculated and can be read from disk
@@ -618,8 +615,7 @@ func (i *Index) splitObjectsBucketSize(shardName string, objectsBucketSize, unco
 
 // emptyShardUsageWithNameAndActivity reports zero usage for a shard with no data on disk. Callers
 // pass the schema's upper-case activity constants, while the report spells the status in lower
-// case. lazyUnloaded marks an active shard that is not in memory, the same way a computed one is
-// marked.
+// case. lazyUnloaded marks an active shard that is not in memory, like a computed one.
 func emptyShardUsageWithNameAndActivity(shardName, activity string, lazyUnloaded bool) *types.ShardUsage {
 	return &types.ShardUsage{
 		Name:                shardName,

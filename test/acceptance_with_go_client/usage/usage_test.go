@@ -12,7 +12,6 @@
 package usage
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"math/rand"
@@ -22,6 +21,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -533,10 +534,9 @@ func TestRestart(t *testing.T) {
 		WithWeaviateWithDebugPort().
 		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
 		WithWeaviateEnv(entcfg.EnvNestedFilteringPreview, "true").
-		// a count threshold of 0 lazy-loads every multi-tenant collection the node
-		// finds on startup, and a negative warmup minimum leaves those shards
-		// unloaded until something asks for them, so the report after the restart
-		// has to measure hot tenants from disk
+		// a count threshold of 0 lazy-loads every multi-tenant collection, and a
+		// negative warmup minimum leaves those shards unloaded until asked for, so
+		// the report after the restart measures hot tenants from disk
 		WithWeaviateEnv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "0").
 		WithWeaviateEnv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS", "-1").
 		Start(ctx)
@@ -646,8 +646,8 @@ func TestRestart(t *testing.T) {
 	require.NoError(t, err)
 
 	// nothing has touched the tenants since the restart and the sweep that would load
-	// them is off, so they stay hot without being in memory. The sweep materializes one
-	// shard per second, so a window this wide fails if the knob stops taking effect.
+	// them is off, so they stay hot without being in memory. The sweep loads one shard
+	// per second, so a window this wide fails if the knob stops taking effect.
 	require.Never(t, func() bool {
 		report, err := getDebugUsageWithPort(debug)
 		if err != nil {
@@ -757,10 +757,9 @@ func shardsForCollection(report *usagetypes.Report, className string) usagetypes
 }
 
 // assertNestedIndexStorageCounted checks that tenants with nested values report more
-// than double the index storage of those without — nested data lives only in the
+// than double the index storage of those without. Nested data lives only in the
 // property.nested_ / property.nestedmeta_ buckets, so skipping those makes the two
-// groups equal. wantStatus is active for a hot tenant, inactive for a cold one, and
-// wantLazyUnloaded says whether the hot ones were measured from disk.
+// groups equal. wantLazyUnloaded says whether the hot shards were measured from disk.
 func assertNestedIndexStorageCounted(t *testing.T, report *usagetypes.Report, className, wantStatus string, wantLazyUnloaded bool) {
 	t.Helper()
 
@@ -1870,8 +1869,8 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 	}
 	testAllObjectsIndexed(t, c, className)
 
-	// the status pins the tenant, not the path: active covers a loaded shard and a lazy
-	// one read from disk, which lazy_unloaded tells apart. inactive means a cold tenant
+	// the status pins the tenant, not the path: active covers a loaded shard and a
+	// lazy one read from disk, which lazy_unloaded tells apart
 	assertUsage := func(t require.TestingT, expectedStatus string) {
 		colUsage, err := getDebugUsageWithPortAndCollection(debug, className)
 		require.NoError(t, err)

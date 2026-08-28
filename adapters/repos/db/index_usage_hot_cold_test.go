@@ -140,8 +140,7 @@ func TestIndex_UsageForCollection_LoadedAndUnloadedAgree(t *testing.T) {
 
 // TestIndex_UsageForCollection_LazyUnloadedShard pins how a hot tenant is reported
 // while its lazy shard sits unloaded: it bills like a loaded one, and only the mark
-// says its numbers came from disk. Without the mark a node that leaves hot tenants
-// unloaded cannot be told apart from one serving them all from memory.
+// separates it from a node serving every tenant from memory.
 func TestIndex_UsageForCollection_LazyUnloadedShard(t *testing.T) {
 	active := strings.ToLower(models.TenantActivityStatusACTIVE)
 

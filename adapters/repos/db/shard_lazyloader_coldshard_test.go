@@ -568,9 +568,8 @@ func TestLazyLoadShard_LoadInvalidatesCachedColdCount(t *testing.T) {
 }
 
 // background_warmup tells an operator whether this collection runs the startup
-// sweep at all; warmup_min_objects says which shards it then loads. An eagerly
-// loaded collection has no such sweep, whatever LazyLoadShardWarmupMinObjects
-// is set to.
+// sweep at all, and warmup_min_objects which shards it then loads. An eager
+// collection runs no sweep, whatever LazyLoadShardWarmupMinObjects is set to.
 func TestMigratorAddClass_LogsBackgroundWarmup(t *testing.T) {
 	ctx := testCtx()
 

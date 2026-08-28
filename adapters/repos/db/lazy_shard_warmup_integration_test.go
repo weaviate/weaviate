@@ -50,9 +50,8 @@ const (
 )
 
 // newWarmupIndex opens a multi-tenant index over dirName, one lazy shard per
-// tenant, with the startup sweep gated at minObjects. A nil allocChecker gives
-// every load the dummy monitor, which allows all of them. The returned hook
-// holds the sweep's own log, which reports what it did with every shard.
+// tenant, with the startup sweep gated at minObjects. A nil allocChecker allows
+// every load. The returned hook holds the sweep's log of what it did per shard.
 func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	allocChecker memwatch.AllocChecker, tenants ...string,
 ) (*Index, *test.Hook) {
@@ -207,9 +206,9 @@ func seedWarmupTenants(t *testing.T, dirName string, seeds map[string]warmupSeed
 	return tenants
 }
 
-// TestLazyShardBackgroundWarmup pins which shards the startup sweep materializes
-// for each range of LazyLoadShardWarmupMinObjects, and that a shard it leaves out
-// still loads on demand.
+// TestLazyShardBackgroundWarmup pins which shards the startup sweep loads for each
+// range of LazyLoadShardWarmupMinObjects, and that a shard it leaves out still
+// loads on demand.
 func TestLazyShardBackgroundWarmup(t *testing.T) {
 	ctx := context.Background()
 
@@ -290,7 +289,7 @@ func TestLazyShardBackgroundWarmup(t *testing.T) {
 			if tt.wantOutcome == monitoring.WarmupLoaded {
 				// The sweep ticks once per second, so allow generous slack.
 				require.Eventually(t, lazy.isLoaded, 30*time.Second, 50*time.Millisecond,
-					"background warmup should materialize the shard")
+					"background warmup should load the shard")
 				require.Eventually(t, index.allShardsReady.Load, 30*time.Second, 50*time.Millisecond,
 					"allShardsReady should be published once the sweep completes")
 				requireSweepTally(t, hook, map[monitoring.WarmupOutcome]int{tt.wantOutcome: 1})
@@ -322,10 +321,9 @@ func TestLazyShardBackgroundWarmup(t *testing.T) {
 	}
 }
 
-// The sweep paces itself at one shard per second, and decides whether to warm a
-// shard before spending that second. With a single shard above the threshold
-// among many below it, the sweep finishes in about a second — spending the tick
-// before the decision would take a second per tenant instead.
+// The sweep paces itself at one shard per second and decides before spending it.
+// With one shard above the threshold among many below, the sweep finishes in about
+// a second. Spending the tick first would take a second per tenant.
 func TestLazyShardBackgroundWarmupSkipsSpendNoTick(t *testing.T) {
 	ctx := context.Background()
 
@@ -418,8 +416,8 @@ func TestLazyShardBackgroundWarmupContinuesAfterFailedLoad(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// warm tenants sit above the threshold and are load candidates; cold ones
-		// sit below it and the sweep skips them without attempting a load.
+		// warm tenants sit above the threshold and are load candidates. Cold ones
+		// sit below it, and the sweep skips them without attempting a load.
 		warm       int
 		cold       int
 		minObjects int64
@@ -500,10 +498,9 @@ func TestLazyShardBackgroundWarmupContinuesAfterFailedLoad(t *testing.T) {
 	}
 }
 
-// TestLazyShardWarmupSkipsShardWithNothingToWarm pins what the sweep reports for
-// a shard it listed at startup but found nothing to warm, counting a shard a
-// request took apart from a tenant that is gone. A negative threshold keeps the
-// sweep from running, so the decision is read without one racing it.
+// TestLazyShardWarmupSkipsShardWithNothingToWarm pins what the sweep reports for a
+// shard it listed but found nothing to warm, telling a shard a request took apart
+// from a tenant that is gone. A negative threshold keeps a sweep from racing it.
 func TestLazyShardWarmupSkipsShardWithNothingToWarm(t *testing.T) {
 	ctx := context.Background()
 
@@ -513,7 +510,7 @@ func TestLazyShardWarmupSkipsShardWithNothingToWarm(t *testing.T) {
 		name string
 		// asked is the shard name the sweep would ask about.
 		asked string
-		// loadFirst materializes the tenant's shard before the decision is read.
+		// loadFirst loads the tenant's shard before the decision is read.
 		loadFirst   bool
 		wantOutcome monitoring.WarmupOutcome
 	}{
@@ -548,9 +545,8 @@ func TestLazyShardWarmupSkipsShardWithNothingToWarm(t *testing.T) {
 }
 
 // TestLazyShardWarmupLoadOutcome pins what a load reports back to the startup
-// sweep, so a load the sweep performed is counted apart from one it found
-// nothing to do. A negative threshold keeps the sweep from running, so the
-// outcome is read without one racing it.
+// sweep, so a load it performed counts apart from one that found nothing to do.
+// A negative threshold keeps a sweep from racing it.
 func TestLazyShardWarmupLoadOutcome(t *testing.T) {
 	ctx := context.Background()
 
@@ -562,8 +558,8 @@ func TestLazyShardWarmupLoadOutcome(t *testing.T) {
 		objects int
 		// asked is the shard name the sweep would load.
 		asked string
-		// loadFirst materializes the tenant's shard first, standing in for a
-		// request that arrived while the sweep was waiting for its tick.
+		// loadFirst loads the tenant's shard first, standing in for a request
+		// that arrived while the sweep was waiting for its tick.
 		loadFirst   bool
 		wantOutcome monitoring.WarmupOutcome
 		wantLoaded  bool

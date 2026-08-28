@@ -170,7 +170,7 @@ weaviate_shards{state="loaded",registration="lazy"}
 #### Shard Loading Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `weaviate_lazy_shard_warmup_decisions_total` | Number of shards the startup warmup sweep considered, by what it did with each: `loaded`, `failed`, `skipped_not_cold`, `skipped_empty`, `skipped_below_threshold` | `Counter` | `outcome` | - Low 
+| `weaviate_lazy_shard_warmup_decisions_total` | Number of shards the startup warmup sweep considered, by what it did with each: `loaded`, `failed`, `skipped_shard_gone`, `skipped_already_loaded`, `skipped_empty`, `skipped_below_threshold` | `Counter` | `outcome` | - Low 
 
 #### Shard Load Limiter Metrics
 | Name | Description | Type | Labels | High Cardinality |

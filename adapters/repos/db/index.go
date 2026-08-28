@@ -686,8 +686,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return nil
 	}
 
-	// Lazy loading is only half lazy: the sweep materializes every hot shard, one
-	// per second, minus what LazyLoadShardWarmupMinObjects leaves out.
+	// Lazy loading is only half lazy: this loads every hot shard above
+	// LazyLoadShardWarmupMinObjects, one per second.
 	initLazyShardsInBackground := func() {
 		// Fires on every exit, a closing index and a failed load included: the
 		// node-wide object count reads a cold shard from disk, and staying false
@@ -697,8 +697,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 
-		// abortIfClosing reports whether the index is closing and logs that the
-		// sweep stopped; the caller is the one that returns.
+		// This only reports and logs. The caller is the one that returns.
 		abortIfClosing := func() bool {
 			err := i.closingCtx.Err()
 			if err == nil {
@@ -722,9 +721,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				return
 			}
 
-			// The decision comes before the tick so only shards that will load wait a
-			// second. At a positive threshold each skip still costs one directory
-			// listing, unpaced.
+			// Checked before the tick so only shards that will load wait a second.
+			// Each skip still costs one unpaced directory listing.
 			if shouldWarm, outcome := i.warmupCandidate(shardName); !shouldWarm {
 				recordOutcome(outcome)
 				continue
@@ -745,10 +743,9 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 					WithField("action", "load_shard").
 					WithField("shard_name", shardName).
 					Errorf("failed to load shard, loading the rest anyway: %v", err)
-				// A failure says nothing about the shards behind this one:
-				// memory pressure is node-wide and transient, anything else
-				// is specific to this shard. Stopping here would leave the
-				// rest cold until something touches them.
+				// A failure says nothing about the shards behind this one: memory
+				// pressure is node-wide and transient, anything else is specific
+				// to this shard. Stopping here would leave the rest cold.
 				continue
 			}
 			if outcome != "" {
@@ -787,9 +784,8 @@ func (i *Index) unloadedShardIsEmpty(shardName string) bool {
 }
 
 // warmupCandidate reports whether the startup sweep should load this shard, and
-// where it should not, the outcome naming why. It is asked before the sweep
-// spends a tick on the shard. A count it cannot read answers true: a shard is
-// loaded rather than left cold on a number nobody could take.
+// where it should not, the outcome naming why. An object count it cannot read
+// answers true, so no shard is left cold on a number nobody could take.
 func (i *Index) warmupCandidate(shardName string) (bool, monitoring.WarmupOutcome) {
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
@@ -830,9 +826,8 @@ func (i *Index) warmupCandidate(shardName string) (bool, monitoring.WarmupOutcom
 	}
 
 	// The persisted doc-id counter would see the writes the sidecars miss, but it
-	// counts allocations rather than objects: deletes never lower it, and an update
-	// that changes a vector raises it. A shard that churned its way down to nothing
-	// would read large forever, so the sweep stays with the count that reads short.
+	// counts allocations rather than objects: deletes never lower it. A shard that
+	// churned its way down to nothing would read large forever.
 
 	i.logger.WithFields(logrus.Fields{
 		"action":             "skip_shard_warmup",
@@ -844,9 +839,9 @@ func (i *Index) warmupCandidate(shardName string) (bool, monitoring.WarmupOutcom
 	return false, monitoring.WarmupSkippedBelowThreshold
 }
 
-// loadLocalShardIfActive loads a shard the startup sweep picked, and reports what
-// the sweep should record for it. An empty outcome means the index refused the
-// load for a reason that says nothing about this shard, so nothing is recorded.
+// loadLocalShardIfActive loads a shard the startup sweep picked and reports the
+// outcome to record. An empty outcome means the index refused the load for a
+// reason that says nothing about this shard.
 func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutcome, error) {
 	// Index.Shutdown skips a lazy shard that is not loaded yet, so a build racing
 	// its sweep leaves an open store nothing will ever close. The refcount holds
@@ -1527,10 +1522,9 @@ type IndexConfig struct {
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
 }
 
-// backgroundWarmupEnabled reports whether the startup sweep loads cold shards.
-// The sweep only runs on the lazy-loading path, so LazyLoadShardWarmupMinObjects
-// has nothing to gate while EnableLazyLoadShards is false. A negative value turns
-// the sweep off; which shards a non-negative one loads is warmupCandidate's call.
+// backgroundWarmupEnabled reports whether the startup sweep runs at all. Only the
+// lazy-loading path has one, and a negative LazyLoadShardWarmupMinObjects turns it
+// off. Which shards a non-negative value loads is warmupCandidate's call.
 func (c IndexConfig) backgroundWarmupEnabled() bool {
 	return c.EnableLazyLoadShards && c.LazyLoadShardWarmupMinObjects >= 0
 }

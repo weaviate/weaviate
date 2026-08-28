@@ -202,22 +202,16 @@ type Config struct {
 	EnableLazyLoadShards         *bool   `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
 	LazyLoadShardCountThreshold  int     `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
 	LazyLoadShardSizeThresholdGB float64 `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
-	// LazyLoadShardWarmupMinObjects gates the background sweep that materializes
-	// lazy shards after startup, one shard per second. A negative value sweeps
-	// nothing. The zero value sweeps every shard that has ever been written to,
-	// minus the empty tenant shards of a multi-tenant collection. A positive value
-	// sweeps only shards holding strictly more than that many objects, counted from
-	// flushed segments — so a shard whose writes are still unflushed reads small and
-	// can be left cold. It only takes effect on collections where lazy loading is
-	// active; eager collections never run the sweep.
+	// LazyLoadShardWarmupMinObjects gates the background sweep that loads lazy
+	// shards after startup, one per second. Negative sweeps nothing, zero sweeps
+	// every shard ever written to, and a positive value sweeps only shards holding
+	// strictly more than that many objects, counted from flushed segments. An eager
+	// collection runs no sweep.
 	//
-	// A HOT tenant the sweep leaves out and nobody touches stays unloaded
-	// indefinitely, and every path that reads only loaded shards under-reports or
-	// skips it. The two that change behaviour rather than a number: the TTL sweep
-	// does not delete its expired objects, and async replication does not repair a
-	// stale replica of it. MAXIMUM_ALLOWED_OBJECTS_COUNT stops counting it, so a
-	// node admits writes past its cap. The list is not exhaustive — treat any
-	// loaded-shards-only reader as affected.
+	// A HOT tenant left out and never touched stays unloaded, and every path that
+	// reads only loaded shards under-reports or skips it: TTL keeps its expired
+	// objects, async replication leaves a stale replica unrepaired, and
+	// MAXIMUM_ALLOWED_OBJECTS_COUNT stops counting it.
 	LazyLoadShardWarmupMinObjects       int64                          `json:"lazy_load_shard_warmup_min_objects" yaml:"lazy_load_shard_warmup_min_objects"`
 	ForceFullReplicasSearch             bool                           `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	TransferInactivityTimeout           time.Duration                  `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
