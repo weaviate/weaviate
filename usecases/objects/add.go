@@ -44,7 +44,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	}
 	object.Class = className
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.CREATE, className, authorization.ShardsData(className, object.Tenant)...); err != nil {
 		return nil, err
 	}
 

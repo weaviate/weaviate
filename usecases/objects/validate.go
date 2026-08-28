@@ -34,7 +34,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	}
 	obj.Class = className
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant)); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, className, authorization.Objects(className, obj.Tenant)); err != nil {
 		return err
 	}
 

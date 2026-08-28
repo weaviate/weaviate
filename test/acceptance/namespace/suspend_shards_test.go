@@ -396,10 +396,9 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 		})
 	}
 
-	// A read cannot materialize a shard, so a write is what puts the request
-	// path's namespace check on a shard the boot skipped. As the global
-	// operator, since the namespace's own key stops authenticating while it is
-	// suspended and would be turned away before ever reaching a shard.
+	// These writes name a collection the boot skipped, and the gate refuses them
+	// before any shard is consulted. They run as the global operator, because the
+	// namespace's own key stops authenticating while it is suspended.
 	//
 	// The client is process-wide, so each write below puts it back before the
 	// next subtest reads it.
@@ -444,7 +443,9 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 	// A batch delete answers with one status for the whole request, on a ladder
 	// of its own, so the status the single-object endpoints give does not cover
 	// it. (A batch create cannot stand in here: it reports per-object failures
-	// inside a 200 and never reaches that ladder.)
+	// inside a 200 and never reaches that ladder.) The request path refuses this
+	// before the shard is reached, so the message below is the gate's rather
+	// than the closed shard's.
 	t.Run("a batch delete in the suspended namespace is refused", func(t *testing.T) {
 		helper.SetupClient(uriForNode(t, shardOwner))
 		t.Cleanup(func() { helper.SetupClient(originalURI) })

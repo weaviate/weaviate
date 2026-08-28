@@ -39,7 +39,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return userInputOrForbidden(err)
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Objects(className, tenant)); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.DELETE, className, authorization.Objects(className, tenant)); err != nil {
 		return err
 	}
 	ctx = classcache.ContextWithClassCache(ctx)

@@ -89,13 +89,18 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 		return nil, err
 	}
 
-	var pathsData []string
+	pathsByClass := map[string][]string{}
 	for _, val := range uniqueClassShard {
-		pathsData = append(pathsData, authorization.ShardsData(val.Class, val.Shard)...)
+		pathsByClass[val.Class] = append(pathsByClass[val.Class], authorization.ShardsData(val.Class, val.Shard)...)
 	}
 
-	if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, pathsData...); err != nil {
-		return nil, err
+	// One source class in a non-active namespace refuses the whole batch. The
+	// single-class signature cannot carry the set, so the gate runs per class
+	// on that class's own resources.
+	for class, paths := range pathsByClass {
+		if err := b.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, class, paths...); err != nil {
+			return nil, err
+		}
 	}
 
 	b.metrics.BatchRefInc()

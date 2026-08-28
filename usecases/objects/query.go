@@ -79,7 +79,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		class = params.Class
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsData(class)...); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, class, authorization.CollectionsData(class)...); err != nil {
 		return nil, &Error{err.Error(), StatusForbidden, err}
 	}
 

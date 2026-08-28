@@ -59,7 +59,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		input.Class = class
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, input.Class, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
