@@ -17,7 +17,9 @@ import "errors"
 // sentinel. Every caller outside the namespace-management API must render
 // this instead of err: it names neither the namespace nor the concept. ok is
 // false for errors that are not lifecycle sentinels, so callers keep the
-// detail of a genuine internal failure.
+// detail of a genuine internal failure. Callers of
+// Authorizer.AuthorizeAndRequireActiveNamespace surface the sentinel's own text,
+// because it refuses only a caller already authorized on the collection's data.
 func PublicMessage(err error) (msg string, ok bool) {
 	switch {
 	case errors.Is(err, ErrNamespaceSuspended), errors.Is(err, ErrCollectionSuspended):

@@ -139,7 +139,8 @@ func (e *APIError) Error() string {
 }
 
 // classGetterFunc authorizes access to a collection and returns its class,
-// erroring when the caller is not authorized or the collection is unknown.
+// erroring when the caller is not authorized, the collection is unknown, or
+// its namespace is not active.
 type classGetterFunc func(string) (*models.Class, error)
 
 // buildParamsFunc turns the resolved collection into the dto.GetParams for a
@@ -330,7 +331,8 @@ func dataResources(collection, tenant string) []string {
 // classGetterWithAuthz returns a class getter that authorizes READ on the
 // collection's (or tenant's) data before reading its schema. READ on data is
 // sufficient for querying: the schema exposes nothing a data reader cannot
-// already obtain.
+// already obtain. A cache hit skips AuthorizeAndRequireActiveNamespace, so the
+// memo key must fully identify the authorized resource.
 func (h *Handler) classGetterWithAuthz(ctx context.Context, principal *models.Principal, tenant string) classGetterFunc {
 	authorizedCollections := map[string]*models.Class{}
 
@@ -338,7 +340,7 @@ func (h *Handler) classGetterWithAuthz(ctx context.Context, principal *models.Pr
 		classTenantName := name + "#" + tenant
 		class, ok := authorizedCollections[classTenantName]
 		if !ok {
-			if err := h.authorizer.Authorize(ctx, principal, authorization.READ, dataResources(name, tenant)...); err != nil {
+			if err := h.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, name, dataResources(name, tenant)...); err != nil {
 				return nil, err
 			}
 			class = h.schemaReader.ReadOnlyClass(name)

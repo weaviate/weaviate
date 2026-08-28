@@ -545,6 +545,8 @@ func TestHandlerTenantAuthorization(t *testing.T) {
 	calls := deps.authorizer.Calls()
 	require.NotEmpty(t, calls)
 	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, mocks.MethodAuthorizeAndRequireActiveNamespace, calls[0].Method)
+	assert.Equal(t, "Movie", calls[0].Class, "the shard shape reaches the gate with the same class")
 	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
 }
 

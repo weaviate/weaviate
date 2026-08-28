@@ -78,7 +78,10 @@ func TestClassGetterWithAuthzFuncMemoization(t *testing.T) {
 
 			// second call hits the memo, so the class is authorized exactly once
 			require.Equal(t, []authMocks.AuthZReq{
-				{Principal: principal, Verb: authorization.READ, Resources: tt.expectedResources, Method: authMocks.MethodAuthorize},
+				{
+					Principal: principal, Verb: authorization.READ, Resources: tt.expectedResources,
+					Method: authMocks.MethodAuthorizeAndRequireActiveNamespace, Class: tt.class,
+				},
 			}, authorizer.Calls())
 		})
 	}
@@ -125,7 +128,10 @@ func TestClassGetterWithAuthzFuncMemoizesMissingClass(t *testing.T) {
 		require.Contains(t, err.Error(), "could not find class Foo")
 	}
 	require.Equal(t, []authMocks.AuthZReq{
-		{Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Foo"), Method: authMocks.MethodAuthorize},
+		{
+			Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Foo"),
+			Method: authMocks.MethodAuthorizeAndRequireActiveNamespace, Class: "Foo",
+		},
 	}, authorizer.Calls())
 }
 
@@ -150,8 +156,14 @@ func TestClassGetterWithAuthzFuncMemoizesPerClass(t *testing.T) {
 
 	// each distinct class is authorized once; repeats hit the memo
 	require.Equal(t, []authMocks.AuthZReq{
-		{Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Foo"), Method: authMocks.MethodAuthorize},
-		{Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Bar"), Method: authMocks.MethodAuthorize},
+		{
+			Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Foo"),
+			Method: authMocks.MethodAuthorizeAndRequireActiveNamespace, Class: "Foo",
+		},
+		{
+			Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Bar"),
+			Method: authMocks.MethodAuthorizeAndRequireActiveNamespace, Class: "Bar",
+		},
 	}, authorizer.Calls())
 }
 
