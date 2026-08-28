@@ -3274,7 +3274,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 			return fmt.Errorf("reactivate shard %q: %w", shardName, terr)
 		}
 		if shardKnownShut(shard) {
-			i.shards.LoadAndDelete(shardName)
+			i.evictShutShard(shardName)
 		} else {
 			if mustLoad {
 				lazyShard, ok := shard.(*LazyLoadShard)
@@ -3327,7 +3327,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	shutdownCtx, done := i.cancelOnCloseRequested(ctx)
 	defer done()
 
-	if err := shutdownOrRestoreShard(shutdownCtx, &i.shards, shardName, shardLike, i.logger); err != nil {
+	if err := shutdownOrRestoreShard(shutdownCtx, i, shardName, shardLike); err != nil {
 		if errors.Is(err, errAlreadyShutdown) {
 			// The shard is shut, which is the outcome this call asked for. It
 			// is worth a line: reaching it means the shutdown burned its retry
@@ -3473,7 +3473,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		// double check if loaded in the meantime by concurrent call, if not load it
 		shard = i.shards.Load(shardName)
 		if shard != nil && shardKnownShut(shard) {
-			i.shards.LoadAndDelete(shardName)
+			i.evictShutShard(shardName)
 			shard = nil
 		}
 		if shard == nil {
