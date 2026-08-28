@@ -364,6 +364,7 @@ func Test_UserConfig(t *testing.T) {
 					Bits:         1,
 					RescoreLimit: DefaultHFreshRescoreLimit,
 				},
+				Multivector: defaultMuveraConfig(),
 			},
 		},
 		{
