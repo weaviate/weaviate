@@ -594,6 +594,8 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.True(t, got.DedupeReplicas)
 		assert.Equal(t, 1, got.DedupeDesignatedShards)
 		assert.Equal(t, 0, got.DedupeFallbackShards)
+		require.Len(t, got.DedupeCutoffsMs, 1)
+		assert.Positive(t, got.DedupeCutoffsMs["Class-A"])
 		assert.Equal(t, []string{"Class-A"}, f.deleteCalls)
 		assert.Equal(t, len(nodes), countGetObjectCalls(t, fc, c), "coverage verify must reuse the descriptors commit already read")
 	})
@@ -616,6 +618,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.False(t, got.DedupeReplicas)
 		assert.Zero(t, got.DedupeDesignatedShards)
 		assert.Zero(t, got.DedupeFallbackShards)
+		assert.Nil(t, got.DedupeCutoffsMs)
 	})
 
 	t.Run("coverage verify re-reads only nodes commit could not", func(t *testing.T) {

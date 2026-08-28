@@ -62,6 +62,8 @@ type DistributedBackupDescriptor struct {
 	// DedupeDesignatedShards/DedupeFallbackShards record the dedupe planning outcome; both zero on legacy artifacts.
 	DedupeDesignatedShards int `json:"dedupeDesignatedShards,omitempty"`
 	DedupeFallbackShards   int `json:"dedupeFallbackShards,omitempty"`
+	// DedupeCutoffsMs: per-class checkpoint cutoff (epoch ms) for deduped classes; the artifact provably contains every write acked at or before it.
+	DedupeCutoffsMs map[string]int64 `json:"dedupeCutoffsMs,omitempty"`
 }
 
 // Len returns how many nodes exist in d

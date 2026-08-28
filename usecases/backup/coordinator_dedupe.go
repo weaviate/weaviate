@@ -51,7 +51,8 @@ const (
 type dedupePlan struct {
 	designations    map[string]map[string]string // class -> shard -> archiving node
 	replicas        map[string]map[string][]string
-	candidateShards int // dedupe-eligible shards found at discovery, before any drop
+	cutoffs         map[string]int64 // class -> checkpoint cutoff (epoch ms) proven by convergence
+	candidateShards int              // dedupe-eligible shards found at discovery, before any drop
 }
 
 // designated counts shards assigned to a single archiving node.
@@ -157,6 +158,7 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 		cutoffs[class] = cutoffMs
 		created = append(created, class)
 	}
+	plan.cutoffs = cutoffs
 	if len(candidates) == 0 {
 		return plan
 	}
