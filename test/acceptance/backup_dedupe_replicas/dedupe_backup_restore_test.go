@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -398,6 +400,8 @@ func TestBackupDedupeReplicas(t *testing.T) {
 		stop := make(chan struct{})
 		writerDone := make(chan struct{})
 		var writerErr error
+		var ackedMu sync.Mutex
+		var ackedIDs []strfmt.UUID
 		client := helper.Client(t)
 		go func() {
 			defer close(writerDone)
@@ -406,21 +410,39 @@ func TestBackupDedupeReplicas(t *testing.T) {
 				case <-stop:
 					return
 				default:
+					id := strfmt.UUID(uuid.NewString())
 					params := batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
 						Objects: []*models.Object{{
 							Class:      className,
-							ID:         strfmt.UUID(uuid.NewString()),
+							ID:         id,
 							Properties: map[string]any{"contents": fmt.Sprintf("churn#%d", i)},
 						}},
 					})
-					if _, err := client.Batch.BatchObjectsCreate(params, nil); err != nil {
+					resp, err := client.Batch.BatchObjectsCreate(params, nil)
+					if err != nil {
 						writerErr = err
 						return
+					}
+					acked := true
+					for _, item := range resp.Payload {
+						if item.Result != nil && item.Result.Errors != nil && len(item.Result.Errors.Error) > 0 {
+							acked = false
+						}
+					}
+					if acked {
+						ackedMu.Lock()
+						ackedIDs = append(ackedIDs, id)
+						ackedMu.Unlock()
 					}
 					time.Sleep(50 * time.Millisecond)
 				}
 			}
 		}()
+
+		time.Sleep(2 * time.Second)
+		ackedMu.Lock()
+		preBackupIDs := slices.Clone(ackedIDs)
+		ackedMu.Unlock()
 
 		_, err := helper.CreateBackup(t, dedupeBackupConfig(), className, backendS3, churnID)
 		require.NoError(t, err)
@@ -428,13 +450,47 @@ func TestBackupDedupeReplicas(t *testing.T) {
 		close(stop)
 		<-writerDone
 		require.NoError(t, writerErr, "concurrent writer failed during backup")
+		require.NotEmpty(t, preBackupIDs)
 
 		holders, _ := shardHolders(t, minioC, churnID, className)
+		dedupedShards := 0
 		for _, shard := range shards {
 			nodes := holders[shard]
 			assert.True(t, len(nodes) == 1 || len(nodes) == 3,
 				"shard %q archived by %v, want one node (deduped) or all replicas (fallback)", shard, nodes)
+			if len(nodes) == 1 {
+				dedupedShards++
+			}
 		}
+
+		var global entbackup.DistributedBackupDescriptor
+		require.True(t, readJSONObject(t, minioC, fmt.Sprintf("%s/%s", churnID, ubak.GlobalBackupFile), &global))
+		assert.Equal(t, dedupedShards > 0, global.DedupeReplicas, "flag must follow the dedupe outcome")
+		assert.Equal(t, global.DedupeReplicas, global.Version == ubak.VersionDedupeReplicas, "version must agree with the flag")
+		assert.Equal(t, dedupedShards, global.DedupeDesignatedShards)
+		if dedupedShards > 0 {
+			assert.Positive(t, global.DedupeCutoffsMs[className])
+		}
+
+		helper.DeleteClass(t, className)
+		_, err = helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backendS3, churnID, nil, false)
+		if err != nil {
+			t.Fatalf("restore refused: %s", restoreErrorMessage(err))
+		}
+		helper.ExpectBackupEventuallyRestored(t, churnID, backendS3, nil, helper.WithDeadline(4*time.Minute))
+		requireOnEveryNode(t, host, className, ids)
+
+		// Fallback shards restore per-replica copies; async replication heals the odd replica out.
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			step := max(1, len(preBackupIDs)/50)
+			for _, node := range nodeNames {
+				for i := 0; i < len(preBackupIDs); i += step {
+					obj, err := common.GetObjectFromNode(t, host, className, preBackupIDs[i], node)
+					require.NoError(ct, err, "pre-backup object %s missing on %s", preBackupIDs[i], node)
+					require.NotNil(ct, obj)
+				}
+			}
+		}, 2*time.Minute, 3*time.Second)
 	})
 
 	t.Run("convergence timeout above the maximum is rejected", func(t *testing.T) {

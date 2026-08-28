@@ -254,6 +254,15 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	if plan != nil {
 		c.descriptor.DedupeDesignatedShards = plan.designated()
 		c.descriptor.DedupeFallbackShards = plan.fallback()
+		for class, shards := range plan.designations {
+			if len(shards) == 0 {
+				continue
+			}
+			if c.descriptor.DedupeCutoffsMs == nil {
+				c.descriptor.DedupeCutoffsMs = make(map[string]int64, len(plan.designations))
+			}
+			c.descriptor.DedupeCutoffsMs[class] = plan.cutoffs[class]
+		}
 	}
 
 	for key := range c.Participants {
