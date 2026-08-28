@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -23,6 +24,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -547,15 +550,6 @@ func TestGetLocalShardNames(t *testing.T) {
 		}, idx
 	}
 
-	t.Run("it lists every resident shard", func(t *testing.T) {
-		db, _ := dbWithShards(t, "Product", "s1", "s2")
-
-		got, err := db.GetLocalShardNames("Product")
-
-		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"s1", "s2"}, got)
-	})
-
 	// A shutdown variant and a drop variant would run identical code, because
 	// enterRead refuses on i.closed alone and never reads the cause.
 	t.Run("a closing index refuses", func(t *testing.T) {
@@ -660,13 +654,90 @@ func TestGetLocalShardNames(t *testing.T) {
 		assert.Nil(t, got, "a refusal carries no names a caller could diff against")
 	})
 
-	t.Run("a collection with no index is not found", func(t *testing.T) {
+	// DB.GetIndex hands back nil after its four backoff attempts, so the class
+	// is absent on this node rather than closing.
+	t.Run("a collection with no index wraps ErrClassNotFound", func(t *testing.T) {
 		db, _ := dbWithShards(t, "Product", "s1")
 
-		_, err := db.GetLocalShardNames("Absent")
+		got, err := db.GetLocalShardNames("Absent")
 
-		require.ErrorContains(t, err, `collection "Absent" not found`)
-		require.NotErrorIs(t, err, ErrIndexClosing)
+		require.ErrorIs(t, err, clusterSchema.ErrClassNotFound)
+		require.ErrorContains(t, err, `collection "Absent"`,
+			"an operator reading one line needs the collection it was asked about")
+		assert.Nil(t, got)
+	})
+
+	// A single wrapper over both error returns would pass every row above, so
+	// each sentinel is asserted not to answer for the other.
+	t.Run("the two refusals carry different sentinels", func(t *testing.T) {
+		db, idx := dbWithShards(t, "Product", "s1")
+		require.NoError(t, idx.beginClose())
+
+		_, closing := db.GetLocalShardNames("Product")
+		_, absent := db.GetLocalShardNames("Absent")
+
+		require.NotErrorIs(t, closing, clusterSchema.ErrClassNotFound)
+		require.NotErrorIs(t, absent, ErrIndexClosing)
+	})
+
+	// A caller diffs this against the shards it should hold, so an empty set
+	// has to be an answer rather than a refusal.
+	t.Run("it counts 0, 1 and N shards", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			shards []string
+		}{
+			{name: "no local shards"},
+			{name: "one local shard", shards: []string{"s1"}},
+			{name: "several local shards", shards: []string{"s1", "s2", "s3"}},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				db, _ := dbWithShards(t, "Product", tc.shards...)
+
+				got, err := db.GetLocalShardNames("Product")
+
+				require.NoError(t, err)
+				assert.NotNil(t, got, "a caller ranging over this needs no nil check")
+				assert.ElementsMatch(t, tc.shards, got)
+			})
+		}
+	})
+
+	// The six shapes below are every one a caller diffing held shards against
+	// desired ones has to see. A torn shard is held and desired at once, so a
+	// suspended namespace releases it like any other.
+	t.Run("it lists every residency shape", func(t *testing.T) {
+		newShard := func() *Shard { return &Shard{shutdownLock: new(sync.RWMutex)} }
+		tornShard := func() *Shard {
+			s := newShard()
+			s.shut.Store(true)
+			s.teardownErr = errors.New("bucket close failed")
+			return s
+		}
+
+		torn, tornLazy := tornShard(), &LazyLoadShard{shard: tornShard(), loaded: true}
+		cleanlyShut := newShard()
+		cleanlyShut.shut.Store(true)
+		require.Error(t, torn.teardownError(), "a torn row means nothing unless the shard is torn")
+		require.Error(t, tornLazy.shard.teardownError())
+		require.NoError(t, cleanlyShut.teardownError(), "a nil teardownErr is what tells the two apart")
+
+		db, idx := dbWithShards(t, "Product")
+		idx.shards.Store("eager", newShard())
+		idx.shards.Store("lazyLoaded", &LazyLoadShard{shard: newShard(), loaded: true})
+		idx.shards.Store("neverLoaded", &LazyLoadShard{})
+		idx.shards.Store("torn", torn)
+		idx.shards.Store("tornLazy", tornLazy)
+		idx.shards.Store("cleanlyShut", cleanlyShut)
+
+		got, err := db.GetLocalShardNames("Product")
+
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{
+			"eager", "lazyLoaded", "neverLoaded", "torn", "tornLazy", "cleanlyShut",
+		}, got)
 	})
 
 	// A missing or mis-scoped defer exitRead passes every row above and hangs
@@ -687,4 +758,65 @@ func TestGetLocalShardNames(t *testing.T) {
 			t.Fatal("beginClose never drained: the read was entered and not exited")
 		}
 	})
+}
+
+// A caller diffing held shards against desired ones pairs the four accessors,
+// which is only possible if they agree on the class name's form.
+// LocalIndexClassNames is the only one that produces a name, so what it emits
+// has to be what the other three accept.
+func TestAccessorsAgreeOnOneClassName(t *testing.T) {
+	tests := []struct {
+		name  string
+		class string
+	}{
+		// Without NAMESPACES_ENABLED every class carries an unqualified name,
+		// and NamespaceStateForClass answers active without reaching
+		// namespacesExister.
+		{name: "namespaces off", class: unqualifiedClass},
+		// namespacesExister answers only for a qualified name, so this row is
+		// the one that shows the emitted name still carries its namespace.
+		{name: "a namespaced class", class: namespacedClass},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			idx := newTestIndex(t, logger, tc.class, nil, map[string]ShardLike{
+				"s1": NewMockShardLike(t), "s2": NewMockShardLike(t),
+			})
+			idx.Config.RootPath = t.TempDir()
+			db := &DB{
+				logger:   logger,
+				indices:  map[string]*Index{indexID(idx.Config.ClassName): idx},
+				shutdown: make(chan struct{}),
+				schemaReader: readerForShards(t, tc.class, map[string]sharding.Physical{
+					"s1": hotPhysical("s1"), "s2": hotPhysical("s2"),
+				}),
+				namespacesExister: existerWithState(t, api.NamespaceStateActive),
+			}
+
+			names, err := db.LocalIndexClassNames()
+			require.NoError(t, err)
+			require.Equal(t, []string{tc.class}, names)
+
+			// names[0] rather than tc.class, so the three are driven by the name
+			// LocalIndexClassNames emitted. DesiredOpenLocalShardNames reads the
+			// schema, and that read rejects a lowercased name. The other two
+			// resolve one case-insensitively.
+			className := names[0]
+
+			state, err := db.NamespaceStateForClass(className)
+			require.NoError(t, err)
+			assert.Equal(t, api.NamespaceStateActive, state)
+
+			desired, desiredState, err := db.DesiredOpenLocalShardNames(className)
+			require.NoError(t, err)
+			assert.Equal(t, api.NamespaceStateActive, desiredState)
+			assert.ElementsMatch(t, []string{"s1", "s2"}, desired)
+
+			local, err := db.GetLocalShardNames(className)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, []string{"s1", "s2"}, local)
+		})
+	}
 }

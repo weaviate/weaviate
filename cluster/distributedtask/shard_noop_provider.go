@@ -27,9 +27,16 @@ import (
 
 const ShardNoopProviderNamespace = "shard-noop"
 
+// maxListAttempts bounds the GetLocalShardNames retry. Its nine waits ramp by
+// (attempt+1) * retryBase, and each attempt also waits out DB.GetIndex's own
+// backoff, so the default covers about 24 s of a node registering its shards.
+const maxListAttempts = 10
+
 // ShardLister provides local shard names for a collection, allowing the
 // [ShardNoopProvider] to determine unit ownership based on real shard
-// topology without importing the db package.
+// topology without importing the db package. An implementation returns
+// ([]string{}, nil) when this node holds no shard of the collection, and
+// reserves the error for a set it could not determine.
 type ShardLister interface {
 	GetLocalShardNames(collection string) ([]string, error)
 }
@@ -85,6 +92,10 @@ type ShardNoopProvider struct {
 
 	shardLister ShardLister
 
+	// retryBase scales the backoff between GetLocalShardNames attempts. Only a
+	// test shortens it, since NewShardNoopProvider is the sole constructor.
+	retryBase time.Duration
+
 	completedTasks   map[TaskDescriptor]bool
 	completedTasksMu sync.Mutex
 
@@ -102,6 +113,7 @@ func NewShardNoopProvider(nodeID string, logger logrus.FieldLogger, shardLister 
 		nodeID:          nodeID,
 		logger:          logger,
 		shardLister:     shardLister,
+		retryBase:       500 * time.Millisecond,
 		dataRoot:        dataRoot,
 		completedTasks:  make(map[TaskDescriptor]bool),
 		finalizedGroups: make(map[TaskDescriptor]map[string][]string),
@@ -315,24 +327,8 @@ func (p *ShardNoopProvider) processUnits(task *Task, handle *shardNoopTaskHandle
 	// Build a local shard set when a collection is specified and a ShardLister is available.
 	var localShardSet map[string]bool
 	if payload.Collection != "" && p.shardLister != nil {
-		// Retry GetLocalShardNames with backoff — shards may not be loaded yet on this node
-		// shortly after collection creation.
-		var shardNames []string
-		for attempt := 0; attempt < 10; attempt++ {
-			var err error
-			shardNames, err = p.shardLister.GetLocalShardNames(payload.Collection)
-			if err == nil {
-				break
-			}
-			p.logger.WithError(err).Warn("shard-noop provider: waiting for local shards")
-			select {
-			case <-handle.stopCh:
-				return
-			case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
-			}
-		}
-		if shardNames == nil {
-			p.logger.Error("shard-noop provider: failed to list local shards after retries")
+		shardNames, proceed := p.listLocalShards(task.ID, handle, payload.Collection)
+		if !proceed {
 			return
 		}
 		localShardSet = make(map[string]bool, len(shardNames))
@@ -375,6 +371,48 @@ func (p *ShardNoopProvider) processUnits(task *Task, handle *shardNoopTaskHandle
 
 		p.processOneUnit(ctx, task, handle, uID, payload, processingDelay)
 	}
+}
+
+// listLocalShards returns this node's shards of the collection, retrying while
+// the answer is empty, since a node registers its shards shortly after the
+// collection is created. An empty answer on the last attempt is still an answer.
+// proceed is false where the caller should stop, which is a terminated task or
+// a lister that never answered.
+func (p *ShardNoopProvider) listLocalShards(taskID string, handle *shardNoopTaskHandle,
+	collection string,
+) (names []string, proceed bool) {
+	logger := p.logger.WithField("collection", collection).WithField("taskID", taskID)
+
+	var (
+		shardNames []string
+		err        error
+	)
+	for attempt := 0; attempt < maxListAttempts; attempt++ {
+		shardNames, err = p.shardLister.GetLocalShardNames(collection)
+		if err == nil && len(shardNames) > 0 {
+			return shardNames, true
+		}
+		// An empty answer has no error to print, so the two lines are split.
+		if err != nil {
+			logger.Warnf("shard-noop provider: waiting for local shards: %v", err)
+		} else {
+			logger.Warn("shard-noop provider: waiting for local shards: none listed yet")
+		}
+		// The last attempt has nothing left to wait for.
+		if attempt < maxListAttempts-1 {
+			select {
+			case <-handle.stopCh:
+				return nil, false
+			case <-time.After(time.Duration(attempt+1) * p.retryBase):
+			}
+		}
+	}
+	if err != nil {
+		// Nothing here marks a unit terminal.
+		logger.Errorf("shard-noop provider: failed to list local shards after retries: %v. This node claims no unit, and the scheduler restarts the task on each poll until the lister answers", err)
+		return nil, false
+	}
+	return shardNames, true
 }
 
 func (p *ShardNoopProvider) processUnitsConcurrent(task *Task, handle *shardNoopTaskHandle, payload ShardNoopProviderPayload, localShardSet map[string]bool, processingDelay time.Duration) {

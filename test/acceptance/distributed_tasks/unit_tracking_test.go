@@ -372,6 +372,56 @@ func TestRealCollectionSuite(t *testing.T) {
 
 		deleteCollection(t, restURI, className)
 	})
+
+	// A task naming a collection no node holds an index for takes the give-up
+	// path. RAFT applies the delete before the task on every node, and the
+	// delete's apply drops the index in the same step, so every lister call
+	// finds the class gone.
+	//
+	// Runs last: the give-up terminalizes no unit, so the scheduler relaunches
+	// this task every tick for the life of the cluster, and no route cancels a
+	// shard-noop task.
+	t.Run("CollectionDeleted", func(t *testing.T) {
+		className := "DTMSuiteGiveUp"
+		taskID := "suite-give-up-deleted-collection"
+
+		// The units are one per replica of the placement, so they have to be
+		// built while the collection is still there.
+		createCollection(t, restURI, className, 3, 3)
+		placements := getShardPlacement(t, restURI, className, 9)
+		unitIDs, unitToShard, unitToNode := buildPerReplicaUnits(placements)
+
+		// Posting first would race the delete against unit progress, so some
+		// units would complete and some would not.
+		deleteCollection(t, restURI, className)
+
+		addTaskJSON(t, compose.GetWeaviate().DebugURI(), addTaskRequest{
+			ID:          taskID,
+			Units:       unitIDs,
+			Collection:  className,
+			UnitToShard: unitToShard,
+			UnitToNode:  unitToNode,
+		})
+
+		// Ten attempts of backoff, plus DB.GetIndex's own retry on each, put the
+		// give-up line about 24 s out on every node.
+		for i := 1; i <= 3; i++ {
+			node := compose.GetWeaviateNode(i)
+			require.NotNil(t, node, "node%d has no container", i)
+			require.Eventually(t, func() bool {
+				return containerLogHasLine(t, ctx, node.Container(),
+					"failed to list local shards after retries", className, taskID)
+			}, 90*time.Second, time.Second,
+				"node%d never gave up listing %s for task %s", i, className, taskID)
+		}
+
+		// A node that gives up claims no unit, so it writes no marker. This holds
+		// even where nothing was logged, so the log assertion above is what turns
+		// red first on a regression.
+		markers := collectDotMarkersFromCluster(t, ctx, compose,
+			collectionMarkerBaseDir(className), fmt.Sprintf(".dtm-process--%s--*", taskID))
+		assert.Empty(t, markers, "a node that cannot list the collection's shards claims no unit")
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -1037,6 +1087,50 @@ func awaitTaskStatusOK(t *testing.T, restURI, taskID, expectedStatus string) boo
 	}, 60*time.Second, 500*time.Millisecond, "task %s should reach %s status", taskID, expectedStatus)
 }
 
+// containerLogLines returns the container's log split into lines, and whatever it
+// read so far beside a read error. Every caller dumps a log after a failure, so a
+// partial log is worth more to them than none.
+func containerLogLines(ctx context.Context, c testcontainers.Container) ([]string, error) {
+	reader, err := c.Logs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	buf, err := io.ReadAll(reader)
+	return strings.Split(string(buf), "\n"), err
+}
+
+// containerLogHasLine reports whether one line of the container's log carries
+// every one of the substrings. A logrus field renders differently per log
+// format, so the fields are matched as text rather than parsed.
+func containerLogHasLine(t *testing.T, ctx context.Context, c testcontainers.Container,
+	substrings ...string,
+) bool {
+	t.Helper()
+
+	lines, err := containerLogLines(ctx, c)
+	if err != nil {
+		// The lines are scanned anyway. A cut-short read still holds the line
+		// this call is after, and a silent false would time out blaming the
+		// provider.
+		t.Logf("log read cut short: %v", err)
+	}
+	for _, line := range lines {
+		matched := true
+		for _, want := range substrings {
+			if !strings.Contains(line, want) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
 // dumpTaskAndLogs prints the task state and relevant container logs for debugging.
 func dumpTaskAndLogs(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI, taskID string) {
 	t.Helper()
@@ -1051,14 +1145,11 @@ func dumpTaskAndLogs(t *testing.T, ctx context.Context, compose *docker.DockerCo
 			t.Logf("node%d: container not available", i)
 			continue
 		}
-		logs, err := node.Container().Logs(ctx)
+		lines, err := containerLogLines(ctx, node.Container())
 		if err != nil {
-			t.Logf("node%d: failed to get logs: %v", i, err)
-			continue
+			t.Logf("node%d: log read cut short: %v", i, err)
 		}
-		buf, _ := io.ReadAll(logs)
-		logs.Close()
-		for _, line := range strings.Split(string(buf), "\n") {
+		for _, line := range lines {
 			if strings.Contains(line, "shard-noop") || strings.Contains(line, "distributed") {
 				t.Logf("node%d: %s", i, line)
 			}
@@ -1078,14 +1169,10 @@ func dumpAllContainerLogs(ctx context.Context, t *testing.T, compose *docker.Doc
 			t.Logf("=== Node %d: container not available ===", i)
 			continue
 		}
-		reader, err := node.Container().Logs(ctx)
+		lines, err := containerLogLines(ctx, node.Container())
 		if err != nil {
-			t.Logf("=== Node %d: failed to get logs: %v ===", i, err)
-			continue
+			t.Logf("=== Node %d: log read cut short: %v ===", i, err)
 		}
-		buf, _ := io.ReadAll(reader)
-		reader.Close()
-		lines := strings.Split(string(buf), "\n")
 		if len(lines) > 200 {
 			lines = lines[len(lines)-200:]
 		}

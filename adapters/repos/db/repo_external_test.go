@@ -18,7 +18,13 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 )
+
+// ErrNamespaceUnknownLocally is exported for a caller in another package, and
+// every errors.Is against it today is in-package. Naming it from outside is what
+// catches the export being reverted.
+var _ error = db.ErrNamespaceUnknownLocally
 
 // The claim this accessor's wrap exists for is one about another package, so it is
 // asserted from one. Reaching the refusal needs db.New rather than a db.DB literal,
@@ -41,5 +47,15 @@ func TestLocalIndexClassNamesRefusesWithErrIndexClosing(t *testing.T) {
 	// second check.
 	names, err = d.LocalIndexClassNames()
 	require.ErrorIs(t, err, db.ErrIndexClosing)
+	require.Nil(t, names, "a refusal carries no names a caller could diff against")
+}
+
+// A db.DB literal compiles from outside the package even though every field of it
+// is private, and the zero value is all an external caller can build. GetIndex
+// reads its nil index map, spends four backoff attempts and hands back nil.
+func TestGetLocalShardNamesAcrossPackageBoundary(t *testing.T) {
+	names, err := (&db.DB{}).GetLocalShardNames("Product")
+
+	require.ErrorIs(t, err, clusterSchema.ErrClassNotFound)
 	require.Nil(t, names, "a refusal carries no names a caller could diff against")
 }
