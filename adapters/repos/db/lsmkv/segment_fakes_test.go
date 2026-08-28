@@ -385,23 +385,6 @@ func (f *fakeSegment) roaringSetMergeWith(key []byte, additions *sroar.Bitmap, b
 	return nil
 }
 
-func (s *fakeSegment) hasKey(key []byte) bool {
-	if s.strategy != segmentindex.StrategyInverted {
-		return false
-	}
-
-	_, ok := s.collectionStore[string(key)]
-	return ok
-}
-
-func (s *fakeSegment) getDocCount(key []byte) uint64 {
-	if s.strategy != segmentindex.StrategyInverted {
-		return 0
-	}
-
-	return uint64(len(s.collectionStore[string(key)]))
-}
-
 func (s *fakeSegment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {
 	if s.strategy != segmentindex.StrategyInverted {
 		return segmentindex.Node{}, 0, false

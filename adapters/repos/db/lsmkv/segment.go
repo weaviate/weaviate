@@ -94,8 +94,6 @@ type Segment interface {
 	roaringSetMergeWith(key []byte, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error
 
 	// map/bmw specific
-	hasKey(key []byte) bool
-	getDocCount(key []byte) uint64
 	getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool)
 	getPropertyLengths() (map[uint64]uint32, error)
 	isPropertyLengthsLoaded() bool

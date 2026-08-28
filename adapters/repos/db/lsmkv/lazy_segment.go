@@ -377,11 +377,6 @@ func (s *lazySegment) getRefs() int {
 	return s.segment.getRefs()
 }
 
-func (s *lazySegment) hasKey(key []byte) bool {
-	s.mustLoad()
-	return s.segment.hasKey(key)
-}
-
 func (s *lazySegment) getPropertyLengths() (map[uint64]uint32, error) {
 	if err := s.load(); err != nil {
 		return nil, fmt.Errorf("lazySegment::getPropertyLengths: %w", err)
@@ -423,11 +418,6 @@ func (s *lazySegment) newSegmentBlockMax(node *segmentindex.Node, key []byte, qu
 ) *SegmentBlockMax {
 	s.mustLoad()
 	return s.segment.newSegmentBlockMax(node, key, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
-}
-
-func (s *lazySegment) getDocCount(key []byte) uint64 {
-	s.mustLoad()
-	return s.segment.getDocCount(key)
 }
 
 func (s *lazySegment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {
