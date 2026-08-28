@@ -46,9 +46,13 @@ func Test_Kinds_Authorization(t *testing.T) {
 		// authorizedBySchemaManager marks a method that authorizes through
 		// schema.Handler.GetClass instead of calling the authorizer itself.
 		authorizedBySchemaManager bool
+		// precedingCalls are the checks the authorizer allows before it denies
+		// the one this row pins.
+		precedingCalls []mocks.AuthZReq
 	}
 
 	queryTenant := "tenant"
+	principal := &models.Principal{}
 
 	tests := []testCase{
 		// single kind
@@ -171,10 +175,20 @@ func Test_Kinds_Authorization(t *testing.T) {
 				&DeleteReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
 				(*additional.ReplicationProperties)(nil), "tenant",
 			},
-			// READ is the first of two decisions. The UPDATE at references_delete.go:63
-			// is the gate on the write, and this fixture cannot observe it because the
-			// authorizer fails the first call.
 			expectedVerb:      authorization.READ,
+			expectedResources: authorization.ShardsData("class", "tenant"),
+		},
+		{ // DeleteObjectReference authorizes READ then UPDATE, so this row pins the write gate
+			methodName: "DeleteObjectReference",
+			additionalArgs: []interface{}{
+				&DeleteReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
+				(*additional.ReplicationProperties)(nil), "tenant",
+			},
+			precedingCalls: []mocks.AuthZReq{{
+				Principal: principal, Verb: authorization.READ,
+				Resources: authorization.ShardsData("class", "tenant"),
+			}},
+			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 		{
@@ -200,14 +214,16 @@ func Test_Kinds_Authorization(t *testing.T) {
 	})
 
 	t.Run("verify the tested methods require correct permissions from the authorizer", func(t *testing.T) {
-		principal := &models.Principal{}
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
+				if test.authorizedBySchemaManager {
+					schemaManager.GetschemaErr = errAuthzFake
+				}
 				cfg := &config.WeaviateConfig{}
 				authorizer := mocks.NewMockAuthorizer()
-				authorizer.SetErr(errAuthzFake)
+				authorizer.SetErrAfter(len(test.precedingCalls), errAuthzFake)
 				vectorRepo := &fakeVectorRepo{}
 				manager := NewManager(schemaManager,
 					cfg, logger, authorizer,
@@ -222,20 +238,28 @@ func Test_Kinds_Authorization(t *testing.T) {
 					require.Empty(t, authorizer.Calls(), "authorizer must not be called directly")
 					require.Equal(t, []string{"Class"}, schemaManager.GetClassCalls,
 						"the schema manager must run the check")
-					return
+				} else {
+					require.Equal(t, expectedAuthZReqs(principal, test.precedingCalls, test.expectedVerb, test.expectedResources),
+						authorizer.Calls(), "correct parameters must have been used on authorizer")
 				}
-
-				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
-				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources},
-					authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 
 				returned := out[len(out)-1]
 				require.False(t, returned.IsNil(), "execution must abort with an error")
 				require.ErrorIs(t, returned.Interface().(error), errAuthzFake,
-					"execution must abort with the authorizer error")
+					"execution must abort with the denial")
 			})
 		}
 	})
+}
+
+// expectedAuthZReqs returns the full call sequence a denied row must produce,
+// with the checks that pass first and the denied one last.
+func expectedAuthZReqs(principal *models.Principal, preceding []mocks.AuthZReq,
+	verb string, resources []string,
+) []mocks.AuthZReq {
+	reqs := make([]mocks.AuthZReq, 0, len(preceding)+1)
+	reqs = append(reqs, preceding...)
+	return append(reqs, mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources})
 }
 
 func Test_BatchKinds_Authorization(t *testing.T) {
@@ -244,9 +268,13 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		additionalArgs    []interface{}
 		expectedVerb      string
 		expectedResources []string
+		// precedingCalls are the checks the authorizer allows before it denies
+		// the one this row pins.
+		precedingCalls []mocks.AuthZReq
 	}
 
 	uri := strfmt.URI("weaviate://localhost/Class/" + uuid.New().String())
+	principal := &models.Principal{}
 
 	tests := []testCase{
 		{
@@ -257,6 +285,20 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				&additional.ReplicationProperties{},
 			},
 			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.ShardsData("class", "tenant"),
+		},
+		{ // AddObjects authorizes UPDATE then CREATE, so this row pins the second check
+			methodName: "AddObjects",
+			additionalArgs: []interface{}{
+				[]*models.Object{{Class: "class", Tenant: "tenant"}},
+				[]*string{},
+				&additional.ReplicationProperties{},
+			},
+			precedingCalls: []mocks.AuthZReq{{
+				Principal: principal, Verb: authorization.UPDATE,
+				Resources: authorization.ShardsData("class", "tenant"),
+			}},
+			expectedVerb:      authorization.CREATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
 		},
 		{
@@ -296,14 +338,13 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 	})
 
 	t.Run("verify the tested methods require correct permissions from the authorizer", func(t *testing.T) {
-		principal := &models.Principal{}
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
 				cfg := &config.WeaviateConfig{}
 				authorizer := mocks.NewMockAuthorizer()
-				authorizer.SetErr(errAuthzFake)
+				authorizer.SetErrAfter(len(test.precedingCalls), errAuthzFake)
 				vectorRepo := &fakeVectorRepo{}
 				modulesProvider := getFakeModulesProvider()
 				manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil,
@@ -313,14 +354,13 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				out, err := callFuncByName(manager, test.methodName, args...)
 				require.NoError(t, err)
 
-				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
-				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources},
-					authorizer.Calls()[0], "correct parameters must have been used on authorizer")
+				require.Equal(t, expectedAuthZReqs(principal, test.precedingCalls, test.expectedVerb, test.expectedResources),
+					authorizer.Calls(), "correct parameters must have been used on authorizer")
 
 				returned := out[len(out)-1]
 				require.False(t, returned.IsNil(), "execution must abort with an error")
 				require.ErrorIs(t, returned.Interface().(error), errAuthzFake,
-					"execution must abort with the authorizer error")
+					"execution must abort with the denial")
 			})
 		}
 	})
