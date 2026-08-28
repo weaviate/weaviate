@@ -48,7 +48,7 @@ func TestBuildResponseEnvelope(t *testing.T) {
 		AdditionalProperties: additional.Properties{ID: true, Distance: true},
 	}
 
-	reply, err := buildResponse(res, params, 8*time.Millisecond)
+	reply, err := buildResponse(res, params, nil, 8*time.Millisecond)
 	require.NoError(t, err)
 
 	require.NotNil(t, reply.TookMs)
@@ -80,7 +80,7 @@ func TestBuildResponseOnlySelectedProperties(t *testing.T) {
 		AdditionalProperties: additional.Properties{ID: true},
 	}
 
-	reply, err := buildResponse(res, params, time.Millisecond)
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
 	require.NoError(t, err)
 	obj := reply.Results[0]
 	assert.Contains(t, obj.Properties, "title")
@@ -104,7 +104,7 @@ func TestBuildResponseSkipsMissingProperties(t *testing.T) {
 		AdditionalProperties: additional.Properties{ID: true},
 	}
 
-	reply, err := buildResponse(res, params, time.Millisecond)
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
 	require.NoError(t, err)
 	obj := reply.Results[0]
 	assert.Equal(t, "Dune", obj.Properties["title"])
@@ -130,7 +130,7 @@ func TestBuildResponseUserPropertyNamedMetadata(t *testing.T) {
 		AdditionalProperties: additional.Properties{ID: true, Distance: true},
 	}
 
-	reply, err := buildResponse(res, params, time.Millisecond)
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
 	require.NoError(t, err)
 	obj := reply.Results[0]
 	assert.Equal(t, "user data", obj.Properties["metadata"])
@@ -164,7 +164,7 @@ func TestBuildResponseMetadataOnlyWhenRequested(t *testing.T) {
 		},
 	}
 
-	reply, err := buildResponse(res, params, time.Millisecond)
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
 	require.NoError(t, err)
 	metadata := reply.Results[0].Metadata
 	require.NotNil(t, metadata)
@@ -204,7 +204,7 @@ func TestBuildResponseBm25ScoreMetadata(t *testing.T) {
 		},
 	}
 
-	reply, err := buildResponse(res, params, time.Millisecond)
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
 	require.NoError(t, err)
 	metadata := reply.Results[0].Metadata
 	require.NotNil(t, metadata)
@@ -233,7 +233,7 @@ func TestBuildResponseMetadataOmittedWhenIDOnly(t *testing.T) {
 		AdditionalProperties: additional.Properties{ID: true},
 	}
 
-	reply, err := buildResponse(res, params, time.Millisecond)
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
 	require.NoError(t, err)
 	obj := reply.Results[0]
 	require.NotNil(t, obj.ID)
@@ -268,7 +268,7 @@ func TestBuildResponseCrossReferences(t *testing.T) {
 		AdditionalProperties: additional.Properties{ID: true},
 	}
 
-	reply, err := buildResponse(res, params, time.Millisecond)
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
 	require.NoError(t, err)
 	obj := reply.Results[0]
 	// reference selections live under references, not properties
@@ -276,11 +276,203 @@ func TestBuildResponseCrossReferences(t *testing.T) {
 	require.Contains(t, obj.References, "hasAuthor")
 	refs := obj.References["hasAuthor"]
 	require.Len(t, refs, 1)
-	fields, ok := refs[0].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "Frank Herbert", fields["name"])
+	assert.Equal(t, "Frank Herbert", refs[0].Properties["name"])
 	// only the selected ref property comes back
-	assert.NotContains(t, fields, "age")
+	assert.NotContains(t, refs[0].Properties, "age")
+	// single-target: no discriminator, and no metadata was requested
+	assert.Empty(t, refs[0].Collection)
+	assert.Nil(t, refs[0].Metadata)
+	assert.Nil(t, refs[0].References)
+}
+
+// TestBuildResponseReferenceEnvelope: a referenced object is rendered like a
+// hit — properties, its own metadata, and deeper references — so none of
+// those keys can collide with a property of the referenced collection.
+func TestBuildResponseReferenceEnvelope(t *testing.T) {
+	res := []any{
+		map[string]any{
+			"id": strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"hasAuthor": []any{
+				search.LocalRef{
+					Class: "Author",
+					Fields: map[string]any{
+						"id":                 strfmt.UUID("c0ffee00-0000-4000-8000-000000000001"),
+						"name":               "Frank Herbert",
+						"creationTimeUnix":   int64(1700000000),
+						"lastUpdateTimeUnix": int64(1700000001),
+						// a property of the referenced collection that shares an
+						// envelope key name; it must stay inside properties
+						"metadata": "not the envelope",
+						"secret":   "not selected",
+					},
+				},
+			},
+		},
+	}
+	params := dto.GetParams{
+		Properties: search.SelectProperties{
+			{Name: "hasAuthor", Refs: []search.SelectClass{{
+				ClassName:     "Author",
+				RefProperties: selectProps("name", "metadata"),
+				AdditionalProperties: additional.Properties{
+					ID:                 true,
+					CreationTimeUnix:   true,
+					LastUpdateTimeUnix: true,
+				},
+			}}},
+		},
+		AdditionalProperties: additional.Properties{ID: true},
+	}
+
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
+	require.NoError(t, err)
+	refs := reply.Results[0].References["hasAuthor"]
+	require.Len(t, refs, 1)
+	ref := refs[0]
+
+	assert.Equal(t, "Frank Herbert", ref.Properties["name"])
+	assert.Equal(t, "not the envelope", ref.Properties["metadata"])
+	assert.NotContains(t, ref.Properties, "secret")
+	assert.NotContains(t, ref.Properties, "id")
+
+	require.NotNil(t, ref.Metadata)
+	require.NotNil(t, ref.Metadata.ID)
+	assert.Equal(t, "c0ffee00-0000-4000-8000-000000000001", ref.Metadata.ID.String())
+	require.NotNil(t, ref.Metadata.CreationTime)
+	assert.Equal(t, int64(1700000000), *ref.Metadata.CreationTime)
+	require.NotNil(t, ref.Metadata.LastUpdateTime)
+	assert.Equal(t, int64(1700000001), *ref.Metadata.LastUpdateTime)
+}
+
+// TestBuildResponseReferenceMetadataOnlyWhenSelected: the timestamps are only
+// in the fields when the selector asked for them; an unselected id stays out.
+func TestBuildResponseReferenceMetadataOnlyWhenSelected(t *testing.T) {
+	res := []any{
+		map[string]any{
+			"id": strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"hasAuthor": []any{
+				search.LocalRef{
+					Class: "Author",
+					Fields: map[string]any{
+						"id":   strfmt.UUID("c0ffee00-0000-4000-8000-000000000001"),
+						"name": "Frank Herbert",
+					},
+				},
+			},
+		},
+	}
+	params := dto.GetParams{
+		Properties: search.SelectProperties{
+			{Name: "hasAuthor", Refs: []search.SelectClass{{
+				ClassName:     "Author",
+				RefProperties: selectProps("name"),
+			}}},
+		},
+		AdditionalProperties: additional.Properties{ID: true},
+	}
+
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
+	require.NoError(t, err)
+	assert.Nil(t, reply.Results[0].References["hasAuthor"][0].Metadata)
+}
+
+// TestBuildResponseMultiTargetReferences: each referenced object is rendered
+// against the selection its own collection was given, and carries the
+// collection discriminator so the mixed array can be told apart.
+func TestBuildResponseMultiTargetReferences(t *testing.T) {
+	res := []any{
+		map[string]any{
+			"id": strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"basedOn": []any{
+				search.LocalRef{
+					Class:  "Book",
+					Fields: map[string]any{"isbn": "978-0", "title": "not selected here"},
+				},
+				search.LocalRef{
+					Class:  "Comic",
+					Fields: map[string]any{"issue": int64(7), "title": "not selected here"},
+				},
+				search.LocalRef{
+					Class:  "Magazine",
+					Fields: map[string]any{"title": "an unselected target"},
+				},
+			},
+		},
+	}
+	params := dto.GetParams{
+		Properties: search.SelectProperties{
+			{Name: "basedOn", IncludeTypeName: true, Refs: []search.SelectClass{
+				{ClassName: "Book", RefProperties: selectProps("isbn")},
+				{ClassName: "Comic", RefProperties: selectProps("issue")},
+			}},
+		},
+		AdditionalProperties: additional.Properties{ID: true},
+	}
+
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
+	require.NoError(t, err)
+	refs := reply.Results[0].References["basedOn"]
+	// the unselected target is skipped
+	require.Len(t, refs, 2)
+
+	assert.Equal(t, "Book", refs[0].Collection)
+	assert.Equal(t, "978-0", refs[0].Properties["isbn"])
+	assert.NotContains(t, refs[0].Properties, "title")
+
+	assert.Equal(t, "Comic", refs[1].Collection)
+	assert.Equal(t, int64(7), refs[1].Properties["issue"])
+}
+
+// TestBuildResponseNestedReferences: the second hop renders as the same
+// envelope, one level down.
+func TestBuildResponseNestedReferences(t *testing.T) {
+	res := []any{
+		map[string]any{
+			"id": strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"hasAuthor": []any{
+				search.LocalRef{
+					Class: "Author",
+					Fields: map[string]any{
+						"name": "Frank Herbert",
+						"worksFor": []any{
+							search.LocalRef{
+								Class:  "Studio",
+								Fields: map[string]any{"name": "Chilton", "logo": "aGVsbG8="},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	params := dto.GetParams{
+		Properties: search.SelectProperties{
+			{Name: "hasAuthor", Refs: []search.SelectClass{{
+				ClassName: "Author",
+				RefProperties: search.SelectProperties{
+					{Name: "name", IsPrimitive: true},
+					{Name: "worksFor", Refs: []search.SelectClass{{
+						ClassName:     "Studio",
+						RefProperties: selectProps("name"),
+					}}},
+				},
+			}}},
+		},
+		AdditionalProperties: additional.Properties{ID: true},
+	}
+
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
+	require.NoError(t, err)
+	author := reply.Results[0].References["hasAuthor"][0]
+	assert.Equal(t, "Frank Herbert", author.Properties["name"])
+	// the nested reference is not a property
+	assert.NotContains(t, author.Properties, "worksFor")
+
+	studios := author.References["worksFor"]
+	require.Len(t, studios, 1)
+	assert.Equal(t, "Chilton", studios[0].Properties["name"])
+	// blob pruning applies at every level
+	assert.NotContains(t, studios[0].Properties, "logo")
 }
 
 func TestBuildResponsePrunesNestedObjects(t *testing.T) {
@@ -314,7 +506,7 @@ func TestBuildResponsePrunesNestedObjects(t *testing.T) {
 		AdditionalProperties: additional.Properties{ID: true},
 	}
 
-	reply, err := buildResponse(res, params, time.Millisecond)
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
 	require.NoError(t, err)
 	cover, ok := reply.Results[0].Properties["cover"].(map[string]any)
 	require.True(t, ok)
@@ -345,7 +537,7 @@ func TestBuildResponsePrunesObjectArrays(t *testing.T) {
 		AdditionalProperties: additional.Properties{ID: true},
 	}
 
-	reply, err := buildResponse(res, params, time.Millisecond)
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
 	require.NoError(t, err)
 	scenes, ok := reply.Results[0].Properties["scenes"].([]any)
 	require.True(t, ok)
@@ -390,12 +582,11 @@ func TestBuildResponsePrunesObjectsInsideRefs(t *testing.T) {
 		AdditionalProperties: additional.Properties{ID: true},
 	}
 
-	reply, err := buildResponse(res, params, time.Millisecond)
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
 	require.NoError(t, err)
 	refs := reply.Results[0].References["hasAuthor"]
 	require.Len(t, refs, 1)
-	fields, ok := refs[0].(map[string]any)
-	require.True(t, ok)
+	fields := refs[0].Properties
 	assert.Equal(t, "Frank Herbert", fields["name"])
 	address, ok := fields["address"].(map[string]any)
 	require.True(t, ok)
@@ -415,14 +606,14 @@ func TestBuildResponseErrorsOnMissingID(t *testing.T) {
 	t.Run("id missing", func(t *testing.T) {
 		_, err := buildResponse([]any{
 			map[string]any{"title": "Dune"},
-		}, params, time.Millisecond)
+		}, params, nil, time.Millisecond)
 		assert.Error(t, err)
 	})
 
 	t.Run("id mistyped", func(t *testing.T) {
 		_, err := buildResponse([]any{
 			map[string]any{"title": "Dune", "id": "not-a-strfmt-uuid"},
-		}, params, time.Millisecond)
+		}, params, nil, time.Millisecond)
 		assert.Error(t, err)
 	})
 }
@@ -430,7 +621,7 @@ func TestBuildResponseErrorsOnMissingID(t *testing.T) {
 // TestBuildResponseEmptyResults: results and tookMs are required in the
 // spec, so they must be non-nil even for zero hits.
 func TestBuildResponseEmptyResults(t *testing.T) {
-	reply, err := buildResponse(nil, dto.GetParams{}, time.Millisecond)
+	reply, err := buildResponse(nil, dto.GetParams{}, nil, time.Millisecond)
 	require.NoError(t, err)
 	assert.NotNil(t, reply.Results)
 	assert.Empty(t, reply.Results)
@@ -450,7 +641,7 @@ func TestBuildResponsePropertiesAlwaysPresent(t *testing.T) {
 		AdditionalProperties: additional.Properties{ID: true, NoProps: true},
 	}
 
-	reply, err := buildResponse(res, params, time.Millisecond)
+	reply, err := buildResponse(res, params, nil, time.Millisecond)
 	require.NoError(t, err)
 	require.Len(t, reply.Results, 1)
 	assert.NotNil(t, reply.Results[0].Properties)
@@ -458,6 +649,6 @@ func TestBuildResponsePropertiesAlwaysPresent(t *testing.T) {
 }
 
 func TestBuildResponseRejectsUnexpectedShape(t *testing.T) {
-	_, err := buildResponse([]any{"not a map"}, dto.GetParams{}, time.Millisecond)
+	_, err := buildResponse([]any{"not a map"}, dto.GetParams{}, nil, time.Millisecond)
 	assert.Error(t, err)
 }

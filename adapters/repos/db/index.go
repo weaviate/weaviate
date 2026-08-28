@@ -3324,7 +3324,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 			return fmt.Errorf("reactivate shard %q: %w", shardName, terr)
 		}
 		if shardKnownShut(shard) {
-			i.shards.LoadAndDelete(shardName)
+			i.evictShutShard(shardName)
 		} else {
 			if mustLoad {
 				lazyShard, ok := shard.(*LazyLoadShard)
@@ -3377,7 +3377,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	shutdownCtx, done := i.cancelOnCloseRequested(ctx)
 	defer done()
 
-	if err := shutdownOrRestoreShard(shutdownCtx, &i.shards, shardName, shardLike, i.logger); err != nil {
+	if err := shutdownOrRestoreShard(shutdownCtx, i, shardName, shardLike); err != nil {
 		if errors.Is(err, errAlreadyShutdown) {
 			// The shard is shut, which is the outcome this call asked for. It
 			// is worth a line: reaching it means the shutdown burned its retry
@@ -3535,7 +3535,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		// double check if loaded in the meantime by concurrent call, if not load it
 		shard = i.shards.Load(shardName)
 		if shard != nil && shardKnownShut(shard) {
-			i.shards.LoadAndDelete(shardName)
+			i.evictShutShard(shardName)
 			shard = nil
 		}
 		if shard == nil {
@@ -3624,16 +3624,18 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
 	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
+	// ValidateConsistencyLevel requires every shard to resolve to the same number,
+	// and ONE is the only level that does so whatever the shards' replica counts.
 	readPlan, err := i.buildReadRoutingPlan(routerTypes.ConsistencyLevelOne, params.Tenant)
 	if err != nil {
 		return nil, err
 	}
 
-	shards := readPlan.Shards()
 	if aggregation.IsCountStar(&params) {
-		return i.aggregateCount(ctx, shards)
+		return i.aggregateCount(ctx, readPlan)
 	}
 
+	shards := readPlan.Shards()
 	results := make([]*aggregation.Result, len(shards))
 	for j, shardName := range shards {
 		var res *aggregation.Result
@@ -3663,20 +3665,24 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 	return aggregator.NewShardCombiner().Do(results)
 }
 
-func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregation.Result, error) {
-	var total atomic.Int32
+// aggregateCount counts every shard in readPlan against that plan's replicas,
+// resolved once for the whole aggregation rather than per shard. It counts at
+// ALL, so a shard's count is reconciled over every replica that answers.
+func (i *Index) aggregateCount(ctx context.Context, readPlan routerTypes.ReadRoutingPlan) (*aggregation.Result, error) {
+	var total atomic.Int64
+
+	shardPlans := readPlan.ShardPlans(routerTypes.ConsistencyLevelAll)
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
-	eg.SetLimit(min(len(shards), runtime.GOMAXPROCS(0)*4))
+	eg.SetLimit(min(len(shardPlans), runtime.GOMAXPROCS(0)*4))
 
-	for si := range shards {
-		shard := shards[si]
+	for _, shardPlan := range shardPlans {
 		eg.Go(func() error {
-			count, err := i.replicator.CountObjects(ctx, shard, routerTypes.ConsistencyLevelAll)
+			count, err := i.replicator.CountObjects(ctx, shardPlan)
 			if err != nil {
 				return err
 			}
-			total.Add(int32(count))
+			total.Add(int64(count))
 			return nil
 		})
 	}

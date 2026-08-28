@@ -14,8 +14,13 @@ package db
 import (
 	"context"
 	"errors"
+	"os"
+	"path"
 	"testing"
+	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -24,6 +29,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -352,6 +358,200 @@ func TestGetOrInitShard_InitFailureNamesShard(t *testing.T) {
 	require.ErrorContains(t, err, `init local shard "uninitialized-shard"`)
 	require.ErrorContains(t, err, f.index.ID())
 	require.ErrorContains(t, err, "memory pressure")
+}
+
+// awaitStartupWarmup waits out the background sweep that loads a lazy
+// collection's shards one per second after startup, and shuts down whatever it
+// loaded so every shard is cold again. The sweep walks each shard once, so
+// nothing loads behind a test that waited for it here.
+func (f *addPropertyLazyFixture) awaitStartupWarmup(t *testing.T) {
+	t.Helper()
+	require.Eventually(t, f.index.allShardsReady.Load, 30*time.Second, 20*time.Millisecond,
+		"the startup sweep should finish")
+
+	f.index.shards.Range(func(name string, shard ShardLike) error {
+		lazyShard, ok := shard.(*LazyLoadShard)
+		require.True(t, ok, "shard should be a LazyLoadShard")
+		if lazyShard.isLoaded() {
+			require.NoError(t, lazyShard.Shutdown(testCtx()), "shard %q should go cold again", name)
+		}
+		return nil
+	})
+}
+
+// coldTestObject builds an object for the class newClassWithWarmProp defines.
+func coldTestObject(className string) *storobj.Object {
+	return &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:         strfmt.UUID(uuid.NewString()),
+			Class:      className,
+			Properties: map[string]interface{}{"warm": "object count fixture"},
+		},
+	}
+}
+
+// writeCountedObjects writes n objects and returns the shard cold with them in a
+// segment a cold count can read: flushing while the shard runs writes each new
+// segment's sidecar, and the count comes from those sidecars.
+func writeCountedObjects(t *testing.T, shard *LazyLoadShard, className string, n int) {
+	t.Helper()
+	ctx := testCtx()
+	require.NoError(t, shard.Load(ctx))
+	for range n {
+		require.NoError(t, shard.PutObject(ctx, coldTestObject(className)))
+	}
+	require.NoError(t, shard.Store().FlushMemtables(ctx))
+	require.NoError(t, shard.Shutdown(ctx))
+	require.False(t, shard.isLoaded(), "shard %q should be cold again", shard.Name())
+}
+
+// writeUncountedObjects writes n objects and returns the shard cold with them in
+// a segment a cold count cannot read: the shutdown flush writes the segment but
+// not the sidecar holding its object count, which the next load derives.
+func writeUncountedObjects(t *testing.T, shard *LazyLoadShard, className string, n int) {
+	t.Helper()
+	ctx := testCtx()
+	require.NoError(t, shard.Load(ctx))
+	for range n {
+		require.NoError(t, shard.PutObject(ctx, coldTestObject(className)))
+	}
+	require.NoError(t, shard.Shutdown(ctx))
+	require.False(t, shard.isLoaded(), "shard %q should be cold again", shard.Name())
+}
+
+// A cold shard answers ObjectCountAsync by listing its objects directory and
+// reading a sidecar per segment. nodeWideMetricsObserver asks every shard every
+// 30 seconds, and a cold shard cannot move that number without loading first,
+// so the answer is cached.
+func TestLazyLoadShard_ObjectCountAsyncCachesColdCount(t *testing.T) {
+	ctx := testCtx()
+	const className = "ColdObjectCount"
+
+	cases := []struct {
+		name    string
+		objects int
+	}{
+		{name: "empty shard"},
+		{name: "single object", objects: 1},
+		{name: "many objects", objects: 7},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newAddPropertyLazyFixture(t, className, singleShardState())
+			f.awaitStartupWarmup(t)
+
+			for name, shard := range f.coldShards(t) {
+				writeCountedObjects(t, shard, className, tc.objects)
+
+				first, err := shard.ObjectCountAsync(ctx)
+				require.NoError(t, err)
+				require.EqualValues(t, tc.objects, first, "cold read must count what shard %q has on disk", name)
+
+				// A second disk read cannot succeed once the objects directory is gone, so
+				// any answer at all proves the count came from the cache.
+				require.NoError(t, os.RemoveAll(path.Join(shard.pathLSM(), helpers.ObjectsBucketLSM)))
+
+				second, err := shard.ObjectCountAsync(ctx)
+				require.NoError(t, err, "shard %q re-read the objects directory", name)
+				require.EqualValues(t, tc.objects, second)
+			}
+		})
+	}
+}
+
+// breakProplenTracker makes the shard's next load fail after NewShard has
+// already opened the objects bucket and written its segment sidecars, by
+// putting a directory where initProplenTracker expects a file.
+func breakProplenTracker(t *testing.T, shard *LazyLoadShard) {
+	t.Helper()
+	plPath := path.Join(path.Dir(shard.pathLSM()), "proplengths")
+	require.NoError(t, os.RemoveAll(plPath))
+	require.NoError(t, os.Mkdir(plPath, os.ModePerm))
+}
+
+// A load writes the segment sidecars a cold count reads, so the count cached
+// before it is stale — even when the load fails partway and leaves the shard
+// cold. A load that fails before reaching NewShard has touched nothing, so the
+// cache still holds.
+func TestLazyLoadShard_LoadInvalidatesCachedColdCount(t *testing.T) {
+	ctx := testCtx()
+	const (
+		className = "ColdObjectCountInvalidation"
+		counted   = 5 // objects a cold read counts, because their segment has its sidecar
+		uncounted = 3 // objects whose segment gets its sidecar only at the next load
+	)
+
+	cases := []struct {
+		name      string
+		breakLoad func(t *testing.T, shard *LazyLoadShard)
+		wantErr   bool
+		// wantCached asserts the answer came from the cache, not from disk.
+		wantCached bool
+		wantCount  int64
+	}{
+		{
+			name:      "load succeeds",
+			breakLoad: func(*testing.T, *LazyLoadShard) {},
+			wantCount: counted + uncounted,
+		},
+		{
+			name:      "load fails after touching disk",
+			breakLoad: breakProplenTracker,
+			wantErr:   true,
+			wantCount: counted + uncounted,
+		},
+		{
+			name: "load fails before touching disk",
+			breakLoad: func(_ *testing.T, shard *LazyLoadShard) {
+				shard.memMonitor = failingAllocChecker{}
+			},
+			wantErr:    true,
+			wantCached: true,
+			wantCount:  counted,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newAddPropertyLazyFixture(t, className, singleShardState())
+			f.awaitStartupWarmup(t)
+
+			for name, shard := range f.coldShards(t) {
+				writeCountedObjects(t, shard, className, counted)
+				writeUncountedObjects(t, shard, className, uncounted)
+
+				cold, err := shard.ObjectCountAsync(ctx)
+				require.NoError(t, err)
+				require.EqualValues(t, counted, cold,
+					"shard %q counts the segments whose sidecar is on disk", name)
+
+				tc.breakLoad(t, shard)
+				loadErr := shard.Load(ctx)
+				if tc.wantErr {
+					require.Error(t, loadErr)
+				} else {
+					require.NoError(t, loadErr)
+				}
+
+				// Go cold again, so the next count comes from the cold path rather than
+				// from the loaded shard.
+				require.NoError(t, shard.Shutdown(ctx))
+
+				if tc.wantCached {
+					// A disk read cannot succeed once the objects directory is gone, so
+					// any answer at all proves the cache survived the failed load.
+					require.NoError(t, os.RemoveAll(path.Join(shard.pathLSM(), helpers.ObjectsBucketLSM)))
+				}
+
+				count, err := shard.ObjectCountAsync(ctx)
+				require.NoError(t, err)
+				require.EqualValues(t, tc.wantCount, count,
+					"cold count for shard %q after the load attempt", name)
+			}
+		})
+	}
 }
 
 // Resuming maintenance cycles after a backup must not force-load cold shards:

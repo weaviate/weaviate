@@ -57,9 +57,13 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts        *deferredShardOpts
-	shard            *Shard
-	loaded           bool
+	shardOpts *deferredShardOpts
+	shard     *Shard
+	loaded    bool
+	// unloadedCount caches the object count read off disk while the shard is
+	// cold, which a cold shard cannot change without loading first. nil means
+	// not read yet; Load clears it.
+	unloadedCount    *int64
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter *loadlimiter.LoadLimiter
@@ -141,6 +145,11 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	if class == nil {
 		class = l.shardOpts.class
 	}
+
+	// NewShard writes the segment sidecars a cold count reads and recovers the
+	// write-ahead log into segments, so the cached cold count is stale from here
+	// on — including when the load fails partway and leaves the shard cold.
+	l.unloadedCount = nil
 
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
@@ -250,17 +259,30 @@ func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 
 func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
 	if l.loaded {
-		l.mutex.Unlock()
 		return l.shard.ObjectCountAsync(ctx)
 	}
-	l.mutex.Unlock()
+	if l.unloadedCount != nil {
+		return *l.unloadedCount, nil
+	}
+
+	// The disk read stays under the lock: a load writes segment sidecars and
+	// recovers the write-ahead log, so a read overlapping one can sum a mix of
+	// old and new segments and then cache the result. Everything else on this
+	// shard waits for one directory listing. A failed read caches nothing, so a
+	// shard whose sidecars stay unreadable repeats that listing on every call.
 	idx := l.shardOpts.index
 	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name, true)
 	if err != nil {
 		return 0, fmt.Errorf("error while getting object count for shard %s: %w", l.shardOpts.name, err)
 	}
-	return objectUsage.Count, nil
+
+	count := objectUsage.Count
+	l.unloadedCount = &count
+
+	return count, nil
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
@@ -496,6 +518,10 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 	defer l.mutex.Unlock()
 
 	if !l.loaded {
+		// The shard is out of the shard map before drop runs, so it stops being
+		// counted even when the cleanup below fails partway.
+		defer l.shardOpts.promMetrics.DeleteUnloadedShard()
+
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
@@ -535,9 +561,6 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 				spawnAsyncDelete(deleted, idx.logger)
 			}
 		}
-
-		// decrement unloaded shard count since this shard is being deleted
-		l.shardOpts.promMetrics.DeleteUnloadedShard()
 
 		return nil
 	}
