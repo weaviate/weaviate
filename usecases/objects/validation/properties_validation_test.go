@@ -29,6 +29,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
+func TestTextValRejectsASCIIControlCharacters(t *testing.T) {
+	if _, err := textVal("abc\x01\x02\x03def"); err == nil {
+		t.Fatal("expected ASCII control characters to be rejected")
+	}
+	if got, err := textVal("hello\nworld"); err != nil || got != "hello\nworld" {
+		t.Fatalf("expected newline to remain valid, got %q, err %v", got, err)
+	}
+}
+
 func TestValidator_extractAndValidateProperty(t *testing.T) {
 	type fields struct {
 		schema schema.Schema

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/models"
@@ -263,7 +264,7 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 			return nil, fmt.Errorf("invalid cref: %w", err)
 		}
 	case schema.DataTypeText:
-		data, err = stringVal(pv)
+		data, err = textVal(pv)
 		if err != nil {
 			return nil, fmt.Errorf("invalid text property '%s' on class '%s': %w", propertyName, className, err)
 		}
@@ -313,7 +314,7 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 			return nil, fmt.Errorf("invalid blobHash property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeTextArray:
-		data, err = stringArrayVal(pv, "text")
+		data, err = textArrayVal(pv)
 		if err != nil {
 			return nil, fmt.Errorf("invalid text array property '%s' on class '%s': %w", propertyName, className, err)
 		}
@@ -398,6 +399,35 @@ func stringVal(val interface{}) (string, error) {
 	}
 
 	return typed, nil
+}
+
+func textVal(val interface{}) (string, error) {
+	typed, err := stringVal(val)
+	if err != nil {
+		return "", err
+	}
+	for _, r := range typed {
+		if r <= 0x1f && unicode.IsControl(r) && r != '\t' && r != '\n' && r != '\r' {
+			return "", fmt.Errorf("contains ASCII control character U+%04X", r)
+		}
+	}
+	return typed, nil
+}
+
+func textArrayVal(val interface{}) ([]string, error) {
+	typed, ok := val.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("not a text array, but %T", val)
+	}
+	data := make([]string, len(typed))
+	for i := range typed {
+		var err error
+		data[i], err = textVal(typed[i])
+		if err != nil {
+			return nil, fmt.Errorf("invalid text array value: %s", val)
+		}
+	}
+	return data, nil
 }
 
 func boolVal(val interface{}) (bool, error) {
