@@ -424,7 +424,7 @@ func textArrayVal(val interface{}) ([]string, error) {
 		var err error
 		data[i], err = textVal(typed[i])
 		if err != nil {
-			return nil, fmt.Errorf("invalid text array value: %s", val)
+			return nil, fmt.Errorf("invalid text array value at index %d: %w", i, err)
 		}
 	}
 	return data, nil

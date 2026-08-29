@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,12 +31,28 @@ import (
 )
 
 func TestTextValRejectsASCIIControlCharacters(t *testing.T) {
-	if _, err := textVal("abc\x01\x02\x03def"); err == nil {
-		t.Fatal("expected ASCII control characters to be rejected")
+	for _, r := range []rune{'\x00', '\x01', '\x02', '\x03', '\x04', '\x1f'} {
+		r := r
+		t.Run(fmt.Sprintf("rejects U+%04X", r), func(t *testing.T) {
+			if _, err := textVal(string([]rune{'a', r, 'b'})); err == nil {
+				t.Fatalf("expected U+%04X to be rejected", r)
+			}
+		})
 	}
-	if got, err := textVal("hello\nworld"); err != nil || got != "hello\nworld" {
-		t.Fatalf("expected newline to remain valid, got %q, err %v", got, err)
+	for _, r := range []rune{'\t', '\n', '\r'} {
+		r := r
+		t.Run(fmt.Sprintf("allows U+%04X", r), func(t *testing.T) {
+			if _, err := textVal(string([]rune{'a', r, 'b'})); err != nil {
+				t.Fatalf("expected U+%04X to remain valid: %v", r, err)
+			}
+		})
 	}
+	t.Run("rejects array element and preserves index detail", func(t *testing.T) {
+		_, err := textArrayVal([]interface{}{"ok", "bad\x03value"})
+		if err == nil || !strings.Contains(err.Error(), "index 1") || !strings.Contains(err.Error(), "U+0003") {
+			t.Fatalf("expected indexed control-character error, got %v", err)
+		}
+	})
 }
 
 func TestValidator_extractAndValidateProperty(t *testing.T) {
