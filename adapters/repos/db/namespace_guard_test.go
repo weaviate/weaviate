@@ -500,11 +500,18 @@ func indexForGuardTest(t *testing.T, className string, e namespaces.Exister) *In
 	t.Helper()
 
 	logger, _ := logrustest.NewNullLogger()
+	// shutdownOrRestoreShard dereferences idx.metrics, so an index without one
+	// panics when a test deactivates a tenant. Passing nil for prom produces the
+	// same *Metrics a node without monitoring has, one whose baseMetrics is nil.
+	metrics, err := NewMetrics(logger, nil, className, "n/a")
+	require.NoError(t, err)
+
 	idx := &Index{
 		Config:                 IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName(className)},
 		namespace:              namespacing.NamespaceFromQualified(className),
 		namespacesExister:      e,
 		logger:                 logger,
+		metrics:                metrics,
 		shardCreateLocks:       esync.NewKeyRWLocker(),
 		replicaSnapshotOpLocks: esync.NewKeyRWLocker(),
 		backupLock:             esync.NewKeyRWLocker(),
@@ -1602,6 +1609,12 @@ func indexForBootTest(t *testing.T, className string, e namespaces.Exister, read
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
+	// shutdownOrRestoreShard dereferences idx.metrics, so an index without one
+	// panics when a test unloads a shard. Passing nil for prom produces the same
+	// *Metrics a node without monitoring has, one whose baseMetrics is nil.
+	metrics, err := NewMetrics(logger, nil, className, "n/a")
+	require.NoError(t, err)
+
 	idx := &Index{
 		Config: IndexConfig{
 			ClassName:            schema.ClassName(className),
@@ -1611,6 +1624,7 @@ func indexForBootTest(t *testing.T, className string, e namespaces.Exister, read
 		namespace:         namespacing.NamespaceFromQualified(className),
 		namespacesExister: e,
 		logger:            logger,
+		metrics:           metrics,
 		schemaReader:      reader,
 		shardCreateLocks:  esync.NewKeyRWLocker(),
 		closingCtx:        ctx,
@@ -1713,7 +1727,9 @@ func TestGuardBackgroundLoad(t *testing.T) {
 			idx := indexForGuardTest(t, tc.className, tc.exister(t))
 			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 
-			err := idx.loadLocalShardIfActive("t1")
+			outcome, err := idx.loadLocalShardIfActive("t1")
+			require.Empty(t, outcome,
+				"a refused load and a failed one both count against no shard")
 			if tc.wantLoad {
 				require.ErrorIs(t, err, errInjectedMemoryPressure)
 			} else {
@@ -1730,7 +1746,9 @@ func TestGuardBackgroundLoad(t *testing.T) {
 		idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 		idx.closed = true
 
-		require.NoError(t, idx.loadLocalShardIfActive("t1"))
+		outcome, err := idx.loadLocalShardIfActive("t1")
+		require.NoError(t, err)
+		require.Empty(t, outcome, "a closing index counts against no shard")
 	})
 
 	// A state that cannot be read refuses the load like a closed namespace does,
@@ -1741,7 +1759,9 @@ func TestGuardBackgroundLoad(t *testing.T) {
 			idx := indexForGuardTest(t, class, tc.exister(t))
 			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 
-			require.NoError(t, idx.loadLocalShardIfActive("t1"))
+			outcome, err := idx.loadLocalShardIfActive("t1")
+			require.NoError(t, err)
+			require.Empty(t, outcome, "an unreadable namespace counts against no shard")
 		})
 	}
 

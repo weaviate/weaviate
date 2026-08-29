@@ -197,6 +197,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				)
 				return lazyLoadShardEnabled
 			}(),
+			LazyLoadShardWarmupMinObjects:       m.db.config.LazyLoadShardWarmupMinObjects,
 			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
 			HaltForTransferTimeout:              m.db.config.HaltForTransferTimeout,
@@ -282,6 +283,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		"action":                  "lazy_shard_auto_detection",
 		"class":                   class.Class,
 		"enable_lazy_load_shards": lazyLoadShardEnabled,
+		"background_warmup":       idx.Config.backgroundWarmupEnabled(),
+		"warmup_min_objects":      m.db.config.LazyLoadShardWarmupMinObjects,
 		"local_shard_count":       localActiveShardsCount,
 		"total_shard_size_bytes":  totalShardSizeBytes,
 		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,
@@ -365,7 +368,7 @@ func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error
 	if !ok {
 		return fmt.Errorf("could not find shard %s", shard)
 	}
-	if err := shutdownOrRestoreShard(ctx, &idx.shards, shard, shardLike, idx.logger); err != nil {
+	if err := shutdownOrRestoreShard(ctx, idx, shard, shardLike); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
 			return errors.Wrapf(err, "shutdown shard %q", shard)
 		}
@@ -743,7 +746,7 @@ func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updat
 
 				m.logger.WithField("shard", name).Debug("starting shutdown")
 
-				if err := shutdownOrRestoreShard(ctx, &idx.shards, name, shard, idx.logger); err != nil {
+				if err := shutdownOrRestoreShard(ctx, idx, name, shard); err != nil {
 					if errors.Is(err, errAlreadyShutdown) {
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {

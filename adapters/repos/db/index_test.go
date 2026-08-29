@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -26,6 +27,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -62,6 +64,10 @@ func TestIndex_aggregateCount(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			groups := shardRegex.FindStringSubmatch(r.URL.Path)
 			count := shards[groups[1]]
+			if count < 0 { // sentinel: this replica cannot serve that shard
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			io.WriteString(w, strconv.Itoa(count))
 		}))
 		t.Cleanup(srv.Close)
@@ -93,7 +99,11 @@ func TestIndex_aggregateCount(t *testing.T) {
 		shards []string         // Complete list of shards in collection.
 		tenant string
 
-		want int // Expected aggregated count
+		planErr error         // Error the collection-wide routing plan build fails with.
+		timeout time.Duration // Caller deadline; zero for none.
+
+		want    int    // Expected aggregated count
+		wantErr string // Substring the aggregation must fail with; empty if it must succeed
 	}{
 		{
 			name:   "consistent count",
@@ -131,6 +141,47 @@ func TestIndex_aggregateCount(t *testing.T) {
 			want: 3,
 		},
 		{
+			name: "counts above MaxInt32",
+			nodes: []map[string]int{
+				{"abc": 1200000000, "xyz": 1000000000},
+				{"abc": 1200000000, "xyz": 1000000000},
+			},
+			want: 2200000000,
+		},
+		{
+			name: "a failing routing plan",
+			nodes: []map[string]int{
+				{"abc": 1, "xyz": 2},
+				{"abc": 1, "xyz": 2},
+			},
+			planErr: errors.New("no read replica found"),
+			wantErr: "no read replica found",
+		},
+		{
+			// ShardPlans exists to resolve a level per shard, which a
+			// collection-wide plan of unequal width cannot carry.
+			name:   "shards with different replica counts",
+			shards: []string{"abc", "xyz"},
+			nodes: []map[string]int{
+				{"abc": 1, "xyz": 2},
+				{"xyz": 2},
+				{"xyz": 2},
+			},
+			want: 3,
+		},
+		{
+			// The reachable shard must not be reported on its own: a count is
+			// either complete or an error.
+			name:   "a shard no replica can count",
+			shards: []string{"abc", "xyz"},
+			nodes: []map[string]int{
+				{"abc": 1, "xyz": -1},
+				{"abc": 1, "xyz": -1},
+			},
+			timeout: time.Second,
+			wantErr: `shard "xyz"`,
+		},
+		{
 			name:   "one tenant",
 			shards: []string{"john_doe", "jane_doe"},
 			nodes: []map[string]int{
@@ -165,6 +216,7 @@ func TestIndex_aggregateCount(t *testing.T) {
 			})
 
 			router := &fakeRouter{
+				planErr: tt.planErr,
 				readPlan: types.ReadRoutingPlan{
 					IntConsistencyLevel: len(tt.counts) + len(tt.nodes),
 					ConsistencyLevel:    types.ConsistencyLevelAll,
@@ -197,15 +249,31 @@ func TestIndex_aggregateCount(t *testing.T) {
 			}
 
 			// Act
-			res, err := index.aggregate(t.Context(), nil, aggregation.Params{
+			ctx := t.Context()
+			if tt.timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tt.timeout)
+				defer cancel()
+			}
+			start := time.Now()
+			res, err := index.aggregate(ctx, nil, aggregation.Params{
 				IncludeMetaCount: true,
 				Tenant:           tt.tenant,
 			}, nil)
 
 			// Assert
-			require.NoError(t, err, "aggregate")
-			require.Len(t, res.Groups, 1, "number of groups")
-			require.Equal(t, tt.want, res.Groups[0].Count, "object count")
+			if tt.timeout > 0 {
+				// CountObjects retries a failing replica for a minute of its own;
+				// the caller's deadline has to cut that short.
+				require.Less(t, time.Since(start), 5*time.Second, "aggregate outlived the caller deadline")
+			}
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr, "aggregate")
+			} else {
+				require.NoError(t, err, "aggregate")
+				require.Len(t, res.Groups, 1, "number of groups")
+				require.Equal(t, tt.want, res.Groups[0].Count, "object count")
+			}
 		})
 	}
 }
@@ -217,6 +285,7 @@ type fakeRouter struct {
 	writePlan types.WriteRoutingPlan
 	readSet   types.ReadReplicaSet
 	writeSet  types.WriteReplicaSet
+	planErr   error
 }
 
 // AllHostnames implements [types.Router].
@@ -227,6 +296,10 @@ func (f *fakeRouter) AllHostnames() []string {
 var _ types.Router = (*fakeRouter)(nil)
 
 func (f *fakeRouter) BuildReadRoutingPlan(opt types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
+	if f.planErr != nil {
+		return types.ReadRoutingPlan{}, f.planErr
+	}
+
 	readPlan := f.readPlan
 	readPlan.Shard = opt.Shard
 	readPlan.Tenant = opt.Tenant
@@ -244,7 +317,9 @@ func (f *fakeRouter) BuildReadRoutingPlan(opt types.RoutingPlanBuildOptions) (ty
 }
 
 func (f *fakeRouter) BuildRoutingPlanOptions(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions {
-	return f.options
+	opt := f.options
+	opt.Shard = shard
+	return opt
 }
 
 func (f *fakeRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {

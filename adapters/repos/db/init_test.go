@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func TestApplyLazyShardAutoDetection(t *testing.T) {
@@ -118,7 +119,7 @@ func TestNewShard_AbortsWhenUsageFileRemovalFails(t *testing.T) {
 
 	_, err := NewShard(ctx, nil, shardName, index, &models.Class{Class: className},
 		index.centralJobQueue, index.scheduler, index.indexCheckpoints,
-		index.shardReindexer, false, index.bitmapBufPool)
+		index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "remove computed usage file")
 }
