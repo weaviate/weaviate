@@ -1233,13 +1233,6 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		}
 	}
 
-	defer func() {
-		if err != nil && !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
-			logger.WithField("last_processed_key", lastProcessedKey).Debug("marking progress on error")
-			rt.markProgress(lastProcessedKey, processedCount, indexedCount)
-		}
-	}()
-
 	store := shard.Store()
 	propExtraction := storobj.NewPropExtraction()
 	bucketsByPropName := map[string]*lsmkv.Bucket{}
@@ -1248,6 +1241,24 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		bucketName := t.reindexBucketName(prop)
 		bucketsByPropName[prop] = store.Bucket(bucketName)
 	}
+
+	// The buckets are resolved above the defer on purpose: persistProgress
+	// has to flush them, and a defer registered before they exist would
+	// checkpoint a range whose postings are still only in memory.
+	defer func() {
+		if err == nil || bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
+			return
+		}
+		logger.WithField("last_processed_key", lastProcessedKey).Debug("marking progress on error")
+		if progressErr := t.persistProgress(rt, bucketsByPropName, lastProcessedKey,
+			processedCount, indexedCount); progressErr != nil {
+			// Not promoted to err: the error that ended the iteration is the
+			// useful one. Losing the checkpoint only costs a re-scan of this
+			// range, which is exactly the safe direction.
+			logger.WithField("last_processed_key", lastProcessedKey).
+				Warnf("could not persist reindex progress, range will be scanned again: %v", progressErr)
+		}
+	}()
 
 	breakCh := make(chan bool, 1)
 	breakCh <- false
@@ -1335,50 +1346,23 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		}
 	}
 	if !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
-		if err := rt.markProgress(lastProcessedKey, processedCount, indexedCount); err != nil {
+		if err = t.persistProgress(rt, bucketsByPropName, lastProcessedKey,
+			processedCount, indexedCount); err != nil {
 			err = fmt.Errorf("marking reindex progress: %w", err)
 			return zerotime, false, err
 		}
 		lastStoredKey = lastProcessedKey.Clone()
 	}
 	if finished {
-		// Durability barrier: flush every per-property reindex bucket's
-		// memtable to a segment BEFORE writing markReindexed. Without
-		// this, a SIGKILL / pod hardware failure / OOM kill between
-		// markReindexed and the eventual [runtimeSwap] Step 1
-		// (FlushAndSwitch) loses any in-memtable writes — the
-		// markReindexed sentinel falsely claims iteration is complete
-		// while the underlying re-tokenized rows are still in volatile
-		// memory. On restart, the recovery path sees IsReindexed=true,
-		// skips re-iterating, and runtimeSwap prepends a truncated
-		// reindex bucket into ingest. The cluster schema then flips to
-		// the new tokenization, the canonical bucket on this replica
-		// is missing the lost rows, and queries return per-replica
-		// divergent counts.
-		//
-		// FlushAndSwitch's contract is durability: every write that
-		// returned before the call is in a segment file (fsynced) by
-		// the time FlushAndSwitch returns. Doing it here closes the
-		// "markReindexed happens-before durability" gap unique to the
-		// FINALIZING-barrier path, where the inline runtimeSwap is
-		// deferred and a crash window opens between markReindexed and
-		// the eventual flush. The inline path (skipSwapOnFinish=false)
-		// also benefits — markReindexed now strictly happens-after
-		// durable persistence regardless of which path runs next.
-		//
-		// Failure mode the durability barrier prevents: a SIGKILL
-		// between markReindexed and the eventual flush leaves rows
-		// that iterated successfully but never made it to segments,
-		// surfacing as per-replica `path = N/M` divergence on the
-		// killed node.
-		for propName, bucket := range bucketsByPropName {
-			if bucket == nil {
-				continue
-			}
-			if err = bucket.FlushAndSwitch(); err != nil {
-				err = fmt.Errorf("flushing reindex bucket for prop %q before markReindexed: %w", propName, err)
-				return zerotime, false, err
-			}
+		// Same barrier as persistProgress, ahead of the other sentinel a
+		// restart trusts. reindexed.mig makes the recovery path skip
+		// re-iterating the shard entirely and hand the reindex bucket
+		// straight to [runtimeSwap], so postings still sitting in the
+		// memtable when a kill lands would be missing from the bucket the
+		// cluster then flips its queries onto.
+		if err = flushReindexBuckets(bucketsByPropName); err != nil {
+			err = fmt.Errorf("before markReindexed: %w", err)
+			return zerotime, false, err
 		}
 		if err = rt.markReindexed(); err != nil {
 			err = fmt.Errorf("marking reindexed: %w", err)
@@ -1410,6 +1394,50 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		return zerotime, false, nil
 	}
 	return time.Now().Add(t.config.pauseDuration), false, nil
+}
+
+// persistProgress records the resume checkpoint, but only once every
+// posting the iteration wrote is on disk.
+//
+// The order is the whole point. A checkpoint is a small file write that
+// reaches the page cache the moment it is made, while the postings behind it
+// sit in the reindex bucket's buffered write-ahead log until something
+// flushes them. Persist the checkpoint first and a kill keeps the checkpoint
+// while discarding the postings it vouches for: the resumed scan starts at
+// the very key it was killed on, the range just lost is never scanned again,
+// and that bucket is later promoted into the one filtered queries read. The
+// replica then returns fewer matches than its peers for as long as it lives,
+// with no error anywhere to say so.
+//
+// A failed flush leaves the checkpoint alone, so the range is scanned again
+// on the next run. Scanning a range twice only rewrites postings that are
+// already there, so redoing work is always the safe direction.
+func (t *ShardReindexTaskGeneric) persistProgress(rt reindexTracker,
+	bucketsByPropName map[string]*lsmkv.Bucket, lastProcessedKey indexKey,
+	processedCount, indexedCount int,
+) error {
+	if err := flushReindexBuckets(bucketsByPropName); err != nil {
+		return err
+	}
+	return rt.markProgress(lastProcessedKey, processedCount, indexedCount)
+}
+
+// flushReindexBuckets puts every per-property reindex bucket's memtable into
+// a segment file. [lsmkv.Bucket.FlushAndSwitch] returns only once every write
+// that completed before the call is in a fsynced segment, which is what makes
+// it usable as a barrier ahead of an on-disk sentinel: the sentinel is never
+// more durable than the data it certifies. Callers run it once per time
+// slice, not once per object.
+func flushReindexBuckets(bucketsByPropName map[string]*lsmkv.Bucket) error {
+	for propName, bucket := range bucketsByPropName {
+		if bucket == nil {
+			continue
+		}
+		if err := bucket.FlushAndSwitch(); err != nil {
+			return fmt.Errorf("flushing reindex bucket for prop %q: %w", propName, err)
+		}
+	}
+	return nil
 }
 
 // runtimeSwap implements Phase 2 of the runtime swap path. See the
