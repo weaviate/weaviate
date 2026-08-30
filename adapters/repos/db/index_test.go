@@ -490,6 +490,11 @@ func TestIndex_getShardsStatusFallback(t *testing.T) {
 			wantStatus: fallbackStatus,
 		},
 		{
+			name:       "local shard missing uses physical hot status",
+			replicas:   []string{localNode},
+			wantStatus: "HOT",
+		},
+		{
 			name:           "all remote replicas unavailable uses physical status",
 			replicas:       []string{"node-1", "node-2"},
 			remoteStatuses: map[string]string{"node-1": NodeUnresponsive, "node-2": NodeUnresponsive},
@@ -515,7 +520,7 @@ func TestIndex_getShardsStatusFallback(t *testing.T) {
 						return tt.readErr
 					}
 					return reader(nil, &sharding.State{Physical: map[string]sharding.Physical{
-						shardName: {Name: shardName, Status: fallbackStatus},
+						shardName: {Name: shardName, Status: tt.wantStatus},
 					}})
 				},
 			)
@@ -551,10 +556,59 @@ func TestIndex_getShardsStatusFallback(t *testing.T) {
 			require.NoError(t, err)
 			want := map[string]string{}
 			for _, nodeName := range tt.replicas {
-				want[nodeName] = fallbackStatus
+				want[nodeName] = tt.wantStatus
 			}
 			require.Equal(t, map[string]map[string]string{shardName: want}, got)
 			require.Equal(t, map[string]string{shardName: fallbackStatus}, gotLegacy)
+		})
+	}
+}
+
+func TestIndex_IncomingGetShardStatusFallback(t *testing.T) {
+	const (
+		className = "Songs"
+		shardName = "shard-0"
+	)
+	fallbackErr := errors.New("schema read failed")
+
+	tests := []struct {
+		name       string
+		status     string
+		readErr    error
+		wantStatus string
+		wantErr    error
+	}{
+		{name: "cold shard", status: "COLD", wantStatus: "COLD"},
+		{name: "hot shard", status: "HOT", wantStatus: "HOT"},
+		{name: "schema read error", readErr: fallbackErr, wantErr: fallbackErr},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			schemaReader.EXPECT().Read(className, true, mock.Anything).RunAndReturn(
+				func(_ string, _ bool, reader func(*models.Class, *sharding.State) error) error {
+					if tt.readErr != nil {
+						return tt.readErr
+					}
+					return reader(nil, &sharding.State{Physical: map[string]sharding.Physical{
+						shardName: {Name: shardName, Status: tt.status},
+					}})
+				},
+			)
+			index := Index{
+				Config:           IndexConfig{ClassName: schema.ClassName(className)},
+				schemaReader:     schemaReader,
+				shardCreateLocks: esync.NewKeyRWLocker(),
+			}
+
+			got, err := index.IncomingGetShardStatus(t.Context(), shardName)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantStatus, got)
 		})
 	}
 }

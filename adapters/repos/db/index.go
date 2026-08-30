@@ -4209,14 +4209,16 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 
 	if shard == nil {
 		var tenantStatus string
-		_ = i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
+		if err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
 			if state != nil {
 				if physical, ok := state.Physical[shardName]; ok {
 					tenantStatus = physical.Status
 				}
 			}
 			return nil
-		})
+		}); err != nil {
+			return "", err
+		}
 		if tenantStatus != "" {
 			return tenantStatus, nil
 		}
