@@ -4167,7 +4167,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 			}
 
 			if len(perNodeStatus) == 0 {
-				_ = i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+				if err := i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
 					if state != nil {
 						if physical, ok := state.Physical[shardName]; ok && physical.Status != "" {
 							for _, nodeName := range replicas {
@@ -4177,7 +4177,9 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 						}
 					}
 					return nil
-				})
+				}); err != nil {
+					return err
+				}
 			}
 
 			mu.Lock()

@@ -467,6 +467,98 @@ func TestIndex_getShardsStatus(t *testing.T) {
 	require.Equal(t, wantLegacy, gotLegacy, "legacy statuses")
 }
 
+func TestIndex_getShardsStatusFallback(t *testing.T) {
+	const (
+		className = "Songs"
+		shardName = "shard-0"
+		localNode = "node-0"
+	)
+	fallbackStatus := "COLD"
+	fallbackErr := errors.New("schema read failed")
+
+	tests := []struct {
+		name           string
+		replicas       []string
+		remoteStatuses map[string]string
+		readErr        error
+		wantStatus     string
+		wantErr        error
+	}{
+		{
+			name:       "local shard missing uses physical status",
+			replicas:   []string{localNode},
+			wantStatus: fallbackStatus,
+		},
+		{
+			name:           "all remote replicas unavailable uses physical status",
+			replicas:       []string{"node-1", "node-2"},
+			remoteStatuses: map[string]string{"node-1": NodeUnresponsive, "node-2": NodeUnresponsive},
+			wantStatus:     fallbackStatus,
+		},
+		{
+			name:     "physical status read error is returned",
+			replicas: []string{localNode},
+			readErr:  fallbackErr,
+			wantErr:  fallbackErr,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			schemaReader.EXPECT().Shards(className).Return([]string{shardName}, nil)
+			schemaReader.EXPECT().ShardReplicas(className, shardName).Return(tt.replicas, nil)
+			schemaReader.EXPECT().Read(className, true, mock.Anything).RunAndReturn(
+				func(_ string, _ bool, reader func(*models.Class, *sharding.State) error) error {
+					if tt.readErr != nil {
+						return tt.readErr
+					}
+					return reader(nil, &sharding.State{Physical: map[string]sharding.Physical{
+						shardName: {Name: shardName, Status: fallbackStatus},
+					}})
+				},
+			)
+
+			var replicas []types.Replica
+			for _, nodeName := range tt.replicas {
+				replicas = append(replicas, types.Replica{ShardName: shardName, NodeName: nodeName, HostAddr: nodeName})
+			}
+			nodeResolver := cluster.NewMockNodeResolver(t)
+			nodeResolver.EXPECT().NodeHostname(mock.Anything).
+				RunAndReturn(func(nodeName string) (string, bool) { return nodeName, true }).Maybe()
+			index := Index{
+				Config:           IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: 2},
+				getSchema:        &fakeSchemaGetter{nodeName: localNode},
+				schemaReader:     schemaReader,
+				shardCreateLocks: esync.NewKeyRWLocker(),
+				router:           &fakeRouter{readSet: types.ReadReplicaSet{Replicas: replicas}},
+				replicator:       &replica.Replicator{Finder: replica.NewFinder(className, nil, nil, localNode, nil, nil, logger, nil)},
+				logger:           logger,
+			}
+			index.remote = sharding.NewRemoteIndex(
+				className,
+				index.getSchema,
+				nodeResolver,
+				&FakeRemoteClient{shardStatus: map[string]map[string]string{shardName: tt.remoteStatuses}},
+			)
+
+			got, gotLegacy, err := index.getShardsStatus(t.Context(), "")
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			want := map[string]string{}
+			for _, nodeName := range tt.replicas {
+				want[nodeName] = fallbackStatus
+			}
+			require.Equal(t, map[string]map[string]string{shardName: want}, got)
+			require.Equal(t, map[string]string{shardName: fallbackStatus}, gotLegacy)
+		})
+	}
+}
+
 // TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement pins the
 // rf=1 scale-out lost-write fix: while a replica movement is active for the shard, a write
 // must be routed through the replicator (so it registers in the in-flight fence and the
