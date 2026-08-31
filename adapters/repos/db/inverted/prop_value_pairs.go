@@ -25,6 +25,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -388,12 +389,20 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 	}
 
 	before := time.Now()
-	// deferred so a filter that fails after the reader opens is still timed
 	var dbm docBitmap
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	// Nil until there is a reader, so a filter rejected while opening one is
+	// timed without inventing counts for work that never happened.
+	var reader *lsmkv.RoaringSetBatchReader
+	// Deferred so a filter that fails partway is timed and reports what it did
+	// before it stopped.
 	defer func() {
 		took := time.Since(before)
 		helpers.AnnotateSlowQueryLogAppendFunc(ctx, "build_allow_list_doc_bitmap", func() map[string]any {
-			return map[string]any{
+			fields := map[string]any{
 				"prop":        pv.prop,
 				"operator":    pv.operator.Name(),
 				"took":        took,
@@ -405,14 +414,30 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 				// filter reports at most two regardless of value count.
 				"batched_keys": pv.containsKeys.Len(),
 			}
+			// What the batching itself did, so a slow batched filter can be told
+			// from a filter that was merely slow.
+			if reader != nil {
+				st := reader.Stats()
+				fields["window_fills"] = st.Fills
+				fields["window_narrowed_fills"] = st.NarrowedFills
+				fields["batch_keys_served"] = st.KeysServed
+				fields["window_bytes_peak"] = st.BytesPeak
+				fields["window_bytes_copied"] = st.BytesCopied
+				fields["memtable_reads"] = st.MemtableReads
+				// Without this the read count cannot be normalized: reads per
+				// fill run from one to one per memtable, so a ratio of 1.0
+				// cannot be told from two memtables whose every fill skipped
+				// one.
+				fields["memtables"] = st.Memtables
+			}
+			return fields
 		})
 	}()
 
-	reader, err := b.NewRoaringSetBatchReader()
+	reader, err = lsmkv.NewRoaringSetBatchReader(view, pv.containsKeys)
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Release()
 
 	dbm, err = s.docBitmapContainsBatch(ctx, reader, pv)
 	if err != nil {

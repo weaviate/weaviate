@@ -208,13 +208,14 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 	return out, nil
 }
 
-// containsBatchReader reads roaringset rows for one batched Contains fold under
-// a single held view; *lsmkv.RoaringSetBatchReader satisfies it and nothing
-// else implements it in production. It exists so tests can record which keys
-// the fold reads and inject read errors and cancellation. Releasing is absent
-// deliberately: the caller owns the reader's lifetime.
+// containsBatchReader reads roaringset rows for one batched Contains fold
+// under a single held view; *lsmkv.RoaringSetBatchReader satisfies it and
+// nothing else implements it in production (it exists so tests can inject
+// read errors and cancellation). Next returns either a row and its release or
+// an error and neither. One reader serves one goroutine.
 type containsBatchReader interface {
-	Get(key []byte, mergeConc int) (*sroar.Bitmap, func(), error)
+	Len() int
+	Next(mergeConc int) (*sroar.Bitmap, func(), error)
 }
 
 // mergeAllowlistBitmaps folds b into a under op (ContainsAny -> union,
@@ -259,16 +260,17 @@ func mergeAllowlistBitmaps(op filters.Operator, maxConc int,
 // for sit far above it either way.
 var containsAnyAccumulatorMinKeys = 256
 
-// docBitmapContainsBatch folds every key in pv.containsKeys into a single
-// docBitmap under reader's held view: a dense Accumulator fold for
+// docBitmapContainsBatch folds every row of reader into a single docBitmap
+// under its held view: a dense Accumulator fold for
 // ContainsAny and ContainsNone, an incremental intersection with empty-result
 // early exit for ContainsAll. Every per-key fetch is an OperatorEqual read on
 // a roaringset bucket, so it is always an allowlist (never a denylist), which
 // is why all folds can skip mergeBitmapsAndOrWithDenyList's deny-list algebra
-// entirely. The caller owns reader (creates and releases it around this call)
-// and must pass at least one key: the folds adopt their first row as the
-// accumulator, so an empty key set has no result to return, and both this
-// function and fetchContainsBatch reject it rather than inventing one.
+// entirely. The caller owns the view that reader borrows, and releases it
+// around this call. It must also give the reader at least one key:
+// foldContainsIncremental adopts its first row as the accumulator, so an empty
+// batch leaves it nil, and both this function and fetchContainsBatch reject one
+// rather than inventing a result.
 //
 // ContainsNone is NOT(ContainsAny): it computes the same union and marks the
 // result a deny list, exactly as the desugared NOT(OR(Equal...)) tree does in
@@ -277,9 +279,9 @@ var containsAnyAccumulatorMinKeys = 256
 func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBatchReader,
 	pv *propValuePair,
 ) (docBitmap, error) {
-	if pv.containsKeys.Len() == 0 {
-		// defensive: the folds adopt their first row as the accumulator, so zero
-		// keys yields a nil bitmap rather than an empty one
+	if reader.Len() == 0 {
+		// Checked on the reader because the reader is what the fold walks; pv is
+		// here for the operator and the error message.
 		return docBitmap{}, fmt.Errorf("%w: contains fold on prop %q carries no keys",
 			entsInverted.ErrInternal, pv.prop)
 	}
@@ -292,16 +294,16 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 	var err error
 	switch pv.operator {
 	case filters.ContainsAll:
-		acc, accRelease, err = foldContainsIncremental(ctx, reader, pv.containsKeys, filters.ContainsAll, mergeConc)
+		acc, accRelease, err = foldContainsIncremental(ctx, reader, filters.ContainsAll, mergeConc)
 	case filters.ContainsAny, filters.ContainsNone:
 		// ContainsNone folds the same union as ContainsAny; the deny flag is
 		// applied to the result, not the fold. Below
 		// containsAnyAccumulatorMinKeys keys the Accumulator's staging setup
 		// and finalize scan are not worth it — union incrementally instead.
-		if pv.containsKeys.Len() < containsAnyAccumulatorMinKeys {
-			acc, accRelease, err = foldContainsIncremental(ctx, reader, pv.containsKeys, filters.ContainsAny, mergeConc)
+		if reader.Len() < containsAnyAccumulatorMinKeys {
+			acc, accRelease, err = foldContainsIncremental(ctx, reader, filters.ContainsAny, mergeConc)
 		} else {
-			acc, accRelease, err = foldContainsAnyAccumulator(ctx, reader, pv.containsKeys,
+			acc, accRelease, err = foldContainsAnyAccumulator(ctx, reader,
 				s.bitmapFactory.BufPool(), mergeConc)
 		}
 	default:
@@ -316,29 +318,35 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 	return docBitmap{docIDs: acc, release: accRelease, isDenyList: isDenyList}, nil
 }
 
+// readRowErr names the position in the batch, counting from one, since a batch
+// this size gives an operator nothing else to go on.
+func readRowErr(i, n int, err error) error {
+	return fmt.Errorf("read row %d of %d: %w", i+1, n, err)
+}
+
 // foldContainsAnyAccumulator unions the rows of all keys through a
 // sroar.Accumulator: each fetched row is deposited into the accumulator's
 // dense per-64K-range staging blocks and its buffer released immediately, and
 // the final bitmap is assembled once, exactly sized, into a pooled buffer
-// (the returned release puts it back). This
-// replaces one structural Or per key (an O(container) memmove even for a
-// single-doc row) with O(1) bit deposits, and bounds peak memory at the
-// staging blocks (proportional to the doc-ID spread of the result, not to
-// the number of keys) plus a single row in flight.
+// (the returned release puts it back). This replaces one structural Or per
+// key (an O(container) memmove even for a single-doc row) with O(1) bit
+// deposits, bounding memory at the staging blocks (sized to the result's
+// doc-ID spread, not the key count) plus one row in flight — plus one
+// memtable window, since a batched reader caches one per lsmkv's budget.
 func foldContainsAnyAccumulator(ctx context.Context, reader containsBatchReader,
-	keys entsInverted.SortedKeys, pool roaringset.BitmapBufPool, mergeConc int,
+	pool roaringset.BitmapBufPool, mergeConc int,
 ) (*sroar.Bitmap, func(), error) {
 	// TODO aliszka:gh12242 wire mergeConc into the accumulator's Or once sroar
 	// supports concurrent deposits; today it bounds only the per-row disk merge
 	// and the deposits themselves are single-threaded.
 	acc := sroar.NewAccumulator()
-	for _, key := range keys.All() {
+	for i := range reader.Len() {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		bm, release, err := reader.Get(key, mergeConc)
+		bm, release, err := reader.Next(mergeConc)
 		if err != nil {
-			return nil, nil, fmt.Errorf("read row: %w", err)
+			return nil, nil, readRowErr(i, reader.Len(), err)
 		}
 		// Or never retains bm, so the row's buffer goes straight back.
 		acc.Or(bm)
@@ -357,25 +365,26 @@ func foldContainsAnyAccumulator(ctx context.Context, reader containsBatchReader,
 //
 // ContainsAll additionally stops as soon as the intersection is empty: no
 // remaining key can change an empty result (the intersection only shrinks),
-// so this only skips reads that cannot matter, never the result. On
-// disjoint-ish data the early exit reads a handful of keys, which no
-// batch-read grouping can beat — hence ContainsAll deliberately has no
-// accumulator path.
+// so this only skips reads that cannot matter, never the result. It skips
+// their cost too, from the next window on: the window holding the exit was
+// filled whole, so the saving is a window's granularity, not a key's.
+// ContainsAll has no accumulator path because the early exit makes staging
+// setup not worth it, not because it makes reads cheap.
 func foldContainsIncremental(ctx context.Context, reader containsBatchReader,
-	keys entsInverted.SortedKeys, op filters.Operator, mergeConc int,
+	op filters.Operator, mergeConc int,
 ) (*sroar.Bitmap, func(), error) {
 	var acc *sroar.Bitmap
 	accRelease := noopRelease
-	for _, key := range keys.All() {
+	for i := range reader.Len() {
 		if err := ctx.Err(); err != nil {
 			accRelease()
 			return nil, nil, err
 		}
 
-		bm, release, err := reader.Get(key, mergeConc)
+		bm, release, err := reader.Next(mergeConc)
 		if err != nil {
 			accRelease()
-			return nil, nil, fmt.Errorf("read row: %w", err)
+			return nil, nil, readRowErr(i, reader.Len(), err)
 		}
 
 		if acc == nil {
@@ -391,9 +400,8 @@ func foldContainsIncremental(ctx context.Context, reader containsBatchReader,
 			break
 		}
 	}
-	// keys is non-empty (docBitmapContainsBatch's precondition, enforced by
-	// fetchContainsBatch) and the first iteration always adopts its fetched
-	// bitmap, so acc is non-nil.
+	// reader.Len() > 0 (checked in docBitmapContainsBatch), so the first
+	// iteration always runs and adopts its bitmap: acc is non-nil.
 	return acc, accRelease, nil
 }
 

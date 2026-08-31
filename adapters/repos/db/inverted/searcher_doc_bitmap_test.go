@@ -48,12 +48,13 @@ type containsBatchFixture struct {
 // every read and every release func records into the fixture. The reader's view is
 // released once, at test end — releasing is the caller's job, so the fold never
 // does it.
-func (s *containsBatchFixture) reader(t *testing.T) *spyContainsBatchReader {
+func (s *containsBatchFixture) reader(t *testing.T, keys entsInverted.SortedKeys) *spyContainsBatchReader {
 	t.Helper()
-	rdr, err := s.NewRoaringSetBatchReader()
+	view := s.GetConsistentView()
+	t.Cleanup(view.ReleaseView)
+	rdr, err := lsmkv.NewRoaringSetBatchReader(view, keys)
 	require.NoError(t, err)
-	t.Cleanup(rdr.Release)
-	return &spyContainsBatchReader{reader: rdr, fixture: s}
+	return &spyContainsBatchReader{reader: rdr, fixture: s, keys: keys}
 }
 
 // spyContainsBatchReader is the reader the fixture hands the fold: it records
@@ -62,43 +63,108 @@ func (s *containsBatchFixture) reader(t *testing.T) *spyContainsBatchReader {
 type spyContainsBatchReader struct {
 	reader  *lsmkv.RoaringSetBatchReader
 	fixture *containsBatchFixture
+	keys    entsInverted.SortedKeys
+	pos     int // tracks the walk so Next can name the key each read is for
 }
 
-func (r *spyContainsBatchReader) Get(key []byte, mergeConc int) (*sroar.Bitmap, func(), error) {
+func (r *spyContainsBatchReader) Len() int { return r.keys.Len() }
+
+func (r *spyContainsBatchReader) Next(mergeConc int) (*sroar.Bitmap, func(), error) {
 	s := r.fixture
-	s.reads = append(s.reads, string(key))
-	if s.onRead != nil {
-		s.onRead(len(s.reads))
+	if r.pos < r.keys.Len() { // past the batch is the reader's error to report, not a panic here
+		s.reads = append(s.reads, string(r.keys.At(r.pos)))
+		if s.onRead != nil {
+			s.onRead(len(s.reads))
+		}
 	}
-	bm, release, err := r.reader.Get(key, mergeConc)
+	bm, release, err := r.reader.Next(mergeConc)
+	if err != nil {
+		// Matches the real reader's error contract (no row, no release, position
+		// unchanged) so a fold that mishandles this path doesn't pass anyway.
+		return nil, nil, err
+	}
+	r.pos++
 	return bm, func() {
 		s.releaseCalls++
 		release()
-	}, err
+	}, nil
 }
 
 func newContainsBatchFixture(t *testing.T, ctx context.Context, rows map[string][]uint64) *containsBatchFixture {
 	t.Helper()
+	return newContainsBatchFixtureSplit(t, ctx, rows, nil)
+}
+
+// newContainsBatchFixtureSplit flushes one set of rows and leaves the other in
+// the active memtable — a fully flushed bucket drops its empty active memtable
+// from the view, so the windowed read never runs. Passing nil for unflushed
+// gives the all-flushed bucket most tests want.
+func newContainsBatchFixtureSplit(t *testing.T, ctx context.Context,
+	flushed, unflushed map[string][]uint64,
+) *containsBatchFixture {
+	t.Helper()
 
 	logger, _ := test.NewNullLogger()
-	tmpDir := t.TempDir()
-
 	pool := roaringset.NewBitmapBufPoolTrackingForTests()
-	b, err := lsmkv.NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
+	b, err := lsmkv.NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithBitmapBufPool(pool))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
-
 	b.SetMemtableThreshold(1e9) // no auto-flush; keep the fixture deterministic
 
-	for key, values := range rows {
+	for key, values := range flushed {
 		require.NoError(t, b.RoaringSetAddList([]byte(key), values))
 	}
 	require.NoError(t, b.FlushAndSwitch())
+	for key, values := range unflushed {
+		require.NoError(t, b.RoaringSetAddList([]byte(key), values))
+	}
 
 	return &containsBatchFixture{Bucket: b, pool: pool}
+}
+
+// TestDocBitmapContainsBatch_ReadsUnflushedRows folds a batch whose rows are
+// split between disk and the active memtable, the only test that exercises
+// the fold, the reader, the windowing and the memtable walk together — the
+// rest flush first and skip the memtable.
+func TestDocBitmapContainsBatch_ReadsUnflushedRows(t *testing.T) {
+	ctx := context.Background()
+
+	// Three windows at the production size of 1024, crossing two boundaries and
+	// ending on a narrower one — where an off-by-one in the window's end shows.
+	const n = 2500
+	flushed, unflushed := map[string][]uint64{}, map[string][]uint64{}
+	batch := make([][]byte, 0, n)
+	want := make([]uint64, 0, n)
+	for i := 0; i < n; i++ {
+		key := fmt.Sprintf("key_%05d", i)
+		batch = append(batch, []byte(key))
+		switch i % 3 {
+		case 0:
+			flushed[key] = []uint64{uint64(i)}
+			want = append(want, uint64(i))
+		case 1:
+			unflushed[key] = []uint64{uint64(i)}
+			want = append(want, uint64(i))
+		}
+		// i%3 == 2 is asked for and held by neither layer
+	}
+
+	fixture := newContainsBatchFixtureSplit(t, ctx, flushed, unflushed)
+	s := &Searcher{bitmapFactory: roaringset.NewBitmapFactory(fixture.pool, func() uint64 { return 300_000 })}
+
+	pv := &propValuePair{
+		prop:         "some-prop",
+		operator:     filters.ContainsAny,
+		containsKeys: keysFrom(t, batch...),
+	}
+	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
+	require.NoError(t, err)
+	require.Equal(t, want, dbm.docIDs.ToArray(),
+		"the fold must see the memtable's rows as well as the disk's")
+	dbm.release()
 }
 
 // TestMergeAllowlistBitmaps_UnsupportedOperator pins the defensive default
@@ -130,7 +196,7 @@ func TestDocBitmapContainsBatch_ContainsAnyFold(t *testing.T) {
 	}
 
 	s := &Searcher{}
-	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t), pv)
+	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
 	require.NoError(t, err)
 	defer dbm.release()
 
@@ -158,7 +224,7 @@ func TestDocBitmapContainsBatch_UnsupportedOperator(t *testing.T) {
 	}
 
 	s := &Searcher{}
-	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t), pv)
+	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
 	require.ErrorContains(t, err, "unsupported operator")
 	require.Nil(t, dbm.docIDs)
 	require.Empty(t, fixture.reads, "no key may be read for an unsupported operator")
@@ -166,23 +232,33 @@ func TestDocBitmapContainsBatch_UnsupportedOperator(t *testing.T) {
 
 // TestDocBitmapContainsBatch_NoKeys pins the fold's other defensive backstop:
 // its accumulator is the first row it reads, so zero keys has no result to
-// return. Erroring keeps that a loud caller bug rather than a docBitmap with a
-// nil bitmap flowing into the merges. fetchContainsBatch answers the empty case
-// before calling in, which TestFetchContainsBatch_EmptyKeySet pins.
+// return, and it errors rather than let a nil bitmap flow into the merges.
+// The count that gates it is the reader's, not pv's — checked here by giving
+// pv keys while the reader stays empty.
 func TestDocBitmapContainsBatch_NoKeys(t *testing.T) {
 	ctx := context.Background()
 	fixture := newContainsBatchFixture(t, ctx, map[string][]uint64{"present-a": {1, 2, 3}})
 
-	for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
-		t.Run(op.Name(), func(t *testing.T) {
-			s := &Searcher{}
-			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t),
-				&propValuePair{prop: "some-prop", operator: op, containsKeys: keysFrom(t)})
-			require.ErrorContains(t, err, "carries no keys")
-			require.ErrorContains(t, err, `"some-prop"`, "the error must name the property")
-			require.Nil(t, dbm.docIDs)
-			require.Empty(t, fixture.reads, "no key may be read")
-		})
+	tests := []struct {
+		name   string
+		pvKeys entsInverted.SortedKeys
+	}{
+		{name: "pv is empty too", pvKeys: keysFrom(t)},
+		{name: "pv still carries keys", pvKeys: keysFrom(t, []byte("present-a"))},
+	}
+
+	for _, tc := range tests {
+		for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
+			t.Run(tc.name+"/"+op.Name(), func(t *testing.T) {
+				s := &Searcher{}
+				pv := &propValuePair{prop: "some-prop", operator: op, containsKeys: tc.pvKeys}
+				dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, keysFrom(t)), pv)
+				require.ErrorContains(t, err, "carries no keys")
+				require.ErrorContains(t, err, `"some-prop"`, "the error must name the property")
+				require.Nil(t, dbm.docIDs)
+				require.Empty(t, fixture.reads, "no key may be read")
+			})
+		}
 	}
 }
 
@@ -191,13 +267,22 @@ func TestDocBitmapContainsBatch_NoKeys(t *testing.T) {
 type failingContainsBatchReader struct {
 	containsBatchReader
 	failKey string
+	keys    entsInverted.SortedKeys
+	pos     int
 }
 
-func (r *failingContainsBatchReader) Get(key []byte, mergeConc int) (*sroar.Bitmap, func(), error) {
-	if string(key) == r.failKey {
-		return nil, noopRelease, fmt.Errorf("injected read failure")
+func (r *failingContainsBatchReader) Next(mergeConc int) (*sroar.Bitmap, func(), error) {
+	key := ""
+	if r.pos < r.keys.Len() {
+		key = string(r.keys.At(r.pos))
 	}
-	return r.containsBatchReader.Get(key, mergeConc)
+	r.pos++
+	if key == r.failKey {
+		// The wrapped reader is left where it was, which is what a fold aborting
+		// on this error does anyway.
+		return nil, nil, fmt.Errorf("injected read failure")
+	}
+	return r.containsBatchReader.Next(mergeConc)
 }
 
 // TestDocBitmapContainsBatch_ReadError pins what a failed row read costs: the
@@ -229,13 +314,21 @@ func TestDocBitmapContainsBatch_ReadError(t *testing.T) {
 
 			// "a" is read and accumulated, "poison" fails, "z" must never be
 			// reached — the keys arrive ascending, so "poison" sits between them
+			pv := &propValuePair{
+				operator:     filters.ContainsAny,
+				containsKeys: keysFrom(t, []byte("a"), []byte("poison"), []byte("z")),
+			}
 			dbm, err := s.docBitmapContainsBatch(ctx,
-				&failingContainsBatchReader{containsBatchReader: fixture.reader(t), failKey: "poison"},
-				&propValuePair{
-					operator:     filters.ContainsAny,
-					containsKeys: keysFrom(t, []byte("a"), []byte("poison"), []byte("z")),
-				})
-			require.ErrorContains(t, err, "read row")
+				&failingContainsBatchReader{
+					containsBatchReader: fixture.reader(t, pv.containsKeys),
+					failKey:             "poison",
+					keys:                pv.containsKeys,
+				},
+				pv)
+			// Which of the three keys failed: the fold reports a position
+			// because a six-figure batch gives an operator nothing else to go
+			// on, and "poison" sorts second of the three.
+			require.ErrorContains(t, err, "read row 2 of 3")
 			require.ErrorContains(t, err, "injected read failure")
 			require.Equal(t, docBitmap{}, dbm, "a failed read must not yield a partial result")
 
@@ -293,7 +386,7 @@ func TestDocBitmapContainsBatch_ContainsNoneFold(t *testing.T) {
 	}
 
 	s := &Searcher{}
-	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t), pv)
+	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
 	require.NoError(t, err)
 	defer dbm.release()
 
@@ -301,6 +394,41 @@ func TestDocBitmapContainsBatch_ContainsNoneFold(t *testing.T) {
 		"ContainsNone folds the same union as ContainsAny")
 	require.True(t, dbm.IsDenyList())
 	require.Equal(t, []string{"missing", "present-a", "present-b"}, fixture.reads)
+}
+
+// TestDocBitmapContainsBatch_AccumulatorGateReadsTheReader pins that the
+// accumulator gate counts the reader's keys, not pv.containsKeys: it hands
+// the reader enough keys to cross the gate and pv fewer, then checks which
+// fold ran through the release-count side effect below.
+func TestDocBitmapContainsBatch_AccumulatorGateReadsTheReader(t *testing.T) {
+	oldGate := containsAnyAccumulatorMinKeys
+	containsAnyAccumulatorMinKeys = 3
+	defer func() { containsAnyAccumulatorMinKeys = oldGate }()
+
+	ctx := context.Background()
+	fixture := newContainsBatchFixture(t, ctx, map[string][]uint64{
+		"present-a": {1, 2}, "present-b": {3}, "present-c": {4},
+	})
+
+	readerKeys := keysFrom(t, []byte("present-a"), []byte("present-b"), []byte("present-c"))
+	pool := roaringset.NewBitmapBufPoolTrackingForTests()
+	s := &Searcher{bitmapFactory: roaringset.NewBitmapFactory(pool, func() uint64 { return 300_000 })}
+
+	// pv is one key short of the gate, the reader is on it
+	pv := &propValuePair{operator: filters.ContainsAny, containsKeys: keysFrom(t, []byte("present-a"))}
+	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, readerKeys), pv)
+	require.NoError(t, err)
+
+	require.Equal(t, []uint64{1, 2, 3, 4}, dbm.docIDs.ToArray(),
+		"the fold must cover every key the reader carries, not pv's shorter list")
+	require.Equal(t, []string{"present-a", "present-b", "present-c"}, fixture.reads,
+		"every key of the reader's batch must be read")
+
+	// The accumulator releases every row it deposits; the incremental fold
+	// adopts its first row and hands that release to the caller instead, one fewer.
+	require.Equal(t, len(fixture.reads), fixture.releaseCalls,
+		"the reader's count puts this batch on the accumulator side of the gate")
+	dbm.release()
 }
 
 // Same folds as above but forced through the Accumulator path, which the
@@ -337,8 +465,8 @@ func TestDocBitmapContainsBatch_ContainsAnyAccumulatorFold(t *testing.T) {
 
 			pool := roaringset.NewBitmapBufPoolTrackingForTests()
 			s := &Searcher{bitmapFactory: roaringset.NewBitmapFactory(pool, func() uint64 { return 300_000 })}
-			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t),
-				&propValuePair{operator: tc.operator, containsKeys: keys})
+			pv := &propValuePair{operator: tc.operator, containsKeys: keys}
+			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
 			require.NoError(t, err)
 
 			require.Equal(t, []uint64{1, 2, 3, 4, 5, 70_000, 200_000}, dbm.docIDs.ToArray())
@@ -383,10 +511,11 @@ func TestDocBitmapContainsBatch_SingleKey(t *testing.T) {
 			fixture := newContainsBatchFixture(t, ctx, map[string][]uint64{"a": {1, 2, 3}})
 
 			s := &Searcher{}
-			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t), &propValuePair{
+			pv := &propValuePair{
 				operator:     tc.operator,
 				containsKeys: keysFrom(t, []byte(tc.key)),
-			})
+			}
+			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
 			require.NoError(t, err)
 			defer dbm.release()
 
@@ -415,7 +544,7 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 		}
 
 		s := &Searcher{}
-		dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t), pv)
+		dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
 		require.NoError(t, err)
 		defer dbm.release()
 
@@ -436,7 +565,7 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 		}
 
 		s := &Searcher{}
-		dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t), pv)
+		dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
 		require.NoError(t, err)
 		defer dbm.release()
 
@@ -458,7 +587,7 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 		}
 
 		s := &Searcher{}
-		dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t), pv)
+		dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
 		require.NoError(t, err)
 		defer dbm.release()
 
@@ -503,10 +632,11 @@ func TestDocBitmapContainsBatch_ContextCancelledMidLoop(t *testing.T) {
 			}
 
 			s := &Searcher{bitmapFactory: roaringset.NewBitmapFactory(fixture.pool, func() uint64 { return 300_000 })}
-			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t), &propValuePair{
+			pv := &propValuePair{
 				operator:     filters.ContainsAny,
 				containsKeys: keysFrom(t, []byte("a"), []byte("b"), []byte("c")),
-			})
+			}
+			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
 			require.ErrorIs(t, err, context.Canceled)
 			require.Equal(t, docBitmap{}, dbm)
 

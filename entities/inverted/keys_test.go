@@ -428,6 +428,92 @@ func TestBuildDropsDuplicatesAcrossShapes(t *testing.T) {
 	}
 }
 
+// TestFirstAtOrAfter pins the gallop against a linear scan, over every
+// (from, to, target) the list admits and both layouts, since the two index
+// the slab differently. to is swept along with from since it is the caller's
+// window, not the list's end, and a stride running past it must not answer
+// with a key outside that window.
+func TestFirstAtOrAfter(t *testing.T) {
+	t.Parallel()
+
+	layouts := []struct {
+		name  string
+		build func(tb testing.TB, keys []string) SortedKeys
+	}{
+		{name: "variable width", build: buildVariable},
+		{name: "fixed width", build: fixedBuilder(1)},
+		// Wider than the keys and zero-padded, so the slab is strided rather
+		// than packed.
+		{name: "fixed width, padded", build: fixedBuilder(8)},
+	}
+	// Every other printable byte, so a target can fall on a key or in the gap
+	// between two, with enough gaps that the gallop's stride doubles a few times.
+	var letters []string
+	for c := byte('!'); c <= '~'; c += 2 {
+		letters = append(letters, string(c))
+	}
+
+	for _, layout := range layouts {
+		t.Run(layout.name, func(t *testing.T) {
+			t.Parallel()
+
+			keys := layout.build(t, letters)
+			n := keys.Len()
+
+			// First key, its gap, middle, end, and one before/after all of them.
+			last := len(letters) - 1
+			targets := []string{
+				"", letters[0], next(letters[0]),
+				letters[last/2], next(letters[last/2]),
+				letters[last], next(letters[last]),
+			}
+			for _, target := range targets {
+				for from := 0; from <= n; from++ {
+					for _, to := range []int{from, (from + n) / 2, n} {
+						want := to
+						for i := from; i < to; i++ {
+							if string(keys.At(i)) >= target {
+								want = i
+								break
+							}
+						}
+						assert.Equalf(t, want, keys.FirstAtOrAfter(from, to, []byte(target)),
+							"FirstAtOrAfter(from=%d, to=%d, target=%q)", from, to, target)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestFirstAtOrAfterOutsideItsRange pins the two caller errors the godoc
+// warns about but nothing checks, so the documented behaviour is the tested
+// one rather than whatever the arithmetic happens to produce.
+func TestFirstAtOrAfterOutsideItsRange(t *testing.T) {
+	t.Parallel()
+
+	letters := []string{"a", "c", "e", "g", "i"}
+
+	t.Run("an inverted range answers from, which is past to", func(t *testing.T) {
+		t.Parallel()
+
+		keys := buildVariable(t, letters)
+		for _, target := range []string{"", "a", "e", "z"} {
+			assert.Equalf(t, 4, keys.FirstAtOrAfter(4, 2, []byte(target)),
+				"target %q", target)
+		}
+	})
+
+	t.Run("a range past the end reads past the keys", func(t *testing.T) {
+		t.Parallel()
+
+		keys := buildVariable(t, letters)
+		require.Panics(t, func() {
+			keys.FirstAtOrAfter(0, keys.Len()+8, []byte("z"))
+		})
+	})
+}
+
 // fixedBuilder adapts buildFixed to the table's build signature, which takes the
 // TB so a builder error fails the case rather than being dropped.
 func fixedBuilder(width int) func(tb testing.TB, keys []string) SortedKeys {
@@ -604,3 +690,7 @@ func TestShrinkKeysReleasesTheDedupedTail(t *testing.T) {
 		})
 	})
 }
+
+// next is the single-byte key after k, which for a list of every other byte is a
+// target sitting in the gap that follows it.
+func next(k string) string { return string(k[0] + 1) }

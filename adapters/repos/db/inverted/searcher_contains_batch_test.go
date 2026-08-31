@@ -14,6 +14,7 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -617,12 +618,21 @@ func TestFetchContainsBatch_BucketErrors(t *testing.T) {
 // them to a segment, so the batch reader below reads real disk layers.
 func writeContainsRows(t *testing.T, f *containsBatchGateFixture, propName string, rows map[string][]uint64) {
 	t.Helper()
+	writeContainsRowsUnflushed(t, f, propName, rows)
+	b := f.searcher.store.Bucket(helpers.BucketFromPropNameLSM(propName))
+	require.NoError(t, b.FlushAndSwitch())
+}
+
+// writeContainsRowsUnflushed leaves the rows in the active memtable, which is
+// the only state in which the reader's window read runs at all: a flushed bucket
+// has an empty active memtable and the reader drops it from the view.
+func writeContainsRowsUnflushed(t *testing.T, f *containsBatchGateFixture, propName string, rows map[string][]uint64) {
+	t.Helper()
 	b := f.searcher.store.Bucket(helpers.BucketFromPropNameLSM(propName))
 	require.NotNil(t, b)
 	for key, docIDs := range rows {
 		require.NoError(t, b.RoaringSetAddList([]byte(key), docIDs))
 	}
-	require.NoError(t, b.FlushAndSwitch())
 }
 
 // TestFetchContainsBatch_ReadsRows pins the wiring between key extraction and
@@ -670,12 +680,19 @@ func TestFetchContainsBatch_ReadsRows(t *testing.T) {
 	}
 }
 
+// readerAnnotationFields are the slow-query fields only a reader can fill,
+// named once so both halves of the present/absent guard below use the same set.
+var readerAnnotationFields = []string{
+	"window_fills", "window_narrowed_fills", "batch_keys_served",
+	"window_bytes_peak", "window_bytes_copied", "memtable_reads", "memtables",
+}
+
 // TestFetchContainsBatch_AnnotatesSlowQueryLog pins the slow-query annotation
 // for a batched read — that it fires and carries the fields an operator reads —
 // and that an empty key set, which does no work, logs nothing. Where the timing
-// window starts is not observable from here, and neither is the view's release;
-// the refcount assertion for that lives in TestRoaringSetBatchReader_ReleaseGuard
-// (getRefs is unexported in lsmkv).
+// window starts is not observable from here. The view's release is, but only as
+// a consequence: a leaked view keeps a segment referenced and this test's bucket
+// then hangs on Shutdown.
 func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 	f := newContainsBatchGateFixture(t)
 	writeContainsRows(t, f, "prop-int", map[string][]uint64{"a": {1, 2}, "b": {2, 3}})
@@ -707,6 +724,88 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.Equal(t, 2, entries[0]["batched_keys"])
 		require.Contains(t, entries[0], "took")
 		require.Contains(t, entries[0], "took_string")
+	})
+
+	// Own fixture, unflushed: the shared one flushes, and a reader over a
+	// flushed bucket drops the active memtable, reading all memtable fields as zero.
+	t.Run("the annotation carries the reader's work", func(t *testing.T) {
+		g := newContainsBatchGateFixture(t)
+		writeContainsRowsUnflushed(t, g, "prop-int", map[string][]uint64{"a": {1, 2}, "b": {2, 3}})
+
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		pv := &propValuePair{
+			prop:               "prop-int",
+			operator:           filters.ContainsAny,
+			containsKeys:       keysFrom(t, []byte("a"), []byte("b")),
+			hasFilterableIndex: true,
+			Class:              g.class,
+		}
+		dbm, err := pv.fetchContainsBatch(ctx, g.searcher)
+		require.NoError(t, err)
+		defer dbm.release()
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+
+		require.Equal(t, 1, entries[0]["memtable_reads"], "one fill of the one active memtable")
+		require.Equal(t, 2, entries[0]["batch_keys_served"], "both keys were folded")
+		// Just wired through, not pinned to a value; window-fill counting is
+		// TestBatchReaderStatsReportTheWork's job.
+		require.GreaterOrEqual(t, entries[0]["window_fills"], 1)
+		require.Greater(t, entries[0]["window_bytes_peak"], 0)
+		require.Greater(t, entries[0]["window_bytes_copied"], 0)
+		// Nothing here reaches the byte budget, so the only right answer is zero
+		// — and every other stat is non-zero, so this also catches the field
+		// being wired to one of them.
+		require.Equal(t, 0, entries[0]["window_narrowed_fills"], "no window ended on the budget")
+	})
+
+	// Wide enough to take several fills, so a wiring that reported one
+	// acquisition per batch shows up. window_fills and memtable_reads cannot
+	// diverge here: that takes a second memtable, which this package cannot
+	// reach.
+	t.Run("the annotation counts memtable acquisitions", func(t *testing.T) {
+		g := newContainsBatchGateFixture(t)
+
+		const n = 2*1024 + 50
+		rows := make(map[string][]uint64, n)
+		names := make([][]byte, n)
+		for i := range names {
+			names[i] = []byte(fmt.Sprintf("k%06d", i))
+			rows[string(names[i])] = []uint64{uint64(i)}
+		}
+		writeContainsRowsUnflushed(t, g, "prop-int", rows)
+
+		// A batch this wide takes the Accumulator fold, which the gate fixture's
+		// searcher has no factory for.
+		g.searcher.bitmapFactory = roaringset.NewBitmapFactory(
+			roaringset.NewBitmapBufPoolTrackingForTests(), func() uint64 { return 300_000 })
+
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		pv := &propValuePair{
+			prop:               "prop-int",
+			operator:           filters.ContainsAny,
+			containsKeys:       keysFrom(t, names...),
+			hasFilterableIndex: true,
+			Class:              g.class,
+		}
+		dbm, err := pv.fetchContainsBatch(ctx, g.searcher)
+		require.NoError(t, err)
+		defer dbm.release()
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+
+		fills, ok := entries[0]["window_fills"].(int)
+		require.True(t, ok)
+		require.Greater(t, fills, 1, "the batch must span windows, or this proves nothing")
+		require.Equal(t, fills, entries[0]["memtable_reads"],
+			"the one memtable is read once per fill, not once per batch")
+		// Asserted here rather than beside a single-fill batch, where it would
+		// equal the fill count and could not be told from it.
+		require.Equal(t, 1, entries[0]["memtables"], "one memtable, and nothing flushing behind it")
 	})
 
 	// The annotation counts keys, not the values the filter named, and the two
@@ -750,6 +849,11 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.Equal(t, 0, entries[0]["count"])
 		require.Equal(t, true, entries[0]["failed"],
 			"a zero count means nothing without this: an empty result looks identical")
+		// No reader was built, so these fields must be absent, not present-and-zero.
+		for _, k := range readerAnnotationFields {
+			require.NotContains(t, entries[0], k,
+				"a filter that never opened a reader must not report the reader's work")
+		}
 	})
 
 	t.Run("a fold that fails after the reader opened is still annotated", func(t *testing.T) {
@@ -767,6 +871,12 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.Equal(t, "prop-int", entries[0]["prop"])
 		require.Equal(t, 0, entries[0]["count"])
 		require.Equal(t, true, entries[0]["failed"])
+		// The reader was opened, so these fields must be present (values
+		// unasserted; this fixture flushes, so what the reader found doesn't matter).
+		for _, k := range readerAnnotationFields {
+			require.Contains(t, entries[0], k,
+				"a fold that opened a reader must report its work even when it failed")
+		}
 	})
 
 	// Both returns that precede the timer: nothing has been done, so there is no

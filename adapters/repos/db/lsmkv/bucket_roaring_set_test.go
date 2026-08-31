@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -77,9 +78,10 @@ func TestRoaringSetWritePathRefCount(t *testing.T) {
 	require.Equal(t, []uint64{1, 3, 4, 5, 6, 7}, v.ToArray())
 }
 
-// TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError pins a
-// disk-buffer leak on flushing/active read errors after acquisition.
-func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *testing.T) {
+// TestBucket_RoaringSetGetFromConsistentView_MemtableErrorLeavesTheDiskRowUnread
+// pins that a failing memtable read cannot leak the disk row's pooled buffer:
+// memtables are read first, so the buffer is never acquired at all.
+func TestBucket_RoaringSetGetFromConsistentView_MemtableErrorLeavesTheDiskRowUnread(t *testing.T) {
 	t.Parallel()
 
 	readErr := errors.New("simulated memtable read error")
@@ -90,7 +92,7 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 		})
 	}
 
-	t.Run("active read error frees disk layer via defer, returns caller-safe noop", func(t *testing.T) {
+	t.Run("active read error leaves the disk row unread, returns caller-safe noop", func(t *testing.T) {
 		diskSeg := newDiskSeg()
 		active := newTestMemtableRoaringSet(nil)
 		active.roaringSetGetErr = readErr
@@ -107,15 +109,17 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 		require.Nil(t, bm)
 		require.NotNil(t, release)
 
-		require.Equal(t, 1, diskSeg.roaringSetReleases,
-			"disk layer's release must fire when the active read errors")
+		require.Equal(t, 0, diskSeg.getCounter,
+			"the disk row must not be read once the active read has failed")
+		require.Equal(t, 0, diskSeg.roaringSetReleases,
+			"nothing was acquired, so nothing needs releasing")
 
 		release()
-		require.Equal(t, 1, diskSeg.roaringSetReleases,
-			"returned release must be a noop; buffer already freed by defer")
+		require.Equal(t, 0, diskSeg.roaringSetReleases,
+			"returned release must be a noop")
 	})
 
-	t.Run("flushing read error frees disk layer via defer", func(t *testing.T) {
+	t.Run("flushing read error leaves the disk row unread", func(t *testing.T) {
 		diskSeg := newDiskSeg()
 		flushing := newTestMemtableRoaringSet(nil)
 		flushing.roaringSetGetErr = readErr
@@ -131,11 +135,13 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 		bm, release, err := b.roaringSetGetFromConsistentView(view, []byte("key1"), concurrency.SROAR_MERGE)
 		require.ErrorIs(t, err, readErr)
 		require.Nil(t, bm)
-		require.Equal(t, 1, diskSeg.roaringSetReleases,
-			"disk layer's release must fire when the flushing read errors")
+		require.Equal(t, 0, diskSeg.getCounter,
+			"the disk row must not be read once the flushing read has failed")
+		require.Equal(t, 0, diskSeg.roaringSetReleases,
+			"nothing was acquired, so nothing needs releasing")
 
 		release()
-		require.Equal(t, 1, diskSeg.roaringSetReleases)
+		require.Equal(t, 0, diskSeg.roaringSetReleases)
 	})
 
 	t.Run("success path defers nothing, caller owns the release", func(t *testing.T) {
@@ -246,13 +252,13 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	})
 }
 
-// TestBucket_RoaringSetBatchReader_MatchesRoaringSetGet proves the batched-read
+// TestBatchReaderMatchesRoaringSetGet proves the batched-read
 // primitive returns byte-identical results to the per-key RoaringSetGet entry
 // point, whether the key is present across several on-disk segments plus the
 // active memtable, or absent entirely, and that one reader serves every read.
 // The active memtable holds unflushed data when the reader is built, so the
 // batch reads it too and parity is exact.
-func TestBucket_RoaringSetBatchReader_MatchesRoaringSetGet(t *testing.T) {
+func TestBatchReaderMatchesRoaringSetGet(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	tmpDir := t.TempDir()
@@ -299,39 +305,28 @@ func TestBucket_RoaringSetBatchReader_MatchesRoaringSetGet(t *testing.T) {
 	require.Empty(t, arrWantMissing, "absent key must resolve to an empty, non-nil bitmap")
 
 	// one reader serves all three reads below
-	reader, err := b.NewRoaringSetBatchReader()
+	// one reader serves the whole batch, in the order it sorts into
+	keys := sortedKeysOf(t, []string{string(keyA), string(keyB), string(keyMissing)})
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+	reader, err := NewRoaringSetBatchReader(view, keys)
 	require.NoError(t, err)
-	defer reader.Release()
 
-	gotA, releaseA, err := reader.Get(keyA, concurrency.SROAR_MERGE)
-	require.NoError(t, err)
-	require.Equal(t, arrWantA, gotA.ToArray())
-	releaseA()
-
-	gotB, releaseB, err := reader.Get(keyB, concurrency.SROAR_MERGE)
-	require.NoError(t, err)
-	require.Equal(t, arrWantB, gotB.ToArray())
-	releaseB()
-
-	gotMissing, releaseMissing, err := reader.Get(keyMissing, concurrency.SROAR_MERGE)
-	require.NoError(t, err)
-	require.NotNil(t, gotMissing)
-	require.Empty(t, gotMissing.ToArray())
-	releaseMissing()
+	requireRowsAre(t, reader, keys, map[string][]uint64{
+		string(keyA):       arrWantA,
+		string(keyB):       arrWantB,
+		string(keyMissing): nil,
+	})
 }
 
-// TestBucket_RoaringSetBatchReader_SurvivesFlushAndSwitch pins the view
-// stability that justifies holding one view for a whole batch: reads through a
-// reader built before a FlushAndSwitch must keep resolving without error (the
-// flushed-away memtable stays readable through the held reference) and keep
-// returning the pre-switch state — writes landing in the new active memtable
-// must stay invisible. A fresh RoaringSetGet sees the post-switch write,
-// proving the view pinned state rather than the two paths coincidentally
-// agreeing.
-// (A view is not a write snapshot: writes before the switch go to the old
-// active memtable the view references, so only post-switch invisibility is
-// asserted.)
-func TestBucket_RoaringSetBatchReader_SurvivesFlushAndSwitch(t *testing.T) {
+// TestBatchReaderSurvivesFlushAndSwitch pins the view stability a whole-batch
+// reader relies on: a flush landing mid-fold must not disturb keys still to be
+// read. The second key's window fills after the switch, through a memtable the
+// bucket has already moved past, and must still answer the pre-switch state —
+// a fresh RoaringSetGet, by contrast, sees the post-switch write. (Writes
+// before the switch still land in the old active memtable the view
+// references, so only post-switch invisibility is asserted.)
+func TestBatchReaderSurvivesFlushAndSwitch(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 
@@ -344,19 +339,27 @@ func TestBucket_RoaringSetBatchReader_SurvivesFlushAndSwitch(t *testing.T) {
 
 	b.SetMemtableThreshold(1e9) // flush only via the explicit switch below
 
-	key := []byte("key")
+	first, second := []byte("key1"), []byte("key2")
 
 	// one disk segment plus unflushed state in the active memtable, so the
 	// view references both layer kinds when taken
-	require.NoError(t, b.RoaringSetAddList(key, []uint64{1, 2, 3}))
+	for _, k := range [][]byte{first, second} {
+		require.NoError(t, b.RoaringSetAddList(k, []uint64{1, 2, 3}))
+	}
 	require.NoError(t, b.FlushAndSwitch())
-	require.NoError(t, b.RoaringSetAddList(key, []uint64{4}))
+	for _, k := range [][]byte{first, second} {
+		require.NoError(t, b.RoaringSetAddList(k, []uint64{4}))
+	}
 
-	reader, err := b.NewRoaringSetBatchReader()
+	keys := sortedKeysOf(t, []string{string(first), string(second)})
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+	// One key per window, so the second key's window fills after the switch
+	// below, reading a memtable the bucket has already moved past.
+	reader, err := newRoaringSetBatchReaderWithBounds(view, keys, 1, math.MaxInt)
 	require.NoError(t, err)
-	defer reader.Release()
 
-	before, releaseBefore, err := reader.Get(key, concurrency.SROAR_MERGE)
+	before, releaseBefore, err := reader.Next(concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	arrBefore := append([]uint64(nil), before.ToArray()...)
 	releaseBefore()
@@ -364,15 +367,15 @@ func TestBucket_RoaringSetBatchReader_SurvivesFlushAndSwitch(t *testing.T) {
 
 	// flush the memtable the view references, then write past the view
 	require.NoError(t, b.FlushAndSwitch())
-	require.NoError(t, b.RoaringSetAddList(key, []uint64{5}))
+	require.NoError(t, b.RoaringSetAddList(second, []uint64{5}))
 
-	after, releaseAfter, err := reader.Get(key, concurrency.SROAR_MERGE)
+	after, releaseAfter, err := reader.Next(concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	require.Equal(t, arrBefore, after.ToArray(),
-		"view read must keep returning the pre-switch state")
+		"a window filled after the switch must still read the pre-switch state")
 	releaseAfter()
 
-	fresh, releaseFresh, err := b.RoaringSetGet(ctx, key)
+	fresh, releaseFresh, err := b.RoaringSetGet(ctx, second)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{1, 2, 3, 4, 5}, fresh.ToArray(),
 		"a fresh read must see the post-switch write the view cannot")
@@ -570,41 +573,25 @@ func requireRoaringSetElements(t *testing.T, ctx context.Context, b *Bucket, key
 	require.ElementsMatch(t, want, bm.ToArray())
 }
 
-// TestRoaringSetBatchReader pins the batch reader's contract: it validates the
+// TestBatchReaderValidatesAndFoldsLikeThePerKeyPath pins the batch reader's contract: it validates the
 // strategy once, and it folds exactly the layers a per-key read would — except
 // that an active memtable empty at view time is skipped for the whole batch,
 // the behavior the reader exists for.
-func TestRoaringSetBatchReader(t *testing.T) {
+func TestBatchReaderValidatesAndFoldsLikeThePerKeyPath(t *testing.T) {
 	t.Parallel()
 
-	t.Run("wrong strategy errors before taking a view", func(t *testing.T) {
-		b := Bucket{strategy: StrategyReplace, logger: nullLogger()}
-		reader, err := b.NewRoaringSetBatchReader()
+	t.Run("wrong strategy is refused", func(t *testing.T) {
+		b := Bucket{
+			strategy: StrategyReplace,
+			disk:     &SegmentGroup{},
+			logger:   nullLogger(),
+		}
+		view := b.GetConsistentView()
+		defer view.ReleaseView()
+
+		reader, err := NewRoaringSetBatchReader(view, sortedKeysOf(t, []string{"k"}))
 		require.Error(t, err)
 		require.Nil(t, reader)
-	})
-
-	// A bucket with no active memtable at all is distinct from one whose active
-	// memtable is empty, and the read path accepts it — so the constructor must
-	// too. It takes the view before inspecting the memtable, and no caller holds
-	// the reader yet, so a panic there leaves the segment refs held for good and
-	// Shutdown waits on them forever.
-	t.Run("no active memtable reads disk only", func(t *testing.T) {
-		b := Bucket{
-			strategy: StrategyRoaringSet,
-			disk: &SegmentGroup{segments: []Segment{newFakeRoaringSetSegment(
-				map[string]*sroar.Bitmap{"k": bitmapFromSlice([]uint64{1, 2})})}},
-			logger: nullLogger(),
-		}
-
-		reader, err := b.NewRoaringSetBatchReader()
-		require.NoError(t, err)
-		defer reader.Release()
-
-		bm, release, err := reader.Get([]byte("k"), 1)
-		require.NoError(t, err)
-		defer release()
-		require.Equal(t, []uint64{1, 2}, bm.ToArray())
 	})
 
 	// The eight presence combinations of the three layers — a new case belongs
@@ -678,16 +665,19 @@ func TestRoaringSetBatchReader(t *testing.T) {
 				b.flushing = newTestMemtableRoaringSet(map[string][]uint64{"k": tc.flushing})
 			}
 			if tc.flushingDeletes != nil {
+				// Through roaringSetRemoveList, not straight into the tree, so size
+				// tracks what it holds — the reader skips a memtable reporting 0.
 				mt := newTestMemtableRoaringSet(nil)
-				mt.roaringSet.Insert([]byte("k"), roaringset.Insert{Deletions: tc.flushingDeletes})
+				require.NoError(t, mt.roaringSetRemoveList([]byte("k"), tc.flushingDeletes))
 				b.flushing = mt
 			}
 
-			reader, err := b.NewRoaringSetBatchReader()
+			view := b.GetConsistentView()
+			defer view.ReleaseView()
+			reader, err := NewRoaringSetBatchReader(view, sortedKeysOf(t, []string{"k"}))
 			require.NoError(t, err)
-			defer reader.Release()
 
-			bm, release, err := reader.Get([]byte("k"), concurrency.SROAR_MERGE)
+			bm, release, err := reader.Next(concurrency.SROAR_MERGE)
 			require.NoError(t, err)
 			defer release()
 			require.Equal(t, tc.want, bm.ToArray())
@@ -703,16 +693,17 @@ func TestRoaringSetBatchReader(t *testing.T) {
 			logger: nullLogger(),
 		}
 
-		reader, err := b.NewRoaringSetBatchReader()
+		view := b.GetConsistentView()
+		defer view.ReleaseView()
+		reader, err := NewRoaringSetBatchReader(view, sortedKeysOf(t, []string{"k"}))
 		require.NoError(t, err)
-		defer reader.Release()
 
 		// a racing write into the active memtable the reader snapshotted as
 		// empty, through the same path a real writer takes so the size
 		// accounting is exercised too
 		require.NoError(t, b.RoaringSetAddList([]byte("k"), []uint64{99}))
 
-		bm, release, err := reader.Get([]byte("k"), 1)
+		bm, release, err := reader.Next(1)
 		require.NoError(t, err)
 		defer release()
 		require.Equal(t, []uint64{1, 2}, bm.ToArray(),
@@ -729,13 +720,13 @@ func rowOrNil(docIDs []uint64) map[string][]uint64 {
 	return map[string][]uint64{"k": docIDs}
 }
 
-// TestRoaringSetBatchReader_ActiveTombstones pins the invariant the
+// TestBatchReaderFoldsActiveTombstones pins the invariant the
 // empty-active-memtable skip rests on: a delete makes the active memtable
 // non-empty, so the batch still reads it. If deletions ever stopped counting
 // towards Memtable.Size(), the skip would silently resurrect every deleted doc
 // — a wrong-results bug with no error anywhere, and the read-path tests that
 // use RoaringSetGet would not catch it.
-func TestRoaringSetBatchReader_ActiveTombstones(t *testing.T) {
+func TestBatchReaderFoldsActiveTombstones(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -757,76 +748,173 @@ func TestRoaringSetBatchReader_ActiveTombstones(t *testing.T) {
 	// the tombstone stays in the otherwise-empty active memtable
 	require.NoError(t, b.RoaringSetRemoveOne(key, 2))
 
-	reader, err := b.NewRoaringSetBatchReader()
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+	reader, err := NewRoaringSetBatchReader(view, sortedKeysOf(t, []string{string(key)}))
 	require.NoError(t, err)
-	defer reader.Release()
 
-	bm, release, err := reader.Get(key, 1)
+	bm, release, err := reader.Next(1)
 	require.NoError(t, err)
 	defer release()
 	require.Equal(t, []uint64{1, 3}, bm.ToArray(),
 		"a tombstone-only active memtable must not be treated as empty")
 }
 
-// TestRoaringSetBatchReader_ReleaseGuard pins the reader's lifetime guard. The
-// case that matters is the one that never panics: with a second reader holding
-// the same segments, an unguarded double release drops the refcount to zero
-// while that reader is live, and the compaction cycle then unmaps and deletes
-// the segment out from under it. Asserting refcounts rather than
-// absence-of-panic is therefore the point.
-func TestRoaringSetBatchReader_ReleaseGuard(t *testing.T) {
-	t.Parallel()
+// completeParkedFlush finishes the flush b.flushing holds, so Bucket.Shutdown
+// can return. The slot is cleared whatever happens, because Shutdown waits on
+// it with no bound when its context is context.Background().
+func completeParkedFlush(t *testing.T, b *Bucket) {
+	t.Helper()
+	if b.flushing == nil {
+		return
+	}
+	defer func() { b.flushing = nil }()
+	b.waitForZeroWriters(b.flushing)
+	segmentPath, err := b.flushing.flush()
+	require.NoError(t, err)
+	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
+	require.NoError(t, err)
+	require.NoError(t, b.atomicallyAddDiskSegmentAndRemoveFlushing(segment))
+	require.Nil(t, b.flushing, "the segment add must clear the flushing slot")
+}
 
-	newBucket := func(seg *fakeSegment) Bucket {
-		return Bucket{
-			strategy: StrategyRoaringSet,
-			disk:     &SegmentGroup{segments: []Segment{seg}},
-			active:   newTestMemtableRoaringSet(nil),
-			logger:   nullLogger(),
-		}
+// TestBatchReaderFoldsARealSwitchOldestFirst pins the layer order against a
+// bucket that performed the switch itself. Every other two-memtable test puts a
+// memtable in b.flushing and another in b.active by hand — some of them behind
+// a real GetConsistentView — so the test is what decides which one is older.
+// Here the switch decides, which is what viewMemtablesOldestFirst assumes: that
+// b.flushing predates b.active.
+//
+// The fixture is a document deleted in the switched-out memtable and re-added
+// in the new active one. Folded oldest first it survives; reversed, the
+// deletion lands last and it disappears. An additions-only fixture answers the
+// same either way, which is why one is not enough here.
+func TestBatchReaderFoldsARealSwitchOldestFirst(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+	b.SetMemtableThreshold(1e9) // switch only where this test says so
+
+	// Registered after the Shutdown cleanup so it runs before it, and above
+	// b.FlushAndSwitch so a failure there is covered too. The Shutdown cleanup
+	// passes context.Background(), so Shutdown's wait on b.flushing never ends.
+	t.Cleanup(func() { completeParkedFlush(t, b) })
+
+	key := []byte("k")
+	require.NoError(t, b.RoaringSetAddList(key, []uint64{7}))
+	require.NoError(t, b.FlushAndSwitch()) // 7 is now on disk
+
+	require.NoError(t, b.RoaringSetRemoveOne(key, 7))
+	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
+	require.NoError(t, err)
+	require.True(t, switched, "the delete must land in a memtable the switch moves")
+
+	require.NoError(t, b.RoaringSetAddList(key, []uint64{7}))
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+	require.NotNil(t, view.Flushing, "without a flushing memtable there are no two orders to tell apart")
+
+	keys := sortedKeysOf(t, []string{string(key)})
+	r, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, readerWindowBytes)
+	require.NoError(t, err)
+	got, release, err := r.Next(concurrency.SROAR_MERGE)
+	require.NoError(t, err)
+	defer release()
+	require.Equal(t, []uint64{7}, docsOrNil(got),
+		"the re-add in active must outlive the delete in flushing")
+}
+
+// TestBatchReaderLeavesNoSegmentRefBehind pins the reader's half of the
+// ownership split: it borrows the view's segments and releases nothing, so the
+// single GetConsistentView/ReleaseView pair around a fold is what has to
+// balance. Nothing inside the reader guards against a view already released,
+// which is why the balance is asserted from outside it.
+func TestBatchReaderLeavesNoSegmentRefBehind(t *testing.T) {
+	readErr := errors.New("injected memtable failure")
+
+	tests := []struct {
+		name string
+		// failing swaps in an active memtable that errors, so the fold stops on
+		// an error rather than reaching the end of the batch. The balance has to
+		// hold either way, and only the drained half was covered.
+		failing bool
+	}{
+		{name: "the batch is drained"},
+		{name: "a read fails part way", failing: true},
 	}
 
-	t.Run("double release keeps a concurrent reader's segment refs", func(t *testing.T) {
-		seg := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{"k": bitmapFromSlice([]uint64{1, 2})})
-		b := newBucket(seg)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			logger, _ := test.NewNullLogger()
 
-		reader, err := b.NewRoaringSetBatchReader()
-		require.NoError(t, err)
-		other, err := b.NewRoaringSetBatchReader()
-		require.NoError(t, err)
-		defer other.Release()
-		require.Equal(t, 2, seg.getRefs(), "both readers pin the segment")
+			b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+			// Registered after the Shutdown cleanup so it runs before it, and above
+			// b.FlushAndSwitch so a failure there is covered too. The Shutdown cleanup
+			// passes context.Background(), so Shutdown's wait on b.flushing never ends.
+			t.Cleanup(func() { completeParkedFlush(t, b) })
 
-		reader.Release()
-		reader.Release()
-		require.Equal(t, 1, seg.getRefs(),
-			"the surviving reader's ref must outlive the other's double release")
+			names := []string{"aaa", "bbb", "ccc"}
+			for i, n := range names {
+				require.NoError(t, b.RoaringSetAddList([]byte(n), []uint64{uint64(i)}))
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			require.Equal(t, 1, b.disk.Len(), "the fold must have a real segment to hold a ref on")
 
-		// the surviving reader still reads its pinned segment
-		bm, release, err := other.Get([]byte("k"), 1)
-		require.NoError(t, err)
-		defer release()
-		require.Equal(t, []uint64{1, 2}, bm.ToArray())
-	})
+			seg := b.disk.segments[0]
+			// Registered after the Shutdown cleanup so it runs before it, and above the
+			// assertions below: any failure among them can leave a ref outstanding, and
+			// SegmentGroup.waitForReferenceCountToReachZero waits on it with no context.
+			t.Cleanup(func() {
+				for n := seg.getRefs(); n > 0; n-- {
+					seg.decRef()
+				}
+			})
+			require.Zero(t, seg.getRefs(), "precondition: no view held yet")
 
-	t.Run("get after release errors instead of reading a freed view", func(t *testing.T) {
-		seg := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{"k": bitmapFromSlice([]uint64{1, 2})})
-		b := newBucket(seg)
+			view := b.GetConsistentView()
+			require.Positive(t, seg.getRefs(), "the view must hold the segment while the fold runs")
 
-		reader, err := b.NewRoaringSetBatchReader()
-		require.NoError(t, err)
+			if tc.failing {
+				// The flush left the real active memtable empty, and the reader
+				// drops an empty one, so a memtable that can fail has to be put
+				// back before there is a read to fail.
+				active := newTestMemtableRoaringSet(map[string][]uint64{"aaa": {0}})
+				active.roaringSetGetWindowErr = readErr
+				view.Active = active
+			}
 
-		bm, release, err := reader.Get([]byte("k"), 1)
-		require.NoError(t, err)
-		require.Equal(t, []uint64{1, 2}, bm.ToArray(), "reads before Release still work")
-		release()
+			keys := sortedKeysOf(t, names)
+			r, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, readerWindowBytes)
+			require.NoError(t, err)
 
-		reader.Release()
+			if tc.failing {
+				_, release, err := r.Next(concurrency.SROAR_MERGE)
+				require.ErrorIs(t, err, readErr)
+				require.Nil(t, release, "a failed read returns nothing to release")
+			} else {
+				for range names {
+					_, release, err := r.Next(concurrency.SROAR_MERGE)
+					require.NoError(t, err)
+					release()
+				}
+			}
+			require.Positive(t, seg.getRefs(), "the reader must not release what it borrowed")
 
-		bm, release, err = reader.Get([]byte("k"), 1)
-		require.ErrorIs(t, err, ErrReaderReleased)
-		require.Nil(t, bm)
-		require.NotNil(t, release, "the returned release must stay safe to call")
-		release()
-	})
+			view.ReleaseView()
+			require.Zero(t, seg.getRefs(), "one view, one release: the fold must leave the segment as it found it")
+		})
+	}
 }
