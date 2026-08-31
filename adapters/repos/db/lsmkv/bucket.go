@@ -638,6 +638,8 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 }
 
 type BucketConsistentView struct {
+	// Active is nil for a bucket with no active memtable. Most reads below
+	// dereference it unguarded, so nil it only in a copy you own.
 	Active   memtable
 	Flushing memtable
 	Disk     []Segment
