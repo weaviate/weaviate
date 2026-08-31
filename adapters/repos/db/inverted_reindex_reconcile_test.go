@@ -1969,3 +1969,21 @@ func TestAWedgedRecordIsDiagnosedOncePerLoadedStore(t *testing.T) {
 	require.Equal(t, MigrationStateMerged, state, "and nothing promoted or discarded it")
 	require.True(t, f.exists("property_title__g42_ingest"), "its staged data is untouched")
 }
+
+// TestMigrationReportedNamesCapsAPropertyList pins the shared cap every log
+// line carrying a property list goes through. A property list is user-chosen,
+// so its length is not bounded by anything the code decides.
+func TestMigrationReportedNamesCapsAPropertyList(t *testing.T) {
+	names := make([]string, 0, 30)
+	for i := 0; i < 30; i++ {
+		names = append(names, fmt.Sprintf("prop_%02d", i))
+	}
+
+	got := migrationReportedNames(names)
+
+	require.Len(t, got, maxReportedErrors+1, "the cap, plus the entry accounting for the rest")
+	require.Equal(t, "(and 20 more)", got[len(got)-1])
+	require.Equal(t, "prop_00", got[0], "sorted, so the same list reads the same way twice")
+	require.Equal(t, []string{"only"}, migrationReportedNames([]string{"only"}),
+		"a list within the cap is reported whole")
+}

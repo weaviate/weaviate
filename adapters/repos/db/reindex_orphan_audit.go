@@ -466,7 +466,8 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 			}
 			logger.WithField("collection", collection).WithField("shard", shardName).
 				WithField("tracker", dirName).WithField("tracker_mtime", mtime).
-				WithField("props", payload.props).
+				WithField("property_count", len(payload.props)).
+				WithField("props", migrationReportedNames(payload.props)).
 				Warn("reindex orphan audit: tracker predating this process names no migration record; quarantining it as a class-level orphan")
 			orphans = append(orphans, orphanReindexTracker{
 				collection:  collection,
