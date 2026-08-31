@@ -30,10 +30,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
+	"github.com/weaviate/weaviate/test/acceptance/helpers/reindexrecords"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
@@ -311,10 +314,11 @@ func submitChangeTokenization(t *testing.T, restURI, collection, property, targe
 		fmt.Sprintf(`{"tokenization":%q}`, target))
 }
 
-// testPostRestartOrphanAuditClearsTracker injects an orphan tracker
-// dir + sidecar bucket on disk (the shape a pre-fix backup-restore
-// would leave), restarts the container, and asserts the post-bootstrap
-// audit removes both while leaving the canonical bucket and data intact.
+// testPostRestartOrphanAuditClearsTracker injects an orphan migration on
+// disk, restarts the container, and asserts its directories are reclaimed
+// while the canonical bucket and data stay intact — either by reconciliation
+// at shard load, or by the post-bootstrap audit as backstop for a shard that
+// never loads.
 func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI string) {
 	const (
 		className   = "ReindexBackup_OrphanAudit"
@@ -347,10 +351,35 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 		"baseline restart must not lose data")
 
 	lsmPath := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName)
-	orphanDir := "searchable_retokenize_body_999" // gen 999 is far outside any runtime-picked value
-	sidecarBucket := "property_body_searchable__retokenize_reindex_999"
-	injectOrphanTrackerOnDisk(t, ctx, container, lsmPath, orphanDir, sidecarBucket,
-		`{"taskID":"orphan-from-prefix-backup","taskVersion":1,"unitID":"u0","payload":{"collection":"`+className+`","migrationType":"change-tokenization","properties":["body"],"targetTokenization":"lowercase","bucketStrategy":"map_collection"}}`)
+	// Generation 999 is far outside any runtime-picked value.
+	const orphanGeneration = 999
+	orphanDir := reindexrecords.TrackerDir(t, db.StrategyCodeSearchableRetokenize,
+		[]string{"body"}, orphanGeneration)
+	handles := reindexrecords.HandlesFor(t, db.StrategyCodeSearchableRetokenize,
+		"body", orphanGeneration)
+	// Iterating: nothing is staged completely, so no reader may treat the
+	// canonical bucket as replaceable, and the target tokenization the subject
+	// names is one the collection's schema does not show.
+	recordFile, recordJSON := reindexrecords.Encode(t, db.NewMigrationRecordIterating(db.MigrationSubject{
+		Key: db.MigrationRecordKey{
+			TaskVersion:  1,
+			StrategyCode: db.StrategyCodeSearchableRetokenize,
+			UnitID:       "u0",
+		},
+		TaskID:               "orphan-from-prefix-backup",
+		MigrationType:        db.ReindexTypeChangeTokenization,
+		Properties:           []string{"body"},
+		TargetTokenization:   "lowercase",
+		OriginalTokenization: "word",
+		IterationCutoff:      time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		TrackerDir:           orphanDir,
+		StagedDirs:           map[string]string{"body": handles.Staged},
+		CanonicalDirs:        map[string]string{"body": handles.Canonical},
+		SidecarDirs:          map[string]string{"body": handles.Sidecar},
+	}, db.MigrationCheckpoint{}))
+	injectOrphanTrackerOnDisk(t, ctx, container, lsmPath, orphanDir, handles.Sidecar,
+		`{"taskID":"orphan-from-prefix-backup","taskVersion":1,"unitID":"u0","payload":{"collection":"`+className+`","migrationType":"change-tokenization","properties":["body"],"targetTokenization":"lowercase","bucketStrategy":"map_collection"}}`,
+		recordFile, recordJSON)
 
 	require.NoError(t, compose.StopAt(ctx, 0, nil))
 	require.NoError(t, compose.StartAt(ctx, 0))
@@ -370,7 +399,7 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 	// The sidecar dir is removed just after the tracker, so poll instead of
 	// asserting once.
 	require.Eventually(t, func() bool {
-		code, _, _ := container.Exec(ctx, []string{"test", "-d", filepath.Join(lsmPath, sidecarBucket)})
+		code, _, _ := container.Exec(ctx, []string{"test", "-d", filepath.Join(lsmPath, handles.Sidecar)})
 		return code != 0
 	}, 60*time.Second, 50*time.Millisecond,
 		"orphan sidecar bucket dir was not cleaned up by the post-bootstrap audit")
@@ -650,7 +679,7 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 		code, reader, execErr := container.Exec(ctx, []string{
 			"sh", "-c",
 			fmt.Sprintf(`ls -1 %s 2>/dev/null | grep -E '_%s($|_)' | head -10`, migsPath, propName),
-		})
+		}, tcexec.Multiplexed())
 		require.NoError(t, execErr)
 		out := new(strings.Builder)
 		if reader != nil {
@@ -689,7 +718,7 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 	if !removed {
 		_, reader, execErr := container.Exec(ctx, []string{
 			"sh", "-c", fmt.Sprintf("ls -la %s 2>&1", classPath),
-		})
+		}, tcexec.Multiplexed())
 		require.NoError(t, execErr)
 		out := new(strings.Builder)
 		if reader != nil {
@@ -723,8 +752,7 @@ func backupAndRestoreRoundTrip(t *testing.T, className, backupID string, preCoun
 // injectOrphanTrackerOnDisk crafts the on-disk shape that a pre-fix
 // backup-restore would leave on a restored shard:
 //
-//   - .migrations/<orphanDir>/started.mig
-//   - .migrations/<orphanDir>/reindexed.mig
+//   - .migrations/records/<taskVersion>_<strategyCode>_<unitID>.json (the state)
 //   - .migrations/<orphanDir>/payload.mig (with the supplied JSON body)
 //   - .migrations/<orphanDir>/audit_quarantined.mig (mtime pre-aged
 //     well past `reindexAuditQuarantineWindow` so the audit's S2
@@ -733,18 +761,19 @@ func backupAndRestoreRoundTrip(t *testing.T, className, backupID string, preCoun
 //     window for a second audit pass that doesn't fire post-bootstrap)
 //   - <sidecarBucket>/marker.flag
 func injectOrphanTrackerOnDisk(t *testing.T, ctx context.Context, container testcontainers.Container,
-	lsmPath, orphanDir, sidecarBucket, payloadJSON string,
+	lsmPath, orphanDir, sidecarBucket, payloadJSON, recordFile, recordJSON string,
 ) {
 	t.Helper()
 	trackerDir := filepath.Join(lsmPath, ".migrations", orphanDir)
+	recordsDir := filepath.Join(lsmPath, ".migrations", "records")
 	// Compute the pre-aged timestamp host-side in POSIX touch -t form
 	// (YYYYMMDDhhmm.ss) so the inject works on the alpine/busybox base
 	// of the testcontainer (busybox touch lacks GNU `-d` relative dates).
 	agedTs := time.Now().Add(-time.Hour).UTC().Format("200601021504.05")
 	for _, cmd := range [][]string{
 		{"mkdir", "-p", trackerDir},
-		{"touch", filepath.Join(trackerDir, "started.mig")},
-		{"touch", filepath.Join(trackerDir, "reindexed.mig")},
+		{"mkdir", "-p", recordsDir},
+		{"sh", "-c", fmt.Sprintf("cat > %s <<'EOF'\n%s\nEOF", filepath.Join(recordsDir, recordFile), recordJSON)},
 		{"sh", "-c", fmt.Sprintf("cat > %s <<'EOF'\n%s\nEOF", filepath.Join(trackerDir, "payload.mig"), payloadJSON)},
 		// Pre-aged quarantine sentinel: mirror the unit-test
 		// `writePreAgedQuarantineSentinel` helper. Without this,
@@ -762,7 +791,7 @@ func injectOrphanTrackerOnDisk(t *testing.T, ctx context.Context, container test
 // the test on non-zero exit.
 func execInContainer(t *testing.T, ctx context.Context, c testcontainers.Container, cmd ...string) {
 	t.Helper()
-	code, reader, err := c.Exec(ctx, cmd)
+	code, reader, err := c.Exec(ctx, cmd, tcexec.Multiplexed())
 	require.NoError(t, err, "exec %v", cmd)
 	output := ""
 	if reader != nil {

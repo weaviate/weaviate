@@ -25,16 +25,15 @@ import (
 )
 
 // testDeleteThenReEnable pins the journey: enable an index via the reindex
-// API (which creates the .migrations/<dir>/tidied sentinel on disk), DELETE
-// it via DELETE /properties/{prop}/index/{indexName}, then enable it again.
-// The second enable MUST actually re-build the bucket and the index MUST
-// serve queries afterwards.
+// API (which leaves the completed migration's record and directories on
+// disk), DELETE it via DELETE /properties/{prop}/index/{indexName}, then
+// enable it again. The second enable MUST actually re-build the bucket and
+// the index MUST serve queries afterwards.
 //
-// Failure mode this guards against: stale .migrations/<dir>/tidied sentinel
-// surviving the DELETE, causing the second enable to short-circuit on
-// rt.IsTidied()=true, call OnMigrationComplete on an empty bucket, re-flip
-// the schema flag to true, and report "ready" while leaving the customer
-// with an empty index — silent data loss.
+// Failure mode this guards against: the first migration's state surviving
+// the DELETE, so the second enable finishes over the bucket the DELETE
+// emptied, re-flips the schema flag to true, and reports "ready" on an
+// empty index — silent data loss.
 //
 // Three sub-tests, one per index type. Each uses its own collection so the
 // shared container doesn't tangle state.
@@ -57,8 +56,8 @@ func testDeleteThenReEnableSearchable(t *testing.T, restURI string) {
 		Class: class,
 		Properties: []*models.Property{
 			// Start with searchable=false so the first enable goes through
-			// the reindex pipeline and lays down the .migrations sentinel
-			// whose stale survival across DELETE we are guarding against.
+			// the reindex pipeline and leaves the migration state whose
+			// stale survival across DELETE we are guarding against.
 			{Name: "body", DataType: []string{"text"}, IndexSearchable: &falseVal, Tokenization: "word"},
 		},
 		Vectorizer: "none",
@@ -73,8 +72,8 @@ func testDeleteThenReEnableSearchable(t *testing.T, restURI string) {
 		}), "object %d", i)
 	}
 
-	// Step 1: first enable via the reindex API — lays down the
-	// .migrations/enable_searchable_body/ tidied sentinel on disk.
+	// Step 1: first enable via the reindex API — leaves its completed
+	// migration record and .migrations/enable_searchable_body/ on disk.
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "body", "searchable",
 		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
@@ -85,10 +84,9 @@ func testDeleteThenReEnableSearchable(t *testing.T, restURI string) {
 	// Step 2: DELETE the searchable index.
 	deleteIndex(t, restURI, class, "body", "searchable")
 
-	// Step 3: re-enable. The crux of this test. If the .migrations
-	// sentinel from step 1 survived the DELETE, OnAfterLsmInitAsync
-	// will short-circuit on rt.IsTidied()=true and re-flip the schema
-	// flag while the freshly-removed bucket stays empty.
+	// Step 3: re-enable. The crux of this test. If step 1's migration state
+	// survived the DELETE, the schema flag flips back to true while the
+	// freshly-removed bucket stays empty.
 	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "body", "searchable",
 		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)

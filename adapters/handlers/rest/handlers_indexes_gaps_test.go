@@ -620,17 +620,13 @@ func TestMigrationTypeTargetsIndex(t *testing.T) {
 	}
 }
 
-// TestIndexTypesFromMigrationType locks in the contract that submit-time
-// pre-cleanup uses to decide which index sentinel dirs to wipe. The
-// critical case is ReindexTypeChangeTokenization (change-tokenization-both):
-// it MUST return both "searchable" and "filterable" so the submit handler
-// cleans up sentinel dirs from BOTH per-index sub-tasks. Returning only one
-// (or neither) reproduces the Sev 1 silent data loss where a stale
-// tidied.mig from a prior single-index retokenize causes the FilterableRetokenize
-// sub-task to short-circuit on OnAfterLsmInit's IsTidied check —
-// OnMigrationComplete still flips the schema's Tokenization, but the
-// filterable bucket retains the OLD tokenization (Journey 7 in
-// change_tok_delete_journeys_test.go).
+// TestIndexTypesFromMigrationType locks in the contract submit-time
+// pre-cleanup uses to decide whose leftovers it wipes.
+// ReindexTypeChangeTokenization (change-tokenization-both) is the case that
+// matters: it spawns one sub-task per inverted index, so anything short of
+// both "searchable" and "filterable" leaves the sibling's staged
+// directories and sidecar buckets behind for the next run to trip over
+// (Journey 7 in change_tok_delete_journeys_test.go).
 func TestIndexTypesFromMigrationType(t *testing.T) {
 	cases := []struct {
 		mt        db.ReindexMigrationType

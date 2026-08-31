@@ -35,14 +35,14 @@ import (
 //
 // Structurally similar to DELETE→re-enable (testDeleteThenReEnable):
 //
-//   - DELETE→re-enable: removes the target bucket, leaves
-//     .migrations/<dir>/tidied.mig on disk. Without cleanup, the second enable
-//     short-circuits on rt.IsTidied()=true, re-flips the schema flag, and
-//     reports success with an empty bucket — silent data loss.
+//   - DELETE→re-enable: removes the target bucket but leaves the completed
+//     migration's record and directories behind. Without cleanup, the second
+//     enable re-flips the schema flag and reports success over the bucket the
+//     DELETE emptied — silent data loss.
 //
-//   - CANCEL→retry: aborts the iteration loop, leaves
-//     .migrations/<dir>/{started.mig, payload.mig, progress.mig} on disk plus
-//     the partial __reindex / __ingest sidecar bucket dirs. Without cleanup,
+//   - CANCEL→retry: aborts the iteration loop, leaves the cancelled run's
+//     record and payload.mig on disk plus the partial __reindex / __ingest
+//     sidecar bucket dirs. Without cleanup,
 //     the second submit creates a *new* DTM task (so checkReindexConflict
 //     does not catch it) but the OnAfterLsmInit path attempts to load buckets
 //     whose state is the half-written aftermath of the previous run. Either
@@ -100,9 +100,9 @@ func testCancelThenRetrySearchable(t *testing.T, restURI string) {
 	// Step 1: submit and cancel.
 	cancelInFlightOrSkip(t, restURI, class, "body", "searchable", requestBody)
 
-	// Step 2: re-submit. Crux of the test — without cleanup of started.mig,
-	// the partial reindex/ingest sidecars, and the progress tracker, this
-	// either fails loudly or worse, "succeeds" with an empty bucket.
+	// Step 2: re-submit. Crux of the test — without cleanup of the cancelled
+	// run's record and its partial reindex/ingest sidecars, this either fails
+	// loudly or worse, "succeeds" with an empty bucket.
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "body", "searchable", requestBody)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireSearchableEnabled(t, class, "body")

@@ -27,22 +27,13 @@ import (
 // of a change-tokenization migration does not produce per-replica
 // divergent on-disk bucket state.
 //
-// History: surfaced as
-// https://github.com/weaviate/0-weaviate-issues/issues/214 (Gap A,
-// "Repro 2: rolling-restart during FINALIZING"). The production
-// reproduction was a per-replica `path = 7×32, 3×30, 2×23, 6×5`
-// histogram on a steady probe after the cluster had reported the task
-// FINISHED. Fixed by the per-shard post-completion ack barrier in
-// https://github.com/weaviate/weaviate/pull/11318 (the ack-barrier
-// commits), which gates MarkTaskFinalized on every node's
-// OnGroupCompleted having returned and acked.
-//
-// With the ack barrier in place, no node can let the schema flip
-// commit before its OnGroupCompleted has returned and its ack has
-// landed in RAFT. A node that goes down between local swap and ack
-// emission either:
-//   - already finished the swap (sentinels present on disk; the
-//     post-restart FinalizeCompletedMigrations + RecoveryAwareProvider
+// The per-shard post-completion ack barrier gates MarkTaskFinalized on
+// every node's OnGroupCompleted having returned and acked, so no node
+// can let the schema flip commit before its own OnGroupCompleted has
+// returned and its ack has landed in RAFT. A node that goes down
+// between local swap and ack emission either:
+//   - already finished the swap (the flip is recorded on disk; the
+//     post-restart reconciliation + RecoveryAwareProvider
 //     path re-emits the ack on the next scheduler tick), OR
 //   - died mid-swap (LocalCallbacksDone reports false; OnGroupCompleted
 //     re-fires via the rehydrate path; ack emitted after rehydrate +
@@ -145,7 +136,7 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	// Poll until every replica converges to expectedPathCount, then sample
 	// stability below. AwaitReindexFinished only confirms node-1; a
 	// just-restarted node may still be loading buckets
-	// (FinalizeCompletedMigrations). A node that never converges fails here
+	// (reconciliation). A node that never converges fails here
 	// loudly instead of being slept past. testcontainers reallocates ports
 	// on stop+start, so restURIOf re-resolves on every call.
 	require.Eventually(t, func() bool {
@@ -206,19 +197,13 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 // asserts that a SIGKILL on a single node during the FINALIZING
 // window does not produce per-replica divergent on-disk bucket state.
 //
-// History: surfaced as
-// https://github.com/weaviate/0-weaviate-issues/issues/214 (Gap A,
-// "Repro 1: SIGKILL during FINALIZING"), fixed by the same
-// post-completion ack barrier as the rolling-restart variant above.
-//
 // Where the rolling-restart test (above) catches the cluster mid-swap
 // with a graceful shutdown sequence (testcontainers' Stop sends
 // SIGTERM first), this variant uses an ungraceful 0-second-timeout
 // Stop on a SINGLE node. That bypasses the on-shutdown flush path and
-// lets the post-restart RecoveryAwareProvider +
-// FinalizeCompletedMigrations have to handle a node whose
-// .migrations/ directory is at the half-merged stage (no tidied.mig,
-// no swapped.mig) with the local process state lost.
+// leaves the post-restart RecoveryAwareProvider and reconciliation to
+// handle a node whose migration record says Merged, with the local
+// process state lost.
 //
 // The expected behavior with the ack barrier:
 //  1. SIGKILL on the targeted node either lands before its ack was
@@ -296,7 +281,7 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 	// Poll until every replica converges to expectedPathCount, then sample
 	// stability below. AwaitReindexFinished only confirms node-1; the
 	// SIGKILL'd-and-restarted node may still be loading buckets
-	// (FinalizeCompletedMigrations). A node that never converges fails here
+	// (reconciliation). A node that never converges fails here
 	// loudly instead of being slept past.
 	require.Eventually(t, func() bool {
 		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {

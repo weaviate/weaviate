@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -178,10 +179,9 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 
 	// --- Subtest 11: DELETE-then-re-enable journey ---
 	// Pins the journey: DELETE /properties/{prop}/index/{indexName} followed
-	// by PUT enable-* must actually rebuild the bucket. Without the
-	// migration-dir cleanup + the stale-sentinel defense, the second enable
-	// short-circuits on the prior tidied sentinel, re-flips the schema flag
-	// to true, and silently leaves the customer with an empty index.
+	// by PUT enable-* must actually rebuild the bucket. Without cleanup of
+	// the first migration's leftovers, the second enable re-flips the schema
+	// flag to true and silently leaves the customer with an empty index.
 	t.Run("DeleteThenReEnable", func(t *testing.T) {
 		testDeleteThenReEnable(t, restURI)
 	})
@@ -190,8 +190,7 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 	// Structural sibling of DeleteThenReEnable on the CANCEL→retry axis.
 	// Submits an enable-*, cancels it mid-flight, re-submits. The second
 	// submit MUST actually build the index — not silently no-op on the
-	// stale started.mig / progress.mig / partial __reindex sidecars left
-	// behind by the cancelled run.
+	// record and partial __reindex sidecars the cancelled run left behind.
 	t.Run("CancelThenRetry", func(t *testing.T) {
 		testCancelThenRetry(t, restURI)
 	})
@@ -248,16 +247,31 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testChangeTokDeleteJourneys(t, restURI)
 	})
 
-	// --- Subtest 15: torn "reindexed but not tidied" resume ---
-	// Pins the journey where a prior reindex left the on-disk migration
-	// in IsReindexed+!IsTidied state (real causes: I/O failure mid-
-	// runtimeSwap, container kill between markReindexed and the first
-	// swap step, etc.). The re-submit must NOT silently no-op on the
-	// IsReindexed=true short-circuit in OnAfterLsmInitAsync; it must
-	// either finish the swap or rebuild from scratch. If RED, schema
-	// reports ready while queries return zero hits (Sev 1).
+	// --- Subtest 15: torn-state resume ---
+	// Pins the journey where a prior reindex crashed mid-rebuild and left a
+	// record naming staged directories that never reached disk. A fresh
+	// submit must reclaim that state and rebuild from scratch rather than
+	// resume against it. If RED, schema reports ready while queries return
+	// zero hits (Sev 1).
 	t.Run("TornResumeReindexedNotTidied", func(t *testing.T) {
 		testTornResumeReindexedNotTidied(t, compose)
+	})
+
+	// Pins that promotion runs on the directory the record names and never on
+	// one derived from a strategy prefix, a property name or a generation
+	// suffix. If RED, a completed migration's data is stranded at a name
+	// nothing can attribute while the schema reports the property ready.
+	t.Run("PromotionRunsOnRecordedHandles", func(t *testing.T) {
+		testPromotionRunsOnRecordedHandles(t, compose)
+	})
+
+	// --- Subtest 16: index DELETE crossed with a restart ---
+	// The two journeys this package covers separately and never together.
+	// Promotion is deferred to the next shard load, so a DELETE lands while
+	// every finished migration still names directories it removes, and the
+	// damage only shows at the load that follows.
+	t.Run("DeleteDuringDeferredPromotion", func(t *testing.T) {
+		testDeleteDuringDeferredPromotion(t, compose)
 	})
 
 	// --- Shared restart: verify all deferred finalizations ---
@@ -384,7 +398,7 @@ func runGraphQLQuery(t *testing.T, className, gqlQuery string) ([]string, error)
 func listLSMDirs(ctx context.Context, t *testing.T, c testcontainers.Container, col, shard string) []string {
 	t.Helper()
 	path := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(col), shard)
-	code, reader, err := c.Exec(ctx, []string{"ls", "-1", path})
+	code, reader, err := c.Exec(ctx, []string{"ls", "-1", path}, tcexec.Multiplexed())
 	require.NoError(t, err, "exec ls on container")
 	require.Equal(t, 0, code, "ls returned non-zero exit code")
 	buf := new(strings.Builder)

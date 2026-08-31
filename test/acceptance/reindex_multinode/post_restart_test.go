@@ -32,22 +32,10 @@ import (
 // (N-1)/N progress for an indefinite period — the scheduler must
 // resume picking up units on the restarted pod.
 //
-// History: surfaced as
-// https://github.com/weaviate/0-weaviate-issues/issues/212 (Issue B)
-// — production reproduction (`1.38.0-dev-9c1591e.amd64`) was a
-// post-restart change-tokenization task plateauing at 6/9 = 66.7%
-// for 10+ minutes, all units on one weaviate-N pod stuck in PENDING
-// because that pod's scheduler stopped picking up new
-// distributed-task units after the rolling restart. Fixed in
-// `b6a5c6bd` (retry path for context-canceled mid-swap) +
-// `faa2c780ec` (cluster-wide conflict check in DTM AddTask).
-//
-// Current expected behaviour: the plateau briefly shows up (the user
-// reported ~52s on `1.38.0-dev-e1dfae0`) but the retry path unblocks
-// within a minute and the migration completes end-to-end in ~3
-// minutes. This regression test asserts that the plateau remains
-// brief — not that it's absent. If it persists longer than the
-// budget below, the underlying scheduler-stall regression is back.
+// A brief plateau is expected: the retry path unblocks within a minute
+// and the migration completes end-to-end in ~3 minutes. This test
+// asserts that the plateau stays brief — not that it's absent. If it
+// persists longer than the budget below, the scheduler stall is back.
 //
 // The budget is intentionally tighter than awaitReindexFinished's
 // default 180 s so a regression to "stalls forever (or for many
@@ -247,20 +235,6 @@ func tryFetchTaskStatusAndProgress(restURI, taskID string) (status, progress str
 // produces exact, agreeing counts across every replica — no empty
 // buckets after the post-restart shard-init resumes the iteration.
 //
-// History: surfaced as
-// https://github.com/weaviate/0-weaviate-issues/issues/212 (Issue G)
-// — production reproduction (`1.38.0-dev-3e78517`) was a 1M-record
-// demo where Phase 8-final returned `path = 0 / 0 / 0` across all 3
-// LB calls after forward migrations → rolling restart → reset →
-// re-apply migrations. The searchable bucket was deterministically
-// empty on every replica. Same FlushAndSwitch + CursorOnDisk race
-// family as Issues C + D (see
-// TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle),
-// resurfacing on the post-restart re-apply because the OnAfterLsmInitAsync
-// resume path uses the same uuidObjectsIteratorAsync. Fixed by the
-// Cursor() / flushAndSwitchMu pair (commits `1dba6d4718` +
-// `5874ee8dde`).
-//
 // Shape:
 //
 //  1. Create class with `price` (int, rangeable off), `category`
@@ -279,28 +253,7 @@ func tryFetchTaskStatusAndProgress(restURI, taskID string) (status, progress str
 //
 // A failure here would mean the post-restart re-apply has a separate
 // bug beyond the FlushAndSwitch race — likely something restart-
-// specific in the recovery / FinalizeCompletedMigrations path.
-//
-// Shape:
-//
-//  1. Create class with `price` (int, rangeable off), `category`
-//     (text, filterable off), `path` (text, tokenization=word).
-//  2. Import 10k objects with consistency_level=ALL.
-//  3. Run forward migrations: enable-rangeable + enable-filterable
-//     + change-tokenization (word → field). All 3 in parallel,
-//     await FINISHED.
-//  4. Rolling restart (one node at a time, wait for ready between
-//     each).
-//  5. Re-apply forward migrations: change-tokenization (field → word)
-//     in parallel with two NO-OP rebuilds (filterable.rebuild +
-//     rangeable.rebuild) that share the same FlushAndSwitch +
-//     iterator path as enable-* but don't require pre-disabling.
-//  6. After settle, assert every replica's counts equal baseline.
-//
-// A failure here with my Cursor() fix already in place would mean the
-// post-restart re-apply has a separate bug beyond the FlushAndSwitch
-// race — likely something restart-specific in the recovery /
-// FinalizeCompletedMigrations path.
+// specific in the recovery / reconciliation path.
 func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -432,12 +385,11 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 			"post-restart node %d path = %d (expected %d) — restart corrupted the searchable bucket", nodeIdx, gotPath, expectedPathCount)
 	}
 
-	// === Phase 8-final equivalent: re-apply migrations as a
-	// repeat-forward. Use three concurrent rebuild-style ops on the
-	// already-migrated indexes: change-tokenization back-and-forth
-	// (field → word for path), plus rangeable rebuild and filterable
-	// rebuild on the other two props. All three go through the same
-	// OnAfterLsmInitAsync iterator path that #212 Issues C/D/G hit.
+	// === Re-apply the migrations as a repeat-forward. Use three
+	// concurrent rebuild-style ops on the already-migrated indexes:
+	// change-tokenization back-and-forth (field → word for path), plus
+	// rangeable rebuild and filterable rebuild on the other two props.
+	// All three go through the same OnAfterLsmInitAsync iterator path.
 	t.Log("submitting post-restart re-apply migrations (3 concurrent)")
 	uri1 = restURIOf(compose, 1)
 	// FINISHED is leader-read; gate on local schema before the next PUT.
@@ -458,9 +410,7 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		}()
 		go func() {
 			defer wg.Done()
-			// Flip tokenization back to word (the pre-Phase-2 value).
-			// This matches the migration shape from the original
-			// production-scale repro.
+			// Flip tokenization back to word, the value it started at.
 			tk = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "path", "searchable",
 				`{"tokenization":"word"}`)
 		}()
@@ -472,11 +422,10 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		reindexhelpers.AwaitReindexFinished(t, uri1, tk, reindexhelpers.WithTimeout(180*time.Second))
 	}
 
-	// Final per-replica counts. The path query is the headline check for
-	// Issue G (Frontend Claude saw `0 / 0 / 0` here). AwaitReindexFinished
-	// only confirms node-1; poll all replicas (50ms) until convergence
-	// instead of a fixed settle — a node stuck at the 0/0/0 shape never
-	// converges and fails here loudly.
+	// Final per-replica counts. The path query is the headline check.
+	// AwaitReindexFinished only confirms node-1; poll all replicas (50ms)
+	// until convergence instead of a fixed settle — a node stuck on an
+	// empty bucket never converges and fails here loudly.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 			uri := restURIOf(compose, nodeIdx)

@@ -116,7 +116,7 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 		t.Logf("submitted enable-rangeable task: %s", taskID)
 
 		// Fire the PATCH storm immediately so it overlaps the migration
-		// window (markStarted → backfill → swap → schema flip).
+		// window (backfill → swap → schema flip).
 		runUpdateStorm(t, restURI, className, ids)
 
 		reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, propName, "rangeFilters")
