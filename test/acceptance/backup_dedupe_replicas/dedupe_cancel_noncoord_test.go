@@ -26,8 +26,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestBackupDedupeCancelViaNonCoordinator pins that a DELETE received by a node other
-// than the create's coordinator cancels a backup still in its dedupe planning wait.
+// TestBackupDedupeCancelViaNonCoordinator pins non-coordinator DELETE cancelling a planning create.
 func TestBackupDedupeCancelViaNonCoordinator(t *testing.T) {
 	ctx := context.Background()
 

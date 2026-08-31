@@ -3183,9 +3183,7 @@ func TestSchedulerCancelDuringDedupePlanning(t *testing.T) {
 		5*time.Second, 10*time.Millisecond, "op slot not released after cancel")
 }
 
-// TestRemoteAbortCancelsCoordinatorCreatePlanning pins the fix for a DELETE landing on a
-// non-coordinator node: its abort fan-out must cancel the coordinator's planning wait,
-// while a foreign-attempt abort must not.
+// TestRemoteAbortCancelsCoordinatorCreatePlanning pins non-coordinator DELETE reaching a planning create.
 func TestRemoteAbortCancelsCoordinatorCreatePlanning(t *testing.T) {
 	ctx := context.Background()
 	const cls, id, backendName = "Class1", "cancel-remote-abort", "s3"
@@ -3220,6 +3218,11 @@ func TestRemoteAbortCancelsCoordinatorCreatePlanning(t *testing.T) {
 
 	require.False(t, s.cancelCoordinatorOp(OpCreate, id, "foreign-attempt"))
 	require.Equal(t, backup.Started, s.backupper.lastOp.get().Status)
+	ownAttempt := s.backupper.lastOp.get().AttemptID
+	require.NotEmpty(t, ownAttempt)
+	require.False(t, s.cancelCoordinatorOp(OpCreate, id, ownAttempt),
+		"the coordinator's own cleanup abort must not flip its op to Cancelled")
+	require.Equal(t, backup.Started, s.backupper.lastOp.get().Status)
 	require.False(t, s.cancelCoordinatorOp(OpRestore, id, ""))
 	require.Equal(t, backup.Started, s.backupper.lastOp.get().Status)
 
@@ -3237,33 +3240,30 @@ func TestRemoteAbortCancelsCoordinatorCreatePlanning(t *testing.T) {
 		5*time.Second, 10*time.Millisecond, "op slot not released after remote abort")
 }
 
-func TestCancelIfInFlightAttempt(t *testing.T) {
+func TestCancelCoordinatorOpGuards(t *testing.T) {
 	tests := []struct {
-		name            string
-		slotID, slotAtt string
-		reqID, reqAtt   string
-		want            bool
+		name          string
+		method        Op
+		reqID, reqAtt string
+		want          bool
 	}{
-		{"empty attempt cancels", "b1", "a1", "b1", "", true},
-		{"matching attempt cancels", "b1", "a1", "b1", "a1", true},
-		{"foreign attempt refused", "b1", "a1", "b1", "a2", false},
-		{"legacy slot without attempt cancels", "b1", "", "b1", "a2", true},
-		{"wrong id refused", "b1", "a1", "b2", "", false},
-		{"empty id refused", "b1", "a1", "", "", false},
-		{"empty slot refused", "", "", "b1", "", false},
+		{"user cancel matches", OpCreate, "b1", "", true},
+		{"own-attempt cleanup abort refused", OpCreate, "b1", "a1", false},
+		{"foreign-attempt abort refused", OpCreate, "b1", "a2", false},
+		{"restore refused", OpRestore, "b1", "", false},
+		{"wrong id refused", OpCreate, "b2", "", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			st := &backupStat{}
-			if tc.slotID != "" {
-				require.Empty(t, st.renew(tc.slotID, tc.slotAtt, "p", "", ""))
-			}
-			require.Equal(t, tc.want, st.cancelIfInFlightAttempt(tc.reqID, tc.reqAtt))
+			fs := newFakeScheduler(&fakeNodeResolver{hosts: map[string]string{"N1": "h1"}})
+			s := fs.scheduler()
+			require.Empty(t, s.backupper.lastOp.renew("b1", "a1", "p", "", ""))
+			require.Equal(t, tc.want, s.cancelCoordinatorOp(tc.method, tc.reqID, tc.reqAtt))
+			wantStatus := backup.Started
 			if tc.want {
-				require.Equal(t, backup.Cancelled, st.get().Status)
-			} else if tc.slotID != "" {
-				require.Equal(t, backup.Started, st.get().Status)
+				wantStatus = backup.Cancelled
 			}
+			require.Equal(t, wantStatus, s.backupper.lastOp.get().Status)
 		})
 	}
 }
