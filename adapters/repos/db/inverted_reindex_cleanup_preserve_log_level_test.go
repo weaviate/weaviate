@@ -12,14 +12,19 @@
 package db
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug pins that preserving a
@@ -107,4 +112,38 @@ func TestCleanStaleSidecarDirsPreservedLogAtDebug(t *testing.T) {
 	for name := range dirs {
 		require.DirExists(t, filepath.Join(shard.pathLSM(), name), "a preserved sidecar dir must survive")
 	}
+}
+
+// TestApplyPathReadsAShardsRecordsOncePerProperty pins the read count the
+// schema apply pays per shard. The sweep is built once for the whole
+// index-type loop, so the number is one; building it inside the loop instead
+// would multiply every tenant's cost by the index-type count, and the apply's
+// aggregate is the only thing that would say so.
+func TestApplyPathReadsAShardsRecordsOncePerProperty(t *testing.T) {
+	ctx := testCtx()
+	className := "ApplyReadCount" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{"title"})
+
+	// Every index type off, so the loop this read has to outlive runs more than
+	// once.
+	prop := class.Properties[0]
+	off := false
+	prop.IndexFilterable = &off
+	prop.IndexSearchable = &off
+	prop.IndexRangeFilters = &off
+
+	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(context.Background())
+
+	require.Greater(t, len(disabledIndexTypes(prop)), 1,
+		"the property must sweep several index types or this pins nothing")
+
+	var counts migrationSweepCounts
+	eg := enterrors.NewErrorGroupWrapper(shard.index.logger)
+	shard.updatePropertyBuckets(ctx, eg, prop, &counts)
+	require.NoError(t, eg.Wait())
+
+	require.Equal(t, int64(1), counts.recordSetReads.Load(),
+		"one record-set read for the shard, whatever the index-type count")
 }

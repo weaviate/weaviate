@@ -1137,9 +1137,9 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	eg.SetLimit(_NUMCPU)
 
 	// Shards sweep concurrently under eg, so the count is atomic.
-	var payloadReads atomic.Int64
+	var counts migrationSweepCounts
 	i.ForEachShard(func(key string, shard ShardLike) error {
-		shard.updatePropertyBuckets(ctx, eg, property, &payloadReads)
+		shard.updatePropertyBuckets(ctx, eg, property, &counts)
 		return nil
 	})
 
@@ -1148,11 +1148,12 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	// type disabled, so gating on shape alone would log a sweep on every
 	// update. This under-reports on purpose: a tracker removed by name match
 	// alone costs no payload read, so an absent line doesn't mean nothing swept.
-	if reads := payloadReads.Load(); reads > 0 {
+	if reads := counts.payloadReads.Load(); reads > 0 {
 		i.logger.WithFields(map[string]any{
-			"property":      property.Name,
-			"index_types":   disabledIndexTypes(property),
-			"payload_reads": reads,
+			"property":         property.Name,
+			"index_types":      disabledIndexTypes(property),
+			"payload_reads":    reads,
+			"record_set_reads": counts.recordSetReads.Load(),
 		}).Info("partial-reindex cleanup: migration dirs swept for disabled index types")
 	}
 	if err != nil {

@@ -161,16 +161,28 @@ func createsGeoIndex(prop *models.Property) bool {
 	return dt == schema.DataTypeGeoCoordinates
 }
 
+// migrationSweepCounts totals what one property's sweep cost across the shards
+// it ran on, for the single line the apply emits. The two are different reads
+// of different files: payload parses under a tracker directory, and reads of
+// the shard's record set.
+type migrationSweepCounts struct {
+	payloadReads   atomic.Int64
+	recordSetReads atomic.Int64
+}
+
 func (s *Shard) updatePropertyBuckets(ctx context.Context,
 	eg *enterrors.ErrorGroupWrapper,
 	prop *models.Property,
-	payloadReads *atomic.Int64,
+	counts *migrationSweepCounts,
 ) {
 	eg.Go(func() error {
 		// One preserve set and one payload memo for the whole loop, not one per
 		// index type: this runs inside a RAFT apply.
 		sweep := migrationSweepStateFor(s.pathLSM(), s.index.logger)
-		defer func() { payloadReads.Add(int64(sweep.reads())) }()
+		defer func() {
+			counts.payloadReads.Add(int64(sweep.reads()))
+			counts.recordSetReads.Add(int64(sweep.recordSetReads()))
+		}()
 		for _, indexType := range disabledIndexTypes(prop) {
 			// The whole loop runs inside the RAFT apply, once per shard. Every
 			// shard still queued for it drops out here rather than walking its
@@ -213,12 +225,26 @@ func disabledIndexTypes(prop *models.Property) []string {
 type migrationSweepState struct {
 	committed migrationPreservedState
 	props     *taskPropsCache
+	// recordReads is how many times building this state read the shard's record
+	// set. Exactly one per state, so the total counts states built: one per
+	// shard is the shape, one per index type is the regression.
+	recordReads int
+}
+
+// recordSetReads is the record-set read this state cost, for the caller's
+// summary. The read itself does not log.
+func (s *migrationSweepState) recordSetReads() int {
+	if s == nil {
+		return 0
+	}
+	return s.recordReads
 }
 
 func migrationSweepStateFor(lsmPath string, logger logrus.FieldLogger) *migrationSweepState {
 	return &migrationSweepState{
-		committed: migrationPreservedStateAt(lsmPath, logger),
-		props:     &taskPropsCache{},
+		recordReads: 1,
+		committed:   migrationPreservedStateAt(lsmPath, logger),
+		props:       &taskPropsCache{},
 	}
 }
 

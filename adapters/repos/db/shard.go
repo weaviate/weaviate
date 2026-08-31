@@ -112,8 +112,8 @@ type ShardLike interface {
 	// against the halt watchdog. No-op on unhalted shards.
 	MayResetTransferInactivityTimer()
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
-	// payloadReads must be non-nil; the sweep cost accrues there instead of being logged per call.
-	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property, payloadReads *atomic.Int64)
+	// counts must be non-nil; the sweep cost accrues there instead of being logged per call.
+	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts)
 	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error)
 	CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error)
 	ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error)

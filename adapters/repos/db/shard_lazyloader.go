@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -591,10 +590,10 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 }
 
 func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
-	property *models.Property, payloadReads *atomic.Int64,
+	property *models.Property, counts *migrationSweepCounts,
 ) {
 	if l.isLoaded() {
-		l.shard.updatePropertyBuckets(ctx, eg, property, payloadReads)
+		l.shard.updatePropertyBuckets(ctx, eg, property, counts)
 	} else {
 		// The unloaded path removes bucket dirs by name and reads no payloads.
 		l.updateUnloadedPropertyBuckets(ctx, eg, property)
