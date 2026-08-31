@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"time"
 
+	entsInverted "github.com/weaviate/weaviate/entities/inverted"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
@@ -257,7 +259,7 @@ func mergeAllowlistBitmaps(op filters.Operator, maxConc int,
 // for sit far above it either way.
 var containsAnyAccumulatorMinKeys = 256
 
-// docBitmapContainsBatch folds every key in pv.containsValues into a single
+// docBitmapContainsBatch folds every key in pv.containsKeys into a single
 // docBitmap under reader's held view: a dense Accumulator fold for
 // ContainsAny and ContainsNone, an incremental intersection with empty-result
 // early exit for ContainsAll. Every per-key fetch is an OperatorEqual read on
@@ -275,10 +277,11 @@ var containsAnyAccumulatorMinKeys = 256
 func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBatchReader,
 	pv *propValuePair,
 ) (docBitmap, error) {
-	if len(pv.containsValues) == 0 {
+	if pv.containsKeys.Len() == 0 {
 		// defensive: the folds adopt their first row as the accumulator, so zero
 		// keys yields a nil bitmap rather than an empty one
-		return docBitmap{}, fmt.Errorf("contains fold on prop %q carries no keys", pv.prop)
+		return docBitmap{}, fmt.Errorf("%w: contains fold on prop %q carries no keys",
+			entsInverted.ErrInternal, pv.prop)
 	}
 
 	isDenyList := pv.operator == filters.ContainsNone
@@ -289,22 +292,23 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 	var err error
 	switch pv.operator {
 	case filters.ContainsAll:
-		acc, accRelease, err = foldContainsIncremental(ctx, reader, pv.containsValues, filters.ContainsAll, mergeConc)
+		acc, accRelease, err = foldContainsIncremental(ctx, reader, pv.containsKeys, filters.ContainsAll, mergeConc)
 	case filters.ContainsAny, filters.ContainsNone:
 		// ContainsNone folds the same union as ContainsAny; the deny flag is
 		// applied to the result, not the fold. Below
 		// containsAnyAccumulatorMinKeys keys the Accumulator's staging setup
 		// and finalize scan are not worth it — union incrementally instead.
-		if len(pv.containsValues) < containsAnyAccumulatorMinKeys {
-			acc, accRelease, err = foldContainsIncremental(ctx, reader, pv.containsValues, filters.ContainsAny, mergeConc)
+		if pv.containsKeys.Len() < containsAnyAccumulatorMinKeys {
+			acc, accRelease, err = foldContainsIncremental(ctx, reader, pv.containsKeys, filters.ContainsAny, mergeConc)
 		} else {
-			acc, accRelease, err = foldContainsAnyAccumulator(ctx, reader, pv.containsValues,
+			acc, accRelease, err = foldContainsAnyAccumulator(ctx, reader, pv.containsKeys,
 				s.bitmapFactory.BufPool(), mergeConc)
 		}
 	default:
 		// defensive: a non-Contains operator must never pick a fold — a
 		// silent union here would return plausible but wrong results
-		return docBitmap{}, fmt.Errorf("unsupported operator %q for batched contains", pv.operator.Name())
+		return docBitmap{}, fmt.Errorf("%w: unsupported operator %q for batched contains",
+			entsInverted.ErrInternal, pv.operator.Name())
 	}
 	if err != nil {
 		return docBitmap{}, err
@@ -322,13 +326,13 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, reader containsBa
 // staging blocks (proportional to the doc-ID spread of the result, not to
 // the number of keys) plus a single row in flight.
 func foldContainsAnyAccumulator(ctx context.Context, reader containsBatchReader,
-	keys [][]byte, pool roaringset.BitmapBufPool, mergeConc int,
+	keys entsInverted.SortedKeys, pool roaringset.BitmapBufPool, mergeConc int,
 ) (*sroar.Bitmap, func(), error) {
 	// TODO aliszka:gh12242 wire mergeConc into the accumulator's Or once sroar
 	// supports concurrent deposits; today it bounds only the per-row disk merge
 	// and the deposits themselves are single-threaded.
 	acc := sroar.NewAccumulator()
-	for _, key := range keys {
+	for _, key := range keys.All() {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
@@ -358,11 +362,11 @@ func foldContainsAnyAccumulator(ctx context.Context, reader containsBatchReader,
 // batch-read grouping can beat — hence ContainsAll deliberately has no
 // accumulator path.
 func foldContainsIncremental(ctx context.Context, reader containsBatchReader,
-	keys [][]byte, op filters.Operator, mergeConc int,
+	keys entsInverted.SortedKeys, op filters.Operator, mergeConc int,
 ) (*sroar.Bitmap, func(), error) {
 	var acc *sroar.Bitmap
 	accRelease := noopRelease
-	for _, key := range keys {
+	for _, key := range keys.All() {
 		if err := ctx.Err(); err != nil {
 			accRelease()
 			return nil, nil, err

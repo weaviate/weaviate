@@ -338,9 +338,12 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 
 	beforeResolve := time.Now()
+	// Children on the desugared path, distinct keys on the batched one — the
+	// latter can be fewer than the values the filter named, since the builders
+	// drop duplicates.
 	n := len(pv.children)
-	if pv.containsValues != nil {
-		n = len(pv.containsValues)
+	if ln := pv.containsKeys.Len(); ln > 0 {
+		n = ln
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_len", n)
 	dbm, err := pv.resolveDocIDs(ctx, s, limit)
@@ -500,7 +503,13 @@ func (s *Searcher) buildPropValuePair(
 
 	switch filter.Operator {
 	case filters.ContainsAll, filters.ContainsAny, filters.ContainsNone:
-		return s.extractContains(ctx, filter.On, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+		pv, err := s.extractContains(ctx, filter.On, filter.Value.Type,
+			filter.Value.Value, filter.Operator, class)
+		if err != nil {
+			s.logContainsFault(string(filter.On.Property), err)
+			return nil, fmt.Errorf("extract contains values: %w", err)
+		}
+		return pv, nil
 	default:
 		// proceed
 	}
@@ -1131,10 +1140,22 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 	}
 }
 
-// newBatchedContainsPair builds the batched Contains leaf from pre-encoded keys.
+// newBatchedContainsPair builds the batched Contains leaf from pre-encoded
+// keys, which arrive already ascending — each producer sorts its own slab or
+// encodes directly into rank order — so the fold can walk the bucket once.
+//
+// At least one key is required and checked here: the downstream routing
+// predicate is a key count, not a presence test, so a leaf holding none would
+// fall through to the children dispatch with no children to resolve. The
+// count can be lower than the filter's value count, since the builders drop
+// duplicates.
 func newBatchedContainsPair(property *models.Property, operator filters.Operator,
-	class *models.Class, keys [][]byte,
+	class *models.Class, keys inverted.SortedKeys,
 ) (*propValuePair, error) {
+	if keys.Len() == 0 {
+		return nil, fmt.Errorf("%w: batched contains leaf for property %q has no keys",
+			inverted.ErrInternal, property.Name)
+	}
 	pv, err := newPropValuePair(class)
 	if err != nil {
 		return nil, err
@@ -1142,8 +1163,19 @@ func newBatchedContainsPair(property *models.Property, operator filters.Operator
 	pv.prop = property.Name
 	pv.operator = operator
 	pv.hasFilterableIndex = true
-	pv.containsValues = keys
+	pv.containsKeys = keys
 	return pv, nil
+}
+
+// logContainsFault reports an assertion from either Contains path. A fault
+// returns through the same channel and prefix as a value the user got wrong,
+// so without this it arrives looking like a malformed filter, and the gRPC
+// path records nothing else.
+func (s *Searcher) logContainsFault(prop string, err error) {
+	if errors.Is(err, inverted.ErrInternal) {
+		s.logger.WithField("prop", prop).
+			Errorf("contains hit an internal fault: %v", err)
+	}
 }
 
 // batchedContainsUUID builds the batched leaf for string values on a UUID
@@ -1156,7 +1188,7 @@ func (s *Searcher) batchedContainsUUID(property *models.Property, operator filte
 ) (*propValuePair, error) {
 	keys, err := encodeUUIDKeys(values)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, err
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1172,24 +1204,24 @@ func (s *Searcher) batchedContainsTextField(property *models.Property, operator 
 	prepared := tokenizer.NewPreparedAnalyzer(property.TextAnalyzer)
 	batch, err := tokenizer.AnalyzeBatch(values, models.PropertyTokenizationField, class.Class, prepared, nil)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, err
 	}
-	total := 0
-	for i, valueTokens := range batch.All() {
-		if len(valueTokens) != 1 {
-			return nil, fmt.Errorf("extract contains values: value %d: FIELD tokenization produced %d tokens, want exactly 1", i, len(valueTokens))
-		}
-		total += len(valueTokens[0])
+	// FIELD gives one token per value, and the key is that token's bytes.
+	total, err := batch.SingleTokenBytes()
+	if err != nil {
+		return nil, err
 	}
-	// all keys share one backing slab; the three-index sub-slices cap each
-	// key's capacity at its own end, so an append to one key cannot clobber
-	// the next
-	keys := make([][]byte, batch.Len())
-	slab := make([]byte, 0, total)
-	for i, valueTokens := range batch.All() {
-		start := len(slab)
-		slab = append(slab, valueTokens[0]...)
-		keys[i] = slab[start:len(slab):len(slab)]
+
+	// Fill first, order in Build: ordering the tokens here instead would mean a
+	// comparison sort dereferencing string headers into the tokenizer's backing
+	// array, where ordering the slab lets equal-width keys go through a radix.
+	kb := inverted.NewVarKeyBuilder(batch.Len(), total)
+	for _, valueTokens := range batch.All() {
+		kb.AppendString(valueTokens[0])
+	}
+	keys, err := kb.Build()
+	if err != nil {
+		return nil, err
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1199,7 +1231,7 @@ func (s *Searcher) batchedContainsInt(property *models.Property, operator filter
 ) (*propValuePair, error) {
 	keys, err := encodeIntKeys(values)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, err
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1209,7 +1241,7 @@ func (s *Searcher) batchedContainsNumber(property *models.Property, operator fil
 ) (*propValuePair, error) {
 	keys, err := encodeNumberKeys(values)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, err
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1219,7 +1251,7 @@ func (s *Searcher) batchedContainsBool(property *models.Property, operator filte
 ) (*propValuePair, error) {
 	keys, err := encodeBoolKeys(values)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, err
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1229,7 +1261,7 @@ func (s *Searcher) batchedContainsDate(property *models.Property, operator filte
 ) (*propValuePair, error) {
 	keys, err := encodeDateKeys(values)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, err
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }

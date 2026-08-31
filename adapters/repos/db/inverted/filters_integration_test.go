@@ -1320,6 +1320,27 @@ func createSchema() *schema.Schema {
 							IndexRangeFilters: &vFalse,
 						},
 						{
+							Name:              "inverted-number-roaringset",
+							DataType:          schema.DataTypeNumber.PropString(),
+							IndexFilterable:   &vTrue,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+						},
+						{
+							Name:              "inverted-bool-roaringset",
+							DataType:          schema.DataTypeBoolean.PropString(),
+							IndexFilterable:   &vTrue,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+						},
+						{
+							Name:              "inverted-date-roaringset",
+							DataType:          schema.DataTypeDate.PropString(),
+							IndexFilterable:   &vTrue,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+						},
+						{
 							Name:              "inverted-roaringsetrange-on-disk",
 							DataType:          schema.DataTypeInt.PropString(),
 							IndexFilterable:   &vFalse,
