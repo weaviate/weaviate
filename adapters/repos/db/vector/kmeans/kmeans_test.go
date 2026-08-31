@@ -556,13 +556,14 @@ func TestFitBalancedMetricsUseActualAssignment(t *testing.T) {
 	}
 }
 
-// FitBalanced never runs the assignment loop when IterationThreshold <= 1,
-// because initialization counts as the first iteration. There is then no
-// assignment to balance and the membership is returned as the zero value:
-// every point in cluster 0.
+// FitBalanced always runs at least one constrained assignment pass, even when
+// the iteration threshold is consumed by initialization alone: the size floor
+// and the centers-matching-membership guarantee both require the loop body to
+// have executed.
 func TestFitBalancedWithoutIterations(t *testing.T) {
 	n := 100
 	d := 4
+	floor := (n + 3) / 4
 	data := generateData(n, d, normal, seed)
 	for _, variant := range kMeansVariants {
 		for _, iterationThreshold := range []int{0, 1} {
@@ -570,7 +571,14 @@ func TestFitBalancedWithoutIterations(t *testing.T) {
 			km.IterationThreshold = iterationThreshold
 			labels, err := km.FitBalanced(data)
 			assert.NoError(t, err)
-			assert.Equal(t, make([]uint32, n), labels)
+			assert.Len(t, labels, n)
+			assert.Equal(t, iterationThreshold+1, km.Metrics.Iterations,
+				"exactly one constrained pass beyond the threshold")
+
+			counts := balancedClusterSizes(t, labels, 2)
+			assert.GreaterOrEqual(t, min(counts[0], counts[1]), floor)
+			assert.LessOrEqual(t, max(counts[0], counts[1]), n-floor)
+			assertCentersMatchMembership(t, km, data, labels)
 		}
 	}
 }

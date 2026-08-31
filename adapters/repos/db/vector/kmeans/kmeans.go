@@ -534,7 +534,12 @@ func (m *KMeans) FitBalanced(data [][]float32) ([]uint32, error) {
 	offsets := make([]int, n)
 	minCount := (n + 3) / 4
 
-	for m.Metrics.Iterations < m.IterationThreshold {
+	// Unlike Fit, FitBalanced returns memberships: the size floor and the
+	// centers-match-membership guarantees require at least one constrained
+	// assignment and center update, even when the iteration threshold is
+	// consumed by initialization alone.
+	iterationThreshold := max(m.IterationThreshold, m.Metrics.Iterations+1)
+	for m.Metrics.Iterations < iterationThreshold {
 		var metrics IterationMetrics
 
 		// The assignment needs both distances for every point, so the
