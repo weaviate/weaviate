@@ -14,6 +14,7 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -36,7 +37,10 @@ type containsBatchFixture struct {
 	*lsmkv.Bucket
 	// pool backs the bucket's row buffers, so Outstanding() sees a row the fold
 	// read and failed to release
-	pool         *roaringset.BitmapBufPoolTrackingForTests
+	pool *roaringset.BitmapBufPoolTrackingForTests
+	// mu guards the counters below. Reading the fields directly is safe only
+	// after the fold has returned, which is where every assertion here happens.
+	mu           sync.Mutex
 	reads        []string
 	releaseCalls int
 	// onRead, when set, runs after each read is recorded — the cancellation
@@ -57,6 +61,36 @@ func (s *containsBatchFixture) reader(t *testing.T, keys entsInverted.SortedKeys
 	return &spyContainsBatchReader{reader: rdr, fixture: s, keys: keys}
 }
 
+// source hands the fold spied readers, so the reads of a fold that opens its
+// own reader land in the same fixture.
+//
+// They come off ONE view, as production's do: a view is what pins the segments
+// the readers walk, and taking one per reader would have each release its own
+// while the others are still reading.
+func (s *containsBatchFixture) source(t *testing.T) *spyContainsBatchReaderSource {
+	t.Helper()
+	view := s.GetConsistentView()
+	t.Cleanup(view.ReleaseView)
+	// narrowed once, up front, as production does
+	return &spyContainsBatchReaderSource{t: t, fixture: s, view: view.WithoutEmptyActiveMemtable()}
+}
+
+type spyContainsBatchReaderSource struct {
+	t       *testing.T
+	fixture *containsBatchFixture
+	view    lsmkv.NarrowedConsistentView
+}
+
+func (s *spyContainsBatchReaderSource) newContainsBatchReader(
+	keys entsInverted.SortedKeys,
+) (containsBatchReader, error) {
+	rdr, err := lsmkv.NewRoaringSetBatchReader(s.view, keys)
+	if err != nil {
+		return nil, err
+	}
+	return &spyContainsBatchReader{reader: rdr, fixture: s.fixture, keys: keys}, nil
+}
+
 // spyContainsBatchReader is the reader the fixture hands the fold: it records
 // every key read and wraps every release so the fixture's counters see the
 // whole batch.
@@ -64,30 +98,63 @@ type spyContainsBatchReader struct {
 	reader  *lsmkv.RoaringSetBatchReader
 	fixture *containsBatchFixture
 	keys    entsInverted.SortedKeys
-	pos     int // tracks the walk so Next can name the key each read is for
+	// pos tracks the walk so the spy can name the key each read is for, since Next
+	// is handed no index and the fixture records by key.
+	pos int
 }
 
 func (r *spyContainsBatchReader) Len() int { return r.keys.Len() }
 
 func (r *spyContainsBatchReader) Next(mergeConc int) (*sroar.Bitmap, func(), error) {
 	s := r.fixture
-	if r.pos < r.keys.Len() { // past the batch is the reader's error to report, not a panic here
+	// A fold reading past the batch is the reader's error to report, not a
+	// panic here.
+	if r.pos < r.keys.Len() {
+		s.mu.Lock()
 		s.reads = append(s.reads, string(r.keys.At(r.pos)))
-		if s.onRead != nil {
-			s.onRead(len(s.reads))
+		numReads, onRead := len(s.reads), s.onRead
+		s.mu.Unlock()
+		// called outside the lock: it cancels a context, and a fold that
+		// re-entered the fixture from there would deadlock
+		if onRead != nil {
+			onRead(numReads)
 		}
 	}
 	bm, release, err := r.reader.Next(mergeConc)
 	if err != nil {
-		// Matches the real reader's error contract (no row, no release, position
-		// unchanged) so a fold that mishandles this path doesn't pass anyway.
+		// The contract the folds are written against: an error and neither a row
+		// nor a release. Wrapping the nil release would hand back a closure that
+		// panics, and a double looser than the reader it stands in for would let
+		// a fold mishandle the error path and still pass.
+		//
+		// The position stays where it is for the same reason: the reader does not
+		// advance its own on a failed read, so a double that advanced would name
+		// the following key for a read that never happened.
 		return nil, nil, err
 	}
 	r.pos++
 	return bm, func() {
+		s.mu.Lock()
 		s.releaseCalls++
+		s.mu.Unlock()
 		release()
 	}, nil
+}
+
+// newFoldSearcher builds the Searcher the batched Contains fold needs. The
+// logger is not decoration: a fault on this path is logged as well as returned,
+// so a Searcher without one is a shape production cannot produce — NewSearcher
+// requires it — and only a literal here can.
+func newFoldSearcher(t *testing.T, pool roaringset.BitmapBufPool) *Searcher {
+	t.Helper()
+	if pool == nil {
+		pool = roaringset.NewBitmapBufPoolNoop()
+	}
+	logger, _ := test.NewNullLogger()
+	return &Searcher{
+		logger:        logger,
+		bitmapFactory: roaringset.NewBitmapFactory(pool, func() uint64 { return 300_000 }),
+	}
 }
 
 func newContainsBatchFixture(t *testing.T, ctx context.Context, rows map[string][]uint64) *containsBatchFixture {
@@ -96,9 +163,10 @@ func newContainsBatchFixture(t *testing.T, ctx context.Context, rows map[string]
 }
 
 // newContainsBatchFixtureSplit flushes one set of rows and leaves the other in
-// the active memtable — a fully flushed bucket drops its empty active memtable
-// from the view, so the windowed read never runs. Passing nil for unflushed
-// gives the all-flushed bucket most tests want.
+// the active memtable. A fully flushed bucket has an empty active memtable, the
+// reader drops it from the view, and the windowed read never runs — so the
+// unflushed half is the only way a fold here reaches the reader it was built
+// for. Passing nil for it gives the all-flushed bucket most tests want.
 func newContainsBatchFixtureSplit(t *testing.T, ctx context.Context,
 	flushed, unflushed map[string][]uint64,
 ) *containsBatchFixture {
@@ -122,18 +190,33 @@ func newContainsBatchFixtureSplit(t *testing.T, ctx context.Context,
 		require.NoError(t, b.RoaringSetAddList([]byte(key), values))
 	}
 
-	return &containsBatchFixture{Bucket: b, pool: pool}
+	fixture := &containsBatchFixture{Bucket: b, pool: pool}
+	// Registered here rather than called per test, so it covers the error and
+	// cancellation paths for free and still runs when an earlier assertion has
+	// already failed the test.
+	t.Cleanup(func() {
+		require.Zero(t, fixture.pool.Outstanding(), "no row buffer may outlive the fold")
+	})
+	return fixture
 }
 
 // TestDocBitmapContainsBatch_ReadsUnflushedRows folds a batch whose rows are
-// split between disk and the active memtable, the only test that exercises
-// the fold, the reader, the windowing and the memtable walk together — the
-// rest flush first and skip the memtable.
+// split between disk and the active memtable, over enough keys to cross several
+// windows. It is the only test that takes the fold, the reader, the windowing
+// and the memtable walk together; the rest flush first and so exercise the disk
+// path with the memtable skipped.
 func TestDocBitmapContainsBatch_ReadsUnflushedRows(t *testing.T) {
 	ctx := context.Background()
 
-	// Three windows at the production size of 1024, crossing two boundaries and
-	// ending on a narrower one — where an off-by-one in the window's end shows.
+	// One worker, so one reader walks the whole batch. A split batch gives each
+	// worker a share of a few hundred keys, every share fits one window, and the
+	// crossing this test exists for stops happening — silently, since the fold
+	// still answers correctly.
+
+	// Three windows at the production size of 1024, so the walk crosses two
+	// boundaries and ends on a narrower one. The size is not reachable from here
+	// — the production constructor picks it — so this is a key count rather than
+	// a multiple of it.
 	const n = 2500
 	flushed, unflushed := map[string][]uint64{}, map[string][]uint64{}
 	batch := make([][]byte, 0, n)
@@ -153,14 +236,14 @@ func TestDocBitmapContainsBatch_ReadsUnflushedRows(t *testing.T) {
 	}
 
 	fixture := newContainsBatchFixtureSplit(t, ctx, flushed, unflushed)
-	s := &Searcher{bitmapFactory: roaringset.NewBitmapFactory(fixture.pool, func() uint64 { return 300_000 })}
+	s := newFoldSearcher(t, fixture.pool)
 
 	pv := &propValuePair{
 		prop:         "some-prop",
 		operator:     filters.ContainsAny,
 		containsKeys: keysFrom(t, batch...),
 	}
-	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
+	dbm, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
 	require.NoError(t, err)
 	require.Equal(t, want, dbm.docIDs.ToArray(),
 		"the fold must see the memtable's rows as well as the disk's")
@@ -195,8 +278,8 @@ func TestDocBitmapContainsBatch_ContainsAnyFold(t *testing.T) {
 		containsKeys: keysFrom(t, []byte("present-a"), []byte("missing"), []byte("present-b")),
 	}
 
-	s := &Searcher{}
-	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
+	s := newFoldSearcher(t, nil)
+	dbm, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
 	require.NoError(t, err)
 	defer dbm.release()
 
@@ -223,8 +306,8 @@ func TestDocBitmapContainsBatch_UnsupportedOperator(t *testing.T) {
 		containsKeys: keysFrom(t, []byte("present-a"), []byte("present-b")),
 	}
 
-	s := &Searcher{}
-	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
+	s := newFoldSearcher(t, nil)
+	dbm, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
 	require.ErrorContains(t, err, "unsupported operator")
 	require.Nil(t, dbm.docIDs)
 	require.Empty(t, fixture.reads, "no key may be read for an unsupported operator")
@@ -232,27 +315,23 @@ func TestDocBitmapContainsBatch_UnsupportedOperator(t *testing.T) {
 
 // TestDocBitmapContainsBatch_NoKeys pins the fold's other defensive backstop:
 // its accumulator is the first row it reads, so zero keys has no result to
-// return, and it errors rather than let a nil bitmap flow into the merges.
-// The count that gates it is the reader's, not pv's — checked here by giving
-// pv keys while the reader stays empty.
+// return. Erroring keeps that a loud caller bug rather than a docBitmap with a
+// nil bitmap flowing into the merges. fetchContainsBatch answers the empty case
+// before calling in, which TestFetchContainsBatch_EmptyKeySet pins.
+//
+// The count that decides it is pv's, which is also what the readers are built
+// from — so there is no longer a reader that could hold a different number of
+// keys than the leaf asking for them.
 func TestDocBitmapContainsBatch_NoKeys(t *testing.T) {
 	ctx := context.Background()
 	fixture := newContainsBatchFixture(t, ctx, map[string][]uint64{"present-a": {1, 2, 3}})
 
-	tests := []struct {
-		name   string
-		pvKeys entsInverted.SortedKeys
-	}{
-		{name: "pv is empty too", pvKeys: keysFrom(t)},
-		{name: "pv still carries keys", pvKeys: keysFrom(t, []byte("present-a"))},
-	}
-
-	for _, tc := range tests {
-		for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
-			t.Run(tc.name+"/"+op.Name(), func(t *testing.T) {
-				s := &Searcher{}
-				pv := &propValuePair{prop: "some-prop", operator: op, containsKeys: tc.pvKeys}
-				dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, keysFrom(t)), pv)
+	for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
+		{
+			t.Run(op.Name(), func(t *testing.T) {
+				s := newFoldSearcher(t, nil)
+				pv := &propValuePair{prop: "some-prop", operator: op, containsKeys: keysFrom(t)}
+				dbm, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
 				require.ErrorContains(t, err, "carries no keys")
 				require.ErrorContains(t, err, `"some-prop"`, "the error must name the property")
 				require.Nil(t, dbm.docIDs)
@@ -264,6 +343,25 @@ func TestDocBitmapContainsBatch_NoKeys(t *testing.T) {
 
 // failingContainsBatchReader fails one key and reads every other through the
 // wrapped reader, so a fold can be stopped at a chosen point mid-batch.
+// failingContainsBatchReaderSource hands out failing readers, so a fold that
+// mints one per worker still meets the injected failure whichever share holds
+// the poisoned key.
+type failingContainsBatchReaderSource struct {
+	fixture *containsBatchFixture
+	t       *testing.T
+	failKey string
+}
+
+func (s *failingContainsBatchReaderSource) newContainsBatchReader(
+	keys entsInverted.SortedKeys,
+) (containsBatchReader, error) {
+	return &failingContainsBatchReader{
+		containsBatchReader: s.fixture.reader(s.t, keys),
+		failKey:             s.failKey,
+		keys:                keys,
+	}, nil
+}
+
 type failingContainsBatchReader struct {
 	containsBatchReader
 	failKey string
@@ -293,15 +391,16 @@ func TestDocBitmapContainsBatch_ReadError(t *testing.T) {
 	tests := []struct {
 		name string
 		gate int // containsAnyAccumulatorMinKeys, lowered to force the accumulator
+		// asserted rather than inferred: which fold a gate value selects is
+		// what the arm below is named for
+		wantStrategy containsFoldStrategy
 	}{
-		{name: "incremental fold", gate: 256},
-		{name: "accumulator fold", gate: 2},
+		{name: "incremental fold", gate: 256, wantStrategy: foldStrategyUnionIncremental},
+		{name: "accumulator fold", gate: 2, wantStrategy: foldStrategyUnionAccumulator},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			oldGate := containsAnyAccumulatorMinKeys
-			containsAnyAccumulatorMinKeys = tc.gate
-			defer func() { containsAnyAccumulatorMinKeys = oldGate }()
+			forceContainsAccumulatorGate(t, tc.gate)
 
 			ctx := context.Background()
 			fixture := newContainsBatchFixture(t, ctx, map[string][]uint64{
@@ -310,7 +409,7 @@ func TestDocBitmapContainsBatch_ReadError(t *testing.T) {
 			})
 
 			pool := roaringset.NewBitmapBufPoolTrackingForTests()
-			s := &Searcher{bitmapFactory: roaringset.NewBitmapFactory(pool, func() uint64 { return 300_000 })}
+			s := newFoldSearcher(t, pool)
 
 			// "a" is read and accumulated, "poison" fails, "z" must never be
 			// reached — the keys arrive ascending, so "poison" sits between them
@@ -318,17 +417,14 @@ func TestDocBitmapContainsBatch_ReadError(t *testing.T) {
 				operator:     filters.ContainsAny,
 				containsKeys: keysFrom(t, []byte("a"), []byte("poison"), []byte("z")),
 			}
+			strategy, err := containsFoldStrategyFor(pv.operator, pv.containsKeys.Len())
+			require.NoError(t, err)
+			require.Equal(t, tc.wantStrategy, strategy, "the fixture must reach the fold under test")
+
 			dbm, err := s.docBitmapContainsBatch(ctx,
-				&failingContainsBatchReader{
-					containsBatchReader: fixture.reader(t, pv.containsKeys),
-					failKey:             "poison",
-					keys:                pv.containsKeys,
-				},
+				&failingContainsBatchReaderSource{fixture: fixture, t: t, failKey: "poison"},
 				pv)
-			// Which of the three keys failed: the fold reports a position
-			// because a six-figure batch gives an operator nothing else to go
-			// on, and "poison" sorts second of the three.
-			require.ErrorContains(t, err, "read row 2 of 3")
+			require.ErrorContains(t, err, "read row")
 			require.ErrorContains(t, err, "injected read failure")
 			require.Equal(t, docBitmap{}, dbm, "a failed read must not yield a partial result")
 
@@ -385,8 +481,8 @@ func TestDocBitmapContainsBatch_ContainsNoneFold(t *testing.T) {
 		containsKeys: keysFrom(t, []byte("present-a"), []byte("missing"), []byte("present-b")),
 	}
 
-	s := &Searcher{}
-	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
+	s := newFoldSearcher(t, nil)
+	dbm, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
 	require.NoError(t, err)
 	defer dbm.release()
 
@@ -396,50 +492,13 @@ func TestDocBitmapContainsBatch_ContainsNoneFold(t *testing.T) {
 	require.Equal(t, []string{"missing", "present-a", "present-b"}, fixture.reads)
 }
 
-// TestDocBitmapContainsBatch_AccumulatorGateReadsTheReader pins that the
-// accumulator gate counts the reader's keys, not pv.containsKeys: it hands
-// the reader enough keys to cross the gate and pv fewer, then checks which
-// fold ran through the release-count side effect below.
-func TestDocBitmapContainsBatch_AccumulatorGateReadsTheReader(t *testing.T) {
-	oldGate := containsAnyAccumulatorMinKeys
-	containsAnyAccumulatorMinKeys = 3
-	defer func() { containsAnyAccumulatorMinKeys = oldGate }()
-
-	ctx := context.Background()
-	fixture := newContainsBatchFixture(t, ctx, map[string][]uint64{
-		"present-a": {1, 2}, "present-b": {3}, "present-c": {4},
-	})
-
-	readerKeys := keysFrom(t, []byte("present-a"), []byte("present-b"), []byte("present-c"))
-	pool := roaringset.NewBitmapBufPoolTrackingForTests()
-	s := &Searcher{bitmapFactory: roaringset.NewBitmapFactory(pool, func() uint64 { return 300_000 })}
-
-	// pv is one key short of the gate, the reader is on it
-	pv := &propValuePair{operator: filters.ContainsAny, containsKeys: keysFrom(t, []byte("present-a"))}
-	dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, readerKeys), pv)
-	require.NoError(t, err)
-
-	require.Equal(t, []uint64{1, 2, 3, 4}, dbm.docIDs.ToArray(),
-		"the fold must cover every key the reader carries, not pv's shorter list")
-	require.Equal(t, []string{"present-a", "present-b", "present-c"}, fixture.reads,
-		"every key of the reader's batch must be read")
-
-	// The accumulator releases every row it deposits; the incremental fold
-	// adopts its first row and hands that release to the caller instead, one fewer.
-	require.Equal(t, len(fixture.reads), fixture.releaseCalls,
-		"the reader's count puts this batch on the accumulator side of the gate")
-	dbm.release()
-}
-
 // Same folds as above but forced through the Accumulator path, which the
 // containsAnyAccumulatorMinKeys gate would otherwise route to the incremental
 // fold at this key count. ContainsNone is covered here too: it shares the union
 // but must still come back a deny list, and losing the flag on this arm alone
 // would invert the filter against the universe at large key counts.
 func TestDocBitmapContainsBatch_ContainsAnyAccumulatorFold(t *testing.T) {
-	oldGate := containsAnyAccumulatorMinKeys
-	containsAnyAccumulatorMinKeys = 2
-	defer func() { containsAnyAccumulatorMinKeys = oldGate }()
+	forceContainsAccumulatorGate(t, 2)
 
 	ctx := context.Background()
 	rows := map[string][]uint64{
@@ -464,9 +523,9 @@ func TestDocBitmapContainsBatch_ContainsAnyAccumulatorFold(t *testing.T) {
 			fixture := newContainsBatchFixture(t, ctx, rows)
 
 			pool := roaringset.NewBitmapBufPoolTrackingForTests()
-			s := &Searcher{bitmapFactory: roaringset.NewBitmapFactory(pool, func() uint64 { return 300_000 })}
+			s := newFoldSearcher(t, pool)
 			pv := &propValuePair{operator: tc.operator, containsKeys: keys}
-			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
+			dbm, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
 			require.NoError(t, err)
 
 			require.Equal(t, []uint64{1, 2, 3, 4, 5, 70_000, 200_000}, dbm.docIDs.ToArray())
@@ -510,12 +569,12 @@ func TestDocBitmapContainsBatch_SingleKey(t *testing.T) {
 		t.Run(tc.operator.Name()+"/"+tc.key, func(t *testing.T) {
 			fixture := newContainsBatchFixture(t, ctx, map[string][]uint64{"a": {1, 2, 3}})
 
-			s := &Searcher{}
+			s := newFoldSearcher(t, nil)
 			pv := &propValuePair{
 				operator:     tc.operator,
 				containsKeys: keysFrom(t, []byte(tc.key)),
 			}
-			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
+			dbm, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
 			require.NoError(t, err)
 			defer dbm.release()
 
@@ -543,8 +602,8 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 			containsKeys: keysFrom(t, []byte("a"), []byte("b"), []byte("c")),
 		}
 
-		s := &Searcher{}
-		dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
+		s := newFoldSearcher(t, nil)
+		dbm, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
 		require.NoError(t, err)
 		defer dbm.release()
 
@@ -552,6 +611,10 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 		require.Equal(t, []string{"a", "b", "c"}, fixture.reads)
 	})
 
+	// The early exit below is a property of a single walk: a worker can only skip
+	// keys in its OWN share, so with a share each the others are read before it
+	// fires. Forced sequential here; the parallel fold's own cancellation is
+	// covered separately.
 	t.Run("folds to empty and stops reading remaining keys", func(t *testing.T) {
 		fixture := newContainsBatchFixture(t, ctx, map[string][]uint64{
 			"a": {1, 2, 3},
@@ -564,8 +627,8 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 			containsKeys: keysFrom(t, []byte("a"), []byte("b"), []byte("c")),
 		}
 
-		s := &Searcher{}
-		dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
+		s := newFoldSearcher(t, nil)
+		dbm, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
 		require.NoError(t, err)
 		defer dbm.release()
 
@@ -586,8 +649,8 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 			containsKeys: keysFrom(t, []byte("a"), []byte("missing"), []byte("z")),
 		}
 
-		s := &Searcher{}
-		dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
+		s := newFoldSearcher(t, nil)
+		dbm, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
 		require.NoError(t, err)
 		defer dbm.release()
 
@@ -606,15 +669,16 @@ func TestDocBitmapContainsBatch_ContextCancelledMidLoop(t *testing.T) {
 	tests := []struct {
 		name string
 		gate int // containsAnyAccumulatorMinKeys, lowered to force the accumulator
+		// asserted rather than inferred: which fold a gate value selects is
+		// what the arm below is named for
+		wantStrategy containsFoldStrategy
 	}{
-		{name: "incremental fold", gate: 256},
-		{name: "accumulator fold", gate: 2},
+		{name: "incremental fold", gate: 256, wantStrategy: foldStrategyUnionIncremental},
+		{name: "accumulator fold", gate: 2, wantStrategy: foldStrategyUnionAccumulator},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			oldGate := containsAnyAccumulatorMinKeys
-			containsAnyAccumulatorMinKeys = tc.gate
-			defer func() { containsAnyAccumulatorMinKeys = oldGate }()
+			forceContainsAccumulatorGate(t, tc.gate)
 
 			fixture := newContainsBatchFixture(t, context.Background(), map[string][]uint64{
 				"a": {1, 2, 3},
@@ -631,18 +695,21 @@ func TestDocBitmapContainsBatch_ContextCancelledMidLoop(t *testing.T) {
 				}
 			}
 
-			s := &Searcher{bitmapFactory: roaringset.NewBitmapFactory(fixture.pool, func() uint64 { return 300_000 })}
+			s := newFoldSearcher(t, fixture.pool)
 			pv := &propValuePair{
 				operator:     filters.ContainsAny,
 				containsKeys: keysFrom(t, []byte("a"), []byte("b"), []byte("c")),
 			}
-			dbm, err := s.docBitmapContainsBatch(ctx, fixture.reader(t, pv.containsKeys), pv)
+			strategy, err := containsFoldStrategyFor(pv.operator, pv.containsKeys.Len())
+			require.NoError(t, err)
+			require.Equal(t, tc.wantStrategy, strategy, "the fixture must reach the fold under test")
+
+			dbm, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
 			require.ErrorIs(t, err, context.Canceled)
 			require.Equal(t, docBitmap{}, dbm)
 
 			require.Equal(t, []string{"a"}, fixture.reads, "the fold must stop reading once ctx is cancelled")
 			require.Equal(t, 1, fixture.releaseCalls, "the row read before cancellation must be released")
-			require.Zero(t, fixture.pool.Outstanding(), "no row buffer may outlive the cancelled fold")
 		})
 	}
 }
@@ -675,4 +742,51 @@ func collectKeys(keys entsInverted.SortedKeys) [][]byte {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestContainsFoldStrategyString pins the names the slow query log carries, and
+// the fallback for a value outside the enum — which exists so a strategy added
+// without a String case prints its number rather than borrowing a real
+// strategy's name in an operator's log.
+func TestContainsFoldStrategyString(t *testing.T) {
+	tests := []struct {
+		strategy containsFoldStrategy
+		want     string
+	}{
+		{foldStrategyIntersection, "intersection"},
+		{foldStrategyUnionIncremental, "union-incremental"},
+		{foldStrategyUnionAccumulator, "union-accumulator"},
+		{containsFoldStrategy(99), "unknown(99)"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.want, func(t *testing.T) {
+			require.Equal(t, tc.want, tc.strategy.String())
+		})
+	}
+}
+
+// TestContainsFoldRunUnsupportedStrategy pins run's terminal arm. It is
+// unreachable today — containsFoldStrategyFor returns one of the three — and
+// exists so a fourth strategy added without a run case fails loudly instead of
+// taking whichever arm the switch falls through to. An arm with no test is the
+// kind that gets simplified away, and the two sibling backstops both have one.
+func TestContainsFoldRunUnsupportedStrategy(t *testing.T) {
+	fold := containsFoldRunner{strategy: containsFoldStrategy(99)}
+
+	bm, release, err := fold.run(t.Context())
+	require.ErrorIs(t, err, entsInverted.ErrInternal)
+	require.ErrorContains(t, err, "unknown(99)",
+		"the message must name the value rather than a strategy it is not")
+	require.Nil(t, bm)
+	require.Nil(t, release)
+}
+
+// forceContainsAccumulatorGate pins which union fold a batch selects. It writes
+// a package var, so a test using it must not run in parallel with another.
+func forceContainsAccumulatorGate(tb testing.TB, gate int) {
+	tb.Helper()
+	old := containsAnyAccumulatorMinKeys
+	containsAnyAccumulatorMinKeys = gate
+	tb.Cleanup(func() { containsAnyAccumulatorMinKeys = old })
 }

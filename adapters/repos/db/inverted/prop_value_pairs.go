@@ -25,7 +25,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -394,9 +393,9 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	// Nil until there is a reader, so a filter rejected while opening one is
-	// timed without inventing counts for work that never happened.
-	var reader *lsmkv.RoaringSetBatchReader
+	// Narrowed once, so every reader the fold opens sees the same memtables.
+	// Built before the annotation reads it, so the closure never sees nil.
+	source := &roaringSetBatchReaderSource{view: view.WithoutEmptyActiveMemtable()}
 	// Deferred so a filter that fails partway is timed and reports what it did
 	// before it stopped.
 	defer func() {
@@ -416,8 +415,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 			}
 			// What the batching itself did, so a slow batched filter can be told
 			// from a filter that was merely slow.
-			if reader != nil {
-				st := reader.Stats()
+			if st, ok := source.stats(); ok {
 				fields["window_fills"] = st.Fills
 				fields["window_narrowed_fills"] = st.NarrowedFills
 				fields["batch_keys_served"] = st.KeysServed
@@ -434,12 +432,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 		})
 	}()
 
-	reader, err = lsmkv.NewRoaringSetBatchReader(view.WithoutEmptyActiveMemtable(), pv.containsKeys)
-	if err != nil {
-		return nil, err
-	}
-
-	dbm, err = s.docBitmapContainsBatch(ctx, reader, pv)
+	dbm, err = s.docBitmapContainsBatch(ctx, source, pv)
 	if err != nil {
 		return nil, err
 	}
