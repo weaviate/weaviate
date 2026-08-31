@@ -266,6 +266,7 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
+	shutdownIndexOnCleanup(t, index)
 	index.db = stubDBWithNoLiveReindex()
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
