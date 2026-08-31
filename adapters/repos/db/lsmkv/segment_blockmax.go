@@ -221,6 +221,8 @@ type SegmentBlockMax struct {
 func (s *segment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	if node == nil {
 		n, err := s.index.Get(key)
+		// TODO aliszka:bm25-corruption-swallow: an unreadable index reads as "no
+		// posting" here, dropping this segment's postings.
 		if err != nil {
 			return nil
 		}
@@ -231,6 +233,7 @@ func (s *segment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryT
 
 func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	node, err := s.index.Get(key)
+	// TODO aliszka:bm25-corruption-swallow: same swallow as in newSegmentBlockMax.
 	if err != nil {
 		return nil
 	}

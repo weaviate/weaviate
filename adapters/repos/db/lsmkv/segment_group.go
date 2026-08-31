@@ -878,7 +878,7 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, 
 				continue
 			}
 
-			return nil, err
+			return nil, fmt.Errorf("SegmentGroup::getCollection() %q: %w", segment.getPath(), err)
 		}
 
 		if len(out) == 0 {
@@ -902,7 +902,7 @@ func (sg *SegmentGroup) getCollectionBytes(key []byte, segments []Segment) ([][]
 				continue
 			}
 
-			return nil, err
+			return nil, fmt.Errorf("SegmentGroup::getCollectionBytes() %q: %w", segment.getPath(), err)
 		}
 
 		if len(out) == 0 {
@@ -928,7 +928,8 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
-				return nil, nil, err
+				return nil, nil, fmt.Errorf("SegmentGroup::getCollectionAndSegments() %q: %w",
+					segment.getPath(), err)
 			}
 			// inverted segments need to be loaded anyway, even if they don't have
 			// the key, as we need to know if they have tombstones
