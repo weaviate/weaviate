@@ -30,6 +30,7 @@ import (
 	entschema "github.com/weaviate/weaviate/entities/schema"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -116,6 +117,13 @@ type ReindexProvider struct {
 	// A count, not a flag: two workers can hold one unit, and a flag would let the
 	// first finisher clear the second's claim.
 	liveUnits unitClaims
+
+	// teardownHeld samples the line about a unit a teardown holds. The line is
+	// emitted once per unit the scheduler retries, and a unit count is a tenant
+	// count, so the window has to span ticks: the sampler lives on the provider,
+	// not on a call.
+	teardownHeldOnce sync.Once
+	teardownHeld     *logrusext.Sampler
 
 	// sealedUnits and sealedTasks count the teardowns holding a unit and a whole
 	// task; guarded by [mu]. A destroyer seals rather than reading [liveUnits],
@@ -399,6 +407,13 @@ func (p *ReindexProvider) ReindexUnitSealBuilder() ReindexUnitSealBuilder {
 	}
 }
 
+func (p *ReindexProvider) teardownHeldSampler() *logrusext.Sampler {
+	p.teardownHeldOnce.Do(func() {
+		p.teardownHeld = logrusext.NewSampler(p.logger, maxReportedErrors, migrationUnitContentionWindow)
+	})
+	return p.teardownHeld
+}
+
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -536,7 +551,10 @@ func (p *ReindexProvider) processOneUnit(
 
 	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
 	if !entered {
-		logger.Warn("reindex provider: a teardown holds this unit, so it is not started; the next tick retries it")
+		p.teardownHeldSampler().WithSampling(func(l logrus.FieldLogger) {
+			l.WithField("taskID", task.ID).WithField("unit", unitID).WithField("shard", shardName).
+				Warn("reindex provider: a teardown holds this unit, so it is not started; the next tick retries it")
+		})
 		return
 	}
 	defer release()
@@ -699,6 +717,12 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 }
+
+// migrationUnitContentionWindow bounds how often the provider repeats the same
+// line about units it declined to start. A scheduler tick is shorter than this,
+// so a teardown spanning many ticks reports at a steady low rate rather than
+// once per unit per tick.
+const migrationUnitContentionWindow = time.Minute
 
 // maxReindexPropertiesPerTask caps the number of properties in a single
 // reindex task's payload. The REST handler today always submits one

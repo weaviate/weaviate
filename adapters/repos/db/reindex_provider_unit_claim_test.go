@@ -14,11 +14,14 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -205,4 +208,63 @@ func TestASealedUnitNeverStartsItsIteration(t *testing.T) {
 			require.Empty(t, rec.failed)
 		})
 	}
+}
+
+// TestUnitsHeldByATeardownReportAtASampledRate pins the contention line to a
+// sampled rate. The scheduler retries every unit it could not start, and a
+// unit count is a tenant count, so one line per unit per tick has no end while
+// the teardown runs.
+func TestUnitsHeldByATeardownReportAtASampledRate(t *testing.T) {
+	ctx := testCtx()
+	className := "UnitContention" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{"title"})
+	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	defer hot.Shutdown(context.Background())
+	registerIndex(idx, className)
+
+	logger, hook := logrustest.NewNullLogger()
+	p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
+
+	const units = 40
+	desc := distributedtask.TaskDescriptor{ID: "T_contended", Version: 1}
+	payload := &ReindexTaskPayload{
+		Collection: className, MigrationType: ReindexTypeChangeTokenization,
+		Properties: []string{"title"}, TargetTokenization: "field", BucketStrategy: "MapCollection",
+		UnitToShard: map[string]string{},
+		UnitToNode:  map[string]string{},
+	}
+	unitIDs := make([]string, 0, units)
+	for i := 0; i < units; i++ {
+		id := fmt.Sprintf("u%d__node1", i)
+		unitIDs = append(unitIDs, id)
+		payload.UnitToShard[id] = hot.Name()
+		payload.UnitToNode[id] = "node1"
+	}
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+	task := &distributedtask.Task{
+		Namespace: ReindexNamespace, TaskDescriptor: desc,
+		Status: distributedtask.TaskStatusStarted, Payload: raw,
+	}
+
+	// A teardown holds every unit, which is what makes the provider decline
+	// each of them in turn.
+	for _, id := range unitIDs {
+		_, sealed := p.SealLocalUnit(desc, id)
+		require.True(t, sealed)
+	}
+	for _, id := range unitIDs {
+		p.processOneUnit(ctx, task, payload, idx, id, nil)
+	}
+
+	held := 0
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "a teardown holds this unit") {
+			held++
+		}
+	}
+	require.Positive(t, held, "the contention is still reported")
+	require.LessOrEqual(t, held, maxReportedErrors,
+		"sampled per window, not emitted once per unit")
+	require.Less(t, held, units)
 }
