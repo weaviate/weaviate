@@ -57,6 +57,14 @@ func TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug(t *testing.T) {
 	require.Equal(t, 0, infoCount,
 		"preserving a deferred-finalize tracker dir must not log at Info inside the RAFT apply loop")
 	require.Equal(t, preservedGens, preservedCount, "one Debug line per preserved generation")
+
+	// The record-set read this path makes must not report itself either: it runs
+	// once per shard inside the same apply, and the apply's own aggregate is the
+	// one line it is allowed to emit.
+	for _, e := range hook.AllEntries() {
+		require.NotContains(t, e.Message, "read migration records",
+			"the record-set read is accounted for by the caller's aggregate, not per read")
+	}
 }
 
 // TestCleanStaleSidecarDirsPreservedLogAtDebug pins the sidecar half of the

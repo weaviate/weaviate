@@ -444,7 +444,7 @@ func TestLocalCallbacksDoneReadsEachShardsRecordsOnce(t *testing.T) {
 			}, node)
 			require.Equal(t, tt.wantDone, done)
 
-			require.Equal(t, 1, countRecordSetReads(hook),
+			require.Equal(t, 1, recordSetReadsReported(hook),
 				"one read per shard, whatever the payload's tuple count")
 			require.False(t, cold.isLoaded())
 		})

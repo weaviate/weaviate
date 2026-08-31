@@ -2028,6 +2028,15 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 	}); err != nil {
 		return false
 	}
+	// Deferred, because the loop returns as soon as it finds post-merge state:
+	// the count is what proves the probe reads once per shard rather than once
+	// per property, so every exit has to carry it.
+	recordReads := 0
+	defer func() {
+		p.logger.WithField("collection", payload.Collection).
+			WithField("shards", len(shards)).WithField("record_set_reads", recordReads).
+			Debug("post-merge probe: read migration records")
+	}()
 	for _, shardName := range shards {
 		if ctx.Err() != nil {
 			return false
@@ -2035,6 +2044,7 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 		if !hosted[shardName] {
 			continue
 		}
+		recordReads++
 		lsmPath := shardPathLSM(idx.path(), shardName)
 		// Memos per shard, not per walk: no two shards name the same path, so
 		// nothing carries over between them anyway.
@@ -2317,10 +2327,19 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 		return false
 	}
 
+	// Deferred for the same reason as the post-merge probe: the loop returns on
+	// the first shard that still owes a swap.
+	recordReads := 0
+	defer func() {
+		p.logger.WithField("collection", payload.Collection).
+			WithField("shards", len(hosted)).WithField("record_set_reads", recordReads).
+			Debug("local callbacks probe: read migration records")
+	}()
 	for shardName, isHosted := range hosted {
 		if !isHosted {
 			continue
 		}
+		recordReads++
 		records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(shardPathLSM(idx.path(), shardName), p.logger)
 		if someRecordsUnreadable || recordSetUnreadable ||
 			migrationRecordFor(records, payload.MigrationType, payload.Properties, migrationRecordStagingIncomplete) {

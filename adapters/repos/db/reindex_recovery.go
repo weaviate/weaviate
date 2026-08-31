@@ -74,6 +74,8 @@ func DiscoverInFlightReindexTasks(
 		unlistErrs   = errorcompounder.New()
 		unreadable   = map[string]struct{}{}
 		partlyUnread = map[string]struct{}{}
+		shardsWalked int
+		recordReads  int
 	)
 	for _, indexEntry := range indices {
 		if !indexEntry.IsDir() {
@@ -88,6 +90,7 @@ func DiscoverInFlightReindexTasks(
 			if !shardEntry.IsDir() {
 				continue
 			}
+			shardsWalked++
 			shardName := shardEntry.Name()
 			shardKey := indexEntry.Name() + "/" + shardName
 			lsmPath := filepath.Join(indexPath, shardName, "lsm")
@@ -100,6 +103,7 @@ func DiscoverInFlightReindexTasks(
 				}
 				continue
 			}
+			recordReads++
 			records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
 			if recordSetUnreadable {
 				unreadable[shardKey] = struct{}{}
@@ -149,6 +153,9 @@ func DiscoverInFlightReindexTasks(
 			}
 		}
 	}
+
+	logger.WithField("shards", shardsWalked).WithField("record_set_reads", recordReads).
+		Debug("reindex recovery: read migration records")
 
 	if len(unlistable) > 0 {
 		logger.WithField("shards", reportedShardNames(unlistable)).

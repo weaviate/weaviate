@@ -314,3 +314,34 @@ func TestRecoveryWalkReportsUnreadableShardsOnce(t *testing.T) {
 	require.Contains(t, about[0], fmt.Sprintf("%d shard(s)", shards),
 		"the one line carries the count the per-shard lines used to carry")
 }
+
+// TestRecoveryWalkReadsEachShardsRecordsOnce pins the startup walk to one
+// record-set read per shard. Each shard carries several tracker dirs, so a
+// walk that read per tracker instead would go to disk a multiple of the tenant
+// count at every boot, and nothing else would say so.
+func TestRecoveryWalkReadsEachShardsRecordsOnce(t *testing.T) {
+	const (
+		shards   = 6
+		trackers = 2
+	)
+	root := t.TempDir()
+	indexPath := filepath.Join(root, "books_abc")
+
+	for i := 0; i < shards; i++ {
+		migs := filepath.Join(indexPath, fmt.Sprintf("tenant-%02d", i), "lsm", ".migrations")
+		for gen := 1; gen <= trackers; gen++ {
+			require.NoError(t, os.MkdirAll(
+				filepath.Join(migs, fmt.Sprintf("searchable_retokenize_title_%d", gen)), 0o777))
+		}
+	}
+
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+
+	recovered, err := DiscoverInFlightReindexTasks(root, logger, nil)
+	require.NoError(t, err)
+	require.Empty(t, recovered, "no record names any of these trackers, so nothing recovers")
+
+	require.Equal(t, shards, recordSetReadsReported(hook),
+		"one read per shard, whatever the tracker count on it")
+}

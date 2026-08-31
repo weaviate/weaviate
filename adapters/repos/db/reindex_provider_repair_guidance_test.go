@@ -326,18 +326,25 @@ func TestHasLocalPostMergeStateReadsEachShardsRecordsOnce(t *testing.T) {
 		UnitToShard:   map[string]string{"u1": shard.Name(), "u2": shard.Name()},
 	}))
 
-	require.Equal(t, 1, countRecordSetReads(hook),
+	require.Equal(t, 1, recordSetReadsReported(hook),
 		"one read for the one shard the payload names, whatever the property count")
 }
 
-func countRecordSetReads(hook *logrustest.Hook) int {
-	n := 0
+// recordSetReadsReported totals the record_set_reads every walk reports. The
+// read itself does not log, so this field is the whole account of how often a
+// walk went to disk, and its value is what pins the cost to one per shard.
+func recordSetReadsReported(hook *logrustest.Hook) int {
+	total := 0
 	for _, entry := range hook.AllEntries() {
-		if strings.HasPrefix(entry.Message, "read migration records") {
-			n++
+		reads, ok := entry.Data["record_set_reads"]
+		if !ok {
+			continue
+		}
+		if n, isInt := reads.(int); isInt {
+			total += n
 		}
 	}
-	return n
+	return total
 }
 
 func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvider, *ReindexTaskPayload, string) {

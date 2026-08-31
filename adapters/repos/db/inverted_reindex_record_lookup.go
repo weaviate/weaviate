@@ -23,11 +23,9 @@ func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []Mi
 		logger.WithField("path", store.Dir()).Errorf("read migration records: %v", err)
 		return nil, true, true
 	}
-	// One line per read, even on the healthy path: one read per shard is what
-	// every caller is written for, and a probe that reads once per property
-	// instead is otherwise invisible until it shows up as startup latency.
-	logger.WithField("path", store.Dir()).WithField("records", len(store.Records())).
-		Debug("read migration records")
+	// Deliberately silent on the healthy path: every caller fans this out over a
+	// shard set, so a line here follows the tenant count. Each walk reports its
+	// own record_set_reads instead, which is where one-read-per-shard is checkable.
 	return store.Records(), len(store.Unreadable()) > 0, false
 }
 
