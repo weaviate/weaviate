@@ -649,3 +649,58 @@ func countErrorsContaining(f *reconcileFixture, want string) int {
 	}
 	return n
 }
+
+// TestUnretiredSupersededPropertiesReportOncePerRecord pins the report to one
+// line per record. An unretired property keeps the record Swapped, so the next
+// pass asks the same question of the same properties; one line per property
+// would repeat the whole set every pass, for as long as the record stands.
+func TestUnretiredSupersededPropertiesReportOncePerRecord(t *testing.T) {
+	taken := []string{"alpha", "beta", "gamma", "delta"}
+
+	f := newReconcileFixture(t)
+	f.class = testClassWithTokenization(models.PropertyTokenizationWord, taken...)
+
+	// Canonical dirs match per property, which is what makes the newer record
+	// supersede this one. Staged dirs do not, so nothing else accounts for the
+	// old record's, and they are still on disk: retirement has not run.
+	old := testMigrationSubject(10, StrategyCodeFilterableToRangeable, taken...)
+	successor := testMigrationSubject(20, StrategyCodeFilterableToRangeable, taken...)
+
+	dirs := []string{}
+	canonical := map[string]string{}
+	for _, prop := range taken {
+		dirs = append(dirs, old.StagedDirs[prop], old.CanonicalDirs[prop])
+		canonical[prop] = old.CanonicalDirs[prop]
+	}
+	f.mkdirs(dirs...)
+
+	oldRec := NewMigrationRecordSwapped(old, taken, canonical)
+	successorRec := NewMigrationRecordSwapped(successor, taken, canonical)
+	f.put(oldRec)
+	f.put(successorRec)
+
+	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
+	require.NoError(t, r.promoteSealed(oldRec, []MigrationRecord{oldRec, successorRec}))
+
+	state, present := f.state(old.Key)
+	require.True(t, present)
+	require.Equal(t, MigrationStateSwapped, state,
+		"an unretired superseded property keeps the record short of Promoted")
+
+	require.Equal(t, 1, countWarnsContaining(f, "still hold their staged directory"),
+		"one line for the record, whatever the property count")
+	for _, prop := range taken {
+		require.Equal(t, 1, countWarnsContaining(f, prop),
+			"the single line still names every property it is about")
+	}
+}
+
+func countWarnsContaining(f *reconcileFixture, want string) int {
+	n := 0
+	for _, entry := range f.logs.AllEntries() {
+		if entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, want) {
+			n++
+		}
+	}
+	return n
+}

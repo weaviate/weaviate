@@ -393,6 +393,7 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 	// property, and a failure between the rename and its sync yields two.
 	promoting := errorcompounder.New()
 	var noHandles []string
+	unretired := errorcompounder.New()
 
 	for _, prop := range subject.Properties() {
 		// Between Put(started) and the rename there is no check: those two are
@@ -401,8 +402,9 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 			return err
 		}
 		if migrationPropertySuperseded(all, subject, prop) {
-			if !r.supersededPropertyIsRetired(all, subject, prop) {
+			if retired, why := r.supersededPropertyIsRetired(all, subject, prop); !retired {
 				settled = false
+				unretired.Addf("%s", why)
 			}
 			continue
 		}
@@ -441,6 +443,16 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 			Errorf("promote the properties of a migration: %v", err)
 	}
 
+	// One line for the record, not one per property. An unretired property keeps
+	// the record Swapped, so the next pass asks the same question of the same
+	// properties and would repeat itself for as long as the record stands.
+	if reported := unretired.ToErrorLimited(maxReportedErrors); reported != nil {
+		r.logger.WithField("record", subject.Key.String()).Warnf(
+			"%d superseded propert%s of this record still hold their staged directory, so retirement "+
+				"has not run for them; keeping the record, which is what lets the next load retry: %v",
+			unretired.Len(), pluralY(unretired.Len()), reported)
+	}
+
 	// A Promoted record is read as "this rename happened". A pass that renamed
 	// nothing must not write one; a fully superseded record is retired instead.
 	if !settled || !promotedAny {
@@ -449,25 +461,34 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 	return r.store.Put(NewMigrationRecordPromoted(subject, rec.Flipped(), rec.displacedDirs))
 }
 
+// supersededPropertyIsRetired reports whether retirement has taken the staged
+// directory of a superseded property, and why it could not tell when it has
+// not. The reason goes back to the caller rather than into a log line: the
+// caller asks once per property of a record that stays Swapped until every
+// answer is yes, so a line here repeats per property on every pass.
 func (r *migrationReconciler) supersededPropertyIsRetired(all []MigrationRecord,
 	subject MigrationSubject, prop string,
-) bool {
+) (bool, string) {
 	staged := subject.Props[prop].Staged
 	if migrationRetirementLeavesStagedDir(all, subject, staged) {
-		return true
+		return true, ""
 	}
 	there, err := r.dirExists(staged)
 	if err != nil {
-		r.logger.WithField("record", subject.Key.String()).Errorf(
-			"confirm the staged directory of superseded property %q is gone: %v", prop, err)
-		return false
+		return false, fmt.Sprintf("property %q: staged directory %q could not be read: %v", prop, staged, err)
 	}
 	if there {
-		r.logger.WithField("record", subject.Key.String()).Warnf(
-			"property %q is superseded but its staged directory %q is still on disk, so its retirement "+
-				"has not run; keeping the record, which is what lets the next load retry", prop, staged)
+		return false, fmt.Sprintf("property %q: staged directory %q is still on disk", prop, staged)
 	}
-	return !there
+	return true, ""
+}
+
+// pluralY renders the "y"/"ies" tail of "property" for a count.
+func pluralY(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }
 
 // Directory presence can't prove a rename ran (canonical is pre-created
