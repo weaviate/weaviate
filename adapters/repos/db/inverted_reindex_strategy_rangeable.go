@@ -56,6 +56,10 @@ func (s *FilterableToRangeableStrategy) MigrationDirName() string {
 	return migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, s.propNames) + genSuffix(s.generation)
 }
 
+func (s *FilterableToRangeableStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeFilterableToRangeable
+}
+
 func (s *FilterableToRangeableStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketRangeableFromPropNameLSM(propName)
 }
@@ -68,10 +72,6 @@ func (s *FilterableToRangeableStrategy) IngestSuffix() string {
 	return "__rangeable_ingest" + genSuffix(s.generation)
 }
 
-func (s *FilterableToRangeableStrategy) BackupSuffix() string {
-	return "__rangeable_backup" + genSuffix(s.generation)
-}
-
 func (s *FilterableToRangeableStrategy) SourceStrategy() string {
 	return lsmkv.StrategyRoaringSet
 }
@@ -81,10 +81,6 @@ func (s *FilterableToRangeableStrategy) SourceIndexType() PropertyIndexType {
 }
 
 func (s *FilterableToRangeableStrategy) TargetStrategy() string {
-	return lsmkv.StrategyRoaringSetRange
-}
-
-func (s *FilterableToRangeableStrategy) BackupStrategy() string {
 	return lsmkv.StrategyRoaringSetRange
 }
 
@@ -104,15 +100,15 @@ func (s *FilterableToRangeableStrategy) WriteToReindexBucket(shard ShardLike, bu
 }
 
 func (s *FilterableToRangeableStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	armed armedMirror,
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — the property may be
 		// IndexFilterable=false, and we still need to populate the
 		// rangeable bucket from the live write. Scope is enforced via
-		// propsByName.
+		// the armed scope.
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
@@ -126,12 +122,12 @@ func (s *FilterableToRangeableStrategy) MakeAddCallback(bucketNamer func(string)
 }
 
 func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — see MakeAddCallback.
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
@@ -152,8 +148,9 @@ func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(stri
 // [*Shard.IsRangeableLocallyReady] and falls back to the filterable
 // bucket walk while the rangeable bucket is empty. See
 // `Shard.rangeableLocalReady` for the full GH https://github.com/weaviate/0-weaviate-issues/issues/212
-// Issue C rationale. The post-runtimeSwap finalize flips the prop back
-// to "ready" after `markTidied()`.
+// Issue C rationale. Only
+// [FilterableToRangeableStrategy.OnMigrationComplete] flips the prop
+// back to "ready".
 func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []string) {
 	ctx := context.Background()
 	for _, propName := range props {

@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
@@ -81,7 +82,7 @@ func migrationSoleSupersessorOf(all []MigrationRecord, subject MigrationSubject)
 
 func migrationSupersedes(candidate MigrationRecord, subject MigrationSubject) bool {
 	key := candidate.Subject().Key
-	return key != subject.Key && key.TaskVersion > subject.Key.TaskVersion && candidate.PointerSwapped()
+	return key != subject.Key && key.TaskVersion > subject.Key.TaskVersion && candidate.FlipDecided()
 }
 
 type migrationDirRole string
@@ -91,6 +92,40 @@ const (
 	migrationRoleStaged    migrationDirRole = "staged directory"
 	migrationRoleSidecar   migrationDirRole = "sidecar directory"
 )
+
+var migrationLiveDataRoles = migrationRolesWithShape(migrationShapeSidecar)
+
+var migrationReclaimBlockingRoles = append(slices.Clone(migrationLiveDataRoles), migrationRoleCanonical)
+
+// [validateOneOwnerPerDirectory] can't catch this: it sees one record at a
+// time, so two individually valid records can still collide on live data.
+func migrationDirHeldByAnotherRecord(all []MigrationRecord, subject MigrationSubject,
+	dir string, roles []migrationDirRole,
+) (MigrationRecordKey, migrationDirRole, bool) {
+	for _, other := range all {
+		key := other.Subject().Key
+		if key == subject.Key {
+			continue
+		}
+		for _, role := range roles {
+			for _, held := range migrationDirsInRole(other.Subject(), role) {
+				if held == dir {
+					return key, role, true
+				}
+			}
+		}
+	}
+	return MigrationRecordKey{}, "", false
+}
+
+func migrationDirsInRole(subject MigrationSubject, role migrationDirRole) map[string]string {
+	for _, group := range migrationHandleGroups {
+		if group.field == string(role) && group.dirs != nil {
+			return group.dirs(migrationRecordEnvelope{Subject: subject})
+		}
+	}
+	return nil
+}
 
 // The canonical directory is the property's live bucket, never one of these.
 func migrationOwnCopyDirs(subject MigrationSubject, prop string) []string {
@@ -164,7 +199,7 @@ func migrationRetirable(rec MigrationRecord, superseded []string) bool {
 	if rec.StagedDataComplete() {
 		return true
 	}
-	return !rec.PointerSwapped() && len(superseded) == len(rec.Subject().Props)
+	return !rec.FlipDecided() && len(superseded) == len(rec.Subject().Props)
 }
 
 func supersededProperties(all []MigrationRecord, subject MigrationSubject) []string {
@@ -208,14 +243,21 @@ func (r *migrationReconciler) retireOneSealed(ctx context.Context, all []Migrati
 // Closes after deciding, not before: a bucket this pass shuts down is
 // deregistered until the shard next loads, so closing one whose directory is
 // then left in place stops that data serving with nothing to reopen it.
+//
+// Disarms before it removes: without that order the directory removed is
+// exactly where the superseded record's still-armed mirror sends its next
+// copy, and a failed mirror copy fails the user's write with it.
 func (r *migrationReconciler) retireProperty(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject, prop string,
 ) error {
+	if r.deps.Mirror != nil {
+		r.deps.Mirror.DisarmMigrationMirror(subject.Key, prop)
+	}
 	// Every directory holding this record's own copy of the property, not the
 	// staged one alone: the record stops answering for the property here, and a
 	// sidecar left behind is data at a name nothing attributes any more.
 	for _, dir := range migrationOwnCopyDirs(subject, prop) {
-		if migrationDirClaimedAsDisplaced(all, subject, dir) {
+		if migrationRetirementLeavesStagedDir(all, subject, dir) {
 			continue
 		}
 		if err := r.closeStagedBuckets(ctx, dir); err != nil {
@@ -226,4 +268,24 @@ func (r *migrationReconciler) retireProperty(ctx context.Context, all []Migratio
 		}
 	}
 	return nil
+}
+
+// migrationRetirementLeavesStagedDir reports the staged directories
+// retirement stops on: this record names none, a successor claims it as what
+// its own flip displaced, or another record holds it in a role of its own.
+// [migrationReconciler.retireProperty] returns on exactly these, so a true
+// here means retirement has done everything it is ever going to do for this
+// property.
+//
+// [migrationReconciler.supersededPropertyIsRetired] reads the same answer
+// rather than restating it. Enumerated twice, the two drifted: a promotion
+// waited forever on a removal the other had already decided not to make.
+func migrationRetirementLeavesStagedDir(all []MigrationRecord,
+	subject MigrationSubject, dir string,
+) bool {
+	if dir == "" || migrationDirClaimedAsDisplaced(all, subject, dir) {
+		return true
+	}
+	_, _, held := migrationDirHeldByAnotherRecord(all, subject, dir, migrationReclaimBlockingRoles)
+	return held
 }

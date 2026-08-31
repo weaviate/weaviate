@@ -14,21 +14,9 @@ package db
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/cluster/distributedtask"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
-
-// Every step of a shard load that renames or removes a migration directory, in
-// the order they run. Both must stay ahead of bucket loading, or a bucket opens
-// at a name one of them is about to move. They read ownership from different
-// evidence, the tracker tree and the record store, so keeping them together is
-// what makes their agreement reviewable.
-func (s *Shard) settleMigrationDirectories(ctx context.Context, class *models.Class) {
-	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
-	s.reconcileMigrationRecords(ctx, class)
-}
 
 func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Class) {
 	s.migrationRecords = NewMigrationRecordStoreForUnit(s.pathLSM(), s.migrationUnit(), s.index.logger)
@@ -56,13 +44,11 @@ func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconc
 	return newMigrationReconciler(s.migrationRecords, s.pathLSM(),
 		s.index.logger.WithField("shard", s.ID()),
 		migrationReconcileDeps{
-			Class:   class,
-			Buckets: s,
-			// A grant nobody contends: no task writes a record on this
-			// build. The cutover PR wires the real worker registry here.
-			SealUnit: func(distributedtask.TaskDescriptor, string) (func(), bool) {
-				return func() {}, true
-			},
+			LocalTasks: s.migrations().LocalTasks,
+			SealUnit:   s.migrations().SealUnit,
+			Class:      class,
+			Mirror:     s,
+			Buckets:    s,
 		})
 }
 
@@ -100,7 +86,9 @@ func (s *Shard) migrationRecordStore() *MigrationRecordStore { return s.migratio
 
 // Reports no store rather than loading a cold shard: a shard with no records
 // on disk has nothing to reconcile, and loading one to find that out would
-// resurrect a shard that was deliberately unloaded.
+// resurrect a shard that was deliberately unloaded. It forwards rather than
+// computing a path, because the store is only meaningful once reconciliation
+// has populated it at load.
 func (l *LazyLoadShard) migrationRecordStore() *MigrationRecordStore {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
@@ -109,4 +97,13 @@ func (l *LazyLoadShard) migrationRecordStore() *MigrationRecordStore {
 		return nil
 	}
 	return l.shard.migrationRecordStore()
+}
+
+func (s *Shard) migrationMirrorRegistry() *migrationMirrorRegistry { return &s.migrationMirrors }
+
+func (l *LazyLoadShard) migrationMirrorRegistry() *migrationMirrorRegistry {
+	if l.shard == nil {
+		return nil
+	}
+	return l.shard.migrationMirrorRegistry()
 }

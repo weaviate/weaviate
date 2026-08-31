@@ -265,13 +265,12 @@ func (i *Index) cleanStalePartialReindexState(
 //
 // Fails open (returns true) on anything it can't read — an unmappable index
 // type, an unlistable directory, or an unparseable tracker payload — since a
-// false "clean" would leave a stale started.mig for the next task to resume
+// false "clean" would leave a stale record for the next task to resume
 // against.
 //
-// The unreadable payload only fails open while no properties.mig rebuilds
-// the dir's name. Where one does, [readTaskProps] answers from it, and a
-// tracker naming other properties leaves this reporting clean and skipping
-// the shard.
+// The unreadable payload only fails open while no record names the dir. Where
+// one does, [migrationDirScope.taskProperties] answers from it, and a tracker
+// naming other properties leaves this reporting clean and skipping the shard.
 //
 // Failing open costs only a hydration, except on an unlistable .migrations:
 // that hydration then finds no completed migration to preserve and removes
@@ -282,21 +281,22 @@ func (i *Index) cleanStalePartialReindexState(
 // directory and skips it (which offload is about to make true anyway), or
 // races the other way into a spurious [ErrCleanupShardFailed] — never
 // corruption. A deactivated (COLD) tenant is absent from the map too, and
-// reactivating it changes nothing: the stale-sentinel check runs from the
-// task path, not from a shard load.
+// reactivating it changes nothing: the record check runs from the task path,
+// not from a shard load.
 //
-// The second return says the shard holds a completed migration's leftovers:
-// its data still under the ingest sidecar name, plus the backup copy of the
-// bucket it replaced. Only a shard load reclaims those, since
-// [FinalizeCompletedMigrations] runs before buckets open. It is only
-// meaningful where the first return is false — a shard already being
-// hydrated finalizes them on the way in either way.
+// The second return says the shard holds directories of a migration whose
+// staging finished: data still under the ingest sidecar name, or a directory
+// a promoted record still owns. Only a shard load settles those
+// (reconciliation runs before buckets open, and may discard rather than
+// promote, since staged isn't committed). Meaningful only when the first
+// return is false — a shard already being hydrated finalizes them either way.
 //
 // props memoizes the tracker payloads read on the way to that answer. Callers
 // running a grid of tuples over the same shards hand in one for the whole run
 // ([dirNamesCache.trackerProps]); a nil one is memoized for this call alone.
 func hasStalePartialReindexState(
 	lsmPath, propName, indexType string, dirs *dirNamesCache, props *taskPropsCache,
+	logger logrus.FieldLogger,
 ) (stale, finalizable bool) {
 	if props == nil {
 		// No run-wide memo: keep the passes below sharing one of their own.
@@ -311,25 +311,33 @@ func hasStalePartialReindexState(
 	if err != nil {
 		return !os.IsNotExist(err), false
 	}
-	var sidecarSuffixes []string
-	for _, name := range names {
-		if isSidecarDirOf(name, mainBucketName) {
-			sidecarSuffixes = append(sidecarSuffixes, strings.TrimPrefix(name, mainBucketName))
-		}
+	committed := dirs.committedMigrations(lsmPath, logger)
+	switch {
+	case committed.recordSetUnreadable:
+		// Nothing about this shard could be read, so reporting it clean would
+		// be a guess. Hydrating is what turns it into an error a caller sees.
+		return true, false
+	case committed.withholdEverything:
+		// A record this build can't understand withholds
+		// every removal, so hydrating would reclaim nothing, and reporting
+		// otherwise would wake this tenant on every sweep pass while it stays
+		// unreadable. (The load that eventually surfaces this happens on its own.)
+		return false, false
 	}
-	scope := migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props)
+	scope := migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props).knownFrom(committed)
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep must preserve.
-	if len(sidecarSuffixes) > 0 {
-		preserveSidecars := completedMigrationSidecarSuffixes(scope.preserving(indexType))
-		for _, suffix := range sidecarSuffixes {
-			if !preserveSidecars[suffix] {
-				return true, false
-			}
+	for _, name := range names {
+		if !isSidecarDirOf(name, mainBucketName) {
+			continue
 		}
-		// Every sidecar here backs a completed migration, so nothing but a
-		// load reclaims them.
-		finalizable = true
+		if !committed.preservesBucket(name) {
+			return true, false
+		}
+		// This one backs a completed migration, so nothing but a load
+		// reclaims it — unless the record owning it can no longer reach a
+		// state a load would act on, in which case the load reclaims nothing.
+		finalizable = finalizable || committed.bucketNeedsLoad(name)
 	}
 
 	// Migration tracker dirs, minus the deferred-finalize generations.
@@ -337,22 +345,21 @@ func hasStalePartialReindexState(
 	if err != nil {
 		return !os.IsNotExist(err), false
 	}
-	var preservedGens map[int]bool
 	for _, name := range names {
 		matched, unreadablePayload := scope.inScopeFailingOpen(name)
 		if unreadablePayload {
 			// A payload this gate can't read could name this property; only
-			// hydrating and re-reading can tell, so this is not "clean".
+			// hydrating and re-reading can tell, so this is not "clean". The
+			// withholdEverything arm above answers the opposite way for a
+			// different population: there the unreadable state is already
+			// preserved, so a load would reclaim nothing.
 			return true, false
 		}
 		if !matched {
 			continue
 		}
-		if preservedGens == nil {
-			preservedGens = completedMigrationGens(scope)
-		}
-		if _, gen, ok := parseMigrationDirName(name); ok && preservedGens[gen] {
-			finalizable = true
+		if committed.preservesTracker(name) {
+			finalizable = finalizable || committed.trackerNeedsLoad(name)
 			continue
 		}
 		return true, false
@@ -388,6 +395,31 @@ type dirNamesCache struct {
 	// props is the tracker-payload memo of the same run; see
 	// [dirNamesCache.trackerProps].
 	props taskPropsCache
+	// committed memoizes each shard's committed migrations; see
+	// [dirNamesCache.committedMigrations].
+	committed map[string]migrationPreservedState
+}
+
+// committedMigrations answers, per shard, which directories a committed
+// migration owns. Memoized here because one run asks per (property, index
+// type) tuple over the same shards, and the answer can't change while a
+// sweep holds it: records are written only by a loaded shard's own engine or
+// by reconciliation, and a loaded shard has already left this sweep's path.
+func (c *dirNamesCache) committedMigrations(lsmPath string,
+	logger logrus.FieldLogger,
+) migrationPreservedState {
+	if c == nil {
+		return migrationPreservedStateAt(lsmPath, logger)
+	}
+	if state, ok := c.committed[lsmPath]; ok {
+		return state
+	}
+	state := migrationPreservedStateAt(lsmPath, logger)
+	if c.committed == nil {
+		c.committed = map[string]migrationPreservedState{}
+	}
+	c.committed[lsmPath] = state
+	return state
 }
 
 // trackerProps is the payload memo sharing this cache's lifetime, so the two

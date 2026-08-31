@@ -150,6 +150,7 @@ type ShardLike interface {
 	isReadOnly() error
 	pathLSM() string
 	migrationRecordStore() *MigrationRecordStore
+	migrationMirrorRegistry() *migrationMirrorRegistry
 
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
@@ -405,8 +406,8 @@ type Shard struct {
 	// True means the local rangeable bucket has all the data for this
 	// property — either the property was created with
 	// IndexRangeFilters=true (no migration ever ran) or an
-	// enable-rangeable / repair-rangeable migration completed locally
-	// (markTidied fired in [runtimeSwap]).
+	// enable-rangeable / repair-rangeable migration ran
+	// OnMigrationComplete on this shard, which is the only writer of true.
 	//
 	// False means the rangeable bucket is mid-migration on THIS replica:
 	// a PreReindexHook created an empty main bucket but the per-shard
@@ -424,10 +425,18 @@ type Shard struct {
 	// Read on every range-filter query plan, so kept under a fast
 	// RWMutex rather than a sync.Map. Default value (missing key)
 	// returns true via IsRangeableLocallyReady — at shard init we
-	// pessimistically set false for any in-flight migration tracker
-	// found on disk, and the post-tidy hook flips it back to true.
+	// pessimistically set false for any rangeable migration that is not
+	// yet promoted (a decided flip is not enough), and
+	// OnMigrationComplete flips it back to true.
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
+
+	// rangeableUndecidable records that this shard's migration records could
+	// not all be read at init, so the pessimistic entries above may be
+	// incomplete: an undecoded record could be exactly the in-flight
+	// migration whose empty bucket must not be queried as ready. Written once
+	// at init, read on every filter that asks.
+	rangeableUndecidable atomic.Bool
 
 	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
 	// "what tokenization should query input use on this shard?" override
@@ -509,6 +518,11 @@ type Shard struct {
 	propertyValueIndexCallbacksMu sync.Mutex
 
 	migrationRecords *MigrationRecordStore
+
+	// migrationMirrors holds the handles that disarm a reindex migration's
+	// double-write mirror. They live here rather than on the task instance
+	// that armed them because the actor that disarms is never that one.
+	migrationMirrors migrationMirrorRegistry
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -759,9 +773,9 @@ func (s *Shard) isFallbackToSearchable() bool {
 //
 // Returns true when:
 //   - The per-shard map has an explicit `true` entry. Set by
-//     [setRangeableLocallyReady] after a local
-//     enable-rangeable / repair-rangeable migration's swap completes
-//     (markTidied + OnMigrationComplete), OR
+//     [setRangeableLocallyReady] from a local enable-rangeable /
+//     repair-rangeable migration's OnMigrationComplete, which is the
+//     only writer of true, OR
 //   - There is no explicit entry in the map AND the rangeable bucket
 //     for this prop exists in the LSM store. This covers native
 //     rangeable props (created with IndexRangeFilters=true, bucket
@@ -770,8 +784,9 @@ func (s *Shard) isFallbackToSearchable() bool {
 //     in-memory only and starts empty).
 //
 // Returns false when:
-//   - The per-shard map has an explicit `false` entry (set by the
-//     migration's PreReindexHook), OR
+//   - The per-shard map has an explicit `false` entry, written either
+//     by the migration's PreReindexHook or, at shard init, by
+//     [markInFlightRangeableMigrationsNotReady], OR
 //   - There is no explicit entry AND the rangeable bucket does not
 //     exist in the LSM store yet. This catches the narrow window where
 //     another replica's runtimeSwap has already flipped the
@@ -789,6 +804,12 @@ func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 		}
 	}
 	s.rangeableLocalReadyMu.RUnlock()
+
+	// No explicit entry and no way to know whether one was owed: a record
+	// that failed to decode is not evidence that no migration is in flight.
+	if s.rangeableUndecidable.Load() {
+		return false
+	}
 
 	// Default: ready iff the rangeable bucket physically exists in the
 	// store. Cheap (a map lookup under bucketAccessLock.RLock in
@@ -1040,47 +1061,6 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 // Activity score for read and write
 func (s *Shard) Activity() (int32, int32) {
 	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
-}
-
-// registerAddToPropertyValueIndex appends callback to the folded write-path
-// snapshot and returns a disarm func that REMOVES it again (by id, copy-on-write
-// under the mutex). Removing rather than flagging keeps the slice bounded: the
-// backup-window migration path (re)registers a pair per run, so a
-// flag-and-keep disarm would leak one entry per migration onto the hot path for
-// the life of the shard. Disarm is idempotent — a second call finds no matching
-// id and no-ops.
-func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) func() {
-	var id uint64
-	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-		id = cur.nextCallbackID
-		cur.nextCallbackID++
-		cur.add = appendAddCallback(cur.add, id, callback)
-		return cur
-	})
-
-	return func() {
-		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-			cur.add = removeAddCallback(cur.add, id)
-			return cur
-		})
-	}
-}
-
-func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) func() {
-	var id uint64
-	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-		id = cur.nextCallbackID
-		cur.nextCallbackID++
-		cur.del = appendDeleteCallback(cur.del, id, callback)
-		return cur
-	})
-
-	return func() {
-		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-			cur.del = removeDeleteCallback(cur.del, id)
-			return cur
-		})
-	}
 }
 
 // AnyActiveMovement reports whether a replica movement is in flight for this shard.

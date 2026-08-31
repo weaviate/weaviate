@@ -833,8 +833,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// deferred swap go only to the old main bucket and are silently lost.
 	// Reads: <data>/<index>/<shard>/lsm/.migrations/<dir>/payload.mig
 	// (written by ReindexProvider.persistRecoveryRecord before reindex
-	// starts), plus the existing started.mig / tidied.mig sentinels to
-	// decide which migrations are still in flight.
+	// starts), plus the shard's migration records to decide which
+	// migrations are still in the window that needs callbacks.
 	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
 		appState.ServerConfig.Config.Persistence.DataPath,
 		appState.Logger,
@@ -1025,6 +1025,17 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if metaStoreReady.waitForMetaStore() != nil {
 			return
 		}
+
+		// Reconciliation reads this node's own applied task map at shard load
+		// (never the leader's — a shard load must not wait on a round-trip), so
+		// shards loaded before the map exists at DB construction decide nothing
+		// that depends on it. That's why installing the sources also starts the
+		// pass that revisits them; waitForMetaStore above is what makes the map
+		// complete by then.
+		raft := appState.ClusterService.Raft
+		repo.SetMigrationTaskSources(serverShutdownCtx,
+			newMigrationLocalTaskSource(raft), newMigrationClusterTaskSource(raft))
+
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
 			appState.Logger.WithField("action", "startup").
 				Errorf("failed to start distributed task scheduler: %v", err)
@@ -1156,6 +1167,11 @@ func initReindexAndDistributedTasks(
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+
+	// Installed here, not with the other reindex lookups: those wire from the
+	// post-bootstrap goroutine, where reconciliation's first pass also runs,
+	// and a pass without this seal could remove a running unit's directories.
+	repo.SetReindexUnitSeal(reindexProvider.ReindexUnitSealBuilder())
 
 	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
 	// [db.ReindexProvider.RunSearchableBlockmaxRepair].

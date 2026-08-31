@@ -36,6 +36,10 @@ func (s *FilterableRetokenizeStrategy) MigrationDirName() string {
 	return MigrationDirPrefixFilterableRetokenize + "_" + s.propName + genSuffix(s.generation)
 }
 
+func (s *FilterableRetokenizeStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeFilterableRetokenize
+}
+
 func (s *FilterableRetokenizeStrategy) SourceBucketName(_ string) string {
 	return helpers.BucketFromPropNameLSM(s.propName)
 }
@@ -48,10 +52,6 @@ func (s *FilterableRetokenizeStrategy) IngestSuffix() string {
 	return "__filt_retokenize_ingest" + genSuffix(s.generation)
 }
 
-func (s *FilterableRetokenizeStrategy) BackupSuffix() string {
-	return "__filt_retokenize_backup" + genSuffix(s.generation)
-}
-
 func (s *FilterableRetokenizeStrategy) SourceStrategy() string {
 	return lsmkv.StrategyRoaringSet
 }
@@ -61,10 +61,6 @@ func (s *FilterableRetokenizeStrategy) SourceIndexType() PropertyIndexType {
 }
 
 func (s *FilterableRetokenizeStrategy) TargetStrategy() string {
-	return lsmkv.StrategyRoaringSet
-}
-
-func (s *FilterableRetokenizeStrategy) BackupStrategy() string {
 	return lsmkv.StrategyRoaringSet
 }
 
@@ -86,31 +82,26 @@ func (s *FilterableRetokenizeStrategy) WriteToReindexBucket(_ ShardLike, bucket 
 	return nil
 }
 
-// MakeAddCallback returns a callback for adding documents to the filterable (RoaringSet) index.
-// forTargetStrategy controls which tokenization is used: true uses the new target
-// tokenization (for the reindex bucket), false uses the existing tokenization
-// (for the ingest/double-write bucket that must match the currently live index).
+// MakeAddCallback returns a callback for adding documents to the filterable
+// (RoaringSet) index under the migration's target tokenization.
 func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	armed armedMirror,
 ) onAddToPropertyValueIndex {
 	// Hoist the analyzer out of the per-callback hot path; see the
 	// corresponding comment in SearchableRetokenizeStrategy.MakeAddCallback.
-	var analyzer *inverted.Analyzer
-	if forTargetStrategy {
-		analyzer = inverted.NewAnalyzer(nil, s.className)
-	}
+	analyzer := inverted.NewAnalyzer(nil, s.className)
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
 
 		var items []inverted.Countable
-		if forTargetStrategy && len(property.RawValues) > 0 {
+		if len(property.RawValues) > 0 {
 			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
 		} else {
 			items = property.Items
@@ -125,29 +116,26 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 	}
 }
 
-// MakeDeleteCallback returns a callback for removing documents from the filterable index.
-// forTargetStrategy has the same semantics as in MakeAddCallback.
+// MakeDeleteCallback returns a callback for removing documents from the
+// filterable index under the migration's target tokenization.
 func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {
 	// Hoist the analyzer out of the per-callback hot path; see the
 	// corresponding comment in SearchableRetokenizeStrategy.MakeAddCallback.
-	var analyzer *inverted.Analyzer
-	if forTargetStrategy {
-		analyzer = inverted.NewAnalyzer(nil, s.className)
-	}
+	analyzer := inverted.NewAnalyzer(nil, s.className)
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
 
 		var items []inverted.Countable
-		if forTargetStrategy && len(property.RawValues) > 0 {
+		if len(property.RawValues) > 0 {
 			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
 		} else {
 			items = property.Items

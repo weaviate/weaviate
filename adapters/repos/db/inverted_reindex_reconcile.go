@@ -26,6 +26,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+// migrationMirrorDisarmer disarms one record's double-write mirror for one
+// property. The disarming actor is never the arming one, so the handle
+// cannot live on the arming task; disarming an unarmed pair is a no-op.
+type migrationMirrorDisarmer interface {
+	DisarmMigrationMirror(key MigrationRecordKey, prop string)
+}
+
 // Must run before the directory is removed, or mmaps and compactions leak.
 // Takes directories rather than a record, so the caller closes only what it has
 // already decided it may remove: a shutdown deregisters the bucket and nothing
@@ -42,6 +49,7 @@ type migrationReconcileDeps struct {
 
 	Class func() *models.Class
 
+	Mirror  migrationMirrorDisarmer
 	Buckets migrationStagedBucketCloser
 }
 
@@ -330,8 +338,14 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject,
 	return swapped, nil
 }
 
-// ReconcileWithClusterTasks settles the dispositions a shard load withheld.
-// The leader's task list is an argument so a shard load never blocks on it.
+// ReconcileWithClusterTasks settles dispositions the load path withheld
+// (task and effect were both invisible), using the leader's task list as an
+// argument so a shard load never blocks on it; it reads in-memory records
+// rather than reloading disk.
+//
+// Commit only records the decision (promotion waits for the next load).
+// Discard runs immediately, pre-flip only, under the unit's seal. The
+// reverse edge is left to a load, since it would reset live iteration.
 func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tasks []*distributedtask.Task) {
 	if len(r.store.Unreadable()) > 0 {
 		return
@@ -341,7 +355,7 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 			return
 		}
 		subject := rec.Subject()
-		if rec.PointerSwapped() || r.store.Wedged(subject.Key) {
+		if rec.FlipDecided() || r.store.Wedged(subject.Key) {
 			continue
 		}
 		verdict, why := r.clusterVerdict(subject, tasks)
@@ -395,7 +409,19 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		// A superseded property is retired by supersession; probing it here
+		// would read a successor's removal as a promotion that already ran.
+		//
+		// But superseded says retirement OWNS this property, not that it has
+		// RUN, and Promoted asserts a disk shape rather than a decision — so it
+		// has to wait for the shape. retireOneSealed writes down exactly that
+		// contract ("a directory whose removal failed must keep the record
+		// naming it; the next load retries"), and writing Promoted here is what
+		// takes the retry away.
 		if migrationPropertySuperseded(all, subject, prop) {
+			if !r.supersededPropertyIsRetired(all, subject, prop) {
+				settled = false
+			}
 			continue
 		}
 
@@ -439,6 +465,37 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		return nil
 	}
 	return r.store.Put(NewMigrationRecordPromoted(subject, rec.Flipped(), rec.displacedDirs))
+}
+
+// supersededPropertyIsRetired reports whether retirement has actually run for
+// one superseded property, read from the disk inside the same sealed section
+// that writes the record.
+//
+// Retired means the staged directory is gone, or retirement has decided not
+// to remove it — [migrationRetirementLeavesStagedDir] is the one enumeration
+// of the second, shared with retirement itself so a reason added to one
+// cannot be missing from the other. Nothing can re-create the directory
+// between this probe and the write, because reconciliation runs before any
+// bucket on the shard opens.
+func (r *migrationReconciler) supersededPropertyIsRetired(all []MigrationRecord,
+	subject MigrationSubject, prop string,
+) bool {
+	staged := subject.Props[prop].Staged
+	if migrationRetirementLeavesStagedDir(all, subject, staged) {
+		return true
+	}
+	there, err := r.dirExists(staged)
+	if err != nil {
+		r.logger.WithField("record", subject.Key.String()).Errorf(
+			"confirm the staged directory of superseded property %q is gone: %v", prop, err)
+		return false
+	}
+	if there {
+		r.logger.WithField("record", subject.Key.String()).Warnf(
+			"property %q is superseded but its staged directory %q is still on disk, so its retirement "+
+				"has not run; keeping the record, which is what lets the next load retry", prop, staged)
+	}
+	return !there
 }
 
 // Directory presence can't prove a rename ran (canonical is pre-created
@@ -674,6 +731,12 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, 
 			continue
 		}
 		if migrationPropertySuperseded(all, subject, prop) {
+			// Retirement owns this property's staged directory, and the
+			// displaced claim is strictly narrower than supersession: a
+			// successor that flipped from the canonical name — the ordinary
+			// post-restart shape — records displaced == canonical, so the claim
+			// is absent while supersession still holds. Renaming here would put
+			// this record's rebuild over the successor's.
 			continue
 		}
 		stagedThere, err := r.dirExists(staged)
@@ -729,6 +792,11 @@ func (r *migrationReconciler) localVerdict(subject MigrationSubject) (migrationV
 	return r.verdictFrom(subject, tasks, taskListMayLag)
 }
 
+// clusterVerdict decides what the load path withheld. It checks this node's
+// own applied map first (positive evidence no snapshot age can spoil, since a
+// unit only starts from that map), then the leader's list, which is fetched
+// once per walk and can go stale. A map that can't be read yet withholds
+// outright — falling through would read an absent task as gone.
 func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []*distributedtask.Task) (migrationVerdict, string) {
 	local, readable := r.localTasks()
 	if !readable {
@@ -751,6 +819,7 @@ func (r *migrationReconciler) sealUnit(subject MigrationSubject) (func(), bool) 
 
 // A live worker keeps writing through pointers taken before its phase
 // began, into what the teardown would remove; decline and retry next pass.
+// The per-unit orphan audit takes the same seal separately.
 func (r *migrationReconciler) withSealedUnit(subject MigrationSubject, what string, run func() error) error {
 	release, sealed := r.sealUnit(subject)
 	if !sealed {
@@ -762,6 +831,9 @@ func (r *migrationReconciler) withSealedUnit(subject MigrationSubject, what stri
 	return run()
 }
 
+// taskListCompleteness says what a task's absence from a list means: with a
+// list this node built alone it can only mean "not seen yet", while the
+// leader's list is the cluster's, so absence there means gone.
 type taskListCompleteness bool
 
 const (
@@ -769,6 +841,8 @@ const (
 	taskListIsComplete taskListCompleteness = true
 )
 
+// verdictFrom consults the two external facts, in an order that skips the
+// second whenever the first is conclusive.
 func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*distributedtask.Task,
 	completeness taskListCompleteness,
 ) (migrationVerdict, string) {
@@ -837,7 +911,16 @@ func (r *migrationReconciler) discardSealed(ctx context.Context, subject Migrati
 }
 
 // The record answers for every directory it names, so it goes last of all.
+//
+// Disarms every property's mirror first: the directories go next, and the one
+// removed is exactly where a still-armed mirror sends its next copy, whose
+// failure fails the user's write with it.
 func (r *migrationReconciler) reclaimRecordAndDirs(ctx context.Context, subject MigrationSubject) error {
+	if r.deps.Mirror != nil {
+		for _, prop := range subject.Properties() {
+			r.deps.Mirror.DisarmMigrationMirror(subject.Key, prop)
+		}
+	}
 	if remaining := r.reclaimOwnedDirs(ctx, subject); len(remaining) > 0 {
 		return fmt.Errorf("%d owned directory/directories survived", len(remaining))
 	}

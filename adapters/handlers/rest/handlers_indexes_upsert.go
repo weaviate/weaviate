@@ -700,7 +700,8 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
-	if resp := h.cleanStalePartialStateOrFail(ctx, principal, h.appState.DB, collection, propertyName, migrationType); resp != nil {
+	if resp := h.cleanStalePartialStateOrFail(ctx, principal, h.appState.DB, h.reindexDrainSealer(),
+		collection, propertyName, migrationType, reindexTasks); resp != nil {
 		return resp
 	}
 
@@ -770,6 +771,74 @@ type stalePartialStateCleaner interface {
 	NewStalePartialReindexSweep() db.StalePartialReindexSweep
 }
 
+// localReindexDrainSealer waits for every local worker of one task to exit and
+// then holds the task. *db.ReindexProvider satisfies it.
+type localReindexDrainSealer interface {
+	SealLocalTaskDrain(ctx context.Context, desc distributedtask.TaskDescriptor) (func(), error)
+}
+
+// reindexDrainSealer is nil where no provider is wired, which is also where no
+// local reindex worker can exist.
+func (h *indexesHandlers) reindexDrainSealer() localReindexDrainSealer {
+	if h.appState.ReindexProvider == nil {
+		return nil
+	}
+	return h.appState.ReindexProvider
+}
+
+// sealLocalReindexWorkers holds every local worker of every task on this
+// (collection, property) for as long as the caller keeps the returned
+// release, since the sweep that follows removes __reindex/__ingest bucket
+// directories out from under a task that went terminal without waiting for
+// its local unit to exit.
+//
+// Every task reachable here is terminal — an active one on an overlapping
+// property already refused this submit with a 409 — and a worker that won't
+// drain refuses too, rather than let the sweep remove directories out from
+// under acknowledged writes.
+func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal *models.Principal,
+	sealer localReindexDrainSealer, collection, propertyName string,
+	reindexTasks []*distributedtask.Task,
+) (func(), middleware.Responder) {
+	if sealer == nil {
+		return func() {}, nil
+	}
+	var held []func()
+	release := func() {
+		for _, unseal := range held {
+			unseal()
+		}
+	}
+	// One deadline for the whole drain, not one per task: inside the loop the
+	// submit could wait N x reindexCancelDrainTimeout before it answers.
+	drainCtx, cancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
+	defer cancel()
+	for _, desc := range reindexTaskDescriptorsForProperty(reindexTasks, collection, propertyName, h.appState.Logger) {
+		unseal, err := sealer.SealLocalTaskDrain(drainCtx, desc)
+		if err != nil {
+			release()
+			entry := h.appState.Logger.WithFields(logrus.Fields{
+				"collection": collection,
+				"property":   propertyName,
+				"taskID":     desc.ID,
+			})
+			if errors.Is(err, context.Canceled) {
+				// The caller hung up. Nothing is wrong with the worker, and
+				// the responder below never reaches anyone.
+				entry.Infof("submit: the request ended while waiting for an earlier task's local worker: %v", err)
+			} else {
+				entry.Errorf("submit: a local worker of an earlier task on this property has not exited, "+
+					"so pre-submit cleanup would race it; refusing submit: %v", err)
+			}
+			return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
+				"a local worker of an earlier reindex task on this property has not exited yet; "+
+					"pre-submit cleanup cannot run without racing it — retry shortly"))
+		}
+		held = append(held, unseal)
+	}
+	return release, nil
+}
+
 // cleanStalePartialStateOrFail scrubs pre-submit stale state for every index
 // type migrationType touches, returning a terminal responder or nil to
 // proceed. Guards CANCEL→retry resuming stale state as a false success; fails
@@ -779,8 +848,13 @@ type stalePartialStateCleaner interface {
 // their state is unverified rather than known stale, and a healthy node
 // produces that from a tenant leaving the shard map mid-walk. Refusing the
 // submit on it would turn ordinary tenant movement into a 500.
+//
+// The sweep runs under the seal [sealLocalReindexWorkers] takes, which is the
+// contract [db.StalePartialReindexSweep] states for every caller.
 func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
-	cleaner stalePartialStateCleaner, collection, propertyName string, migrationType db.ReindexMigrationType,
+	cleaner stalePartialStateCleaner, sealer localReindexDrainSealer,
+	collection, propertyName string, migrationType db.ReindexMigrationType,
+	reindexTasks []*distributedtask.Task,
 ) middleware.Responder {
 	indexTypesForCleanup, known := indexTypesFromMigrationType(migrationType)
 	if !known {
@@ -792,6 +866,12 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			"internal error: unknown migration type; refusing submit (would skip stale-state cleanup)"))
 	}
+	release, resp := h.sealLocalReindexWorkers(ctx, principal, sealer, collection, propertyName, reindexTasks)
+	if resp != nil {
+		return resp
+	}
+	defer release()
+
 	// One sweep across the loop: every index type asks the same unloaded shards.
 	sweep := cleaner.NewStalePartialReindexSweep()
 	for _, it := range indexTypesForCleanup {

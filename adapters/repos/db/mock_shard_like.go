@@ -4789,6 +4789,53 @@ func (_c *MockShardLike_isReadOnly_Call) RunAndReturn(run func() error) *MockSha
 	return _c
 }
 
+// migrationMirrorRegistry provides a mock function with no fields
+func (_m *MockShardLike) migrationMirrorRegistry() *migrationMirrorRegistry {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for migrationMirrorRegistry")
+	}
+
+	var r0 *migrationMirrorRegistry
+	if rf, ok := ret.Get(0).(func() *migrationMirrorRegistry); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*migrationMirrorRegistry)
+		}
+	}
+
+	return r0
+}
+
+// MockShardLike_migrationMirrorRegistry_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'migrationMirrorRegistry'
+type MockShardLike_migrationMirrorRegistry_Call struct {
+	*mock.Call
+}
+
+// migrationMirrorRegistry is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) migrationMirrorRegistry() *MockShardLike_migrationMirrorRegistry_Call {
+	return &MockShardLike_migrationMirrorRegistry_Call{Call: _e.mock.On("migrationMirrorRegistry")}
+}
+
+func (_c *MockShardLike_migrationMirrorRegistry_Call) Run(run func()) *MockShardLike_migrationMirrorRegistry_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_migrationMirrorRegistry_Call) Return(_a0 *migrationMirrorRegistry) *MockShardLike_migrationMirrorRegistry_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_migrationMirrorRegistry_Call) RunAndReturn(run func() *migrationMirrorRegistry) *MockShardLike_migrationMirrorRegistry_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // migrationRecordStore provides a mock function with no fields
 func (_m *MockShardLike) migrationRecordStore() *MigrationRecordStore {
 	ret := _m.Called()

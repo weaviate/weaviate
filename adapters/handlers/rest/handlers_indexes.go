@@ -341,6 +341,34 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 	return refusable, refusablePayload
 }
 
+// reindexTaskDescriptorsForProperty names every reindex task in the
+// snapshot targeting this (collection, property), whatever its status:
+// callers care about terminal tasks whose worker can still be writing
+// through bucket pointers taken before its phase began. A task whose
+// payload doesn't decode is skipped, same as the cancel path — nothing
+// here can tell which property it targets.
+func reindexTaskDescriptorsForProperty(tasks []*distributedtask.Task, collection, propertyName string,
+	logger logrus.FieldLogger,
+) []distributedtask.TaskDescriptor {
+	var out []distributedtask.TaskDescriptor
+	for _, task := range tasks {
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			logger.WithField("task_id", task.ID).
+				Warnf("skipping reindex task with an undecodable payload: %v", err)
+			continue
+		}
+		if !strings.EqualFold(payload.Collection, collection) {
+			continue
+		}
+		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
+			continue
+		}
+		out = append(out, task.TaskDescriptor)
+	}
+	return out
+}
+
 // cancelPreflight answers a cancel that owes no RAFT apply: there is
 // nothing to cancel, or DTM would refuse it. It reads the predicate the
 // FSM guard applies, so the two answers cannot drift.
@@ -504,7 +532,10 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 			"index_type": indexType,
 		}).Info("cancel: starting drain+cleanup for cancelled reindex task")
 		drainCtx, drainCancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
-		drainErr := h.appState.ReindexProvider.WaitForLocalTaskDrain(drainCtx, target.TaskDescriptor)
+		// Held until the cleanup below is done, not just until it starts: the
+		// scheduler can relaunch this task's units while the cleanup is
+		// midway through removing the directories they open.
+		unseal, drainErr := h.appState.ReindexProvider.SealLocalTaskDrain(drainCtx, target.TaskDescriptor)
 		drainCancel()
 		if drainErr != nil {
 			h.appState.Logger.WithFields(logrus.Fields{
@@ -520,6 +551,9 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 				"property":   propertyName,
 				"index_type": indexType,
 			}).Info("cancel: drain complete, running on-disk cleanup")
+			// Released when the handler returns: after the cleanup below and
+			// the audit line that follows it.
+			defer unseal()
 			// Goroutine has drained. Wipe the sidecars and migration
 			// directories for every indexType this migration touches —
 			// change-tokenization spawns both a searchable and a
@@ -684,15 +718,10 @@ func logCancelCleanupOutcome(entry *logrus.Entry, failures []staleSweepFailure, 
 // Most migration types target exactly one index. change-tokenization (both
 // indexes) targets TWO — it spawns one ShardReindexTaskGeneric per index
 // (searchable + filterable) via createReindexTasks, and each leaves its own
-// .migrations/<prefix>_<prop>/ sentinel directory on disk. Pre-submit
-// cleanup must wipe BOTH dirs; cleaning only one of them was the root cause
-// of the Sev 1 data-loss bug fixed alongside this change (see Journey 7 in
-// change_tok_delete_journeys_test.go): a prior filterable-only retokenize
-// left .migrations/filterable_retokenize_<prop>/tidied.mig on disk, the
-// next change-tokenization-both submit did not clean it, and its
-// FilterableRetokenize sub-task short-circuited on OnAfterLsmInit's
-// IsTidied check while OnMigrationComplete still flipped the schema's
-// Tokenization. Schema and on-disk state then disagreed.
+// .migrations/<prefix>_<prop>/ directory and staging buckets on disk.
+// Cleaning only one of them leaves the sibling's behind for the next run,
+// which is how the schema's Tokenization ends up flipped over a bucket that
+// still holds the old one (Journey 7 in change_tok_delete_journeys_test.go).
 //
 // Callers run the sweep from db.DB.NewStalePartialReindexSweep once per
 // indexType returned. Safe when no stale state exists — missing
@@ -709,8 +738,8 @@ func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 		// change-tokenization-both runs ONE task per inverted index
 		// (searchable + filterable). Each leaves its own per-property
 		// migration dir on disk. Pre-cleanup must wipe both, otherwise a
-		// stale tidied.mig from a previous single-index retokenize on the
-		// same prop short-circuits the sub-task and produces a schema /
+		// stale completed state from a previous single-index retokenize on
+		// the same prop short-circuits the sub-task and produces a schema /
 		// bucket state mismatch (Sev 1 silent data loss).
 		return []string{"searchable", "filterable"}, true
 	case db.ReindexTypeChangeTokenizationFilterable:

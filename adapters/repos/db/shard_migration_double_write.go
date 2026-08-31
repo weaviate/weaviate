@@ -12,6 +12,9 @@
 package db
 
 import (
+	"maps"
+	"slices"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -25,62 +28,59 @@ type migrationDoubleWriteScope struct {
 	overlay map[string]inverted.PropertyOverlay
 }
 
-// withArmed copies rather than mutates, so a concurrent lock-free reader keeps
-// seeing the old snapshot until Store publishes the new one.
-func (sc migrationDoubleWriteScope) withArmed(props []string,
-	overlay map[string]inverted.PropertyOverlay,
-) migrationDoubleWriteScope {
-	next := migrationDoubleWriteScope{
-		props:   make(map[string]struct{}, len(sc.props)+len(props)),
-		overlay: make(map[string]inverted.PropertyOverlay, len(sc.overlay)+len(overlay)),
-	}
-	for k := range sc.props {
-		next.props[k] = struct{}{}
-	}
-	for _, p := range props {
-		next.props[p] = struct{}{}
-	}
-	for k, v := range sc.overlay {
-		next.overlay[k] = v
-	}
-	for k, v := range overlay {
-		next.overlay[k] = v
-	}
-	return next
+// migrationScopeReg is one registration's own claim on the scope, under the id
+// its callback pair carries. Two migrations mirroring one property is a steady
+// state while a failed generation waits to be superseded, so the scope has to
+// record who claims what: union-and-subtract over one shared set lets either
+// migration's disarm strip a property the other still mirrors, which
+// un-suppresses the inline write path into the survivor's staged bucket.
+type migrationScopeReg struct {
+	id      uint64
+	props   map[string]struct{}
+	overlay map[string]inverted.PropertyOverlay
 }
 
-// withDisarmed removes props/overlay keys and collapses to nil maps when
-// empty, so the write path's zero-scope fast path re-engages after migration.
-func (sc migrationDoubleWriteScope) withDisarmed(props []string,
-	overlay map[string]inverted.PropertyOverlay,
-) migrationDoubleWriteScope {
-	var next migrationDoubleWriteScope
-	for k := range sc.props {
-		next.props = insertUnlessIn(next.props, k, props)
-	}
-	for k, v := range sc.overlay {
-		if _, drop := overlay[k]; drop {
-			continue
-		}
-		if next.overlay == nil {
-			next.overlay = make(map[string]inverted.PropertyOverlay, len(sc.overlay))
-		}
-		next.overlay[k] = v
-	}
-	return next
-}
+// deriveScope rebuilds the write path's scope from whichever registrations
+// survive, so the scope cannot disagree with the callbacks. Regs stay in
+// ascending id order, so a property two of them overlay differently takes the
+// most recent arm's value; those properties are returned for the caller to
+// report. It returns nil maps when nothing is armed, which is the write path's
+// idle fast path.
+func deriveScope(regs []migrationScopeReg) (migrationDoubleWriteScope, []string) {
+	var (
+		next      migrationDoubleWriteScope
+		conflicts []string
+	)
+	// A registration that carries no overlay entry for a property it mirrors
+	// is not abstaining from the question: it is asking for the property to be
+	// analyzed exactly as the live schema describes it, which is a different
+	// answer from any forced one, and it is what most strategies ask for.
+	// Comparing over the mirrored properties rather than over the overlay
+	// entries is what puts that answer into the comparison.
+	wanted := map[string]inverted.PropertyOverlay{}
+	for _, reg := range regs {
+		for prop := range reg.props {
+			if next.props == nil {
+				next.props = make(map[string]struct{}, len(reg.props))
+			}
+			next.props[prop] = struct{}{}
 
-func insertUnlessIn(dst map[string]struct{}, key string, drop []string) map[string]struct{} {
-	for _, d := range drop {
-		if d == key {
-			return dst
+			overlay := reg.overlay[prop]
+			// Once per property, not once per disagreeing pair: three
+			// registrations that all differ are still one thing to report.
+			if prev, ok := wanted[prop]; ok && prev != overlay && !slices.Contains(conflicts, prop) {
+				conflicts = append(conflicts, prop)
+			}
+			wanted[prop] = overlay
+		}
+		for prop, overlay := range reg.overlay {
+			if next.overlay == nil {
+				next.overlay = make(map[string]inverted.PropertyOverlay, len(reg.overlay))
+			}
+			next.overlay[prop] = overlay
 		}
 	}
-	if dst == nil {
-		dst = map[string]struct{}{}
-	}
-	dst[key] = struct{}{}
-	return dst
+	return next, conflicts
 }
 
 // addCallbackEntry pairs a registered add callback with the id its disarm func
@@ -101,7 +101,9 @@ type deleteCallbackEntry struct {
 
 // propValueIndexState folds the callback slices and migration scope into one
 // atomic snapshot, so a concurrent arm/disarm can never expose
-// callbacks-without-scope or scope-without-callbacks to a write.
+// callbacks-without-scope or scope-without-callbacks to a write. scope is
+// derived from scopeRegs on every mutation rather than accumulated, which is
+// what extends that guarantee across two registrations on one property.
 //
 // nextCallbackID hands out per-registration ids under mutatePropValueIndexState's
 // mutex; it is carried by copy across mutations so every registration gets a
@@ -110,7 +112,30 @@ type propValueIndexState struct {
 	add            []addCallbackEntry
 	del            []deleteCallbackEntry
 	scope          migrationDoubleWriteScope
+	scopeRegs      []migrationScopeReg
 	nextCallbackID uint64
+	// overlaysDiverge is set while two registrations analyze one property
+	// differently, which is the only state in which the derived scope's
+	// overlay is not every mirror's answer. Checked once per mirrored write,
+	// so the normal path stays at one analysis.
+	overlaysDiverge bool
+	// conflicts is the standing set of properties two live registrations
+	// analyze differently. Carried so the warning can be emitted on the
+	// transition: re-deriving it costs nothing, but re-reporting it would
+	// cost one line per still-conflicting property on every mutation, and a
+	// per-property teardown mutates once per property.
+	conflicts []string
+	// analyses names what one mirrored write owes. Normally one entry: every
+	// registration analyzes each property the same way, so a single analysis
+	// serves them all. Two migrations that overlay one property differently
+	// need one each, because the terms the older one's staged copy must
+	// receive are not the terms the newer one's must, and the derived scope
+	// carries only the most recent arm's answer.
+	//
+	// Folded in at publication because the snapshot is immutable after it:
+	// deriving it per write allocates once per mirrored object for the whole
+	// lifetime of a migration.
+	analyses []doubleWriteAnalysis
 }
 
 // emptyPropValueIndexState is returned by loadPropValueIndexState before any
@@ -140,6 +165,7 @@ func (s *Shard) mutatePropValueIndexState(fn func(cur propValueIndexState) propV
 		cur = *v.(*propValueIndexState)
 	}
 	next := fn(cur)
+	next.analyses = next.buildDoubleWriteAnalyses()
 	s.propValueIndexState.Store(&next)
 }
 
@@ -197,39 +223,157 @@ func removeDeleteCallback(cur []deleteCallbackEntry, id uint64) []deleteCallback
 	return updated
 }
 
-// fireAddToPropertyValueIndex invokes every add callback, bypassing the
-// inline write path's scope suppression (the migration pass needs it fired).
-func (s *Shard) fireAddToPropertyValueIndex(st *propValueIndexState, docID uint64, property *inverted.Property) error {
+// replaceAddCallback returns a fresh slice with the entry carrying id swapped
+// for cb. Replacing rather than removing is what makes one registration's
+// properties separable: a disarm that drops one property re-registers the pair
+// over the properties that are left, so the write path keeps carrying one
+// callback per migration instead of one per property.
+func replaceAddCallback(cur []addCallbackEntry, id uint64, cb onAddToPropertyValueIndex) []addCallbackEntry {
+	updated := make([]addCallbackEntry, len(cur))
+	copy(updated, cur)
+	for i := range updated {
+		if updated[i].id == id {
+			updated[i].fn = cb
+			break
+		}
+	}
+	return updated
+}
+
+func replaceDeleteCallback(cur []deleteCallbackEntry, id uint64, cb onDeleteFromPropertyValueIndex) []deleteCallbackEntry {
+	updated := make([]deleteCallbackEntry, len(cur))
+	copy(updated, cur)
+	for i := range updated {
+		if updated[i].id == id {
+			updated[i].fn = cb
+			break
+		}
+	}
+	return updated
+}
+
+// fireAddToPropertyValueIndex invokes the callbacks it is given, bypassing the
+// inline write path's scope suppression (the migration pass needs them fired).
+// Callbacks from every armed migration are in this set; each declines a
+// property its own mirror is not armed for, which is what keeps them apart.
+func (s *Shard) fireAddToPropertyValueIndex(callbacks []addCallbackEntry, docID uint64, property *inverted.Property) error {
 	ec := errorcompounder.New()
-	for _, cb := range st.add {
+	for _, cb := range callbacks {
 		ec.Add(cb.fn(s, docID, property))
 	}
 	return ec.ToError()
 }
 
-func (s *Shard) fireDeleteFromPropertyValueIndex(st *propValueIndexState, docID uint64, property *inverted.Property) error {
+func (s *Shard) fireDeleteFromPropertyValueIndex(callbacks []deleteCallbackEntry, docID uint64, property *inverted.Property) error {
 	ec := errorcompounder.New()
-	for _, cb := range st.del {
+	for _, cb := range callbacks {
 		ec.Add(cb.fn(s, docID, property))
 	}
 	return ec.ToError()
+}
+
+// doubleWriteAnalysis is one TARGET-schema analysis and the callbacks it is
+// the right answer for.
+type doubleWriteAnalysis struct {
+	props   map[string]struct{}
+	overlay map[string]inverted.PropertyOverlay
+	add     []addCallbackEntry
+	del     []deleteCallbackEntry
+}
+
+// buildDoubleWriteAnalyses derives them. [Shard.mutatePropValueIndexState] is
+// its only caller, so a mirrored write reads the folded field instead.
+func (st *propValueIndexState) buildDoubleWriteAnalyses() []doubleWriteAnalysis {
+	if len(st.scope.props) == 0 {
+		// Nothing is armed, so an analysis would be filtered down to nothing.
+		return nil
+	}
+	if !st.overlaysDiverge {
+		return []doubleWriteAnalysis{{
+			props:   st.scope.props,
+			overlay: st.scope.overlay,
+			add:     st.add,
+			del:     st.del,
+		}}
+	}
+	out := make([]doubleWriteAnalysis, 0, len(st.scopeRegs))
+	for _, reg := range st.scopeRegs {
+		out = append(out, doubleWriteAnalysis{
+			props:   reg.props,
+			overlay: reg.overlay,
+			add:     addCallbacksWithID(st.add, reg.id),
+			del:     deleteCallbacksWithID(st.del, reg.id),
+		})
+	}
+	return out
+}
+
+// addCallbacksWithID is the one registration's add callback as a slice, so
+// the firing loop takes the same shape either way. Nothing is copied.
+func addCallbacksWithID(cur []addCallbackEntry, id uint64) []addCallbackEntry {
+	if i := slices.IndexFunc(cur, func(e addCallbackEntry) bool { return e.id == id }); i >= 0 {
+		return cur[i : i+1]
+	}
+	return nil
+}
+
+func deleteCallbacksWithID(cur []deleteCallbackEntry, id uint64) []deleteCallbackEntry {
+	if i := slices.IndexFunc(cur, func(e deleteCallbackEntry) bool { return e.id == id }); i >= 0 {
+		return cur[i : i+1]
+	}
+	return nil
 }
 
 // analyzeForDoubleWrite filters AnalyzeObjectForMigrationWithOverlay's result
-// to scope properties, so the migration pass never touches a bucket it does
-// not own.
-func (s *Shard) analyzeForDoubleWrite(obj *storobj.Object, st *propValueIndexState) ([]inverted.Property, error) {
-	props, _, err := s.AnalyzeObjectForMigrationWithOverlay(obj, st.scope.overlay)
+// to the analysis's own properties, so the migration pass never touches a
+// bucket it does not own.
+func (s *Shard) analyzeForDoubleWrite(obj *storobj.Object, a doubleWriteAnalysis) ([]inverted.Property, error) {
+	props, _, err := s.AnalyzeObjectForMigrationWithOverlay(obj, a.overlay)
 	if err != nil {
 		return nil, err
 	}
 	filtered := props[:0]
 	for i := range props {
-		if _, ok := st.scope.props[props[i].Name]; ok {
+		if _, ok := a.props[props[i].Name]; ok {
 			filtered = append(filtered, props[i])
 		}
 	}
 	return filtered, nil
+}
+
+// mirrorAddToIngest analyzes obj once per armed mirror that needs its own
+// answer and fires that mirror's add callback with it. Every mirror receives
+// the terms its own overlay produced, and no other's.
+func (s *Shard) mirrorAddToIngest(st *propValueIndexState, docID uint64, obj *storobj.Object) error {
+	for _, analysis := range st.analyses {
+		props, err := s.analyzeForDoubleWrite(obj, analysis)
+		if err != nil {
+			return err
+		}
+		for i := range props {
+			if err := s.fireAddToPropertyValueIndex(analysis.add, docID, &props[i]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// mirrorDeleteFromIngest is [Shard.mirrorAddToIngest]'s delete leg, analyzing
+// the same way so each mirror removes exactly the terms it added.
+func (s *Shard) mirrorDeleteFromIngest(st *propValueIndexState, docID uint64, obj *storobj.Object) error {
+	for _, analysis := range st.analyses {
+		props, err := s.analyzeForDoubleWrite(obj, analysis)
+		if err != nil {
+			return err
+		}
+		for i := range props {
+			if err := s.fireDeleteFromPropertyValueIndex(analysis.del, docID, &props[i]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // migrationDoubleWrite mirrors a write into the ingest bucket under TARGET
@@ -244,27 +388,11 @@ func (s *Shard) migrationDoubleWrite(st *propValueIndexState, object, prevObject
 	}
 
 	if prevObject != nil {
-		migDel, err := s.analyzeForDoubleWrite(prevObject, st)
-		if err != nil {
-			return err
-		}
-		for i := range migDel {
-			if err := s.fireDeleteFromPropertyValueIndex(st, status.oldDocID, &migDel[i]); err != nil {
-				return err
-			}
-		}
-	}
-
-	migAdd, err := s.analyzeForDoubleWrite(object, st)
-	if err != nil {
-		return err
-	}
-	for i := range migAdd {
-		if err := s.fireAddToPropertyValueIndex(st, status.docID, &migAdd[i]); err != nil {
+		if err := s.mirrorDeleteFromIngest(st, status.oldDocID, prevObject); err != nil {
 			return err
 		}
 	}
-	return nil
+	return s.mirrorAddToIngest(st, status.docID, object)
 }
 
 // migrationDoubleWriteDelete is migrationDoubleWrite's delete-only
@@ -273,58 +401,110 @@ func (s *Shard) migrationDoubleWriteDelete(st *propValueIndexState, prevObject *
 	if len(st.scope.props) == 0 || prevObject == nil {
 		return nil
 	}
-	migDel, err := s.analyzeForDoubleWrite(prevObject, st)
-	if err != nil {
-		return err
-	}
-	for i := range migDel {
-		if err := s.fireDeleteFromPropertyValueIndex(st, docID, &migDel[i]); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.mirrorDeleteFromIngest(st, docID, prevObject)
 }
 
 // registerDoubleWriteWithScope arms the scope and registers the add+delete
 // callbacks in ONE atomic Store, so a concurrent writer never sees callbacks
 // without the scope and leaks source-tokenized terms into the ingest bucket
-// (weaviate/0-weaviate-issues#298). Returned func disarms both.
+// (weaviate/0-weaviate-issues#298). The returned func disarms one property of
+// this registration and no other registration's claim on it.
 //
-// Disarm REMOVES the callbacks (by id) in the SAME atomic mutate that drops the
-// scope. Two consequences:
+// Disarm REMOVES the callbacks (by id) in the SAME atomic mutate that drops
+// the scope. That keeps the slice bounded by the migrations in flight, and it
+// makes a {scope-absent, callback-present} state — which a writer would
+// double-write through — unobservable. An in-flight writer still holding the
+// pre-disarm snapshot lands in this record's own bucket or in nothing at all:
+// resolveScopedDoubleWriteBucket takes the canonical name only while it
+// denotes the bucket that mirror armed on.
 //
-//   - No unbounded growth. Earlier this only flagged the closures disabled and
-//     left them in the slice, so every past migration's pair stayed on the hot
-//     write path forever — O(migrations) per-write cost plus a slow leak on
-//     long-lived shards. Removing them keeps the slice bounded by the number of
-//     migrations in flight.
-//   - No disabled-flag guard needed. A flag was only ever required because the
-//     old disarm dropped the scope while leaving the callbacks present,
-//     transiently exposing a {scope-absent, callback-present} state a writer
-//     would double-write through. Removing callback and scope together makes
-//     that torn state unobservable, so the flag is redundant. Any in-flight
-//     writer still holding the pre-disarm snapshot fires the callback safely:
-//     resolveScopedDoubleWriteBucket lands the mirror in the surviving canonical
-//     bucket (target phase) or no-ops when the sidecar is gone (backup phase).
-func (s *Shard) registerDoubleWriteWithScope(add onAddToPropertyValueIndex, del onDeleteFromPropertyValueIndex,
-	props []string, overlay map[string]inverted.PropertyOverlay,
-) func() {
+// Disarming a subset re-registers the pair over the properties left rather
+// than removing it: the actor that disarms owns one property of the scope,
+// and a pair per property would cost the square of the property count on
+// every write, since every callback fires for every analyzed property.
+//
+// makeCallbacks receives the properties still armed and must build a pair
+// scoped to exactly them.
+func (s *Shard) registerDoubleWriteWithScope(props []string, overlay map[string]inverted.PropertyOverlay,
+	makeCallbacks func(scope map[string]struct{}) (onAddToPropertyValueIndex, onDeleteFromPropertyValueIndex),
+) func(disarming string) {
+	armed := make(map[string]struct{}, len(props))
+	for _, prop := range props {
+		armed[prop] = struct{}{}
+	}
+
 	var id uint64
-	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+	add, del := makeCallbacks(maps.Clone(armed))
+	s.mutateScopeRegs(func(cur propValueIndexState) propValueIndexState {
 		id = cur.nextCallbackID
 		cur.nextCallbackID++
 		cur.add = appendAddCallback(cur.add, id, add)
 		cur.del = appendDeleteCallback(cur.del, id, del)
-		cur.scope = cur.scope.withArmed(props, overlay)
+		cur.scopeRegs = append(slices.Clone(cur.scopeRegs), migrationScopeReg{
+			id: id, props: armed, overlay: maps.Clone(overlay),
+		})
 		return cur
 	})
 
-	return func() {
-		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-			cur.add = removeAddCallback(cur.add, id)
-			cur.del = removeDeleteCallback(cur.del, id)
-			cur.scope = cur.scope.withDisarmed(props, overlay)
+	return func(disarming string) {
+		s.mutateScopeRegs(func(cur propValueIndexState) propValueIndexState {
+			idx := slices.IndexFunc(cur.scopeRegs, func(reg migrationScopeReg) bool { return reg.id == id })
+			if idx == -1 {
+				return cur
+			}
+			reg := cur.scopeRegs[idx]
+			if _, ok := reg.props[disarming]; !ok {
+				return cur
+			}
+
+			remaining := maps.Clone(reg.props)
+			delete(remaining, disarming)
+			if len(remaining) == 0 {
+				cur.add = removeAddCallback(cur.add, id)
+				cur.del = removeDeleteCallback(cur.del, id)
+				cur.scopeRegs = slices.Delete(slices.Clone(cur.scopeRegs), idx, idx+1)
+				return cur
+			}
+
+			newAdd, newDel := makeCallbacks(maps.Clone(remaining))
+			cur.add = replaceAddCallback(cur.add, id, newAdd)
+			cur.del = replaceDeleteCallback(cur.del, id, newDel)
+			reg.props = remaining
+			reg.overlay = maps.Clone(reg.overlay)
+			delete(reg.overlay, disarming)
+			cur.scopeRegs = slices.Clone(cur.scopeRegs)
+			cur.scopeRegs[idx] = reg
 			return cur
 		})
+	}
+}
+
+// mutateScopeRegs re-derives the scope from whatever registrations fn leaves
+// behind, in the same atomic transition, so the two can never drift apart.
+// Only properties whose conflict is new are reported, and only after the mutex
+// is released.
+func (s *Shard) mutateScopeRegs(fn func(cur propValueIndexState) propValueIndexState) {
+	var appeared []string
+	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+		standing := cur.conflicts
+		cur = fn(cur)
+		var conflicts []string
+		cur.scope, conflicts = deriveScope(cur.scopeRegs)
+		cur.overlaysDiverge = len(conflicts) > 0
+		cur.conflicts = conflicts
+		for _, prop := range conflicts {
+			if !slices.Contains(standing, prop) {
+				appeared = append(appeared, prop)
+			}
+		}
+		return cur
+	})
+	for _, prop := range appeared {
+		// Each mirror is served its own analysis from here on, so this costs
+		// an extra analysis per write rather than wrong terms. Still worth
+		// telling an operator: it means two migrations are live on one
+		// property with incompatible ideas of what its terms are.
+		s.index.logger.WithField("property", prop).Warn(
+			"two migrations mirror this property with different analyzer overlays; each is mirrored under its own")
 	}
 }

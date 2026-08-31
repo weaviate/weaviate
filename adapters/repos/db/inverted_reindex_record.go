@@ -91,6 +91,9 @@ func (k MigrationRecordKey) valid() bool {
 	return k.TaskVersion > 0 && k.StrategyCode.valid() && migrationHandleIsOneElement(k.UnitID)
 }
 
+// MigrationCheckpoint is the iteration resume point. It carries only what a
+// resume reads: the counts the run also reports are in the progress log line,
+// where an operator can see them.
 type MigrationCheckpoint struct {
 	LastProcessedKey []byte    `json:"lastProcessedKey,omitempty"`
 	UpdatedAt        time.Time `json:"updatedAt"`
@@ -602,6 +605,16 @@ var migrationHandleGroups = []migrationHandleGroup{
 		shape:              migrationShapePropertyBucket,
 		displacesCanonical: true,
 	},
+}
+
+func migrationRolesWithShape(shape migrationHandleShape) []migrationDirRole {
+	var out []migrationDirRole
+	for _, group := range migrationHandleGroups {
+		if group.shape == shape {
+			out = append(out, migrationDirRole(group.field))
+		}
+	}
+	return out
 }
 
 func (e migrationRecordEnvelope) displacedDirs() map[string]string {

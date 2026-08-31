@@ -102,7 +102,7 @@ type State struct {
 	// distributed-task provider. Exposed here so the REST cancel handler
 	// can wait for a cancelled task's local goroutine to drain before
 	// triggering the on-disk state cleanup — see
-	// [db.ReindexProvider.WaitForLocalTaskDrain].
+	// [db.ReindexProvider.SealLocalTaskDrain].
 	ReindexProvider *db.ReindexProvider
 
 	// ReindexSubmitLocks serializes mutating REST operations on the same
