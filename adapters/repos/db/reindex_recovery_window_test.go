@@ -35,6 +35,7 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 		rec              func(MigrationSubject) MigrationRecord
 		oversizedPayload bool
 		pastWalkBound    bool
+		noPayload        bool
 		rawPayload       string
 		wantIn           bool
 		wantWarn         string
@@ -84,6 +85,13 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 			because:       "a payload no migration can write is not one to read into memory at boot",
 		},
 		{
+			name:      "merged, with no payload.mig at all",
+			rec:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
+			noPayload: true,
+			wantWarn:  "has no readable payload.mig",
+			because:   "a payload that is not there is missing, not too large to read",
+		},
+		{
 			name:       "merged, with a property name that escapes the shard",
 			rec:        func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
 			rawPayload: `{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":["../../../etc"]}}`,
@@ -116,7 +124,9 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 				payload = append(payload, bytes.Repeat([]byte(" "), maxRecoveryPayloadBytes)...)
 			}
 			payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
-			require.NoError(t, os.WriteFile(payloadPath, payload, 0o600))
+			if !tt.noPayload {
+				require.NoError(t, os.WriteFile(payloadPath, payload, 0o600))
+			}
 			if tt.pastWalkBound {
 				require.NoError(t, os.Truncate(payloadPath, maxRecoveryWalkPayloadBytes+1))
 			}

@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -151,7 +152,10 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 		return rec, false
 	}
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	if err := refuseOversizedRecoveryPayload(payloadPath, maxRecoveryWalkPayloadBytes); err != nil {
+	// Only an oversized payload takes this arm. The bound is checked with a
+	// stat, so every other stat failure — a missing payload.mig above all — would
+	// otherwise be reported as a file too large to read.
+	if err := refuseOversizedRecoveryPayload(payloadPath, maxRecoveryWalkPayloadBytes); errors.Is(err, errRecoveryPayloadTooLarge) {
 		logger.WithField("path", payloadPath).
 			Warnf("reindex recovery: payload.mig is beyond any size a migration can produce, "+
 				"so it is not read and this migration's mirror stays unarmed: %v", err)
