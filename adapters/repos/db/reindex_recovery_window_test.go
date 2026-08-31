@@ -41,13 +41,14 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 		noPayload        bool
 		rawPayload       string
 		wantIn           bool
-		wantWarn         string
+		wantFault        recoveryPayloadFault
 		because          string
 	}{
 		{
-			name:    "iterating",
-			rec:     func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
-			because: "the scheduler restarts the unit and arms the mirror itself",
+			name:      "iterating",
+			rec:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
+			wantFault: recoveryPayloadNotApplicable,
+			because:   "the scheduler restarts the unit and arms the mirror itself",
 		},
 		{
 			name:   "iterated",
@@ -71,7 +72,8 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 			rec: func(s MigrationSubject) MigrationRecord {
 				return NewMigrationRecordPromoted(s, s.Properties, map[string]string{"title": s.CanonicalDirs["title"]})
 			},
-			because: "the staged copy is the canonical one, so there is nothing left to mirror into",
+			wantFault: recoveryPayloadNotApplicable,
+			because:   "the staged copy is the canonical one, so there is nothing left to mirror into",
 		},
 		{
 			name:             "merged, with a payload past the apply-path parse bound",
@@ -84,39 +86,41 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 			name:          "merged, with a payload past the walk's own memory bound",
 			rec:           func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
 			pastWalkBound: true,
-			wantWarn:      "beyond any size a migration can produce",
+			wantFault:     recoveryPayloadOversized,
 			because:       "a payload no migration can write is not one to read into memory at boot",
 		},
 		{
 			name:      "merged, with no payload.mig at all",
 			rec:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
 			noPayload: true,
-			wantWarn:  "has no readable payload.mig",
+			wantFault: recoveryPayloadUnreadable,
 			because:   "a payload that is not there is missing, not too large to read",
 		},
 		{
 			name:       "merged, with a property name that escapes the shard",
 			rec:        func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
 			rawPayload: `{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":["../../../etc"]}}`,
+			wantFault:  recoveryPayloadMalformed,
 			because:    "a property name that is not one directory inside the shard is not a property list",
 		},
 		{
 			name:       "merged, with a property name carrying a separator",
 			rec:        func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
 			rawPayload: `{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":["a/b"]}}`,
+			wantFault:  recoveryPayloadMalformed,
 			because:    "a separator makes the name address a directory the shard does not own",
 		},
 		{
 			name:       "merged, with an empty property name",
 			rec:        func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
 			rawPayload: `{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":[""]}}`,
+			wantFault:  recoveryPayloadMalformed,
 			because:    "an empty name composes into another property's sidecar",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, hook := test.NewNullLogger()
 			migDir := filepath.Join(t.TempDir(), trackerDir)
 			require.NoError(t, os.MkdirAll(migDir, 0o777))
 			payload := []byte(`{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":["title"]}}`)
@@ -137,10 +141,10 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
 			subject.TrackerDir = trackerDir
 
-			_, ok := loadReindexRecoveryRecord(migDir, []MigrationRecord{tt.rec(subject)}, logger)
-			require.Equal(t, tt.wantIn, ok, tt.because)
-			if tt.wantWarn != "" {
-				require.Contains(t, hook.LastEntry().Message, tt.wantWarn, tt.because)
+			_, fault, _ := loadReindexRecoveryRecord(migDir, []MigrationRecord{tt.rec(subject)})
+			require.Equal(t, tt.wantIn, fault == recoveryPayloadOK, tt.because)
+			if !tt.wantIn {
+				require.Equal(t, tt.wantFault, fault, tt.because)
 			}
 		})
 	}

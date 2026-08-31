@@ -76,6 +76,16 @@ func DiscoverInFlightReindexTasks(
 		partlyUnread = map[string]struct{}{}
 		shardsWalked int
 		recordReads  int
+
+		// Payload faults are per tracker, so they key on the tracker dir
+		// rather than the shard. The compounders carry what each fault was:
+		// a missing payload.mig and an unreadable one need different action.
+		oversizedPayloads  = map[string]struct{}{}
+		oversizedErrs      = errorcompounder.New()
+		unreadablePayloads = map[string]struct{}{}
+		unreadableErrs     = errorcompounder.New()
+		malformedPayloads  = map[string]struct{}{}
+		malformedErrs      = errorcompounder.New()
 	)
 	for _, indexEntry := range indices {
 		if !indexEntry.IsDir() {
@@ -117,8 +127,21 @@ func DiscoverInFlightReindexTasks(
 					continue
 				}
 				migDir := filepath.Join(migrationsDir, migEntry.Name())
-				rec, ok := loadReindexRecoveryRecord(migDir, records, logger)
-				if !ok {
+				rec, fault, faultErr := loadReindexRecoveryRecord(migDir, records)
+				trackerKey := shardKey + "/" + migEntry.Name()
+				switch fault {
+				case recoveryPayloadOK, recoveryPayloadNotApplicable:
+				case recoveryPayloadOversized:
+					oversizedPayloads[trackerKey] = struct{}{}
+					oversizedErrs.AddWrapf(faultErr, "%s", trackerKey)
+				case recoveryPayloadUnreadable:
+					unreadablePayloads[trackerKey] = struct{}{}
+					unreadableErrs.AddWrapf(faultErr, "%s", trackerKey)
+				case recoveryPayloadMalformed:
+					malformedPayloads[trackerKey] = struct{}{}
+					malformedErrs.AddWrapf(faultErr, "%s", trackerKey)
+				}
+				if fault != recoveryPayloadOK {
 					continue
 				}
 
@@ -173,48 +196,70 @@ func DiscoverInFlightReindexTasks(
 			Warnf("reindex recovery: some migration records of %d shard(s) could not be read; "+
 				"recovering only the trackers the rest name", len(partlyUnread))
 	}
+	if len(oversizedPayloads) > 0 {
+		logger.WithField("trackers", reportedShardNames(oversizedPayloads)).
+			Warnf("reindex recovery: the payload.mig of %d tracker(s) is beyond any size a migration can "+
+				"produce, so it is not read and those migrations' mirrors stay unarmed: %v",
+				len(oversizedPayloads), oversizedErrs.ToErrorLimited(maxReportedErrors))
+	}
+	if len(unreadablePayloads) > 0 {
+		logger.WithField("trackers", reportedShardNames(unreadablePayloads)).
+			Warnf("reindex recovery: %d migration(s) awaiting their flip have no readable payload.mig, "+
+				"so their double-write mirrors stay unarmed: %v",
+				len(unreadablePayloads), unreadableErrs.ToErrorLimited(maxReportedErrors))
+	}
+	if len(malformedPayloads) > 0 {
+		logger.WithField("trackers", reportedShardNames(malformedPayloads)).
+			Warnf("reindex recovery: the payload.mig of %d tracker(s) is malformed or names a property that "+
+				"is not a single directory inside the shard; those mirrors stay unarmed: %v",
+				len(malformedPayloads), malformedErrs.ToErrorLimited(maxReportedErrors))
+	}
 	return recovered, nil
 }
 
+// recoveryPayloadFault names why one tracker's payload.mig could not be turned
+// into a recovery record. The walk accumulates these rather than logging them
+// here: a fault is per tracker per shard, so on a many-tenant node reporting it
+// at the point of failure follows the tenant count at every boot.
+type recoveryPayloadFault int
+
+const (
+	recoveryPayloadOK recoveryPayloadFault = iota
+	// The tracker names no record, or one this walk has no work for.
+	recoveryPayloadNotApplicable
+	recoveryPayloadOversized
+	recoveryPayloadUnreadable
+	recoveryPayloadMalformed
+)
+
 func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
-	logger logrus.FieldLogger,
-) (reindexRecoveryRecord, bool) {
+) (reindexRecoveryRecord, recoveryPayloadFault, error) {
 	var rec reindexRecoveryRecord
 	state, ok := migrationRecordForTracker(records, filepath.Base(migDir))
 	if !ok || !state.IterationComplete() || state.State() == MigrationStatePromoted {
-		return rec, false
+		return rec, recoveryPayloadNotApplicable, nil
 	}
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
 	// Only an oversized payload takes this arm. The bound is checked with a
 	// stat, so every other stat failure — a missing payload.mig above all — would
 	// otherwise be reported as a file too large to read.
 	if err := refuseOversizedRecoveryPayload(payloadPath, maxRecoveryWalkPayloadBytes); errors.Is(err, errRecoveryPayloadTooLarge) {
-		logger.WithField("path", payloadPath).
-			Warnf("reindex recovery: payload.mig is beyond any size a migration can produce, "+
-				"so it is not read and this migration's mirror stays unarmed: %v", err)
-		return rec, false
+		return rec, recoveryPayloadOversized, err
 	}
 	data, err := os.ReadFile(payloadPath)
 	if err != nil {
-		logger.WithField("path", payloadPath).
-			Warnf("reindex recovery: a migration awaiting its flip has no readable payload.mig, "+
-				"so its double-write mirror stays unarmed: %v", err)
-		return rec, false
+		return rec, recoveryPayloadUnreadable, err
 	}
 	if err := json.Unmarshal(data, &rec); err != nil {
-		logger.WithField("path", payloadPath).
-			Warnf("reindex recovery: malformed payload.mig; skipping: %v", err)
-		return rec, false
+		return rec, recoveryPayloadMalformed, err
 	}
 	for _, prop := range rec.Payload.Properties {
 		if !migrationHandleIsOneElement(prop) {
-			logger.WithField("path", payloadPath).
-				Warnf("reindex recovery: payload.mig names property %q, which is not a single directory "+
-					"inside the shard; leaving this migration's mirror unarmed", prop)
-			return reindexRecoveryRecord{}, false
+			return reindexRecoveryRecord{}, recoveryPayloadMalformed,
+				fmt.Errorf("property %q is not a single directory inside the shard", prop)
 		}
 	}
-	return rec, true
+	return rec, recoveryPayloadOK, nil
 }
 
 func buildRecoveryTasks(

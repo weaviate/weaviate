@@ -630,11 +630,13 @@ func (t *ShardReindexTaskGeneric) stagedPropsStillOnDisk(logger logrus.FieldLogg
 		promoted = append(promoted, propName)
 	}
 	if len(promoted) > 0 {
-		logger.WithField("props", promoted).Info(
+		logger.WithField("property_count", len(promoted)).
+			WithField("props", migrationReportedNames(promoted)).Info(
 			"staged directories are gone, so the canonical name holds these properties already; not re-creating them")
 	}
 	if len(misnamed) > 0 {
-		logger.WithField("props", misnamed).Warn(
+		logger.WithField("property_count", len(misnamed)).
+			WithField("props", migrationReportedNames(misnamed)).Warn(
 			"the record names a staged directory this task would not open, so it belongs to another generation; opening neither name")
 	}
 	return kept, nil

@@ -86,8 +86,10 @@ const migrationWedgeRemedyNoCanonical = "Once you have confirmed which directory
 	"the property's data, remove this record by hand; no new migration can supersede a " +
 	"record that names no canonical directory."
 
-// A property list is user-chosen and unbounded, so it never reaches a log line
-// whole: the count goes in a field and the names go through the shared cap.
+// migrationReportedNames orders, deduplicates and caps a property list for a
+// log line. A property list is user-chosen and unbounded, so a caller that logs
+// one through this helper pairs the names with its own count field rather than
+// formatting the list whole.
 func migrationReportedNames(names []string) []string {
 	set := make(map[string]struct{}, len(names))
 	for _, name := range names {

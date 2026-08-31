@@ -79,8 +79,10 @@ func TestOverlayConflictIsReportedOnTheTransition(t *testing.T) {
 			require.Zero(t, warns(), "fixture: one registration cannot conflict with itself")
 
 			disarmSecond := s.registerDoubleWriteWithScope(props, nil, noopMirrorCallbacks)
-			require.Equal(t, len(props), warns(),
-				"fixture: every property the two registrations analyze differently is reported once")
+			require.Equal(t, 1, warns(),
+				"one line for the transition, whatever the property count")
+			require.Equal(t, len(props), hook.LastEntry().Data["property_count"],
+				"the line names how many properties conflict")
 
 			hook.Reset()
 			test.then(s, disarmFirst, disarmSecond)

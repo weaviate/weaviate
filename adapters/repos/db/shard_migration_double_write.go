@@ -414,8 +414,9 @@ func (s *Shard) mutateScopeRegs(fn func(cur propValueIndexState) propValueIndexS
 		}
 		return cur
 	})
-	for _, prop := range appeared {
-		s.index.logger.WithField("property", prop).Warn(
-			"two migrations mirror this property with different analyzer overlays; each is mirrored under its own")
+	if len(appeared) > 0 {
+		s.index.logger.WithField("property_count", len(appeared)).
+			WithField("props", migrationReportedNames(appeared)).Warn(
+			"two migrations mirror these properties with different analyzer overlays; each is mirrored under its own")
 	}
 }

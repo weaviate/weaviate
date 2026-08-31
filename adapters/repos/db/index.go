@@ -1144,16 +1144,20 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	})
 
 	err := eg.Wait()
-	// Gated on work done, not property shape: every property has some index
-	// type disabled, so gating on shape alone would log a sweep on every
-	// update. This under-reports on purpose: a tracker removed by name match
-	// alone costs no payload read, so an absent line doesn't mean nothing swept.
-	if reads := counts.payloadReads.Load(); reads > 0 {
+	// Both counts are what this line exists to carry, so either being
+	// non-zero prints it. Gating on payload reads alone hid record_set_reads
+	// exactly where it matters: a tracker removed by name match alone costs
+	// no payload read, but the shard's record set was still read to find it,
+	// and that read is where the once-per-index-type regression shows up.
+	// A sweep that reached any shard therefore reports — one line per
+	// property per apply, never one per shard.
+	payloadReads, recordSetReads := counts.payloadReads.Load(), counts.recordSetReads.Load()
+	if payloadReads > 0 || recordSetReads > 0 {
 		i.logger.WithFields(map[string]any{
 			"property":         property.Name,
 			"index_types":      disabledIndexTypes(property),
-			"payload_reads":    reads,
-			"record_set_reads": counts.recordSetReads.Load(),
+			"payload_reads":    payloadReads,
+			"record_set_reads": recordSetReads,
 		}).Info("partial-reindex cleanup: migration dirs swept for disabled index types")
 	}
 	if err != nil {

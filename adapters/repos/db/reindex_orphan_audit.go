@@ -227,6 +227,16 @@ func (o *orphanReindexTracker) String() string {
 		o.taskID, o.taskVersion, o.unitID, o.properties, o.indexTypes)
 }
 
+// Capped is String with the property list bounded, for the lines a running
+// unit can emit once per orphan on a walk over every shard on the node.
+func (o *orphanReindexTracker) Capped() string {
+	return fmt.Sprintf(
+		"collection=%q shard=%q tracker=%q gen=%d taskID=%q taskVersion=%d unitID=%q property_count=%d properties=%v indexTypes=%v",
+		o.collection, o.shardName, o.dirName, o.generation,
+		o.taskID, o.taskVersion, o.unitID, len(o.properties),
+		migrationReportedNames(o.properties), o.indexTypes)
+}
+
 // AuditOrphanReindexTrackers quarantines .migrations/<tracker>/ dirs
 // whose payload.mig references a (TaskID, TaskVersion) the DTM
 // scheduler does not know about (typical: restored cluster whose
@@ -284,6 +294,9 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 	}()
 
 	outcome := AuditOutcome{Status: AuditStatusRan}
+	// Accumulated across the whole walk: the audit visits every shard on the
+	// node, so a per-shard line follows the tenant count on every sweep.
+	unreadableRecords := map[string]struct{}{}
 	for _, indexEntry := range indexEntries {
 		if !indexEntry.IsDir() {
 			continue
@@ -316,7 +329,10 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				shardName := shardEntry.Name()
 				lsmPath := filepath.Join(indexPath, shardName, "lsm")
 				outcome.ScannedCount++
-				orphans := collectOrphanTrackers(lsmPath, collection, shardName, knownTask, auditLogger)
+				orphans, recordsUnreadable := collectOrphanTrackers(lsmPath, collection, shardName, knownTask, auditLogger)
+				if recordsUnreadable {
+					unreadableRecords[collection+"/"+shardName] = struct{}{}
+				}
 				if len(orphans) == 0 {
 					// No orphans this sweep: clear any stale quarantine
 					// sentinels — a tracker that flipped back to "known
@@ -363,6 +379,12 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 		processIndex()
 	}
 
+	if len(unreadableRecords) > 0 {
+		auditLogger.WithField("shards", reportedShardNames(unreadableRecords)).
+			Warnf("reindex orphan audit: the migration records of %d shard(s) could not be read; "+
+				"reclaiming nothing on them", len(unreadableRecords))
+	}
+
 	if len(outcome.FailedDirs) > 0 {
 		outcome.Status = AuditStatusPartialFail
 	} else if outcome.OrphansFound > 0 {
@@ -405,17 +427,18 @@ const reindexAuditQuarantineFile = "audit_quarantined.mig"
 // live" → quarantine sentinel is removed without destruction.
 const reindexAuditQuarantineWindow = 5 * time.Minute
 
-func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
+// The second return reports that this shard's migration records could not be
+// read. The caller accumulates it: the audit walks every shard on the node, so
+// reporting it here would be one line per tenant per sweep.
+func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) ([]orphanReindexTracker, bool) {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
 	if someRecordsUnreadable || recordSetUnreadable {
-		logger.WithField("collection", collection).WithField("shard", shardName).
-			Warn("reindex orphan audit: migration records could not be read; reclaiming nothing on this shard")
-		return nil
+		return nil, true
 	}
 	var orphans []orphanReindexTracker
 	for _, entry := range entries {
@@ -504,7 +527,7 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 			indexTypes:  indexTypes,
 		})
 	}
-	return orphans
+	return orphans, false
 }
 
 var processStartTime = time.Now()
@@ -680,7 +703,7 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 		o := &orphans[i]
 		release, sealed := db.sealOrphanUnit(o)
 		if !sealed {
-			logger.WithField("orphan", o.String()).
+			logger.WithField("orphan", o.Capped()).
 				Warn("reindex orphan audit: a local unit of this migration is still running; leaving its tracker for the next audit")
 			failed = append(failed, o.dirName)
 			continue
@@ -716,7 +739,7 @@ func (db *DB) cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexT
 		o := &orphans[i]
 		release, sealed := db.sealOrphanUnit(o)
 		if !sealed {
-			logger.WithField("orphan", o.String()).
+			logger.WithField("orphan", o.Capped()).
 				Warn("reindex orphan audit: a local unit of this migration is still running; leaving its tracker for the next audit")
 			failed = append(failed, o.dirName)
 			continue
