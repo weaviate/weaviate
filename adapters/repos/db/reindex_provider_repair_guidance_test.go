@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -212,9 +211,9 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 	}{
 		{name: "no node acked anything", wantGuidance: false},
 		{name: "one node acked a swap", postAcks: acked, wantGuidance: true},
-		// PREP writes merged.mig, which arms the next restart to promote
-		// the ingest dir to the canonical bucket name — the tear is
-		// already possible before any swap ack exists.
+		// PREP writes the Merged record, which lets the next shard load
+		// commit the flip and rename the staged dir onto the canonical
+		// name — the tear is already possible before any swap ack exists.
 		{name: "one node acked PREP only", prepAcks: acked, wantGuidance: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -256,59 +255,6 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 	}
 }
 
-// Pins the disk evidence the ack maps cannot carry: a cancel landing
-// while the task is still STARTED, after this node wrote merged.mig,
-// leaves no ack anywhere — the late ack hits an already-CANCELLED task
-// and is dropped. merged.mig is what arms the next restart to promote
-// the ingest dir, so its presence is what the guidance has to key on.
-func TestHasCompletedMigrationTracker(t *testing.T) {
-	const prop = "title"
-	perProp := postMergeTrackerDir(t, prop)
-	classLevel := MigrationDirSearchableMapToBlockmax + "_1"
-
-	for _, tc := range []struct {
-		name          string
-		migrationType ReindexMigrationType
-		tracker       string
-		sentinel      string
-		want          bool
-	}{
-		{
-			name: "started but not merged", migrationType: ReindexTypeChangeTokenization,
-			tracker: perProp, sentinel: "started.mig", want: false,
-		},
-		{
-			name: "merged, awaiting the next restart", migrationType: ReindexTypeChangeTokenization,
-			tracker: perProp, sentinel: "merged.mig", want: true,
-		},
-		{
-			name: "tidied", migrationType: ReindexTypeChangeTokenization,
-			tracker: perProp, sentinel: "tidied.mig", want: true,
-		},
-		{name: "no tracker dir at all", migrationType: ReindexTypeChangeTokenization, want: false},
-		// change-algorithm keeps one tracker for the whole class, which the
-		// per-property scope never looks at.
-		{
-			name: "a merged class-level tracker", migrationType: ReindexTypeChangeAlgorithm,
-			tracker: classLevel, sentinel: "merged.mig", want: true,
-		},
-		{
-			name: "a started class-level tracker", migrationType: ReindexTypeChangeAlgorithm,
-			tracker: classLevel, sentinel: "started.mig", want: false,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			lsmPath := t.TempDir()
-			if tc.tracker != "" {
-				mkTrackerDir(t, lsmPath, tc.tracker, tc.sentinel)
-			}
-
-			require.Equal(t, tc.want,
-				hasCompletedMigrationTracker(lsmPath, tc.migrationType, []string{prop}, nil, nil))
-		})
-	}
-}
-
 // postMergeTrackerDir is the tracker dir name a searchable migration of
 // propName leaves behind, generation suffix included.
 func postMergeTrackerDir(t *testing.T, propName string) string {
@@ -318,18 +264,107 @@ func postMergeTrackerDir(t *testing.T, propName string) string {
 	return migrationDirWithProps(prefixes[0], []string{propName}) + "_1"
 }
 
+// mkMigrationRecordFor plants a migration directory and the record naming
+// it — what every passive reader on the provider paths answers from.
+func mkMigrationRecordFor(t *testing.T, lsmPath, trackerDir, taskID string, taskVersion uint64,
+	unitID string, mt ReindexMigrationType, state MigrationState, props ...string,
+) string {
+	t.Helper()
+	mkTrackerDir(t, lsmPath, trackerDir)
+	subject := MigrationSubject{
+		Key: MigrationRecordKey{
+			TaskVersion:  taskVersion,
+			StrategyCode: StrategyCodeSearchableRetokenize,
+			UnitID:       unitID,
+		},
+		TaskID:        taskID,
+		MigrationType: mt,
+		Properties:    props,
+		TrackerDir:    trackerDir,
+		StagedDirs:    map[string]string{},
+		CanonicalDirs: map[string]string{},
+		SidecarDirs:   map[string]string{},
+	}
+	for _, prop := range props {
+		subject.StagedDirs[prop] = "property_" + prop + "__" + trackerDir + "_ingest"
+		subject.CanonicalDirs[prop] = "property_" + prop + "_searchable"
+		subject.SidecarDirs[prop] = fixtureSidecarFor(subject.StagedDirs[prop])
+	}
+
+	var rec MigrationRecord
+	switch state {
+	case MigrationStateIterating:
+		rec = NewMigrationRecordIterating(subject, MigrationCheckpoint{})
+	case MigrationStateIterated:
+		rec = NewMigrationRecordIterated(subject)
+	case MigrationStateMerged:
+		rec = NewMigrationRecordMerged(subject)
+	case MigrationStateSwapped:
+		rec = NewMigrationRecordSwapped(subject, props, subject.CanonicalDirs)
+	default:
+		require.FailNowf(t, "unsupported fixture state", "%q", state)
+	}
+	logger, _ := logrustest.NewNullLogger()
+	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
+	return filepath.Join(lsmPath, ".migrations", trackerDir)
+}
+
+// TestHasLocalPostMergeStateReadsEachShardsRecordsOnce pins that the probe
+// reads each shard's records once, not once per (index type, property);
+// migrationRecordsAt logs one line per read so this cost stays observable.
+func TestHasLocalPostMergeStateReadsEachShardsRecordsOnce(t *testing.T) {
+	ctx := context.Background()
+	shard, idx := testShard(t, ctx, "C")
+	concrete, err := unwrapShard(ctx, shard)
+	require.NoError(t, err)
+
+	// Iterating, so nothing short-circuits the walk and every property is
+	// visited: a probe that answered on the first one would read once by luck.
+	mkMigrationRecordFor(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"),
+		"T_cancel", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateIterating, "title")
+
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	p := NewReindexProvider(
+		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
+		nil, nil, logger, "n1", nil, ctx)
+
+	require.False(t, p.hasLocalPostMergeState(ctx, &ReindexTaskPayload{
+		MigrationType: ReindexTypeChangeTokenization,
+		Collection:    "C",
+		Properties:    []string{"title", "author", "isbn"},
+		UnitToShard:   map[string]string{"u1": shard.Name(), "u2": shard.Name()},
+	}))
+
+	require.Equal(t, 1, countRecordSetReads(hook),
+		"one read for the one shard the payload names, whatever the property count")
+}
+
+// countRecordSetReads counts the line migrationRecordsAt logs per read, on
+// both its outcomes: the Debug line on the healthy path and the Error line
+// when nothing could be read. It is the same line an operator watching a slow
+// startup sees, so the assertion and the signal cannot drift apart.
+func countRecordSetReads(hook *logrustest.Hook) int {
+	n := 0
+	for _, entry := range hook.AllEntries() {
+		if strings.HasPrefix(entry.Message, "read migration records") {
+			n++
+		}
+	}
+	return n
+}
+
 // postMergeEvidenceFixture stands up a one-shard collection carrying the
-// on-disk signature of a swap this node got far enough into: a tracker
-// generation with merged.mig.
+// on-disk signature of a swap this node got far enough into: a migration whose
+// data is committed.
 func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvider, *ReindexTaskPayload, string) {
 	t.Helper()
 	shard, idx := testShard(t, ctx, "C")
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
 
-	trackerDir := filepath.Join(concrete.pathLSM(), ".migrations", postMergeTrackerDir(t, "title"))
-	require.NoError(t, os.MkdirAll(trackerDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(trackerDir, "merged.mig"), nil, 0o600))
+	trackerDir := mkMigrationRecordFor(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"),
+		"T_cancel", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateMerged, "title")
 
 	payload := &ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -352,7 +387,7 @@ func TestHasLocalPostMergeState_GivesUpOnAFinishedContext(t *testing.T) {
 	p, payload, _ := postMergeEvidenceFixture(t, ctx)
 
 	require.True(t, p.hasLocalPostMergeState(ctx, payload),
-		"merged.mig is on disk, so a live context must find it")
+		"the committed record is on disk, so a live context must find it")
 
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
@@ -360,17 +395,11 @@ func TestHasLocalPostMergeState_GivesUpOnAFinishedContext(t *testing.T) {
 		"a shut-down node must not walk the task's shards")
 }
 
-// Pins what makes the cancel repair guidance reliable: the terminal
-// cleanup leaves the evidence the probe reads. Both sides key on
-// completedMigrationGens — the cleanup preserves merged/tidied
-// generations because wiping them out from under the live bucket pointer
-// is the #10675 data loss, and the probe reads them because they are the
-// signature of a swap this node armed.
-//
-// So a cleanup that stopped preserving them would silence this guidance
-// and re-open that data loss at the same time. That shared predicate is
-// also why the probe's position relative to the cleanup does not change
-// the answer.
+// TestAutoCleanupAfterTerminal_PreservesTheEvidenceTheProbeReads pins that
+// terminal cleanup preserves a committed migration's evidence: both it and
+// the post-merge probe key off the same "is data committed" question
+// (weaviate/weaviate#10675), so a cleanup that stopped preserving it would
+// also silently re-open that data loss.
 func TestAutoCleanupAfterTerminal_PreservesTheEvidenceTheProbeReads(t *testing.T) {
 	ctx := context.Background()
 	p, payload, trackerDir := postMergeEvidenceFixture(t, ctx)
@@ -383,7 +412,7 @@ func TestAutoCleanupAfterTerminal_PreservesTheEvidenceTheProbeReads(t *testing.T
 	}, payload, logrus.New())
 
 	require.DirExists(t, trackerDir,
-		"a merged generation is live deferred-finalize state, not stale partial state")
+		"a committed migration is live deferred-finalize state, not stale partial state")
 	require.True(t, p.hasLocalPostMergeState(ctx, payload),
 		"the guidance would go silent for every cancel that ran the cleanup first")
 }
@@ -396,7 +425,8 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 	shard, idx := testShard(t, ctx, "C")
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
-	mkTrackerDir(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"), "merged.mig")
+	mkMigrationRecordFor(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"),
+		"T_cancel_disk", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateMerged, "title")
 
 	payload, err := json.Marshal(ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -419,7 +449,8 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 	}))
 
 	require.True(t, loggedRepairGuidance(hook),
-		"merged.mig on this node is the only evidence of the tear; the guidance has to fire off it")
+		"a committed migration on this node is the only evidence of the tear; the "+
+			"guidance has to fire off it")
 }
 
 // Pins where the post-merge probe sits relative to the drain: a drain that
@@ -430,7 +461,8 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	shard, idx := testShard(t, testCtx(), className)
 	concrete, err := unwrapShard(testCtx(), shard)
 	require.NoError(t, err)
-	mkTrackerDir(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"), "merged.mig")
+	mkMigrationRecordFor(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"),
+		"T_cancel_drain", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateMerged, "title")
 
 	payload, err := json.Marshal(ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -472,13 +504,13 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	require.True(t, drainTimedOut,
 		"the fixture has to reach the drain-timeout arm for the rest to mean anything")
 	require.True(t, loggedRepairGuidance(hook),
-		"the cleanup is skipped on this arm, but merged.mig is still a tear only an operator can repair")
+		"the cleanup is skipped on this arm, but the tear is still one only an operator can repair")
 }
 
-// The terminal-cleanup path runs on every node of a cancelled or failed
-// migration, with the collection's tenants as cold as the operator left
-// them. The post-merge probe is the one thing on it that reads a shard, and
-// reading it must not load it.
+// TestHasLocalPostMergeStateLeavesUnloadedShardsAlone pins that the
+// post-merge probe never loads a cold shard while reading it, and that a
+// cancel landing while the task is still STARTED (no ack anywhere) still
+// keys off this node's own record of how far the migration got.
 func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 	const (
 		prop   = "title"
@@ -486,32 +518,77 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 	)
 
 	for _, tc := range []struct {
-		name          string
+		name string
+		// migrationType is the one the cancelled task carries.
 		migrationType ReindexMigrationType
-		postMerge     bool
+		// state plants a record on the cold tenant; empty plants nothing.
+		state MigrationState
+		// recordType overrides the migration type the planted record names,
+		// so a record of another migration cannot answer for this one.
+		recordType ReindexMigrationType
+		// classLevel plants the tracker every property of the class shares.
+		classLevel bool
 		// absentFromShardMap leaves the shard out of this node's map while
 		// the payload still names it.
 		absentFromShardMap bool
 		want               bool
 	}{
 		{
-			name:          "a cold tenant carrying merged state",
+			name:          "a cold tenant whose migration has committed its data",
 			migrationType: ReindexTypeChangeTokenization,
-			postMerge:     true,
+			state:         MigrationStateMerged,
 			want:          true,
+		},
+		// The flip is past the point of no return, so the tear the operator
+		// has to repair is at its widest here.
+		{
+			name:          "a cold tenant whose migration has flipped",
+			migrationType: ReindexTypeChangeTokenization,
+			state:         MigrationStateSwapped,
+			want:          true,
+		},
+		// Nothing was armed: the canonical bucket never stopped being
+		// primary, so a cancel leaves nothing to repair.
+		{
+			name:          "a cold tenant whose migration was still rebuilding",
+			migrationType: ReindexTypeChangeTokenization,
+			state:         MigrationStateIterating,
 		},
 		{
 			name:          "a cold tenant carrying nothing",
 			migrationType: ReindexTypeChangeTokenization,
 		},
-		// A format-only migration reports nothing even with a searchable
-		// tracker on disk, because that tracker belongs to no tuple it owns.
+		// change-algorithm keeps one tracker for the whole class. Its record
+		// still names the properties, which is what the probe matches on.
+		{
+			name:          "a cold tenant whose class-level migration has committed",
+			migrationType: ReindexTypeChangeAlgorithm,
+			state:         MigrationStateMerged,
+			classLevel:    true,
+			want:          true,
+		},
+		{
+			name:          "a cold tenant whose class-level migration was still rebuilding",
+			migrationType: ReindexTypeChangeAlgorithm,
+			state:         MigrationStateIterating,
+			classLevel:    true,
+		},
+		// A format-only migration reports nothing even with a committed
+		// record on disk, because that record belongs to no tuple it owns.
 		// The IsSemanticMigration early return is a short-circuit on top of
 		// that, not what produces the answer.
 		{
 			name:          "a format-only migration",
 			migrationType: ReindexTypeRebuildSearchable,
-			postMerge:     true,
+			state:         MigrationStateMerged,
+		},
+		// Another migration on the same property is a separate tear with a
+		// separate task; this task's cancel says nothing about it.
+		{
+			name:          "a committed record of another migration type",
+			migrationType: ReindexTypeChangeTokenization,
+			state:         MigrationStateMerged,
+			recordType:    ReindexTypeEnableFilterable,
 		},
 		// This walk applies no node filter, so it reaches every shard the
 		// payload names, including another node's. Membership in this node's
@@ -519,7 +596,7 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 		{
 			name:               "a shard the payload names that this node's map does not hold",
 			migrationType:      ReindexTypeChangeTokenization,
-			postMerge:          true,
+			state:              MigrationStateMerged,
 			absentFromShardMap: true,
 		},
 	} {
@@ -531,9 +608,17 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 				false, false, false)
 			defer hot.Shutdown(context.Background())
 
-			if tc.postMerge {
-				mkTrackerDir(t, shardPathLSM(idx.path(), tenant),
-					postMergeTrackerDir(t, prop), "merged.mig")
+			if tc.state != "" {
+				recordType := tc.recordType
+				if recordType == "" {
+					recordType = tc.migrationType
+				}
+				trackerDir := postMergeTrackerDir(t, prop)
+				if tc.classLevel {
+					trackerDir = MigrationDirSearchableMapToBlockmax + "_1"
+				}
+				mkMigrationRecordFor(t, shardPathLSM(idx.path(), tenant), trackerDir,
+					"T_probe", 1, "u1__n1", recordType, tc.state, prop)
 			}
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
 				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
@@ -561,7 +646,7 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 
 			require.Equal(t, tc.want, got)
 			require.False(t, cold.isLoaded(),
-				"the tracker dir sits at a path this node can join; loading a tenant to "+
+				"the record sits at a path this node can join; loading a tenant to "+
 					"ask it for that path is what the terminal path cannot afford")
 		})
 	}

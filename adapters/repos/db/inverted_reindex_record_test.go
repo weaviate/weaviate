@@ -285,7 +285,7 @@ func TestMigrationRecordNotUnderstood(t *testing.T) {
 		{
 			name: "checkpoint on a state that has none",
 			data: valid(func(env map[string]any) {
-				env["checkpoint"] = map[string]any{"processedCount": 1}
+				env["checkpoint"] = map[string]any{"lastProcessedKey": "aGFsZndheQ=="}
 			}),
 			wantErr: "in state \"merged\": checkpoint block present=true, wanted=false",
 		},
@@ -620,6 +620,14 @@ func TestMigrationRecordStore(t *testing.T) {
 			assert: func(t *testing.T, s *MigrationRecordStore) {
 				require.Len(t, s.Records(), 1)
 				require.Len(t, s.Unreadable(), 1)
+
+				// The unreadable one may name any directory on this shard, so
+				// the sweeps have to keep all of them and not just the ones
+				// the readable record happens to name.
+				logger, _ := test.NewNullLogger()
+				committed := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.True(t, committed.preservesBucket("a directory no readable record names"))
+				require.True(t, committed.preservesTracker("a directory no readable record names"))
 			},
 		},
 		{
@@ -671,8 +679,8 @@ func TestMigrationRecordStore(t *testing.T) {
 				require.Empty(t, s.Unreadable(), "a scratch file is not a record this build failed to read")
 
 				logger, _ := test.NewNullLogger()
-				foreign := NewMigrationRecordStore(filepath.Dir(filepath.Dir(s.Dir())), logger)
-				require.NoError(t, foreign.Load())
+				_, _, recordSetUnreadable := migrationRecordsAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.False(t, recordSetUnreadable)
 				_, err := os.Stat(scratch)
 				require.NoError(t, err, "a foreign reader must not delete a scratch file it does not own")
 
@@ -795,6 +803,9 @@ func TestMigrationRecordStore(t *testing.T) {
 				require.Equal(t, MigrationRecordFaultStore, s.Unreadable()[0].Scope)
 				require.Contains(t, s.Unreadable()[0].Reason, "shard-1__node-9")
 
+				logger, _ := test.NewNullLogger()
+				committed := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.True(t, committed.preservesBucket("a directory no record names"))
 				require.Error(t, s.Put(merged(43, StrategyCodeEnableFilterable)),
 					"a frozen store must not take a write it cannot place among the records it could not attribute")
 			},
@@ -876,7 +887,7 @@ func TestMigrationRecordStoreConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 64 {
-				_ = NewMigrationRecordStore(lsmPath, logger).Load()
+				migrationRecordsAt(lsmPath, logger)
 			}
 		}()
 	}
@@ -1375,7 +1386,7 @@ func TestEveryWriterEmittedSidecarNameIsAccepted(t *testing.T) {
 				main := strategy.SourceBucketName(prop)
 				requireAcceptedInPromoteRoles(t, main)
 				for _, suffix := range []string{
-					strategy.ReindexSuffix(), strategy.IngestSuffix(), strategy.BackupSuffix(),
+					strategy.ReindexSuffix(), strategy.IngestSuffix(),
 				} {
 					name := main + suffix
 					require.Truef(t, migrationHandleIsSidecarShaped(name),

@@ -23,18 +23,15 @@ import (
 	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
-// A closing index must not be reported as a node whose swap finished.
-//
-// The scheduler treats "callbacks done" as terminal: it stops re-firing
-// OnGroupCompleted, so a node that answers true while it still holds an
-// untidied tracker keeps the old tokenization after the cluster-wide schema
-// flip already committed. The lenient shard walk answers nil once the index
-// is closing, so it visits nothing and every shard reads as one this node
-// does not hold — which the tracker loop below skips, landing on true.
-//
-// The rows that signal a close therefore fail if the walk is swapped back to
-// [Index.ForEachShard]: the two tidied ones have nothing untidied on disk, so
-// the only thing that can produce false is the walk refusing to answer.
+// TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex pins that a closing
+// index must not report a swap finished: the scheduler treats "callbacks
+// done" as terminal and stops re-firing OnGroupCompleted, so answering true
+// on an uncommitted migration would strand it on the old tokenization. The
+// lenient shard walk answers nil while closing, which the record loop below
+// reads as true; swapping back to [Index.ForEachShard] would fail these rows,
+// since their migration is committed and only a refusing walk can produce
+// false. The two close signals are raised independently so each row names
+// the one it tests; teardown raises both.
 func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 	const (
 		prop   = "title"
@@ -44,39 +41,45 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 
 	for _, tc := range []struct {
 		name string
-		// closeRequested signals a delete that has not reached teardown yet;
-		// closeCause only answers once teardown cancels closingCtx.
+		// closeRequested is a delete committed against the collection; closing
+		// is teardown having cancelled the index's context.
 		closeRequested bool
 		closing        bool
-		// sentinels are written into the tenant's tracker dir.
-		sentinels []string
+		// committed says whether the tenant's migration reached the state
+		// from which its staged data is the data.
+		committed bool
 		want      bool
 	}{
-		// The untidied, non-closing baseline is already pinned in
-		// TestLocalCallbacksDoneLeavesUnloadedShardsAlone; an untidied tracker
-		// answers false with or without closing (row below), so it wouldn't
-		// isolate what closing changes here.
+		// The uncommitted, non-closing baseline is pinned in
+		// TestLocalCallbacksDoneLeavesUnloadedShardsAlone; it wouldn't isolate
+		// what closing changes here.
 		{
-			name:      "an open index whose swap tidied",
-			sentinels: []string{"started.mig", "tidied.mig"},
+			name:      "an open index whose migration committed",
+			committed: true,
 			want:      true,
 		},
 		{
-			name:      "a closing index still holding an untidied tracker",
-			closing:   true,
-			sentinels: []string{"started.mig"},
-			want:      false,
+			name:    "a closing index still holding an uncommitted migration",
+			closing: true,
+			want:    false,
 		},
 		{
-			name:      "a closing index whose tracker tidied is still unanswerable",
+			name:      "teardown cancelled the index while its migration was committed",
 			closing:   true,
-			sentinels: []string{"started.mig", "tidied.mig"},
+			committed: true,
 			want:      false,
 		},
 		{
 			name:           "a delete committed before teardown reached the index",
 			closeRequested: true,
-			sentinels:      []string{"started.mig", "tidied.mig"},
+			committed:      true,
+			want:           false,
+		},
+		{
+			name:           "both signals, which is what a drop actually raises",
+			closeRequested: true,
+			closing:        true,
+			committed:      true,
 			want:           false,
 		},
 	} {
@@ -100,12 +103,14 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 			idx.shards.Store(tenant, &LazyLoadShard{
 				shardOpts: &deferredShardOpts{name: tenant, index: idx},
 			})
-			mkTrackerDir(t, shardPathLSM(idx.path(), tenant),
-				postMergeTrackerDir(t, prop), tc.sentinels...)
+			state := MigrationStateIterating
+			if tc.committed {
+				state = MigrationStateMerged
+			}
+			mkMigrationRecordFor(t, shardPathLSM(idx.path(), tenant), postMergeTrackerDir(t, prop),
+				"T_bootstrap", 1, "u1", ReindexTypeChangeTokenization, state, prop)
 
-			// Drop order: the delete is committed first, teardown cancels
-			// closingCtx after it has queued behind the index locks.
-			if tc.closeRequested || tc.closing {
+			if tc.closeRequested {
 				signalCloseRequested(errIndexDropped)
 			}
 			if tc.closing {

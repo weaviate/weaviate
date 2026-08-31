@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -31,21 +32,34 @@ import (
 // newEnableFilterableTask wraps EnableFilterableStrategy. Selection is
 // mandatory: the strategy can't discover targets via the schema-flag
 // scan because that flag is still false at migration time.
-func newEnableFilterableTask(t *testing.T, idx *Index, className, propName string) (*ShardReindexTaskGeneric, *testEnableFilterableStrategyWrapper) {
+func newEnableFilterableTask(t *testing.T, idx *Index, className string, propNames ...string) (*ShardReindexTaskGeneric, *testEnableFilterableStrategyWrapper) {
+	t.Helper()
+	return newEnableFilterableTaskAtGeneration(t, idx, className, 1, propNames...)
+}
+
+// newEnableFilterableTaskAtGeneration is newEnableFilterableTask for the
+// back-to-back case, where a second migration on the same property carries a
+// higher generation and a higher task version — the pair the supersession
+// relation orders by.
+func newEnableFilterableTaskAtGeneration(t *testing.T, idx *Index, className string,
+	generation int, propNames ...string,
+) (*ShardReindexTaskGeneric, *testEnableFilterableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testEnableFilterableStrategyWrapper{
 		EnableFilterableStrategy: EnableFilterableStrategy{
-			propNames:  []string{propName},
-			generation: 1,
+			propNames:  propNames,
+			generation: generation,
 		},
 	}
-	selectedProps := map[string]struct{}{propName: {}}
+	selectedProps := map[string]struct{}{}
+	for _, propName := range propNames {
+		selectedProps[propName] = struct{}{}
+	}
 	task := NewShardReindexTaskGeneric(
 		"EnableFilterable", idx.logger, wrapped,
 		reindexTaskConfig{
 			concurrency:                   2,
 			memtableOptFactor:             4,
-			backupMemtableOptFactor:       1,
 			processingDuration:            10 * time.Minute,
 			pauseDuration:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
@@ -59,6 +73,13 @@ func newEnableFilterableTask(t *testing.T, idx *Index, className, propName strin
 			},
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+	)
+	// Without an identity the task's record key is incomplete and every
+	// transition would refuse to write itself.
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-enable-filterable", Version: uint64(generation)},
+		"shard-1__node-0",
+		&ReindexTaskPayload{MigrationType: ReindexTypeEnableFilterable},
 	)
 	return task, wrapped
 }
@@ -83,9 +104,11 @@ func (s *testEnableFilterableStrategyWrapper) OnMigrationComplete(_ context.Cont
 // IndexFilterable=false (so the filterable bucket genuinely does not
 // exist pre-migration). The default newTestClassWithProps leaves
 // IndexFilterable nil (defaults to true) — not what we want here.
-func newEnableFilterableTestClass(className, propName string) *models.Class {
-	class := newTestClassWithProps(className, []string{propName})
-	class.Properties[0].IndexFilterable = boolPtr(false)
+func newEnableFilterableTestClass(className string, propNames ...string) *models.Class {
+	class := newTestClassWithProps(className, propNames)
+	for _, prop := range class.Properties {
+		prop.IndexFilterable = boolPtr(false)
+	}
 	return class
 }
 
@@ -148,12 +171,4 @@ func TestRecoveryConvergence_EnableFilterable_Baseline(t *testing.T) {
 		require.NotEmptyf(t, docIDs,
 			"post-migration filterable token %q has no docIDs (posting list is empty)", tok)
 	}
-
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
 }

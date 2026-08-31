@@ -19,7 +19,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -40,13 +39,12 @@ import (
 // directly — outer GetIndex/lookupShardByName orchestration is unit-
 // tested elsewhere.
 //
-// T1: PREP boundary — IsReindexed → IsMerged via runShardPrepPhase.
-// T2: SWAP boundary — IsMerged → IsSwapped+IsTidied via runShardSwapPhase.
-// T3: Crash between persistRecoveryRecord and markStarted — discover
-//     must skip the dir; payload.mig survives intact for retry.
-// T4: markReindexed durability — sentinel survives process death
-//     without fsync from the test (foundation of issue #214 / commit
-//     073d47b460's IsReindexed dispatch).
+// T1: PREP boundary — Iterated to Merged via runShardPrepPhase.
+// T2: SWAP boundary — Merged to Swapped via runShardSwapPhase.
+// T3: Crash before the first record write — discover must skip the dir;
+//     payload.mig survives intact for retry.
+// T4: Record durability at Iterated — the record survives process death
+//     without the test fsyncing.
 
 // barrierIntegrationProvider builds the minimal ReindexProvider these
 // tests need — runShardPrepPhase / runShardSwapPhase only touch
@@ -63,7 +61,7 @@ func barrierIntegrationProvider(t *testing.T) (*ReindexProvider, *logrustest.Hoo
 	return p, hook
 }
 
-// barrierIntegrationDrivenToReindexed halts iteration at markReindexed
+// barrierIntegrationDrivenToReindexed halts iteration at the Iterated record
 // (the FINALIZING-barrier handoff) via skipSwapOnFinish=true.
 func barrierIntegrationDrivenToReindexed(
 	t *testing.T,
@@ -84,12 +82,13 @@ func barrierIntegrationDrivenToReindexed(
 			break
 		}
 	}
-	// Sanity: iteration must have halted at the barrier (markReindexed
+	// Sanity: iteration must have halted at the barrier (the Iterated record
 	// written, runtimePrepare NOT called).
-	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
-	require.True(t, rt.IsReindexed(),
-		"helper precondition: iteration must reach IsReindexed under skipSwapOnFinish=true")
-	require.False(t, rt.IsMerged(),
+	rec, ok := task.migrationRecord(shard)
+	require.True(t, ok, "helper precondition: iteration must leave a record")
+	require.Equal(t, MigrationStateIterated, rec.State(),
+		"helper precondition: iteration must reach Iterated under skipSwapOnFinish=true")
+	require.False(t, rec.StagedDataComplete(),
 		"helper precondition: runtimePrepare must NOT run under skipSwapOnFinish=true")
 	return task, strategy
 }
@@ -107,14 +106,9 @@ func barrierIntegrationSeedObjects(t *testing.T, ctx context.Context, shard *Sha
 	return out
 }
 
-// TestReindexProviderBarrierIntegration_OnGroupCompletedPrep pins the
-// PREP-phase contract: given a unit at IsReindexed (the post-iteration,
-// pre-merge state that OnGroupCompleted lands in for barrier-mode tasks),
-// the provider's runShardPrepPhase must advance the on-disk sentinels
-// to IsMerged. This is the "OnGroupCompleted → RunPrepareOnShard boundary"
-// gap T2.3 was scoped against — it has no direct unit-test coverage
-// today (the existing unit tests cover RunSwapOnShard's sentinel-aware
-// dispatch, not the PREP-phase boundary).
+// TestReindexProviderBarrierIntegration_OnGroupCompletedPrep pins that
+// runShardPrepPhase advances a barrier-mode unit's record from Iterated to
+// Merged — the OnGroupCompleted → RunPrepareOnShard boundary.
 func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 	ctx := testCtx()
 	className := "BarrierIntegPrep"
@@ -127,13 +121,13 @@ func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 
 	barrierIntegrationSeedObjects(t, ctx, shard, className, 25)
 
-	// Drive to IsReindexed via the barrier path.
+	// Drive to the Iterated record via the barrier path.
 	task, _ := barrierIntegrationDrivenToReindexed(t, ctx, shard, idx.logger)
 
 	// Pre-PREP invariants: reindexed yes, merged no.
-	rtPre := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
-	require.True(t, rtPre.IsReindexed(), "pre-PREP: must be reindexed")
-	require.False(t, rtPre.IsMerged(), "pre-PREP: must NOT be merged")
+	recPre, ok := task.migrationRecord(shard)
+	require.True(t, ok)
+	require.Equal(t, MigrationStateIterated, recPre.State(), "pre-PREP: the rebuild is done and nothing is staged")
 
 	// Invoke the provider's runShardPrepPhase — same call OnGroupCompleted
 	// makes per-shard. rehydrate=false matches the in-process happy path
@@ -144,28 +138,26 @@ func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 	require.True(t, ok, "PREP must succeed: %v", res.Errs)
 	require.Empty(t, res.Errs, "PREP must not accumulate errors")
 
-	// Post-PREP invariants: sentinels advance from IsReindexed → IsMerged.
-	// IsPrepended is the intermediate sentinel runtimePrepare writes
-	// between the per-prop PrependSegmentsFromBucket loop and
-	// markMerged — its presence pins that runtimePrepare ran to
-	// completion.
-	rtPost := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
-	assert.True(t, rtPost.IsReindexed(), "post-PREP: reindexed sentinel preserved")
-	assert.True(t, rtPost.IsPrepended(), "post-PREP: prepended sentinel written by runtimePrepare")
-	assert.True(t, rtPost.IsMerged(), "post-PREP: merged sentinel — RunPrepareOnShard advanced from IsReindexed to IsMerged")
-	assert.False(t, rtPost.IsSwapped(), "post-PREP: SWAP must NOT run yet (that's OnSwapRequested's job)")
-	assert.False(t, rtPost.IsTidied(), "post-PREP: TIDY must NOT run yet")
+	// Post-PREP invariants: the record advances from Iterated to Merged,
+	// which is what pins that runtimePrepare ran the per-prop
+	// PrependSegmentsFromBucket loop to completion.
+	recPost, ok := task.migrationRecord(shard)
+	require.True(t, ok)
+	assert.Equal(t, MigrationStateMerged, recPost.State(),
+		"post-PREP: RunPrepareOnShard advanced the record from Iterated to Merged")
+	assert.False(t, recPost.FlipDecided(),
+		"post-PREP: the flip must NOT be decided yet, that is OnSwapRequested's job")
 }
 
 // TestReindexProviderBarrierIntegration_OnSwapRequestedSwap pins the
-// SWAP-phase contract: given a unit at IsMerged (the state the PREP
-// barrier produces), the provider's runShardSwapPhase must produce
-// IsSwapped + IsTidied sentinels. This is the
+// SWAP-phase contract: given a unit at Merged (the state the PREP
+// barrier produces), the provider's runShardSwapPhase must record the flip
+// and remove the directory it displaced. This is the
 // "OnSwapRequested arrival after Phase A.5 transition" gap T2.3 was
 // scoped against.
 //
 // The test runs PREP first (via runShardPrepPhase) to stage the
-// IsMerged state, then runs SWAP — mirroring the cluster-wide barrier:
+// Merged state, then runs SWAP — mirroring the cluster-wide barrier:
 // PREP per node → cluster-wide PreparationCompleteAck → OnSwapRequested
 // per node.
 func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
@@ -180,19 +172,19 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 
 	barrierIntegrationSeedObjects(t, ctx, shard, className, 25)
 
-	// Stage 1: drive to IsReindexed.
+	// Stage 1: drive to the Iterated record.
 	task, strategy := barrierIntegrationDrivenToReindexed(t, ctx, shard, idx.logger)
 
-	// Stage 2: run PREP to advance to IsMerged (what the cluster-wide
-	// barrier observes via PreparationCompleteAck).
+	// Stage 2: run PREP to advance to the Merged record (what the
+	// cluster-wide barrier observes via PreparationCompleteAck).
 	p, _ := barrierIntegrationProvider(t)
 	ok, prepRes := p.runShardPrepPhase(ctx, "unit-1", shard,
 		[]*ShardReindexTaskGeneric{task}, false, p.logger)
 	require.True(t, ok, "PREP setup must succeed: %v", prepRes.Errs)
 
-	rtMid := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
-	require.True(t, rtMid.IsMerged(), "mid: must be merged before SWAP")
-	require.False(t, rtMid.IsSwapped(), "mid: must NOT be swapped before SWAP")
+	recMid, ok := task.migrationRecord(shard)
+	require.True(t, ok)
+	require.Equal(t, MigrationStateMerged, recMid.State(), "mid: must be merged before SWAP")
 
 	// Stage 3: SWAP. Use a synthetic payload that won't trigger tokenization
 	// overlay (MapToBlockmax is not a tokenization-changing migration);
@@ -208,13 +200,17 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 		[]*ShardReindexTaskGeneric{task}, p.logger)
 	require.Empty(t, swapRes.Errs, "SWAP must succeed")
 
-	// Post-SWAP invariants: IsSwapped + IsTidied. In runtimeSwap the
-	// per-prop swap → markSwapped → tidy sequence is atomic (Phase 2a
-	// pins this contract — see TestRuntimeSwap_Phase2a_AtomicTightLoop)
-	// so both sentinels appear together once swap+tidy returns clean.
-	rtFinal := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
-	assert.True(t, rtFinal.IsSwapped(), "post-SWAP: swapped sentinel — runShardSwapPhase flipped the bucket pointer")
-	assert.True(t, rtFinal.IsTidied(), "post-SWAP: tidied sentinel — runShardSwapPhase tidied backup buckets")
+	// Post-SWAP: the flip must be recorded and the displaced directory gone —
+	// both hold together since Phase 2a makes the swap and record write
+	// atomic (see TestRuntimeSwap_Phase2a_AtomicTightLoop).
+	recFinal, ok := task.migrationRecord(shard)
+	require.True(t, ok)
+	assert.Equal(t, MigrationStateSwapped, recFinal.State(),
+		"post-SWAP: runShardSwapPhase decided the flip and moved the bucket pointer")
+	displaced, hasDisplaced := recFinal.(MigrationRecordSwapped).DisplacedDir("title")
+	require.True(t, hasDisplaced, "post-SWAP: the flip records the directory it displaced")
+	assert.False(t, dirExists(t, filepath.Join(shard.pathLSM(), displaced)),
+		"post-SWAP: the displaced directory is removed at the handle the record names")
 	assert.True(t, strategy.migrationCompleted,
 		"post-SWAP: OnMigrationComplete must have fired (tail of every recovery branch)")
 
@@ -228,7 +224,7 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 
 // TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord
 // pins the contract that a crash between persistRecoveryRecord and the
-// first sentinel write (markStarted) leaves the system in a state where
+// migration's first durable record leaves the system in a state where
 // recovery discovery (DiscoverInFlightReindexTasks) safely skips the
 // half-initialized migration directory — i.e. the worst case is "no
 // recovery work to do", not "load corrupt recovery state".
@@ -236,7 +232,7 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 // Why this matters: persistRecoveryRecord is what allows post-restart
 // recovery to rebuild the right ShardReindexTaskGeneric strategy +
 // generation. If we wrote payload.mig and then crashed before the
-// iteration could even begin (started.mig never appears), the DTM
+// iteration could even begin (no record ever appears), the DTM
 // scheduler will retry the task; processOneUnit will call
 // persistRecoveryRecord AGAIN (it's idempotent on identical content) and
 // run the iteration. The on-disk state must be benign across this
@@ -279,10 +275,10 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 	}
 
 	// Call persistRecoveryRecord ALONE — simulating a crash immediately
-	// after this write but before markStarted / iteration.
+	// after this write but before the migration record or any iteration.
 	p, _ := barrierIntegrationProvider(t)
 	require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1",
-		shard, []*ShardReindexTaskGeneric{task}, &selectedPropsFailures{}))
+		shard, []*ShardReindexTaskGeneric{task}))
 
 	// Sanity: payload.mig is on disk in the migration dir.
 	migDir := task.migrationPath(shard.pathLSM())
@@ -296,24 +292,22 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 	require.Equal(t, taskID, decoded.TaskID, "recovery record must preserve taskID")
 	require.Equal(t, "unit-1", decoded.UnitID, "recovery record must preserve unitID")
 
-	// Sanity: started.mig was NOT written (the crash beat the iteration
-	// to it). This is the invariant the discover path keys off.
-	startedPath := filepath.Join(migDir, "started.mig")
-	_, err = os.Stat(startedPath)
-	require.True(t, os.IsNotExist(err),
-		"started.mig must NOT exist — iteration never ran")
+	// Sanity: no record was written (the crash beat the iteration to it).
+	// This is the invariant the discover path keys off.
+	records, someRecordsUnreadable, _ := migrationRecordsAt(shard.pathLSM(), idx.logger)
+	require.False(t, someRecordsUnreadable)
+	require.Empty(t, records, "no record may exist — iteration never ran")
 
 	// Now simulate process restart: DiscoverInFlightReindexTasks walks
-	// the data dir and must SKIP this migration (started.mig absent).
-	// We pass nil schemaManager — the discover path is read-only against
-	// disk and never invokes schema operations until buildRecoveryTasks
-	// fires (which only fires for dirs with started + reindexed).
+	// the data dir and must SKIP this migration. nil schemaManager is safe:
+	// the discover path is read-only until buildRecoveryTasks fires, which
+	// needs a record whose rebuild is complete and flip undecided.
 	rootPath := idx.Config.RootPath
 	recovered, err := DiscoverInFlightReindexTasks(rootPath, idx.logger, nil)
-	require.NoError(t, err, "discover must not error on a started.mig-less dir")
+	require.NoError(t, err, "discover must not error on a recordless dir")
 	for _, r := range recovered {
 		assert.NotEqualf(t, taskID, r.Descriptor.ID,
-			"discover MUST skip migration with no started.mig sentinel (load-bearing for crash-between-persist-and-markStarted recovery)")
+			"discover MUST skip a migration with no record (load-bearing for the crash between persisting the payload and the first durable state)")
 	}
 
 	// Confirm payload.mig is still intact: a retry of processOneUnit
@@ -322,7 +316,7 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 	// circuit at SaveRecoveryPayload line 279). Re-call to verify
 	// idempotency.
 	require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1",
-		shard, []*ShardReindexTaskGeneric{task}, &selectedPropsFailures{}),
+		shard, []*ShardReindexTaskGeneric{task}),
 		"persistRecoveryRecord must be idempotent against an existing identical record")
 	rawPayload2, err := os.ReadFile(payloadPath)
 	require.NoError(t, err)
@@ -330,13 +324,11 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 		"idempotent persist must leave the file bit-identical (no rewrite)")
 }
 
-// TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier
-// pins commit 073d47b460 (weaviate/0-weaviate-issues#214):
-// FlushAndSwitch happens-BEFORE markReindexed, so a follow-up restart
-// dispatching via IsReindexed never sees the marker without the data.
-// A refactor that moved FlushAndSwitch after the marker would fail
-// here.
-func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *testing.T) {
+// TestReindexProviderBarrierIntegration_IteratedRecordDurabilityBarrier pins
+// that FlushAndSwitch runs BEFORE the Iterated record write
+// (weaviate/0-weaviate-issues#214), so a restart dispatching on that record
+// never sees it without the data behind it.
+func TestReindexProviderBarrierIntegration_IteratedRecordDurabilityBarrier(t *testing.T) {
 	ctx := testCtx()
 	className := "BarrierIntegDurability"
 	class := newTestClass(className)
@@ -347,27 +339,21 @@ func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *tes
 
 	barrierIntegrationSeedObjects(t, ctx, shard, className, 25)
 
-	// Drive iteration to the barrier point — markReindexed has fired
-	// AFTER the FlushAndSwitch durability barrier
-	// (inverted_reindex_task_generic.go:1461-1469).
-	_, _ = barrierIntegrationDrivenToReindexed(t, ctx, shard, idx.logger)
+	// Drive iteration to the barrier point — the Iterated record is written
+	// AFTER the FlushAndSwitch durability barrier.
+	task, _ := barrierIntegrationDrivenToReindexed(t, ctx, shard, idx.logger)
 
-	// Record the on-disk path of reindexed.mig BEFORE shutdown so we can
-	// re-stat it post-shutdown without relying on a tracker rebuild
-	// (rebuild would mask a file that was missing-but-cached).
-	migDir := filepath.Join(shard.pathLSM(),
-		".migrations", MigrationDirSearchableMapToBlockmax+genSuffix(1))
-	reindexedPath := filepath.Join(migDir, "reindexed.mig")
-
-	// Capture the file's content and stat before shutdown — content must
-	// be a parseable RFC3339Nano timestamp (the tracker's encodeTimeNow
-	// format). A zero-byte / corrupt write would surface here.
-	preContent, err := os.ReadFile(reindexedPath)
-	require.NoError(t, err, "reindexed.mig must exist on disk after iteration")
-	require.NotEmpty(t, preContent, "reindexed.mig must not be empty")
-	_, err = time.Parse(time.RFC3339Nano, string(preContent))
-	require.NoError(t, err,
-		"reindexed.mig must contain a parseable RFC3339Nano timestamp; got %q", string(preContent))
+	// Read the record off disk rather than out of the shard's store, so a
+	// value the process is only holding in memory cannot pass for a durable
+	// one.
+	recordPath := filepath.Join(shard.pathLSM(), migrationsDir, "records",
+		task.migrationRecordKey().fileName())
+	preContent, err := os.ReadFile(recordPath)
+	require.NoError(t, err, "the record must be on disk after iteration")
+	require.NotEmpty(t, preContent, "the record must not be empty")
+	recPre, err := decodeMigrationRecord(preContent)
+	require.NoError(t, err, "the record on disk must decode")
+	require.Equal(t, MigrationStateIterated, recPre.State())
 
 	// Verify the per-property reindex bucket has on-disk segments at this
 	// point — the FlushAndSwitch barrier means iteration data is durable
@@ -385,15 +371,13 @@ func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *tes
 	// lost; everything segment-backed survives.
 	require.NoError(t, shard.Shutdown(ctx))
 
-	// Post-shutdown: reindexed.mig must be readable with bit-identical
-	// content. If a refactor introduces ANY lazy-write path for the
-	// sentinel (or removes the FlushAndSwitch barrier and the bucket's
-	// memtables are now lost), this read will surface the regression.
-	postContent, err := os.ReadFile(reindexedPath)
+	// Post-shutdown: the record must be readable with bit-identical content,
+	// so a lazy-write path or a dropped FlushAndSwitch barrier shows up here.
+	postContent, err := os.ReadFile(recordPath)
 	require.NoError(t, err,
-		"reindexed.mig must persist across shard shutdown (FlushAndSwitch durability barrier contract)")
+		"the record must persist across shard shutdown (FlushAndSwitch durability barrier contract)")
 	assert.Equal(t, preContent, postContent,
-		"reindexed.mig content must be bit-identical across shutdown")
+		"the record's content must be bit-identical across shutdown")
 
 	// Reindex bucket dir must also persist on disk. If FlushAndSwitch
 	// returned but the segments weren't really on disk, the file might
@@ -404,15 +388,14 @@ func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *tes
 		"reindex bucket dir must persist across shutdown (FlushAndSwitch barrier ⇒ segments are on disk)")
 	require.True(t, statPost.IsDir())
 
-	// Rebuild a tracker from the on-disk state (the same path
-	// DiscoverInFlightReindexTasks uses on real startup) and verify
-	// IsReindexed reports true. This pins the END-TO-END contract:
-	// the barrier persisted, AND the recovery path sees it as
-	// IsReindexed (which is the dispatch key for
-	// RunSwapOnShard's resumeFromReindexed branch).
-	rtRecovered := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
-	assert.True(t, rtRecovered.IsReindexed(),
-		"recovered tracker must report IsReindexed=true (durability barrier ⇒ marker survives)")
-	assert.False(t, rtRecovered.IsMerged(),
-		"recovered tracker must report IsMerged=false (barrier path stops at IsReindexed)")
+	// Re-read the record the way a real startup does. This pins the
+	// end-to-end contract: the barrier persisted, and the recovery path sees
+	// the state that dispatches RunSwapOnShard into its resume branch.
+	recovered, someRecordsUnreadable, _ := migrationRecordsAt(shard.pathLSM(), idx.logger)
+	require.False(t, someRecordsUnreadable)
+	require.Len(t, recovered, 1)
+	assert.Equal(t, MigrationStateIterated, recovered[0].State(),
+		"the recovered record must still say Iterated: the barrier means the state never outruns its data")
+	assert.False(t, recovered[0].StagedDataComplete(),
+		"the barrier path stops at Iterated; nothing is staged yet")
 }

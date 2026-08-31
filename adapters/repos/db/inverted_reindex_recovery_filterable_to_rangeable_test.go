@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/filters"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
@@ -178,7 +179,6 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 	cfg := reindexTaskConfig{
 		concurrency:                   2,
 		memtableOptFactor:             4,
-		backupMemtableOptFactor:       1,
 		processingDuration:            10 * time.Minute,
 		pauseDuration:                 1 * time.Second,
 		checkProcessingEveryNoObjects: 1000,
@@ -196,6 +196,13 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 		"FilterableToRangeable", idx.logger, wrapped, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
+	// Without an identity the task's record key is incomplete and every
+	// transition would refuse to write itself.
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-filterable-to-rangeable", Version: 1},
+		"shard-1__node-0",
+		&ReindexTaskPayload{MigrationType: ReindexTypeEnableRangeable},
+	)
 	return task, wrapped
 }
 
@@ -212,9 +219,17 @@ type testFilterableToRangeableStrategyWrapper struct {
 	FilterableToRangeableStrategy
 	migrationCompleted  bool
 	preReindexHookCount int
+	// onComplete stands in for the RAFT commit the real hook performs, so a
+	// test can fail it or observe the schema flag it sets.
+	onComplete func() error
 }
 
 func (s *testFilterableToRangeableStrategyWrapper) OnMigrationComplete(_ context.Context, _ ShardLike) error {
+	if s.onComplete != nil {
+		if err := s.onComplete(); err != nil {
+			return err
+		}
+	}
 	s.migrationCompleted = true
 	return nil
 }
@@ -282,12 +297,4 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 		require.Lenf(t, ids, expectedPerValue,
 			"term %d should have %d docIDs, got %d", term, expectedPerValue, len(ids))
 	}
-
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
 }

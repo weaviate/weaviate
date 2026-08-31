@@ -14,8 +14,10 @@ package db
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -587,4 +589,81 @@ func TestARecordRemovedEarlierInThePassStopsSupersedingAnything(t *testing.T) {
 		"the record it was the sole supersessor of is gone, so this one has nothing left to hold it back")
 	require.False(t, f.trackerDirExists(newer),
 		"and its tracker directory goes with it, instead of hydrating this tenant on every load")
+}
+
+// TestARecordPromotesPastAPropertyRetirementWillNotReclaim pins the two
+// answers to "has retirement run for this property" against each other.
+//
+// Retirement leaves a staged directory alone for three reasons, and only one
+// of them is failure. The promotion probe used to enumerate two of the three,
+// so a directory retirement had deliberately left for another record read as
+// "retirement has not run yet" — and the record never reached Promoted, on
+// every load, forever.
+func TestARecordPromotesPastAPropertyRetirementWillNotReclaim(t *testing.T) {
+	f := newReconcileFixture(t)
+	f.class = testClassWithTokenization(models.PropertyTokenizationWord, "body", "title")
+
+	// Two properties, one of which a newer migration took over. Retirement
+	// removes only the superseded one, so the record stands and its other
+	// property still has to promote.
+	old := testMigrationSubject(10, StrategyCodeFilterableToRangeable, "body", "title")
+	shared := old.Props["title"].Staged
+
+	// The successor names the same staged directory for the same property,
+	// which the generation counter permits: it is keyed by (strategy prefix,
+	// property set) while the staged name carries no property set.
+	// weaviate/etienne-claude-issues#421
+	successor := testMigrationSubject(20, StrategyCodeFilterableToRangeable, "title")
+	successor.Props["title"] = MigrationPropertyDirs{
+		Staged:    shared,
+		Canonical: old.Props["title"].Canonical,
+		Sidecar:   successor.Props["title"].Sidecar,
+	}
+
+	f.mkdirs(shared, old.Props["body"].Staged, old.Props["body"].Sidecar, old.Props["title"].Sidecar,
+		old.Props["body"].Canonical, old.Props["title"].Canonical)
+
+	f.put(NewMigrationRecordSwapped(old, []string{"body", "title"},
+		map[string]string{"body": old.Props["body"].Canonical, "title": old.Props["title"].Canonical}))
+	// The successor's own promotion is lost, so it keeps naming the directory
+	// for good. How it got there is not what this test is about.
+	f.put(NewMigrationRecordSwapped(successor, []string{"title"},
+		map[string]string{"title": successor.Props["title"].Canonical}).
+		WithPromotionAt("title", migrationPromotionLost))
+
+	f.reconcile()
+
+	state, present := f.state(old.Key)
+	require.True(t, present)
+	require.Equal(t, MigrationStatePromoted, state,
+		"retirement has decided not to remove this directory, so there is nothing left for a later load to do")
+
+	require.True(t, f.exists(shared), "and the record that does own it still has its only copy")
+	require.Equal(t, shared, f.contentOf(shared))
+	require.Equal(t, old.Props["body"].Staged, f.contentOf(old.Props["body"].Canonical),
+		"the property nothing took over promoted in the same pass")
+
+	// One line per property per load. The probe reads the shared predicate
+	// instead of asking mayReclaim again, which would say it twice.
+	require.Equal(t, 1, countErrorsContaining(f, "refusing to reclaim"))
+
+	// The consequence of standing short of Promoted: a rangeable record marks
+	// every one of its properties not-ready on every load, and only
+	// OnMigrationComplete ever clears that.
+	shard := &Shard{migrationRecords: f.store}
+	markInFlightRangeableMigrationsNotReady(shard)
+	require.NotContains(t, shard.rangeableLocalReady, "body",
+		"a promoted record marks nothing not-ready")
+	require.Contains(t, shard.rangeableLocalReady, "title",
+		"the successor's own property still degrades, which is its own wedge and not this one")
+}
+
+func countErrorsContaining(f *reconcileFixture, want string) int {
+	n := 0
+	for _, entry := range f.logs.AllEntries() {
+		if entry.Level == logrus.ErrorLevel && strings.Contains(entry.Message, want) {
+			n++
+		}
+	}
+	return n
 }

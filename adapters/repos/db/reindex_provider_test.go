@@ -20,6 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
 // Wave 2 S1: cleanup-vs-status-visibility race in
@@ -511,43 +513,246 @@ func TestClassifyCleanupSweep(t *testing.T) {
 	}
 }
 
-// The terminal-state probe asks the same shard directory once per (index type,
-// property), so without memos a 3-property change-tokenization pays six
-// listings and re-parses the same tracker payloads. The payload parse is the
-// expensive half: megabytes per tracker, on a path that runs for every shard
-// the task touched.
-func TestHasCompletedMigrationTrackerSharesItsMemosAcrossTuples(t *testing.T) {
-	const migrationType = ReindexTypeChangeTokenization
-	// "bird" settles by name on both trackers, so it is the property that
-	// proves the memo is not just hiding an unconditional read.
-	properties := []string{"cat", "dog", "bird"}
+// TestLocalUnitSealCountsEveryWorkerOnTheUnit pins the registry every teardown
+// seals before removing a migration's directories: it counts workers rather
+// than flagging the unit, and it is keyed by (task version, unit) so a worker
+// elsewhere never speaks for this one. That the phases register through it at
+// all, for every migration type rather than only the semantic ones, is pinned
+// at their call sites by [TestLocalUnitSealIsNotTheReEntryGuard].
+func TestLocalUnitSealCountsEveryWorkerOnTheUnit(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
+	other := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 8}
 
-	lsm := t.TempDir()
-	// Multi-property names: only the payload can say whose tracker each is.
-	mkTrackerDir(t, lsm, "enable_searchable_cat_dog_1", "started.mig")
-	mkRecoveryPayload(t, lsm, "enable_searchable_cat_dog_1", "cat", "dog")
-	mkTrackerDir(t, lsm, "enable_filterable_cat_dog_1", "started.mig")
-	mkRecoveryPayload(t, lsm, "enable_filterable_cat_dog_1", "cat", "dog")
-
-	// What the probe read when every tuple brought its own caches.
-	perTupleListings, perTupleReads := 0, 0
-	for _, indexType := range semanticMigrationIndexTypes(migrationType) {
-		for _, propName := range properties {
-			dirs, props := &dirNamesCache{}, &taskPropsCache{}
-			completedMigrationGens(
-				migrationDirsOf(lsm, dirs, propName, indexType).cachingProps(props))
-			perTupleListings += len(dirs.listings)
-			perTupleReads += props.count()
-		}
+	tests := []struct {
+		name string
+		// hold is how many workers enter the unit before the probe is asked.
+		hold int
+		// release is how many of them leave again.
+		release  int
+		askDesc  distributedtask.TaskDescriptor
+		askUnit  string
+		wantLive bool
+	}{
+		{
+			name: "nobody is working on it", askDesc: desc, askUnit: "shard-1__node-0",
+		},
+		{
+			name: "one worker holds it", hold: 1,
+			askDesc: desc, askUnit: "shard-1__node-0", wantLive: true,
+		},
+		{
+			// Nothing stops two workers on one unit for the types the
+			// re-entry guard skips, and a flag would let the first to
+			// finish clear the second's claim.
+			name: "two workers, one has finished", hold: 2, release: 1,
+			askDesc: desc, askUnit: "shard-1__node-0", wantLive: true,
+		},
+		{
+			name: "every worker has finished", hold: 2, release: 2,
+			askDesc: desc, askUnit: "shard-1__node-0",
+		},
+		{
+			name: "a worker on another unit of the same task", hold: 1,
+			askDesc: desc, askUnit: "shard-2__node-0",
+		},
+		{
+			// The same task re-submitted is a different run, and its worker
+			// says nothing about this record's directories.
+			name: "a worker on another version of the same task", hold: 1,
+			askDesc: other, askUnit: "shard-1__node-0",
+		},
 	}
-	require.Equal(t, 6, perTupleListings, "one listing per (index type, property)")
-	require.Equal(t, 4, perTupleReads, "the same two payloads, re-parsed per property")
 
-	dirs, props := &dirNamesCache{}, &taskPropsCache{}
-	require.False(t, hasCompletedMigrationTracker(lsm, migrationType, properties, dirs, props),
-		"no tracker is tidied or merged, so every tuple is visited")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := structuralInvariantNewBareProvider()
+			var releases []func()
+			for i := 0; i < tt.hold; i++ {
+				release, entered := p.enterLocalUnit(desc, "shard-1__node-0")
+				require.True(t, entered)
+				releases = append(releases, release)
+			}
+			for i := 0; i < tt.release; i++ {
+				releases[i]()
+			}
 
-	require.Zero(t, dirs.refusedListings())
-	require.Len(t, dirs.listings, 1, "every tuple asks about the same .migrations")
-	require.Equal(t, 2, props.count(), "one parse per tracker payload, not per property")
+			// A live worker is exactly what refuses the seal, so the seal is
+			// how the liveness answer is observed.
+			unseal, sealed := p.SealLocalUnit(tt.askDesc, tt.askUnit)
+			require.Equal(t, tt.wantLive, !sealed)
+			if sealed {
+				unseal()
+			}
+
+			for i := tt.release; i < len(releases); i++ {
+				releases[i]()
+			}
+			require.Empty(t, p.liveUnits, "a released unit leaves no entry behind")
+			require.Empty(t, p.sealedUnits, "a released seal leaves no entry behind")
+		})
+	}
+}
+
+// TestSealedUnitRefusesLateEntrants pins that a phase resolving its unit
+// after a teardown read "nothing running" is still refused: resolving can
+// hydrate a cold tenant from disk, arriving only after that read missed it.
+func TestSealedUnitRefusesLateEntrants(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
+	other := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 8}
+	const unit = "shard-1__node-0"
+
+	tests := []struct {
+		name string
+		// seals are the units a teardown holds when the entrant arrives.
+		seals []struct {
+			desc distributedtask.TaskDescriptor
+			unit string
+		}
+		// releaseSeals is how many of them have finished by then.
+		releaseSeals int
+		enterDesc    distributedtask.TaskDescriptor
+		enterUnit    string
+		wantEntered  bool
+	}{
+		{
+			name: "nothing is being torn down", enterDesc: desc, enterUnit: unit, wantEntered: true,
+		},
+		{
+			name: "a teardown holds this very unit",
+			seals: []struct {
+				desc distributedtask.TaskDescriptor
+				unit string
+			}{{desc, unit}},
+			enterDesc: desc, enterUnit: unit,
+		},
+		{
+			name: "the teardown has finished",
+			seals: []struct {
+				desc distributedtask.TaskDescriptor
+				unit string
+			}{{desc, unit}},
+			releaseSeals: 1,
+			enterDesc:    desc, enterUnit: unit, wantEntered: true,
+		},
+		{
+			// Two arms of one reconcile pass can hold the same unit, and the
+			// first to finish must not open it under the second.
+			name: "two teardowns hold it and one has finished",
+			seals: []struct {
+				desc distributedtask.TaskDescriptor
+				unit string
+			}{
+				{desc, unit}, {desc, unit},
+			},
+			releaseSeals: 1,
+			enterDesc:    desc, enterUnit: unit,
+		},
+		{
+			name: "a teardown holds another unit of the same task",
+			seals: []struct {
+				desc distributedtask.TaskDescriptor
+				unit string
+			}{{desc, "shard-2__node-0"}},
+			enterDesc: desc, enterUnit: unit, wantEntered: true,
+		},
+		{
+			name: "a teardown holds the same unit of another version of the task",
+			seals: []struct {
+				desc distributedtask.TaskDescriptor
+				unit string
+			}{{other, unit}},
+			enterDesc: desc, enterUnit: unit, wantEntered: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := structuralInvariantNewBareProvider()
+			var unseals []func()
+			for _, seal := range tt.seals {
+				unseal, sealed := p.SealLocalUnit(seal.desc, seal.unit)
+				require.True(t, sealed, "nothing is running, so every seal is granted")
+				unseals = append(unseals, unseal)
+			}
+			for i := 0; i < tt.releaseSeals; i++ {
+				unseals[i]()
+			}
+
+			release, entered := p.enterLocalUnit(tt.enterDesc, tt.enterUnit)
+			require.Equal(t, tt.wantEntered, entered)
+			if entered {
+				release()
+			}
+
+			for i := tt.releaseSeals; i < len(unseals); i++ {
+				unseals[i]()
+			}
+			require.Empty(t, p.liveUnits)
+			require.Empty(t, p.sealedUnits)
+		})
+	}
+}
+
+// The task-scoped seal builds its release by hand rather than through
+// [unitClaims.take], so it needs the same guard for the same reason: a stale
+// copy firing a second time frees a concurrent teardown's seal, and a worker
+// then enters a unit that teardown is already removing directories under.
+func TestASealReleaseNeverFreesASealItDoesNotHold(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
+	const unit = "shard-1__node-0"
+
+	p := &ReindexProvider{}
+	releaseFirst, sealed := p.sealLocalTask(desc)
+	require.True(t, sealed)
+	releaseSecond, sealed := p.sealLocalTask(desc)
+	require.True(t, sealed, "two teardowns may hold the same task at once")
+	defer releaseSecond()
+
+	releaseFirst()
+	releaseFirst()
+
+	require.Equal(t, 1, p.sealedTasks[desc], "the teardown holding it now still does")
+	_, entered := p.enterLocalUnit(desc, unit)
+	require.False(t, entered, "a worker must not enter a unit a teardown still holds")
+}
+
+// A drop that fires a second time is not idle: it decrements whatever claim
+// holds the slot now, and after a re-claim that is a different worker's. The
+// teardown then reads the unit as free and removes directories under a worker
+// still writing into them.
+func TestADropNeverUndoesAClaimItDoesNotHold(t *testing.T) {
+	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
+	const unit = "shard-1__node-0"
+
+	for _, tt := range []struct {
+		name string
+		// sibling, when set, keeps the task's entry alive across the first
+		// drop, so the two rows differ in whether the map was rebuilt.
+		sibling string
+	}{
+		{name: "the unit was the last one claimed"},
+		{name: "another unit of the same task is still claimed", sibling: "shard-2__node-0"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &ReindexProvider{}
+			if tt.sibling != "" {
+				releaseSibling, ok := p.enterLocalUnit(desc, tt.sibling)
+				require.True(t, ok)
+				defer releaseSibling()
+			}
+
+			releaseFirst, ok := p.enterLocalUnit(desc, unit)
+			require.True(t, ok)
+			releaseFirst()
+			releaseSecond, ok := p.enterLocalUnit(desc, unit)
+			require.True(t, ok)
+			defer releaseSecond()
+
+			releaseFirst()
+
+			require.Equal(t, 1, p.liveUnits[desc][unit], "the worker holding it now still does")
+			_, sealed := p.SealLocalUnit(desc, unit)
+			require.False(t, sealed, "a teardown must not take the unit out from under it")
+		})
+	}
 }

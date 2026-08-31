@@ -12,305 +12,42 @@
 package db
 
 import (
-	"context"
-	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// onAddToPropertyValueIndex and onDeleteFromPropertyValueIndex are test-only
-// shorthands that fire the registered add/delete callbacks against the shard's
-// default (no-scope) index state. Production code fires callbacks via
-// fire{Add,Delete}FromPropertyValueIndex directly with an explicit scope state.
+// onAddToPropertyValueIndex is a test-only shorthand that fires the registered
+// add callbacks against the shard's default (no-scope) index state. Production
+// code fires callbacks via fireAddToPropertyValueIndex directly with an
+// explicit scope state.
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
-	return s.fireAddToPropertyValueIndex(s.loadPropValueIndexState(), docID, property)
+	return s.fireAddToPropertyValueIndex(s.loadPropValueIndexState().add, docID, property)
 }
 
-func (s *Shard) onDeleteFromPropertyValueIndex(docID uint64, property *inverted.Property) error {
-	return s.fireDeleteFromPropertyValueIndex(s.loadPropValueIndexState(), docID, property)
-}
-
-func TestShardCallbacks_AddToPropertyValueIndex(t *testing.T) {
-	t.Run("callback fires", func(t *testing.T) {
-		s := &Shard{}
-		var called atomic.Bool
-		s.registerAddToPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			called.Store(true)
-			return nil
-		})
-
-		err := s.onAddToPropertyValueIndex(1, &inverted.Property{Name: "test"})
-		require.NoError(t, err)
-		assert.True(t, called.Load())
-	})
-
-	t.Run("deregister disables callback", func(t *testing.T) {
-		s := &Shard{}
-		var callCount atomic.Int32
-		deregister := s.registerAddToPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			callCount.Add(1)
-			return nil
-		})
-
-		// Fires before deregister.
-		err := s.onAddToPropertyValueIndex(1, &inverted.Property{Name: "test"})
-		require.NoError(t, err)
-		assert.Equal(t, int32(1), callCount.Load())
-
-		deregister()
-
-		// Does not fire after deregister.
-		err = s.onAddToPropertyValueIndex(1, &inverted.Property{Name: "test"})
-		require.NoError(t, err)
-		assert.Equal(t, int32(1), callCount.Load())
-	})
-
-	t.Run("deregister is idempotent", func(t *testing.T) {
-		s := &Shard{}
-		deregister := s.registerAddToPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			return nil
-		})
-
-		deregister()
-		deregister() // Must not panic.
-	})
-
-	t.Run("deregister one leaves others active", func(t *testing.T) {
-		s := &Shard{}
-		var calls [3]atomic.Int32
-
-		deregister0 := s.registerAddToPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			calls[0].Add(1)
-			return nil
-		})
-		s.registerAddToPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			calls[1].Add(1)
-			return nil
-		})
-		s.registerAddToPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			calls[2].Add(1)
-			return nil
-		})
-
-		// All fire initially.
-		err := s.onAddToPropertyValueIndex(1, &inverted.Property{Name: "test"})
-		require.NoError(t, err)
-		assert.Equal(t, int32(1), calls[0].Load())
-		assert.Equal(t, int32(1), calls[1].Load())
-		assert.Equal(t, int32(1), calls[2].Load())
-
-		// Deregister the first callback only.
-		deregister0()
-
-		err = s.onAddToPropertyValueIndex(1, &inverted.Property{Name: "test"})
-		require.NoError(t, err)
-		assert.Equal(t, int32(1), calls[0].Load(), "deregistered callback must not fire again")
-		assert.Equal(t, int32(2), calls[1].Load(), "other callback must still fire")
-		assert.Equal(t, int32(2), calls[2].Load(), "other callback must still fire")
-	})
-
-	t.Run("callback error propagates", func(t *testing.T) {
-		s := &Shard{}
-		s.registerAddToPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			return fmt.Errorf("boom")
-		})
-
-		err := s.onAddToPropertyValueIndex(1, &inverted.Property{Name: "test"})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "boom")
-	})
-}
-
-func TestShardCallbacks_DeleteFromPropertyValueIndex(t *testing.T) {
-	t.Run("callback fires", func(t *testing.T) {
-		s := &Shard{}
-		var called atomic.Bool
-		s.registerDeleteFromPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			called.Store(true)
-			return nil
-		})
-
-		err := s.onDeleteFromPropertyValueIndex(1, &inverted.Property{Name: "test"})
-		require.NoError(t, err)
-		assert.True(t, called.Load())
-	})
-
-	t.Run("deregister disables callback", func(t *testing.T) {
-		s := &Shard{}
-		var callCount atomic.Int32
-		deregister := s.registerDeleteFromPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			callCount.Add(1)
-			return nil
-		})
-
-		err := s.onDeleteFromPropertyValueIndex(1, &inverted.Property{Name: "test"})
-		require.NoError(t, err)
-		assert.Equal(t, int32(1), callCount.Load())
-
-		deregister()
-
-		err = s.onDeleteFromPropertyValueIndex(1, &inverted.Property{Name: "test"})
-		require.NoError(t, err)
-		assert.Equal(t, int32(1), callCount.Load())
-	})
-
-	t.Run("deregister one leaves others active", func(t *testing.T) {
-		s := &Shard{}
-		var calls [2]atomic.Int32
-
-		deregister0 := s.registerDeleteFromPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			calls[0].Add(1)
-			return nil
-		})
-		s.registerDeleteFromPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			calls[1].Add(1)
-			return nil
-		})
-
-		err := s.onDeleteFromPropertyValueIndex(1, &inverted.Property{Name: "test"})
-		require.NoError(t, err)
-		assert.Equal(t, int32(1), calls[0].Load())
-		assert.Equal(t, int32(1), calls[1].Load())
-
-		deregister0()
-
-		err = s.onDeleteFromPropertyValueIndex(1, &inverted.Property{Name: "test"})
-		require.NoError(t, err)
-		assert.Equal(t, int32(1), calls[0].Load())
-		assert.Equal(t, int32(2), calls[1].Load())
-	})
-}
-
-// TestShardCallbacks_DualWriteMigration simulates the lifecycle of a
-// dual-write migration: writes go to a primary bucket, then a callback is
-// registered so writes are duplicated to a secondary bucket, then the
-// callback is deregistered. Only writes during the dual-write window should
-// appear in the secondary bucket.
-func TestShardCallbacks_DualWriteMigration(t *testing.T) {
-	ctx := context.Background()
-	logger, _ := test.NewNullLogger()
-
-	dirName := t.TempDir()
-	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	require.NoError(t, err)
-	defer store.Shutdown(ctx)
-
-	const propName = "title"
-	primaryBucket := helpers.BucketFromPropNameLSM(propName)
-	secondaryBucket := primaryBucket + "_secondary"
-
-	// Create both buckets with RoaringSet strategy (same as filterable index).
-	err = store.CreateOrLoadBucket(ctx, primaryBucket,
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	require.NoError(t, err)
-	err = store.CreateOrLoadBucket(ctx, secondaryBucket,
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	require.NoError(t, err)
-
-	s := &Shard{store: store}
-
-	// Helper: write a property with HasFilterableIndex to the primary bucket
-	// (via addToPropertyValueIndex) which also triggers callbacks.
-	writeDoc := func(t *testing.T, docID uint64, term string) {
-		t.Helper()
-		// Reload each write so mid-test callback registration is observed.
-		err := s.addToPropertyValueIndex(docID, inverted.Property{
-			Name:               propName,
-			Items:              []inverted.Countable{{Data: []byte(term)}},
-			HasFilterableIndex: true,
-		}, s.loadPropValueIndexState())
-		require.NoError(t, err)
-	}
-
-	// Helper: check which docIDs are present in a bucket for a given term.
-	readDocIDs := func(t *testing.T, bucketName, term string) []uint64 {
-		t.Helper()
-		b := store.Bucket(bucketName)
-		require.NotNil(t, b, "bucket %q must exist", bucketName)
-		bm, release, err := b.RoaringSetGet(t.Context(), []byte(term))
-		require.NoError(t, err)
-		defer release()
-		if bm == nil {
-			return nil
-		}
-		return bm.ToArray()
-	}
-
-	// --- Phase 1: before dual-write ---
-	// docIDs 1-3 go only to the primary bucket.
-	for docID := uint64(1); docID <= 3; docID++ {
-		writeDoc(t, docID, "hello")
-	}
-
-	// --- Register dual-write callback ---
-	// The callback mirrors filterable writes to the secondary bucket,
-	// similar to what duplicateToBuckets does in the blockmax migrator.
-	deregister := s.registerAddToPropertyValueIndex(
-		func(shard *Shard, docID uint64, property *inverted.Property) error {
-			if !property.HasFilterableIndex {
-				return nil
-			}
-			secondary := shard.store.Bucket(helpers.BucketFromPropNameLSM(property.Name) + "_secondary")
-			if secondary == nil {
-				return nil
-			}
-			for _, item := range property.Items {
-				if err := secondary.RoaringSetAddOne(item.Data, docID); err != nil {
-					return err
-				}
-			}
-			return nil
-		})
-
-	// --- Phase 2: during dual-write ---
-	// docIDs 4-6 should appear in both buckets.
-	for docID := uint64(4); docID <= 6; docID++ {
-		writeDoc(t, docID, "hello")
-	}
-
-	// --- Deregister the callback ---
-	deregister()
-
-	// --- Phase 3: after dual-write ---
-	// docIDs 7-9 go only to the primary bucket again.
-	for docID := uint64(7); docID <= 9; docID++ {
-		writeDoc(t, docID, "hello")
-	}
-
-	// --- Verify ---
-	primaryIDs := readDocIDs(t, primaryBucket, "hello")
-	secondaryIDs := readDocIDs(t, secondaryBucket, "hello")
-
-	assert.Equal(t, []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9}, primaryIDs,
-		"primary bucket must contain all docIDs (phases 1-3)")
-	assert.Equal(t, []uint64{4, 5, 6}, secondaryIDs,
-		"secondary bucket must contain only phase 2 docIDs (during dual-write)")
-}
-
-// TestShardCallbacks_ConcurrentRegistrationAndWrites verifies that
-// registering a callback while another goroutine is invoking callbacks
-// does not race. Run with -race to verify.
+// TestShardCallbacks_ConcurrentRegistrationAndWrites verifies that arming and
+// disarming a mirror while another goroutine is firing callbacks does not
+// race, and that every disarm removes its registration rather than flagging
+// it. Run with -race.
 func TestShardCallbacks_ConcurrentRegistrationAndWrites(t *testing.T) {
-	s := &Shard{}
+	s := &Shard{index: &Index{logger: logrus.New()}}
 
-	// Pre-register a callback so the slice is non-empty from the start.
+	// A witness registration stays armed for the whole test.
 	var baseCount atomic.Int64
-	s.registerAddToPropertyValueIndex(func(_ *Shard, _ uint64, _ *inverted.Property) error {
-		baseCount.Add(1)
-		return nil
-	})
+	s.registerDoubleWriteWithScope([]string{"p"}, nil,
+		func(map[string]struct{}) (onAddToPropertyValueIndex, onDeleteFromPropertyValueIndex) {
+			count := func(_ *Shard, _ uint64, _ *inverted.Property) error {
+				baseCount.Add(1)
+				return nil
+			}
+			return count, count
+		})
 
 	const (
 		numWriters       = 4
@@ -319,8 +56,6 @@ func TestShardCallbacks_ConcurrentRegistrationAndWrites(t *testing.T) {
 	)
 
 	var wg sync.WaitGroup
-
-	// Writers: continuously invoke callbacks.
 	for w := 0; w < numWriters; w++ {
 		wg.Add(1)
 		go func() {
@@ -330,94 +65,31 @@ func TestShardCallbacks_ConcurrentRegistrationAndWrites(t *testing.T) {
 			}
 		}()
 	}
-
-	// Registrations: add and deregister callbacks concurrently with writes.
 	for r := 0; r < numRegistrations; r++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			dereg := s.registerAddToPropertyValueIndex(
-				func(_ *Shard, _ uint64, _ *inverted.Property) error {
-					return nil
-				})
-			dereg()
+			s.registerDoubleWriteWithScope([]string{"p"}, nil, noopMirrorCallbacks)("p")
 		}()
 	}
-
 	wg.Wait()
 
-	// The base callback must have been invoked at least once (sanity).
-	assert.Greater(t, baseCount.Load(), int64(0))
-
-	// Every concurrent registration disarmed itself, so the folded snapshot
-	// must be back to exactly the one base callback. A disarm that only flagged
-	// (rather than removed) its closure would leave numRegistrations leaked
-	// entries here — the unbounded-growth leak this guards against.
+	assert.Greater(t, baseCount.Load(), int64(0), "the witness registration must have fired")
 	assert.Len(t, s.loadPropValueIndexState().add, 1,
 		"disarm must REMOVE each registration; the slice must not accumulate disarmed closures")
 }
 
 // TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth is the regression
-// test for the callback-slice leak (PR #11985 reviewer finding S1;
-// weaviate/0-weaviate-issues#298 family). Disarm must REMOVE a registration's
-// closures from the folded write-path snapshot, not merely flag them disabled.
-// Before the fix, every past migration's closures stayed on the hot write path
-// forever — O(migrations) per-write cost and a slow leak on long-lived shards.
+// test for the callback-slice leak (weaviate/0-weaviate-issues#298 family).
+// Disarm must REMOVE a registration's closures from the folded write-path
+// snapshot, not merely flag them disabled: flagged closures would stay on the
+// hot write path for the life of the shard, one set per past migration.
 //
-// The shrink is asserted through observable behavior — the number of callback
-// invocations per fire tracks the number of *currently armed* callbacks — so a
-// future append-without-remove regression makes the leaked closures fire and
-// inflates the count. No test-only seam is added to production code; the slice
-// is read via the production loadPropValueIndexState snapshot.
+// The shrink is asserted through observable behavior — firing the snapshot
+// invokes only the currently armed callbacks — so an append-without-remove
+// regression makes the leaked closures fire and inflates the count.
 func TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth(t *testing.T) {
 	const numMigrations = 100
-
-	t.Run("single-callback add path", func(t *testing.T) {
-		s := &Shard{}
-		var invocations atomic.Int64
-		countingAdd := func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			invocations.Add(1)
-			return nil
-		}
-
-		// A witness callback stays armed for the whole test.
-		s.registerAddToPropertyValueIndex(countingAdd)
-
-		// Simulate many migrations: each arms a counting callback then disarms it.
-		for i := 0; i < numMigrations; i++ {
-			s.registerAddToPropertyValueIndex(countingAdd)()
-		}
-
-		require.Len(t, s.loadPropValueIndexState().add, 1,
-			"only the witness callback may remain after %d arm+disarm cycles", numMigrations)
-
-		invocations.Store(0)
-		require.NoError(t, s.onAddToPropertyValueIndex(1, &inverted.Property{Name: "p"}))
-		assert.Equal(t, int64(1), invocations.Load(),
-			"exactly one armed callback must fire; a leak would inflate this to 1+%d", numMigrations)
-	})
-
-	t.Run("single-callback delete path", func(t *testing.T) {
-		s := &Shard{}
-		var invocations atomic.Int64
-		countingDel := func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			invocations.Add(1)
-			return nil
-		}
-
-		s.registerDeleteFromPropertyValueIndex(countingDel)
-		for i := 0; i < numMigrations; i++ {
-			s.registerDeleteFromPropertyValueIndex(countingDel)()
-		}
-
-		require.Len(t, s.loadPropValueIndexState().del, 1,
-			"only the witness callback may remain after %d arm+disarm cycles", numMigrations)
-
-		invocations.Store(0)
-		require.NoError(t, s.onDeleteFromPropertyValueIndex(1, &inverted.Property{Name: "p"}))
-		assert.Equal(t, int64(1), invocations.Load(),
-			"exactly one armed callback must fire; a leak would inflate this to 1+%d", numMigrations)
-	})
 
 	t.Run("double-write scope path", func(t *testing.T) {
 		s := &Shard{}
@@ -427,11 +99,11 @@ func TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth(t *testing.T) {
 		// Each migration arms the add+delete pair AND the scope, then disarms
 		// all three in one atomic mutate.
 		for i := 0; i < numMigrations; i++ {
-			s.registerDoubleWriteWithScope(
-				func(_ *Shard, _ uint64, _ *inverted.Property) error { addInvocations.Add(1); return nil },
-				func(_ *Shard, _ uint64, _ *inverted.Property) error { delInvocations.Add(1); return nil },
-				props, nil,
-			)()
+			s.registerDoubleWriteWithScope(props, nil,
+				func(map[string]struct{}) (onAddToPropertyValueIndex, onDeleteFromPropertyValueIndex) {
+					return func(_ *Shard, _ uint64, _ *inverted.Property) error { addInvocations.Add(1); return nil },
+						func(_ *Shard, _ uint64, _ *inverted.Property) error { delInvocations.Add(1); return nil }
+				})("p")
 		}
 
 		st := s.loadPropValueIndexState()
@@ -440,39 +112,127 @@ func TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth(t *testing.T) {
 		assert.Empty(t, st.scope.props, "disarm must collapse the scope back to the idle fast path")
 
 		// Firing must invoke nothing — all pairs were removed, not just flagged.
-		require.NoError(t, s.fireAddToPropertyValueIndex(st, 1, &inverted.Property{Name: "p"}))
-		require.NoError(t, s.fireDeleteFromPropertyValueIndex(st, 1, &inverted.Property{Name: "p"}))
+		require.NoError(t, s.fireAddToPropertyValueIndex(st.add, 1, &inverted.Property{Name: "p"}))
+		require.NoError(t, s.fireDeleteFromPropertyValueIndex(st.del, 1, &inverted.Property{Name: "p"}))
 		assert.Equal(t, int64(0), addInvocations.Load(),
 			"all add closures must be removed on disarm; a leak would fire %d of them", numMigrations)
 		assert.Equal(t, int64(0), delInvocations.Load(),
 			"all delete closures must be removed on disarm; a leak would fire %d of them", numMigrations)
 	})
+}
 
-	t.Run("interleaved arm/disarm leaves only the still-armed callbacks", func(t *testing.T) {
-		s := &Shard{}
-		var invocations atomic.Int64
-		countingAdd := func(_ *Shard, _ uint64, _ *inverted.Property) error {
-			invocations.Add(1)
-			return nil
-		}
+// TestDeriveScope pins that the write path's scope is the union of the
+// surviving registrations — one migration's disarm can't strip a property
+// another still mirrors — and that the most recent arm wins where two
+// overlay one property differently.
+func TestDeriveScope(t *testing.T) {
+	filterable := inverted.PropertyOverlay{ForceFilterable: true}
+	rangeable := inverted.PropertyOverlay{ForceRangeable: true}
+	searchable := inverted.PropertyOverlay{ForceSearchable: true}
 
-		// Arm three, disarm the middle one — order must not matter for removal.
-		d0 := s.registerAddToPropertyValueIndex(countingAdd)
-		d1 := s.registerAddToPropertyValueIndex(countingAdd)
-		d2 := s.registerAddToPropertyValueIndex(countingAdd)
-		_ = d0
-		_ = d2
-		d1()
+	tests := []struct {
+		name          string
+		regs          []migrationScopeReg
+		wantProps     []string
+		wantOverlay   map[string]inverted.PropertyOverlay
+		wantConflicts []string
+	}{
+		{
+			name:      "no registrations leave the idle fast path",
+			wantProps: nil,
+		},
+		{
+			name: "two registrations union their properties",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}},
+				{id: 2, props: map[string]struct{}{"title": {}, "body": {}}},
+			},
+			wantProps: []string{"body", "title"},
+		},
+		{
+			name: "the same overlay twice is not a conflict",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+			},
+			wantProps:   []string{"title"},
+			wantOverlay: map[string]inverted.PropertyOverlay{"title": filterable},
+		},
+		{
+			name: "the most recent arm's overlay wins",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": rangeable}},
+			},
+			wantProps:     []string{"title"},
+			wantOverlay:   map[string]inverted.PropertyOverlay{"title": rangeable},
+			wantConflicts: []string{"title"},
+		},
+		{
+			// The registration carrying no overlay is asking for the schema's
+			// own analysis, so the two disagree and each needs its own.
+			name: "an arm with no overlay disagrees with one that forces a flag",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+			},
+			wantProps:     []string{"title"},
+			wantOverlay:   map[string]inverted.PropertyOverlay{"title": filterable},
+			wantConflicts: []string{"title"},
+		},
+		{
+			name: "the arm with no overlay is the more recent one",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+				{id: 2, props: map[string]struct{}{"title": {}}},
+			},
+			wantProps:     []string{"title"},
+			wantOverlay:   map[string]inverted.PropertyOverlay{"title": filterable},
+			wantConflicts: []string{"title"},
+		},
+		{
+			name: "an arm with no overlay on a property it does not share is nobody's disagreement",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"body": {}}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+			},
+			wantProps:   []string{"body", "title"},
+			wantOverlay: map[string]inverted.PropertyOverlay{"title": filterable},
+		},
+		{
+			name: "three registrations disagreeing on one property report it once",
+			regs: []migrationScopeReg{
+				{id: 1, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": filterable}},
+				{id: 2, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": rangeable}},
+				{id: 3, props: map[string]struct{}{"title": {}}, overlay: map[string]inverted.PropertyOverlay{"title": searchable}},
+			},
+			wantProps:     []string{"title"},
+			wantOverlay:   map[string]inverted.PropertyOverlay{"title": searchable},
+			wantConflicts: []string{"title"},
+		},
+	}
 
-		require.Len(t, s.loadPropValueIndexState().add, 2,
-			"disarming one of three must leave exactly two armed")
-		require.NoError(t, s.onAddToPropertyValueIndex(1, &inverted.Property{Name: "p"}))
-		assert.Equal(t, int64(2), invocations.Load(), "the two still-armed callbacks must fire")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scope, conflicts := deriveScope(tt.regs)
 
-		// Disarm the remaining two; the slice must be empty.
-		d0()
-		d2()
-		assert.Empty(t, s.loadPropValueIndexState().add,
-			"disarming all registrations must leave an empty slice")
-	})
+			props := make([]string, 0, len(scope.props))
+			for prop := range scope.props {
+				props = append(props, prop)
+			}
+			sort.Strings(props)
+			assert.Equal(t, tt.wantProps, emptyToNil(props))
+			assert.Equal(t, tt.wantOverlay, scope.overlay)
+			assert.Equal(t, tt.wantConflicts, conflicts)
+		})
+	}
+}
+
+// emptyToNil lets a row say "nothing armed" once rather than distinguishing an
+// empty slice from a nil one.
+func emptyToNil(s []string) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	return s
 }
