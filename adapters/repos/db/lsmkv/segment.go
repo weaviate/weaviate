@@ -158,8 +158,8 @@ type segment struct {
 // the index could not be read, and taking it for absence drops keys the segment
 // still holds.
 //
-// Next serves the secondary-index cursor, which no caller in this repository
-// reaches. Seek has no caller at all.
+// Next serves the secondary-index cursor, which only a test reaches. Seek has
+// no caller at all.
 type diskIndex interface {
 	// Get return lsmkv.NotFound in case no node can be found
 	Get(key []byte) (segmentindex.Node, error)

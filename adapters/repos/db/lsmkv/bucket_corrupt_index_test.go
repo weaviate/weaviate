@@ -312,19 +312,8 @@ func TestBucketFlushOverCorruptLowerSegmentKeepsTheWrites(t *testing.T) {
 	logger, hook := test.NewNullLogger()
 	dir := t.TempDir()
 
-	newBucket := func() *Bucket {
-		b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace),
-			// the objects bucket keeps this count; without it no flush consults
-			// the lower segments at all
-			WithCalcCountNetAdditions(true))
-		require.NoError(t, err)
-		return b
-	}
-
 	keys := make([][]byte, 16)
-	b := newBucket()
+	b := countingBucket(t, ctx, dir, logger)
 	for i := range keys {
 		keys[i] = []byte(fmt.Sprintf("key-%03d", i))
 		require.NoError(t, b.Put(keys[i], []byte(fmt.Sprintf("v1-%03d", i))))
@@ -334,7 +323,7 @@ func TestBucketFlushOverCorruptLowerSegmentKeepsTheWrites(t *testing.T) {
 
 	corruptRootChildPointers(t, dir)
 
-	b = newBucket()
+	b = countingBucket(t, ctx, dir, logger)
 	t.Cleanup(func() {
 		// a flush left half-finished never clears b.flushing, and Shutdown polls
 		// for that until its context ends — so this bound is what keeps a
@@ -389,6 +378,57 @@ func TestBucketFlushOverCorruptLowerSegmentKeepsTheWrites(t *testing.T) {
 		require.ErrorIs(t, statErr, os.ErrNotExist,
 			"%s persists a count that no later load recomputes", filepath.Base(newest+suffix))
 	}
+}
+
+// A tombstone the count cannot resolve has to subtract rather than be skipped:
+// the key it deletes may well be held below, and leaving it at zero would keep
+// an object in the count after it was deleted.
+func TestBucketFlushOverCorruptLowerSegmentDoesNotOvercount(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	dir := t.TempDir()
+
+	keys := make([][]byte, 16)
+	b := countingBucket(t, ctx, dir, logger)
+	for i := range keys {
+		keys[i] = []byte(fmt.Sprintf("key-%03d", i))
+		require.NoError(t, b.Put(keys[i], []byte(fmt.Sprintf("v1-%03d", i))))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Shutdown(ctx))
+
+	// the segment holding every key, so the count has to consult it for each
+	// tombstone below and cannot answer any of them
+	corruptRootChildPointers(t, dir)
+
+	b = countingBucket(t, ctx, dir, logger)
+	t.Cleanup(func() {
+		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		require.NoError(t, b.Shutdown(shutdownCtx))
+	})
+
+	for _, key := range keys {
+		require.NoError(t, b.Delete(key))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+
+	count, err := b.Count(ctx)
+	require.NoError(t, err)
+	require.Zero(t, count,
+		"every key was deleted, so no object may be left in the count")
+}
+
+// countingBucket opens a replace bucket that keeps the net-additions count.
+// Without it a flush consults the lower segments for nothing.
+func countingBucket(t *testing.T, ctx context.Context, dir string, logger logrus.FieldLogger) *Bucket {
+	t.Helper()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithCalcCountNetAdditions(true))
+	require.NoError(t, err)
+	return b
 }
 
 // corruptRootChildPointers points both children of the root node past the end

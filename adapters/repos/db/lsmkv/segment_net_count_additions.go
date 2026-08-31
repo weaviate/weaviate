@@ -56,8 +56,9 @@ var errApproximateNetAdditions = errors.New("net additions count is approximate"
 
 // computeNetAdditions walks this segment's keys and nets the new ones against
 // its tombstones, asking exists whether each key is already held further down.
-// A key exists cannot answer for is left out of the total rather than assumed
-// new, which would inflate the count in one direction only.
+// A key exists cannot answer for is counted the way that can only lower the
+// total: a live one is left out rather than assumed new, a tombstone subtracts
+// rather than being skipped.
 func (s *segment) computeNetAdditions(exists existsOnLowerSegmentsFn) (int, error) {
 	var lookupErr error
 	unanswered := 0
@@ -67,6 +68,9 @@ func (s *segment) computeNetAdditions(exists existsOnLowerSegmentsFn) (int, erro
 		if err != nil {
 			lookupErr = err
 			unanswered++
+			if tombstone {
+				countNet--
+			}
 			return
 		}
 
