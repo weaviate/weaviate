@@ -77,7 +77,24 @@ func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
 	}
 
 	logger, _ := test.NewNullLogger()
-	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
+	store := NewMigrationRecordStore(lsmPath, logger)
+	if len(subject.Properties) == 0 {
+		plantMigrationRecordFile(t, store, rec)
+		return
+	}
+	require.NoError(t, store.Put(rec))
+}
+
+// plantMigrationRecordFile writes a record file the way the store's Put does,
+// without the writer-side refusal of a record that names no properties. The
+// writer never creates such a record, but one can already sit on disk, and the
+// read path still has to decide what to do with it.
+func plantMigrationRecordFile(t *testing.T, store *MigrationRecordStore, rec MigrationRecord) {
+	t.Helper()
+	data, err := json.MarshalIndent(rec.toEnvelope(), "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(store.Dir(), 0o777))
+	require.NoError(t, writeFileAtomic(store.Dir(), rec.Subject().Key.fileName(), data))
 }
 
 func fixtureStrategyOf(t *testing.T, trackerName string) (MigrationStrategyCode, ReindexMigrationType) {
