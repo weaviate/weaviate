@@ -58,18 +58,36 @@ func TestModeADrainRematerialize(t *testing.T) {
 			idxPath := idx.path()
 			require.DirExists(t, idxPath, "class dir must exist before drop")
 
-			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-			task := newTestTask(idx.logger, strategy)
-
 			inHook := make(chan struct{})
 			releaseHook := make(chan struct{})
 			var hookOnce sync.Once
 
-			realGuard := task.indexClosingGuard
-			task.indexClosingGuard = func(s ShardLike) error {
+			// Park the first guard call so drop() lands while the entry
+			// point is in flight, then let the real guard run against the
+			// dropped index.
+			blockingGuard := func(s ShardLike) error {
 				hookOnce.Do(func() { close(inHook) })
 				<-releaseHook
-				return realGuard(s)
+				return defaultIndexClosingGuard(s)
+			}
+
+			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+			task := newTestTaskWithGuard(idx.logger, strategy, blockingGuard)
+
+			// Arm a real migration with objects still to drain, so a worker
+			// that ignores the guard has bucket writes left to make. Without
+			// it the entry points return on "nothing to do" and the drop
+			// below could never be re-materialized either way.
+			// OnAfterLsmInit is the unguarded shard-init entry, so this
+			// setup does not consume the parked guard call.
+			for i := 0; i < 10; i++ {
+				require.NoError(t, shard.PutObject(ctx,
+					createTestObjectWithText(className, "before migration "+uuid.NewString())))
+			}
+			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+			for i := 0; i < 5; i++ {
+				require.NoError(t, shard.PutObject(ctx,
+					createTestObjectWithText(className, "during migration "+uuid.NewString())))
 			}
 
 			var driveErr error

@@ -69,6 +69,7 @@ func newEnableFilterableTaskAtGeneration(t *testing.T, idx *Index, className str
 			},
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-enable-filterable", Version: uint64(generation)},

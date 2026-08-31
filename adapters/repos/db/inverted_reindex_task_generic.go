@@ -207,7 +207,10 @@ type ShardReindexTaskGeneric struct {
 	// bucket for Phase-2b, or (nil, nil) on an already-swapped prop.
 	swapPropAtomic func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error)
 
-	indexClosingGuard func(shard ShardLike) error
+	// closingGuard reports whether the shard's index is still open. Supplied
+	// at construction and never reassigned; production wires
+	// [defaultIndexClosingGuard] everywhere. Never nil.
+	closingGuard indexClosingGuard
 
 	// rebuildRangeableRepFn dispatches [rebuildRangeableInMemoryReps]'s
 	// per-prop bucket rebuild; defaults to
@@ -217,10 +220,23 @@ type ShardReindexTaskGeneric struct {
 	rebuildRangeableRepFn func(ctx context.Context, b *lsmkv.Bucket) error
 }
 
-// NewShardReindexTaskGeneric creates a new generic reindex task.
+// indexClosingGuard reports context.Canceled once the shard's index is
+// closing or closed, and nil while it is still open.
+type indexClosingGuard func(shard ShardLike) error
+
+// defaultIndexClosingGuard is the guard every production task runs: it takes
+// the index's close read-lock, so a drop that starts after the check cannot
+// complete until the caller returns.
+func defaultIndexClosingGuard(shard ShardLike) error {
+	return shard.Index().withCloseRLockGuard(func() error { return nil })
+}
+
+// NewShardReindexTaskGeneric creates a new generic reindex task. closingGuard
+// must not be nil; production callers pass [defaultIndexClosingGuard].
 func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	strategy MigrationStrategy, config reindexTaskConfig,
 	keyParser indexKeyParser, objectsIteratorAsync objectsIteratorAsync,
+	closingGuard indexClosingGuard,
 ) *ShardReindexTaskGeneric {
 	logger = logger.WithField("task", name)
 
@@ -233,11 +249,9 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 		keyParser:            keyParser,
 		objectsIteratorAsync: objectsIteratorAsync,
 		config:               config,
+		closingGuard:         closingGuard,
 	}
 	t.processOneSwapPropFn = t.processOneSwapProp
-	t.indexClosingGuard = func(shard ShardLike) error {
-		return shard.Index().withCloseRLockGuard(func() error { return nil })
-	}
 	t.registerDoubleWriteCallbacksFn = t.registerDoubleWriteCallbacks
 	t.rebuildRangeableRepFn = func(ctx context.Context, b *lsmkv.Bucket) error {
 		return b.RebuildRangeableSegmentInMemory(ctx)
@@ -832,7 +846,7 @@ func (t *ShardReindexTaskGeneric) logPhase(collectionName, shardName, method str
 }
 
 func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, shard *Shard) error {
-	if err := t.indexClosingGuard(shard); err != nil {
+	if err := t.closingGuard(shard); err != nil {
 		t.logger.Debug("index is closing, stopping after-LSM-init hook")
 		return err
 	}
@@ -939,7 +953,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		return zerotime, false, nil
 	}
 
-	if err = t.indexClosingGuard(shard); err != nil {
+	if err = t.closingGuard(shard); err != nil {
 		logger.Debug("index is closing, stopping reindex drain")
 		return zerotime, false, err
 	}

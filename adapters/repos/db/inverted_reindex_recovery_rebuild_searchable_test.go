@@ -97,6 +97,7 @@ func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName stri
 			},
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-rebuild-searchable", Version: 1},

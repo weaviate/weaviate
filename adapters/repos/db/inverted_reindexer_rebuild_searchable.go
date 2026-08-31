@@ -30,5 +30,6 @@ func NewRuntimeRebuildSearchableTask(
 		&RebuildSearchableStrategy{propNames: propNames, generation: generation},
 		blockmaxSearchableTaskConfig(propNames, collectionName),
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 }

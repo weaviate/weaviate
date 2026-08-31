@@ -104,7 +104,13 @@ func newTestClassWithProps(className string, propNames []string) *models.Class {
 }
 
 func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardReindexTaskGeneric {
-	task := newTestTaskWithoutIdentity(logger, strategy)
+	return newTestTaskWithGuard(logger, strategy, defaultIndexClosingGuard)
+}
+
+func newTestTaskWithGuard(logger logrus.FieldLogger, strategy MigrationStrategy,
+	closingGuard indexClosingGuard,
+) *ShardReindexTaskGeneric {
+	task := newTestTaskWithoutIdentity(logger, strategy, closingGuard)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-reindex-task", Version: 1},
 		"shard-1__node-0",
@@ -113,7 +119,9 @@ func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardRe
 	return task
 }
 
-func newTestTaskWithoutIdentity(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardReindexTaskGeneric {
+func newTestTaskWithoutIdentity(logger logrus.FieldLogger, strategy MigrationStrategy,
+	closingGuard indexClosingGuard,
+) *ShardReindexTaskGeneric {
 	return NewShardReindexTaskGeneric("MapToBlockmax", logger, strategy,
 		reindexTaskConfig{
 			concurrency:                   2,
@@ -123,6 +131,7 @@ func newTestTaskWithoutIdentity(logger logrus.FieldLogger, strategy MigrationStr
 			checkProcessingEveryNoObjects: 1000,
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		closingGuard,
 	)
 }
 

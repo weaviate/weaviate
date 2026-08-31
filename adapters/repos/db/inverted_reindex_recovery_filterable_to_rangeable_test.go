@@ -195,6 +195,7 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 	task := NewShardReindexTaskGeneric(
 		"FilterableToRangeable", idx.logger, wrapped, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-filterable-to-rangeable", Version: 1},

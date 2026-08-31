@@ -56,5 +56,6 @@ func NewRuntimeRoaringSetRefreshTask(
 	return NewShardReindexTaskGeneric(
 		"RoaringSetRefresh", logger, strategy, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 }

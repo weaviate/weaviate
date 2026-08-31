@@ -48,6 +48,7 @@ func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneri
 			checkProcessingEveryNoObjects: 1000,
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-roaringset-refresh", Version: 1},

@@ -62,5 +62,6 @@ func NewRuntimeEnableFilterableTask(
 	return NewShardReindexTaskGeneric(
 		"EnableFilterable", logger, strategy, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 }

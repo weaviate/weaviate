@@ -58,5 +58,6 @@ func NewRuntimeFilterableToRangeableTask(
 	return NewShardReindexTaskGeneric(
 		"FilterableToRangeable", logger, strategy, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 }

@@ -62,5 +62,6 @@ func NewRuntimeFilterableRetokenizeTask(
 	return NewShardReindexTaskGeneric(
 		"FilterableRetokenize", logger, strategy, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 }

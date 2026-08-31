@@ -97,6 +97,7 @@ func newSearchableRetokenizeTaskAtGeneration(t *testing.T, idx *Index, className
 			checkProcessingEveryNoObjects: 1000,
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-searchable-retokenize", Version: uint64(generation)},

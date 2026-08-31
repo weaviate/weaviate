@@ -84,6 +84,7 @@ func newFilterableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 			checkProcessingEveryNoObjects: 1000,
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-filterable-retokenize", Version: 1},

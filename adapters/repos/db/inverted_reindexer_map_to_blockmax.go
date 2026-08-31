@@ -59,5 +59,6 @@ func NewRuntimeMapToBlockmaxTask(
 	return NewShardReindexTaskGeneric(
 		"MapToBlockmax", logger, strategy, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 }

@@ -102,6 +102,7 @@ func newEnableSearchableTask(
 			},
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-enable-searchable", Version: 1},
