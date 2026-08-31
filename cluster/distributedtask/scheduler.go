@@ -942,11 +942,17 @@ func (s *Scheduler) runPreparationPhase(
 			if state == nil {
 				continue
 			}
+			// context.Canceled is the provider's "retryable" signal, not
+			// evidence that a context was cancelled: a graceful SIGTERM
+			// produces it, and so does a teardown holding a unit, which a
+			// later tick retries in this same process. Dropping the fired
+			// mark is what lets either retry happen; treating it as a
+			// permanent failure would flip the task to FAILED.
 			if errors.Is(groupErr, context.Canceled) {
 				delete(state.preparationCallbackFired, w.groupID)
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
-					Info("PREP phase aborted by graceful shutdown; recovery on next boot will re-fire and emit the prep-complete ack")
+					Info("PREP phase did not complete and is retryable; a later tick or the next boot re-fires it and emits the prep-complete ack")
 				continue
 			}
 			if state.preparationCompletionGroupErrors == nil {
@@ -1093,15 +1099,14 @@ func (s *Scheduler) runSwapPhase(
 			if state == nil {
 				continue
 			}
-			// ctx.Canceled from a graceful SIGTERM is transient; drop the
-			// fired mark so the post-restart tick re-fires SWAP. Treating
-			// it as a permanent failure would flip the task to FAILED and
-			// short-circuit recovery.
+			// Same signal as the PREP branch above: retryable, not
+			// necessarily cancelled. Drop the fired mark so a later tick or
+			// the post-restart tick re-fires SWAP.
 			if errors.Is(groupErr, context.Canceled) {
 				delete(state.groupCallbackFired, w.groupID)
 				s.loggerWithTask(namespace, desc).
 					WithField("groupID", w.groupID).
-					Info("SWAP callback aborted by graceful shutdown; recovery on next boot will re-fire and emit the post-completion ack")
+					Info("SWAP callback did not complete and is retryable; a later tick or the next boot re-fires it and emits the post-completion ack")
 				continue
 			}
 			// Record nil too so the ack-emission gate can tell "fired and

@@ -587,7 +587,7 @@ type Task struct {
 
 	// PostCompletionAcks records per-node confirmations that the node's
 	// SWAP phase (the second half of the split OnGroupCompleted —
-	// per-shard SwapBucketPointer tight loop + post-atomic tidy +
+	// per-shard SwapBucketPointer tight loop + post-atomic cleanup +
 	// per-strategy OnMigrationComplete) completed successfully. Keys are
 	// node IDs. Populated only after the task transitions to SWAPPING
 	// and only by the [Scheduler] tick firing
