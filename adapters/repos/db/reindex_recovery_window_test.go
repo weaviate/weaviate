@@ -14,12 +14,15 @@ package db
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -272,4 +275,42 @@ func rangeableEnabledTestClass(className string) *models.Class {
 	on := true
 	class.Properties[0].IndexRangeFilters = &on
 	return class
+}
+
+// TestRecoveryWalkReportsUnreadableShardsOnce pins the startup walk's fault
+// reporting to one line per fault kind. Each of these faults is systemic, so a
+// line per shard would follow the tenant count at every boot.
+func TestRecoveryWalkReportsUnreadableShardsOnce(t *testing.T) {
+	const shards = 12
+	root := t.TempDir()
+	indexPath := filepath.Join(root, "books_abc")
+
+	for i := 0; i < shards; i++ {
+		lsm := filepath.Join(indexPath, fmt.Sprintf("tenant-%02d", i), "lsm")
+		recordsDir := filepath.Join(lsm, ".migrations", "records")
+		require.NoError(t, os.MkdirAll(recordsDir, 0o777))
+		// A record this build cannot read makes the whole set unreadable, which
+		// is the "recovering nothing on this shard" arm.
+		require.NoError(t, os.WriteFile(
+			filepath.Join(recordsDir, "searchable_retokenize_title_1.json"),
+			[]byte("not json"), 0o600))
+	}
+
+	logger, hook := test.NewNullLogger()
+	recovered, err := DiscoverInFlightReindexTasks(root, logger, nil)
+	require.NoError(t, err)
+	require.Empty(t, recovered)
+
+	// Every Warn about unreadable records, not just the summary: a per-shard
+	// line would pass a summary-only assertion while still following the
+	// tenant count.
+	var about []string
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "could not be read") {
+			about = append(about, e.Message)
+		}
+	}
+	require.Len(t, about, 1, "one line for the whole walk, not one per shard: %v", about)
+	require.Contains(t, about[0], fmt.Sprintf("%d shard(s)", shards),
+		"the one line carries the count the per-shard lines used to carry")
 }

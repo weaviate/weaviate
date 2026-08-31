@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -64,6 +65,16 @@ func DiscoverInFlightReindexTasks(
 	}
 
 	var recovered []RecoveredReindex
+	// Accumulated across the whole walk, not logged per shard: every one of
+	// these faults is systemic (a permission, a build that cannot read its own
+	// records), so on a many-tenant node the per-shard line count follows the
+	// tenant count at every boot.
+	var (
+		unlistable   = map[string]struct{}{}
+		unlistErrs   = errorcompounder.New()
+		unreadable   = map[string]struct{}{}
+		partlyUnread = map[string]struct{}{}
+	)
 	for _, indexEntry := range indices {
 		if !indexEntry.IsDir() {
 			continue
@@ -78,26 +89,24 @@ func DiscoverInFlightReindexTasks(
 				continue
 			}
 			shardName := shardEntry.Name()
+			shardKey := indexEntry.Name() + "/" + shardName
 			lsmPath := filepath.Join(indexPath, shardName, "lsm")
 			migrationsDir := filepath.Join(lsmPath, ".migrations")
 			migs, err := os.ReadDir(migrationsDir)
 			if err != nil {
 				if !os.IsNotExist(err) {
-					logger.WithField("path", migrationsDir).
-						Warnf("reindex recovery: the migration directory could not be listed, so a migration "+
-							"awaiting its flip would recover unmirrored; recovering nothing on this shard: %v", err)
+					unlistable[shardKey] = struct{}{}
+					unlistErrs.AddWrapf(err, "%s", shardKey)
 				}
 				continue
 			}
 			records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
 			if recordSetUnreadable {
-				logger.WithField("shard", shardName).Warn(
-					"reindex recovery: migration records could not be read; recovering nothing on this shard")
+				unreadable[shardKey] = struct{}{}
 				continue
 			}
 			if someRecordsUnreadable {
-				logger.WithField("shard", shardName).Warn(
-					"reindex recovery: some migration records could not be read; recovering only the trackers the rest name")
+				partlyUnread[shardKey] = struct{}{}
 			}
 			for _, migEntry := range migs {
 				if !migEntry.IsDir() {
@@ -139,6 +148,23 @@ func DiscoverInFlightReindexTasks(
 				})
 			}
 		}
+	}
+
+	if len(unlistable) > 0 {
+		logger.WithField("shards", reportedShardNames(unlistable)).
+			Warnf("reindex recovery: the migration directory of %d shard(s) could not be listed, so a migration "+
+				"awaiting its flip recovers unmirrored; recovering nothing on them: %v",
+				len(unlistable), unlistErrs.ToErrorLimited(maxReportedErrors))
+	}
+	if len(unreadable) > 0 {
+		logger.WithField("shards", reportedShardNames(unreadable)).
+			Warnf("reindex recovery: the migration records of %d shard(s) could not be read; "+
+				"recovering nothing on them", len(unreadable))
+	}
+	if len(partlyUnread) > 0 {
+		logger.WithField("shards", reportedShardNames(partlyUnread)).
+			Warnf("reindex recovery: some migration records of %d shard(s) could not be read; "+
+				"recovering only the trackers the rest name", len(partlyUnread))
 	}
 	return recovered, nil
 }
