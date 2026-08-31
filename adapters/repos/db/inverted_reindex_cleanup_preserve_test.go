@@ -22,26 +22,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// plantedTracker is one migration directory on disk plus, where the migration
-// got that far, the record that says whose it is and how far it got.
 type plantedTracker struct {
-	dir  string
-	prop string
-	// state empty leaves the directory with no record, which is a migration
-	// that never reached its first record write.
+	dir   string
+	prop  string
 	state MigrationState
 }
 
-// TestCleanStaleMigrationDirsAt_PreservesCompletedGens pins that the pre-submit
-// sweep must not wipe a completed migration's directory, or a same-generation
-// resubmit overwrites live data.
 func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 	tests := []struct {
-		name     string
-		propName string
-		idxType  string
-		trackers []plantedTracker
-		// wantSurvivors is what must still be on disk afterwards.
+		name          string
+		propName      string
+		idxType       string
+		trackers      []plantedTracker
 		wantSurvivors []string
 	}{
 		{
@@ -55,8 +47,6 @@ func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 			wantSurvivors: []string{"searchable_retokenize_text_1"},
 		},
 		{
-			// Merged is where the staged data becomes the data, so it is the
-			// earliest state a sweep may not touch.
 			name:     "a merged migration survives",
 			propName: "text",
 			idxType:  "searchable",
@@ -93,8 +83,6 @@ func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 			wantSurvivors: []string{"filterable_retokenize_text_1"},
 		},
 		{
-			// Two back-to-back migrations both completed, and both still
-			// hold their data under their own generation's name.
 			name:     "two committed generations both survive",
 			propName: "text",
 			idxType:  "searchable",
@@ -121,8 +109,6 @@ func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 				if tracker.state == "" {
 					continue
 				}
-				// Directory names are opaque to every reader of a record, so
-				// the staged one only has to be this migration's own.
 				mkMigrationRecord(t, lsm, tracker.dir, tracker.state,
 					map[string]string{tracker.prop: "property_" + tracker.prop + "__" + tracker.dir + "_ingest"})
 			}
@@ -136,10 +122,6 @@ func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 	}
 }
 
-// sweepSurvivors is which of names a sweep leaves behind: the ones inScope
-// rejects, plus the ones a committed migration owns. It is the reference the
-// real sweep is diffed against, so the two can only differ where inScope or
-// the committed set does.
 func sweepSurvivors(names []string, committed migrationPreservedState, inScope func(string) bool) []string {
 	survivors := []string{}
 	for _, name := range names {
@@ -151,8 +133,6 @@ func sweepSurvivors(names []string, committed migrationPreservedState, inScope f
 	return survivors
 }
 
-// survivingTrackerDirs names the migration directories left on a shard. The
-// record store's own directory lives there too and belongs to no migration.
 func survivingTrackerDirs(t *testing.T, lsm string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(filepath.Join(lsm, ".migrations"))

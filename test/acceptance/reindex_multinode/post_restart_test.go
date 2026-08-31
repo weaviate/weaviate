@@ -385,11 +385,6 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 			"post-restart node %d path = %d (expected %d) — restart corrupted the searchable bucket", nodeIdx, gotPath, expectedPathCount)
 	}
 
-	// === Re-apply the migrations as a repeat-forward. Use three
-	// concurrent rebuild-style ops on the already-migrated indexes:
-	// change-tokenization back-and-forth (field → word for path), plus
-	// rangeable rebuild and filterable rebuild on the other two props.
-	// All three go through the same OnAfterLsmInitAsync iterator path.
 	t.Log("submitting post-restart re-apply migrations (3 concurrent)")
 	uri1 = restURIOf(compose, 1)
 	// FINISHED is leader-read; gate on local schema before the next PUT.
@@ -410,7 +405,6 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		}()
 		go func() {
 			defer wg.Done()
-			// Flip tokenization back to word, the value it started at.
 			tk = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "path", "searchable",
 				`{"tokenization":"word"}`)
 		}()
@@ -422,10 +416,6 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		reindexhelpers.AwaitReindexFinished(t, uri1, tk, reindexhelpers.WithTimeout(180*time.Second))
 	}
 
-	// Final per-replica counts. The path query is the headline check.
-	// AwaitReindexFinished only confirms node-1; poll all replicas (50ms)
-	// until convergence instead of a fixed settle — a node stuck on an
-	// empty bucket never converges and fails here loudly.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 			uri := restURIOf(compose, nodeIdx)

@@ -37,9 +37,6 @@ func writeBlockmaxSearchablePostings(shard ShardLike, bucket *lsmkv.Bucket,
 	return nil
 }
 
-// swapFallbackNamer names the canonical bucket the mirror follows to once the
-// flip has removed the sidecar's entry from the store — and only while that
-// name still denotes the bucket this mirror armed on.
 func blockmaxSearchableAddCallback(bucketNamer func(string) string,
 	armed armedMirror, swapFallbackNamer func(string) string,
 ) onAddToPropertyValueIndex {

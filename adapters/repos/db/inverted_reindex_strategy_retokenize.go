@@ -89,8 +89,6 @@ func (s *SearchableRetokenizeStrategy) WriteToReindexBucket(shard ShardLike, buc
 	return nil
 }
 
-// MakeAddCallback returns a callback for adding documents to the searchable
-// index under the migration's target tokenization.
 func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) string,
 	armed armedMirror,
 ) onAddToPropertyValueIndex {
@@ -128,8 +126,6 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 	}
 }
 
-// MakeDeleteCallback returns a callback for removing documents from the
-// searchable index under the migration's target tokenization.
 func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {

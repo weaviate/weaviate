@@ -211,9 +211,6 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 	}{
 		{name: "no node acked anything", wantGuidance: false},
 		{name: "one node acked a swap", postAcks: acked, wantGuidance: true},
-		// PREP writes the Merged record, which lets the next shard load
-		// commit the flip and rename the staged dir onto the canonical
-		// name — the tear is already possible before any swap ack exists.
 		{name: "one node acked PREP only", prepAcks: acked, wantGuidance: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -264,8 +261,6 @@ func postMergeTrackerDir(t *testing.T, propName string) string {
 	return migrationDirWithProps(prefixes[0], []string{propName}) + "_1"
 }
 
-// mkMigrationRecordFor plants a migration directory and the record naming
-// it — what every passive reader on the provider paths answers from.
 func mkMigrationRecordFor(t *testing.T, lsmPath, trackerDir, taskID string, taskVersion uint64,
 	unitID string, mt ReindexMigrationType, state MigrationState, props ...string,
 ) string {
@@ -309,17 +304,12 @@ func mkMigrationRecordFor(t *testing.T, lsmPath, trackerDir, taskID string, task
 	return filepath.Join(lsmPath, ".migrations", trackerDir)
 }
 
-// TestHasLocalPostMergeStateReadsEachShardsRecordsOnce pins that the probe
-// reads each shard's records once, not once per (index type, property);
-// migrationRecordsAt logs one line per read so this cost stays observable.
 func TestHasLocalPostMergeStateReadsEachShardsRecordsOnce(t *testing.T) {
 	ctx := context.Background()
 	shard, idx := testShard(t, ctx, "C")
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
 
-	// Iterating, so nothing short-circuits the walk and every property is
-	// visited: a probe that answered on the first one would read once by luck.
 	mkMigrationRecordFor(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"),
 		"T_cancel", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateIterating, "title")
 
@@ -340,10 +330,6 @@ func TestHasLocalPostMergeStateReadsEachShardsRecordsOnce(t *testing.T) {
 		"one read for the one shard the payload names, whatever the property count")
 }
 
-// countRecordSetReads counts the line migrationRecordsAt logs per read, on
-// both its outcomes: the Debug line on the healthy path and the Error line
-// when nothing could be read. It is the same line an operator watching a slow
-// startup sees, so the assertion and the signal cannot drift apart.
 func countRecordSetReads(hook *logrustest.Hook) int {
 	n := 0
 	for _, entry := range hook.AllEntries() {
@@ -354,9 +340,6 @@ func countRecordSetReads(hook *logrustest.Hook) int {
 	return n
 }
 
-// postMergeEvidenceFixture stands up a one-shard collection carrying the
-// on-disk signature of a swap this node got far enough into: a migration whose
-// data is committed.
 func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvider, *ReindexTaskPayload, string) {
 	t.Helper()
 	shard, idx := testShard(t, ctx, "C")
@@ -395,11 +378,6 @@ func TestHasLocalPostMergeState_GivesUpOnAFinishedContext(t *testing.T) {
 		"a shut-down node must not walk the task's shards")
 }
 
-// TestAutoCleanupAfterTerminal_PreservesTheEvidenceTheProbeReads pins that
-// terminal cleanup preserves a committed migration's evidence: both it and
-// the post-merge probe key off the same "is data committed" question
-// (weaviate/weaviate#10675), so a cleanup that stopped preserving it would
-// also silently re-open that data loss.
 func TestAutoCleanupAfterTerminal_PreservesTheEvidenceTheProbeReads(t *testing.T) {
 	ctx := context.Background()
 	p, payload, trackerDir := postMergeEvidenceFixture(t, ctx)
@@ -507,10 +485,6 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 		"the cleanup is skipped on this arm, but the tear is still one only an operator can repair")
 }
 
-// TestHasLocalPostMergeStateLeavesUnloadedShardsAlone pins that the
-// post-merge probe never loads a cold shard while reading it, and that a
-// cancel landing while the task is still STARTED (no ack anywhere) still
-// keys off this node's own record of how far the migration got.
 func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 	const (
 		prop   = "title"
@@ -518,16 +492,11 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 	)
 
 	for _, tc := range []struct {
-		name string
-		// migrationType is the one the cancelled task carries.
+		name          string
 		migrationType ReindexMigrationType
-		// state plants a record on the cold tenant; empty plants nothing.
-		state MigrationState
-		// recordType overrides the migration type the planted record names,
-		// so a record of another migration cannot answer for this one.
-		recordType ReindexMigrationType
-		// classLevel plants the tracker every property of the class shares.
-		classLevel bool
+		state         MigrationState
+		recordType    ReindexMigrationType
+		classLevel    bool
 		// absentFromShardMap leaves the shard out of this node's map while
 		// the payload still names it.
 		absentFromShardMap bool
@@ -539,16 +508,12 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 			state:         MigrationStateMerged,
 			want:          true,
 		},
-		// The flip is past the point of no return, so the tear the operator
-		// has to repair is at its widest here.
 		{
 			name:          "a cold tenant whose migration has flipped",
 			migrationType: ReindexTypeChangeTokenization,
 			state:         MigrationStateSwapped,
 			want:          true,
 		},
-		// Nothing was armed: the canonical bucket never stopped being
-		// primary, so a cancel leaves nothing to repair.
 		{
 			name:          "a cold tenant whose migration was still rebuilding",
 			migrationType: ReindexTypeChangeTokenization,
@@ -558,8 +523,6 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 			name:          "a cold tenant carrying nothing",
 			migrationType: ReindexTypeChangeTokenization,
 		},
-		// change-algorithm keeps one tracker for the whole class. Its record
-		// still names the properties, which is what the probe matches on.
 		{
 			name:          "a cold tenant whose class-level migration has committed",
 			migrationType: ReindexTypeChangeAlgorithm,
@@ -582,8 +545,6 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 			migrationType: ReindexTypeRebuildSearchable,
 			state:         MigrationStateMerged,
 		},
-		// Another migration on the same property is a separate tear with a
-		// separate task; this task's cancel says nothing about it.
 		{
 			name:          "a committed record of another migration type",
 			migrationType: ReindexTypeChangeTokenization,

@@ -157,8 +157,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
-	// Ahead of initNonVector because reconciliation renames directories: a
-	// bucket opened at a name it is about to move would serve the wrong data.
+	// Ahead of initNonVector because reconciliation renames directories: a bucket
+	// opened at a name it is about to move would serve the wrong data.
 	s.reconcileMigrationRecords(ctx, class)
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
@@ -240,37 +240,6 @@ func (s *Shard) NotifyReady() {
 		Debugf("shard=%s is ready", s.name)
 }
 
-// markInFlightRangeableMigrationsNotReady flips the per-prop entry in
-// Shard.rangeableLocalReady to false for every rangeable migration on this
-// shard that has not been promoted onto its canonical directory. See
-// [Shard.rangeableLocalReady] for the rationale. Idempotent and safe on shards
-// with no rangeable migration.
-//
-// Property names come from the record rather than from the tracker dir's name:
-// that name joins multiple properties with "_", so its decoder cannot tell
-// "price_cents" (one property) from ["price", "cents"] (two).
-//
-// Only a promoted migration is left untouched, along with a property no record
-// names; both fall back to the default-true policy in
-// [Shard.IsRangeableLocallyReady]. Promoted covers a superseded property too,
-// whose canonical directory holds a successor's data — safe here because
-// property_<p>_rangeable is built by exactly one strategy code, so the
-// superseding record is another rangeable record this same scan answers.
-//
-// A decided flip is not enough: the flip decision is recorded before the first
-// pointer moves, and it lives only in the process that made it, so a
-// decided-but-unpromoted record at load means the canonical rangeable
-// directory is the empty one initNonVector just recreated.
-// Reconciliation runs immediately above and promotes what it can, so a record
-// still short of Promoted here is one it declined. A record that does not decode
-// cannot be answered per property, since the property list is exactly what could
-// not be read: it marks the whole shard undecidable, which the same policy reads
-// as not ready.
-//
-// The mark can be permanent. Only OnMigrationComplete clears it, and
-// [migrationReconciler.promoteProperty] has terminal arms that leave a record
-// at Swapped for good, so such a shard falls back to the filterable walk on
-// every load until an operator resubmits the migration.
 func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	if s.migrationRecords == nil {
 		return
@@ -289,28 +258,13 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	}
 }
 
-// maxRecoveryPayloadBytes bounds the probes that want one field of payload.mig
-// and run inside the RAFT apply of a property DELETE, holding the FSM loop
-// cluster-wide. A payload names every targeted tenant and unit, so a large
-// multi-tenant migration reaches megabytes.
-//
-// It is a latency bound, so it holds only where refusing is fail-open: over it
-// the payload is refused rather than parsed and reads as
-// [errRecoveryPayloadTooLarge] — see [readTaskProps] for what callers
-// conclude.
+// maxRecoveryPayloadBytes bounds the probes that read one field of payload.mig
+// inside a RAFT apply. Over it the payload is refused rather than parsed.
 const maxRecoveryPayloadBytes = 1 << 20 // 1 MiB
 
-// maxRecoveryWalkPayloadBytes is what [loadReindexRecoveryRecord] reads under
-// instead. Refusing there arms no double-write mirror, so the flip that
-// follows takes the canonical directory away with every write since the
-// restart — which no legitimate payload may be allowed to cause, and an
-// ordinary multi-tenant migration clears a megabyte on tenant names alone.
-//
-// It is a memory bound, not a latency one: the walk runs once at startup, off
-// any RAFT apply, but a corrupt or hostile file would otherwise be one
-// unbounded read during boot, and an OOM there is a crash loop. Roughly 300
-// bytes of the payload go per unit, so this clears a cluster of some 800k
-// units — orders of magnitude past anything Weaviate runs.
+// maxRecoveryWalkPayloadBytes is a memory bound for the startup walk, which
+// runs off any RAFT apply: an unbounded read of a corrupt payload at boot is
+// a crash loop.
 const maxRecoveryWalkPayloadBytes = 256 << 20
 
 // errRecoveryPayloadTooLarge marks a payload.mig [maxRecoveryPayloadBytes]
@@ -330,10 +284,6 @@ func refuseOversizedRecoveryPayload(path string, bound int64) error {
 	return nil
 }
 
-// recoveryPayloadFacts is what a tracker's payload.mig says about the
-// migration that wrote it: what it touches, and which task and unit own it.
-// The identity is what lets a reader ask whether that task is still live
-// before it reclaims the directory.
 type recoveryPayloadFacts struct {
 	properties    []string
 	migrationType ReindexMigrationType
@@ -342,11 +292,6 @@ type recoveryPayloadFacts struct {
 	unitID        string
 }
 
-// readRecoveryPayloadFacts reads them from a migration tracker dir (see
-// ShardReindexTaskGeneric.SaveRecoveryPayload). The error keeps a missing
-// payload (os.IsNotExist) distinguishable from an unreadable one: only the
-// former reads as "recorded nothing" ([migrationDirScope.inScopeFailingOpen]);
-// the latter fails the unloaded-shard gate open.
 func readRecoveryPayloadFacts(migDir string) (recoveryPayloadFacts, error) {
 	path := filepath.Join(migDir, reindexRecoveryPayloadFile)
 	if err := refuseOversizedRecoveryPayload(path, maxRecoveryPayloadBytes); err != nil {

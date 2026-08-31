@@ -16,14 +16,8 @@ import "slices"
 type migrationRecordQuestions interface {
 	StagedDataComplete() bool
 
-	// FlipDecided reports whether the flip DECISION is durable. It is
-	// written before the first pointer moves, so it never means the flip ran
-	// and never means the canonical name holds the migrated data — only
-	// MigrationStatePromoted answers that, and it answers "every property is
-	// either promoted or superseded", so a superseded property's canonical
-	// name holds a successor's data rather than this migration's. From here
-	// the migration is irreversible: the new buckets may hold acknowledged
-	// writes the old copy never received.
+	// FlipDecided reports whether the flip DECISION is durable. It is written
+	// before the first pointer moves, so it never means the flip ran.
 	FlipDecided() bool
 
 	// Both read by the cutover PR: the first before it hands a shard's writes

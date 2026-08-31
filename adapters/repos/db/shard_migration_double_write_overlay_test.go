@@ -24,28 +24,17 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestMirrorAnalyzesPerArmedMigration pins that two migrations mirroring one
-// property with different analyses each get their own — a failed generation
-// stays armed until its successor flips, so this is a steady state, not an
-// edge case. One shared analysis would silently mis-tokenize the older
-// migration's staged copy (same family) or stop it receiving writes
-// entirely (different family, its force flag omitted).
 func TestMirrorAnalyzesPerArmedMigration(t *testing.T) {
 	const propName = "title"
 
 	tests := []struct {
-		name string
-		// A nil overlay is what five of the eight strategies register with. It
-		// asks for the live schema's own analysis, which is an answer like any
-		// other and has to be compared like one.
-		older       map[string]inverted.PropertyOverlay
-		newer       map[string]inverted.PropertyOverlay
-		wantOlder   []string
-		wantNewer   []string
-		wantOlderIx func(inverted.Property) bool
-		wantNewerIx func(inverted.Property) bool
-		// schemaSearchable leaves the property's own searchable index on, so a
-		// row where neither arm overlays anything still has terms to observe.
+		name             string
+		older            map[string]inverted.PropertyOverlay
+		newer            map[string]inverted.PropertyOverlay
+		wantOlder        []string
+		wantNewer        []string
+		wantOlderIx      func(inverted.Property) bool
+		wantNewerIx      func(inverted.Property) bool
 		schemaSearchable bool
 	}{
 		{
@@ -70,9 +59,6 @@ func TestMirrorAnalyzesPerArmedMigration(t *testing.T) {
 			wantNewer: []string{"alpha", "beta"},
 		},
 		{
-			// Cross-family: neither force flag survives into the other's
-			// analysis, so a single one leaves the loser with a property it
-			// cannot write.
 			name:        "different families",
 			older:       overlayOn(propName, inverted.PropertyOverlay{ForceFilterable: true}),
 			newer:       overlayOn(propName, inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord}),
@@ -82,10 +68,6 @@ func TestMirrorAnalyzesPerArmedMigration(t *testing.T) {
 			wantNewerIx: func(p inverted.Property) bool { return p.HasSearchableIndex },
 		},
 		{
-			// A retokenize or rebuild migration next to one that forces an
-			// index on. Neither index is on in the schema, so the arm asking
-			// for the schema's own analysis must receive the property with
-			// neither flag, and gets no terms at all.
 			name:      "one arm wants the schema's own analysis and the other forces an index on",
 			newer:     overlayOn(propName, inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord}),
 			wantNewer: []string{"alpha", "beta"},
@@ -96,8 +78,6 @@ func TestMirrorAnalyzesPerArmedMigration(t *testing.T) {
 			wantOlder: []string{"alpha", "beta"},
 		},
 		{
-			// Both ask for the schema's own analysis, which is agreement, not
-			// divergence: one analysis still serves them both.
 			name:             "neither arm carries an overlay",
 			schemaSearchable: true,
 			wantOlder:        []string{"alpha", "beta"},
@@ -110,8 +90,6 @@ func TestMirrorAnalyzesPerArmedMigration(t *testing.T) {
 			ctx := testCtx()
 			className := "OverlayDivergence_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{propName})
-			// Off unless the row asks otherwise, so a posting the mirrors see
-			// comes from an overlay rather than from the live property.
 			for _, prop := range class.Properties {
 				prop.IndexFilterable = boolPtr(false)
 				prop.IndexSearchable = boolPtr(tc.schemaSearchable)
@@ -135,8 +113,6 @@ func TestMirrorAnalyzesPerArmedMigration(t *testing.T) {
 			require.Equal(t, tc.wantOlder, older.terms(), "the older mirror's terms")
 			require.Equal(t, tc.wantNewer, newer.terms(), "the newer mirror's terms")
 
-			// The delete leg has to analyze the same way, or a term the mirror
-			// wrote is never the term it removes.
 			older.reset()
 			newer.reset()
 			require.NoError(t, shard.mirrorDeleteFromIngest(st, 1, obj))
@@ -153,16 +129,12 @@ func TestMirrorAnalyzesPerArmedMigration(t *testing.T) {
 	}
 }
 
-// recordingMirror is one armed registration whose callbacks keep what they
-// were handed instead of writing it.
 type recordingMirror struct {
 	props []inverted.Property
 }
 
 func (m *recordingMirror) reset() { m.props = nil }
 
-// terms are sorted: the analyzer walks a map, so the order it produces them
-// in says nothing about which analysis produced them.
 func (m *recordingMirror) terms() []string {
 	var out []string
 	for _, prop := range m.props {
@@ -174,9 +146,6 @@ func (m *recordingMirror) terms() []string {
 	return out
 }
 
-// overlayOn is the one-property overlay map a strategy that needs an override
-// returns; the strategies that do not return nil, which a row expresses by
-// leaving its column out.
 func overlayOn(propName string, overlay inverted.PropertyOverlay) map[string]inverted.PropertyOverlay {
 	return map[string]inverted.PropertyOverlay{propName: overlay}
 }

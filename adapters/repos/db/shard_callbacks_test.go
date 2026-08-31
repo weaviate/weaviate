@@ -23,22 +23,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 )
 
-// onAddToPropertyValueIndex is a test-only shorthand that fires the registered
-// add callbacks against the shard's default (no-scope) index state. Production
-// code fires callbacks via fireAddToPropertyValueIndex directly with an
-// explicit scope state.
 func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
 	return s.fireAddToPropertyValueIndex(s.loadPropValueIndexState().add, docID, property)
 }
 
-// TestShardCallbacks_ConcurrentRegistrationAndWrites verifies that arming and
-// disarming a mirror while another goroutine is firing callbacks does not
-// race, and that every disarm removes its registration rather than flagging
-// it. Run with -race.
 func TestShardCallbacks_ConcurrentRegistrationAndWrites(t *testing.T) {
 	s := &Shard{index: &Index{logger: logrus.New()}}
 
-	// A witness registration stays armed for the whole test.
 	var baseCount atomic.Int64
 	s.registerDoubleWriteWithScope([]string{"p"}, nil,
 		func(map[string]struct{}) (onAddToPropertyValueIndex, onDeleteFromPropertyValueIndex) {
@@ -79,15 +70,6 @@ func TestShardCallbacks_ConcurrentRegistrationAndWrites(t *testing.T) {
 		"disarm must REMOVE each registration; the slice must not accumulate disarmed closures")
 }
 
-// TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth is the regression
-// test for the callback-slice leak (weaviate/0-weaviate-issues#298 family).
-// Disarm must REMOVE a registration's closures from the folded write-path
-// snapshot, not merely flag them disabled: flagged closures would stay on the
-// hot write path for the life of the shard, one set per past migration.
-//
-// The shrink is asserted through observable behavior — firing the snapshot
-// invokes only the currently armed callbacks — so an append-without-remove
-// regression makes the leaked closures fire and inflates the count.
 func TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth(t *testing.T) {
 	const numMigrations = 100
 
@@ -121,10 +103,6 @@ func TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth(t *testing.T) {
 	})
 }
 
-// TestDeriveScope pins that the write path's scope is the union of the
-// surviving registrations — one migration's disarm can't strip a property
-// another still mirrors — and that the most recent arm wins where two
-// overlay one property differently.
 func TestDeriveScope(t *testing.T) {
 	filterable := inverted.PropertyOverlay{ForceFilterable: true}
 	rangeable := inverted.PropertyOverlay{ForceRangeable: true}
@@ -169,8 +147,6 @@ func TestDeriveScope(t *testing.T) {
 			wantConflicts: []string{"title"},
 		},
 		{
-			// The registration carrying no overlay is asking for the schema's
-			// own analysis, so the two disagree and each needs its own.
 			name: "an arm with no overlay disagrees with one that forces a flag",
 			regs: []migrationScopeReg{
 				{id: 1, props: map[string]struct{}{"title": {}}},
@@ -228,8 +204,6 @@ func TestDeriveScope(t *testing.T) {
 	}
 }
 
-// emptyToNil lets a row say "nothing armed" once rather than distinguishing an
-// empty slice from a nil one.
 func emptyToNil(s []string) []string {
 	if len(s) == 0 {
 		return nil

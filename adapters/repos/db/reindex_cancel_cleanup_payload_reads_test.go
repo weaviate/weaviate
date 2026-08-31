@@ -29,9 +29,7 @@ type tracker struct {
 	dir string
 	// props is the payload's property list; empty writes a payload that cannot
 	// be parsed.
-	props []string
-	// record, where set, gives this tracker's migration a record in that
-	// state, staging each of props into a directory of its own.
+	props  []string
 	record MigrationState
 }
 
@@ -48,8 +46,6 @@ func writeTrackerPayload(t *testing.T, lsm string, tr tracker) {
 	mkRecoveryPayload(t, lsm, tr.dir, tr.props...)
 }
 
-// writeTracker materializes one tracker dir, its payload, and where the row
-// asks for one, the record that says how far its migration got.
 func writeTracker(t *testing.T, lsm string, tr tracker) {
 	t.Helper()
 	mkTrackerDir(t, lsm, tr.dir)
@@ -68,15 +64,12 @@ func writeTracker(t *testing.T, lsm string, tr tracker) {
 // sweep reads off disk.
 func TestSweepPayloadReadCount(t *testing.T) {
 	tests := []struct {
-		name       string
-		classProps []string
-		propName   string
-		indexTypes []string
-		trackers   []tracker
-		wantReads  int
-		// wantSurvivors is the tracker dirs still on disk afterwards: the ones
-		// no index type of this sweep owns, plus the ones a committed record
-		// holds.
+		name          string
+		classProps    []string
+		propName      string
+		indexTypes    []string
+		trackers      []tracker
+		wantReads     int
 		wantSurvivors []string
 		// gateFailsOpenOn is a tracker dir the unloaded-shard gate must still
 		// hydrate for, however the loaded sweep answered it.
@@ -169,9 +162,6 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			gateFailsOpenOn: "filterable_retokenize_category_1",
 		},
 		{
-			// The record answers for free what the payload would have cost a
-			// parse, and its migration is committed, so the sweep keeps the
-			// directory the in-memory bucket pointer is on.
 			name:       "a committed migration's tracker is answered by its record",
 			classProps: []string{"cat", "dog"},
 			propName:   "cat",
@@ -186,8 +176,6 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			wantSurvivors: []string{"enable_filterable_cat_dog_1"},
 		},
 		{
-			// A record that names no property answers nothing, so the dir name
-			// is left to decide, and this name is this property's own.
 			name:       "a record naming no property leaves the name to decide",
 			classProps: []string{"a_b"},
 			propName:   "a_b",
@@ -452,20 +440,13 @@ func TestTaskPropsCacheReadsEachPayloadOnce(t *testing.T) {
 	require.Equal(t, 1, cache.count())
 }
 
-// TestGatePayloadReadCount pins how many tracker payloads one unloaded-shard
-// gate call reads. A payload parse runs to megabytes, so the gate only ever
-// opens one for a tracker no record names, and only once its cheaper passes
-// have failed to answer.
 func TestGatePayloadReadCount(t *testing.T) {
 	tests := []struct {
-		name      string
-		propName  string
-		trackers  []tracker
-		sidecars  []string
-		wantStale bool
-		// wantFinalizable is the gate's other half: leftovers only a load can
-		// reclaim hold the shard open just as stale state does, so a row that
-		// pins wantStale alone has not said whether the gate skips.
+		name            string
+		propName        string
+		trackers        []tracker
+		sidecars        []string
+		wantStale       bool
 		wantFinalizable bool
 		wantReads       int
 	}{
@@ -478,11 +459,7 @@ func TestGatePayloadReadCount(t *testing.T) {
 					record: MigrationStateSwapped,
 				},
 			},
-			sidecars: []string{"property_price_cents__enable_filterable_price_cents_1_ingest"},
-			// A recorded flip awaiting promotion is exactly what only a load
-			// finishes, so the gate holds this shard open rather than skipping
-			// it — the reason its wantStale is false without the shard being
-			// clean.
+			sidecars:        []string{"property_price_cents__enable_filterable_price_cents_1_ingest"},
 			wantFinalizable: true,
 			wantReads:       0,
 		},
@@ -496,8 +473,6 @@ func TestGatePayloadReadCount(t *testing.T) {
 			wantReads: 2,
 		},
 		{
-			// The sidecar pass runs first and reads no payload at all, so a
-			// shard it already condemns costs nothing more.
 			name:     "an unpreserved sidecar answers before any payload is opened",
 			propName: "cat",
 			trackers: []tracker{

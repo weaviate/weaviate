@@ -513,21 +513,13 @@ func TestClassifyCleanupSweep(t *testing.T) {
 	}
 }
 
-// TestLocalUnitSealCountsEveryWorkerOnTheUnit pins the registry every teardown
-// seals before removing a migration's directories: it counts workers rather
-// than flagging the unit, and it is keyed by (task version, unit) so a worker
-// elsewhere never speaks for this one. That the phases register through it at
-// all, for every migration type rather than only the semantic ones, is pinned
-// at their call sites by [TestLocalUnitSealIsNotTheReEntryGuard].
 func TestLocalUnitSealCountsEveryWorkerOnTheUnit(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
 	other := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 8}
 
 	tests := []struct {
-		name string
-		// hold is how many workers enter the unit before the probe is asked.
-		hold int
-		// release is how many of them leave again.
+		name     string
+		hold     int
 		release  int
 		askDesc  distributedtask.TaskDescriptor
 		askUnit  string
@@ -541,9 +533,6 @@ func TestLocalUnitSealCountsEveryWorkerOnTheUnit(t *testing.T) {
 			askDesc: desc, askUnit: "shard-1__node-0", wantLive: true,
 		},
 		{
-			// Nothing stops two workers on one unit for the types the
-			// re-entry guard skips, and a flag would let the first to
-			// finish clear the second's claim.
 			name: "two workers, one has finished", hold: 2, release: 1,
 			askDesc: desc, askUnit: "shard-1__node-0", wantLive: true,
 		},
@@ -556,8 +545,6 @@ func TestLocalUnitSealCountsEveryWorkerOnTheUnit(t *testing.T) {
 			askDesc: desc, askUnit: "shard-2__node-0",
 		},
 		{
-			// The same task re-submitted is a different run, and its worker
-			// says nothing about this record's directories.
 			name: "a worker on another version of the same task", hold: 1,
 			askDesc: other, askUnit: "shard-1__node-0",
 		},
@@ -576,8 +563,6 @@ func TestLocalUnitSealCountsEveryWorkerOnTheUnit(t *testing.T) {
 				releases[i]()
 			}
 
-			// A live worker is exactly what refuses the seal, so the seal is
-			// how the liveness answer is observed.
 			unseal, sealed := p.SealLocalUnit(tt.askDesc, tt.askUnit)
 			require.Equal(t, tt.wantLive, !sealed)
 			if sealed {
@@ -593,22 +578,17 @@ func TestLocalUnitSealCountsEveryWorkerOnTheUnit(t *testing.T) {
 	}
 }
 
-// TestSealedUnitRefusesLateEntrants pins that a phase resolving its unit
-// after a teardown read "nothing running" is still refused: resolving can
-// hydrate a cold tenant from disk, arriving only after that read missed it.
 func TestSealedUnitRefusesLateEntrants(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
 	other := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 8}
 	const unit = "shard-1__node-0"
 
 	tests := []struct {
-		name string
-		// seals are the units a teardown holds when the entrant arrives.
+		name  string
 		seals []struct {
 			desc distributedtask.TaskDescriptor
 			unit string
 		}
-		// releaseSeals is how many of them have finished by then.
 		releaseSeals int
 		enterDesc    distributedtask.TaskDescriptor
 		enterUnit    string
@@ -635,8 +615,6 @@ func TestSealedUnitRefusesLateEntrants(t *testing.T) {
 			enterDesc:    desc, enterUnit: unit, wantEntered: true,
 		},
 		{
-			// Two arms of one reconcile pass can hold the same unit, and the
-			// first to finish must not open it under the second.
 			name: "two teardowns hold it and one has finished",
 			seals: []struct {
 				desc distributedtask.TaskDescriptor
@@ -693,10 +671,6 @@ func TestSealedUnitRefusesLateEntrants(t *testing.T) {
 	}
 }
 
-// The task-scoped seal builds its release by hand rather than through
-// [unitClaims.take], so it needs the same guard for the same reason: a stale
-// copy firing a second time frees a concurrent teardown's seal, and a worker
-// then enters a unit that teardown is already removing directories under.
 func TestASealReleaseNeverFreesASealItDoesNotHold(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
 	const unit = "shard-1__node-0"
@@ -716,18 +690,12 @@ func TestASealReleaseNeverFreesASealItDoesNotHold(t *testing.T) {
 	require.False(t, entered, "a worker must not enter a unit a teardown still holds")
 }
 
-// A drop that fires a second time is not idle: it decrements whatever claim
-// holds the slot now, and after a re-claim that is a different worker's. The
-// teardown then reads the unit as free and removes directories under a worker
-// still writing into them.
 func TestADropNeverUndoesAClaimItDoesNotHold(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "Books:enable-rangeable:price:ab12", Version: 7}
 	const unit = "shard-1__node-0"
 
 	for _, tt := range []struct {
-		name string
-		// sibling, when set, keeps the task's entry alive across the first
-		// drop, so the two rows differ in whether the map was rebuilt.
+		name    string
 		sibling string
 	}{
 		{name: "the unit was the last one claimed"},

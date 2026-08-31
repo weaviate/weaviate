@@ -168,10 +168,6 @@ func TestReindex_ConcurrentDeleteDuringSwapWindow_NotLost(t *testing.T) {
 		"exactly one object must be removed from the rangeable index after the swap-window delete")
 }
 
-// TestResolveScopedDoubleWriteBucket pins the mirror's bucket resolution
-// against the exact store states the swap produces (weaviate/weaviate#11688).
-// The mirror stays armed past the pointer flip, so "the sidecar name is gone"
-// has to mean "follow it to the canonical name", never "write nowhere".
 func TestResolveScopedDoubleWriteBucket(t *testing.T) {
 	// Synthetic names decoupled from any shard-managed bucket, so the resolver
 	// (a pure store map lookup) is exercised in isolation.
@@ -215,10 +211,6 @@ func TestResolveScopedDoubleWriteBucket(t *testing.T) {
 			wantSkip:    true,
 		},
 		{
-			// A discard, a supersession retirement and the cancel sweep all
-			// end here: the sidecar is shut down with no flip, so the
-			// canonical name is live source-form data that this mirror would
-			// write target-form rows into.
 			name:         "the sidecar was shut down without a flip, so the canonical name is not this mirror's",
 			create:       []string{sidecarName, canonicalName},
 			shutdownName: sidecarName,
@@ -241,8 +233,6 @@ func TestResolveScopedDoubleWriteBucket(t *testing.T) {
 				require.NoError(t, shard.store.CreateOrLoadBucket(ctx, name,
 					lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
 			}
-			// What the mirror armed on, captured before anything moves — the
-			// callbacks capture it at the same point.
 			armed := armedMirror{
 				props:   tt.propsByName,
 				buckets: map[string]*lsmkv.Bucket{propName: shard.store.Bucket(sidecarName)},

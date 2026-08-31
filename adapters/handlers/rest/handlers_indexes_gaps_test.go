@@ -620,13 +620,6 @@ func TestMigrationTypeTargetsIndex(t *testing.T) {
 	}
 }
 
-// TestIndexTypesFromMigrationType locks in the contract submit-time
-// pre-cleanup uses to decide whose leftovers it wipes.
-// ReindexTypeChangeTokenization (change-tokenization-both) is the case that
-// matters: it spawns one sub-task per inverted index, so anything short of
-// both "searchable" and "filterable" leaves the sibling's staged
-// directories and sidecar buckets behind for the next run to trip over
-// (Journey 7 in change_tok_delete_journeys_test.go).
 func TestIndexTypesFromMigrationType(t *testing.T) {
 	cases := []struct {
 		mt        db.ReindexMigrationType

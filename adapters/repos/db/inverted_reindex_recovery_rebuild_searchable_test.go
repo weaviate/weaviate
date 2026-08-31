@@ -98,8 +98,6 @@ func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName stri
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
-	// Without an identity the task's record key is incomplete and every
-	// transition would refuse to write itself.
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-rebuild-searchable", Version: 1},
 		"shard-1__node-0",
@@ -276,17 +274,11 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 
 			tc.driveToState(t, ctx, shard, task)
 
-			// Verify driveToState actually landed at the intended state.
-			// Without this guard a buggy driveToState would let recovery
-			// from a different state appear to "converge".
 			rec, ok := task.migrationRecord(shard)
 			require.Truef(t, ok, "driveToState must leave a record (case %q)", tc.name)
 			assert.Equalf(t, tc.expectedState, rec.State(),
 				"after driveToState (case %q)", tc.name)
 
-			// Simulated restart: graceful shutdown, fresh task, then
-			// idx.initShard reconciles the records → LSM init →
-			// OnAfterLsmInit.
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
@@ -299,10 +291,6 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 			defer shard2.Shutdown(ctx)
 			idx.shards.Store(shardName, shd2)
 
-			// Drive the async loop. For RebuildSearchable the
-			// in-process OnAfterLsmInitAsync path stops at the Iterated
-			// record when skipSwapOnFinish is set; for non-set cases we
-			// still drain it in case any work is pending.
 			for {
 				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
 				require.NoErrorf(t, err, "recovery OnAfterLsmInitAsync must not error (case %q)", tc.name)
@@ -311,12 +299,6 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 				}
 			}
 
-			// Trio-style migrations need an explicit RunSwapOnShard to get
-			// past the rebuild (in production OnGroupCompleted does this on
-			// re-ack for semantic migrations; on the non-semantic inline
-			// path runtimeSwap fires inside the async loop above and this
-			// is a no-op). A durable flip decision means there is nothing
-			// left for it to do.
 			rec2, ok := task2.migrationRecord(shard2)
 			require.Truef(t, ok, "post-recovery record must exist (case %q)", tc.name)
 			if !rec2.FlipDecided() {

@@ -79,8 +79,6 @@ func fakeMigrationsDir(t *testing.T, dirs []string) string {
 	return lsmPath
 }
 
-// makeMigrationsUnlistable leaves the tracker dir traversable but unreadable,
-// so only the listing fails — the state this code has to survive.
 func makeMigrationsUnlistable(t *testing.T, lsmPath string) {
 	t.Helper()
 	migrations := filepath.Join(lsmPath, migrationsDir)
@@ -91,8 +89,6 @@ func makeMigrationsUnlistable(t *testing.T, lsmPath string) {
 	}
 }
 
-// nextGenerationAt allocates like the provider does, requiring the listing
-// was visible first: an allocation off an unlistable directory is meaningless.
 func nextGenerationAt(t *testing.T, lsmPath, prefix, propNamesSuffix string, records []MigrationRecord) int {
 	t.Helper()
 	trackerDirs, visible := migrationTrackerDirNames(lsmPath)
@@ -169,21 +165,13 @@ func TestMaxMigrationGeneration_Existing(t *testing.T) {
 	require.Equal(t, 5, maxMigrationGeneration(trackerDirs, MigrationDirPrefixSearchableRetokenize, "_text"))
 }
 
-// plantedMigration is one migration on the shard under reconciliation. The
-// task version is what orders two of them, so a row can say which is newer
-// without naming a directory.
 type plantedMigration struct {
 	taskVersion uint64
 	code        MigrationStrategyCode
 	prop        string
 	state       MigrationState
-	// canonical overrides the bucket this migration promotes onto. Two
-	// migrations on one property only stay independent while they name
-	// different ones.
-	canonical string
-	// running keeps the owning task in the applied map, which is what holds an
-	// uncommitted migration where it is.
-	running bool
+	canonical   string
+	running     bool
 }
 
 func (p plantedMigration) subject() MigrationSubject {
@@ -214,22 +202,14 @@ func (p plantedMigration) record(t *testing.T) MigrationRecord {
 	return nil
 }
 
-// TestReconcileConvergesEveryMigrationOnAShard pins that reconciliation
-// settles every migration on a shard's disk in one load, not just the first.
 func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 	tests := []struct {
-		name  string
-		plant []plantedMigration
-		// wantCanonical maps each canonical bucket to the directory whose data
-		// it must hold once the load is done. Every key is planted before the
-		// load, so a bucket naming itself is one nothing moved.
+		name          string
+		plant         []plantedMigration
 		wantCanonical map[string]string
-		// wantStaged names the staged directories that must still be there.
-		wantStaged []string
+		wantStaged    []string
 	}{
 		{
-			// The two indexes of one change-tokenization task run as separate
-			// migrations and land in separate buckets.
 			name: "two strategies on one property settle into their own buckets",
 			plant: []plantedMigration{
 				{taskVersion: 10, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateMerged},
@@ -272,8 +252,6 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 			wantStaged: []string{"property_body__g31_ingest"},
 		},
 		{
-			// weaviate/weaviate#10675 shape: a newer migration's data is
-			// complete but unflipped while an older one already flipped.
 			name: "the newer migration wins the bucket even though the older one already flipped",
 			plant: []plantedMigration{
 				{taskVersion: 40, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateSwapped},
@@ -304,13 +282,9 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 						testTask(subject.TaskID, planted.taskVersion, distributedtask.TaskStatusStarted))
 				}
 			}
-			// Every task that is not held running is gone from the map, so the
-			// schema showing the effect is what commits it.
 			f.class = testClassWithTokenization(models.PropertyTokenizationLowercase, props...)
 
 			f.reconcile()
-			// Twice: a load is re-run on every restart, and the second pass
-			// must find nothing left to move.
 			f.reconcile()
 
 			for canonical, want := range tt.wantCanonical {
@@ -330,9 +304,6 @@ func testGenerationLogger() logrus.FieldLogger {
 	return logger
 }
 
-// testRecordsAt reads a shard's records the way the allocator's caller does,
-// and refuses a fixture that is accidentally unreadable — an allocation test
-// answering from an empty set would pass for the wrong reason.
 func testRecordsAt(t *testing.T, lsmPath string) []MigrationRecord {
 	t.Helper()
 	records, someUnreadable, setUnreadable := migrationRecordsAt(lsmPath, testGenerationLogger())
@@ -340,9 +311,6 @@ func testRecordsAt(t *testing.T, lsmPath string) []MigrationRecord {
 	return records
 }
 
-// TestNextMigrationGenerationHonorsRecords pins that generation allocation
-// counts records as well as directories, so a sweep that removes a tracker
-// dir but not its record can't get the freed generation handed out again.
 func TestNextMigrationGenerationHonorsRecords(t *testing.T) {
 	tests := []struct {
 		name       string

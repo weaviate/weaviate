@@ -123,8 +123,6 @@ func TestMigrationMirrorRegistry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// The zero value has to be usable: a shard holds one as a plain
-			// field, with no constructor to run.
 			var registry migrationMirrorRegistry
 
 			fired := map[string]int{}
@@ -169,10 +167,6 @@ func TestMigrationMirrorRegistryConcurrentAccess(t *testing.T) {
 	require.Zero(t, registry.ArmedMigrationMirrors())
 }
 
-// TestMigrationMirrorDisarmIsPerProperty pins that disarming one property of
-// a registration's handle stops only that property's mirror — not the whole
-// scope (which would leave other properties unmirrored) and not nothing
-// (which would write predecessor-form rows into the successor's live bucket).
 func TestMigrationMirrorDisarmIsPerProperty(t *testing.T) {
 	const (
 		retired = "title"
@@ -227,13 +221,6 @@ func TestMigrationMirrorDisarmIsPerProperty(t *testing.T) {
 		"a property nobody disarmed must keep mirroring")
 }
 
-// TestRegistrationRollbackDisarmsOnlyWhatItArmed pins the handle
-// [ShardReindexTaskGeneric.registerDoubleWriteCallbacks] returns. It is the
-// rollback for the record write that follows the registration, so it owes two
-// things: it disarms only the properties that call armed, and it is spent
-// after one use. A handle scoped to the whole record key tears down mirroring
-// for properties the failed call never touched; one that can run twice tears
-// down whatever re-armed since.
 func TestRegistrationRollbackDisarmsOnlyWhatItArmed(t *testing.T) {
 	const (
 		rolledBack = "title"
@@ -274,11 +261,6 @@ func TestRegistrationRollbackDisarmsOnlyWhatItArmed(t *testing.T) {
 		"a spent rollback disarmed the registration that replaced it")
 }
 
-// TestArmingTheMirrorRefusesAPropertyWithNoStagedBucket pins that a property
-// whose staged bucket is not open stops the registration instead of being
-// dropped from it. A dropped property leaves the mirror armed for it but
-// unable to resolve the canonical fallback after the flip, so every write
-// from the flip onward is lost from the staged copy.
 func TestArmingTheMirrorRefusesAPropertyWithNoStagedBucket(t *testing.T) {
 	const armedProp = "title"
 	ctx := testCtx()
@@ -305,10 +287,6 @@ func TestArmingTheMirrorRefusesAPropertyWithNoStagedBucket(t *testing.T) {
 		"a refused registration must publish no handle at all")
 }
 
-// TestOverlappingMirrorsOnOneProperty pins that two records mirroring one
-// property stay independent: one's disarm must leave the other copying and
-// must not un-suppress the inline write path, which would land
-// source-tokenized rows in the survivor's soon-to-be-canonical staged bucket.
 func TestOverlappingMirrorsOnOneProperty(t *testing.T) {
 	const (
 		propName = "title"
@@ -316,14 +294,10 @@ func TestOverlappingMirrorsOnOneProperty(t *testing.T) {
 	)
 
 	tests := []struct {
-		name string
-		// journey disarms or re-arms, then makes the user writes whose mirror
-		// the assertions inspect.
+		name    string
 		journey func(t *testing.T, ctx context.Context, shard *Shard, className string,
 			predecessor, successor *ShardReindexTaskGeneric)
 		survivor func(predecessor, successor *ShardReindexTaskGeneric) *ShardReindexTaskGeneric
-		// wantDocs maps a term in the survivor's staged bucket to the number
-		// of documents that must be posted under it.
 		wantDocs map[string]int
 	}{
 		{
@@ -389,9 +363,6 @@ func TestOverlappingMirrorsOnOneProperty(t *testing.T) {
 			shard := shd.(*Shard)
 			defer shard.Shutdown(context.Background())
 
-			// FIELD against the class's WORD source: the mirror's own analysis
-			// and the inline path's differ term for term, which is what makes
-			// a lost suppression visible rather than merely theoretical.
 			bucketStrategy := shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)).Strategy()
 			predecessor, _ := newSearchableRetokenizeTaskAtGeneration(t, idx, className, propName,
 				models.PropertyTokenizationField, bucketStrategy, 1)
@@ -416,10 +387,6 @@ func TestOverlappingMirrorsOnOneProperty(t *testing.T) {
 	}
 }
 
-// ArmedMigrationMirrors reports how many mirrors are armed. Two migrations on
-// one property is a steady state while a failed one waits to be superseded, so
-// the count is what tells a leak from that overlap. Nothing in production asks,
-// so it lives here rather than on the registry.
 func (r *migrationMirrorRegistry) ArmedMigrationMirrors() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -26,9 +26,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// migrationMirrorDisarmer disarms one record's double-write mirror for one
-// property. The disarming actor is never the arming one, so the handle
-// cannot live on the arming task; disarming an unarmed pair is a no-op.
 type migrationMirrorDisarmer interface {
 	DisarmMigrationMirror(key MigrationRecordKey, prop string)
 }
@@ -338,14 +335,8 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject,
 	return swapped, nil
 }
 
-// ReconcileWithClusterTasks settles dispositions the load path withheld
-// (task and effect were both invisible), using the leader's task list as an
-// argument so a shard load never blocks on it; it reads in-memory records
-// rather than reloading disk.
-//
-// Commit only records the decision (promotion waits for the next load).
-// Discard runs immediately, pre-flip only, under the unit's seal. The
-// reverse edge is left to a load, since it would reset live iteration.
+// ReconcileWithClusterTasks settles the dispositions a shard load withheld.
+// The leader's task list is an argument so a shard load never blocks on it.
 func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tasks []*distributedtask.Task) {
 	if len(r.store.Unreadable()) > 0 {
 		return
@@ -409,15 +400,6 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		// A superseded property is retired by supersession; probing it here
-		// would read a successor's removal as a promotion that already ran.
-		//
-		// But superseded says retirement OWNS this property, not that it has
-		// RUN, and Promoted asserts a disk shape rather than a decision — so it
-		// has to wait for the shape. retireOneSealed writes down exactly that
-		// contract ("a directory whose removal failed must keep the record
-		// naming it; the next load retries"), and writing Promoted here is what
-		// takes the retry away.
 		if migrationPropertySuperseded(all, subject, prop) {
 			if !r.supersededPropertyIsRetired(all, subject, prop) {
 				settled = false
@@ -467,16 +449,6 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 	return r.store.Put(NewMigrationRecordPromoted(subject, rec.Flipped(), rec.displacedDirs))
 }
 
-// supersededPropertyIsRetired reports whether retirement has actually run for
-// one superseded property, read from the disk inside the same sealed section
-// that writes the record.
-//
-// Retired means the staged directory is gone, or retirement has decided not
-// to remove it — [migrationRetirementLeavesStagedDir] is the one enumeration
-// of the second, shared with retirement itself so a reason added to one
-// cannot be missing from the other. Nothing can re-create the directory
-// between this probe and the write, because reconciliation runs before any
-// bucket on the shard opens.
 func (r *migrationReconciler) supersededPropertyIsRetired(all []MigrationRecord,
 	subject MigrationSubject, prop string,
 ) bool {
@@ -731,12 +703,6 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, 
 			continue
 		}
 		if migrationPropertySuperseded(all, subject, prop) {
-			// Retirement owns this property's staged directory, and the
-			// displaced claim is strictly narrower than supersession: a
-			// successor that flipped from the canonical name — the ordinary
-			// post-restart shape — records displaced == canonical, so the claim
-			// is absent while supersession still holds. Renaming here would put
-			// this record's rebuild over the successor's.
 			continue
 		}
 		stagedThere, err := r.dirExists(staged)
@@ -792,11 +758,6 @@ func (r *migrationReconciler) localVerdict(subject MigrationSubject) (migrationV
 	return r.verdictFrom(subject, tasks, taskListMayLag)
 }
 
-// clusterVerdict decides what the load path withheld. It checks this node's
-// own applied map first (positive evidence no snapshot age can spoil, since a
-// unit only starts from that map), then the leader's list, which is fetched
-// once per walk and can go stale. A map that can't be read yet withholds
-// outright — falling through would read an absent task as gone.
 func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []*distributedtask.Task) (migrationVerdict, string) {
 	local, readable := r.localTasks()
 	if !readable {
@@ -831,9 +792,6 @@ func (r *migrationReconciler) withSealedUnit(subject MigrationSubject, what stri
 	return run()
 }
 
-// taskListCompleteness says what a task's absence from a list means: with a
-// list this node built alone it can only mean "not seen yet", while the
-// leader's list is the cluster's, so absence there means gone.
 type taskListCompleteness bool
 
 const (

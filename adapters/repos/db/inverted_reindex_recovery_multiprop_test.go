@@ -171,14 +171,10 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 		"recovered panic not from hook (want prefix %q; got %T %v)",
 		haltPanicPrefix, panicValue, panicValue)
 
-	// The flip decision is written ahead of the first pointer move, so a
-	// crash anywhere inside the loop still finds it durable.
 	swapped, ok := task.migrationRecord(shard)
 	require.True(t, ok, "the flip decision must have left a record")
 	require.Equal(t, MigrationStateSwapped, swapped.State())
 
-	// A flipped property has no ingest-name entry left in the store, which
-	// is the same fact the swap loop reads to skip one it already flipped.
 	flippedCount := 0
 	for _, p := range props {
 		if shard.store.Bucket(task.ingestBucketName(p)) == nil {

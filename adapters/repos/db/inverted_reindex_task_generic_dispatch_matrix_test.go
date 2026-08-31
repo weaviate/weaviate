@@ -26,17 +26,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Full [ShardReindexTaskGeneric.RunSwapOnShard] dispatch matrix: 8 strategies
-// × every recorded state the dispatch resumes from. Extends
-// [TestRunSwapOnShard_RecordAwareDispatch] (MapToBlockmax only) across every
-// strategy.
-//
-// Promoted has no row: the dispatch branches on FlipDecided, which
-// Promoted answers exactly as Swapped does, and Promoted is only ever
-// produced by a load, never in-process.
-
-// dispatchMatrixStates is the canonical iteration order, so the failure output
-// reads left-to-right along the state machine.
 var dispatchMatrixStates = []MigrationState{
 	MigrationStateIterating,
 	MigrationStateIterated,
@@ -55,10 +44,7 @@ var dispatchMatrixStates = []MigrationState{
 // stringifying the lex key for matrix-wide assertion uniformity).
 type dispatchMatrixStrategyCase struct {
 	strategyName string
-	// path indicates whether the strategy uses the trio (semantic) or
-	// inline (non-semantic) drive-to-state primitives. Affects how each cell
-	// is reached.
-	path dispatchMatrixPath
+	path         dispatchMatrixPath
 	// buildClass returns the class fixture this strategy operates on
 	// (and the property name to migrate — same for every cell).
 	buildClass func(className string) (*models.Class, string)
@@ -235,9 +221,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 	}
 }
 
-// dispatchMatrixSearchableSourceStrategy looks up the searchable bucket's
-// strategy on a freshly-built class. SearchableRetokenize needs it at
-// construction time. Captured in a helper to keep the table init readable.
 func dispatchMatrixSearchableSourceStrategy(t *testing.T, idx *Index, className, propName string) string {
 	t.Helper()
 	// Build a transient shard with the same class to look up the source
@@ -271,11 +254,6 @@ func dispatchMatrixRangeableFingerprintAsString(t *testing.T, b *lsmkv.Bucket) m
 	return out
 }
 
-// dispatchMatrixDriveCell drives the test shard to the requested recorded
-// state along each strategy's own route: inline strategies iterate through
-// OnAfterLsmInitAsync, semantic ones through the trio. Prep has no inline
-// entry point of its own, so both paths reach Merged through
-// RunPrepareOnShard, which is well-defined for either.
 func dispatchMatrixDriveCell(
 	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
 	path dispatchMatrixPath, state MigrationState,
@@ -283,8 +261,6 @@ func dispatchMatrixDriveCell(
 	t.Helper()
 	switch state {
 	case MigrationStateIterating:
-		// Armed, rebuild not started: the dispatch has to resume the
-		// iteration itself before it can decide anything.
 		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	case MigrationStateIterated:
 		dispatchMatrixDriveToIterated(t, ctx, shard, task, path)
@@ -316,9 +292,6 @@ func dispatchMatrixDriveToIterated(
 				break
 			}
 		}
-		// Release the flag: RunSwapOnShard re-issues prep + swap itself, and
-		// skipSwapOnFinish on a swap-only call is undefined. We want the
-		// dispatch to behave exactly as it does under OnGroupCompleted.
 		task.skipSwapOnFinish.Store(false)
 	}
 }
@@ -345,8 +318,6 @@ func dispatchMatrixDriveToSwapped(
 	}
 }
 
-// dispatchMatrixRecordOf reads what the migration actually left on the shard,
-// so a broken drive cannot let a downstream pass mask a missed setup.
 func dispatchMatrixRecordOf(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric) MigrationRecord {
 	t.Helper()
 	rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
@@ -376,8 +347,6 @@ func dispatchMatrixComputeBaseline(
 	task := sc.buildTask(t, idx, className, propName)
 	dispatchMatrixDriveToSwapped(t, ctx, shard, task, sc.path)
 
-	// Swapped rather than Promoted: the flip is durable, and the
-	// staged-to-canonical rename is deliberately left to the next load.
 	rec := dispatchMatrixRecordOf(t, shard, task)
 	require.Equal(t, MigrationStateSwapped, rec.State())
 	require.Equal(t, []string{propName}, rec.(MigrationRecordSwapped).Flipped())
@@ -405,8 +374,6 @@ func dispatchMatrixSeedObjects(
 	}
 }
 
-// TestRunSwapOnShard_DispatchMatrix cross-products every strategy against
-// every recorded state RunSwapOnShard's dispatch resumes from.
 func TestRunSwapOnShard_DispatchMatrix(t *testing.T) {
 	const numObjects = 10
 
@@ -430,7 +397,6 @@ func TestRunSwapOnShard_DispatchMatrix(t *testing.T) {
 	}
 }
 
-// dispatchMatrixRunCell runs one (strategy, state) cell.
 func dispatchMatrixRunCell(
 	t *testing.T,
 	sc dispatchMatrixStrategyCase,

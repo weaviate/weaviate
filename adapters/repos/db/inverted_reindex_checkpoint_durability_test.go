@@ -22,9 +22,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// segmentsOnDisk counts the reindex bucket's durable segments. A posting that
-// is only in the write-ahead log's userspace buffer is in none of them, which
-// is what a SIGKILL discards.
 func segmentsOnDisk(t *testing.T, bucketDir string) int {
 	t.Helper()
 	segments, err := filepath.Glob(filepath.Join(bucketDir, "*.db"))
@@ -32,19 +29,12 @@ func segmentsOnDisk(t *testing.T, bucketDir string) int {
 	return len(segments)
 }
 
-// TestCheckpointNeverOutrunsThePostingsItVouchesFor pins that the checkpoint
-// is fsynced only after the postings behind it. A crash between the two
-// would drop postings the resume's strict past-checkpoint seek never
-// rebuilds, promoting a bucket permanently missing them.
 func TestCheckpointNeverOutrunsThePostingsItVouchesFor(t *testing.T) {
 	const propName = filterableToRangeablePropName
 
 	tests := []struct {
-		name     string
-		buffered bool
-		// poisonStore freezes every write to the record store, so the
-		// checkpoint fails while the flush behind it has already run. That is
-		// what tells the order apart: asserting both happened does not.
+		name        string
+		buffered    bool
 		poisonStore bool
 		wantDurable bool
 	}{
@@ -54,8 +44,6 @@ func TestCheckpointNeverOutrunsThePostingsItVouchesFor(t *testing.T) {
 			wantDurable: true,
 		},
 		{
-			// The barrier must not turn an empty slice into an error: a
-			// checkpoint with nothing behind it is the ordinary resume case.
 			name: "a checkpoint with nothing buffered is still recorded",
 		},
 		{
@@ -92,8 +80,6 @@ func TestCheckpointNeverOutrunsThePostingsItVouchesFor(t *testing.T) {
 			}
 
 			if tt.poisonStore {
-				// Records of two units on one shard — a restore or a shard
-				// copy — is the fault that freezes the store.
 				foreign := subject
 				foreign.Key.UnitID = "shard-9__node-9"
 				require.NoError(t, shard.migrationRecords.Put(

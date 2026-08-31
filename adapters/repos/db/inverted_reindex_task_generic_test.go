@@ -105,9 +105,6 @@ func newTestClassWithProps(className string, propNames []string) *models.Class {
 
 func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardReindexTaskGeneric {
 	task := newTestTaskWithoutIdentity(logger, strategy)
-	// A task the provider built carries the identity its record key is made
-	// of; one built straight from the constructor does not, and would refuse
-	// to record its flip.
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-reindex-task", Version: 1},
 		"shard-1__node-0",
@@ -129,9 +126,6 @@ func newTestTaskWithoutIdentity(logger logrus.FieldLogger, strategy MigrationStr
 	)
 }
 
-// TestMapToBlockmaxMigration_RuntimeSwap tests the runtime swap path where
-// merge and swap both happen inline after the reindex iteration completes —
-// no shard restart needed.
 func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	ctx := testCtx()
 	className := "TestMigrationRuntime"
@@ -184,8 +178,6 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 		}
 	}
 
-	// The migration finished without a restart: the flip decision is durable
-	// and the strategy's completion hook ran.
 	rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
 	require.True(t, ok, "the migration should have left a record")
 	require.Equal(t, MigrationStateSwapped, rec.State())
@@ -210,16 +202,12 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 		require.NotNil(t, result, "double-write object %s should exist", obj.ID())
 	}
 
-	// The sidecar names are gone from the store: the reindex bucket was torn
-	// down and the ingest name was consumed by the pointer flip.
 	assert.Nil(t, shard.store.Bucket(reindexBucketName), "reindex bucket should not exist")
 	assert.Nil(t, shard.store.Bucket(ingestBucketName), "ingest bucket should not exist")
 
 	assert.False(t, dirExists(t, filepath.Join(shard.pathLSM(), reindexBucketName)),
 		"reindex dir should not exist on disk (its segments were prepended into ingest)")
 
-	// The displaced copy is removed at the handle the record names. Parking it
-	// under a derived backup name would leave a directory nothing points at.
 	displacedDir, hasDisplaced := rec.(MigrationRecordSwapped).DisplacedDir("title")
 	require.True(t, hasDisplaced, "the flip should record the directory it displaced")
 	assert.False(t, dirExists(t, filepath.Join(shard.pathLSM(), displacedDir)),
@@ -279,15 +267,10 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	shard2 := shd2.(*Shard)
 	idx.shards.Store(shardName, shd2)
 
-	// Reconciliation promotes the staged directory onto the canonical name
-	// before any bucket opens, so the canonical bucket is the migrated data.
 	searchBucketName := helpers.BucketSearchableFromPropNameLSM("title")
 	require.NotNil(t, shard2.store.Bucket(searchBucketName),
 		"canonical main bucket should be loaded after the promoting load")
 
-	// A durable flip decision is the whole answer on the way back up: the
-	// completion hook belongs to the process that decided the flip, and
-	// re-running it would re-announce a migration that is already done.
 	assert.False(t, strategy2.migrationCompleted,
 		"OnMigrationComplete should not fire again on a shard whose flip is already recorded")
 
@@ -301,13 +284,6 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	require.NoError(t, shard2.Shutdown(ctx))
 }
 
-// TestRunSwapOnShard_RecordAwareDispatch pins the recovery branches in
-// [ShardReindexTaskGeneric.RunSwapOnShard]: a rehydrate after restart must
-// dispatch from Merged/Swapped state rather than always running full
-// prep+swap. Each row drives a real migration to one state, then calls
-// RunSwapOnShard through a fresh task/strategy — the shape rehydrate
-// produces. The end-to-end multi-node assertion lives in
-// test/acceptance/reindex_multinode/finalizing_crash_test.go.
 func TestRunSwapOnShard_RecordAwareDispatch(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -358,8 +334,6 @@ func TestRunSwapOnShard_RecordAwareDispatch(t *testing.T) {
 			require.Equal(t, tc.wantState, rec.State(),
 				"the drive landed somewhere other than the state this row dispatches from")
 
-			// A fresh task and strategy: the rehydrate path after a node
-			// restart cannot reuse the instance that ran the rebuild.
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task := newTestTask(idx.logger, strategy)
 			require.NoErrorf(t, task.RunSwapOnShard(ctx, shard),
@@ -376,16 +350,6 @@ func TestRunSwapOnShard_RecordAwareDispatch(t *testing.T) {
 	}
 }
 
-// TestRuntimeSwap_Phase2a_AtomicTightLoop pins the Phase 2a contract from
-// weaviate/0-weaviate-issues#216: between consecutive per-prop
-// SwapBucketPointer calls, no I/O is allowed at all (Shutdown, Rename, RAFT,
-// compaction wait, record write) — the flip decision is fsynced before the
-// loop starts, so there's nothing left to do inside it. This keeps the
-// per-shard overlay's mixed-state subwindow in the microseconds-to-low-ms
-// range at any scale; the 20ms/4-prop budget is orders of magnitude above
-// the real cost, so don't relax it without a separate signal justifying it.
-//
-// Uses the test-only processOneSwapPropFn seam to observe deterministically.
 func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	ctx := testCtx()
 	className := "TestPhase2aAtomic"
@@ -427,8 +391,6 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 
-	// Wrap the Phase 2a per-prop body so the test can read back the per-prop
-	// timestamps the atomic-phase budget is asserted against.
 	var (
 		hookMu        sync.Mutex
 		hookCallTimes []time.Time
@@ -467,9 +429,6 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 		"the swap hook should fire exactly once per prop (%d), got %d",
 		len(propNames), len(hookCallTimes))
 
-	// The loop iterates the record's own property list, which is fixed when
-	// the migration arms, and the hook receives the loop's 0-based index. So
-	// the indices must be a strictly increasing sequence starting at 0.
 	for i, idx := range hookCallIdxs {
 		require.Equal(t, i, idx,
 			"hook fired at unexpected loop index — Phase 2a loop is out of order or has a yield point that re-orders props")
@@ -486,8 +445,6 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 			"inverted_reindex_task_generic.go for the design invariant.",
 		len(propNames), totalDelta, atomicPhaseBudget)
 
-	// The inline path runs 2b and 2c as well, so by here the flip decision is
-	// durable and names every property it covers.
 	rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
 	require.True(t, ok, "the flip decision should be recorded post-runtimeSwap")
 	require.Equal(t, MigrationStateSwapped, rec.State())

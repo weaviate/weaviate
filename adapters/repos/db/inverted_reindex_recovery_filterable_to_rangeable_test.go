@@ -196,8 +196,6 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 		"FilterableToRangeable", idx.logger, wrapped, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
-	// Without an identity the task's record key is incomplete and every
-	// transition would refuse to write itself.
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-filterable-to-rangeable", Version: 1},
 		"shard-1__node-0",
@@ -219,9 +217,7 @@ type testFilterableToRangeableStrategyWrapper struct {
 	FilterableToRangeableStrategy
 	migrationCompleted  bool
 	preReindexHookCount int
-	// onComplete stands in for the RAFT commit the real hook performs, so a
-	// test can fail it or observe the schema flag it sets.
-	onComplete func() error
+	onComplete          func() error
 }
 
 func (s *testFilterableToRangeableStrategyWrapper) OnMigrationComplete(_ context.Context, _ ShardLike) error {

@@ -238,12 +238,6 @@ func TestStructuralInvariant_StartTask_HandleTerminateDrainsSpawnedWorker(t *tes
 	}
 }
 
-// TestStructuralInvariant_SealLocalTaskDrain_WaitsForPrepAndSwap pins the
-// half of the drain the task handle can't answer for: the handle closes when
-// the iteration goroutine exits, but prep and swap run on the scheduler's
-// tick goroutine and never had one, so a task whose only live worker was in
-// either drained instantly. The drain instead waits on the same per-unit
-// registry every bucket-pointer-holding span registers in.
 func TestStructuralInvariant_SealLocalTaskDrain_WaitsForPrepAndSwap(t *testing.T) {
 	p := structuralInvariantNewBareProvider()
 	desc := distributedtask.TaskDescriptor{ID: "task-in-swap", Version: 1}
@@ -251,7 +245,6 @@ func TestStructuralInvariant_SealLocalTaskDrain_WaitsForPrepAndSwap(t *testing.T
 	release, entered := p.enterLocalUnit(desc, "shard-1__node-0")
 	require.True(t, entered)
 
-	// No handle is ever registered: that is exactly the prep/swap shape.
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	_, err := p.SealLocalTaskDrain(ctx, desc)
@@ -264,9 +257,6 @@ func TestStructuralInvariant_SealLocalTaskDrain_WaitsForPrepAndSwap(t *testing.T
 	unseal, err := p.SealLocalTaskDrain(drained, desc)
 	require.NoError(t, err, "once the last span releases, the drain returns")
 
-	// Held, not merely awaited: the sweep that follows removes the very
-	// directories a relaunched unit opens, and the scheduler relaunches a task
-	// handle tens of milliseconds after its workers finished.
 	_, entered = p.enterLocalUnit(desc, "shard-1__node-0")
 	require.False(t, entered, "a unit may not start again while a teardown holds the task")
 	_, entered = p.enterLocalUnit(desc, "shard-2__node-0")
@@ -276,8 +266,6 @@ func TestStructuralInvariant_SealLocalTaskDrain_WaitsForPrepAndSwap(t *testing.T
 	release, entered = p.enterLocalUnit(desc, "shard-1__node-0")
 	require.True(t, entered, "once the teardown releases, work may start again")
 	release()
-	// The task-wide registry, which is the one this drain writes; a leaked
-	// entry there refuses every unit of the task for the life of the process.
 	require.Empty(t, p.sealedTasks)
 	require.Empty(t, p.liveUnits)
 }

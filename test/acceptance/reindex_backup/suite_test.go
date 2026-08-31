@@ -314,11 +314,6 @@ func submitChangeTokenization(t *testing.T, restURI, collection, property, targe
 		fmt.Sprintf(`{"tokenization":%q}`, target))
 }
 
-// testPostRestartOrphanAuditClearsTracker injects an orphan migration on
-// disk, restarts the container, and asserts its directories are reclaimed
-// while the canonical bucket and data stay intact — either by reconciliation
-// at shard load, or by the post-bootstrap audit as backstop for a shard that
-// never loads.
 func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI string) {
 	const (
 		className   = "ReindexBackup_OrphanAudit"
@@ -351,15 +346,11 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 		"baseline restart must not lose data")
 
 	lsmPath := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName)
-	// Generation 999 is far outside any runtime-picked value.
 	const orphanGeneration = 999
 	orphanDir := reindexrecords.TrackerDir(t, db.StrategyCodeSearchableRetokenize,
 		[]string{"body"}, orphanGeneration)
 	handles := reindexrecords.HandlesFor(t, db.StrategyCodeSearchableRetokenize,
 		"body", orphanGeneration)
-	// Iterating: nothing is staged completely, so no reader may treat the
-	// canonical bucket as replaceable, and the target tokenization the subject
-	// names is one the collection's schema does not show.
 	recordFile, recordJSON := reindexrecords.Encode(t, db.NewMigrationRecordIterating(db.MigrationSubject{
 		Key: db.MigrationRecordKey{
 			TaskVersion:  1,

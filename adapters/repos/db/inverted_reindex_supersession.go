@@ -243,10 +243,6 @@ func (r *migrationReconciler) retireOneSealed(ctx context.Context, all []Migrati
 // Closes after deciding, not before: a bucket this pass shuts down is
 // deregistered until the shard next loads, so closing one whose directory is
 // then left in place stops that data serving with nothing to reopen it.
-//
-// Disarms before it removes: without that order the directory removed is
-// exactly where the superseded record's still-armed mirror sends its next
-// copy, and a failed mirror copy fails the user's write with it.
 func (r *migrationReconciler) retireProperty(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject, prop string,
 ) error {
@@ -270,16 +266,6 @@ func (r *migrationReconciler) retireProperty(ctx context.Context, all []Migratio
 	return nil
 }
 
-// migrationRetirementLeavesStagedDir reports the staged directories
-// retirement stops on: this record names none, a successor claims it as what
-// its own flip displaced, or another record holds it in a role of its own.
-// [migrationReconciler.retireProperty] returns on exactly these, so a true
-// here means retirement has done everything it is ever going to do for this
-// property.
-//
-// [migrationReconciler.supersededPropertyIsRetired] reads the same answer
-// rather than restating it. Enumerated twice, the two drifted: a promotion
-// waited forever on a removal the other had already decided not to make.
 func migrationRetirementLeavesStagedDir(all []MigrationRecord,
 	subject MigrationSubject, dir string,
 ) bool {

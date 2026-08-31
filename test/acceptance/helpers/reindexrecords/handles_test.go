@@ -19,9 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 )
 
-// namingStrategy is the part of a migration strategy that decides directory
-// names. Declared here rather than using db.MigrationStrategy so this test
-// depends on the four methods it actually pins.
 type namingStrategy interface {
 	StrategyCode() db.MigrationStrategyCode
 	MigrationDirName() string
@@ -30,9 +27,6 @@ type namingStrategy interface {
 	ReindexSuffix() string
 }
 
-// strategiesUnderTest is every migration strategy, at the zero value. Building
-// them by type rather than by code is what makes a strategy that is renamed or
-// removed a compile error here.
 func strategiesUnderTest() []namingStrategy {
 	return []namingStrategy{
 		&db.MapToBlockmaxStrategy{},
@@ -46,9 +40,6 @@ func strategiesUnderTest() []namingStrategy {
 	}
 }
 
-// TestHandlesMatchTheStrategies pins [handleRecipes] against the strategies
-// themselves, so a suffix or a bucket namer that moves fails here rather than
-// in an acceptance run that plants a directory no writer emits.
 func TestHandlesMatchTheStrategies(t *testing.T) {
 	strategies := strategiesUnderTest()
 	require.Len(t, handleRecipes, len(strategies),
@@ -59,15 +50,9 @@ func TestHandlesMatchTheStrategies(t *testing.T) {
 			recipe, ok := handleRecipes[strategy.StrategyCode()]
 			require.Truef(t, ok, "%T has no recipe", strategy)
 
-			// The empty property name, because two strategies take theirs at
-			// construction and ignore the argument. It still separates the
-			// three bucket shapes: "property_", "property__searchable" and
-			// "property__rangeable".
 			require.Equalf(t, strategy.SourceBucketName(""), recipe.bucket(""),
 				"%T works on a different property bucket than its recipe", strategy)
 
-			// A zero-value strategy is at generation 0, and each suffix method
-			// appends its own generation tail.
 			require.Equalf(t, strategy.IngestSuffix(), recipe.ingestSuffix+"_0",
 				"%T stages under a different suffix than its recipe", strategy)
 			require.Equalf(t, strategy.ReindexSuffix(), recipe.reindexSuffix+"_0",
@@ -76,14 +61,9 @@ func TestHandlesMatchTheStrategies(t *testing.T) {
 	}
 }
 
-// TestTrackerDirsMatchTheStrategies pins [TrackerDir] the same way, against
-// each strategy at the zero value: no property names and generation 0.
 func TestTrackerDirsMatchTheStrategies(t *testing.T) {
 	for _, strategy := range strategiesUnderTest() {
 		t.Run(string(strategy.StrategyCode()), func(t *testing.T) {
-			// The one-property strategies hold their property rather than
-			// taking it per call, so at the zero value it is the empty string
-			// — which their directory name carries all the same.
 			var props []string
 			if handleRecipes[strategy.StrategyCode()].tracker == trackerNamesOneProperty {
 				props = []string{""}
@@ -95,13 +75,7 @@ func TestTrackerDirsMatchTheStrategies(t *testing.T) {
 	}
 }
 
-// TestHandlesAreAcceptedByTheRecordWriter is the end-to-end direction: the
-// record store refuses a staged or sidecar handle that is not shaped like a
-// sidecar of a property bucket, so every name [HandlesFor] hands a fixture has
-// to survive that check.
 func TestHandlesAreAcceptedByTheRecordWriter(t *testing.T) {
-	// Property names carrying the separators the shape rule reads: "__" and a
-	// trailing role word of their own.
 	props := []string{"body", "a__b", "x_ingest"}
 
 	for _, strategy := range strategiesUnderTest() {

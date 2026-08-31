@@ -23,15 +23,6 @@ import (
 	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
-// TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex pins that a closing
-// index must not report a swap finished: the scheduler treats "callbacks
-// done" as terminal and stops re-firing OnGroupCompleted, so answering true
-// on an uncommitted migration would strand it on the old tokenization. The
-// lenient shard walk answers nil while closing, which the record loop below
-// reads as true; swapping back to [Index.ForEachShard] would fail these rows,
-// since their migration is committed and only a refusing walk can produce
-// false. The two close signals are raised independently so each row names
-// the one it tests; teardown raises both.
 func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 	const (
 		prop   = "title"
@@ -40,19 +31,12 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 	)
 
 	for _, tc := range []struct {
-		name string
-		// closeRequested is a delete committed against the collection; closing
-		// is teardown having cancelled the index's context.
+		name           string
 		closeRequested bool
 		closing        bool
-		// committed says whether the tenant's migration reached the state
-		// from which its staged data is the data.
-		committed bool
-		want      bool
+		committed      bool
+		want           bool
 	}{
-		// The uncommitted, non-closing baseline is pinned in
-		// TestLocalCallbacksDoneLeavesUnloadedShardsAlone; it wouldn't isolate
-		// what closing changes here.
 		{
 			name:      "an open index whose migration committed",
 			committed: true,

@@ -314,14 +314,8 @@ func hasStalePartialReindexState(
 	committed := dirs.committedMigrations(lsmPath, logger)
 	switch {
 	case committed.recordSetUnreadable:
-		// Nothing about this shard could be read, so reporting it clean would
-		// be a guess. Hydrating is what turns it into an error a caller sees.
 		return true, false
 	case committed.withholdEverything:
-		// A record this build can't understand withholds
-		// every removal, so hydrating would reclaim nothing, and reporting
-		// otherwise would wake this tenant on every sweep pass while it stays
-		// unreadable. (The load that eventually surfaces this happens on its own.)
 		return false, false
 	}
 	scope := migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props).knownFrom(committed)
@@ -334,9 +328,6 @@ func hasStalePartialReindexState(
 		if !committed.preservesBucket(name) {
 			return true, false
 		}
-		// This one backs a completed migration, so nothing but a load
-		// reclaims it — unless the record owning it can no longer reach a
-		// state a load would act on, in which case the load reclaims nothing.
 		finalizable = finalizable || committed.bucketNeedsLoad(name)
 	}
 
@@ -348,11 +339,6 @@ func hasStalePartialReindexState(
 	for _, name := range names {
 		matched, unreadablePayload := scope.inScopeFailingOpen(name)
 		if unreadablePayload {
-			// A payload this gate can't read could name this property; only
-			// hydrating and re-reading can tell, so this is not "clean". The
-			// withholdEverything arm above answers the opposite way for a
-			// different population: there the unreadable state is already
-			// preserved, so a load would reclaim nothing.
 			return true, false
 		}
 		if !matched {
@@ -394,17 +380,10 @@ type dirNamesCache struct {
 	refused int
 	// props is the tracker-payload memo of the same run; see
 	// [dirNamesCache.trackerProps].
-	props taskPropsCache
-	// committed memoizes each shard's committed migrations; see
-	// [dirNamesCache.committedMigrations].
+	props     taskPropsCache
 	committed map[string]migrationPreservedState
 }
 
-// committedMigrations answers, per shard, which directories a committed
-// migration owns. Memoized here because one run asks per (property, index
-// type) tuple over the same shards, and the answer can't change while a
-// sweep holds it: records are written only by a loaded shard's own engine or
-// by reconciliation, and a loaded shard has already left this sweep's path.
 func (c *dirNamesCache) committedMigrations(lsmPath string,
 	logger logrus.FieldLogger,
 ) migrationPreservedState {

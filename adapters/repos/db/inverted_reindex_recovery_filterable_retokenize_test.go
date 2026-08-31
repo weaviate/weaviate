@@ -85,8 +85,6 @@ func newFilterableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
-	// Without an identity the task's record key is incomplete and every
-	// transition would refuse to write itself.
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-filterable-retokenize", Version: 1},
 		"shard-1__node-0",

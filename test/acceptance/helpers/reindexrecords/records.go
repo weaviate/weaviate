@@ -9,8 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package reindexrecords renders migration records for acceptance tests that
-// plant on-disk state a crash would have left behind.
 package reindexrecords
 
 import (
@@ -25,9 +23,7 @@ import (
 )
 
 // Encode returns the file name the record store gives rec and the bytes it
-// writes into it, through the production writer on purpose: a hand-built
-// fixture would pin the format version it was written against, and a bump
-// would silently stop pinning anything once the server can no longer read it.
+// writes into it, through the production writer.
 func Encode(t *testing.T, rec db.MigrationRecord) (name, content string) {
 	t.Helper()
 

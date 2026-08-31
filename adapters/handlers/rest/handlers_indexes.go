@@ -341,12 +341,6 @@ func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, i
 	return refusable, refusablePayload
 }
 
-// reindexTaskDescriptorsForProperty names every reindex task in the
-// snapshot targeting this (collection, property), whatever its status:
-// callers care about terminal tasks whose worker can still be writing
-// through bucket pointers taken before its phase began. A task whose
-// payload doesn't decode is skipped, same as the cancel path — nothing
-// here can tell which property it targets.
 func reindexTaskDescriptorsForProperty(tasks []*distributedtask.Task, collection, propertyName string,
 	logger logrus.FieldLogger,
 ) []distributedtask.TaskDescriptor {
@@ -532,9 +526,6 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 			"index_type": indexType,
 		}).Info("cancel: starting drain+cleanup for cancelled reindex task")
 		drainCtx, drainCancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
-		// Held until the cleanup below is done, not just until it starts: the
-		// scheduler can relaunch this task's units while the cleanup is
-		// midway through removing the directories they open.
 		unseal, drainErr := h.appState.ReindexProvider.SealLocalTaskDrain(drainCtx, target.TaskDescriptor)
 		drainCancel()
 		if drainErr != nil {
@@ -551,8 +542,6 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 				"property":   propertyName,
 				"index_type": indexType,
 			}).Info("cancel: drain complete, running on-disk cleanup")
-			// Released when the handler returns: after the cleanup below and
-			// the audit line that follows it.
 			defer unseal()
 			// Goroutine has drained. Wipe the sidecars and migration
 			// directories for every indexType this migration touches —

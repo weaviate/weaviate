@@ -24,27 +24,13 @@ import (
 
 // Handles are the directories one migration owns for one property.
 type Handles struct {
-	// Canonical is the property's own bucket, the name promotion moves onto.
 	Canonical string
-	// Staged holds the migration's copy of the index until promotion.
-	Staged string
-	// Sidecar holds what the backfill scan rebuilt from the objects store.
-	Sidecar string
+	Staged    string
+	Sidecar   string
 }
 
 // HandlesFor names the directories the writer emits for propName under the
 // strategy that code identifies, at the given migration generation.
-//
-// A fixture planting on-disk state has to name what a writer would have
-// written. A staged or sidecar handle is refused outright unless it is shaped
-// like a sidecar of a property bucket, and a canonical handle that names the
-// wrong bucket points promotion at another property's index — neither state a
-// crashed run can leave behind, so a fixture that builds one pins behavior
-// against something no server ever meets.
-//
-// [TestHandlesMatchTheStrategies] pins every recipe against the strategy that
-// owns it, so a renamed suffix or bucket fails there rather than in an
-// acceptance run.
 func HandlesFor(t *testing.T, code db.MigrationStrategyCode, propName string, generation int) Handles {
 	t.Helper()
 
@@ -61,14 +47,7 @@ func HandlesFor(t *testing.T, code db.MigrationStrategyCode, propName string, ge
 }
 
 // TrackerDir names the directory under .migrations/ that tracks a migration of
-// the given strategy over propNames, at the given generation. A strategy that
-// tracks the whole class names no property, and ignores propNames.
-//
-// The strategy code is the directory name, so the only thing to get right is
-// how the property names and the generation hang off it — and a tracker whose
-// generation disagrees with the sidecars beside it is another state no writer
-// produces. [TestTrackerDirsMatchTheStrategies] pins that against the
-// strategies.
+// the given strategy over propNames. A class-level strategy ignores propNames.
 func TrackerDir(t *testing.T, code db.MigrationStrategyCode, propNames []string, generation int) string {
 	t.Helper()
 
@@ -82,38 +61,21 @@ func TrackerDir(t *testing.T, code db.MigrationStrategyCode, propNames []string,
 		name += "_" + propNames[0]
 	case trackerNamesPropertyList:
 		if len(propNames) > 0 {
-			// Sorted, so the name is a function of the set rather than of the
-			// caller's slice order.
 			name += "_" + strings.Join(slices.Sorted(slices.Values(propNames)), "_")
 		}
 	case trackerNamesNoProperty:
-		// The strategy code alone, whatever properties the migration covers.
 	}
 	return name + "_" + strconv.Itoa(generation)
 }
 
-// trackerNaming is how a strategy's tracker directory carries property names.
-// Which one a strategy uses shows in the directory-name constant it reaches
-// for: db.MigrationDirPrefix* is a prefix properties hang off, db.MigrationDir*
-// is a whole name.
 type trackerNaming int
 
 const (
-	// trackerNamesPropertyList joins the migration's sorted property names onto
-	// the strategy code, and leaves them out when the migration names none.
 	trackerNamesPropertyList trackerNaming = iota
-	// trackerNamesNoProperty tracks the whole class under the strategy code
-	// alone, whatever properties the migration covers.
 	trackerNamesNoProperty
-	// trackerNamesOneProperty always carries exactly one property name, since
-	// the strategy takes it at construction.
 	trackerNamesOneProperty
 )
 
-// handleRecipe is how one strategy composes its directory names: the property
-// bucket it works on, plus the suffix of each sidecar role. The generation tail
-// is not part of a suffix here — [HandlesFor] appends it, the way each
-// strategy's own suffix method does.
 type handleRecipe struct {
 	bucket        func(propName string) string
 	ingestSuffix  string

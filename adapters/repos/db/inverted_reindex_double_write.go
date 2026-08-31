@@ -16,28 +16,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-// armedMirror is what one registration armed: the properties it mirrors, and
-// the bucket each of them was armed on. The bucket is not bookkeeping — it is
-// the only thing that tells this record's flip apart from someone tearing its
-// staged bucket down. Both leave the staged name unresolvable.
 type armedMirror struct {
 	props   map[string]struct{}
 	buckets map[string]*lsmkv.Bucket
 }
 
-// resolveScopedDoubleWriteBucket is the shared prologue for every strategy's
-// double-write callback: scope-filters the property, then resolves the bucket
-// the mirror writes into. skip=true means the callback must no-op.
-//
-// The canonical name is a fallback and not a second choice. A mirror stays
-// armed until the edge that ends its record's chance of becoming live disarms
-// it, and SwapBucketPointer deletes the staged-name entry at the flip, after
-// which the canonical name denotes the very bucket this mirror was arming
-// (weaviate/weaviate#11688). It denotes something else entirely when the
-// staged bucket was shut down instead — a discard, a supersession retirement,
-// a cancel sweep — and following the name there writes this migration's
-// target-form rows into live source-form data. So the fallback is taken only
-// when the canonical name resolves to the bucket this mirror armed on.
 func resolveScopedDoubleWriteBucket(shard *Shard, property *inverted.Property,
 	armed armedMirror, bucketNamer, sourceBucketName func(string) string,
 ) (bucket *lsmkv.Bucket, bucketName string, skip bool) {
@@ -46,14 +29,6 @@ func resolveScopedDoubleWriteBucket(shard *Shard, property *inverted.Property,
 	}
 	bucketName = bucketNamer(property.Name)
 	if bucket = shard.store.Bucket(bucketName); bucket != nil {
-		// The staged name is checked for identity for the same reason the
-		// canonical fallback below is: two migrations can name one staged
-		// directory. The generation counter is keyed by (strategy prefix,
-		// property set) while the staged name is the property's own bucket
-		// plus the ingest suffix, carrying no property set — so a task over a
-		// different property set takes the same generation and opens a bucket
-		// at the very name this mirror armed on. Following the name there
-		// writes this migration's target-form rows into the other's data.
 		if armedBucket, known := armed.buckets[property.Name]; known && bucket != armedBucket {
 			return nil, bucketName, true
 		}

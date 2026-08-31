@@ -13,12 +13,6 @@ package db
 
 import "sync"
 
-// migrationMirrorRegistry holds the handles that disarm a migration's
-// double-write mirror, keyed by (record key, property) rather than task
-// instance: whoever disarms (successor retirement, cancel, swap completion,
-// task-cache eviction) is never whoever armed. Per-property so disarming a
-// predecessor can't silently drop mirroring for properties its successor
-// hasn't taken over yet.
 type migrationMirrorRegistry struct {
 	mu      sync.Mutex
 	disarms map[migrationMirrorKey]func()
@@ -30,8 +24,7 @@ type migrationMirrorKey struct {
 }
 
 // ArmMigrationMirror records the handle that disarms the mirror for one
-// (record, property). Re-arming an already-armed pair disarms the handle it
-// replaces, so a resume can't leave two callbacks registered for one property.
+// (record, property). Re-arming disarms the handle it replaces.
 func (r *migrationMirrorRegistry) ArmMigrationMirror(key MigrationRecordKey, prop string, disarm func()) {
 	if disarm == nil {
 		return
@@ -52,8 +45,7 @@ func (r *migrationMirrorRegistry) ArmMigrationMirror(key MigrationRecordKey, pro
 }
 
 // DisarmMigrationMirror runs and forgets the handle for one (record,
-// property); a no-op if unarmed, since every disarm edge is re-derived at
-// each load and must be safe to re-run.
+// property); a no-op if unarmed, since every disarm edge is re-derived at each load.
 func (r *migrationMirrorRegistry) DisarmMigrationMirror(key MigrationRecordKey, prop string) {
 	mirrorKey := migrationMirrorKey{record: key, property: prop}
 
@@ -62,15 +54,13 @@ func (r *migrationMirrorRegistry) DisarmMigrationMirror(key MigrationRecordKey, 
 	delete(r.disarms, mirrorKey)
 	r.mu.Unlock()
 
-	// Run outside the lock: disarm reaches into shard write-path state, and
-	// calling it locked would pin a lock ordering on every other caller.
+	// Run outside the lock: disarm reaches into shard write-path state.
 	if disarm != nil {
 		disarm()
 	}
 }
 
-// DisarmMigrationMirrors disarms every property of one record. It is what the
-// cancel edge and process exit need, where the record goes away whole.
+// DisarmMigrationMirrors disarms every property of one record.
 func (r *migrationMirrorRegistry) DisarmMigrationMirrors(key MigrationRecordKey) {
 	r.mu.Lock()
 	var disarms []func()
@@ -88,7 +78,6 @@ func (r *migrationMirrorRegistry) DisarmMigrationMirrors(key MigrationRecordKey)
 	}
 }
 
-// Lets reconciliation reach the handles without knowing about shards.
 var _ migrationMirrorDisarmer = (*Shard)(nil)
 
 func (s *Shard) DisarmMigrationMirror(key MigrationRecordKey, prop string) {

@@ -25,15 +25,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// The flip decision is recorded before the first pointer moves, so a Swapped
-// record proves only that the flip was decided. The tests here pin the readers
-// that need the post-condition instead: promotion, which renames one directory
-// over another, and the completion path, which commits the schema effect
-// cluster-wide.
-
-// disableSearchableIndexOnProp is the sequence [Shard.updatePropertyBuckets]
-// runs inside the RAFT apply of a property update that turns indexSearchable
-// off.
 func disableSearchableIndexOnProp(t *testing.T, ctx context.Context, shard *Shard, propName string) {
 	t.Helper()
 	main := helpers.BucketSearchableFromPropNameLSM(propName)
@@ -43,10 +34,6 @@ func disableSearchableIndexOnProp(t *testing.T, ctx context.Context, shard *Shar
 	shard.cleanStaleSidecarDirs(ctx, main, sweep.committed)
 }
 
-// TestPromotionNeverRenamesAStagedDirTheLoadCreated pins that a load leaves a
-// promoted property's staged directory absent. Re-creating it hands the next
-// load's promotion an empty directory to rename over the live canonical one,
-// which empties the property's index for good.
 func TestPromotionNeverRenamesAStagedDirTheLoadCreated(t *testing.T) {
 	ctx := testCtx()
 	propNames := []string{"title", "subtitle"}
@@ -70,10 +57,6 @@ func TestPromotionNeverRenamesAStagedDirTheLoadCreated(t *testing.T) {
 		}
 	}
 
-	// The trigger: the searchable index goes off on one of the migration's two
-	// properties while the flip is decided but not yet promoted. That property
-	// can never settle, so the record stays Swapped past the other one's
-	// promotion — and every later load still reads it as a promotion subject.
 	disableSearchableIndexOnProp(t, ctx, shard, "subtitle")
 
 	shardName, lsmPath := shard.Name(), shard.pathLSM()
@@ -106,10 +89,6 @@ func TestPromotionNeverRenamesAStagedDirTheLoadCreated(t *testing.T) {
 		"the second load's promotion renamed a directory over the property's live index")
 }
 
-// TestRunSwapRefusesAPropertyItNeverFlipped pins that the completion path only
-// reports success for a property whose canonical name really serves the
-// migration's data. An absent staged bucket is not evidence of a flip: it looks
-// the same whether the flip ran or the bucket was never loaded.
 func TestRunSwapRefusesAPropertyItNeverFlipped(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -150,12 +129,6 @@ func TestRunSwapRefusesAPropertyItNeverFlipped(t *testing.T) {
 	}
 }
 
-// TestCompletionRefusesARecordNoPromotionSettled pins the two re-entry paths
-// into OnMigrationComplete on the same answer. A DELETE takes both the staged
-// and the canonical directory away, promotion refuses the property, and shard
-// init re-creates the canonical bucket empty — so "the staged directory is
-// gone" is true here without any promotion having run, and the record's own
-// state is what has to be asked instead.
 func TestCompletionRefusesARecordNoPromotionSettled(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -219,10 +192,6 @@ func TestCompletionRefusesARecordNoPromotionSettled(t *testing.T) {
 	}
 }
 
-// aColdShardWithMergedStagedData drives one property to Merged, then reloads
-// the shard with no recovery task registered: the staged directory is on disk
-// and nothing has opened it, which is the state an absent ingest bucket cannot
-// be told apart from a completed flip.
 func aColdShardWithMergedStagedData(t *testing.T, ctx context.Context, class *models.Class,
 	propName string,
 ) (*Index, *Shard, string) {
@@ -254,8 +223,6 @@ func aColdShardWithMergedStagedData(t *testing.T, ctx context.Context, class *mo
 	return idx, cold, preStrategy
 }
 
-// noRecoveryTaskReindexer is a shard load that registers no reindex task, so
-// nothing opens the migration's staged buckets.
 type noRecoveryTaskReindexer struct{}
 
 func (r *noRecoveryTaskReindexer) RunAfterLsmInit(context.Context, *Shard) error { return nil }

@@ -177,11 +177,6 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testRepairRangeable(t, restURI)
 	})
 
-	// --- Subtest 11: DELETE-then-re-enable journey ---
-	// Pins the journey: DELETE /properties/{prop}/index/{indexName} followed
-	// by PUT enable-* must actually rebuild the bucket. Without cleanup of
-	// the first migration's leftovers, the second enable re-flips the schema
-	// flag to true and silently leaves the customer with an empty index.
 	t.Run("DeleteThenReEnable", func(t *testing.T) {
 		testDeleteThenReEnable(t, restURI)
 	})
@@ -247,29 +242,14 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testChangeTokDeleteJourneys(t, restURI)
 	})
 
-	// --- Subtest 15: torn-state resume ---
-	// Pins the journey where a prior reindex crashed mid-rebuild and left a
-	// record naming staged directories that never reached disk. A fresh
-	// submit must reclaim that state and rebuild from scratch rather than
-	// resume against it. If RED, schema reports ready while queries return
-	// zero hits (Sev 1).
 	t.Run("TornResumeReindexedNotTidied", func(t *testing.T) {
 		testTornResumeReindexedNotTidied(t, compose)
 	})
 
-	// Pins that promotion runs on the directory the record names and never on
-	// one derived from a strategy prefix, a property name or a generation
-	// suffix. If RED, a completed migration's data is stranded at a name
-	// nothing can attribute while the schema reports the property ready.
 	t.Run("PromotionRunsOnRecordedHandles", func(t *testing.T) {
 		testPromotionRunsOnRecordedHandles(t, compose)
 	})
 
-	// --- Subtest 16: index DELETE crossed with a restart ---
-	// The two journeys this package covers separately and never together.
-	// Promotion is deferred to the next shard load, so a DELETE lands while
-	// every finished migration still names directories it removes, and the
-	// damage only shows at the load that follows.
 	t.Run("DeleteDuringDeferredPromotion", func(t *testing.T) {
 		testDeleteDuringDeferredPromotion(t, compose)
 	})

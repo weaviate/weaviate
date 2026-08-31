@@ -20,8 +20,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// testTaskIdentity is what every construction path has to stamp onto the
-// tasks it produces, so that each of them can key a migration record.
 func testTaskIdentity() (distributedtask.TaskDescriptor, string) {
 	return distributedtask.TaskDescriptor{ID: "Books:reindex:ab12", Version: 7}, "shard-1__node-0"
 }
@@ -254,9 +252,6 @@ func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 				assert.NotNilf(t, task,
 					"migration type %q produced nil task at index %d (production code would NPE on RunOnShard)",
 					c.mt, i)
-				// A task that reaches a shard unkeyed runs a migration that
-				// records nothing, and leaves its data at a directory no
-				// later load can attribute.
 				assert.Truef(t, task.migrationRecordKey().valid(),
 					"migration type %q task %d has an unusable record key %s",
 					c.mt, i, task.migrationRecordKey())

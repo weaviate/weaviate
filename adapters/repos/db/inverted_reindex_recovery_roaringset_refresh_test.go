@@ -49,8 +49,6 @@ func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneri
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
-	// Without an identity the task's record key is incomplete and every
-	// transition would refuse to write itself.
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-roaringset-refresh", Version: 1},
 		"shard-1__node-0",
@@ -216,8 +214,6 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 						break
 					}
 				}
-				// runtimePrepare stops one step short of runtimeSwap, so
-				// the staged data is complete and no flip is decided yet.
 				rec, ok := task.migrationRecord(shard)
 				require.True(t, ok)
 				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rec.Subject().Properties))
@@ -260,21 +256,11 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			task, _ := newRoaringSetRefreshTask(t, idx)
 			tc.driveToState(t, ctx, shard, task)
 
-			// Verify driveToState actually landed at the intended
-			// state. Without this guard a buggy driveToState would let
-			// recovery from a different state appear to "converge".
 			rec, ok := task.migrationRecord(shard)
 			require.Truef(t, ok, "driveToState must leave a record (case %q)", tc.name)
 			assert.Equalf(t, tc.expectedState, rec.State(),
 				"after driveToState (case %q)", tc.name)
 
-			// Phase 2: simulate restart via full shutdown + shard re-init + fresh
-			// task, mirroring the real sequence (records reconciled at shard_init,
-			// then LSM init, then OnAfterLsmInit/Async).
-			//
-			// Whether a merged migration should become live is a cluster fact; with
-			// no task map the verdict is "leave", and the row proving promotion
-			// happens at load would otherwise pass against the pre-migration bucket.
 			subject := rec.Subject()
 			require.NotNil(t, idx.db, "test shard fixture must wire idx.db")
 			installTestMigrationTaskSources(ctx, idx.db, nil, &distributedtask.Task{

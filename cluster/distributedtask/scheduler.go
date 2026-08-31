@@ -942,12 +942,8 @@ func (s *Scheduler) runPreparationPhase(
 			if state == nil {
 				continue
 			}
-			// context.Canceled is the provider's "retryable" signal, not
-			// evidence that a context was cancelled: a graceful SIGTERM
-			// produces it, and so does a teardown holding a unit, which a
-			// later tick retries in this same process. Dropping the fired
-			// mark is what lets either retry happen; treating it as a
-			// permanent failure would flip the task to FAILED.
+			// context.Canceled is the provider's retryable signal, not evidence that a
+			// context was cancelled. Dropping the fired mark is what lets a retry happen.
 			if errors.Is(groupErr, context.Canceled) {
 				delete(state.preparationCallbackFired, w.groupID)
 				s.loggerWithTask(namespace, desc).
@@ -1099,9 +1095,6 @@ func (s *Scheduler) runSwapPhase(
 			if state == nil {
 				continue
 			}
-			// Same signal as the PREP branch above: retryable, not
-			// necessarily cancelled. Drop the fired mark so a later tick or
-			// the post-restart tick re-fires SWAP.
 			if errors.Is(groupErr, context.Canceled) {
 				delete(state.groupCallbackFired, w.groupID)
 				s.loggerWithTask(namespace, desc).

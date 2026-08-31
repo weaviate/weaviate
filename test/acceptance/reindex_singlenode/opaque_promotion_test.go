@@ -31,15 +31,8 @@ import (
 
 const opaquePromotionObjectCount = 30
 
-// opaquePromotionGeneration is the generation the recorded migration ran at,
-// carried by every directory it names.
 const opaquePromotionGeneration = 1
 
-// testPromotionRunsOnRecordedHandles pins that no directory name is ever
-// inferred: a migration's live data sits at a randomly named directory only
-// the record can locate, and a restart must promote it to the canonical
-// name from that record. Deriving the name instead finds nothing, serving
-// an empty bucket under a schema that reports ready.
 func testPromotionRunsOnRecordedHandles(t *testing.T, compose *docker.DockerCompose) {
 	const class = "OpaquePromotion"
 	ctx := context.Background()
@@ -69,11 +62,6 @@ func testPromotionRunsOnRecordedHandles(t *testing.T, compose *docker.DockerComp
 	container := compose.GetWeaviate().Container()
 	lsmPath := findShardPathInContainer(t, container, class) + "/lsm"
 
-	// A random infix, so no strategy's suffix table can produce this name and a
-	// reader that finds the directory found it through the record. The
-	// surrounding shape is the writer's, because a record naming a staged
-	// directory that is not shaped like a sidecar of a property bucket is
-	// refused before it reaches disk.
 	handles := reindexrecords.HandlesFor(t, db.StrategyCodeFilterableRoaringsetRefresh,
 		"score", opaquePromotionGeneration)
 	staged := fmt.Sprintf("%s__%s_ingest_%d", handles.Canonical,
@@ -96,10 +84,6 @@ func testPromotionRunsOnRecordedHandles(t *testing.T, compose *docker.DockerComp
 	require.NotZero(t, code, "the staged directory must be gone once its data is at the canonical name")
 }
 
-// plantSwappedRecordAcrossRestart writes the record of a migration whose flip
-// decision is durable but whose promotion never ran, then restarts the node so
-// reconciliation meets it at load. The staged directory is the one holding the
-// live data; the canonical name is where promotion has to put it.
 func plantSwappedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose, lsmPath, staged string) {
 	t.Helper()
 	ctx := context.Background()
@@ -108,14 +92,11 @@ func plantSwappedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose
 	recordName, record := reindexrecords.Encode(t, db.NewMigrationRecordSwapped(
 		subject, []string{"score"}, subject.CanonicalDirs))
 
-	// Repoint on every exit path: the restart rebinds the host port, and a
-	// failure in between would otherwise strand the client on the old one.
 	defer func() { helper.SetupClient(compose.GetWeaviate().URI()) }()
 
 	require.NoError(t, compose.StopAt(ctx, 0, nil),
 		"graceful stop before planting the record must succeed")
 
-	// CopyDirToContainer works against a stopped container; docker exec does not.
 	stagedRoot := t.TempDir()
 	dotMigrations := filepath.Join(stagedRoot, ".migrations")
 	require.NoError(t, os.MkdirAll(filepath.Join(dotMigrations, "records"), 0o755))
@@ -130,8 +111,6 @@ func plantSwappedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose
 	require.NoError(t, compose.StartAt(ctx, 0), "restart after planting must succeed")
 }
 
-// opaqueMigrationSubject is the one-property repair-filterable the planter
-// records; staged is where its data currently sits.
 func opaqueMigrationSubject(t *testing.T, staged string) db.MigrationSubject {
 	t.Helper()
 

@@ -103,8 +103,6 @@ func newEnableSearchableTask(
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
-	// Without an identity the task's record key is incomplete and every
-	// transition would refuse to write itself.
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-enable-searchable", Version: 1},
 		"shard-1__node-0",

@@ -21,11 +21,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 )
 
-// TestOverlayConflictIsReportedOnTheTransition pins the mirror's
-// overlay-conflict warning to properties whose conflict is NEW. The set is
-// re-derived on every registration change, so reporting the whole set costs
-// one line per still-conflicting property per change — and a teardown that
-// disarms one property at a time makes that quadratic in the property count.
 func TestOverlayConflictIsReportedOnTheTransition(t *testing.T) {
 	props := []string{"a", "b", "c", "d"}
 	forced := map[string]inverted.PropertyOverlay{}
@@ -34,10 +29,7 @@ func TestOverlayConflictIsReportedOnTheTransition(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
-		// then runs once both registrations are armed and every warning they
-		// produced has been counted. disarmFirst and disarmSecond belong to
-		// the forced and the plain registration respectively.
+		name      string
 		then      func(s *Shard, disarmFirst, disarmSecond func(string))
 		wantWarns int
 	}{

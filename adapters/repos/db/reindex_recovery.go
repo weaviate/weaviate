@@ -26,17 +26,7 @@ import (
 )
 
 // RecoveredReindex describes one in-flight reindex task discovered on disk at
-// startup, with the [ShardReindexTaskGeneric] instances rebuilt from its
-// payload — one per migration directory, and two per unit for a
-// change-tokenization, which fans into a searchable and a filterable strategy.
-//
-// Callers register the Tasks with the static [ShardReindexerV3] before
-// [DB.WaitForStartup], so [OnAfterLsmInit] re-arms the double-write callbacks
-// before any post-restart write reaches the shard; without that, writes between
-// shard init and the swap reach only the old main bucket and are lost. The same
-// instances seed [ReindexProvider.reindexTasks], so the swap phase does not
-// rebuild them and re-run [OnAfterLsmInit] against already-loaded ingest
-// buckets.
+// startup, with its [ShardReindexTaskGeneric] instances rebuilt from its payload.
 type RecoveredReindex struct {
 	Descriptor distributedtask.TaskDescriptor
 	UnitID     string
@@ -92,12 +82,6 @@ func DiscoverInFlightReindexTasks(
 			migs, err := os.ReadDir(migrationsDir)
 			if err != nil {
 				if !os.IsNotExist(err) {
-					// Absent is the normal path — most shards never ran a
-					// migration. A directory that is there and cannot be
-					// listed is the opposite, and it reads the same here: no
-					// mirror is armed, so every write between this shard's
-					// load and promotion goes to the bucket promotion
-					// replaces. Same reason the record arm below withholds.
 					logger.WithField("path", migrationsDir).
 						Warnf("reindex recovery: the migration directory could not be listed, so a migration "+
 							"awaiting its flip would recover unmirrored; recovering nothing on this shard: %v", err)
@@ -106,10 +90,6 @@ func DiscoverInFlightReindexTasks(
 			}
 			records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
 			if recordSetUnreadable {
-				// Every tracker here resolves through the records, so an
-				// unreadable set would otherwise read as "no migration is in
-				// the recovery window" and leave the double-write mirror
-				// unarmed for one that is.
 				logger.WithField("shard", shardName).Warn(
 					"reindex recovery: migration records could not be read; recovering nothing on this shard")
 				continue
@@ -162,23 +142,6 @@ func DiscoverInFlightReindexTasks(
 	return recovered, nil
 }
 
-// loadReindexRecoveryRecord reads payload.mig from a migration directory and
-// returns the decoded record, only for a migration whose rebuild is complete
-// and whose flip isn't yet decided. Returns ok=false otherwise, or when
-// payload.mig is missing, unreadable, or names a property this build
-// wouldn't turn into a directory.
-//
-// That window is where the unit is terminal in RAFT (so the scheduler won't
-// call StartTask after a restart) but the swap hasn't run yet. Every write
-// arriving in between must reach the ingest bucket through a double-write
-// callback, and only shard init is early enough to register one; before the
-// window, the scheduler itself restarts the unit and arms the callbacks.
-//
-// A recorded flip stays inside the window until promotion runs: the flip
-// lives only in the process that made it, so after a restart the property is
-// served from the canonical directory again. Past promotion there is nothing
-// left to mirror — usually because the staged copy became that directory, and
-// otherwise because the promotion settled by writing the property off.
 func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 	logger logrus.FieldLogger,
 ) (reindexRecoveryRecord, bool) {
@@ -188,12 +151,6 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 		return rec, false
 	}
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	// [maxRecoveryWalkPayloadBytes], not the apply-path bound: refusing here
-	// arms no mirror, so the flip that follows takes the canonical directory
-	// away with every write since the restart, and the payload embeds the
-	// cluster-wide tenant and unit maps, which clear a megabyte on a few
-	// thousand tenants. Only the few migrations the record above already
-	// placed in the flip window are read at all.
 	if err := refuseOversizedRecoveryPayload(payloadPath, maxRecoveryWalkPayloadBytes); err != nil {
 		logger.WithField("path", payloadPath).
 			Warnf("reindex recovery: payload.mig is beyond any size a migration can produce, "+
@@ -202,11 +159,6 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 	}
 	data, err := os.ReadFile(payloadPath)
 	if err != nil {
-		// The record already placed this tracker in the window, so the
-		// payload is not optional here: without it no mirror is armed, and
-		// every write taken before promotion goes with the directory
-		// promotion removes. Absent says that as loudly as unreadable does,
-		// because at this point neither is the ordinary state.
 		logger.WithField("path", payloadPath).
 			Warnf("reindex recovery: a migration awaiting its flip has no readable payload.mig, "+
 				"so its double-write mirror stays unarmed: %v", err)
@@ -217,12 +169,6 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 			Warnf("reindex recovery: malformed payload.mig; skipping: %v", err)
 		return rec, false
 	}
-	// The same per-element check [readTaskProps] applies to this field of this
-	// file, for the reason its godoc gives: the strategies built from these
-	// names compose bucket and sidecar directories out of them and then create
-	// and remove those. A record's names passed [validateMigrationHandles] on
-	// the way in; a payload's never did, and a restored archive is free to
-	// carry any bytes here.
 	for _, prop := range rec.Payload.Properties {
 		if !migrationHandleIsOneElement(prop) {
 			logger.WithField("path", payloadPath).
@@ -234,11 +180,6 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 	return rec, true
 }
 
-// buildRecoveryTasks reconstructs the [ShardReindexTaskGeneric]
-// instances that processOneUnit would have created for this migration
-// type, but scoped to exactly the named shard: the static reindexer iterates
-// all registered tasks on every shard init, and each task's isShardSelected
-// filter drops everything except the one shard the record came from.
 func buildRecoveryTasks(
 	rec reindexRecoveryRecord,
 	shardName string,
@@ -287,14 +228,6 @@ func buildRecoveryTasks(
 			return nil, fmt.Errorf("change-tokenization requires bucketStrategy")
 		}
 		propName := payload.Properties[0]
-		// The tracker directory names which half of the fan-out this recovery
-		// is for, and only that half has state on disk. Building both gives the
-		// other one a valid record key, so it writes a durable Iterating record
-		// and arms a mirror for a migration nothing ever started — and only
-		// then fails, at the swap, with "target bucket not found". The live
-		// path asks the schema the same question
-		// ([ReindexProvider.propertyHasFilterableBucket]); here the directory
-		// answers it, and it answers before anything is written.
 		switch {
 		case strings.HasPrefix(trackerPrefix, MigrationDirPrefixSearchableRetokenize):
 			raw = []*ShardReindexTaskGeneric{
@@ -337,13 +270,6 @@ func buildRecoveryTasks(
 		return nil, fmt.Errorf("unknown migration type %q", payload.MigrationType)
 	}
 
-	// Constrain each task to exactly this shard, so recovered instances of
-	// the same migration never act on each other's shards.
-	//
-	// The identity is stamped here rather than by the caller for the same
-	// reason createReindexTasks stamps its own: a recovered task that
-	// reached a shard unstamped could not key a record, so the flip it
-	// completes after the restart would record nothing.
 	desc := distributedtask.TaskDescriptor{ID: rec.TaskID, Version: rec.TaskVersion}
 	for _, t := range raw {
 		t.constrainToShard(payload.Collection, shardName)

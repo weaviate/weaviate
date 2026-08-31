@@ -27,11 +27,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestBackToBackMigrationsRetireInProcess pins in-process retirement: a
-// failed migration's mirror stays armed (tearing it down would route writes
-// into a directory a restart deletes), and a second migration on the same
-// property must retire it before its own flip, or the copy falls back onto
-// the successor's live bucket once the stale staged name stops resolving.
 func TestBackToBackMigrationsRetireInProcess(t *testing.T) {
 	const propName = "title"
 
@@ -80,8 +75,6 @@ func TestBackToBackMigrationsRetireInProcess(t *testing.T) {
 	require.Nil(t, shard.store.Bucket(failedStaged),
 		"and its bucket is shut down before the directory is removed")
 
-	// The write path has to be intact afterwards: a mirror copy that fails
-	// fails the user's write with it.
 	require.NoError(t, shard.PutObject(ctx, createTestObjectWithText(className, "zulu")))
 
 	live := shard.store.Bucket(successor.strategy.SourceBucketName(propName))
@@ -94,10 +87,6 @@ func TestBackToBackMigrationsRetireInProcess(t *testing.T) {
 		"retiring the predecessor must not reach the successor's live data")
 }
 
-// TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone pins that the trim
-// leaves alone any directory a record still names (removing it would delete
-// an open bucket's directory out from under a live mirror), and reclaims
-// only what no record can attribute.
 func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 	const propName = "title"
 
@@ -116,9 +105,6 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 			name: "no record names it, so nothing else will ever reclaim it",
 		},
 		{
-			// The records are the whole protection set here. One that does not
-			// decode may be the one naming this directory, and "not in the set
-			// I could read" is not "nobody owns it".
 			name:       "a record that does not decode withholds the whole trim",
 			unreadable: true,
 			wantDir:    true,

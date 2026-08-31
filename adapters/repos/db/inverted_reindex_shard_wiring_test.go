@@ -76,10 +76,6 @@ func TestMigrationUnitSealsDisposition(t *testing.T) {
 	}
 }
 
-// installTestMigrationTaskSources installs the pair reconciliation reads, both
-// answering from the same list: the ordinary case where this node has caught
-// up with the leader. A non-nil leaderErr makes the leader unreachable
-// instead.
 func installTestMigrationTaskSources(ctx context.Context, database *DB, leaderErr error,
 	tasks ...*distributedtask.Task,
 ) {
@@ -93,13 +89,6 @@ func installTestMigrationTaskSources(ctx context.Context, database *DB, leaderEr
 		})
 }
 
-// TestReconcileWithClusterWithholdsWhereItCannotAct covers the two things the
-// off-load walk refuses to decide. It holds a shard pointer across a pass
-// that removes directories, and a concurrent tenant/collection teardown can
-// pull that shard out from under it, failing a flush into a directory this
-// pass removed — a failure that latches and fails every later activation.
-// The whole pass also rests on the leader's list, so an unreachable leader
-// leaves every record where it was; the next pass asks again.
 func TestReconcileWithClusterWithholdsWhereItCannotAct(t *testing.T) {
 	const propName = "title"
 
@@ -142,12 +131,9 @@ func TestReconcileWithClusterWithholdsWhereItCannotAct(t *testing.T) {
 
 			if tt.shuttingDown {
 				shard.shutdownRequested.Store(true)
-				// Before the deferred Shutdown, which the flag would refuse.
 				defer shard.shutdownRequested.Store(false)
 			}
 
-			// The pass walks db.indices, which the shard fixture does not
-			// populate.
 			require.NotNil(t, idx.db, "the test shard fixture has to wire idx.db")
 			idx.db.indices[indexID(idx.Config.ClassName)] = idx
 
@@ -166,16 +152,9 @@ func TestReconcileWithClusterWithholdsWhereItCannotAct(t *testing.T) {
 	}
 }
 
-// TestReconcileWithoutADatabaseHandle pins the startup window: an index gets
-// its database handle only after its constructor returns, so an eagerly
-// loaded shard reconciles with no handle to read the task map from. The
-// constructor's recover swallows the resulting panic, the index never
-// registers, and every later submit fails against the whole collection.
 func TestReconcileWithoutADatabaseHandle(t *testing.T) {
 	const propName = "title"
 
-	// Merged is the state whose disposition the task map decides; the others
-	// reach the same withhold through the same guard, so one row pins it.
 	tests := []struct {
 		name string
 		rec  func(MigrationSubject) MigrationRecord
@@ -204,7 +183,6 @@ func TestReconcileWithoutADatabaseHandle(t *testing.T) {
 
 			handle := idx.db
 			idx.db = nil
-			// Restored before the deferred Shutdown, which needs the handle.
 			defer func() { idx.db = handle }()
 
 			require.NotPanics(t, func() { shard.reconcileMigrationRecords(ctx, class) })

@@ -405,17 +405,6 @@ const reindexAuditQuarantineFile = "audit_quarantined.mig"
 // live" → quarantine sentinel is removed without destruction.
 const reindexAuditQuarantineWindow = 5 * time.Minute
 
-// collectOrphanTrackers walks <lsmPath>/.migrations/ and returns every tracker
-// dir classified as an orphan: a migration record names it, its data is not
-// committed, and the task that record names is not known to DTM. Read-only;
-// cleanup is the caller's job.
-//
-// A directory no record names is the second kind of orphan, and this is its
-// only reclaimer: a run that crashed before its buckets opened has a live
-// task but no record, so its identity comes from payload.mig instead. A
-// missing payload gives up its directory alone; an unreadable one is left
-// entirely, since only absence proves the property list is empty. Age
-// separates all of these from a directory this process is still writing.
 func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -424,10 +413,6 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 	}
 	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
 	if someRecordsUnreadable || recordSetUnreadable {
-		// A record this build cannot read may name any tracker here, and the
-		// record-less fallback only has payload.mig, which a tracker whose
-		// write was torn need not carry. So this withholds reclamation shard-wide, like every
-		// other consumer of an unreadable record set — costing disk, not data.
 		logger.WithField("collection", collection).WithField("shard", shardName).
 			Warn("reindex orphan audit: migration records could not be read; reclaiming nothing on this shard")
 		return nil
@@ -453,36 +438,19 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 				continue
 			}
 			if !old {
-				// The record is written later in the same run, once the
-				// migration's buckets are open, so a directory this process
-				// just created may not have one yet.
 				logger.WithField("collection", collection).WithField("shard", shardName).
 					WithField("tracker", dirName).WithField("tracker_mtime", mtime).
 					Warn("reindex orphan audit: tracker names no migration record but was created after this process started; leaving it for the next sweep")
 				continue
 			}
-			// payload.mig, not the record, is what a tracker whose run
-			// crashed before its record landed still has. Without its
-			// property list the cleanup removes the tracker and leaves the
-			// sidecar directories behind, and the next migration re-issues
-			// the same generation straight onto them.
 			payload, _ := readTaskProps(filepath.Join(migsDir, dirName))
 			if payload.unreadable {
-				// Present but unreadable is not the same as absent, and only
-				// absent means "there were no properties". Reclaiming on a
-				// payload nobody could parse would delete the tracker on the
-				// strength of a list we never saw.
 				logger.WithField("collection", collection).WithField("shard", shardName).
 					WithField("tracker", dirName).WithField("tracker_mtime", mtime).
 					Warn("reindex orphan audit: tracker names no migration record and its payload could not be read; reclaiming nothing for it")
 				continue
 			}
 			if knownTask(payload.taskID, payload.taskVersion) {
-				// The record is written after the migration's buckets open, so
-				// a tracker whose run crashed before that has none while its
-				// task is still live and about to resume. payload.mig is
-				// written before the iteration and carries the identity that
-				// answers.
 				logger.WithField("collection", collection).WithField("shard", shardName).
 					WithField("tracker", dirName).WithField("taskID", payload.taskID).
 					Info("reindex orphan audit: tracker names no migration record but its task is still live; leaving it alone")
@@ -521,8 +489,6 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 		if knownTask(subject.TaskID, subject.Key.TaskVersion) {
 			continue
 		}
-		// The decoder refuses a record naming a type this build does not know,
-		// so the second result cannot be false here.
 		indexTypes, _ := semanticMigrationIndexTypesForAudit(subject.MigrationType)
 		orphans = append(orphans, orphanReindexTracker{
 			collection:  collection,
@@ -540,18 +506,8 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 	return orphans
 }
 
-// processStartTime is the clock the record-less arm of collectOrphanTrackers
-// compares against. The audit runs many times per process, but the question it
-// answers is fixed: was this directory on disk before this process existed?
-// Only the first-boot timestamp can answer that.
 var processStartTime = time.Now()
 
-// migrationDirPredatesThisProcess reports whether a tracker directory that no
-// record names was already on disk when this process started.
-//
-// A directory carrying a quarantine sentinel answers from the sentinel's
-// presence instead: an earlier sweep already found no record for it, and the
-// age question does not reset once asked.
 func migrationDirPredatesThisProcess(trackerPath string) (bool, time.Time, error) {
 	info, err := os.Stat(trackerPath)
 	if err != nil {
@@ -564,16 +520,6 @@ func migrationDirPredatesThisProcess(trackerPath string) (bool, time.Time, error
 	return !mtime.After(processStartTime), mtime, nil
 }
 
-// partitionOrphansByQuarantine passes through only the orphans whose
-// audit_quarantined.mig has been on disk for [reindexAuditQuarantineWindow];
-// the rest get a sentinel written and wait for a later sweep. One node's DTM
-// snapshot can be stale — a follower that has not caught up reports a live task
-// as gone — so the second sweep runs against fresh state and either confirms
-// the orphan or clears the sentinel through [clearStaleQuarantineSentinels].
-//
-// A sentinel this cannot stat or write passes the orphan straight through, on
-// the view that a permanently broken disk path is worse than a missed
-// quarantine. The log line names which happened.
 func partitionOrphansByQuarantine(lsmPath string, orphans []orphanReindexTracker, logger logrus.FieldLogger) []orphanReindexTracker {
 	confirmed := make([]orphanReindexTracker, 0, len(orphans))
 	for i := range orphans {
@@ -620,11 +566,6 @@ func partitionOrphansByQuarantine(lsmPath string, orphans []orphanReindexTracker
 	return confirmed
 }
 
-// preserveTrackerDirMtime returns the restore for trackerPath's own
-// modification time. A tracker no record names is classified by that mtime and
-// the audit is its only reclaimer, so a sweep that moves it strands the tracker
-// for the rest of the process. Best effort: a crash before the restore leaves
-// the directory looking fresh, which is where it was without this.
 func preserveTrackerDirMtime(trackerPath string) func() {
 	info, err := os.Stat(trackerPath)
 	if err != nil {
@@ -633,8 +574,6 @@ func preserveTrackerDirMtime(trackerPath string) func() {
 	return func() { _ = os.Chtimes(trackerPath, time.Now(), info.ModTime()) }
 }
 
-// removeQuarantineSentinel clears the sentinel without moving the directory
-// mtime the audit classifies by.
 func removeQuarantineSentinel(trackerPath string) error {
 	defer preserveTrackerDirMtime(trackerPath)()
 	return os.Remove(filepath.Join(trackerPath, reindexAuditQuarantineFile))
@@ -658,24 +597,12 @@ func writeQuarantineSentinel(trackerPath string) error {
 	return f.Close()
 }
 
-// clearStaleQuarantineSentinels removes audit_quarantined.mig from tracker dirs
-// whose record — or, for a tracker that has none yet, whose payload — maps to
-// a known-live DTM task. Called per-shard
-// when the orphan list is empty, so that a sweep which mis-classified a live
-// migration as an orphan (a follower with stale RAFT, say) does not leave a
-// quarantine age behind for a future, legitimate orphan to inherit.
-//
-// Errors are logged at Warn and never propagated: the worst case is a stale
-// sentinel that turns a later-detected orphan into an immediate destructive
-// cleanup, and at that point the orphan was real and the cleanup is logged.
 func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
 	if err != nil {
 		return
 	}
-	// Most shards carry no sentinel at all, and this runs per shard on every
-	// sweep, so the record store is only read once one is found.
 	var quarantined []string
 	for _, entry := range entries {
 		if entry.IsDir() && fileExists(filepath.Join(migsDir, entry.Name(), reindexAuditQuarantineFile)) {
@@ -689,10 +616,6 @@ func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLoo
 	for _, dirName := range quarantined {
 		trackerPath := filepath.Join(migsDir, dirName)
 		if someRecordsUnreadable || recordSetUnreadable {
-			// A matured sentinel is stored destructive intent. Leaving it on a
-			// shard nothing can classify means the first sweep after the
-			// records read again deletes with no fresh grace period, so clear
-			// it and let that sweep start the window over.
 			if rmErr := removeQuarantineSentinel(trackerPath); rmErr != nil && !os.IsNotExist(rmErr) {
 				logger.WithField("tracker", dirName).
 					Warnf("reindex orphan audit: failed to clear quarantine sentinel on a shard whose records could not be read: %v", rmErr)
@@ -701,23 +624,11 @@ func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLoo
 		}
 		rec, recOK := migrationRecordForTracker(records, dirName)
 		if !recOK {
-			// The record lands once the migration's buckets open, so a run
-			// that crashed before that carries only payload.mig — the same
-			// identity collectOrphanTrackers classifies it by. Reading it here
-			// too is what makes the grace window repeatable instead of
-			// single-use: without it the sentinel this tracker already carries
-			// can never be cleared, and the next sweep that misclassifies it
-			// destroys on the first pass.
 			payload, _ := readTaskProps(trackerPath)
 			if payload.unreadable || !knownTask(payload.taskID, payload.taskVersion) {
 				continue
 			}
 		} else if !knownTask(rec.Subject().TaskID, rec.Subject().Key.TaskVersion) {
-			// Tracker is still classified as orphan from the record's
-			// perspective; the empty-orphans branch got here only because
-			// collectOrphanTrackers already filtered upstream (e.g. the
-			// migration has since committed). Either way the sentinel is now
-			// load-bearing for a future orphan sweep, so leave it alone.
 			continue
 		}
 		if rmErr := removeQuarantineSentinel(trackerPath); rmErr != nil && !os.IsNotExist(rmErr) {
@@ -774,9 +685,6 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 		logger.WithField("orphan", o.String()).
 			Warn("reindex orphan audit: found tracker for unknown task; quarantining sidecar bucket and tracker dir")
 		err := func() error {
-			// Deferred rather than called after: a seal that leaks refuses
-			// this unit for the life of the process, so the migration could
-			// never run here again.
 			defer release()
 			return db.cleanupOrphanTrackerCompactionPaused(ctx, shard, o, logger)
 		}()
@@ -814,7 +722,6 @@ func (db *DB) cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexT
 			Warn("reindex orphan audit: found tracker for unknown task on unloaded shard; removing tracker and sidecar dirs from disk")
 		trackerPath := filepath.Join(lsmPath, ".migrations", o.dirName)
 		removeErr := func() error {
-			// Deferred rather than called after, for the reason above.
 			defer release()
 			if err := os.RemoveAll(trackerPath); err != nil {
 				return err
@@ -833,33 +740,11 @@ func (db *DB) cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexT
 	return cleaned, failed
 }
 
-// sealOrphanUnit holds the orphan's own (task, unit) for the length of its
-// cleanup. The audit classifies an orphan from the task's cluster status
-// alone, and a status goes terminal without waiting for the local unit to
-// exit — so the tracker about to be deleted can be one a worker on this node
-// is still writing through pointers taken before its phase began.
-//
-// A tracker with no payload.mig names no task, and the seal it takes is the
-// empty descriptor, which holds nothing back. That is sound only because such
-// a tracker cannot belong to a run this process started: the payload is
-// written before any unit begins, and the caller has already excluded every
-// directory created since process start.
 func (db *DB) sealOrphanUnit(o *orphanReindexTracker) (func(), bool) {
 	return db.migrationSeals.SealUnit(
 		distributedtask.TaskDescriptor{ID: o.taskID, Version: o.taskVersion}, o.unitID)
 }
 
-// removeUnloadedSidecarsForOrphan removes the per-property sidecar bucket
-// directories the orphan tracker owns: <main>__<ingestSuffix>_<gen> and
-// <main>__<reindexSuffix>_<gen>, composed through [migrationSuffixes] keyed by
-// the tracker's own dir name rather than matched by string prefix. A dir name
-// matching no registered strategy is a no-op, so a new strategy is picked up
-// here automatically.
-//
-// The registry rather than the record, because an orphan from the record-less
-// arm has only its payload. A record's own [MigrationSubject.SidecarDirs]
-// would be stronger evidence and moving to it is open work; until then the two
-// derivations must not drift apart.
 func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, logger logrus.FieldLogger) {
 	for _, sidecar := range sidecarDirsForOrphan(o) {
 		path := filepath.Join(lsmPath, sidecar)
@@ -873,19 +758,10 @@ func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, lo
 	}
 }
 
-// sidecarDirsForOrphan returns the lsm-relative sidecar bucket dir names the
-// strategy registry says this orphan's tracker owns. Returns an empty slice
-// when the tracker dirName matches no registered strategy, or when the orphan
-// carries no properties — class-level cleanup removes the tracker dir itself.
 func sidecarDirsForOrphan(o *orphanReindexTracker) []string {
 	return migrationSidecarDirsFor(o.dirName, o.prefix, o.generation, o.properties)
 }
 
-// migrationSidecarDirsFor names the sidecar bucket dirs the reclaiming audit
-// may remove for one tracker: <main><ingestSuffix>_<gen> and
-// <main><reindexSuffix>_<gen>, composed through [migrationSuffixes] keyed by
-// the tracker's own dir name rather than matched by string prefix. A new
-// strategy is therefore picked up automatically.
 func migrationSidecarDirsFor(dirName, prefix string, generation int, properties []string) []string {
 	if len(properties) == 0 {
 		return nil
@@ -941,16 +817,6 @@ func (db *DB) cleanupOrphanTrackerCompactionPaused(ctx context.Context, shard *S
 	return nil
 }
 
-// semanticMigrationIndexTypesForAudit returns the indexType fan-out
-// the audit's CleanStalePartialReindexState loop iterates over for a
-// given migration type. Mirrors [indexTypesFromMigrationType] in the
-// REST handler.
-//
-// An empty type is a tracker from a release that recorded none, and the
-// audit removes its directory whole. A type this build does not know is the
-// opposite — a fan-out that exists but that nothing here can compose — so the
-// second result is false and the caller reclaims nothing rather than
-// deleting on a list it could not read.
 func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) (indexTypes []string, known bool) {
 	switch mt {
 	case "":

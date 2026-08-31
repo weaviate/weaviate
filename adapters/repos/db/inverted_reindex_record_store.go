@@ -466,13 +466,6 @@ func (s *MigrationRecordStore) removeSynced(key MigrationRecordKey, sync func(st
 	return nil
 }
 
-// migrationFrozenStoreRemedy is what an operator can do about a record this
-// build cannot read. The freeze is deliberate — the file is the only thing
-// that attributes the directories it names — so the way out is to make the
-// file readable, not to write past it.
-//
-// The freeze is counted in the node-wide migration_records_not_understood_total
-// counter; which shard it is about is in the load's own log line.
 const migrationFrozenStoreRemedy = "The named file under <shard>/lsm/.migrations/records/ is the only " +
 	"thing that attributes the directories it names, so nothing here may write past it. " +
 	"Run the build that wrote it, or remove that file by hand once you have confirmed what it claims"
@@ -531,9 +524,7 @@ func (s *MigrationRecordStore) Records() []MigrationRecord {
 
 // HasUndecided reports whether any understood record is still pre-swap and
 // still movable. A wedged one is neither, and asking again about it is what
-// makes the periodic pass repeat forever with nothing to show for it. It
-// answers under the read lock without allocating, because the shard-wiring
-// probe asks once per shard per minute and wants only a yes or no.
+// makes the periodic pass repeat forever with nothing to show for it.
 func (s *MigrationRecordStore) HasUndecided() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

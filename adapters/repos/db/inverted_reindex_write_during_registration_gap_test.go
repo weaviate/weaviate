@@ -28,16 +28,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestReindex_ConcurrentWriteInRegistrationGap_NotLost pins
-// weaviate/weaviate#11688: a write that lands before the double-write mirror is
-// armed reaches no mirror, so the iteration horizon has to be fixed after the
-// arming. Fixed before it, the backfill skips the same write
-// (LastUpdateTimeUnix >= horizon) and it is lost for good.
 func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
-	// The horizon's other half: it delegates everything at or after it to the
-	// mirror, so a mirror directory that a sweep removed takes exactly those
-	// writes with it. The reverse edge has to take them back, and it has to
-	// fire on a record that has no checkpoint to vouch for anything yet.
 	sweepTheMirrorDirectory := func(t *testing.T, ctx context.Context, shard *Shard,
 		task *ShardReindexTaskGeneric, class *models.Class, propName string,
 	) {
@@ -108,8 +99,6 @@ func testRegistrationGapWritesSurvive(t *testing.T,
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
 
-	// Land the gap writes exactly where #11688 loses them: after the ingest
-	// buckets exist but before the mirror is armed.
 	gapWritesDone := false
 	origRegister := task.registerDoubleWriteCallbacksFn
 	task.registerDoubleWriteCallbacksFn = func(shard *Shard, props []string,
@@ -150,7 +139,6 @@ func testRegistrationGapWritesSurvive(t *testing.T,
 	require.NotEmptyf(t, readRangeableIDs(t, rangeBucket, 0),
 		"positive control: iterator-backfilled corpus value 0 must be present")
 
-	// Gap writes: kept only because the horizon is fixed after the arming.
 	for i := 0; i < numGapUpdates; i++ {
 		val := gapValueBase + int64(i)
 		assert.Lenf(t, readRangeableIDs(t, rangeBucket, val), 1,

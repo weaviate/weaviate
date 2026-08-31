@@ -195,9 +195,7 @@ type migrationDirScope struct {
 	prefixes []string
 	// props memoizes payloads across the passes of one sweep; nil reads every
 	// time. Set by [migrationDirScope.cachingProps].
-	props *taskPropsCache
-	// records answers for every directory a record names, which is what keeps
-	// payload.mig off this path. Set by [migrationDirScope.knownFrom].
+	props   *taskPropsCache
 	records []MigrationRecord
 }
 
@@ -208,8 +206,6 @@ func (s migrationDirScope) cachingProps(c *taskPropsCache) migrationDirScope {
 	return s
 }
 
-// knownFrom hands the scope the shard's records, which the sweep has already
-// read to decide what it must preserve.
 func (s migrationDirScope) knownFrom(state migrationPreservedState) migrationDirScope {
 	s.records = state.records
 	return s
@@ -424,10 +420,6 @@ func (s migrationDirScope) hasStrategyPrefix(base string) bool {
 // payload exists but couldn't be read, so "recorded nothing" isn't a safe
 // conclusion.
 func (s migrationDirScope) taskProperties(name string) (props []string, ok, unreadable bool) {
-	// The record is authoritative and costs nothing: it was already read to
-	// build the preserve set. payload.mig is the fallback for a directory no
-	// record names, and parsing it costs megabytes per tracker inside the
-	// RAFT apply that holds the FSM loop cluster-wide.
 	if rec, found := migrationRecordForTracker(s.records, name); found {
 		return rec.Subject().Properties(), len(rec.Subject().Properties()) > 0, false
 	}
@@ -448,25 +440,16 @@ type taskPropsCache struct {
 	reads int
 }
 
-// taskProps is one [migrationDirScope.taskProperties] answer. migrationType
-// travels with the property list because the orphan audit needs both to name
-// the sidecar buckets a tracker owns, and both come from the same read.
 type taskProps struct {
 	props         []string
 	migrationType ReindexMigrationType
 	ok            bool
 	unreadable    bool
-	// taskID, taskVersion and unitID are the migration's identity, which the
-	// orphan audit needs to ask whether the task owning a record-less tracker
-	// is still live before it reclaims one.
-	taskID      string
-	taskVersion uint64
-	unitID      string
+	taskID        string
+	taskVersion   uint64
+	unitID        string
 }
 
-// lookup answers for one tracker dir. The memo is keyed by dir alone — safe
-// because the answer is a pure function of the directory: no strategy prefix
-// is a prefix of another, so at most one can ever satisfy a given dir name.
 func (c *taskPropsCache) lookup(migDir string) taskProps {
 	if c == nil {
 		answer, _ := readTaskProps(migDir)
@@ -486,7 +469,6 @@ func (c *taskPropsCache) lookup(migDir string) taskProps {
 	return answer
 }
 
-// count is how many payloads this cache had to read; a refusal opens none.
 func (c *taskPropsCache) count() int {
 	if c == nil {
 		return 0
@@ -494,20 +476,6 @@ func (c *taskPropsCache) count() int {
 	return c.reads
 }
 
-// readTaskProps answers from payload.mig, which costs megabytes per tracker
-// on a large migration inside a RAFT apply holding the FSM loop cluster-wide.
-// A payload over [maxRecoveryPayloadBytes] is refused rather than parsed, and
-// reads the same as an unparseable one — fail-open, never fail-wrong:
-// deletion falls back to the dir's own name, preservation and the
-// unloaded-shard gate err toward keeping more.
-//
-// A property name that isn't a single directory entry makes the whole payload
-// unreadable: sweeps and the orphan audit compose bucket/sidecar names from it
-// and remove those, and unlike a record's names these never passed
-// [validateMigrationHandles] (a restored archive can carry anything here).
-//
-// readPayload reports whether payload.mig was opened, so the caller's read
-// counter keeps meaning what it says. A refusal opens nothing.
 func readTaskProps(migDir string) (answer taskProps, readPayload bool) {
 	facts, err := readRecoveryPayloadFacts(migDir)
 	if err != nil {

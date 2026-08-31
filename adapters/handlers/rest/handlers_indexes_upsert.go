@@ -771,14 +771,10 @@ type stalePartialStateCleaner interface {
 	NewStalePartialReindexSweep() db.StalePartialReindexSweep
 }
 
-// localReindexDrainSealer waits for every local worker of one task to exit and
-// then holds the task. *db.ReindexProvider satisfies it.
 type localReindexDrainSealer interface {
 	SealLocalTaskDrain(ctx context.Context, desc distributedtask.TaskDescriptor) (func(), error)
 }
 
-// reindexDrainSealer is nil where no provider is wired, which is also where no
-// local reindex worker can exist.
 func (h *indexesHandlers) reindexDrainSealer() localReindexDrainSealer {
 	if h.appState.ReindexProvider == nil {
 		return nil
@@ -786,16 +782,6 @@ func (h *indexesHandlers) reindexDrainSealer() localReindexDrainSealer {
 	return h.appState.ReindexProvider
 }
 
-// sealLocalReindexWorkers holds every local worker of every task on this
-// (collection, property) for as long as the caller keeps the returned
-// release, since the sweep that follows removes __reindex/__ingest bucket
-// directories out from under a task that went terminal without waiting for
-// its local unit to exit.
-//
-// Every task reachable here is terminal — an active one on an overlapping
-// property already refused this submit with a 409 — and a worker that won't
-// drain refuses too, rather than let the sweep remove directories out from
-// under acknowledged writes.
 func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal *models.Principal,
 	sealer localReindexDrainSealer, collection, propertyName string,
 	reindexTasks []*distributedtask.Task,
@@ -809,8 +795,6 @@ func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal
 			unseal()
 		}
 	}
-	// One deadline for the whole drain, not one per task: inside the loop the
-	// submit could wait N x reindexCancelDrainTimeout before it answers.
 	drainCtx, cancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
 	defer cancel()
 	for _, desc := range reindexTaskDescriptorsForProperty(reindexTasks, collection, propertyName, h.appState.Logger) {
@@ -823,8 +807,6 @@ func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal
 				"taskID":     desc.ID,
 			})
 			if errors.Is(err, context.Canceled) {
-				// The caller hung up. Nothing is wrong with the worker, and
-				// the responder below never reaches anyone.
 				entry.Infof("submit: the request ended while waiting for an earlier task's local worker: %v", err)
 			} else {
 				entry.Errorf("submit: a local worker of an earlier task on this property has not exited, "+

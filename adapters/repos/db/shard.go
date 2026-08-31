@@ -431,11 +431,6 @@ type Shard struct {
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
 
-	// rangeableUndecidable records that this shard's migration records could
-	// not all be read at init, so the pessimistic entries above may be
-	// incomplete: an undecoded record could be exactly the in-flight
-	// migration whose empty bucket must not be queried as ready. Written once
-	// at init, read on every filter that asks.
 	rangeableUndecidable atomic.Bool
 
 	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
@@ -519,9 +514,6 @@ type Shard struct {
 
 	migrationRecords *MigrationRecordStore
 
-	// migrationMirrors holds the handles that disarm a reindex migration's
-	// double-write mirror. They live here rather than on the task instance
-	// that armed them because the actor that disarms is never that one.
 	migrationMirrors migrationMirrorRegistry
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
@@ -805,8 +797,6 @@ func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 	}
 	s.rangeableLocalReadyMu.RUnlock()
 
-	// No explicit entry and no way to know whether one was owed: a record
-	// that failed to decode is not evidence that no migration is in flight.
 	if s.rangeableUndecidable.Load() {
 		return false
 	}

@@ -21,30 +21,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBuildReindexTasksGenerationAllocation pins that both the fresh and the
-// rehydrate arm answer from the same evidence — tracker directories plus
-// records, since a sweep can strand one without the other. The fresh arm
-// must not hand out a generation a record still claims; the rehydrate arm
-// must not attach to an older generation's directories than the record's.
 func TestBuildReindexTasksGenerationAllocation(t *testing.T) {
 	const propName = "title"
 
 	tests := []struct {
-		name string
-		// dirs are the tracker directories on disk.
-		dirs []string
-		// recordGen, when non-zero, is the generation a record claims after a
-		// sweep removed its tracker directory.
-		recordGen int
-		// undecodable plants a record file this build cannot read.
+		name        string
+		dirs        []string
+		recordGen   int
 		undecodable bool
-		// unlistable leaves the tracker directory there but unreadable.
-		unlistable bool
-		rehydrate  bool
+		unlistable  bool
+		rehydrate   bool
 
 		wantErr bool
-		// wantDir is the migration dir name of the task that came back;
-		// empty means no task was instantiated.
 		wantDir string
 	}{
 		{

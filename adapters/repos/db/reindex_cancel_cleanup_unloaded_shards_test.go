@@ -32,18 +32,13 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// committedTracker is a migration directory whose migration has committed its
-// data: a sweep may remove neither it nor the directory it names.
 type committedTracker struct {
-	dir   string
-	prop  string
-	owned string
-	// promoted says the migration already renamed its data onto the canonical
-	// name, which leaves only a closure step no load can perform.
+	dir      string
+	prop     string
+	owned    string
 	promoted bool
 }
 
-// mustMainBucket is the canonical bucket one property's index lives in.
 func mustMainBucket(t *testing.T, propName, indexType string) string {
 	t.Helper()
 	name, ok := mainBucketForPropertyIndex(propName, indexType)
@@ -51,10 +46,6 @@ func mustMainBucket(t *testing.T, propName, indexType string) string {
 	return name
 }
 
-// mkFlippedMigrationRecord plants a record whose flip is durable: from here
-// its staged directories hold the live data, renamed onto canonical names
-// only by a shard load. Takes canonical explicitly, since the three index
-// types put one property's bucket under three different names.
 func mkFlippedMigrationRecord(t *testing.T, lsmPath, trackerName, prop, staged, canonical string) {
 	t.Helper()
 	mkMigrationRecordAt(t, lsmPath, trackerName,
@@ -197,10 +188,6 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 	}
 }
 
-// A migration that has flipped leaves its data under the staged name until a
-// shard load renames it onto the canonical one. On an unloaded tenant nothing
-// else ever runs that load, so a gate that skips the tenant is a gate that
-// leaves the data at a name no bucket opens.
 func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *testing.T) {
 	const (
 		residueTenant = "residue-tenant"
@@ -225,9 +212,6 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 		tracker   string
 		ingestDir string
 		canonical string
-		// legacyDir is the backup copy of the displaced main bucket that
-		// every swap writes. What makes it legacy here is that no record
-		// names it, and the tracker that would have is already gone.
 		legacyDir string
 	}{
 		{
@@ -352,8 +336,6 @@ func lsmDirNames(t *testing.T, lsmPath string) []string {
 // compared — several stale rows are fail-open answers the hydrated sweep
 // decides for itself, at the cost [hasStalePartialReindexState] names.
 func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing.T) {
-	// A committed migration awaiting promotion: its ingest sidecar is the live
-	// bucket, which the sweep must preserve along with the tracker dir.
 	deferredFinalize := []committedTracker{{
 		dir:   "enable_filterable_category_1",
 		prop:  "category",
@@ -364,10 +346,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		name      string
 		propName  string
 		indexType string
-		// trackers are .migrations dirs no record names.
-		trackers []string
-		// committed are .migrations dirs whose migration has committed its
-		// data, so neither they nor the directories they name are removable.
+		trackers  []string
 		committed []committedTracker
 		// payloads is the property list a tracker's task recorded, distinguishing
 		// a two-property task from a property whose name contains the join char.
@@ -376,10 +355,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		sidecars []string
 		// unreadable is a dir the gate is denied access to, relative to the
 		// shard's LSM path ("." is the LSM path itself). Empty denies nothing.
-		recordSetUnreadable string
-		// unlistableMigrationsDir takes the read bit off .migrations while
-		// leaving it traversable, so .migrations/records still opens and the
-		// record set reads as clean.
+		recordSetUnreadable     string
 		unlistableMigrationsDir bool
 		// unreadablePayloadTracker names a tracker whose payload.mig is a
 		// directory instead of a file — unreadable for any user, root
@@ -387,19 +363,11 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		unreadablePayloadTracker string
 		// corruptPayload names a tracker whose payload.mig is written as
 		// garbage bytes instead of a recovery record.
-		corruptPayload string
-		// unreadableRecord plants a file in the record store this build cannot
-		// place, which freezes every removal on the shard.
+		corruptPayload   string
 		unreadableRecord bool
-		// wantSweepFails says the sweep this gate stands in front of cannot
-		// run at all, so there is no post-state to compare.
-		wantSweepFails bool
-		wantStale      bool
-		// wantFinalizable says a load would reclaim something here even with
-		// nothing for the sweep to remove — the gate's other half. Reporting
-		// it wrongly either wakes a cold tenant forever, or leaves a
-		// completed migration's leftovers on disk until something hydrates it.
-		wantFinalizable bool
+		wantSweepFails   bool
+		wantStale        bool
+		wantFinalizable  bool
 	}{
 		{
 			name:      "a shard with no reindex state at all",
@@ -437,9 +405,6 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			wantFinalizable: true,
 		},
 		{
-			// A record this build cannot place may name any directory here,
-			// so nothing on the shard is removable until it can be read.
-			// Reporting work would wake this tenant on every pass instead.
 			name:             "a migration record this build cannot read",
 			indexType:        "filterable",
 			trackers:         []string{"enable_filterable_category_1"},
@@ -655,20 +620,12 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			wantStale:           true,
 		},
 		{
-			// Traversable but not readable, so the records underneath still
-			// answer and the record-set arm never fires. The shard's migration
-			// state has still not been read, and a gate that calls it clean
-			// leaves that unsaid.
 			name:                    "a migration directory the gate cannot list while its records answer",
 			indexType:               "filterable",
 			unlistableMigrationsDir: true,
 			wantStale:               true,
 		},
 		{
-			// A load can remove directories, but it can never make an absent
-			// schema effect appear, so a promoted migration whose data is
-			// already at the canonical name is not work a hydration reclaims.
-			// Counting it would wake this tenant on every sweep pass, forever.
 			name:      "a promoted migration waiting only on its schema effect",
 			indexType: "filterable",
 			committed: []committedTracker{{
@@ -677,9 +634,6 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			}},
 		},
 		{
-			// The other half of the promoted rule: a directory the record
-			// still owns is disk work, and a load is the only thing that
-			// reclaims it. One hydration settles it, unlike the row above.
 			name:      "a promoted migration whose directory is still on disk",
 			indexType: "filterable",
 			committed: []committedTracker{{
@@ -690,10 +644,6 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			wantFinalizable: true,
 		},
 		{
-			// A directory nothing can list says nothing about what is in it,
-			// which is a stronger fault than a record this build cannot
-			// understand: that one withholds removals, this one hides them.
-			// The gate fails open and the sweep says so loudly.
 			name:                "a .migrations dir the gate cannot enumerate",
 			indexType:           "filterable",
 			recordSetUnreadable: ".migrations",
@@ -801,8 +751,6 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			stale, finalizable := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, nil, logger)
 			require.Equal(t, tc.wantStale, stale)
 			if !tc.wantStale {
-				// Only meaningful where nothing is stale: a shard the gate
-				// hydrates finalizes on the way in either way.
 				require.Equal(t, tc.wantFinalizable, finalizable)
 			}
 			if tc.wantStale {
@@ -923,25 +871,17 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 	}
 }
 
-// Pins #10675: sweeping one property must not remove the tracker or the live
-// sidecar of a migration that owns them, and must remove exactly the ones no
-// committed migration owns. A directory name reads three ways at once, so what
-// decides is the record, never the name.
 func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTracker(t *testing.T) {
 	const sidecar = "property_a__enable_filterable_ingest_1"
 
 	tests := []struct {
-		name    string
-		tracker string
-		// staged is the record's property list and, per property, the
-		// directory it says that property's data is in.
-		staged       map[string]string
-		state        MigrationState
-		wantTracker  bool
-		wantSidecar  bool
-		wantGateHold bool
-		// wantFinalizable is the gate's other half: leftovers only a load can
-		// reclaim hold the shard open just as stale state does.
+		name            string
+		tracker         string
+		staged          map[string]string
+		state           MigrationState
+		wantTracker     bool
+		wantSidecar     bool
+		wantGateHold    bool
 		wantFinalizable bool
 	}{
 		{
@@ -953,14 +893,8 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			},
 			state:       MigrationStateSwapped,
 			wantTracker: true, wantSidecar: true,
-			// Preserved is not the same as skipped: a recorded flip awaiting
-			// promotion is work only a load finishes, so the gate still holds
-			// this shard open — via the half wantGateHold does not cover.
 			wantFinalizable: true,
 		},
-		// "enable_filterable_a_x_1" is both ["a","x"] and ["a_x"]. Guessing
-		// from the name preserved this property's sidecar on the strength of
-		// another property's migration.
 		{
 			name:        "a name that reads as this property, whose record names another",
 			tracker:     "enable_filterable_a_x_1",
@@ -975,8 +909,6 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			state:       MigrationStateSwapped,
 			wantTracker: true, wantGateHold: true,
 		},
-		// The state decides, not the record's existence: staged data that is
-		// not yet the data is exactly what this sweep is for.
 		{
 			name:    "a record naming this property whose data is not committed",
 			tracker: "enable_filterable_a_b_1",
@@ -1383,9 +1315,6 @@ func TestDirNamesCache(t *testing.T) {
 			"the cached listing shares a backing array with the full-directory slice")
 	})
 
-	// The gate asks per (index type, property) tuple over the same shards, and
-	// each ask reads that shard's records off disk. Memoizing them on the run's
-	// cache is what keeps one terminal cleanup's grid at one read per shard.
 	t.Run("a shard's committed migrations are read once per run", func(t *testing.T) {
 		lsm := t.TempDir()
 		const tracker = "enable_filterable_cat_dog_1"
@@ -1397,7 +1326,6 @@ func TestDirNamesCache(t *testing.T) {
 		cache := &dirNamesCache{}
 		require.True(t, cache.committedMigrations(lsm, logger).preservesTracker(tracker))
 
-		// Removing the record is a change only a fresh read can see.
 		require.NoError(t, os.RemoveAll(
 			filepath.Join(lsm, ".migrations", migrationRecordsDirName)))
 
@@ -1482,10 +1410,6 @@ func strategiesByMigrationDir(generation int) map[string]MigrationStrategy {
 	}
 }
 
-// classLevelMigrationDirs are the two trackers no per-property cleanup owns:
-// they aggregate every property of the class, so a single property's DELETE
-// removing one would corrupt the rest. They appear in no production
-// per-index-type table for that reason, which is why they are named here.
 var classLevelMigrationDirs = []string{
 	MigrationDirSearchableMapToBlockmax,
 	MigrationDirFilterableRoaringsetRefresh,
@@ -1531,10 +1455,6 @@ func TestEverySidecarSuffixIsASidecar(t *testing.T) {
 		}
 	}
 
-	// legacyRoleWords earn their place in the list by reclamation alone: no
-	// strategy on this build produces one, but every cluster upgrading into
-	// this build brings those directories with it. Pin that they stay
-	// unproduced, so the list's own godoc cannot quietly go stale.
 	legacyRoleWords := []string{"backup", "map"}
 	produced := slices.Collect(maps.Keys(roles))
 	for _, word := range legacyRoleWords {
@@ -1542,9 +1462,6 @@ func TestEverySidecarSuffixIsASidecar(t *testing.T) {
 			"%q is produced by a strategy, so it is no longer reclamation-only", word)
 	}
 
-	// Set equality, both directions: a word missing from the list leaves a
-	// live sidecar that nothing reclaims, and a word that is neither produced
-	// nor legacy is a claim about disk that nothing on this build backs.
 	require.ElementsMatch(t, sidecarRoleWords, append(produced, legacyRoleWords...))
 }
 
@@ -1566,8 +1483,6 @@ func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
 		{name: "category__reindex's own bucket, wrongly accepted", dir: main + "__reindex", want: true},
 		{name: "category__ingest_0's own bucket, wrongly accepted", dir: main + "__ingest_0", want: true},
 		{name: "a property named after a number", dir: main + "__12", want: false},
-		// The backup copy of the displaced main bucket, which every swap
-		// writes ([ShardReindexTaskGeneric.runtimeSwap]).
 		{name: "a blockmax backup dir", dir: main + "__blockmax_map_3", want: true},
 		{name: "a filterable backup dir", dir: main + "__enable_filterable_backup_1", want: true},
 		{name: "a property whose name extends a role word", dir: main + "__ingest_x", want: false},

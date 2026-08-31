@@ -74,10 +74,6 @@ func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 	return newSearchableRetokenizeTaskAtGeneration(t, idx, className, propName, targetTokenization, bucketStrategy, 1)
 }
 
-// newSearchableRetokenizeTaskAtGeneration is newSearchableRetokenizeTask for
-// the back-to-back case, where a second migration on the same property carries
-// a higher generation and a higher task version — the pair the supersession
-// relation orders by, and what gives the two their own staged buckets.
 func newSearchableRetokenizeTaskAtGeneration(t *testing.T, idx *Index, className, propName,
 	targetTokenization, bucketStrategy string, generation int,
 ) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
@@ -102,8 +98,6 @@ func newSearchableRetokenizeTaskAtGeneration(t *testing.T, idx *Index, className
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
-	// Without an identity the task's record key is incomplete and every
-	// transition would refuse to write itself.
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-searchable-retokenize", Version: uint64(generation)},
 		"shard-1__node-0",
@@ -244,8 +238,7 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 // then restart with a fresh task and assert post-recovery fingerprint
 // matches the baseline.
 type recoveryConvergenceCase struct {
-	name         string
-	driveToState func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric)
-	// expectedState sanity-checks that the drive-to actually halted there.
+	name          string
+	driveToState  func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric)
 	expectedState MigrationState
 }

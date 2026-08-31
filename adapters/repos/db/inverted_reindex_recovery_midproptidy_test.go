@@ -26,16 +26,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// midPropSwapHaltPanicPrefix is the sentinel string every hook-driven
-// panic carries, so the recover() handler can tell the expected halt
-// apart from an unrelated panic that would otherwise be swallowed and
-// mask a real bug.
 const midPropSwapHaltPanicPrefix = "mid-prop-swap halt: simulated crash"
 
-// midPropSwapInstallFault wraps the production processOneSwapProp
-// method so it panics once haltAfter properties have flipped. A
-// haltAfter of 0 is a pass-through. Injected via processOneSwapPropFn,
-// so the production method stays untouched.
 func midPropSwapInstallFault(task *ShardReindexTaskGeneric, haltAfter int) {
 	prod := task.processOneSwapProp
 	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error) {
@@ -51,12 +43,6 @@ func midPropSwapInstallFault(task *ShardReindexTaskGeneric, haltAfter int) {
 	}
 }
 
-// midPropSwapRunWithRecover runs runtimeSwap inside a defer-recover
-// frame, returning (panicked, panicValue, swapReturned, swapErr).
-//
-// Phase 2a is a sequential per-prop loop in the calling goroutine, so a
-// panic from the injected fault propagates straight up the stack and the
-// deferred recover() catches it.
 func midPropSwapRunWithRecover(ctx context.Context, task *ShardReindexTaskGeneric,
 	shard *Shard, props []string,
 ) (panicked bool, panicValue interface{}, swapReturned bool, swapErr error) {
@@ -71,13 +57,6 @@ func midPropSwapRunWithRecover(ctx context.Context, task *ShardReindexTaskGeneri
 	return
 }
 
-// TestRecoveryConvergence_MidPropSwap_HaltMatrix pins recovery
-// convergence when the per-prop flip loop is interrupted after K of N
-// props, for every K on a 4-prop class. K=0 is the no-halt baseline.
-//
-// The retirement of the displaced directories runs inline right after
-// the flip loop, on the same goroutine, so a halt inside the flip loop
-// is also a halt before any of that retirement has run.
 func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 	const numObjects = 25
 	propNames := []string{"title", "subtitle", "description", "keywords"}
@@ -106,7 +85,6 @@ func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task := newTestTask(idx.logger, strategy)
 
-			// Drive the rebuild and the prep, so the flip loop is next.
 			task.skipSwapOnFinish.Store(true)
 			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 			for {
@@ -142,9 +120,6 @@ func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 					"recovered panic was not from the fault (want prefix %q; got %T %v)",
 					midPropSwapHaltPanicPrefix, panicValue, panicValue)
 
-				// A flipped property has no ingest-name entry left in the
-				// store, which is the same fact the flip loop reads to skip
-				// one it already flipped.
 				flippedCount := 0
 				for _, p := range props {
 					if shard.store.Bucket(task.ingestBucketName(p)) == nil {
@@ -158,14 +133,10 @@ func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 					len(propNames), flippedCount)
 			}
 
-			// Restart and drive recovery.
 			shardName := shard.Name()
 			shardLSMPath := shard.pathLSM()
 			require.NoError(t, shard.Shutdown(ctx))
 
-			// Same orphan-bucket cleanup rationale as
-			// TestRecoveryConvergence_MidPropSwap_Loop — see that test's
-			// comment for the full reasoning.
 			simulateProcessRestartBucketCleanup(t, shardLSMPath)
 
 			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
@@ -188,7 +159,6 @@ func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 				}
 			}
 
-			// Every prop must converge to baseline.
 			for _, propName := range propNames {
 				bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
 				bucket := shard2.store.Bucket(bucketName)

@@ -24,16 +24,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// An enable-* migration commits its own precondition: the property's schema
-// flag stays off until OnMigrationComplete turns it on, and shard init opens
-// the canonical bucket only when it is on. The retry that exists to commit
-// that effect therefore runs on a shard where the bucket is closed, and the
-// completion gate has to read the promotion's post-condition off disk.
-
-// TestCompletionRetriesAfterASchemaEffectFailure pins both re-entries into
-// OnMigrationComplete. Refusing them leaves the schema effect uncommittable
-// for good, and the next load then deletes the promoted directory, because the
-// flag that would have kept it is the one the retry could not set.
 func TestCompletionRetriesAfterASchemaEffectFailure(t *testing.T) {
 	viaSwap := func(ctx context.Context, task *ShardReindexTaskGeneric, shard *Shard) error {
 		return task.RunSwapOnShard(ctx, shard)

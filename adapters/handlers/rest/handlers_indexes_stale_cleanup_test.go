@@ -42,22 +42,16 @@ func (f *fakeStaleCleaner) NewStalePartialReindexSweep() db.StalePartialReindexS
 	}
 }
 
-// fakeDrainSealer answers per task: never drains the ones in stuck, and names
-// what it sealed and released so a test can tell a seal taken for the right
-// task from one taken for the wrong one.
 type fakeDrainSealer struct {
-	stuck    map[string]bool
-	sealed   []string
-	released int
-	// sweptWhileSealed is what the cleaner had scrubbed at each release, so a
-	// seal dropped before the sweep is distinguishable from one held across it.
+	stuck            map[string]bool
+	sealed           []string
+	released         int
 	sweptWhileSealed []int
 	cleaner          *fakeStaleCleaner
 }
 
 func (f *fakeDrainSealer) SealLocalTaskDrain(_ context.Context, desc distributedtask.TaskDescriptor) (func(), error) {
 	if f.stuck[desc.ID] {
-		// What the real drain reports when a worker outlives its timeout.
 		return nil, context.DeadlineExceeded
 	}
 	f.sealed = append(f.sealed, desc.ID)
@@ -126,10 +120,6 @@ func TestCleanStalePartialStateOrFail(t *testing.T) {
 			wantCalls: []string{"searchable", "filterable"},
 		},
 		{
-			// The sweep shuts these buckets down and removes their
-			// directories. A task goes terminal cluster-wide without waiting
-			// for the local unit, and the cancel handler hands this sweep
-			// exactly the case where its own drain timed out.
 			name:  "an earlier task on this property is held for the sweep",
 			mtype: db.ReindexTypeEnableFilterable,
 			tasks: func(t *testing.T) []*distributedtask.Task {

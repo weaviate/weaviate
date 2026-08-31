@@ -27,7 +27,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// registerIndex puts an index where the provider's collection lookup finds it.
 func registerIndex(idx *Index, className string) {
 	db := idx.db
 	db.indexLock.Lock()
@@ -35,15 +34,6 @@ func registerIndex(idx *Index, className string) {
 	db.indices[indexID(entschema.ClassName(className))] = idx
 }
 
-// A phase's first act is to load its shard, and a load runs reconciliation,
-// which seals this unit to promote a recorded flip. So the load has to happen
-// before the claim, or the seal is refused and the property is served from the
-// canonical bucket shard init just created empty — while the unit acks success
-// and the schema flips cluster-wide.
-//
-// Needs the startup task-cache seed, the one populator that fills the cache
-// without loading a shard, so the iteration and the swap sit in different
-// processes.
 func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 	ctx := testCtx()
 	const (
@@ -66,8 +56,6 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 	canonical := "property_" + prop + "_searchable"
 	require.NoError(t, os.MkdirAll(filepath.Join(tenantLSM, staged), 0o777))
 	require.NoError(t, os.WriteFile(filepath.Join(tenantLSM, staged, "promoted.marker"), []byte(staged), 0o600))
-	// The process that flipped the pointer took the canonical directory with
-	// it; only the promotion puts the data back under that name.
 	require.NoDirExists(t, filepath.Join(tenantLSM, canonical))
 
 	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
@@ -108,9 +96,6 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 		Status: distributedtask.TaskStatusSwapping, NeedsPreparationBarrier: true, Payload: raw,
 	}, "g1", []string{unitID}))
 
-	// The canonical directory alone proves nothing: shard init creates the
-	// property's bucket on demand, so an empty one is what a refused promotion
-	// leaves. The marker says whose data is under the name.
 	got, err := os.ReadFile(filepath.Join(tenantLSM, canonical, "promoted.marker"))
 	require.NoError(t, err, "the canonical name must hold the migrated data")
 	require.Equal(t, staged, string(got))
@@ -118,9 +103,6 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 		"promotion renames the staged directory onto the canonical name")
 }
 
-// A teardown must not seal a unit whose phase is running: the phase writes
-// through bucket pointers it took before it started, so removing those
-// directories loses every row written since.
 func TestAPhaseHoldsItsUnitWhileItRuns(t *testing.T) {
 	ctx := testCtx()
 	className := "UnitHeld" + uuid.NewString()[:8]
@@ -174,9 +156,6 @@ func TestAPhaseHoldsItsUnitWhileItRuns(t *testing.T) {
 	release()
 }
 
-// A teardown holding the unit has to stop the iteration from starting, for
-// every migration type: the four format-only ones write into the same
-// directories the semantic ones do.
 func TestASealedUnitNeverStartsItsIteration(t *testing.T) {
 	for _, tt := range []struct {
 		name    string

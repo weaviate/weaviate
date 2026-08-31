@@ -416,10 +416,6 @@ func tenantLSMPath(tenant string) string {
 	return fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(coldCancelClass), tenant)
 }
 
-// plantStaleTracker writes the on-disk shape a run that started and never
-// finished leaves behind: the migration's own directory and nothing else. No
-// record, so nothing on disk claims the directory, and no payload.mig, so the
-// sweep resolves it from its own name.
 func plantStaleTracker(ctx context.Context, t *testing.T, c testcontainers.Container, tenant string) {
 	t.Helper()
 	dir := tenantLSMPath(tenant) + "/.migrations/" + coldCancelPlantedDir

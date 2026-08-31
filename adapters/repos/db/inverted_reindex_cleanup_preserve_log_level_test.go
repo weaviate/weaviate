@@ -48,8 +48,6 @@ func TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug(t *testing.T) {
 		if e.Level == logrus.InfoLevel {
 			infoCount++
 		}
-		// By message: the sweep reads the records first, and that read has a
-		// Debug line of its own that says nothing about preservation.
 		if e.Level == logrus.DebugLevel && strings.Contains(e.Message, "preserving a tracker dir") {
 			preservedCount++
 		}

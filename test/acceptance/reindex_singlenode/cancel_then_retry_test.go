@@ -100,9 +100,6 @@ func testCancelThenRetrySearchable(t *testing.T, restURI string) {
 	// Step 1: submit and cancel.
 	cancelInFlightOrSkip(t, restURI, class, "body", "searchable", requestBody)
 
-	// Step 2: re-submit. Crux of the test — without cleanup of the cancelled
-	// run's record and its partial reindex/ingest sidecars, this either fails
-	// loudly or worse, "succeeds" with an empty bucket.
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "body", "searchable", requestBody)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireSearchableEnabled(t, class, "body")

@@ -25,9 +25,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestModeADrainRematerialize pins the race where a draining reindex
-// goroutine re-creates the class directory a concurrent DELETE (Index.drop)
-// just renamed away.
 func TestModeADrainRematerialize(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -68,8 +65,6 @@ func TestModeADrainRematerialize(t *testing.T) {
 			releaseHook := make(chan struct{})
 			var hookOnce sync.Once
 
-			// Park the worker ahead of the real close-lock guard, holding no
-			// lock, so the DELETE lands between the parking and the guard.
 			realGuard := task.indexClosingGuard
 			task.indexClosingGuard = func(s ShardLike) error {
 				hookOnce.Do(func() { close(inHook) })
@@ -89,7 +84,6 @@ func TestModeADrainRematerialize(t *testing.T) {
 			require.NoFileExists(t, idxPath,
 				"drop() must have renamed the class dir away before the worker proceeds")
 
-			// The worker must resume only after the rename, never before.
 			close(releaseHook)
 			<-workerDone
 

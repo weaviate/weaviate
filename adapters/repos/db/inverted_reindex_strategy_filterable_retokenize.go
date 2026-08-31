@@ -82,8 +82,6 @@ func (s *FilterableRetokenizeStrategy) WriteToReindexBucket(_ ShardLike, bucket 
 	return nil
 }
 
-// MakeAddCallback returns a callback for adding documents to the filterable
-// (RoaringSet) index under the migration's target tokenization.
 func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) string,
 	armed armedMirror,
 ) onAddToPropertyValueIndex {
@@ -116,8 +114,6 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 	}
 }
 
-// MakeDeleteCallback returns a callback for removing documents from the
-// filterable index under the migration's target tokenization.
 func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {

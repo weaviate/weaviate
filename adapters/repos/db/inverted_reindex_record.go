@@ -91,9 +91,7 @@ func (k MigrationRecordKey) valid() bool {
 	return k.TaskVersion > 0 && k.StrategyCode.valid() && migrationHandleIsOneElement(k.UnitID)
 }
 
-// MigrationCheckpoint is the iteration resume point. It carries only what a
-// resume reads: the counts the run also reports are in the progress log line,
-// where an operator can see them.
+// MigrationCheckpoint is the iteration resume point.
 type MigrationCheckpoint struct {
 	LastProcessedKey []byte    `json:"lastProcessedKey,omitempty"`
 	UpdatedAt        time.Time `json:"updatedAt"`

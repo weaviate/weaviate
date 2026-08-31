@@ -280,13 +280,6 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 		"replica B, serving from disk, must return the identical result set to replica A, "+
 			"serving from memory - the staggered flip must never produce diverging results")
 
-	// Restart replica B: boot-time population rebuilds the rep from disk,
-	// restoring acceleration without any repair action.
-	//
-	// The class carries the flag the migration's completion commits
-	// cluster-wide. Reconciliation promotes the staged directory onto the
-	// canonical name before any bucket opens, and the schema is what says
-	// there is a rangeable index to open there at all.
 	shardName := shardB.Name()
 	require.NoError(t, shardB.Shutdown(ctxB))
 

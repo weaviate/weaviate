@@ -24,18 +24,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestDisablingAnIndexUnderAnArmedMirrorKeepsWritesWorking pins the teardown
-// that removed a live mirror's directory without disarming it first.
-//
-// The sequence is an ordinary one: an enable-filterable run does not finish,
-// and the operator disables the index. That schema update removes the staged
-// directory while the staged bucket is still open and its mirror still armed,
-// after which the mirror writes into a path that no longer exists and every
-// write carrying that property fails until the process restarts.
-//
-// The assertion is a write and a query, never a directory: asserting the
-// directory is gone passes on the broken build, because removing it is exactly
-// what the broken build does.
 func TestDisablingAnIndexUnderAnArmedMirrorKeepsWritesWorking(t *testing.T) {
 	const propName = "subtitle"
 
@@ -59,14 +47,12 @@ func TestDisablingAnIndexUnderAnArmedMirrorKeepsWritesWorking(t *testing.T) {
 	}
 	require.NoError(t, put("alpha bravo charlie"))
 
-	// A run that armed its mirror and never flipped.
 	task, _ := newEnableFilterableTask(t, idx, className, propName)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.Equal(t, 1, shard.migrationMirrors.ArmedMigrationMirrors(),
 		"fixture: the mirror has to be armed, or there is nothing to tear down under")
 
-	// The operator disables the index after that run.
 	require.NoError(t, idx.updateProperty(ctx, &models.Property{
 		Name:            propName,
 		DataType:        schema.DataTypeText.PropString(),
@@ -79,7 +65,6 @@ func TestDisablingAnIndexUnderAnArmedMirrorKeepsWritesWorking(t *testing.T) {
 		"a write carrying the mirrored property must still succeed after the teardown")
 	require.NoError(t, put("golf hotel india"))
 
-	// And the property's remaining index really took those writes.
 	searchable := shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 	require.NotNil(t, searchable)
 	terms := fingerprintInvertedBucket(t, searchable)

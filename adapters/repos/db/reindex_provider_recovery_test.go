@@ -120,16 +120,10 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 	)
 
 	for _, tc := range []struct {
-		name string
-		// state plants a record on the cold tenant; empty plants nothing.
-		state MigrationState
-		// laterState plants a second record on the same property at a higher
-		// generation, which is a follow-up migration on the same tuple.
-		laterState MigrationState
-		// otherProperty makes the planted record name a property this task
-		// does not, which is what keeps two tasks on one shard apart.
-		otherProperty bool
-		// unreadableRecord plants a record file this build cannot place.
+		name             string
+		state            MigrationState
+		laterState       MigrationState
+		otherProperty    bool
 		unreadableRecord bool
 		// hostedElsewhere maps the unit to a node that is not this one.
 		hostedElsewhere bool
@@ -160,8 +154,6 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 			name: "a cold tenant carrying nothing",
 			want: true,
 		},
-		// A follow-up migration on the same property still owes its own
-		// callbacks, whatever became of the one before it.
 		{
 			name:       "a committed migration beside a later one still rebuilding",
 			state:      MigrationStateSwapped,
@@ -174,8 +166,6 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 			otherProperty: true,
 			want:          true,
 		},
-		// The unreadable record could be the one still owing callbacks, so
-		// its silence must not release the bootstrap gate.
 		{
 			name:             "a record this build cannot read",
 			unreadableRecord: true,
@@ -290,16 +280,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 	}
 }
 
-// TestBuildRecoveryTasksStampsTheIdentity is the recovery-path mirror of the
-// enumeration pin on createReindexTasks: a recovered task reaching a shard
-// unkeyed would run a migration that records nothing, at a directory no
-// later load can attribute.
 func TestBuildRecoveryTasksStampsTheIdentity(t *testing.T) {
-	// Every type the recovery switch dispatches. ReindexTypeRebuildSearchable
-	// is absent because that switch has no arm for it.
-	// trackerPrefix is the tracker directory this recovery is for, without its
-	// generation suffix. It decides which half of a change-tokenization
-	// fan-out has state on disk, and only that half is rebuilt.
 	type recoveryCase struct {
 		createReindexTasksEnumerationCase
 		name          string
@@ -342,8 +323,6 @@ func TestBuildRecoveryTasksStampsTheIdentity(t *testing.T) {
 	for _, c := range recoverable {
 		prefix := ""
 		if c.mt == ReindexTypeChangeTokenization {
-			// Recovery rebuilds one half per tracker, so the row that named
-			// both becomes two rows of one.
 			c.wantNTasks = 1
 			cases = append(cases, recoveryCase{
 				createReindexTasksEnumerationCase: c,
@@ -390,11 +369,6 @@ func TestBuildRecoveryTasksStampsTheIdentity(t *testing.T) {
 	}
 }
 
-// TestLocalCallbacksDoneReadsEachShardsRecordsOnce pins that the bootstrap
-// probe reads a shard's records once, not once per (property, index type)
-// tuple the payload names. The clean row is the one that catches a per-tuple
-// regression: the unreadable one returns on its first read, so it can never
-// see a second.
 func TestLocalCallbacksDoneReadsEachShardsRecordsOnce(t *testing.T) {
 	const (
 		prop   = "title"
@@ -446,8 +420,6 @@ func TestLocalCallbacksDoneReadsEachShardsRecordsOnce(t *testing.T) {
 				}
 			}()
 
-			// Two index types on one property: two tuples on this shard, one
-			// set of records either way.
 			require.Len(t, semanticMigrationIndexTypes(ReindexTypeChangeTokenization), 2)
 			payload, err := json.Marshal(ReindexTaskPayload{
 				Collection:    className,

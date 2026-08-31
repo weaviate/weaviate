@@ -37,10 +37,6 @@ func newEnableFilterableTask(t *testing.T, idx *Index, className string, propNam
 	return newEnableFilterableTaskAtGeneration(t, idx, className, 1, propNames...)
 }
 
-// newEnableFilterableTaskAtGeneration is newEnableFilterableTask for the
-// back-to-back case, where a second migration on the same property carries a
-// higher generation and a higher task version — the pair the supersession
-// relation orders by.
 func newEnableFilterableTaskAtGeneration(t *testing.T, idx *Index, className string,
 	generation int, propNames ...string,
 ) (*ShardReindexTaskGeneric, *testEnableFilterableStrategyWrapper) {
@@ -74,8 +70,6 @@ func newEnableFilterableTaskAtGeneration(t *testing.T, idx *Index, className str
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
-	// Without an identity the task's record key is incomplete and every
-	// transition would refuse to write itself.
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-enable-filterable", Version: uint64(generation)},
 		"shard-1__node-0",

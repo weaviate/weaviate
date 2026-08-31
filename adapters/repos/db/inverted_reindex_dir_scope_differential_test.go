@@ -113,10 +113,6 @@ var diffPropNames = []string{
 
 var diffIndexTypes = []string{"filterable", "searchable", "rangeable"}
 
-// The attribution modes a tracker dir can be in. Only recordedMode and
-// consistentPayload are writer-producible; the rest are what a crash or a
-// damaged disk leaves behind, except contradictingPayload, which stores a
-// property list its own dir name disowns.
 const (
 	recordedMode         = "record"
 	consistentPayload    = "consistent"
@@ -132,9 +128,6 @@ var diffAttributionModes = []string{
 	truncatedPayload, unreadablePayloadFx, contradictingPayload,
 }
 
-// writeDiffTree materializes every fixture dir under a fresh lsm root.
-// committed decides whether each dir's migration has committed its data,
-// which is what the sweep must preserve.
 func writeDiffTree(t *testing.T, mode string, committed bool) (string, []diffDir) {
 	t.Helper()
 	lsm := t.TempDir()
@@ -150,14 +143,10 @@ func writeDiffTree(t *testing.T, mode string, committed bool) (string, []diffDir
 	return lsm, dirs
 }
 
-// writeDiffRecord plants the record that attributes a directory. A committed
-// one owns a staged directory the sweep must not touch; an uncommitted one is
-// stale state the sweep removes.
 func writeDiffRecord(t *testing.T, lsm string, d diffDir, seq int, committed bool) {
 	t.Helper()
 	props := d.props
 	if len(props) == 0 {
-		// A class-level tracker names no property of its own.
 		props = []string{"cat"}
 	}
 	staged := map[string]string{}
@@ -208,18 +197,12 @@ type divergence struct {
 	narrow, widened          bool
 }
 
-// Pins the widened name shortcut against [narrowMatchByName], so a dir the
-// shortcut moves is a dir the sweep would delete or spare differently. Coverage gap: every record here uses one strategy/index-type
-// combination and only Iterating/Swapped states, so migrationPreservedStateAt's
-// promoted-tracker arm is never exercised.
 func TestWidenedMatchesAgreesWithTheNarrowGate(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	for _, mode := range diffAttributionModes {
 		for _, committed := range []bool{false, true} {
 			if committed && mode != recordedMode {
-				// Committed state is a record fact; the payload modes have no
-				// second shape here.
 				continue
 			}
 			lsm, dirs := writeDiffTree(t, mode, committed)
@@ -285,10 +268,6 @@ func propertySegmentOf(dir string) string {
 	return ""
 }
 
-// Pins that the real deletion sweep leaves the same dirs behind as a sweep
-// driven by the narrower gate: the differential above checks one predicate,
-// this checks the whole sweep, where preservation, generation parsing and
-// walk order all compose on top of it.
 func TestWidenedSweepLeavesTheSameDirsBehind(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 

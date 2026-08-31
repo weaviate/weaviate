@@ -86,9 +86,7 @@ func (s *Shard) migrationRecordStore() *MigrationRecordStore { return s.migratio
 
 // Reports no store rather than loading a cold shard: a shard with no records
 // on disk has nothing to reconcile, and loading one to find that out would
-// resurrect a shard that was deliberately unloaded. It forwards rather than
-// computing a path, because the store is only meaningful once reconciliation
-// has populated it at load.
+// resurrect a shard that was deliberately unloaded.
 func (l *LazyLoadShard) migrationRecordStore() *MigrationRecordStore {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()

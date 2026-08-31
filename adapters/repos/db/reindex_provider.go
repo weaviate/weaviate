@@ -112,35 +112,14 @@ type ReindexProvider struct {
 	// return path (failure, context.Canceled, panic) releases the slot.
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
 
-	// liveUnits counts the goroutines doing this node's own work for a (task,
-	// unit) right now — deliberately not [activeWorkers], a re-entry guard
-	// claimed only for semantic migrations around the iteration, so four
-	// migration types and every type's prep/swap never appear there.
-	// Reconciliation checks this before removing a migration's directories; a
-	// gap here means removal under a goroutine still writing.
-	//
-	// A count, not a flag: two workers can hold one unit for the types the
-	// re-entry guard skips, and a flag would let the first finisher clear the
-	// second's claim. Guarded by [mu]; incremented before the work and
-	// decremented from a defer so failure, cancellation and panic all release it.
+	// liveUnits counts this node's own workers per (task, unit); guarded by [mu].
+	// A count, not a flag: two workers can hold one unit, and a flag would let the
+	// first finisher clear the second's claim.
 	liveUnits unitClaims
 
-	// sealedUnits counts the teardowns holding one (task, unit) right now, and
-	// sealedTasks the ones holding a whole task (for teardowns working by
-	// collection/property that never learn which units they touched). A
-	// destroyer takes a seal instead of reading [liveUnits]; while held,
-	// [ReindexProvider.enterLocalUnit] refuses.
-	//
-	// Sealing rather than reading, because [liveUnits] only answers about the
-	// instant it was read. Every phase runs from a task snapshot the scheduler
-	// froze at tick start, and the gap to the claim is unbounded — resolving a
-	// unit can hydrate a cold tenant and rebuild its tasks from disk. A phase
-	// entering after a destroyer read "nothing running" would flip live bucket
-	// pointers onto directories mid-delete.
-	//
-	// Counts for the same reason [liveUnits] is one, and two maps rather than a
-	// reserved unit ID so no real unit can be mistaken for the task-wide scope.
-	// Guarded by [mu].
+	// sealedUnits and sealedTasks count the teardowns holding a unit and a whole
+	// task; guarded by [mu]. A destroyer seals rather than reading [liveUnits],
+	// which only answers about the instant it was read.
 	sealedUnits unitClaims
 	sealedTasks map[distributedtask.TaskDescriptor]int
 
@@ -351,16 +330,6 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
-// enterLocalUnit claims the node's own work for one (task, unit) and returns
-// the release. Every span that holds a bucket pointer or writes into a
-// migration's directories has to be inside one: the iteration, the prep that
-// copies segments into the ingest directory, and the swap that flips the
-// pointers.
-//
-// It refuses while a teardown holds the unit. The caller decided to run from
-// a task snapshot frozen at the start of a scheduler tick, so by the time it
-// gets here the migration may already be being reclaimed; entering anyway
-// takes bucket pointers into directories mid-delete.
 func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -370,17 +339,8 @@ func (p *ReindexProvider) enterLocalUnit(desc distributedtask.TaskDescriptor, un
 	return p.releaseOf(p.liveUnits.take(desc, unitID)), true
 }
 
-// unitClaims is one of the two per-unit registries: the live-worker counts and
-// the teardown seals. Both count rather than flag, and both are built lazily
-// because NewReindexProvider does not build them.
 type unitClaims map[distributedtask.TaskDescriptor]map[string]int
 
-// take records a claim and returns the drop, which undoes exactly that one
-// claim and nothing else: a stale copy firing after the unit was re-claimed
-// would zero a live worker's claim, and a teardown would then remove
-// directories under it. Neither take nor drop locks — the caller and
-// [ReindexProvider.releaseOf] hold [ReindexProvider.mu] — which is also what
-// lets the single-shot flag go unsynchronized.
 func (c *unitClaims) take(desc distributedtask.TaskDescriptor, unitID string) func() {
 	if *c == nil {
 		*c = unitClaims{}
@@ -405,9 +365,6 @@ func (c *unitClaims) take(desc distributedtask.TaskDescriptor, unitID string) fu
 	}
 }
 
-// releaseOf puts a drop under [ReindexProvider.mu] so whichever goroutine
-// finishes the span can call it — never guaranteed to be the one that took
-// the claim.
 func (p *ReindexProvider) releaseOf(drop func()) func() {
 	return func() {
 		p.mu.Lock()
@@ -418,14 +375,6 @@ func (p *ReindexProvider) releaseOf(drop func()) func() {
 
 // SealLocalUnit reserves this exact (task, unit) for teardown and returns the
 // release, or refuses because a worker of it is running here.
-//
-// It exists because a task's cluster status goes terminal without waiting
-// for the local unit to exit: cancelling marks the task and wakes the
-// scheduler, which signals the worker later and never awaits it. A live
-// worker writes through bucket pointers captured before its phase began, so
-// removing those directories silently loses every row written since — a
-// shut-down bucket still accepts writes into a memtable that's never
-// flushed. See [ReindexProvider.sealedUnits] for why this seals, not asks.
 func (p *ReindexProvider) SealLocalUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -437,14 +386,11 @@ func (p *ReindexProvider) SealLocalUnit(desc distributedtask.TaskDescriptor, uni
 
 // ReindexUnitSeal reserves one (task, unit) for teardown. It reports false
 // while a worker still holds the unit; otherwise the caller must call the
-// returned func to release it. Keyed per unit rather than per task because a
-// task's other units run on other shards, and withholding a shard's own
-// decision on a sibling's account would strand it.
+// returned func to release it.
 type ReindexUnitSeal func(desc distributedtask.TaskDescriptor, unitID string) (func(), bool)
 
 // ReindexUnitSealBuilder returns the current seal, or nil where the provider
-// has none. Called per seal rather than held. Same shape as
-// [CleanupInProgressLookupBuilder] so the wiring installs both the same way.
+// has none. Called per seal rather than held.
 type ReindexUnitSealBuilder func() ReindexUnitSeal
 
 func (p *ReindexProvider) ReindexUnitSealBuilder() ReindexUnitSealBuilder {
@@ -588,18 +534,8 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
-	// After the shard is resolved, per the phase callbacks' order: a hydration
-	// runs reconciliation, which seals this unit to promote it — claiming
-	// first would refuse that seal, leaving the property served from the empty
-	// pre-created bucket. From here the claim covers everything holding a
-	// bucket pointer or writing into the migration's directories, which
-	// reconciliation could otherwise discard once the task goes terminal.
 	release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
 	if !entered {
-		// A teardown holds this unit: nothing is claimed or reported, so the next
-		// tick relaunches it, by which time the teardown has released or the task
-		// is terminal and the unit is skipped outright. A task-wide seal spans a
-		// whole sweep, so this can take several ticks.
 		logger.Warn("reindex provider: a teardown holds this unit, so it is not started; the next tick retries it")
 		return
 	}
@@ -798,10 +734,6 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 	return tasks, nil
 }
 
-// buildReindexTasks constructs the strategy instances alone. Only
-// createReindexTasks may call it: a task that reaches a shard without an
-// identity cannot key a record, so it would run a migration that records
-// nothing and leave its data at a directory no later load can attribute.
 func (p *ReindexProvider) buildReindexTasks(payload *ReindexTaskPayload, lsmPath string, rehydrate bool) ([]*ShardReindexTaskGeneric, error) {
 	// Every migration type requires at least one property — repair-* / enable-*
 	// because they're per-property migrations, change-tokenization because it
@@ -815,13 +747,6 @@ func (p *ReindexProvider) buildReindexTasks(payload *ReindexTaskPayload, lsmPath
 			payload.MigrationType, len(payload.Properties), maxReindexPropertiesPerTask)
 	}
 
-	// A generation names directories, and two things say which are already
-	// claimed: the records, and the tracker directory listing. Either falling
-	// short of the whole set leaves a claim invisible — then neither allocating
-	// a new generation nor re-adopting an existing one is safe: one hands a
-	// retry the invisible claim's own directories, the other attaches this
-	// task to an older migration's. Refused here, not per strategy, so one
-	// check covers every arm and both allocation modes.
 	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, p.logger)
 	if someRecordsUnreadable || recordSetUnreadable {
 		return nil, fmt.Errorf("migration records at %s could not all be read, "+
@@ -1287,9 +1212,6 @@ func (p *ReindexProvider) resolveUnitForPhase(
 		}
 	}
 
-	// Ahead of the cache check: the caller claims the unit on what this
-	// returns, and a load runs reconciliation, which seals this unit to promote
-	// it. Claiming first refuses that seal and serves an empty bucket.
 	concreteShard, unwrapErr := unwrapShard(ctx, resolvedShard)
 	if unwrapErr != nil {
 		logger.WithField("unit", unitID).
@@ -1485,18 +1407,8 @@ func (p *ReindexProvider) runPerUnitPhase(
 			return
 		}
 
-		// Prep copies segments into the ingest directory and swap flips the
-		// pointers, both through handles taken before they start, and both
-		// run here rather than in the iteration's goroutine — so the
-		// iteration's own registration has already been released by now.
 		release, entered := p.enterLocalUnit(task.TaskDescriptor, unitID)
 		if !entered {
-			// The terminal check this phase passed read a task snapshot the
-			// tick froze; a teardown has taken the unit since. Reported rather
-			// than skipped, so the barrier does not read a phase that never
-			// ran as one that succeeded — and transient, because a teardown
-			// releases when it is done and the next tick either enters or
-			// finds the task terminal.
 			func() {
 				aggMu.Lock()
 				defer aggMu.Unlock()
@@ -1506,10 +1418,6 @@ func (p *ReindexProvider) runPerUnitPhase(
 			}()
 			return
 		}
-		// Deferred rather than released after: under parallel=true this runs
-		// inside a GoWrapper, which recovers panics, and a claim that leaks
-		// makes every later drain of this task wait out its whole timeout and
-		// then skip the cleanup it was drained for.
 		phase := func() phaseResult {
 			defer release()
 			return runPhase(unitID, res.Shard, res.UnitTasks, res.Rehydrate)
@@ -1546,10 +1454,6 @@ func (p *ReindexProvider) runPerUnitPhase(
 	if len(agg.Errs) == 0 {
 		return nil
 	}
-	// %w-wrap context.Canceled so the scheduler's errors.Is check routes
-	// these to the transient (recovery) branch instead of acking a permanent
-	// failure that would flip the task to FAILED. context.Canceled is the
-	// signal that check reads; it is not a claim that a context was cancelled.
 	if agg.Transient {
 		return fmt.Errorf("%s: %d unit(s) failed: %s: %w",
 			callbackName, len(agg.Errs), strings.Join(agg.Errs, "; "), context.Canceled)
@@ -1899,17 +1803,12 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()
-	// Held for the whole sweep below, not just until it starts: the scheduler
-	// can relaunch this task's units while the sweep is midway through
-	// removing the directories they open.
 	unseal, err := p.SealLocalTaskDrain(drainCtx, task.TaskDescriptor)
 	if err != nil {
 		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
 		return
 	}
 	defer unseal()
-	// An unknown type answers with an empty fan-out, which this returns on:
-	// nothing here can compose what such a migration owns.
 	indexTypes, _ := semanticMigrationIndexTypesForAudit(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return
@@ -2079,13 +1978,6 @@ func (p *ReindexProvider) probeLocalPostMergeState(payload *ReindexTaskPayload) 
 	return p.hasLocalPostMergeState(ctx, payload)
 }
 
-// hasLocalPostMergeState reports whether any shard of the task on this node
-// carries a record whose staged data is already complete. Reads shards
-// without loading them — the records sit at a path this node can join
-// without a load, so a cold tenant stays cold.
-//
-// Fires only for a semantic migration; skips the walk otherwise. Gives up
-// on a cancelled or expired ctx since the answer only feeds a log line.
 func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *ReindexTaskPayload) bool {
 	if p.db == nil || !IsSemanticMigration(payload.MigrationType) {
 		return false
@@ -2124,9 +2016,6 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 		// nothing carries over between them anyway.
 		records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, p.logger)
 		if someRecordsUnreadable || recordSetUnreadable {
-			// Cannot rule this shard out, and the answer decides only whether
-			// the operator is pointed at it. Pointing them at a shard that
-			// turns out to be clean costs a log line.
 			return true
 		}
 		if migrationRecordFor(records, payload.MigrationType, payload.Properties, MigrationRecord.StagedDataComplete) {
@@ -2353,18 +2242,7 @@ func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName stri
 
 // LocalCallbacksDone implements [distributedtask.RecoveryAwareProvider].
 // Returns false when a record on this node still owes the callbacks a swap, or
-// when unreadable record state could hide one — the signature of a swap
-// interrupted mid-flight. It also returns false when the shard walk could not
-// reach this node's shards at all, which is what a closing index looks like:
-// not knowing is not the same as being done. An unreadable *task* payload goes
-// the other way and returns true: nothing here can be recovered from it.
-//
-// False only suppresses the scheduler's bootstrap pre-mark. The task's
-// callbacks are then re-dispatched once on the next tick, where a terminal
-// status makes every one of them a no-op, so nothing is recovered — the one
-// lasting effect is a re-issued post-completion ack, once per process start,
-// until the completed-task TTL drops the task. Tracker dirs are read at a path
-// this node joins itself, so an unloaded tenant stays unloaded.
+// when unreadable record state could hide one.
 func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNode string) bool {
 	var payload ReindexTaskPayload
 	if err := json.Unmarshal(task.Payload, &payload); err != nil {
@@ -2420,9 +2298,6 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 			continue
 		}
 		records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(shardPathLSM(idx.path(), shardName), p.logger)
-		// A record this build cannot read may be the one still owing
-		// callbacks, so answering "done" on its silence would release the
-		// bootstrap gate over a migration nobody is driving.
 		if someRecordsUnreadable || recordSetUnreadable ||
 			migrationRecordFor(records, payload.MigrationType, payload.Properties, migrationRecordStagingIncomplete) {
 			return false
@@ -2749,21 +2624,8 @@ func maybeClearTokenizationOverlayOnAllFailed(
 }
 
 // SealLocalTaskDrain blocks until nothing on this node is working on the given
-// task and then holds it, returning the release. Returns ctx.Err() if the wait
-// timed out, in which case nothing is held.
-//
-// Intended between [distributedtask.Manager.CancelDistributedTask] and
-// [DB.NewStalePartialReindexSweep]'s sweep: the sweep removes exactly the
-// __reindex / __ingest directories a worker may still be writing into.
-//
-// It holds rather than merely waits, because waiting answers only about the
-// instant it returned — the scheduler relaunches a task handle tens of
-// milliseconds after the previous one's workers finished. And the task handle
-// alone answers neither half: it closes when the iteration's goroutine exits,
-// but the prep and the swap run on the scheduler's own tick goroutine and never
-// had one, so a task whose only live worker was copying segments into the
-// ingest directory drained instantly. Both halves come from the per-unit
-// registry every span that holds a bucket pointer registers in.
+// task and then holds it. Returns ctx.Err() if the wait timed out, in which
+// case nothing is held.
 func (p *ReindexProvider) SealLocalTaskDrain(
 	ctx context.Context,
 	desc distributedtask.TaskDescriptor,
@@ -2775,8 +2637,6 @@ func (p *ReindexProvider) SealLocalTaskDrain(
 			return nil, ctx.Err()
 		}
 	}
-	// Polled rather than signalled: a unit is entered and released from
-	// several goroutines and this is a teardown path, not a hot one.
 	ticker := time.NewTicker(localUnitDrainPollInterval)
 	defer ticker.Stop()
 	for {
@@ -2791,13 +2651,8 @@ func (p *ReindexProvider) SealLocalTaskDrain(
 	}
 }
 
-// localUnitDrainPollInterval is how often [ReindexProvider.SealLocalTaskDrain]
-// re-asks the registry.
 const localUnitDrainPollInterval = 25 * time.Millisecond
 
-// sealLocalTask holds every unit of the task at once, or refuses because one
-// is running. Task-scoped rather than unit-scoped because its caller tears
-// down by (collection, property) and never learns which units it touched.
 func (p *ReindexProvider) sealLocalTask(desc distributedtask.TaskDescriptor) (func(), bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -2809,9 +2664,6 @@ func (p *ReindexProvider) sealLocalTask(desc distributedtask.TaskDescriptor) (fu
 	}
 	p.sealedTasks[desc]++
 
-	// Single-shot, like [unitClaims.take]: a second call on the same release
-	// would decrement a count another caller is holding and free that
-	// caller's seal.
 	dropped := false
 	return p.releaseOf(func() {
 		if dropped {

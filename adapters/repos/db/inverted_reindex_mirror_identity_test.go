@@ -25,26 +25,15 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestMirrorStragglerNeverWritesIntoLiveData drives the gap the mirror's
-// canonical fallback leaves open: a writer snapshots callback state, the
-// migration is torn down (staged bucket shut down, name unresolvable), and
-// the write applies afterward — following the canonical name then writes
-// the migration's target form into live source-form data. Word-vs-field
-// tokenization makes this visible either way: a multi-word object's target
-// form is a term the live bucket could never hold; a one-word object's is
-// one it does.
 func TestMirrorStragglerNeverWritesIntoLiveData(t *testing.T) {
 	const (
-		propName = "title"
-		// "zulu" is outside the corpus dictionary, so it names its object.
+		propName  = "title"
 		multiWord = "zulu romeo sierra"
 		oneWord   = "solo"
 	)
 
 	tests := []struct {
-		name string
-		// probe is a word-form term carried by exactly one planted object:
-		// the one this leg replays, and the docID it replays under.
+		name   string
 		probe  string
 		replay func(t *testing.T, shard *Shard, st *propValueIndexState, obj *storobj.Object, docID uint64)
 	}{
@@ -89,8 +78,6 @@ func TestMirrorStragglerNeverWritesIntoLiveData(t *testing.T) {
 				models.PropertyTokenizationField)
 			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 
-			// The straggler's snapshot: taken while the mirror is armed, and
-			// applied long after the state below has moved on.
 			st := shard.loadPropValueIndexState()
 			require.NotEmpty(t, st.scope.props, "precondition: the mirror must be armed")
 
@@ -102,8 +89,6 @@ func TestMirrorStragglerNeverWritesIntoLiveData(t *testing.T) {
 			require.NotContains(t, before, multiWord,
 				"precondition: the live bucket is word-tokenized, so it holds no whole-value term")
 
-			// What the cancel edge does, in its order: disarm, then shut the
-			// staged buckets down. The straggler already holds its snapshot.
 			key := task.migrationRecordKey()
 			shard.DisarmMigrationMirror(key, propName)
 			require.NoError(t, shard.ShutdownStagedBuckets(ctx, key, propName))
@@ -120,11 +105,6 @@ func TestMirrorStragglerNeverWritesIntoLiveData(t *testing.T) {
 	}
 }
 
-// TestTheMirrorRefusesAStagedNameItDidNotArmOn pins the identity check on the
-// arm that had none. A generation is reclaimed once its tracker directory is
-// gone, so a successor can open its own bucket at the very staged name a
-// straggling mirror armed on — and following the name there writes this
-// migration's target form into the successor's data.
 func TestTheMirrorRefusesAStagedNameItDidNotArmOn(t *testing.T) {
 	ctx := testCtx()
 	className := "MirrorStagedIdentity_" + uuid.NewString()[:8]
@@ -152,7 +132,6 @@ func TestTheMirrorRefusesAStagedNameItDidNotArmOn(t *testing.T) {
 	require.False(t, skip, "a mirror still aimed at the bucket it armed on writes into it")
 	require.Same(t, live, got)
 
-	// The same name, a different bucket: a successor took the generation over.
 	armed.buckets["title"] = &lsmkv.Bucket{}
 	_, _, skip = resolveScopedDoubleWriteBucket(shard, prop, armed,
 		namer, helpers.BucketSearchableFromPropNameLSM)

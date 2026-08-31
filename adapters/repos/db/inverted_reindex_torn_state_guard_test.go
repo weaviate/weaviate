@@ -27,19 +27,11 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// A durable claim that the rebuild finished, which the data on disk does not
-// back, has to be distrusted and the rebuild re-run
-// (weaviate/0-weaviate-issues#240 Symptom A, #244). [TestReconcileReverseEdge]
-// pins that edge against a synthetic fixture; these two tests add that a
-// real shard load runs it end to end.
-
 const (
 	tornGuardNumObjects = 25
 	tornGuardPropName   = "title"
 )
 
-// runTornStateMigrationToIterated drives a fresh shard to a complete rebuild
-// and NO further, so the reverse edge's preconditions hold.
 func runTornStateMigrationToIterated(t *testing.T, ctx context.Context,
 	className string, class *models.Class,
 ) (*Shard, *Index, *ShardReindexTaskGeneric) {
@@ -78,8 +70,6 @@ func tornGuardStateOf(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric)
 	return rec.State()
 }
 
-// tornGuardReload shuts the shard down and loads it again with a fresh task
-// installed, which is the only route that runs reconciliation.
 func tornGuardReload(t *testing.T, ctx context.Context, shard *Shard, idx *Index,
 	class *models.Class,
 ) (*Shard, *ShardReindexTaskGeneric) {
@@ -98,11 +88,6 @@ func tornGuardReload(t *testing.T, ctx context.Context, shard *Shard, idx *Index
 	return shd.(*Shard), task
 }
 
-// TestTornState_RebuiltDataGone_ReiteratesToBaseline pins that a rebuild
-// whose data is gone restarts from the beginning and reproduces exactly a
-// clean run's index. Resuming from the recorded checkpoint instead would
-// swap in a bucket missing everything below the stale key
-// (weaviate/0-weaviate-issues#244), which is why the checkpoint clears too.
 func TestTornState_RebuiltDataGone_ReiteratesToBaseline(t *testing.T) {
 	baseline := computeBaselineFingerprint(t, tornGuardPropName, tornGuardNumObjects)
 	require.NotEmpty(t, baseline)
@@ -112,9 +97,6 @@ func TestTornState_RebuiltDataGone_ReiteratesToBaseline(t *testing.T) {
 	class := newTestClassWithProps(className, []string{tornGuardPropName})
 	shard, idx, task := runTornStateMigrationToIterated(t, ctx, className, class)
 
-	// Remove the directory the rebuild wrote into while the record claiming it
-	// complete survives: a crash before any iteration data reached disk, or a
-	// restore that materialized the class tree without it.
 	reindexDir := filepath.Join(shard.pathLSM(), task.reindexBucketName(tornGuardPropName))
 	require.DirExists(t, reindexDir, "fixture: the rebuild's dir must exist before we remove it")
 	require.NoError(t, os.RemoveAll(reindexDir))
@@ -152,10 +134,6 @@ func TestTornState_RebuiltDataGone_ReiteratesToBaseline(t *testing.T) {
 	}
 }
 
-// TestTornState_CommittedRecordKeepsItsMissingSidecarDirs pins that a
-// committed record's missing rebuild directories (removed on purpose once
-// staged data is complete) read as correct, not torn — misreading them would
-// send every restart of a committed migration back to iteration.
 func TestTornState_CommittedRecordKeepsItsMissingSidecarDirs(t *testing.T) {
 	ctx := testCtx()
 	className := "TornGuardCommitted_" + uuid.NewString()[:8]

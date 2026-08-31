@@ -34,34 +34,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testTornResumeReindexedNotTidied pins the journey: a prior reindex crashed
-// mid-rebuild (I/O failure, container kill, a process death mid-swap), so the
-// shard carries a record naming staged directories that never reached disk,
-// for a task the cluster has never heard of. A fresh submit for the same
-// property must reclaim that state and rebuild from scratch.
-//
-// The failure it catches is a resume that trusts the leftover record and
-// skips either the iteration or the flip. The task still reports FINISHED,
-// so both halves are asserted per variant — the schema flag AND the hit
-// count — because either alone passes on the wrong state.
-//
-// Planting the record directly, rather than racing a real run, is what makes
-// the starting state exact and the test independent of iteration timing.
-//
-// One variant per shape:
-//
-//   - enable-rangeable (non-semantic): the whole lifecycle completes inside
-//     RunOnShard with no OnGroupCompleted swap fallback, so a skipped flip
-//     has nothing behind it — the schema flag never flips and queries miss.
-//
-//   - repair-filterable (non-semantic, RoaringSetRefresh): same shape.
-//
-//   - enable-filterable (semantic): OnGroupCompleted does run the swap, so
-//     the failure lands the other way round — an empty staged bucket goes
-//     live with the schema flag flipped over it.
-//
-// restURI is re-derived inside each subtest from plantTornMigrationAcrossRestart
-// (the host port changes across the restart), so no URI is threaded in here.
 func testTornResumeReindexedNotTidied(t *testing.T, compose *docker.DockerCompose) {
 	t.Run("enable_rangeable_nonSemantic", func(t *testing.T) {
 		testTornResumeEnableRangeable(t, compose)
@@ -83,9 +55,6 @@ func testTornResumeReindexedNotTidied(t *testing.T, compose *docker.DockerCompos
 // a slow CI runner.
 const tornResumeObjectCount = 30
 
-// tornResumeGeneration is the generation the crashed run was at. Every
-// directory the planted record names carries it, because a tracker and the
-// sidecars beside it always come from the same run.
 const tornResumeGeneration = 1
 
 func testTornResumeEnableRangeable(t *testing.T, compose *docker.DockerCompose) {
@@ -219,25 +188,6 @@ func testTornResumeEnableFilterable(t *testing.T, compose *docker.DockerCompose)
 		tornResumeObjectCount, hits)
 }
 
-// plantTornMigrationAcrossRestart plants the on-disk state of a run that
-// crashed mid-rebuild, then restarts the container. Layout:
-//
-//	.migrations/<tracker>/payload.mig                        — the task payload
-//	.migrations/records/<version>_<strategyCode>_<unit>.json — the state
-//
-// Every directory the record names comes from [reindexrecords], so the planted
-// state is one a crashed run on this build could actually have left: a record
-// naming a staged or sidecar directory the writer would not have written is
-// refused outright, and pinning behavior against a refused record pins nothing.
-//
-// The record is Iterating: the rebuild never reported complete, so nothing
-// staged is a candidate for becoming live and a submit that lands afterwards
-// has to start from scratch rather than short-circuit on it.
-//
-// Stop → plant → start avoids racing the server's async
-// cleanStaleMigrationDirs (shard_init_properties.go:134-152, 336); see
-// weaviate/0-weaviate-issues#254. Returns the new REST URI; host port
-// mapping changes across restart.
 func plantTornMigrationAcrossRestart(
 	t *testing.T,
 	compose *docker.DockerCompose,

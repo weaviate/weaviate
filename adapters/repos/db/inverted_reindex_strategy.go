@@ -37,8 +37,6 @@ import (
 // ShardReindexTaskGeneric.
 type MigrationStrategy interface {
 	// StrategyCode identifies this strategy in a migration record's key.
-	// Unlike the directory name it is a durable on-disk value, and it stays
-	// meaningful once directory names become opaque.
 	StrategyCode() MigrationStrategyCode
 
 	// MigrationDirName returns the subdirectory name under .migrations/
@@ -99,36 +97,9 @@ type MigrationStrategy interface {
 	// map→blockmax, roaring-set refresh) should return nil.
 	AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay
 
-	// OnMigrationComplete is called once this shard's flip is durable, in
-	// Phase 2c of the runtime swap (see the phase contract at the top of
-	// inverted_reindex_task_generic.go). Implementations can read the shard's
-	// current bucket state to decide whether collection-level finalization is
-	// safe — for per-property migrations the class-level flag (e.g.
-	// UsingBlockMaxWAND) must only flip once every searchable property has been
-	// migrated.
-	//
-	// The per-shard tokenization overlay is still active here for migrations
-	// that use one; [ReindexProvider.OnTaskCompleted] clears it later, together
-	// with the cluster-wide schema flip.
-	//
-	// Allowed: in-memory mutation of shard-local query-path state that must
-	// match the cluster-wide flip before that flip propagates
-	// ([Shard.setRangeableLocallyReady] is the canonical case), and, for
-	// strategies whose flip is not batched into OnTaskCompleted, the RAFT call
-	// that performs it. RAFT here is correctness-safe — the overlay covers the
-	// per-shard window — but costs hundreds of milliseconds of FINALIZING time,
-	// more than the per-shard atomic contract intends. Splitting this hook into
-	// a local-in-memory half and a cluster-wide half would fix that.
-	//
-	// Forbidden: heavy disk I/O on the new main bucket. It is live, and anything
-	// that stalls its compaction or flush pipeline shows up as query latency.
-	// (I/O on the old bucket is safe — it was shut down in Phase 2b — but
-	// belongs in Phase 2b by convention.)
-	//
-	// Do not assume the cluster-wide schema flip has already happened; this hook
-	// may itself drive it. A per-property index flag flipped from here must land
-	// before the task reaches FINISHED, or GET /v1/schema/{class}/indexes drops
-	// that index from the response.
+	// OnMigrationComplete is called once this shard's flip is durable, in Phase 2c
+	// of the runtime swap. Forbidden: heavy disk I/O on the new main bucket — it is
+	// live, and anything that stalls its compaction shows up as query latency.
 	OnMigrationComplete(ctx context.Context, shard ShardLike) error
 }
 

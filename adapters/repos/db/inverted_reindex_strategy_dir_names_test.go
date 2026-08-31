@@ -134,11 +134,6 @@ func TestFinalizeMigrationSuffixesUnknown(t *testing.T) {
 	}
 }
 
-// TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax pins the
-// per-property contract: the class-level MapToBlockmax tracker must NOT be
-// returned here, or single-property cleanup would corrupt the class-level
-// dir. What keeps a completed class-level migration alive is its own
-// record, not this list.
 func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T) {
 	got := migrationDirPrefixesForIndexType("searchable")
 	for _, p := range got {
@@ -249,8 +244,6 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:      "enable_filterable_b_a_1",
 			propName: "a", want: false,
 		},
-		// A name no sorted property list can produce, so nothing but the dir's
-		// own name is left to ask, and it does not rebuild from ["a"].
 		{
 			name:     "a single property carrying this property mid-token, with no payload",
 			dir:      "enable_filterable_x_a_y_1",
@@ -261,9 +254,6 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:      "enable_filterable_a_b_c_1",
 			propName: "b", want: false,
 		},
-		// The one shape only the middle-token arm of namesPropertyToken keeps
-		// in scope: without it the payload is never read and the tracker of a
-		// three-property task is never deleted.
 		{
 			name: "the middle property of a three-property task, with its payload",
 			dir:  "enable_filterable_a_b_c_1", props: []string{"a", "b", "c"},

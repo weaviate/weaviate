@@ -29,19 +29,11 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// mkTrackerDir creates a migration's own directory under .migrations. On its
-// own it describes a migration that never got as far as its first record
-// write; mkMigrationRecord is what gives it a state.
 func mkTrackerDir(t *testing.T, lsmPath, name string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, ".migrations", name), 0o755))
 }
 
-// mkMigrationRecord plants the record for tracker dir trackerName, which
-// every sweep and gate now reads. staged maps each property to its data
-// directory; from Merged on, that directory backs a live bucket pointer and
-// no sweep may remove it. The key derives from trackerName so several
-// fixtures on one shard stay distinct.
 func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
 	state MigrationState, staged map[string]string,
 ) {
@@ -88,10 +80,6 @@ func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
 	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
 }
 
-// fixtureStrategyOf reads the strategy a tracker dir belongs to off its name,
-// which is what the writer of that name did. Production never holds a record
-// whose code disagrees with the directory it points at, so neither does a
-// fixture.
 func fixtureStrategyOf(t *testing.T, trackerName string) (MigrationStrategyCode, ReindexMigrationType) {
 	t.Helper()
 	for _, known := range []struct {
@@ -155,12 +143,6 @@ func cleanSweep(t *testing.T, ctx context.Context, shard *Shard, propName, index
 	return reads
 }
 
-// fixtureSidecarFor pairs a staged (ingest) directory with the reindex sidecar
-// the same migration owns, so the fixture exercises the preservation and
-// reclamation that read MigrationSubject.SidecarDirs. A production-shaped
-// ingest name yields the production reindex name; anything else yields a
-// synthetic one, so a row whose sweep has to match the name on disk has to
-// pass a production-shaped staged name.
 func fixtureSidecarFor(staged string) string {
 	if reindex := strings.Replace(staged, "_ingest_", "_reindex_", 1); reindex != staged {
 		return reindex
@@ -168,8 +150,6 @@ func fixtureSidecarFor(staged string) string {
 	return staged + "__reindex"
 }
 
-// dirExists fails the test on a stat it cannot interpret, so an assertion
-// never reads an unreadable directory as an absent one.
 func dirExists(t *testing.T, path string) bool {
 	t.Helper()
 	there, err := diskio.DirExists(path)
@@ -235,14 +215,12 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
 
-			// Completed class-level migration awaiting promotion.
 			mkTrackerDir(t, lsm, tc.classTracker)
 			mkMigrationRecord(t, lsm, tc.classTracker, MigrationStateSwapped,
 				map[string]string{tc.propName: tc.liveSidecar})
 			mkSidecarDir(t, lsm, tc.liveSidecar)
 			mkSidecarDir(t, lsm, fixtureSidecarFor(tc.liveSidecar))
 
-			// Completed per-prop migration awaiting promotion.
 			mkTrackerDir(t, lsm, tc.propTracker)
 			mkMigrationRecord(t, lsm, tc.propTracker, MigrationStateSwapped,
 				map[string]string{tc.propName: tc.propLiveSidecar})
@@ -268,9 +246,6 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 			require.False(t, dirExistsAt(t, lsm, tc.staleSidecar),
 				"stale sidecar %s of a cancelled attempt must be wiped", tc.staleSidecar)
 
-			// The reindex sidecar the rebuild wrote into is the migration's
-			// too, and it is preserved and reclaimed on the same evidence as
-			// the ingest one.
 			require.True(t, dirExistsAt(t, lsm, fixtureSidecarFor(tc.liveSidecar)),
 				"the reindex sidecar of the live class-level migration must survive with its ingest dir")
 			require.True(t, dirExistsAt(t, lsm, fixtureSidecarFor(tc.propLiveSidecar)),
@@ -301,9 +276,7 @@ func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T
 		staleTracker     string
 		staleSidecar     string
 		wipeReason       string
-		// loadBuckets opens both sidecars in the store before the sweep, so
-		// the row also pins which of them the sweep disconnects.
-		loadBuckets bool
+		loadBuckets      bool
 	}{
 		{
 			name:             "completed enable_filterable gen 1 must not preserve stale roaringset ingest_1",
@@ -357,8 +330,6 @@ func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T
 					mkSidecarDir(t, lsm, name)
 					continue
 				}
-				// A loaded bucket lays down its own directory; mkSidecarDir's
-				// placeholder segment is not one the store can open.
 				require.NoError(t, shard.store.CreateOrLoadBucket(ctx, name,
 					lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
 			}

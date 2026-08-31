@@ -23,31 +23,17 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestPromotedCompletionServesTheIndexItAdvertises pins the completion gate
-// against the bucket, not against the record. Once the flip is durable the
-// completion gate can be re-entered — by a retry, or by a restart that acked
-// its own unit before the last one acked — and by then the canonical name
-// denotes the promoted bucket, which nothing has necessarily opened. Committing
-// the schema effect over a closed bucket advertises an index nothing serves.
-//
-// The assertion is what the property serves afterwards, not whether some
-// directory exists.
 func TestPromotedCompletionServesTheIndexItAdvertises(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25
 
 	tests := []struct {
-		name string
-		// class builds the fixture, and newTask the migration that promotes it.
-		class   func(className string) *models.Class
-		newTask func(t *testing.T, idx *Index, className string) *ShardReindexTaskGeneric
-		// enable is the schema effect the completed migration commits, which
-		// the next load reads before it opens the property's buckets.
-		enable func(prop *models.Property)
-		// canonical names the bucket the completed migration advertises.
+		name      string
+		class     func(className string) *models.Class
+		newTask   func(t *testing.T, idx *Index, className string) *ShardReindexTaskGeneric
+		enable    func(prop *models.Property)
 		canonical func(propName string) string
-		// serves reports the terms the canonical bucket answers with.
-		serves func(t *testing.T, b *lsmkv.Bucket) map[string][]uint64
+		serves    func(t *testing.T, b *lsmkv.Bucket) map[string][]uint64
 	}{
 		{
 			name:  "enable-filterable",
@@ -90,9 +76,6 @@ func TestPromotedCompletionServesTheIndexItAdvertises(t *testing.T) {
 			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 			require.NoError(t, task.RunSwapOnShard(ctx, shard))
 
-			// The promotion is a load's work, so the record only reaches
-			// Promoted on the next one. That is also the state the completion
-			// gate is re-entered in.
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 			postClass := tc.class(className)
@@ -110,8 +93,6 @@ func TestPromotedCompletionServesTheIndexItAdvertises(t *testing.T) {
 			before := tc.serves(t, promoted.store.Bucket(canonical))
 			require.NotEmpty(t, before, "fixture: the migration has to have produced an index")
 
-			// A retry, or a restart that acked its own unit before the last one
-			// acked, re-enters the gate with the canonical bucket closed.
 			require.NoError(t, promoted.store.ShutdownBucket(ctx, canonical))
 			require.Nil(t, promoted.store.Bucket(canonical), "fixture: the bucket has to be closed")
 
@@ -124,9 +105,6 @@ func TestPromotedCompletionServesTheIndexItAdvertises(t *testing.T) {
 	}
 }
 
-// completionGateClass carries one property per canonical bucket the gate can
-// be asked about: a text property with both inverted indexes on, and an int
-// property with range filters on.
 func completionGateClass(className string) *models.Class {
 	on := true
 	return &models.Class{
@@ -152,30 +130,13 @@ func completionGateClass(className string) *models.Class {
 	}
 }
 
-// TestTheCompletionGateOnlyTouchesAClosedBucket pins what the gate is allowed
-// to do, for every strategy rather than for the two whose hook happens to
-// reopen.
-//
-// The gate borrows PreReindexHook to re-open a canonical bucket, and that hook
-// is a start-of-migration hook with side effects of its own: it marks
-// searchable properties and takes rangeable properties off their in-memory
-// representation. Neither is true of a bucket that is already open, and the
-// gate is re-entered once per completion retry for the life of the process, so
-// firing them there grew a slice the object write path scans on every update.
-//
-// Three of the eight strategies open the canonical bucket in that hook and
-// five do not. For those five the gate can only refuse; they never reach it
-// with a closed bucket, because their schema flag is already true when the
-// migration starts and shard init opens the bucket unconditionally.
 func TestTheCompletionGateOnlyTouchesAClosedBucket(t *testing.T) {
 	tests := []struct {
-		name     string
-		propName string
-		strategy MigrationStrategy
-		// canonical names the bucket this strategy's completion advertises.
+		name      string
+		propName  string
+		strategy  MigrationStrategy
 		canonical func(string) string
-		// reopens is whether PreReindexHook opens that bucket.
-		reopens bool
+		reopens   bool
 	}{
 		{
 			name: "enable-filterable", propName: "title", reopens: true,
