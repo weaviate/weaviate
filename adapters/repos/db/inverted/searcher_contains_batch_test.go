@@ -597,9 +597,14 @@ func TestFetchContainsBatch_BucketErrors(t *testing.T) {
 		name    string
 		prop    string
 		wantErr string
+		// wantPlanLogged is whether the failure happens after the fold planned.
+		// The bucket lookup fails before the slow query entry is registered at
+		// all; the strategy check fails at the first reader, by which point
+		// there is a plan and no reader counters to report beside it.
+		wantPlanLogged bool
 	}{
-		{"no bucket", "prop-no-bucket", "not found"},
-		{"non-roaringset bucket", "prop-nonroaringset", "expected, got"},
+		{"no bucket", "prop-no-bucket", "not found", false},
+		{"non-roaringset bucket", "prop-nonroaringset", "expected, got", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -611,9 +616,23 @@ func TestFetchContainsBatch_BucketErrors(t *testing.T) {
 				Class:              f.class,
 			}
 
+			ctx := helpers.InitSlowQueryDetails(ctx)
 			dbm, err := pv.fetchContainsBatch(ctx, f.searcher)
 			require.ErrorContains(t, err, tc.wantErr)
 			require.Nil(t, dbm)
+
+			entries, _ := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+			if !tc.wantPlanLogged {
+				require.Empty(t, entries, "a filter rejected before it planned is not timed")
+				return
+			}
+			require.Len(t, entries, 1)
+			require.True(t, entries[0]["failed"].(bool))
+			require.EqualValues(t, 1, entries[0]["fold_workers"],
+				"a fold that planned must report the plan even when no reader opened")
+			require.Equal(t, "union-incremental", entries[0]["fold_strategy"])
+			require.NotContains(t, entries[0], "window_fills",
+				"reader counters have nothing to report when no reader was opened")
 		})
 	}
 }
