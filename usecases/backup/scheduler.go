@@ -517,18 +517,14 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	return nil
 }
 
-// cancelCoordinatorOp cancels a create op this node coordinates on behalf of a
-// Cancel received by another node: the slot signal above is node-local, so
-// without this hook a DELETE landing on a non-coordinator is acknowledged but
-// never reaches a create still in its planning wait. Wired into Handler.OnAbort,
-// whose abort fan-out covers every node hosting the backup's classes. Restores
-// are excluded: they have no headless phase — participants book immediately, so
-// aborting them already unwinds the op.
+// cancelCoordinatorOp lets a remote DELETE's abort fan-out cancel a create this node
+// coordinates; only user aborts qualify (empty AttemptID — coordinator cleanup aborts
+// carry theirs and must not flip their own op to Cancelled).
 func (s *Scheduler) cancelCoordinatorOp(method Op, id, attemptID string) bool {
-	if method != OpCreate {
+	if method != OpCreate || attemptID != "" {
 		return false
 	}
-	if s.backupper.lastOp.cancelIfInFlightAttempt(id, attemptID) {
+	if s.backupper.lastOp.cancelIfInFlight(id) {
 		s.logger.WithField("backup_id", id).Info("cancel: remote abort signalled in-flight backup coordinator")
 		return true
 	}

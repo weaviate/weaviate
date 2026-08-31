@@ -192,8 +192,7 @@ type Status struct {
 	BaseBackupID string
 }
 
-// CoordinatorCanceller cancels an op this node coordinates; implemented by
-// *Scheduler so a cluster-wide abort can reach the coordinator slot.
+// CoordinatorCanceller lets a cluster abort reach the coordinator slot (*Scheduler).
 type CoordinatorCanceller interface {
 	cancelCoordinatorOp(method Op, id, attemptID string) bool
 }
@@ -397,9 +396,7 @@ func (m *Handler) SetCoordinatorCanceller(c CoordinatorCanceller) {
 
 // OnAbort will be triggered when the coordinator abort the execution of a previous operation
 func (m *Handler) OnAbort(ctx context.Context, req *AbortRequest) error {
-	// A Cancel received by another node fans out here; this node may be the one
-	// coordinating the op (a create waiting out dedupe planning has no
-	// participant slots yet, so the participant abort below cannot reach it).
+	// A create waiting out planning has no participant slots; only this reaches it.
 	if m.coordCanceller != nil {
 		m.coordCanceller.cancelCoordinatorOp(req.Method, req.ID, req.AttemptID)
 	}

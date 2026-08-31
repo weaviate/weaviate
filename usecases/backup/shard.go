@@ -90,22 +90,11 @@ func (s *backupStat) renew(id, attemptID, path, overrideBucket, overridePath str
 	return ""
 }
 
-// cancelIfInFlight marks the slot Cancelled iff it currently holds id, so an
-// external Cancel reaches the create path's planning and commit polls.
+// cancelIfInFlight marks the slot Cancelled iff it currently holds id.
 func (s *backupStat) cancelIfInFlight(id string) bool {
-	return s.cancelIfInFlightAttempt(id, "")
-}
-
-// cancelIfInFlightAttempt is cancelIfInFlight with the same foreign-attempt
-// guard as shardSyncChan.OnAbort: a non-empty attemptID that differs from the
-// slot's must not kill an attempt it does not own.
-func (s *backupStat) cancelIfInFlightAttempt(id, attemptID string) bool {
 	s.Lock()
 	defer s.Unlock()
 	if id == "" || s.reqState.ID != id {
-		return false
-	}
-	if attemptID != "" && s.reqState.AttemptID != "" && attemptID != s.reqState.AttemptID {
 		return false
 	}
 	s.reqState.Status = backup.Cancelled
