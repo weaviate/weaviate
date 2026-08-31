@@ -503,8 +503,11 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, commit
 			continue
 		}
 		if committed.preservesBucket(entry.Name()) {
+			// Debug for the same reason the tracker-dir line above is: one call
+			// path here is updatePropertyBuckets, inside the RAFT apply loop, so
+			// the line count follows the tenant count.
 			s.index.logger.WithField("path", filepath.Join(s.pathLSM(), entry.Name())).
-				Info("partial-reindex cleanup: preserving the sidecar dir of a committed migration (live bucket pointer)")
+				Debug("partial-reindex cleanup: preserving the sidecar dir of a committed migration (live bucket pointer)")
 			continue
 		}
 		path := filepath.Join(s.pathLSM(), entry.Name())
