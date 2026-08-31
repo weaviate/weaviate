@@ -240,55 +240,76 @@ func TestShutdownStagedBucketsClosesOnlyTheNamedProperty(t *testing.T) {
 	}
 }
 
-// The accessor reads l.shard, which the loader writes under l.mutex. Taking the
-// same mutex on the read side is what makes the pair safe, and dropping it makes
-// this test fail under -race.
-func TestLazyLoadShardMigrationRecordStoreLocksAgainstTheLoader(t *testing.T) {
-	const tenant = "record-store-reader"
+// Both accessors read l.shard, which the loader writes under l.mutex. Taking
+// the same mutex on the read side is what makes the pair safe, and dropping it
+// makes this test fail under -race.
+func TestLazyLoadShardMigrationAccessorsLockAgainstTheLoader(t *testing.T) {
+	tests := []struct {
+		name string
+		read func(*LazyLoadShard) bool
+		want string
+	}{
+		{
+			name: "record store",
+			read: func(l *LazyLoadShard) bool { return l.migrationRecordStore() != nil },
+			want: "a loaded shard reconciles its records at init, so the accessor has to see a store",
+		},
+		{
+			name: "mirror registry",
+			read: func(l *LazyLoadShard) bool { return l.migrationMirrorRegistry() != nil },
+			want: "a loaded shard owns a mirror registry, so the accessor has to see one",
+		},
+	}
 
-	ctx := testCtx()
-	className := "WiringRecordStoreRace_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{"title"})
-	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	defer hot.Shutdown(context.Background())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const tenant = "accessor-reader"
 
-	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-		false, idx.bitmapBufPool)
-	defer func() {
-		if cold.isLoaded() {
-			require.NoError(t, cold.Shutdown(context.Background()))
-		}
-	}()
+			ctx := testCtx()
+			className := "WiringAccessorRace_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{"title"})
+			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			defer hot.Shutdown(context.Background())
 
-	// The reader is already spinning when the load starts and keeps spinning
-	// until it has returned, so the write to l.shard lands inside the window the
-	// reader is reading in. No timing assumption sits between the two.
-	spinning, loadDone := make(chan struct{}), make(chan struct{})
-	var readers sync.WaitGroup
-	readers.Add(1)
-	go func() {
-		defer readers.Done()
-		close(spinning)
-		for {
-			cold.migrationRecordStore()
-			select {
-			case <-loadDone:
-				return
-			default:
-			}
-		}
-	}()
+			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				false, idx.bitmapBufPool)
+			defer func() {
+				if cold.isLoaded() {
+					require.NoError(t, cold.Shutdown(context.Background()))
+				}
+			}()
 
-	<-spinning
-	loadErr := cold.Load(ctx)
-	close(loadDone)
-	readers.Wait()
+			// The reader is already spinning when the load starts and keeps
+			// spinning until it has returned, so the write to l.shard lands
+			// inside the window the reader is reading in. No timing assumption
+			// sits between the two.
+			spinning, loadDone := make(chan struct{}), make(chan struct{})
+			var readers sync.WaitGroup
+			readers.Add(1)
+			go func() {
+				defer readers.Done()
+				close(spinning)
+				for {
+					tt.read(cold)
+					select {
+					case <-loadDone:
+						return
+					default:
+					}
+				}
+			}()
 
-	require.NoError(t, loadErr)
-	require.NotNil(t, cold.migrationRecordStore(),
-		"a loaded shard reconciles its records at init, so the accessor has to see a store")
+			<-spinning
+			loadErr := cold.Load(ctx)
+			close(loadDone)
+			readers.Wait()
+
+			require.NoError(t, loadErr)
+			require.True(t, tt.read(cold), tt.want)
+		})
+	}
 }
 
 // The whole safety argument for this PR is that a shard load decides nothing.

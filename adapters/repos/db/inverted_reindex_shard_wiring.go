@@ -99,8 +99,13 @@ func (l *LazyLoadShard) migrationRecordStore() *MigrationRecordStore {
 
 func (s *Shard) migrationMirrorRegistry() *migrationMirrorRegistry { return &s.migrationMirrors }
 
+// Reports no registry rather than loading a cold shard, for the same reason
+// [LazyLoadShard.migrationRecordStore] does.
 func (l *LazyLoadShard) migrationMirrorRegistry() *migrationMirrorRegistry {
-	if l.shard == nil {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if !l.loaded {
 		return nil
 	}
 	return l.shard.migrationMirrorRegistry()
