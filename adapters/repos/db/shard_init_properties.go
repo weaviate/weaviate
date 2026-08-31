@@ -167,6 +167,8 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 	payloadReads *atomic.Int64,
 ) {
 	eg.Go(func() error {
+		// One preserve set and one payload memo for the whole loop, not one per
+		// index type: this runs inside a RAFT apply.
 		sweep := migrationSweepStateFor(s.pathLSM(), s.index.logger)
 		defer func() { payloadReads.Add(int64(sweep.reads())) }()
 		for _, indexType := range disabledIndexTypes(prop) {
@@ -206,6 +208,8 @@ func disabledIndexTypes(prop *models.Property) []string {
 	return types
 }
 
+// migrationSweepState is shared by every index type of one property's sweep:
+// building it per index type re-reads the same records inside the RAFT apply.
 type migrationSweepState struct {
 	committed migrationPreservedState
 	props     *taskPropsCache
@@ -225,6 +229,9 @@ func (s *migrationSweepState) reads() int {
 	return s.props.count()
 }
 
+// cleanStaleMigrationDirs lets its read count accrue into the caller's memo
+// instead of logging it per call: a 10k-tenant class would otherwise emit 30k
+// lines inside one RAFT FSM apply.
 func (s *Shard) cleanStaleMigrationDirs(ctx context.Context, propName, indexType string, sweep *migrationSweepState) {
 	cleanStaleMigrationDirsAt(ctx, s.pathLSM(), propName, indexType, s.index.logger, sweep)
 }
@@ -516,8 +523,11 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, commit
 }
 
 // sidecarRoleWords are the words every migration sidecar suffix ends in, once the
-// generation tail is off. "backup" and "map" name no suffix this build produces;
-// they stay because clusters upgrading into it bring those directories along.
+// generation tail is off. "backup" and "map" name no suffix this build produces,
+// because the swap removes the directory it displaces at the handle the record
+// names instead of renaming it aside. They stay because clusters upgrading into
+// this build bring those directories along and no record names them, so this
+// sweep is the only thing that can reclaim them.
 var sidecarRoleWords = schema.SidecarRoleWords
 
 // isSidecarDirOf reports whether name is a per-property sidecar of

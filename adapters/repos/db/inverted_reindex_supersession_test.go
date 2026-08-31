@@ -591,6 +591,10 @@ func TestARecordRemovedEarlierInThePassStopsSupersedingAnything(t *testing.T) {
 		"and its tracker directory goes with it, instead of hydrating this tenant on every load")
 }
 
+// TestARecordPromotesPastAPropertyRetirementWillNotReclaim pins the two answers
+// to "has retirement run for this property" against each other. When they
+// disagree the record never reaches Promoted, so every load repeats the same
+// line, once per property, forever.
 func TestARecordPromotesPastAPropertyRetirementWillNotReclaim(t *testing.T) {
 	f := newReconcileFixture(t)
 	f.class = testClassWithTokenization(models.PropertyTokenizationWord, "body", "title")

@@ -1315,6 +1315,9 @@ func TestDirNamesCache(t *testing.T) {
 			"the cached listing shares a backing array with the full-directory slice")
 	})
 
+	// The gate asks per (index type, property) tuple over the same shards, and
+	// each ask reads that shard's records off disk. Memoizing them on the run's
+	// cache keeps one terminal cleanup's grid at one read per shard.
 	t.Run("a shard's committed migrations are read once per run", func(t *testing.T) {
 		lsm := t.TempDir()
 		const tracker = "enable_filterable_cat_dog_1"

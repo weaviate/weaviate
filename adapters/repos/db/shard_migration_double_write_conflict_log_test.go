@@ -21,6 +21,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 )
 
+// TestOverlayConflictIsReportedOnTheTransition pins the overlay-conflict
+// warning to properties whose conflict is NEW: reporting the whole set costs
+// one line per still-conflicting property per change, and a teardown that
+// disarms one property at a time makes that quadratic in the property count.
 func TestOverlayConflictIsReportedOnTheTransition(t *testing.T) {
 	props := []string{"a", "b", "c", "d"}
 	forced := map[string]inverted.PropertyOverlay{}

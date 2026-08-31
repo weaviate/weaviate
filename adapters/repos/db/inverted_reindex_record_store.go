@@ -524,7 +524,9 @@ func (s *MigrationRecordStore) Records() []MigrationRecord {
 
 // HasUndecided reports whether any understood record is still pre-swap and
 // still movable. A wedged one is neither, and asking again about it is what
-// makes the periodic pass repeat forever with nothing to show for it.
+// makes the periodic pass repeat forever with nothing to show for it. It
+// answers without allocating: the shard-wiring probe asks once per shard per
+// minute and wants only a yes or no.
 func (s *MigrationRecordStore) HasUndecided() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

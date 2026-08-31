@@ -603,6 +603,8 @@ func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLoo
 	if err != nil {
 		return
 	}
+	// This runs per shard on every sweep and most shards carry no sentinel at
+	// all, so the record store is only read once one is found.
 	var quarantined []string
 	for _, entry := range entries {
 		if entry.IsDir() && fileExists(filepath.Join(migsDir, entry.Name(), reindexAuditQuarantineFile)) {

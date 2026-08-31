@@ -95,8 +95,11 @@ type propValueIndexState struct {
 	scopeRegs       []migrationScopeReg
 	nextCallbackID  uint64
 	overlaysDiverge bool
-	conflicts       []string
-	analyses        []doubleWriteAnalysis
+	// conflicts is carried so the warning fires on the transition:
+	// re-reporting it costs one line per still-conflicting property on every
+	// mutation, and a per-property teardown mutates once per property.
+	conflicts []string
+	analyses  []doubleWriteAnalysis
 }
 
 // emptyPropValueIndexState is returned by loadPropValueIndexState before any
