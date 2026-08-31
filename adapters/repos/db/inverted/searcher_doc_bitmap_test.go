@@ -52,7 +52,7 @@ func (s *containsBatchFixture) reader(t *testing.T, keys entsInverted.SortedKeys
 	t.Helper()
 	view := s.GetConsistentView()
 	t.Cleanup(view.ReleaseView)
-	rdr, err := lsmkv.NewRoaringSetBatchReader(view, keys)
+	rdr, err := lsmkv.NewRoaringSetBatchReader(view.WithoutEmptyActiveMemtable(), keys)
 	require.NoError(t, err)
 	return &spyContainsBatchReader{reader: rdr, fixture: s, keys: keys}
 }

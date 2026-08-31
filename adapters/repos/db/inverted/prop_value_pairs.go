@@ -434,7 +434,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 		})
 	}()
 
-	reader, err = lsmkv.NewRoaringSetBatchReader(view, pv.containsKeys)
+	reader, err = lsmkv.NewRoaringSetBatchReader(view.WithoutEmptyActiveMemtable(), pv.containsKeys)
 	if err != nil {
 		return nil, err
 	}
