@@ -3182,3 +3182,88 @@ func TestSchedulerCancelDuringDedupePlanning(t *testing.T) {
 	require.Eventually(t, func() bool { return s.backupper.lastOp.get().ID == "" },
 		5*time.Second, 10*time.Millisecond, "op slot not released after cancel")
 }
+
+// TestRemoteAbortCancelsCoordinatorCreatePlanning pins the fix for a DELETE landing on a
+// non-coordinator node: its abort fan-out must cancel the coordinator's planning wait,
+// while a foreign-attempt abort must not.
+func TestRemoteAbortCancelsCoordinatorCreatePlanning(t *testing.T) {
+	ctx := context.Background()
+	const cls, id, backendName = "Class1", "cancel-remote-abort", "s3"
+	fs := newFakeScheduler(&fakeNodeResolver{hosts: map[string]string{"N1": "h1", "N2": "h2"}, leader: "N1"})
+	fs.selector.On("Backupable", mock.Anything, []string{cls}).Return(nil)
+	fs.selector.On("Shards", mock.Anything, cls).Return([]string{"N1", "N2"}, nil)
+	fs.selector.On("ListClasses", mock.Anything).Return([]string{cls})
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("home/")
+	fs.backend.On("GetObject", mock.Anything, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", mock.Anything, id, BackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+	fs.backend.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	ckpt := newFakeCheckpointer()
+	ckpt.shardReplicas[cls] = map[string][]string{"S1": {"N1", "N2"}}
+	ckpt.diverge[cls+"/S1"] = true
+	s := fs.scheduler()
+	s.backupper.checkpointer = ckpt
+	s.backupper.dedupeCutoffLead = 100 * time.Millisecond
+	s.backupper.dedupePollInterval = 20 * time.Millisecond
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := s.Backup(ctx, nil, &BackupRequest{
+			Backend: backendName, ID: id, Include: []string{cls},
+			DedupeReplicas: true, DedupeConvergenceTimeoutSeconds: 30,
+		})
+		errCh <- err
+	}()
+	require.Eventually(t, func() bool { return s.backupper.lastOp.get().ID == id },
+		5*time.Second, 10*time.Millisecond, "backup never took the op slot")
+
+	require.False(t, s.cancelCoordinatorOp(OpCreate, id, "foreign-attempt"))
+	require.Equal(t, backup.Started, s.backupper.lastOp.get().Status)
+	require.False(t, s.cancelCoordinatorOp(OpRestore, id, ""))
+	require.Equal(t, backup.Started, s.backupper.lastOp.get().Status)
+
+	require.True(t, s.cancelCoordinatorOp(OpCreate, id, ""))
+	select {
+	case err := <-errCh:
+		require.Error(t, err, "cancelled backup must not report success")
+		require.IsType(t, backup.ErrUnprocessable{}, err)
+		require.Contains(t, strings.ToLower(err.Error()), "cancel")
+	case <-time.After(5 * time.Second):
+		t.Fatal("backup still planning 5s after remote abort; cancel never reached the create path")
+	}
+	fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+	require.Eventually(t, func() bool { return s.backupper.lastOp.get().ID == "" },
+		5*time.Second, 10*time.Millisecond, "op slot not released after remote abort")
+}
+
+func TestCancelIfInFlightAttempt(t *testing.T) {
+	tests := []struct {
+		name            string
+		slotID, slotAtt string
+		reqID, reqAtt   string
+		want            bool
+	}{
+		{"empty attempt cancels", "b1", "a1", "b1", "", true},
+		{"matching attempt cancels", "b1", "a1", "b1", "a1", true},
+		{"foreign attempt refused", "b1", "a1", "b1", "a2", false},
+		{"legacy slot without attempt cancels", "b1", "", "b1", "a2", true},
+		{"wrong id refused", "b1", "a1", "b2", "", false},
+		{"empty id refused", "b1", "a1", "", "", false},
+		{"empty slot refused", "", "", "b1", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &backupStat{}
+			if tc.slotID != "" {
+				require.Empty(t, st.renew(tc.slotID, tc.slotAtt, "p", "", ""))
+			}
+			require.Equal(t, tc.want, st.cancelIfInFlightAttempt(tc.reqID, tc.reqAtt))
+			if tc.want {
+				require.Equal(t, backup.Cancelled, st.get().Status)
+			} else if tc.slotID != "" {
+				require.Equal(t, backup.Started, st.get().Status)
+			}
+		})
+	}
+}

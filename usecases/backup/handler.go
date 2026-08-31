@@ -192,14 +192,21 @@ type Status struct {
 	BaseBackupID string
 }
 
+// CoordinatorCanceller cancels an op this node coordinates; implemented by
+// *Scheduler so a cluster-wide abort can reach the coordinator slot.
+type CoordinatorCanceller interface {
+	cancelCoordinatorOp(method Op, id, attemptID string) bool
+}
+
 type Handler struct {
 	node string
 	// deps
-	logger     logrus.FieldLogger
-	authorizer authorization.Authorizer
-	backupper  *backupper
-	restorer   *restorer
-	backends   BackupBackendProvider
+	logger         logrus.FieldLogger
+	authorizer     authorization.Authorizer
+	backupper      *backupper
+	restorer       *restorer
+	backends       BackupBackendProvider
+	coordCanceller CoordinatorCanceller
 }
 
 func NewHandler(
@@ -383,8 +390,19 @@ func (m *Handler) OnCommit(ctx context.Context, req *StatusRequest) (err error) 
 	}
 }
 
+// SetCoordinatorCanceller lets an abort RPC cancel an op this node coordinates.
+func (m *Handler) SetCoordinatorCanceller(c CoordinatorCanceller) {
+	m.coordCanceller = c
+}
+
 // OnAbort will be triggered when the coordinator abort the execution of a previous operation
 func (m *Handler) OnAbort(ctx context.Context, req *AbortRequest) error {
+	// A Cancel received by another node fans out here; this node may be the one
+	// coordinating the op (a create waiting out dedupe planning has no
+	// participant slots yet, so the participant abort below cannot reach it).
+	if m.coordCanceller != nil {
+		m.coordCanceller.cancelCoordinatorOp(req.Method, req.ID, req.AttemptID)
+	}
 	switch req.Method {
 	case OpCreate:
 		return m.backupper.OnAbort(ctx, req)
