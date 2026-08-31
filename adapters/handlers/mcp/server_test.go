@@ -18,10 +18,12 @@ import (
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/create"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/metrics"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/read"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/search"
 	"github.com/weaviate/weaviate/entities/models"
@@ -66,6 +68,74 @@ func TestToolFilter_WriteDisabled(t *testing.T) {
 		require.Contains(t, called, "write access is disabled")
 		require.NotContains(t, called, "not found")
 	})
+}
+
+// TestToolsListedMetric pins that the tools-listed counter tracks tools/list
+// requests only. The tool filter also runs for every tools/call, which used
+// to count each read-tool call as a listing.
+func TestToolsListedMetric(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	composer := func(string, []string) (*models.Principal, error) { return &models.Principal{}, nil }
+	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
+	writeEnabled := func() bool { return true }
+	reg := prometheus.NewRegistry()
+	m := metrics.New(reg, writeEnabled)
+	creator := create.NewWeaviateCreator(authHandler, nil, logger, writeEnabled)
+
+	s := &MCPServer{
+		server: server.NewMCPServer("test", "0",
+			server.WithToolCapabilities(true),
+			server.WithHooks(listMetricsHooks(m, writeEnabled)),
+		),
+		creator:        creator,
+		metrics:        m,
+		writeToolNames: map[string]bool{},
+	}
+	s.server.AddTools(server.ServerTool{
+		Tool: mcplib.NewTool("read-tool"),
+		Handler: func(context.Context, mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+			return mcplib.NewToolResultText("ok"), nil
+		},
+	})
+	s.registerToolFilter()
+
+	listedTotal := func(t *testing.T) float64 {
+		t.Helper()
+		families, err := reg.Gather()
+		require.NoError(t, err)
+		total := 0.0
+		for _, mf := range families {
+			if mf.GetName() == "weaviate_mcp_tools_listed_total" {
+				for _, metric := range mf.GetMetric() {
+					total += metric.GetCounter().GetValue()
+				}
+			}
+		}
+		return total
+	}
+
+	const callBody = `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read-tool","arguments":{}}}`
+	const listBody = `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`
+
+	steps := []struct {
+		name       string
+		body       string
+		wantListed float64
+	}{
+		{"read-tool call does not count", callBody, 0},
+		{"tools/list counts", listBody, 1},
+		{"another call still does not count", callBody, 1},
+		{"another tools/list counts again", listBody, 2},
+	}
+
+	for _, step := range steps {
+		t.Run(step.name, func(t *testing.T) {
+			raw, err := json.Marshal(s.server.HandleMessage(context.Background(), []byte(step.body)))
+			require.NoError(t, err)
+			require.NotContains(t, string(raw), `"error"`)
+			require.Equal(t, step.wantListed, listedTotal(t))
+		})
+	}
 }
 
 // TestToolInputSchemas pins that every tool advertises its arguments; the

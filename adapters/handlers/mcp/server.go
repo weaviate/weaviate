@@ -72,6 +72,7 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 			server.WithToolCapabilities(true),
 			server.WithResourceCapabilities(false, false),
 			server.WithRecovery(),
+			server.WithHooks(listMetricsHooks(m, writeAccessEnabled)),
 		),
 		creator:        create.NewWeaviateCreator(authHandler, state.BatchManager, logger, writeAccessEnabled),
 		searcher:       search.NewWeaviateSearcher(authHandler, state.Traverser, state.SchemaManager, state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled, logger),
@@ -92,18 +93,29 @@ func (s *MCPServer) Handler() http.Handler {
 	return server.NewStreamableHTTPServer(s.server, server.WithStateLess(true))
 }
 
+// listMetricsHooks counts tools/list requests. The count lives in a hook, not
+// in the tool filter, because the filter also runs for every tools/call.
+func listMetricsHooks(m *metrics.MCPMetrics, writeAccessEnabled func() bool) *server.Hooks {
+	hooks := &server.Hooks{}
+	hooks.AddAfterListTools(func(context.Context, any, *mcplib.ListToolsRequest, *mcplib.ListToolsResult) {
+		m.ObserveListed(writeAccessEnabled())
+	})
+	return hooks
+}
+
 // registerToolFilter hides write tools from tools/list when write access is
-// disabled at runtime. Read tools are always visible. The filter only affects
-// listing — calls to disabled tools are also rejected by the tool handlers.
+// disabled at runtime; read tools are always visible. mcp-go also runs the
+// filter on every tools/call, with only the called tool, so calls must pass
+// through — the tool handlers reject disabled writes themselves.
 func (s *MCPServer) registerToolFilter() {
 	server.WithToolFilter(func(ctx context.Context, tools []mcplib.Tool) []mcplib.Tool {
-		// tools/call filters just the called tool; let it through so the handler can return the write-disabled hint.
+		// A single write tool is a tools/call, never a listing. Removing it here
+		// would answer "tool not found"; passing it through lets the handler
+		// answer with the write-disabled hint.
 		if len(tools) == 1 && s.writeToolNames[tools[0].Name] {
 			return tools
 		}
-		writeEnabled := s.creator.IsWriteAccessEnabled()
-		s.metrics.ObserveListed(writeEnabled)
-		if writeEnabled {
+		if s.creator.IsWriteAccessEnabled() {
 			return tools
 		}
 		filtered := make([]mcplib.Tool, 0, len(tools))
