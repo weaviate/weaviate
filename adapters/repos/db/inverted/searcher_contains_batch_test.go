@@ -99,8 +99,12 @@ func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
 
 	f := &containsBatchGateFixture{class: class}
 	f.searcher = &Searcher{
-		store:                  store,
-		logger:                 logger,
+		store:  store,
+		logger: logger,
+		// production's Searcher always has one — NewSearcher dereferences it at
+		// construction — so a fixture without one is a shape only a test can make
+		bitmapFactory: roaringset.NewBitmapFactory(
+			roaringset.NewBitmapBufPoolNoop(), func() uint64 { return 300_000 }),
 		getClass:               func(name string) *models.Class { return f.class },
 		isFallbackToSearchable: func() bool { return f.fallback },
 		stopwordProvider:       stopwords.NewProvider(fakeStopwordDetector{}, nil),
