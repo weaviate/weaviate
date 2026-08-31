@@ -18,8 +18,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -296,6 +299,95 @@ func TestBucketCollectionReadOverTwoSegmentsFailsOnCorruptOne(t *testing.T) {
 			require.Equal(t, len(keys)-1, errs,
 				"every key below the corrupt root must fail the read")
 		})
+	}
+}
+
+// A flush counts, for each key it holds, whether a lower segment already had
+// it. That count is a metric sidecar, and the flushed segment is renamed into
+// place and its commit log deleted before the count runs — so failing the flush
+// when a lower segment cannot be read leaves those writes in a file no bucket
+// registers, with no log to replay them from.
+func TestBucketFlushOverCorruptLowerSegmentKeepsTheWrites(t *testing.T) {
+	ctx := context.Background()
+	logger, hook := test.NewNullLogger()
+	dir := t.TempDir()
+
+	newBucket := func() *Bucket {
+		b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			// the objects bucket keeps this count; without it no flush consults
+			// the lower segments at all
+			WithCalcCountNetAdditions(true))
+		require.NoError(t, err)
+		return b
+	}
+
+	keys := make([][]byte, 16)
+	b := newBucket()
+	for i := range keys {
+		keys[i] = []byte(fmt.Sprintf("key-%03d", i))
+		require.NoError(t, b.Put(keys[i], []byte(fmt.Sprintf("v1-%03d", i))))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Shutdown(ctx))
+
+	corruptRootChildPointers(t, dir)
+
+	b = newBucket()
+	t.Cleanup(func() {
+		// a flush left half-finished never clears b.flushing, and Shutdown polls
+		// for that until its context ends — so this bound is what keeps a
+		// regression here reporting in seconds rather than stalling the package
+		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		require.NoError(t, b.Shutdown(shutdownCtx))
+	})
+
+	// the same keys, so the count has to consult the corrupt segment for each
+	// one rather than being answered by the bloom filter
+	for i, key := range keys {
+		require.NoError(t, b.Put(key, []byte(fmt.Sprintf("v2-%03d", i))))
+	}
+	require.NoError(t, b.FlushAndSwitch(),
+		"a flush must not fail because a lower segment's index is unreadable")
+
+	for i, key := range keys {
+		value, err := b.Get(key)
+		require.NoError(t, err)
+		require.Equal(t, fmt.Sprintf("v2-%03d", i), string(value))
+	}
+
+	// A key the count could not resolve is left out rather than assumed new, so
+	// the total may undercount — it must never exceed the keys that exist.
+	count, err := b.Count(ctx)
+	require.NoError(t, err)
+	require.LessOrEqual(t, count, len(keys),
+		"a key whose lower segment could not be read must not be counted as an addition")
+
+	// and the log is the only thing that tells an operator the number is short
+	var approximate int
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "object count omits") {
+			approximate++
+			require.Equal(t, logrus.ErrorLevel, entry.Level)
+		}
+	}
+	require.NotZero(t, approximate, "an incomplete count must say so")
+
+	// and it must not reach disk at all. A sidecar that parses is loaded rather
+	// than recomputed, and compaction folds it into the merged segment, so an
+	// approximate one would outlive the segment that caused it.
+	segments, err := filepath.Glob(filepath.Join(dir, "*.db"))
+	require.NoError(t, err)
+	require.Len(t, segments, 2, "expected the corrupt segment and the one flushed over it")
+	sort.Strings(segments)
+	newest := strings.TrimSuffix(segments[len(segments)-1], ".db")
+
+	for _, suffix := range []string{".cna", ".metadata"} {
+		_, statErr := os.Stat(newest + suffix)
+		require.ErrorIs(t, statErr, os.ErrNotExist,
+			"%s persists a count that no later load recomputes", filepath.Base(newest+suffix))
 	}
 }
 

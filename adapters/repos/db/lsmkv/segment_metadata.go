@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -89,6 +90,11 @@ func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOn
 	}
 
 	netAdditions, err := s.recalcCountNetAdditions(exists, precomputedCNAValue)
+	if errors.Is(err, errApproximateNetAdditions) {
+		// writing the file would fix a wrong object count on disk; reporting no
+		// metadata sends the caller to the per-sidecar path, which skips it too
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
@@ -262,33 +268,11 @@ func (s *segment) recalcCountNetAdditions(exists existsOnLowerSegmentsFn, precom
 	if precomputedCNAValue != nil {
 		s.countNetAdditions = *precomputedCNAValue
 	} else {
-		var lastErr error
-		countNet := 0
-		cb := func(key []byte, tombstone bool) {
-			existedOnPrior, err := exists(key)
-			if err != nil {
-				lastErr = err
-			}
-
-			if tombstone && existedOnPrior {
-				countNet--
-			}
-
-			if !tombstone && !existedOnPrior {
-				countNet++
-			}
+		count, err := s.computeNetAdditions(exists)
+		s.countNetAdditions = count
+		if err != nil {
+			return nil, err
 		}
-
-		extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
-			s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
-
-		extr.do()
-
-		if lastErr != nil {
-			return nil, lastErr
-		}
-
-		s.countNetAdditions = countNet
 	}
 
 	data := make([]byte, 8)

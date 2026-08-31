@@ -48,6 +48,50 @@ func (s *segment) countNetPath() string {
 	return s.buildPath("%s.cna")
 }
 
+// errApproximateNetAdditions reports a count that could not consult every lower
+// segment. The count is still usable for the life of the process, but its
+// callers must not write it to a sidecar: nothing recomputes a sidecar that
+// parses, so the wrong number would outlive the segment that caused it.
+var errApproximateNetAdditions = errors.New("net additions count is approximate")
+
+// computeNetAdditions walks this segment's keys and nets the new ones against
+// its tombstones, asking exists whether each key is already held further down.
+// A key exists cannot answer for is left out of the total rather than assumed
+// new, which would inflate the count in one direction only.
+func (s *segment) computeNetAdditions(exists existsOnLowerSegmentsFn) (int, error) {
+	var lookupErr error
+	unanswered := 0
+	countNet := 0
+	cb := func(key []byte, tombstone bool) {
+		existedOnPrior, err := exists(key)
+		if err != nil {
+			lookupErr = err
+			unanswered++
+			return
+		}
+
+		if tombstone && existedOnPrior {
+			countNet--
+		}
+
+		if !tombstone && !existedOnPrior {
+			countNet++
+		}
+	}
+
+	extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
+		s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
+	extr.do()
+
+	if lookupErr != nil {
+		s.logger.WithField("path", s.path).
+			Errorf("object count omits %d keys whose lower segments could not be read: %v",
+				unanswered, lookupErr)
+		return countNet, fmt.Errorf("%w: %w", errApproximateNetAdditions, lookupErr)
+	}
+	return countNet, nil
+}
+
 func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int, existingFilesList map[string]int64) error {
 	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
@@ -84,32 +128,12 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 	if precomputedCNAValue != nil {
 		s.countNetAdditions = *precomputedCNAValue
 	} else {
-		var lastErr error
-		countNet := 0
-		cb := func(key []byte, tombstone bool) {
-			existedOnPrior, err := exists(key)
-			if err != nil {
-				lastErr = err
-			}
-
-			if tombstone && existedOnPrior {
-				countNet--
-			}
-
-			if !tombstone && !existedOnPrior {
-				countNet++
-			}
-		}
-
-		extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
-			s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
-
-		extr.do()
-
-		s.countNetAdditions = countNet
-
-		if lastErr != nil {
-			return lastErr
+		count, err := s.computeNetAdditions(exists)
+		s.countNetAdditions = count
+		if errors.Is(err, errApproximateNetAdditions) {
+			// leaving the sidecar absent is what makes the next load recompute,
+			// so the count corrects itself once the segment below can be read
+			return nil
 		}
 	}
 
