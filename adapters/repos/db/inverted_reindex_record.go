@@ -49,16 +49,39 @@ const (
 	StrategyCodeRebuildSearchable           MigrationStrategyCode = MigrationDirPrefixRebuildSearchable
 )
 
+// One list, because a code that is valid but missing from it would be read
+// out of a record file name as no code at all.
+var migrationStrategyCodes = []MigrationStrategyCode{
+	StrategyCodeSearchableMapToBlockmax, StrategyCodeFilterableRoaringsetRefresh,
+	StrategyCodeFilterableToRangeable, StrategyCodeSearchableRetokenize,
+	StrategyCodeFilterableRetokenize, StrategyCodeEnableFilterable,
+	StrategyCodeEnableSearchable, StrategyCodeRebuildSearchable,
+}
+
 func (c MigrationStrategyCode) valid() bool {
-	switch c {
-	case StrategyCodeSearchableMapToBlockmax, StrategyCodeFilterableRoaringsetRefresh,
-		StrategyCodeFilterableToRangeable, StrategyCodeSearchableRetokenize,
-		StrategyCodeFilterableRetokenize, StrategyCodeEnableFilterable,
-		StrategyCodeEnableSearchable, StrategyCodeRebuildSearchable:
-		return true
-	default:
-		return false
+	return slices.Contains(migrationStrategyCodes, c)
+}
+
+// migrationStrategyCodeOfRecordFile reads the strategy back out of a record
+// file name, which [MigrationRecordKey.fileName] writes as
+// "<taskVersion>_<strategyCode>_<unitID>.json". Reports false for a name this
+// build cannot take apart, which a caller must not read as "some other
+// strategy".
+func migrationStrategyCodeOfRecordFile(name string) (MigrationStrategyCode, bool) {
+	rest, isJSON := strings.CutSuffix(name, ".json")
+	if !isJSON {
+		return "", false
 	}
+	version, rest, split := strings.Cut(rest, "_")
+	if !split || version == "" || strings.TrimLeft(version, "0123456789") != "" {
+		return "", false
+	}
+	for _, code := range migrationStrategyCodes {
+		if unit, ok := strings.CutPrefix(rest, string(code)+"_"); ok && unit != "" {
+			return code, true
+		}
+	}
+	return "", false
 }
 
 // TaskVersion is not the generation: that's a separate per-node counter

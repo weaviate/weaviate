@@ -168,7 +168,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// PreReindexHook'd bucket as soon as the cluster-wide schema flag
 	// flips on another node. See [Shard.rangeableLocalReady] for the
 	// full rationale. Props no record names default to "ready": no migration
-	// ever ran, or reconciliation above already promoted it.
+	// ever ran, or reconciliation above already promoted it — unless a record
+	// this build could not read might have been a rangeable one, in which case
+	// every property on the shard is undecidable instead.
 	markInFlightRangeableMigrationsNotReady(s)
 
 	if err := s.initNonVector(ctx, class); err != nil {
@@ -244,7 +246,7 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	if s.migrationRecords == nil {
 		return
 	}
-	if len(s.migrationRecords.Unreadable()) > 0 {
+	if migrationFaultCouldHideARangeableRecord(s.migrationRecords.Unreadable()) {
 		s.rangeableUndecidable.Store(true)
 	}
 	for _, rec := range s.migrationRecords.Records() {
@@ -256,6 +258,24 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 			s.setRangeableLocallyReady(propName, false)
 		}
 	}
+}
+
+// A fault entry names a file and a scope, never a strategy. A file whose name
+// is a well-formed record name for some other strategy cannot be the rangeable
+// migration, so it leaves rangeable readiness alone. Everything else turns it
+// off for the whole shard: a store-scope fault read no file, and a name this
+// build cannot take apart could be anything.
+func migrationFaultCouldHideARangeableRecord(faults []MigrationRecordUnreadable) bool {
+	for _, fault := range faults {
+		if fault.Scope != MigrationRecordFaultFile {
+			return true
+		}
+		code, known := migrationStrategyCodeOfRecordFile(fault.FileName)
+		if !known || code == StrategyCodeFilterableToRangeable {
+			return true
+		}
+	}
+	return false
 }
 
 // maxRecoveryPayloadBytes bounds the probes that read one field of payload.mig

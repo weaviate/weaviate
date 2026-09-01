@@ -431,6 +431,9 @@ type Shard struct {
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
 
+	// Shard-wide, not per-property: a migration record this build could not
+	// read names no property, so nothing here can tell which one it covered.
+	// Set at shard init and never cleared — the file is still there.
 	rangeableUndecidable atomic.Bool
 
 	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
@@ -779,6 +782,10 @@ func (s *Shard) isFallbackToSearchable() bool {
 //   - The per-shard map has an explicit `false` entry, written either
 //     by the migration's PreReindexHook or, at shard init, by
 //     [markInFlightRangeableMigrationsNotReady], OR
+//   - Shard init found a migration record it could not read that might
+//     have been a rangeable one. That answers false for EVERY property
+//     on the shard, and stays false until the file is dealt with and
+//     the node restarts, OR
 //   - There is no explicit entry AND the rangeable bucket does not
 //     exist in the LSM store yet. This catches the narrow window where
 //     another replica's runtimeSwap has already flipped the

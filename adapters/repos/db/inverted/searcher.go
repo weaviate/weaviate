@@ -56,7 +56,10 @@ import (
 // only and falls back to the filterable bucket walk (slow but correct).
 // Returns true for properties that have no in-flight migration on disk
 // — i.e. either never migrated (native rangeable from collection
-// creation) or already-completed migrations.
+// creation) or already-completed migrations. The one exception is a
+// migration record the shard could not read that might have been a
+// rangeable one: nothing can tell which property it covered, so every
+// property on that shard answers false until the file is dealt with.
 type IsRangeableLocallyReady func(propName string) bool
 
 type Searcher struct {
