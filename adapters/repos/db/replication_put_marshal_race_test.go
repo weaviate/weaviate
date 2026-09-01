@@ -25,41 +25,69 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	entities "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-// Pins the CL=ONE overlap where the local commit leg assigns DocIDs while the
-// broadcast leg is still marshalling the same objects for a remote replica.
+// Pins the CL=ONE overlap where the local in-process commit leg assigns DocIDs while the broadcast leg still marshals the same objects.
 func TestReplicatedPutCommitDoesNotRaceWireMarshal(t *testing.T) {
+	className := "PutMarshalRace"
+	class := &models.Class{
+		Class:               className,
+		VectorIndexConfig:   enthnsw.UserConfig{Skip: true},
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{{
+			Name:         "stringProp",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
+		}},
+	}
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	idx := db.GetIndex(schema.ClassName(className))
+	require.NotNil(t, idx)
+	var shardName string
+	require.NoError(t, idx.ForEachShard(func(name string, _ ShardLike) error {
+		shardName = name
+		return nil
+	}))
+	rc := newRoutingReplicationClient(nil, db, stubResolver{localAddr: localHostAddr}, replLocalNode)
 	ctx := context.Background()
-	shardLike, _ := testShard(t, ctx, "PutMarshalRace")
-	shard, ok := shardLike.(*Shard)
-	require.True(t, ok)
 	logger, _ := test.NewNullLogger()
 	newObj := func() *storobj.Object {
 		return &storobj.Object{
 			MarshallerVersion: 1,
 			Object: models.Object{
 				ID:                 strfmt.UUID(uuid.NewString()),
-				Class:              "PutMarshalRace",
+				Class:              className,
 				Properties:         map[string]interface{}{"stringProp": "x"},
 				LastUpdateTimeUnix: 1_000,
 			},
 		}
+	}
+	commit := func(t *testing.T, reqID string) {
+		resp := replica.SimpleResponse{}
+		require.NoError(t, rc.Commit(ctx, localHostAddr, className, shardName, reqID, &resp))
+		require.NoError(t, resp.FirstError())
 	}
 
 	t.Run("single", func(t *testing.T) {
 		for i := 0; i < 30; i++ {
 			obj := newObj()
 			reqID := fmt.Sprintf("put-marshal-race-%d", i)
-			require.Empty(t, shard.preparePutObject(ctx, reqID, obj).Errors)
+			resp, err := rc.PutObject(ctx, localHostAddr, className, shardName, reqID, obj, 0)
+			require.NoError(t, err)
+			require.NoError(t, resp.FirstError())
 			done := make(chan struct{})
 			entities.GoWrapper(func() {
 				defer close(done)
 				_, _ = shared.IndicesPayloads.SingleObject.Marshal(obj, shared.MethodPut)
 			}, logger)
-			shard.commitReplication(ctx, reqID)
+			commit(t, reqID)
 			<-done
+			require.Zero(t, obj.DocID)
 		}
 	})
 
@@ -70,14 +98,19 @@ func TestReplicatedPutCommitDoesNotRaceWireMarshal(t *testing.T) {
 				objs[j] = newObj()
 			}
 			reqID := fmt.Sprintf("batch-marshal-race-%d", i)
-			require.Empty(t, shard.preparePutObjects(ctx, reqID, objs).Errors)
+			resp, err := rc.PutObjects(ctx, localHostAddr, className, shardName, reqID, objs, 0)
+			require.NoError(t, err)
+			require.NoError(t, resp.FirstError())
 			done := make(chan struct{})
 			entities.GoWrapper(func() {
 				defer close(done)
 				_, _ = shared.IndicesPayloads.ObjectList.Marshal(objs, shared.MethodPut)
 			}, logger)
-			shard.commitReplication(ctx, reqID)
+			commit(t, reqID)
 			<-done
+			for _, o := range objs {
+				require.Zero(t, o.DocID)
+			}
 		}
 	})
 }

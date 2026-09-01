@@ -92,12 +92,10 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 			Code: replicaerrors.StatusPreconditionFailed, Msg: err.Error(),
 		}}}
 	}
+	// commit assigns the DocID on the object, so in-process callers must pass an owned copy
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
-		// putObjectLSM assigns the DocID on the object; commit on a copy so the
-		// coordinator's still-running broadcast marshal never reads the mutation.
-		cp := *object
-		if err := s.putOne(ctx, uuid, &cp); err != nil {
+		if err := s.putOne(ctx, uuid, object); err != nil {
 			resp.Errors = []replicaerrors.Error{
 				{Code: replicaerrors.StatusConflict, Msg: err.Error()},
 			}
@@ -149,14 +147,9 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 }
 
 func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects []*storobj.Object) replica.SimpleResponse {
+	// commit assigns DocIDs on the objects, so in-process callers must pass owned copies
 	task := func(ctx context.Context) interface{} {
-		// Same copy-before-commit as preparePutObject, per object.
-		cps := make([]*storobj.Object, len(objects))
-		for i, o := range objects {
-			cp := *o
-			cps[i] = &cp
-		}
-		rawErrs := s.putBatch(ctx, cps)
+		rawErrs := s.putBatch(ctx, objects)
 		resp := replica.SimpleResponse{Errors: make([]replicaerrors.Error, len(rawErrs))}
 		for i, err := range rawErrs {
 			if err != nil {
