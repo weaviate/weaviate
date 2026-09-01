@@ -130,3 +130,20 @@ func TestDropTargetVector_ClearsOnlyItsOwnKey(t *testing.T) {
 	assert.Equal(t, []byte("1"), siblingState,
 		"a sibling's upgrade verdict must survive")
 }
+
+// TestDrop_ToleratesClosedMetadataDB pins the shutdown-then-drop journey: the
+// shard's shutdown closes the metadata DB before the drop runs, so the state
+// key deletion in Drop(keepFiles=false) hits a closed handle. That must read
+// as "nothing left to update" (the whole shard directory, key included, is
+// removed right after), not fail the drop.
+func TestDrop_ToleratesClosedMetadataDB(t *testing.T) {
+	ctx := context.Background()
+	rootPath := t.TempDir()
+	meta, err := shardmeta.Open(rootPath, time.Second)
+	require.NoError(t, err)
+
+	idx := newDynamicForDrop(t, meta, rootPath, "a")
+
+	require.NoError(t, meta.Close())
+	require.NoError(t, idx.Drop(ctx, false))
+}
