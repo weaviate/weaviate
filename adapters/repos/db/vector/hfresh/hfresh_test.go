@@ -88,6 +88,9 @@ func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 	l := logrus.New()
 	tmpDir := t.TempDir()
 	cfg := DefaultConfig()
+	cfg.VectorForIDThunk = func(context.Context, uint64) ([]float32, error) {
+		return nil, fmt.Errorf("no vector store wired in this test")
+	}
 	cfg.RootPath = tmpDir
 	cfg.ID = "hfresh"
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
