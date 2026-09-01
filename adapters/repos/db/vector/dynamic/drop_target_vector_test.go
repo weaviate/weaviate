@@ -147,3 +147,55 @@ func TestDrop_ToleratesClosedMetadataDB(t *testing.T) {
 	require.NoError(t, meta.Close())
 	require.NoError(t, idx.Drop(ctx, false))
 }
+
+// TestDrop_LeavesTheSharedMetadataDBUsable pins the ownership boundary that
+// DebugResetVectorIndex depends on: Drop(keepFiles=false) must neither close
+// nor delete the shard-owned metadata DB. It once did both, which broke every
+// sibling dynamic vector and made the reset's re-init fail on the shard's
+// stale closed handle.
+func TestDrop_LeavesTheSharedMetadataDBUsable(t *testing.T) {
+	ctx := context.Background()
+	rootPath := t.TempDir()
+	meta, err := shardmeta.Open(rootPath, time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { meta.Close() })
+
+	dropped := newDynamicForDrop(t, meta, rootPath, "a")
+	sibling := newDynamicForDrop(t, meta, rootPath, "b")
+	ns := meta.Namespace(StateNamespace)
+
+	require.NoError(t, dropped.Drop(ctx, false))
+
+	// the file is still there and the handle still works: a sibling can read
+	// and write its own state
+	_, statErr := os.Stat(filepath.Join(rootPath, shardmeta.FileName))
+	assert.NoError(t, statErr, "the shard-owned metadata DB must survive a vector index drop")
+	require.NoError(t, ns.Put(sibling.dbKey(), []byte{1}))
+
+	// the dropped vector's own verdict is gone, so a re-created name starts
+	// from its flat stage
+	v, err := ns.Get(dropped.dbKey())
+	require.NoError(t, err)
+	assert.Empty(t, v)
+}
+
+// TestDrop_KeepFilesKeepsTheStateKey pins the backup journey: a drop that
+// keeps files (backup in flight) must also keep the upgrade verdict, or the
+// backed-up shard restores into an empty hnsw with its flat data unread.
+func TestDrop_KeepFilesKeepsTheStateKey(t *testing.T) {
+	ctx := context.Background()
+	rootPath := t.TempDir()
+	meta, err := shardmeta.Open(rootPath, time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { meta.Close() })
+
+	idx := newDynamicForDrop(t, meta, rootPath, "a")
+	ns := meta.Namespace(StateNamespace)
+	require.NoError(t, ns.Put(idx.dbKey(), []byte{1}))
+
+	require.NoError(t, idx.Drop(ctx, true))
+
+	v, err := ns.Get(idx.dbKey())
+	require.NoError(t, err)
+	assert.Equal(t, []byte{1}, v, "keepFiles must keep the upgrade verdict")
+}
