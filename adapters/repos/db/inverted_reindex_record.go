@@ -119,6 +119,11 @@ type MigrationSubject struct {
 
 	TrackerDir string `json:"trackerDir,omitempty"`
 
+	// Unmirrored is set when a boot could not arm this migration's double-write
+	// mirror. Writes taken in that window reach the canonical bucket only, so
+	// the staged copy is permanently behind and must never rename over it.
+	Unmirrored bool `json:"unmirrored,omitempty"`
+
 	Props map[string]MigrationPropertyDirs `json:"props,omitempty"`
 }
 

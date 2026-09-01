@@ -86,6 +86,10 @@ func DiscoverInFlightReindexTasks(
 		unreadableErrs     = errorcompounder.New()
 		malformedPayloads  = map[string]struct{}{}
 		malformedErrs      = errorcompounder.New()
+
+		unmirroredRecords = map[string]struct{}{}
+		unmirroredNames   []string
+		unmirroredErrs    = errorcompounder.New()
 	)
 	for _, indexEntry := range indices {
 		if !indexEntry.IsDir() {
@@ -114,7 +118,7 @@ func DiscoverInFlightReindexTasks(
 				continue
 			}
 			recordReads++
-			records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
+			store, someRecordsUnreadable, recordSetUnreadable := migrationRecordStoreAt(lsmPath, logger)
 			if recordSetUnreadable {
 				unreadable[shardKey] = struct{}{}
 				continue
@@ -122,6 +126,8 @@ func DiscoverInFlightReindexTasks(
 			if someRecordsUnreadable {
 				partlyUnread[shardKey] = struct{}{}
 			}
+			records := store.Records()
+			armable := map[string]struct{}{}
 			for _, migEntry := range migs {
 				if !migEntry.IsDir() {
 					continue
@@ -163,6 +169,7 @@ func DiscoverInFlightReindexTasks(
 						Warnf("reindex recovery: skipping migration; cannot build tasks: %v", err)
 					continue
 				}
+				armable[migEntry.Name()] = struct{}{}
 				recovered = append(recovered, RecoveredReindex{
 					Descriptor: distributedtask.TaskDescriptor{
 						ID:      rec.TaskID,
@@ -173,6 +180,20 @@ func DiscoverInFlightReindexTasks(
 					ShardName:  shardName,
 					Tasks:      tasks,
 				})
+			}
+			if someRecordsUnreadable {
+				// The store refuses every write while any record is unreadable,
+				// and the same fault freezes the reconciler, so nothing this
+				// stamp would stop can run on this shard anyway.
+				continue
+			}
+			stamped, stampErr := stampUnmirroredRecords(store, records, armable)
+			if len(stamped) > 0 {
+				unmirroredRecords[shardKey] = struct{}{}
+				unmirroredNames = append(unmirroredNames, stamped...)
+			}
+			if stampErr != nil {
+				unmirroredErrs.AddWrapf(stampErr, "%s", shardKey)
 			}
 		}
 	}
@@ -214,7 +235,51 @@ func DiscoverInFlightReindexTasks(
 				"is not a single directory inside the shard; those mirrors stay unarmed: %v",
 				len(malformedPayloads), malformedErrs.ToErrorLimited(maxReportedErrors))
 	}
+	if len(unmirroredRecords) > 0 {
+		logger.WithField("shards", reportedShardNames(unmirroredRecords)).
+			WithField("record_count", len(unmirroredNames)).
+			Errorf("reindex recovery: %d migration(s) awaiting their flip could not be armed with a double-write "+
+				"mirror on %d shard(s), so writes this node takes now reach the pre-migration bucket only. "+
+				"Their staged data is stale and will not be promoted over it. %s",
+				len(unmirroredNames), len(unmirroredRecords), migrationUnmirroredRemedy)
+	}
+	if err := unmirroredErrs.ToErrorLimited(maxReportedErrors); err != nil {
+		logger.Errorf("reindex recovery: could not record that a migration's mirror stayed unarmed, "+
+			"so a later promotion may still rename its stale staged data over the live bucket: %v", err)
+	}
 	return recovered, nil
+}
+
+const migrationUnmirroredRemedy = "Submit a new migration covering the same properties once the cause is cleared."
+
+// stampUnmirroredRecords marks every record awaiting its flip that this walk
+// could not build a task for. Nothing else arms those mirrors, so the writes
+// this boot takes are the ones that make the staged copy stale, and the stamp
+// is what stops a later promotion from renaming it over the live bucket.
+func stampUnmirroredRecords(store *MigrationRecordStore, records []MigrationRecord,
+	armable map[string]struct{},
+) ([]string, error) {
+	var stamped []string
+	errs := errorcompounder.New()
+	for _, rec := range records {
+		subject := rec.Subject()
+		if subject.Unmirrored {
+			continue
+		}
+		if _, ok := armable[subject.TrackerDir]; ok {
+			continue
+		}
+		next, stampable := migrationRecordStampedUnmirrored(rec)
+		if !stampable {
+			continue
+		}
+		if err := store.Put(next); err != nil {
+			errs.AddWrapf(err, "%s", subject.Key)
+			continue
+		}
+		stamped = append(stamped, subject.Key.String())
+	}
+	return stamped, errs.ToErrorLimited(maxReportedErrors)
 }
 
 // recoveryPayloadFault names why one tracker's payload.mig could not be turned

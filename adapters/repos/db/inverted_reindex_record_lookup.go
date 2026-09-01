@@ -18,15 +18,25 @@ import (
 )
 
 func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []MigrationRecord, someRecordsUnreadable, recordSetUnreadable bool) {
-	store := NewMigrationRecordStore(lsmPath, logger)
+	store, someRecordsUnreadable, recordSetUnreadable := migrationRecordStoreAt(lsmPath, logger)
+	if recordSetUnreadable {
+		return nil, true, true
+	}
+	return store.Records(), someRecordsUnreadable, false
+}
+
+// migrationRecordStoreAt is migrationRecordsAt for a caller that also writes.
+//
+// Deliberately silent on the healthy path: every caller fans this out over a
+// shard set, so a line here follows the tenant count. Each walk reports its
+// own record_set_reads instead, which is where one-read-per-shard is checkable.
+func migrationRecordStoreAt(lsmPath string, logger logrus.FieldLogger) (store *MigrationRecordStore, someRecordsUnreadable, recordSetUnreadable bool) {
+	store = NewMigrationRecordStore(lsmPath, logger)
 	if err := store.Load(); err != nil {
 		logger.WithField("path", store.Dir()).Errorf("read migration records: %v", err)
 		return nil, true, true
 	}
-	// Deliberately silent on the healthy path: every caller fans this out over a
-	// shard set, so a line here follows the tenant count. Each walk reports its
-	// own record_set_reads instead, which is where one-read-per-shard is checkable.
-	return store.Records(), len(store.Unreadable()) > 0, false
+	return store, len(store.Unreadable()) > 0, false
 }
 
 type migrationPreservedState struct {
@@ -158,4 +168,24 @@ func migrationRecordFor(records []MigrationRecord, migrationType ReindexMigratio
 		}
 	}
 	return false
+}
+
+// migrationRecordStampedUnmirrored returns rec with MigrationSubject.Unmirrored
+// set, keeping everything else. Only a record awaiting its flip can be stamped:
+// before the iteration ends there is nothing staged to fall behind, and after
+// the promotion the canonical name already holds the migrated data.
+func migrationRecordStampedUnmirrored(rec MigrationRecord) (MigrationRecord, bool) {
+	switch typed := rec.(type) {
+	case MigrationRecordIterated:
+		typed.subject.Unmirrored = true
+		return typed, true
+	case MigrationRecordMerged:
+		typed.subject.Unmirrored = true
+		return typed, true
+	case MigrationRecordSwapped:
+		typed.subject.Unmirrored = true
+		return typed, true
+	default:
+		return nil, false
+	}
 }

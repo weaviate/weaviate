@@ -521,11 +521,11 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	// Dormant here: every flip this build writes displaces the canonical name
 	// itself, and the cutover PR is what writes a different one.
 	if displaced != "" && displaced != canonical {
-		if cleared, err := r.clearForPromotion(displaced, "the displaced directory"); err != nil || !cleared {
+		if cleared, err := r.clearForPromotion(subject, displaced, "the displaced directory"); err != nil || !cleared {
 			return rec, false, err
 		}
 	}
-	if cleared, err := r.clearForPromotion(canonical, "the canonical directory"); err != nil || !cleared {
+	if cleared, err := r.clearForPromotion(subject, canonical, "the canonical directory"); err != nil || !cleared {
 		return rec, false, err
 	}
 
@@ -549,13 +549,23 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	return finished, true, nil
 }
 
-func (r *migrationReconciler) clearForPromotion(dir, what string) (cleared bool, err error) {
+func (r *migrationReconciler) clearForPromotion(subject MigrationSubject, dir, what string) (cleared bool, err error) {
 	there, err := r.dirExists(dir)
 	if err != nil {
 		return false, err
 	}
 	if !there {
 		return true, nil
+	}
+	// The directory is still there, so the flip never moved the pointer off it
+	// and it is the copy the shard has been writing to. A boot that could not
+	// arm the mirror means the staged copy missed those writes.
+	if subject.Unmirrored {
+		r.wedged(subject, migrationWedgeRemedy,
+			"cannot promote: %s %q still holds this property's data and a boot took writes into it with "+
+				"no double-write mirror armed, so the staged copy is behind it; promoting nothing.",
+			what, dir)
+		return false, nil
 	}
 	if err := r.removeDir(r.lsmPath, dir, what+" the promotion replaces"); err != nil {
 		return false, err
