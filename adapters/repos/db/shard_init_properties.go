@@ -177,8 +177,15 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 ) {
 	eg.Go(func() error {
 		// One preserve set and one payload memo for the whole loop, not one per
-		// index type: this runs inside a RAFT apply.
-		sweep := migrationSweepStateFor(s.pathLSM(), s.index.logger)
+		// index type: this runs inside a RAFT apply. Built on first use, so a
+		// shard whose apply is already cancelled builds nothing.
+		var sweep *migrationSweepState
+		sweepState := func() *migrationSweepState {
+			if sweep == nil {
+				sweep = s.migrationSweepState()
+			}
+			return sweep
+		}
 		defer func() {
 			counts.payloadReads.Add(int64(sweep.reads()))
 			counts.recordSetReads.Add(int64(sweep.recordSetReads()))
@@ -197,8 +204,8 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
-			s.cleanStaleMigrationDirs(ctx, prop.Name, indexType, sweep)
-			s.cleanStaleSidecarDirs(ctx, mainBucket, sweep.committed)
+			s.cleanStaleMigrationDirs(ctx, prop.Name, indexType, sweepState())
+			s.cleanStaleSidecarDirs(ctx, mainBucket, sweepState().committed)
 		}
 		return nil
 	})
@@ -246,6 +253,36 @@ func migrationSweepStateFor(lsmPath string, logger logrus.FieldLogger) *migratio
 		committed:   migrationPreservedStateAt(lsmPath, logger),
 		props:       &taskPropsCache{},
 	}
+}
+
+// migrationSweepState answers from the shard's own record store, which holds
+// what a read of .migrations/records/ would find: Put and Remove update the map
+// and the files together on this instance. The disk read is what the store's
+// contract exists to avoid, since a tenant activation loads its shard on the
+// RAFT apply loop and every shard of the collection pays it.
+func (s *Shard) migrationSweepState() *migrationSweepState {
+	store := s.migrationRecordStore()
+	if store == nil {
+		return migrationSweepStateFor(s.pathLSM(), s.index.logger)
+	}
+	unreadable := store.Unreadable()
+	return &migrationSweepState{
+		recordReads: 1,
+		committed: migrationPreservedStateFromRecords(store.Records(),
+			len(unreadable) > 0, migrationRecordSetUnreadable(unreadable)),
+		props: &taskPropsCache{},
+	}
+}
+
+// The whole set is unreadable when a fault names the store rather than one
+// file: no record was read, so nothing can be attributed.
+func migrationRecordSetUnreadable(faults []MigrationRecordUnreadable) bool {
+	for _, fault := range faults {
+		if fault.Scope == MigrationRecordFaultStore {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *migrationSweepState) reads() int {
