@@ -529,8 +529,6 @@ func (p *ReindexProvider) processOneUnit(
 	logger := p.logger.WithField("taskID", task.ID).
 		WithField("unit", unitID).WithField("shard", shardName)
 
-	logger.Info("reindex provider: starting unit")
-
 	// Find the shard.
 	shard, err := lookupShardByName(idx, shardName)
 	if err != nil {
@@ -558,6 +556,8 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 	defer release()
+
+	logger.Info("reindex provider: starting unit")
 
 	// Report initial progress to claim the unit.
 	if err := recorder.UpdateDistributedTaskUnitProgress(
