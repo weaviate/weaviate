@@ -23,9 +23,9 @@ import (
 // default rather than failing: no readable local task list, and a seal nobody
 // is contending.
 //
-// Shard.migrationReconciler wires neither node-level answer in this PR: it
-// leaves LocalTasks nil and grants every seal, so every cluster verdict
-// leaves records standing until the cutover wires them.
+// Shard.migrationReconciler wires both node-level answers to these methods, so
+// a cluster verdict reads this node's own task list and a teardown waits on
+// the seal a running worker holds.
 type shardMigrations struct {
 	shard *Shard
 }
