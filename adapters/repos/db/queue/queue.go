@@ -455,13 +455,17 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	}
 
 	doneFn := func() {
+		// flush the index (e.g. the HNSW commit log) BEFORE removing the
+		// chunk: once the chunk is gone the queue no longer holds these
+		// ops, so a crash between removal and flush would lose them.
+		// Flushing first makes chunk removal imply durability.
+		if q.onBatchProcessed != nil {
+			q.onBatchProcessed()
+		}
 		// a quarantined chunk is already renamed and removed from the
 		// queue's accounting
 		if corruptChunkErr == nil {
 			q.removeChunk(c)
-		}
-		if q.onBatchProcessed != nil {
-			q.onBatchProcessed()
 		}
 	}
 

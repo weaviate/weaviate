@@ -1338,3 +1338,66 @@ func TestQueueForceSwitch(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, files, 9)
 }
+
+// TestDequeueBatchFlushesBeforeChunkRemoval ensures that the OnBatchProcessed
+// hook (used by the vector index queue to flush the HNSW commit log) runs
+// BEFORE the processed chunk file is removed from disk. If the chunk were
+// removed first, a crash between removal and flush would lose applied but
+// unflushed operations that the queue no longer holds.
+func TestDequeueBatchFlushesBeforeChunkRemoval(t *testing.T) {
+	s := makeScheduler(t)
+
+	dir := t.TempDir()
+
+	countChunks := func() int {
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+
+		var n int
+		for _, e := range entries {
+			if chunkFilePattern.MatchString(e.Name()) {
+				n++
+			}
+		}
+		return n
+	}
+
+	var flushCalls int
+	var chunksAtFlush int
+
+	q, err := NewDiskQueue(DiskQueueOptions{
+		ID:           "test_queue",
+		Scheduler:    s,
+		Logger:       newTestLogger(),
+		Dir:          dir,
+		TaskDecoder:  discardExecutor(),
+		StaleTimeout: 100 * time.Millisecond,
+		OnBatchProcessed: func() {
+			flushCalls++
+			chunksAtFlush = countChunks()
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, q.Init())
+
+	pushMany(t, q, 1, 100, 200, 300)
+
+	// let the partial chunk become stale so DequeueBatch schedules it
+	time.Sleep(q.staleTimeout)
+
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	require.Len(t, batch.Tasks, 3)
+
+	// the chunk is still on disk while the batch is in flight
+	require.Equal(t, 1, countChunks())
+
+	batch.Done()
+
+	require.Equal(t, 1, flushCalls)
+	// the flush hook must have observed the processed chunk still on disk
+	require.Equal(t, 1, chunksAtFlush, "chunk was removed before OnBatchProcessed ran")
+	// once the batch is done, the chunk is removed
+	require.Equal(t, 0, countChunks())
+}
