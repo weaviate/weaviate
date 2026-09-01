@@ -78,6 +78,24 @@ func filterableIndexOn(prop *models.Property) bool {
 	}
 }
 
+// validateNoSidecarShapedProperties refuses a migration on a collection holding
+// a property whose own bucket reads as a working directory some migration
+// derives from a different property's name; the two would share a directory.
+//
+// Every property is checked, not just the ones the request names: a migration
+// on "title" collides with a property called
+// "title__enable_filterable_ingest_3" the request never mentions. Such a name
+// can no longer be created; a collection that already has one keeps serving.
+func validateNoSidecarShapedProperties(class *models.Class) error {
+	for _, prop := range class.Properties {
+		if entschema.PropertyNameIsSidecarShaped(prop.Name) {
+			return fmt.Errorf("collection %q has property %q, whose name collides with the working directories a migration derives from another property; no migration can start on this collection until that property is removed",
+				class.Class, prop.Name)
+		}
+	}
+	return nil
+}
+
 // validateRangeableProperties validates that the named properties are
 // eligible for enable-rangeable: numeric type, not already rangeable.
 // Whether the property currently has a filterable index is deliberately

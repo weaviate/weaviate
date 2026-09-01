@@ -27,6 +27,7 @@ package rest
 //     match "foo" against "foobar")
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -411,6 +412,77 @@ func TestValidateRangeableProperties(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "already")
 	})
+}
+
+// -----------------------------------------------------------------------------
+// validateNoSidecarShapedProperties — a property whose own bucket reads as a
+// migration working directory blocks migrations on the whole collection.
+// -----------------------------------------------------------------------------
+
+func TestValidateNoSidecarShapedProperties(t *testing.T) {
+	cases := []struct {
+		name         string
+		propNames    []string
+		wantOffender string
+	}{
+		{
+			name:      "plain names, including ones that merely contain a role word",
+			propNames: []string{"title", "myreindex", "a_reindex", "a__foo"},
+		},
+		{
+			name:         "offender is a property the migration request never names",
+			propNames:    []string{"title", "title__enable_filterable_ingest_3"},
+			wantOffender: "title__enable_filterable_ingest_3",
+		},
+		{
+			name:         "generation tail",
+			propNames:    []string{"a__reindex_2"},
+			wantOffender: "a__reindex_2",
+		},
+		{
+			name:         "multi-word strategy before the role word",
+			propNames:    []string{"a__foo_reindex"},
+			wantOffender: "a__foo_reindex",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			class := &models.Class{Class: "C"}
+			for _, n := range tc.propNames {
+				class.Properties = append(class.Properties, &models.Property{Name: n})
+			}
+			err := validateNoSidecarShapedProperties(class)
+			if tc.wantOffender == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantOffender)
+			assert.Contains(t, err.Error(), "no migration can start")
+		})
+	}
+}
+
+// TestSubmitReindexTask_RefusesSidecarShapedProperty pins the refusal on the
+// submit path itself, and that it is class-wide: the request migrates "title",
+// while the offending property is one it never names.
+func TestSubmitReindexTask_RefusesSidecarShapedProperty(t *testing.T) {
+	class := &models.Class{
+		Class: "C",
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{"text"}},
+			{Name: "title__enable_filterable_ingest_3", DataType: []string{"text"}},
+		},
+	}
+
+	resp := admissionHandler().submitReindexTask(context.Background(), nil, class, "C", "title",
+		upsertPlan{migrationType: db.ReindexTypeEnableFilterable}, nil, nil)
+
+	code, body := statusOf(t, resp)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Len(t, body.Error, 1)
+	assert.Contains(t, body.Error[0].Message, "title__enable_filterable_ingest_3")
 }
 
 func TestValidateRebuildRangeableProperty(t *testing.T) {
