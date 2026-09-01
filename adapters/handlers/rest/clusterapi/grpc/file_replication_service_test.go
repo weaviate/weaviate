@@ -15,7 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"strings"
 	"sync"
 	"testing"
 
@@ -26,40 +28,49 @@ import (
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/file"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// noopGetChangeLogServer satisfies grpc.ServerStreamingServer[ChangeLogStreamEntry]
-// for handler tests that never reach Send.
-type noopGetChangeLogServer struct {
+// noopStreamServer satisfies grpc.ServerStreamingServer[T], which every streaming
+// handler in this service takes, for tests that never reach Send.
+type noopStreamServer[T any] struct {
 	ctx  context.Context
-	sent []*pb.ChangeLogStreamEntry
+	sent []*T
 }
 
-func (s *noopGetChangeLogServer) Context() context.Context { return s.ctx }
-func (s *noopGetChangeLogServer) Send(e *pb.ChangeLogStreamEntry) error {
+func (s *noopStreamServer[T]) Context() context.Context { return s.ctx }
+func (s *noopStreamServer[T]) Send(e *T) error {
 	s.sent = append(s.sent, e)
 	return nil
 }
-func (s *noopGetChangeLogServer) SetHeader(metadata.MD) error  { return nil }
-func (s *noopGetChangeLogServer) SendHeader(metadata.MD) error { return nil }
-func (s *noopGetChangeLogServer) SetTrailer(metadata.MD)       {}
-func (s *noopGetChangeLogServer) SendMsg(any) error            { return nil }
-func (s *noopGetChangeLogServer) RecvMsg(any) error            { return nil }
+func (s *noopStreamServer[T]) SetHeader(metadata.MD) error  { return nil }
+func (s *noopStreamServer[T]) SendHeader(metadata.MD) error { return nil }
+func (s *noopStreamServer[T]) SetTrailer(metadata.MD)       {}
+func (s *noopStreamServer[T]) SendMsg(any) error            { return nil }
+func (s *noopStreamServer[T]) RecvMsg(any) error            { return nil }
 
 // fakeIndex stubs the changelog methods; other interface methods panic
 // via the embedded nil interface so handlers can't touch them undetected.
 type fakeIndex struct {
 	sharding.RemoteIndexIncomingRepo
 
-	startErr    error
-	snapshotLSN uint64
-	snapshotErr error
-	finalizeLSN uint64
-	finalizeErr error
-	stopErr     error
+	startErr           error
+	replicaSnapshotErr error
+	releaseErr         error
+	fileMetadataErr    error
+	fileContent        string
+	fileErr            error
+	getErr             error
+	snapshotLSN        uint64
+	snapshotErr        error
+	finalizeLSN        uint64
+	finalizeErr        error
+	stopErr            error
 
 	startCalls    []startCall
 	snapshotCalls []opCall
@@ -82,6 +93,25 @@ func (f *fakeIndex) IncomingStartChangeCapture(_ context.Context, shardName, opI
 	return f.startErr
 }
 
+func (f *fakeIndex) IncomingCreateReplicaSnapshot(_ context.Context, _, _ string) ([]string, error) {
+	return nil, f.replicaSnapshotErr
+}
+
+func (f *fakeIndex) IncomingReleaseReplicaSnapshot(_ context.Context, _ string) error {
+	return f.releaseErr
+}
+
+func (f *fakeIndex) IncomingGetReplicaSnapshotFileMetadata(_ context.Context, _, _ string) (file.FileMetadata, error) {
+	return file.FileMetadata{}, f.fileMetadataErr
+}
+
+func (f *fakeIndex) IncomingGetReplicaSnapshotFile(_ context.Context, _, _ string) (io.ReadCloser, error) {
+	if f.fileErr != nil {
+		return nil, f.fileErr
+	}
+	return io.NopCloser(strings.NewReader(f.fileContent)), nil
+}
+
 func (f *fakeIndex) IncomingSnapshotChangeLogLSN(_ context.Context, shardName, opID string) (uint64, error) {
 	f.snapshotCalls = append(f.snapshotCalls, opCall{shardName, opID})
 	return f.snapshotLSN, f.snapshotErr
@@ -99,6 +129,10 @@ func (f *fakeIndex) IncomingStopChangeCapture(_ context.Context, shardName, opID
 
 func (f *fakeIndex) IncomingGetChangeLog(_ context.Context, shardName, opID string, untilLSN uint64) (*changelog.Tailer, error) {
 	f.getCalls = append(f.getCalls, getCall{shardName, opID, untilLSN})
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	// A nil tailer with a nil error panics the handler's deferred Close.
 	return nil, errors.New("no active change-log")
 }
 
@@ -184,17 +218,181 @@ func TestStartChangeCapture_UnknownIndex(t *testing.T) {
 	require.Equal(t, codes.Internal, status.Code(err))
 }
 
-func TestStartChangeCapture_IndexError(t *testing.T) {
-	fi := &fakeIndex{startErr: errors.New("boom")}
-	svc := newService(t, map[string]*fakeIndex{"MyClass": fi})
+// The code a refused shard call answers with decides whether the movement waits
+// or spends one of its errors: FailedPrecondition defers, anything else counts
+// against the budget and auto-cancels the movement at 50.
+//
+// Every method the service has is listed, so one whose shard call starts taking
+// the namespace check already answers with the code the movement reads. Which
+// refusals defer is replication.IsReversibleRefusal's own table, so each method
+// is driven with one of each kind rather than the whole list.
+func TestShardCallErrorCode(t *testing.T) {
+	const (
+		indexName = "MyClass"
+		shardName = "shard1"
+		opID      = "op-1"
+		fileName  = "segment-1.db"
+	)
+	ctx := context.Background()
 
-	_, err := svc.StartChangeCapture(context.Background(), &pb.StartChangeCaptureRequest{
-		IndexName: "MyClass",
-		ShardName: "shard1",
-		OpId:      "op-1",
+	entryPoints := []struct {
+		name string
+		// index is the fake whose shard call fails with refusal.
+		index func(refusal error) *fakeIndex
+		call  func(svc *FileReplicationService) error
+	}{
+		{
+			name:  "creating the replica snapshot",
+			index: func(refusal error) *fakeIndex { return &fakeIndex{replicaSnapshotErr: refusal} },
+			call: func(svc *FileReplicationService) error {
+				_, err := svc.CreateReplicaSnapshot(ctx, &pb.CreateReplicaSnapshotRequest{
+					IndexName: indexName, ShardName: shardName, OpId: opID,
+				})
+				return err
+			},
+		},
+		{
+			name:  "releasing the replica snapshot",
+			index: func(refusal error) *fakeIndex { return &fakeIndex{releaseErr: refusal} },
+			call: func(svc *FileReplicationService) error {
+				_, err := svc.ReleaseReplicaSnapshot(ctx, &pb.ReleaseReplicaSnapshotRequest{
+					IndexName: indexName, OpId: opID,
+				})
+				return err
+			},
+		},
+		{
+			name:  "reading the snapshot file metadata",
+			index: func(refusal error) *fakeIndex { return &fakeIndex{fileMetadataErr: refusal} },
+			call: func(svc *FileReplicationService) error {
+				_, err := svc.GetReplicaSnapshotFileMetadata(ctx, &pb.GetReplicaSnapshotFileMetadataRequest{
+					IndexName: indexName, OpId: opID, FileName: fileName,
+				})
+				return err
+			},
+		},
+		{
+			name:  "opening the snapshot file",
+			index: func(refusal error) *fakeIndex { return &fakeIndex{fileErr: refusal} },
+			call: func(svc *FileReplicationService) error {
+				return svc.GetReplicaSnapshotFile(&pb.GetReplicaSnapshotFileRequest{
+					IndexName: indexName, OpId: opID, FileName: fileName,
+				}, &noopStreamServer[pb.FileChunk]{ctx: ctx})
+			},
+		},
+		{
+			name:  "starting change capture",
+			index: func(refusal error) *fakeIndex { return &fakeIndex{startErr: refusal} },
+			call: func(svc *FileReplicationService) error {
+				_, err := svc.StartChangeCapture(ctx, &pb.StartChangeCaptureRequest{
+					IndexName: indexName, ShardName: shardName, OpId: opID,
+				})
+				return err
+			},
+		},
+		{
+			name:  "opening the change-log tailer",
+			index: func(refusal error) *fakeIndex { return &fakeIndex{getErr: refusal} },
+			call: func(svc *FileReplicationService) error {
+				return svc.GetChangeLog(&pb.GetChangeLogRequest{
+					IndexName: indexName, ShardName: shardName, OpId: opID,
+				}, &noopStreamServer[pb.ChangeLogStreamEntry]{ctx: ctx})
+			},
+		},
+		{
+			name:  "snapshotting the change-log LSN",
+			index: func(refusal error) *fakeIndex { return &fakeIndex{snapshotErr: refusal} },
+			call: func(svc *FileReplicationService) error {
+				_, err := svc.SnapshotChangeLogLSN(ctx, &pb.SnapshotChangeLogLSNRequest{
+					IndexName: indexName, ShardName: shardName, OpId: opID,
+				})
+				return err
+			},
+		},
+		{
+			name:  "finalizing the change log",
+			index: func(refusal error) *fakeIndex { return &fakeIndex{finalizeErr: refusal} },
+			call: func(svc *FileReplicationService) error {
+				_, err := svc.FinalizeChangeLog(ctx, &pb.FinalizeChangeLogRequest{
+					IndexName: indexName, ShardName: shardName, OpId: opID,
+				})
+				return err
+			},
+		},
+		{
+			name:  "stopping change capture",
+			index: func(refusal error) *fakeIndex { return &fakeIndex{stopErr: refusal} },
+			call: func(svc *FileReplicationService) error {
+				_, err := svc.StopChangeCapture(ctx, &pb.StopChangeCaptureRequest{
+					IndexName: indexName, ShardName: shardName, OpId: opID,
+				})
+				return err
+			},
+		},
+	}
+
+	refusals := []struct {
+		name string
+		// Wrapped, because the index returns the sentinel under its own context.
+		refusal error
+		want    codes.Code
+	}{
+		{
+			name:    "a refusal that can be undone",
+			refusal: fmt.Errorf("get shard %q: %w", shardName, namespaces.ErrNamespaceSuspended),
+			want:    codes.FailedPrecondition,
+		},
+		{
+			name:    "an unrelated failure",
+			refusal: errors.New("boom"),
+			want:    codes.Internal,
+		},
+	}
+
+	assertCode := func(t *testing.T, ep func(*FileReplicationService) error, svc *FileReplicationService,
+		refusal error, want codes.Code,
+	) {
+		t.Helper()
+
+		err := ep(svc)
+		require.Error(t, err)
+		require.Equal(t, want, status.Code(err))
+		// The consumer matches the sentinel on the message, so dropping it from
+		// the wrapping cancels the movement just as a wrong code does.
+		require.Contains(t, status.Convert(err).Message(), refusal.Error())
+	}
+
+	for _, ep := range entryPoints {
+		for _, tc := range refusals {
+			t.Run(ep.name+" refused by "+tc.name, func(t *testing.T) {
+				svc := newService(t, map[string]*fakeIndex{indexName: ep.index(tc.refusal)})
+
+				assertCode(t, ep.call, svc, tc.refusal, tc.want)
+			})
+		}
+	}
+
+	// The one refusal that carries a namespace sentinel and still must not defer:
+	// a deleting namespace never becomes active again, so a movement waiting for
+	// it would never end. Driven through one entry point, since the code the
+	// helper returns does not vary by method.
+	t.Run("a deleting namespace does not defer", func(t *testing.T) {
+		refusal := fmt.Errorf("get shard %q: %w", shardName, namespaces.ErrNamespaceDeleting)
+		ep := entryPoints[0]
+		svc := newService(t, map[string]*fakeIndex{indexName: ep.index(refusal)})
+
+		assertCode(t, ep.call, svc, refusal, codes.Internal)
 	})
-	require.Error(t, err)
-	require.Equal(t, codes.Internal, status.Code(err))
+
+	// The refusal the file service had before namespaces, kept so a rewrite of
+	// the shared list cannot drop it.
+	t.Run("a structural vector op defers", func(t *testing.T) {
+		refusal := fmt.Errorf("halt shard: %w", enterrors.ErrShardBusyStructuralOp)
+		ep := entryPoints[0]
+		svc := newService(t, map[string]*fakeIndex{indexName: ep.index(refusal)})
+
+		assertCode(t, ep.call, svc, refusal, codes.FailedPrecondition)
+	})
 }
 
 // StartChangeCapture must wait for the source to apply the op's HOT-activation
@@ -267,19 +465,6 @@ func TestFinalizeChangeLog_UnknownIndex(t *testing.T) {
 	require.Equal(t, codes.Internal, status.Code(err))
 }
 
-func TestFinalizeChangeLog_IndexError(t *testing.T) {
-	fi := &fakeIndex{finalizeErr: errors.New("no such op")}
-	svc := newService(t, map[string]*fakeIndex{"MyClass": fi})
-
-	_, err := svc.FinalizeChangeLog(context.Background(), &pb.FinalizeChangeLogRequest{
-		IndexName: "MyClass",
-		ShardName: "shard1",
-		OpId:      "op-1",
-	})
-	require.Error(t, err)
-	require.Equal(t, codes.Internal, status.Code(err))
-}
-
 func TestStopChangeCapture_HappyPath(t *testing.T) {
 	fi := &fakeIndex{}
 	svc := newService(t, map[string]*fakeIndex{"MyClass": fi})
@@ -313,19 +498,7 @@ func TestGetChangeLog_UnknownIndex(t *testing.T) {
 		IndexName: "GhostClass",
 		ShardName: "shard1",
 		OpId:      "op-1",
-	}, &noopGetChangeLogServer{ctx: context.Background()})
-	require.Error(t, err)
-	require.Equal(t, codes.Internal, status.Code(err))
-}
-
-func TestGetChangeLog_NoActiveLog(t *testing.T) {
-	svc := newService(t, map[string]*fakeIndex{"MyClass": {}})
-
-	err := svc.GetChangeLog(&pb.GetChangeLogRequest{
-		IndexName: "MyClass",
-		ShardName: "shard1",
-		OpId:      "op-1",
-	}, &noopGetChangeLogServer{ctx: context.Background()})
+	}, &noopStreamServer[pb.ChangeLogStreamEntry]{ctx: context.Background()})
 	require.Error(t, err)
 	require.Equal(t, codes.Internal, status.Code(err))
 }
@@ -341,7 +514,7 @@ func TestGetChangeLog_PlumbsUntilLsn(t *testing.T) {
 		ShardName: "shard1",
 		OpId:      "op-1",
 		UntilLsn:  77,
-	}, &noopGetChangeLogServer{ctx: context.Background()})
+	}, &noopStreamServer[pb.ChangeLogStreamEntry]{ctx: context.Background()})
 	require.Len(t, fi.getCalls, 1)
 	require.Equal(t, uint64(77), fi.getCalls[0].untilLSN)
 }
@@ -376,15 +549,36 @@ func TestSnapshotChangeLogLSN_UnknownIndex(t *testing.T) {
 	require.Equal(t, codes.Internal, status.Code(err))
 }
 
-func TestSnapshotChangeLogLSN_IndexError(t *testing.T) {
-	fi := &fakeIndex{snapshotErr: errors.New("no such op")}
-	svc := newService(t, map[string]*fakeIndex{"MyClass": fi})
+// The target reassembles the file from the offsets it is sent, and stops at the
+// chunk flagged EOF.
+func TestGetReplicaSnapshotFile_HappyPath(t *testing.T) {
+	svc := newService(t, map[string]*fakeIndex{"MyClass": {fileContent: "hello"}})
+	stream := &noopStreamServer[pb.FileChunk]{ctx: context.Background()}
 
-	_, err := svc.SnapshotChangeLogLSN(context.Background(), &pb.SnapshotChangeLogLSNRequest{
+	err := svc.GetReplicaSnapshotFile(&pb.GetReplicaSnapshotFileRequest{
 		IndexName: "MyClass",
-		ShardName: "shard1",
 		OpId:      "op-1",
-	})
+		FileName:  "segment-1.db",
+	}, stream)
+	require.NoError(t, err)
+	require.Len(t, stream.sent, 2)
+	require.Equal(t, []byte("hello"), stream.sent[0].Data)
+	require.Equal(t, int64(0), stream.sent[0].Offset)
+	require.False(t, stream.sent[0].Eof)
+	require.Empty(t, stream.sent[1].Data)
+	require.Equal(t, int64(5), stream.sent[1].Offset)
+	require.True(t, stream.sent[1].Eof)
+}
+
+func TestGetReplicaSnapshotFile_CompressionUnsupported(t *testing.T) {
+	svc := newService(t, map[string]*fakeIndex{"MyClass": {}})
+
+	err := svc.GetReplicaSnapshotFile(&pb.GetReplicaSnapshotFileRequest{
+		IndexName:   "MyClass",
+		OpId:        "op-1",
+		FileName:    "segment-1.db",
+		Compression: pb.CompressionType_COMPRESSION_TYPE_GZIP,
+	}, &noopStreamServer[pb.FileChunk]{ctx: context.Background()})
 	require.Error(t, err)
-	require.Equal(t, codes.Internal, status.Code(err))
+	require.Equal(t, codes.Unimplemented, status.Code(err))
 }

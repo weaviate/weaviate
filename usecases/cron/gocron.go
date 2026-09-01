@@ -14,7 +14,7 @@ package cron
 import (
 	"context"
 	"fmt"
-	"sync"
+	"slices"
 	"time"
 
 	gocron "github.com/netresearch/go-cron"
@@ -27,28 +27,93 @@ import (
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 )
 
+// cronStopTimeout bounds each of the two shutdown waits on its own: the tick
+// drain, and then the registration join. One wedged tick can spend both, so
+// the worst case is twice this. A var so a test can shorten it.
+var cronStopTimeout = 30 * time.Second
+
 type configGetter func() config.Config
+
+// registrant is one cron job Crons owns.
+type registrant interface {
+	// jobName is the cron entry name, unique across registrants.
+	jobName() string
+	// hookKey prefix-matches runtime-config Go field names, so it must
+	// prefix the field whose changes RuntimeConfigHook reacts to.
+	hookKey() string
+	RuntimeConfigHook() error
+	// wait blocks until this registrant's registration goroutine has exited.
+	wait()
+}
 
 type Crons struct {
 	objectsttl       *cronsObjectsTTL
 	namespaceCleanup *cronsNamespaceCleanup
+
+	registrations []registrant
 
 	logger            logrus.FieldLogger
 	gocronLogger      gocron.Logger
 	serverShutdownCtx context.Context
 }
 
-func NewCrons(serverShutdownCtx context.Context, logger logrus.FieldLogger, configGetter configGetter) *Crons {
+func NewCrons(serverShutdownCtx context.Context, logger logrus.FieldLogger, configGetter configGetter) (*Crons, error) {
 	logger = logger.WithField("action", "cron")
 	gocronLogger := cron.NewGoCronLogger(logger, logrus.DebugLevel)
 
-	return &Crons{
-		objectsttl:        newCronsObjectsTTL(serverShutdownCtx, logger, gocronLogger, configGetter),
-		namespaceCleanup:  newCronsNamespaceCleanup(serverShutdownCtx, logger, gocronLogger, configGetter),
+	objectsTTL, err := newCronsObjectsTTL(serverShutdownCtx, logger, gocronLogger, configGetter)
+	if err != nil {
+		return nil, err
+	}
+	namespaceCleanup, err := newCronsNamespaceCleanup(serverShutdownCtx, logger, gocronLogger, configGetter)
+	if err != nil {
+		return nil, err
+	}
+
+	c := &Crons{
+		objectsttl:        objectsTTL,
+		namespaceCleanup:  namespaceCleanup,
 		logger:            logger,
 		gocronLogger:      gocronLogger,
 		serverShutdownCtx: serverShutdownCtx,
 	}
+
+	// Registering here rather than in Init is what makes RuntimeConfigHooks
+	// complete: startup collects the hook map before the goroutine running
+	// Init exists, so a slice filled in Init would hand it no keys at all.
+	for _, r := range []registrant{c.objectsttl, c.namespaceCleanup} {
+		if err := c.add(r); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
+}
+
+// add appends a registrant, refusing a job name that is empty or already
+// taken. Two registrants sharing a name would take over each other's entry on
+// every reload, each seeing a successful registration, because
+// DrainAndUpsertJob never reports a duplicate name.
+func (c *Crons) add(r registrant) error {
+	name := r.jobName()
+	if name == "" {
+		return fmt.Errorf("cron registrant has an empty job name")
+	}
+	if slices.ContainsFunc(c.registrations, func(other registrant) bool {
+		return other.jobName() == name
+	}) {
+		return fmt.Errorf("cron job %q is already registered", name)
+	}
+	// RuntimeConfigHooks keeps one hook per key, so a second job holding a
+	// key would replace the first and leave it reading a value nobody pushes
+	// to it. Two jobs paced by one config field need that map to call every
+	// job holding the key; this guard goes when it does.
+	if key := r.hookKey(); slices.ContainsFunc(c.registrations, func(other registrant) bool {
+		return other.hookKey() == key
+	}) {
+		return fmt.Errorf("cron job %q shares runtime config hook key %q with another job", name, key)
+	}
+	c.registrations = append(c.registrations, r)
+	return nil
 }
 
 // blocking
@@ -57,177 +122,138 @@ func (c *Crons) Init(clusterService *cluster.Service, ttlCoordinator *objectttl.
 ) error {
 	cr := initGoCron(c.serverShutdownCtx, c.gocronLogger)
 
-	if err := c.objectsttl.Init(cr, clusterService, ttlCoordinator); err != nil {
-		return fmt.Errorf("init objects ttl cron: %w", err)
-	}
-
-	if err := c.namespaceCleanup.Init(cr, clusterService, nsCleanupCoordinator); err != nil {
-		return fmt.Errorf("init namespace cleanup cron: %w", err)
+	if err := c.initJobs(cr, clusterService.IsLeader, ttlCoordinator, nsCleanupCoordinator); err != nil {
+		return err
 	}
 
 	cr.Start()
 	<-c.serverShutdownCtx.Done()
-	cr.Stop()
-	// Await the namespace-cleanup registration goroutine before returning.
-	c.namespaceCleanup.wait()
+	// StopWithTimeout halts future fires and drains the ticks already
+	// running. This and the join below are separately bounded, and the same
+	// wedged tick blocks each of them, so the two waits run back to back.
+	if !cr.StopWithTimeout(cronStopTimeout) {
+		c.logger.Warnf("cron ticks still running after %s, shutting down anyway", cronStopTimeout)
+	}
+	c.waitForRegistrations()
 
 	return nil
 }
 
-func (c *Crons) RuntimeConfigHooks() map[string]func() error {
-	return map[string]func() error{
-		"ObjectsTTL":       c.objectsttl.RuntimeConfigHook,
-		"NamespaceCleanup": c.namespaceCleanup.RuntimeConfigHook,
+// waitForRegistrations joins every registration goroutine under the same bound
+// as the drain, so a loop parked behind a tick that ignores its cancelled
+// context delays the exit rather than holding it for good.
+func (c *Crons) waitForRegistrations() {
+	joined := make(chan string, len(c.registrations))
+	for _, r := range c.registrations {
+		errors.GoWrapper(func() {
+			r.wait()
+			joined <- r.jobName()
+		}, c.logger)
 	}
+
+	stopped := map[string]bool{}
+	deadline := time.After(cronStopTimeout)
+	for range c.registrations {
+		select {
+		case name := <-joined:
+			stopped[name] = true
+		case <-deadline:
+			var running []string
+			for _, r := range c.registrations {
+				if !stopped[r.jobName()] {
+					running = append(running, r.jobName())
+				}
+			}
+			c.logger.Warnf("cron registration loops still running after %s, shutting down anyway: %v",
+				cronStopTimeout, running)
+			return
+		}
+	}
+}
+
+// initJobs starts each job's registration loop on cr, handing each job
+// isLeader as its tick gate. Init blocks on serverShutdownCtx straight after
+// this call, so anything Init must do before cr.Start() goes here.
+func (c *Crons) initJobs(cr *gocron.Cron, isLeader func() bool,
+	ttlCoordinator *objectttl.Coordinator, nsCleanupCoordinator *namespacecleanup.Coordinator,
+) error {
+	if err := c.objectsttl.Init(cr, isLeader, ttlCoordinator); err != nil {
+		return fmt.Errorf("init objects ttl cron: %w", err)
+	}
+	if err := c.namespaceCleanup.Init(cr, isLeader, nsCleanupCoordinator); err != nil {
+		return fmt.Errorf("init namespace cleanup cron: %w", err)
+	}
+	return nil
+}
+
+func (c *Crons) RuntimeConfigHooks() map[string]func() error {
+	hooks := make(map[string]func() error, len(c.registrations))
+	for _, r := range c.registrations {
+		hooks[r.hookKey()] = r.RuntimeConfigHook
+	}
+	return hooks
 }
 
 // ----------------------------------------------------------------------------
 
-type cronsObjectsTTL struct {
-	lock            *sync.Mutex
-	currentSchedule string
-	scheduleCh      chan string
+const objectsTTLJobName = "trigger_objects_ttl_deletion"
 
-	logger            logrus.FieldLogger
-	gocronLogger      gocron.Logger
-	configGetter      configGetter
-	serverShutdownCtx context.Context
+// cronsObjectsTTL runs Coordinator.Start on the leader, on the schedule
+// OBJECTS_TTL_DELETE_SCHEDULE configures. Start has no leadership check of its
+// own, so the tick gate is the only thing keeping every node off it.
+type cronsObjectsTTL struct {
+	*cronsRegistration[string]
 }
 
 func newCronsObjectsTTL(serverShutdownCtx context.Context,
 	logger logrus.FieldLogger, gocronLogger gocron.Logger, configGetter configGetter,
-) *cronsObjectsTTL {
-	currentSchedule := configGetter().ObjectsTTLDeleteSchedule.Get()
-	scheduleCh := make(chan string, 1)
-	scheduleCh <- currentSchedule
+) (*cronsObjectsTTL, error) {
+	registration, err := newCronsRegistration(cronsRegistrationConfig[string]{
+		name:           objectsTTLJobName,
+		runtimeHookKey: "ObjectsTTL",
 
-	return &cronsObjectsTTL{
-		lock:            new(sync.Mutex),
-		currentSchedule: currentSchedule,
-		scheduleCh:      scheduleCh,
+		configuredValue: func() string { return configGetter().ObjectsTTLDeleteSchedule.Get() },
+		// An empty schedule disables the job rather than falling back to a default.
+		resolve: func(schedule string) (string, bool) { return schedule, schedule != "" },
+		// A schedule change cancels the tick context. On the single-node path
+		// that only stops the next collection from starting, so the barrier can
+		// still wait out deletions already in flight.
+		cancelOnChange: true,
 
 		logger:            logger,
 		gocronLogger:      gocronLogger,
-		configGetter:      configGetter,
 		serverShutdownCtx: serverShutdownCtx,
+	})
+	if err != nil {
+		return nil, err
 	}
+
+	return &cronsObjectsTTL{cronsRegistration: registration}, nil
 }
 
-func (c *cronsObjectsTTL) Init(cr *gocron.Cron, clusterService *cluster.Service,
+// Init registers the deletion job and keeps it in step with the configured
+// schedule. Rejects a nil coordinator.
+func (c *cronsObjectsTTL) Init(cr *gocron.Cron, tickGate func() bool,
 	coordinator *objectttl.Coordinator,
 ) error {
 	if coordinator == nil {
 		return fmt.Errorf("objects ttl coordinator is nil")
 	}
-	errors.GoWrapper(func() {
-		jobName := "trigger_objects_ttl_deletion"
-		jobLogger := c.logger.WithField("job", jobName)
-		var jobCtx context.Context
-		var cancel context.CancelFunc = func() {} // noop
-		wgRunning := new(sync.WaitGroup)
 
-		for {
-			select {
-			case schedule := <-c.scheduleCh:
-				cancel()
-				if cr.RemoveByName(jobName) {
-					jobLogger.Info("cron job removed")
-				}
+	_, err := c.start(cr, tickGate, func(ctx context.Context) {
+		started := time.Now()
+		c.jobLogger.Debug("trigger ttl deletion started")
 
-				if schedule == "" {
-					jobLogger.Info("cron job skipped, no schedule")
-					continue
-				}
+		err := coordinator.Start(ctx, false, started, started)
 
-				// ensure removed job is no longer running before adding one with new schedule
-				wgRunning.Wait()
-				// ensure context still valid after waiting
-				select {
-				case <-c.serverShutdownCtx.Done():
-					jobLogger.Debug("server shutdown context cancelled")
-					return
-				default:
-				}
-
-				jobCtx, cancel = context.WithCancel(c.serverShutdownCtx)
-				job := c.createJob(jobCtx, jobLogger, c.gocronLogger, clusterService, coordinator, wgRunning)
-
-				entryId, err := cr.AddJob(schedule, job, gocron.WithName(jobName))
-				if err != nil {
-					jobLogger.WithError(err).Error("cron job not added")
-					continue
-				}
-				jobLogger.WithFields(logrus.Fields{
-					"entry_id": entryId,
-					"schedule": schedule,
-				}).Info("cron job added")
-
-			case <-c.serverShutdownCtx.Done():
-				cancel()
-				jobLogger.Debug("server shutdown context cancelled")
-				return
-			}
-		}
-	}, c.logger)
-
-	return nil
-}
-
-func (c *cronsObjectsTTL) createJob(ctx context.Context, jobLogger logrus.FieldLogger, gocronLogger gocron.Logger,
-	clusterService *cluster.Service, coordinator *objectttl.Coordinator, wgRunning *sync.WaitGroup,
-) gocron.Job {
-	return gocron.NewChain(
-		gocron.SkipIfStillRunning(gocronLogger),
-	).Then(gocron.FuncJob(func() {
-		wgRunning.Add(1)
-		defer wgRunning.Done()
-
-		if !clusterService.IsLeader() {
-			jobLogger.Debug("not a ttl scheduler - skipping")
+		jobLogger := c.jobLogger.WithField("took", time.Since(started))
+		if err != nil {
+			jobLogger.Errorf("trigger ttl deletion failed: %v", err)
 			return
 		}
-
-		var err error
-		started := time.Now()
-
-		jobLogger.Debug("trigger ttl deletion started")
-		defer func() {
-			jobLogger := jobLogger.WithField("took", time.Since(started))
-			if err != nil {
-				jobLogger.WithError(err).Error("trigger ttl deletion failed")
-				return
-			}
-			jobLogger.Debug("trigger ttl deletion finished")
-		}()
-
-		err = coordinator.Start(ctx, false, started, started)
-	}))
-}
-
-func (c *cronsObjectsTTL) RuntimeConfigHook() error {
-	newSchedule := c.configGetter().ObjectsTTLDeleteSchedule.Get()
-	c.lock.Lock()
-	if c.currentSchedule == newSchedule {
-		c.lock.Unlock()
-		// nothing to do, schedule have not changed
-		return nil
-	}
-	c.currentSchedule = newSchedule
-	c.lock.Unlock()
-
-	select {
-	case <-c.scheduleCh:
-		// read previous, not yet handled value. discard in favour of new one
-		//
-		// It could happen that schedule A was changed to B and then back to A.
-		// If B as not applied and read here, effectively it will be A changed to A
-		// which could be skipped. For now this unlikely case will be ignored.
-	default:
-		// nothing in the channel, safe to push new one
-	}
-
-	c.scheduleCh <- newSchedule
-	return nil
+		jobLogger.Debug("trigger ttl deletion finished")
+	})
+	return err
 }
 
 func initGoCron(ctx context.Context, logger gocron.Logger) *gocron.Cron {
@@ -235,6 +261,6 @@ func initGoCron(ctx context.Context, logger gocron.Logger) *gocron.Cron {
 		gocron.WithContext(ctx),
 		gocron.WithLogger(logger),
 		gocron.WithChain(gocron.Recover(logger)),
-		gocron.WithParser(gocron.FullParser()),
+		gocron.WithParser(cron.Parser()),
 	)
 }

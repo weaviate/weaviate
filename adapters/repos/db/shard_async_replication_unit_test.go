@@ -13,9 +13,13 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -234,7 +238,7 @@ func TestShardHashTreeLevel(t *testing.T) {
 		}{
 			{"negative level", s, -1, hashtree.NewBitset(1).Set(0), nil},
 			{"level above maximum height", s, maxHashtreeHeight + 1, hashtree.NewBitset(1).Set(0), nil},
-			{"level above tree height", s, height + 1, hashtree.NewBitset(1).Set(0), nil},
+			{"level above tree height", s, height + 1, hashtree.NewBitset(1).Set(0), errAsyncReplicationNotActive},
 			{"nil discriminant", s, 0, nil, nil},
 			{"wrong discriminant size", s, 2, hashtree.NewBitset(1).Set(0), nil},
 			{"nil hashtree", &Shard{index: &Index{}}, 0, hashtree.NewBitset(1).Set(0), errAsyncReplicationNotActive},
@@ -246,6 +250,8 @@ func TestShardHashTreeLevel(t *testing.T) {
 				require.Error(t, err)
 				if tc.wantErrIs != nil {
 					require.ErrorIs(t, err, tc.wantErrIs)
+				} else {
+					require.NotErrorIs(t, err, errAsyncReplicationNotActive)
 				}
 			})
 		}
@@ -257,4 +263,36 @@ func TestLazyLoadShardHashTreeLevelUnloaded(t *testing.T) {
 	digests, err := l.HashTreeLevel(context.Background(), 0, hashtree.NewBitset(1).Set(0))
 	require.ErrorIs(t, err, errAsyncReplicationNotActive)
 	assert.Nil(t, digests)
+}
+
+func TestNoteHashbeatSkipEscalatesAfterConsecutiveRuns(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+	s := &Shard{
+		class:   &models.Class{Class: "TestClass"},
+		index:   &Index{logger: logger},
+		metrics: &Metrics{},
+	}
+	skipErr := fmt.Errorf("%w: peer restarting", errAsyncReplicationNotActive)
+
+	warns := func() int {
+		n := 0
+		for _, e := range hook.AllEntries() {
+			if e.Level == logrus.WarnLevel {
+				n++
+			}
+		}
+		return n
+	}
+
+	for i := 0; i < asyncRepSkipWarnEvery-1; i++ {
+		s.noteHashbeatSkip(skipErr, time.Hour)
+	}
+	require.Zero(t, warns())
+
+	s.noteHashbeatSkip(skipErr, time.Hour)
+	require.Equal(t, 1, warns())
+
+	s.asyncRepConsecutiveSkips.Store(0)
+	s.noteHashbeatSkip(skipErr, time.Hour)
+	require.Equal(t, 1, warns())
 }

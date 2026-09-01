@@ -40,7 +40,6 @@ func TestHandler_AddProperty(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
@@ -99,7 +98,6 @@ func TestHandler_AddProperty(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
@@ -151,7 +149,6 @@ func TestHandler_AddProperty_ReservedSuffix(t *testing.T) {
 					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				}
 				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 				fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
 				_, _, err := handler.AddClass(ctx, nil, class)
 				require.NoError(t, err)
@@ -209,7 +206,6 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
@@ -486,7 +482,6 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	}
 	fakeSchemaManager.On("ReadOnlyClass", refClass.Class).Return(&refClass)
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil).Twice()
-	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil).Twice()
 	fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 	_, _, err := handler.AddClass(ctx, nil, &class)
 	require.NoError(t, err)
@@ -1100,7 +1095,7 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 				sm.On("UpdateProperty", tt.wantAuthName, mock.Anything, mock.Anything).Return(nil)
 			}
 
-			_, err = handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
+			err = handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
 				tt.inputName, "title", "filterable")
 			if tt.wantErrIs != nil {
 				require.ErrorIs(t, err, tt.wantErrIs)
@@ -1227,10 +1222,9 @@ func TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError(t *testin
 			sm.On("UpdateProperty", "Movies", mock.Anything, mock.Anything).Return(
 				fmt.Errorf("reindex task is in flight on this property"))
 
-			wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
 				"Movies", "title", idx.indexName)
 			require.Error(t, err, "UpdateProperty was mocked to fail")
-			require.False(t, wrote, "a failed UpdateProperty must not report a RAFT write")
 
 			// The CRITICAL assertion: after the failed apply, the FSM's
 			// Property struct's pointer field for this index name must
@@ -1342,10 +1336,9 @@ func TestDeleteClassPropertyIndex_FieldMaskScopedToTouchedFlag(t *testing.T) {
 				}),
 			).Return(nil)
 
-			wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
 				"Movies", tc.fsmProp.Name, tc.indexName)
 			require.NoError(t, err)
-			require.True(t, wrote, "flipping the flag off must report a RAFT write")
 			sm.AssertExpectations(t)
 		})
 	}
@@ -1377,9 +1370,8 @@ func TestDeleteClassPropertyIndex_SearchableClearsBlockmaxStamp(t *testing.T) {
 			forwardedFields = args.Get(2).([]string)
 		}).Return(nil)
 
-	wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil, "Movies", "title", "searchable")
+	err := handler.DeleteClassPropertyIndex(context.Background(), nil, "Movies", "title", "searchable")
 	require.NoError(t, err)
-	require.True(t, wrote)
 
 	require.NotNil(t, forwarded)
 	require.Nil(t, forwarded.SearchableBlockmax,
@@ -1393,9 +1385,7 @@ func TestDeleteClassPropertyIndex_SearchableClearsBlockmaxStamp(t *testing.T) {
 }
 
 // TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff pins that deleting an
-// already-off index performs no RAFT write and reports wrote=false, which the
-// handler needs to skip recording a GET-suppression delete marker for a
-// write that never happened.
+// already-off index succeeds without reaching RAFT.
 func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
 	t.Parallel()
 
@@ -1439,11 +1429,9 @@ func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
 			sm.On("ReadOnlyClass", "Movies").Return(fsmClass)
 			// No UpdateProperty expectation: a no-op must not reach RAFT.
 
-			wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
 				"Movies", tc.fsmProp.Name, tc.indexName)
 			require.NoError(t, err)
-			require.False(t, wrote,
-				"deleting an already-off index must be a no-op (no RAFT write) so no masking marker is recorded")
 			sm.AssertNotCalled(t, "UpdateProperty", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}

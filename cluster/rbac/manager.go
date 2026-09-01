@@ -24,6 +24,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -296,5 +297,49 @@ func (m *Manager) Restore(b []byte) error {
 		return err
 	}
 	m.logger.Info("successfully restored rbac from snapshot")
+	return nil
+}
+
+// ValidateBackupSnapshot checks the backup's roles without changing anything.
+// If this cluster uses namespaces, every namespace the roles name must exist
+// and not be deleting. Suspended and resuming namespaces are accepted because
+// they keep their rows, so restoring those rows is legal and must not block a
+// cluster-wide restore.
+func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, ns usecasesNamespaces.Exister) error {
+	if m.authZ == nil || len(req.Roles) == 0 {
+		return nil
+	}
+	staticAPIKeyUsers := rbac.StaticAPIKeyUsers(m.authNconfig)
+	if err := rbac.ValidateSnapshot(req.Roles, req.StripNamespaces, staticAPIKeyUsers); err != nil {
+		return err
+	}
+	if req.StripNamespaces {
+		// This cluster has namespaces turned off, so there is no namespace here
+		// that could be active. The check above covers this case instead.
+		return nil
+	}
+	if err := rbac.RequireReferencedNamespacesExist(req.Roles, staticAPIKeyUsers, ns); err != nil {
+		return fmt.Errorf("restore roles: %w", err)
+	}
+	return nil
+}
+
+// RestoreFromBackup replaces every role with the ones from the backup.
+// Not to be confused with Restore, which loads roles when a node starts up.
+func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error {
+	if m.authZ == nil || len(req.Roles) == 0 {
+		return nil
+	}
+	if err := m.authZ.Restore(req.Roles, req.StripNamespaces); err != nil {
+		// The restore wipes the old roles before the part that can fail, so this
+		// node may now have no custom roles at all while every other node
+		// succeeded. Log a fixed word so this is easy to search for.
+		m.logger.WithField("action", "restore_roles_from_backup").
+			Errorf("rbac_restore_torn: role store may be cleared on this node only: %v", err)
+		return err
+	}
+	m.logger.WithField("action", "restore_roles_from_backup").
+		WithField("strip_namespaces", req.StripNamespaces).
+		Info("replaced rbac state from backup")
 	return nil
 }

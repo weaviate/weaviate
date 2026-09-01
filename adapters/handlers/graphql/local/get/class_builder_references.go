@@ -40,7 +40,7 @@ func (b *classBuilder) referenceField(propertyType schema.PropertyDataType,
 		dataTypeClasses = append(dataTypeClasses, refClass)
 	}
 
-	if (len(dataTypeClasses)) == 0 {
+	if len(dataTypeClasses) == 0 {
 		// this could be the case when we only have network-refs, but all network
 		// refs were invalid (e.g. because the peers are gone). In this case we
 		// must return (nil) early, otherwise graphql will error because it has a

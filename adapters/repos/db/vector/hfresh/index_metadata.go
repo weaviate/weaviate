@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -28,6 +30,7 @@ const (
 	quantizationKey    = "quantization"
 	dimensionsKey      = "dimensions"
 	postingSequenceKey = "posting_seq"
+	muveraKey          = "muvera"
 )
 
 // The shared bucket is used to store various metadata. It is used by multiple stores
@@ -78,7 +81,7 @@ func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmk
 }
 
 func sharedBucketName(id string) string {
-	return fmt.Sprintf("hfresh_shared_%s", id)
+	return helpers.HFreshSharedBucketName(id)
 }
 
 func cleanupLegacyReassignBucket(bucket *lsmkv.Bucket) error {
@@ -167,6 +170,30 @@ type QuantizationData struct {
 	RQ compression.RQData `msgpack:"rq"`
 }
 
+func (i *IndexMetadataStore) SetMuveraData(data *compression.MuveraData) error {
+	serialized, err := msgpack.Marshal(data)
+	if err != nil {
+		return errors.Wrap(err, "marshal muvera data")
+	}
+	return i.bucket.Put(i.key(muveraKey), serialized)
+}
+
+func (i *IndexMetadataStore) GetMuveraData() (*compression.MuveraData, error) {
+	data, err := i.bucket.Get(i.key(muveraKey))
+	if err != nil {
+		return nil, errors.Wrap(err, "get muvera data")
+	}
+	if data == nil {
+		return nil, nil
+	}
+
+	var muveraData compression.MuveraData
+	if err = msgpack.Unmarshal(data, &muveraData); err != nil {
+		return nil, errors.Wrap(err, "unmarshal muvera data")
+	}
+	return &muveraData, nil
+}
+
 func (h *HFresh) restoreMetadata() error {
 	dims, err := h.IndexMetadata.GetDimensions()
 	if err != nil || dims == 0 {
@@ -175,6 +202,18 @@ func (h *HFresh) restoreMetadata() error {
 
 	if err := h.restoreDimensions(dims); err != nil {
 		return err
+	}
+
+	if h.muvera.Load() {
+		muveraData, err := h.IndexMetadata.GetMuveraData()
+		if err != nil {
+			return err
+		}
+		if muveraData != nil {
+			h.trackMuveraOnce.Do(func() {
+				h.muveraEncoder.LoadMuveraConfig(*muveraData)
+			})
+		}
 	}
 
 	if err := migratePostingMapV1ToV2(h.ctx, h.PostingMap.bucket.bucket, h.logger); err != nil {
@@ -223,7 +262,6 @@ func (h *HFresh) restoreDimensions(dims uint32) error {
 			return errors.Wrap(err, "could not create quantizer")
 		}
 		h.quantizer = quantizer
-		h.Centroids.SetQuantizer(h.quantizer)
 		h.distancer = NewDistancer(h.quantizer, h.config.DistanceProvider)
 		if err := h.persistQuantizationData(); err != nil {
 			return errors.Wrap(err, "could not persist RQ data")
@@ -280,7 +318,6 @@ func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 	}
 
 	h.quantizer = rq
-	h.Centroids.SetQuantizer(rq)
 	h.distancer = NewDistancer(rq, h.config.DistanceProvider)
 
 	return nil

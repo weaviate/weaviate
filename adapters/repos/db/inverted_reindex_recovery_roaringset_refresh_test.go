@@ -29,9 +29,7 @@ import (
 
 // Recovery-convergence matrix for RoaringSetRefresh — the same-strategy
 // refresh of a filterable RoaringSet bucket (production code path
-// behind `repair-filterable`). Inline runtimeSwap path, so the matrix
-// mirrors MapToBlockmax_FromEachState verbatim with the bucket type as
-// the only difference.
+// behind `repair-filterable`). Inline runtimeSwap path.
 
 // newRoaringSetRefreshTask wraps RoaringSetRefreshStrategy.
 func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneric, *roaringSetRefreshStrategyWrapper) {
@@ -44,8 +42,6 @@ func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneri
 	task := NewShardReindexTaskGeneric(
 		"RoaringSetRefresh", idx.logger, wrapped,
 		reindexTaskConfig{
-			swapBuckets:                   true,
-			tidyBuckets:                   true,
 			concurrency:                   2,
 			memtableOptFactor:             4,
 			backupMemtableOptFactor:       1,
@@ -380,9 +376,9 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 
 			// Phase 2: simulate restart — full shutdown + shard re-init
 			// + fresh task. This is the real-world restart sequence:
-			// shard_init runs FinalizeCompletedMigrations, then
-			// OnBeforeLsmInit, then LSM init, then OnAfterLsmInit, then
-			// OnAfterLsmInitAsync loop on the background scheduler.
+			// shard_init runs FinalizeCompletedMigrations, then LSM
+			// init, then OnAfterLsmInit, then the OnAfterLsmInitAsync
+			// loop on the background scheduler.
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
@@ -397,7 +393,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			idx.shards.Store(shardName, shd2)
 
 			// Drive the async loop to completion in case recovery is
-			// only partially handled by OnBeforeLsmInit + OnAfterLsmInit.
+			// only partially handled by OnAfterLsmInit.
 			for {
 				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
 				require.NoErrorf(t, err,

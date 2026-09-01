@@ -133,6 +133,9 @@ func (e *MuveraEncoder) encode(fullVec [][]float32, isDoc bool) []float32 {
 		// doc ONLY operations
 		if isDoc {
 			for cluster, count := range repetitionClusterCounts {
+				if count == 0 {
+					continue
+				}
 				startIdx := uint64(cluster) * uint64(e.config.Dimensions)
 				for i := 0; i < e.config.Dimensions; i++ {
 					tmpVec[startIdx+uint64(i)] = (1 / float32(count)) * tmpVec[startIdx+uint64(i)]
@@ -223,9 +226,9 @@ func MuveraFromBytes(bytes []byte) []float32 {
 }
 
 func (e *MuveraEncoder) GetMuveraVectorForID(id uint64, bucket string) ([]float32, error) {
-	idBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idBytes, id)
-	muveraBytes, err := e.muveraStore.Bucket(bucket).Get(idBytes)
+	var idBytes [8]byte
+	binary.BigEndian.PutUint64(idBytes[:], id)
+	muveraBytes, err := e.muveraStore.Bucket(bucket).Get(idBytes[:])
 	if err != nil {
 		return nil, fmt.Errorf("getting vector for id: %w", err)
 	}

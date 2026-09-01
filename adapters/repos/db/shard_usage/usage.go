@@ -12,8 +12,11 @@
 package shardusage
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/models"
 	entsync "github.com/weaviate/weaviate/entities/sync"
 )
 
@@ -46,8 +50,11 @@ func shardPathDimensionsLSM(indexPath, shardName string) string {
 	return path.Join(shardPathLSM(indexPath, shardName), helpers.DimensionsBucketLSM)
 }
 
+// usageTmpFileName names the file holding a shard's saved usage, in the shard's own directory.
+const usageTmpFileName = "usage.json.tmp"
+
 func usageTmpFilePath(indexPath, shardName string) string {
-	return path.Join(indexPath, shardName, "usage.json.tmp")
+	return path.Join(indexPath, shardName, usageTmpFileName)
 }
 
 // ComputedUsageDataExists checks if pre-calculated shard usage data file exists
@@ -67,9 +74,14 @@ func RemoveComputedUsageDataForUnloadedShard(indexPath, shardName string) error 
 	return nil
 }
 
-// SaveComputedUsageData saves pre-calculated shard usage data to disk
-func SaveComputedUsageData(indexPath, shardName string, shardUsage *types.ShardUsage) error {
-	data, err := json.Marshal(usageDisk(shardUsage))
+// SaveComputedUsageData saves pre-calculated shard usage data to disk, stamped with
+// the fingerprint of the vector configs it was computed from.
+func SaveComputedUsageData(indexPath, shardName string, shardUsage *types.ShardUsage, vectorConfigsFingerprint string) error {
+	data, err := json.Marshal(&types.UsageDisk{
+		Version:                  types.UsageDiskVersion,
+		ShardUsage:               shardUsage,
+		VectorConfigsFingerprint: vectorConfigsFingerprint,
+	})
 	if err != nil {
 		return fmt.Errorf("marshal pre-calculated usage for disk: %w", err)
 	}
@@ -79,8 +91,32 @@ func SaveComputedUsageData(indexPath, shardName string, shardUsage *types.ShardU
 	return nil
 }
 
-// LoadComputedUsageData loads pre-calculated shard usage data, checks version of saved data before returning
-func LoadComputedUsageData(indexPath, shardName string) (*types.ShardUsage, error) {
+// VectorConfigsFingerprint identifies a collection's vector configs, so that a shard
+// staying cold across a vector index being added, dropped, or reconfigured recomputes
+// its usage instead of serving what the previous configs produced.
+func VectorConfigsFingerprint(vectorConfigs map[string]models.VectorConfig) (string, error) {
+	if vectorConfigs == nil {
+		// an absent and an empty map describe the same collection
+		vectorConfigs = map[string]models.VectorConfig{}
+	}
+	// json.Marshal sorts map keys, so the same configs always hash the same
+	data, err := json.Marshal(vectorConfigs)
+	if err != nil {
+		return "", fmt.Errorf("marshal vector configs: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// ErrUsageVersionMismatch reports usage written by another version of the format.
+// Every caller recomputes, so it is the expected outcome of a version bump for
+// each shard that stayed cold across it — routine, unlike an unreadable file.
+var ErrUsageVersionMismatch = errors.New("usage data saved to disk version mismatch")
+
+// LoadComputedUsageData loads the pre-calculated usage record of a shard, rejecting a
+// version this build does not know. Callers that depend on the vector configs must also
+// compare its fingerprint against [VectorConfigsFingerprint] of their current ones.
+func LoadComputedUsageData(indexPath, shardName string) (*types.UsageDisk, error) {
 	// usage has been pre-calculated and can be read from disk
 	usage, err := os.ReadFile(usageTmpFilePath(indexPath, shardName))
 	if err != nil {
@@ -91,14 +127,13 @@ func LoadComputedUsageData(indexPath, shardName string) (*types.ShardUsage, erro
 		return nil, fmt.Errorf("unmarshal pre-calculated usage from disk: %w", err)
 	}
 	if usageDisk.Version != types.UsageDiskVersion {
-		return nil, fmt.Errorf("usage data saved to disk version mismatch, currently supported version is %d but got %d",
-			types.UsageDiskVersion, usageDisk.Version)
+		return nil, fmt.Errorf("%w, currently supported version is %d but got %d",
+			ErrUsageVersionMismatch, types.UsageDiskVersion, usageDisk.Version)
 	}
-	return usageDisk.ShardUsage, nil
-}
-
-func usageDisk(shardUsage *types.ShardUsage) *types.UsageDisk {
-	return &types.UsageDisk{Version: types.UsageDiskVersion, ShardUsage: shardUsage}
+	if usageDisk.ShardUsage == nil {
+		return nil, errors.New("pre-calculated usage from disk holds no shard usage")
+	}
+	return usageDisk, nil
 }
 
 // unloadedDimensionsBucketLocks serializes access to the same unloaded dimensions bucket.
@@ -144,15 +179,20 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 	}
 	defer bucket.Shutdown(ctx)
 
-	return CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+	scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, 0)
+	if err != nil {
+		return types.Dimensionality{}, err
+	}
+	return scan.Raw, nil
 }
 
 // CalculateUnloadedDimensionsUsageAll calculates dimensions and object count for all target
 // vectors of an unloaded shard without loading it into memory. The dimensions bucket is opened
 // once and shared by all target vector calculations, instead of once per target vector.
+// targetVectors maps each vector name to its MUVERA-encoded dimensionality, or 0 if not MUVERA.
 func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
-	logger logrus.FieldLogger, path, tenantName string, targetVectors []string,
-) (map[string]types.Dimensionality, error) {
+	logger logrus.FieldLogger, path, tenantName string, targetVectors map[string]int,
+) (map[string]DimensionsScan, error) {
 	if len(targetVectors) == 0 {
 		return nil, nil
 	}
@@ -169,20 +209,38 @@ func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
 	}
 	defer bucket.Shutdown(ctx)
 
-	dimensionalities := make(map[string]types.Dimensionality, len(targetVectors))
-	for _, targetVector := range targetVectors {
-		dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+	scans := make(map[string]DimensionsScan, len(targetVectors))
+	for targetVector, encodedDimensions := range targetVectors {
+		scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, encodedDimensions)
 		if err != nil {
 			return nil, err
 		}
-		dimensionalities[targetVector] = dimensionality
+		scans[targetVector] = scan
 	}
-	return dimensionalities, nil
+	return scans, nil
+}
+
+// VectorsMetrics is what a single walk over a shard's vector buckets yields: their
+// total size, and the size of each compressed bucket on its own. The per-bucket
+// sizes are a by-product of the same walk, so asking whether a target vector holds
+// quantized vectors costs no further disk reads.
+type VectorsMetrics struct {
+	// StorageBytes is the size of all vector buckets together.
+	StorageBytes int64
+	// compressedBytes is keyed by compressed bucket directory name.
+	compressedBytes map[string]uint64
+}
+
+// QuantizedVectorsExist reports whether a shard holds quantized vectors for a
+// target vector. The bucket directory alone is no proof: it is created empty as
+// soon as the schema enables quantization, so that a downgrade finds it in place.
+func (m VectorsMetrics) QuantizedVectorsExist(targetVector string) bool {
+	return m.compressedBytes[helpers.GetCompressedBucketName(targetVector)] > 0
 }
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size from disk
-func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (int64, error) {
-	totalSize := int64(0)
+func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (VectorsMetrics, error) {
+	metrics := VectorsMetrics{}
 
 	// vector storage consists of:
 	// 1) size of vector folder - these are:
@@ -196,30 +254,47 @@ func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (int6
 		}
 		size, err := bucketSize(filepath.Join(lsmPath, directory))
 		if err != nil {
-			return 0, err
+			return VectorsMetrics{}, err
 		}
-		totalSize += int64(size)
+		metrics.StorageBytes += int64(size)
+
+		if strings.HasPrefix(directory, helpers.VectorsCompressedBucketLSM) {
+			if metrics.compressedBytes == nil {
+				metrics.compressedBytes = make(map[string]uint64)
+			}
+			metrics.compressedBytes[directory] = size
+		}
 	}
-	return totalSize, nil
+	return metrics, nil
 }
 
-// bucketSize sums the sizes of the files in a bucket directory. A bucket that was deleted
-// after the directory listing was taken counts as zero, so dropping one property or vector
-// bucket does not zero out the whole shard's usage.
-func bucketSize(bucketPath string) (uint64, error) {
-	files, _, err := diskio.GetFileWithSizes(bucketPath)
+// listDir lists a directory's files with their sizes and its subdirectory names. A directory that is
+// gone when it is opened lists as empty. One vector index deleted mid-scan is then missing from the
+// total rather than failing the shard's whole usage. A shard's root and its object store are read
+// with diskio.GetFileWithSizes instead, so a shard being dropped still surfaces as an error.
+func listDir(dirPath string) (map[string]int64, []string, error) {
+	files, dirs, err := diskio.GetFileWithSizes(dirPath)
 	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil
+		return nil, nil, nil
 	}
-	if err != nil {
-		return 0, err
-	}
+	return files, dirs, err
+}
 
+func sumSizes(files map[string]int64) uint64 {
 	totalSize := uint64(0)
 	for _, size := range files {
 		totalSize += uint64(size)
 	}
-	return totalSize, nil
+	return totalSize
+}
+
+// bucketSize sums the sizes of the files in a bucket directory, or zero if the bucket is gone.
+func bucketSize(bucketPath string) (uint64, error) {
+	files, _, err := listDir(bucketPath)
+	if err != nil {
+		return 0, err
+	}
+	return sumSizes(files), nil
 }
 
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size from disk
@@ -236,29 +311,35 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName 
 	}
 	for file, size := range files {
 		totalDiskSize += size
-
-		if includeCount {
-			filePath := filepath.Join(objectStore, file)
-			// Look for .cna files (net count additions)
-			if strings.HasSuffix(file, lsmkv.CountNetAdditionsFileSuffix) {
-				count, err := lsmkv.ReadCountNetAdditionsFile(filePath)
-				if err != nil {
-					logger.WithField("path", filePath).WithField("shard", shardName).WithError(err).Warn("failed to read .cna file")
-					return types.ObjectUsage{}, err
-				}
-				totalObjectCount += count
-			}
-
-			// Look for .metadata files (bloom filters + count net additions)
-			if strings.HasSuffix(file, lsmkv.MetadataFileSuffix) {
-				count, err := lsmkv.ReadObjectCountFromMetadataFile(filePath)
-				if err != nil {
-					logger.WithField("path", filePath).WithField("shard", shardName).WithError(err).Warn("failed to read .metadata file")
-					return types.ObjectUsage{}, err
-				}
-				totalObjectCount += count
-			}
+		if !includeCount {
+			continue
 		}
+
+		// .cna holds net count additions; .metadata holds those plus bloom filters.
+		var readCount func(string) (int64, error)
+		switch {
+		case strings.HasSuffix(file, lsmkv.CountNetAdditionsFileSuffix):
+			readCount = lsmkv.ReadCountNetAdditionsFile
+		case strings.HasSuffix(file, lsmkv.MetadataFileSuffix):
+			readCount = lsmkv.ReadObjectCountFromMetadataFile
+		default:
+			continue
+		}
+
+		filePath := filepath.Join(objectStore, file)
+		count, err := readCount(filePath)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				// The listing is a snapshot, so a load or a compaction can drop a
+				// segment before its sidecar is read. Missing that segment beats
+				// failing the whole shard's count.
+				continue
+			}
+			logger.WithField("path", filePath).WithField("shard", shardName).
+				Warnf("failed to read segment sidecar: %v", err)
+			return types.ObjectUsage{}, err
+		}
+		totalObjectCount += count
 	}
 
 	// If we can't determine object count, return the disk size as fallback
@@ -301,16 +382,27 @@ func CalculateUnloadedIndicesSize(lsmPath string, directories []string) (uint64,
 
 // CalculateNonLSMStorage calculates the full storage used by a shard, including objects, vectors, and indices
 func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
-	var vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize uint64
 	shardPath := filepath.Join(path, shardName)
 
 	files, dirs, err := diskio.GetFileWithSizes(shardPath)
 	if err != nil {
 		return 0, 0, err
 	}
+	return nonLSMStorage(shardPath, files, dirs)
+}
+
+// nonLSMStorage sums a shard's non-LSM storage from a listing of its root taken by the caller.
+func nonLSMStorage(shardPath string, files map[string]int64, dirs []string) (uint64, uint64, error) {
+	var vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize uint64
 
 	// Add sizes of all files in the shard root directory
-	for _, size := range files {
+	for file, size := range files {
+		if file == usageTmpFileName {
+			// a shard must not grow by the size of its own saved usage: the file only
+			// exists while the shard is cold, so counting it would also make a cold
+			// shard report more than the same shard loaded
+			continue
+		}
 		otherNonLSMFoldersStorageSize += uint64(size)
 	}
 	for _, dir := range dirs {
@@ -320,28 +412,20 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 		}
 
 		fullPath := filepath.Join(shardPath, dir)
-		filesSubFolder, subDirs, err := diskio.GetFileWithSizes(fullPath)
+		filesSubFolder, subDirs, err := listDir(fullPath)
 		if err != nil {
 			return 0, 0, err
 		}
 
-		totalSize := uint64(0)
-		for _, size := range filesSubFolder {
-			totalSize += uint64(size)
-		}
+		totalSize := sumSizes(filesSubFolder)
 
 		if strings.HasSuffix(dir, ".hfresh.d") {
 			for _, subDir := range subDirs {
-				subDirPath := filepath.Join(fullPath, subDir)
-				subFiles, _, err := diskio.GetFileWithSizes(subDirPath)
+				subFiles, _, err := listDir(filepath.Join(fullPath, subDir))
 				if err != nil {
 					return 0, 0, err
 				}
-
-				subDirSize := uint64(0)
-				for _, size := range subFiles {
-					subDirSize += uint64(size)
-				}
+				subDirSize := sumSizes(subFiles)
 
 				if strings.HasSuffix(subDir, "commitlog.d") ||
 					strings.HasSuffix(subDir, "snapshot.d") ||
@@ -362,17 +446,56 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 	return vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, nil
 }
 
-// CalculateTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
-func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string,
-) (types.Dimensionality, error) {
-	dimensionality := types.Dimensionality{}
+type DimensionsScan struct {
+	Raw      types.Dimensionality
+	Reported types.Dimensionality
+}
+
+const contextCheckInterval = 1024
+
+// ScanTargetVectorDimensions calculates dimensions and object count for a target vector from an
+// LSMKV bucket. A non-zero encodedDimensions reports that fixed dimensionality against the object
+// count summed across all rows, which costs a scan of the whole prefix instead of stopping at the
+// first complete row.
+func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVector string,
+	encodedDimensions int,
+) (DimensionsScan, error) {
+	scan := DimensionsScan{}
 
 	if err := lsmkv.CheckExpectedStrategy(b.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyRoaringSet); err != nil {
-		return dimensionality, fmt.Errorf("calcTargetVectorDimensionsFromBucket: %w", err)
+		return scan, fmt.Errorf("scanTargetVectorDimensions: %w", err)
 	}
 
+	prefix := []byte(targetVector)
 	nameLen := len(targetVector)
 	expectedKeyLen := nameLen + 4 // vector name + uint32
+	totalCount := 0
+	rows := 0
+	addRow := func(k []byte, count int) (done bool) {
+		// a full-prefix scan is long enough to need cancelling; the error is picked up after the loop
+		if rows++; rows%contextCheckInterval == 0 && ctx.Err() != nil {
+			return true
+		}
+		// a longer name sharing this prefix can sort before the target's own keys
+		if len(k) != expectedKeyLen {
+			return false
+		}
+		dimLength := binary.LittleEndian.Uint32(k[nameLen:])
+		if dimLength == 0 {
+			return false
+		}
+		if scan.Raw.Dimensions == 0 || scan.Raw.Count == 0 {
+			scan.Raw.Dimensions = int(dimLength)
+			scan.Raw.Count = count
+		}
+		if encodedDimensions > 0 {
+			totalCount += count
+			return false
+		}
+		// remaining keys cannot change a complete result, and an empty name
+		// matches every key so the prefix break above never fires
+		return scan.Raw.Dimensions != 0 && scan.Raw.Count != 0
+	}
 	var k []byte
 
 	switch b.Strategy() {
@@ -382,7 +505,7 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 
 		c, err := b.MapCursor()
 		if err != nil {
-			return dimensionality, fmt.Errorf("create cursor: %w", err)
+			return scan, fmt.Errorf("create cursor: %w", err)
 		}
 		defer c.Close()
 
@@ -390,25 +513,10 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 		if nameLen == 0 {
 			k, v = c.First(ctx)
 		} else {
-			k, v = c.Seek(ctx, []byte(targetVector))
+			k, v = c.Seek(ctx, prefix)
 		}
-		for ; k != nil; k, v = c.Next(ctx) {
-			if !strings.HasPrefix(string(k), targetVector) {
-				break
-			}
-			// a longer name sharing this prefix can sort before the target's own keys
-			if len(k) != expectedKeyLen {
-				continue
-			}
-
-			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
-			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
-				dimensionality.Dimensions = int(dimLength)
-				dimensionality.Count = len(v)
-			}
-			// remaining keys cannot change a complete result, and an empty name
-			// matches every key so the prefix break above never fires
-			if dimensionality.Dimensions != 0 && dimensionality.Count != 0 {
+		for ; k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next(ctx) {
+			if addRow(k, len(v)) {
 				break
 			}
 		}
@@ -420,32 +528,22 @@ func CalculateTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Buc
 		if nameLen == 0 {
 			k, v = c.First()
 		} else {
-			k, v = c.Seek([]byte(targetVector))
+			k, v = c.Seek(prefix)
 		}
-		for ; k != nil; k, v = c.Next() {
-			if !strings.HasPrefix(string(k), targetVector) {
-				break
-			}
-			// a longer name sharing this prefix can sort before the target's own keys
-			if len(k) != expectedKeyLen {
-				continue
-			}
-
-			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
-			if dimLength > 0 && (dimensionality.Dimensions == 0 || dimensionality.Count == 0) {
-				dimensionality.Dimensions = int(dimLength)
-				dimensionality.Count = v.GetCardinality()
-			}
-			// remaining keys cannot change a complete result, and an empty name
-			// matches every key so the prefix break above never fires
-			if dimensionality.Dimensions != 0 && dimensionality.Count != 0 {
+		for ; k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+			if addRow(k, v.GetCardinality()) {
 				break
 			}
 		}
 	}
 
 	if err := ctx.Err(); err != nil {
-		return dimensionality, err
+		return scan, err
 	}
-	return dimensionality, nil
+
+	scan.Reported = scan.Raw
+	if encodedDimensions > 0 && totalCount > 0 {
+		scan.Reported = types.Dimensionality{Dimensions: encodedDimensions, Count: totalCount}
+	}
+	return scan, nil
 }

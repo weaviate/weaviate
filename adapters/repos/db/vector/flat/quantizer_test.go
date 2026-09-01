@@ -17,45 +17,21 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
-// Helpers are self-contained rather than shared with index_test.go: that file
-// is excluded from race builds (//go:build !race), and these tests must run
-// under the race detector.
 func newRQTestIndex(t *testing.T, bits int, cache bool) *flat {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
-	dirName := t.TempDir()
-	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	require.NoError(t, err)
-	t.Cleanup(func() { store.Shutdown(context.Background()) })
-
-	index, err := New(Config{
-		ID:                "quantizer-init-test",
-		RootPath:          dirName,
-		DistanceProvider:  distancer.NewL2SquaredProvider(),
-		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
-	}, flatent.UserConfig{
+	return newTestIndex(t, flatent.UserConfig{
 		RQ: flatent.RQUserConfig{
 			Enabled:      true,
 			Bits:         bits,
 			RescoreLimit: 10,
 			Cache:        cache,
 		},
-	}, store)
-	require.NoError(t, err)
-	t.Cleanup(func() { index.Shutdown(context.Background()) })
-	return index
+	})
 }
 
 // simulateInterruptedInit puts the index into the state a concurrent searcher

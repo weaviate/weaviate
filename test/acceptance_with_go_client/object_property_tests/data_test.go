@@ -12,19 +12,17 @@
 package object_property_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"encoding/json"
 	"io"
 	"os"
 	"testing"
 
-	"acceptance_tests_with_client/fixtures"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestObjectProperty_Data(t *testing.T) {

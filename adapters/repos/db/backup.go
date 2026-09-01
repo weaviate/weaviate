@@ -29,6 +29,8 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -45,6 +47,16 @@ const (
 	migrationsDir = ".migrations"
 	tmpExt        = ".tmp"
 )
+
+// Subdirectories listInactiveShardFiles skips when it walks a shard for vector
+// index files. lsm/ was already listed by listInactiveLSMFiles. hashtree_uuid/
+// and changelog/ belong in no backup: Shard.ListBackupFiles omits them too, and
+// a shard rebuilds its hashtree and sweeps orphaned change logs when it loads.
+var nonVectorShardDirs = map[string]struct{}{
+	lsmDir:           {},
+	hashTreeDirName:  {},
+	changelogDirName: {},
+}
 
 // Backupable returns whether all given class can be backed up.
 // Refuses if any shard has an in-flight runtime-reindex; this runs in
@@ -100,7 +112,14 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
+		// The caller drains this channel to close before it releases any index, so
+		// every way out of this goroutine has to leave the channel closed.
+		defer close(ds)
 		for _, c := range classes {
+			if err := ctx.Err(); err != nil {
+				ds <- backup.ClassDescriptor{Name: c, BackupID: bakid, Error: err}
+				return
+			}
 			desc := backup.ClassDescriptor{Name: c, BackupID: bakid}
 			func() {
 				idx := db.GetIndex(schema.ClassName(c))
@@ -133,7 +152,6 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 				break
 			}
 		}
-		close(ds)
 	}
 	enterrors.GoWrapper(f, db.logger)
 	return ds
@@ -445,14 +463,8 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", name, relPath, err)
 		}
-		if backup.IsImmutableFile(relPath) {
-			if err := os.Link(src, dst); err != nil {
-				return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
-			}
-		} else {
-			if err := file.CopyFile(src, dst); err != nil {
-				return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
-			}
+		if err := file.CopyFile(src, dst); err != nil {
+			return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
 		}
 	}
 	if err := file.HardlinkFiles(hardlinks); err != nil {
@@ -820,12 +832,6 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	}
 	files = append(files, lsmFiles...)
 
-	// List vector index files (all non-lsm subdirectories of the shard).
-	// Expected directories: <target>.hnsw.commitlog.d/, <target>.hnsw.snapshot.d/,
-	// <target>.queue.d/, <target>/ (flat/dynamic index), hashtree_<target>/.
-	// An indiscriminate walk is safe here because INACTIVE shards are fully
-	// quiesced — Shutdown has flushed and closed all stores, so there are no
-	// active commit logs or transient files to exclude.
 	// Note: this reads shardDir, not lsmPath — the two ReadDir calls in this
 	// function and listInactiveLSMFiles operate on different directories with
 	// different traversal semantics.
@@ -833,8 +839,39 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	if err != nil {
 		return nil, fmt.Errorf("read shard dir: %w", err)
 	}
+
+	// The vector indexes keep state as regular files at the shard root, which the
+	// walk below does not reach: the dynamic index's upgrade state and one flat
+	// metadata file per target vector. A restore missing the upgrade state
+	// concludes the index never upgraded and deletes the HNSW graph holding the
+	// only vectors.
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == lsmDir {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if name != dynamicent.StateDBFileName && !flatent.IsMetadataFile(name) {
+			continue
+		}
+		relPath, err := filepath.Rel(rootPath, filepath.Join(shardDir, name))
+		if err != nil {
+			return nil, fmt.Errorf("%s rel path: %w", name, err)
+		}
+		files = append(files, relPath)
+	}
+
+	// List vector index files, walking every shard subdirectory outside
+	// nonVectorShardDirs. Expected: <id>.hnsw.commitlog.d/, <id>.hnsw.snapshot.d/,
+	// <id>.queue.d/ and <id>.hfresh.d/ for a vector index id. Flat and dynamic
+	// state is not a directory; the loop above lists it.
+	// Walking whatever remains is safe here because INACTIVE shards are fully
+	// quiesced — Shutdown has flushed and closed all stores, so there are no
+	// active commit logs or transient files to exclude.
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, skip := nonVectorShardDirs[entry.Name()]; skip {
 			continue
 		}
 		vectorDir := filepath.Join(shardDir, entry.Name())
@@ -884,6 +921,12 @@ func listInactiveLSMFiles(lsmDir, rootPath string) ([]string, error) {
 			// Walk migrations recursively, same as Store.listMigrationFiles.
 			if err := filepath.WalkDir(entryPath, func(fpath string, d os.DirEntry, err error) error {
 				if err != nil || d == nil || d.IsDir() {
+					return nil
+				}
+				// A crash mid-rename leaves the tracker's scratch file behind,
+				// and nothing under .migrations ever sweeps it. Copying it
+				// would carry it into every later backup and restore.
+				if filepath.Ext(d.Name()) == tmpExt {
 					return nil
 				}
 				relPath, relErr := filepath.Rel(rootPath, fpath)

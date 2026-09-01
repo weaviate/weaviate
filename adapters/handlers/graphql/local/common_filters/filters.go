@@ -87,7 +87,7 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 			graphql.InputObjectConfig{
 				Name:        fmt.Sprintf("%sWhereOperandsInpObj", path),
 				Description: descriptions.WhereOperandsInpObj,
-				Fields: (graphql.InputObjectConfigFieldMapThunk)(func() graphql.InputObjectConfigFieldMap {
+				Fields: graphql.InputObjectConfigFieldMapThunk(func() graphql.InputObjectConfigFieldMap {
 					return commonFilters
 				}),
 			},

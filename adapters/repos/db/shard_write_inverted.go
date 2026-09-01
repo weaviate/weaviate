@@ -13,6 +13,7 @@ package db
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -79,6 +80,8 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 		if schemaMap == nil {
 			schemaMap = make(map[string]interface{})
 		}
+		// The map is shared with goroutines that read it concurrently; write only a private clone.
+		schemaMap = maps.Clone(schemaMap)
 		schemaMap[filters.InternalPropCreationTimeUnix] = object.Object.CreationTimeUnix
 		schemaMap[filters.InternalPropLastUpdateTimeUnix] = object.Object.LastUpdateTimeUnix
 	}

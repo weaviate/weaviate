@@ -32,7 +32,7 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, module
 		vectorIndex = idx
 	}
 
-	return aggregator.New(s.store, params, s.index.getSchema, s.index.classSearcher,
+	return aggregator.New(s.store, params, s.index.getSchema, s.propertyIndicesSnapshot(), s.index.classSearcher,
 		s.index.getStopwordProvider(), s.versioner.Version(), vectorIndex, s.index.logger, s.GetPropertyLengthTracker(),
 		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory, modules, s.index.Config.QueryHybridMaximumResults,
 		s.TokenizationFor).

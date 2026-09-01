@@ -546,6 +546,18 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
+   local-meta)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+      DEFAULT_VECTORIZER_MODULE=none
+      ENABLE_MODULES="generative-meta"
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
 
   local-qna-openai)
       CONTEXTIONARY_URL=localhost:9999 \
@@ -871,6 +883,7 @@ case $CONFIG in
       GOOGLE_CLOUD_PROJECT=project-id \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
+      GCS_MODULE_TRANSPORT=http \
       BACKUP_GCS_BUCKET=weaviate-backups \
       ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
       CLUSTER_IN_LOCALHOST=true \
@@ -892,6 +905,7 @@ case $CONFIG in
       GOOGLE_CLOUD_PROJECT=project-id \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
+      GCS_MODULE_TRANSPORT=http \
       BACKUP_GCS_BUCKET=weaviate-backups \
       ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
       CLUSTER_IN_LOCALHOST=true \
@@ -916,6 +930,7 @@ case $CONFIG in
       GOOGLE_CLOUD_PROJECT=project-id \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
+      GCS_MODULE_TRANSPORT=http \
       BACKUP_GCS_BUCKET=weaviate-backups \
       ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
       CLUSTER_IN_LOCALHOST=true \
@@ -966,6 +981,7 @@ local-usage-gcs)
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
+      GCS_MODULE_TRANSPORT=http \
       BACKUP_GCS_BUCKET=weaviate-backups \
       USAGE_GCS_BUCKET=weaviate-usage \
       USAGE_GCS_PREFIX=billing-usage \

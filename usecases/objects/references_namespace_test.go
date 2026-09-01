@@ -1137,6 +1137,51 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 	})
 }
 
+// Test_References_Batch_Uses_SchemaVersion pins the version the batch write is
+// made with, which is what db.AddBatchReferences waits for. A classless beacon on
+// a multi-target property skips the multi-tenancy check, the only other place the
+// version is raised.
+func Test_References_Batch_Uses_SchemaVersion(t *testing.T) {
+	const classVersion uint64 = 5
+
+	id := strfmt.UUID("d18c8e5e-0000-0000-0000-56b0cfe33ce7")
+	refID := strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+
+	tests := []struct {
+		name string
+		to   strfmt.URI
+	}{
+		{
+			name: "target class in the beacon",
+			to:   strfmt.URI("weaviate://localhost/Alpha/" + string(refID)),
+		},
+		{
+			name: "classless beacon on a multi-target property",
+			to:   strfmt.URI("weaviate://localhost/" + string(refID)),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, b, repo, _, _ := newNSManagers(t, multiTargetNSSchema(false), false,
+				func(_ *config.WeaviateConfig, sm *fakeSchemaManager) {
+					sm.ClassVersion = classVersion
+				})
+			repo.On("AddBatchReferences", mock.Anything).Return(nil).Once()
+
+			refs := []*models.BatchReference{{
+				From: strfmt.URI("weaviate://localhost/Source/" + string(id) + "/hasOther"),
+				To:   tt.to,
+			}}
+			_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
+
+			require.NoError(t, err)
+			assert.Equal(t, classVersion, repo.CapturedSchemaVersion,
+				"the batch write must be made with the source collection's version")
+		})
+	}
+}
+
 // denyContainingAuthorizer is a test-only authorizer that denies any Authorize
 // call whose resources include a path containing the configured substring,
 // and allows everything else. Used to model "user has UPDATE on source but
