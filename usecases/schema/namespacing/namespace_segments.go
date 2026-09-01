@@ -25,6 +25,8 @@ const (
 	AliasesCollectionsPrefix = authorization.AliasesDomain + "/collections/"
 	UsersPrefix              = authorization.UsersDomain + "/"
 	RolesPrefix              = authorization.RolesDomain + "/"
+	// The minimal nodes resource has no collection segment; only verbose is namespaceable.
+	NodesVerboseCollectionsPrefix = authorization.NodesDomain + "/verbosity/verbose/collections/"
 
 	ShardsMidSeg  = "/shards/"
 	AliasesMidSeg = "/aliases/"
@@ -85,6 +87,10 @@ func FindNamespaceSegments(path string) (start, end int, hasAlias bool) {
 	// roles/<id> is terminal, mirroring users/<id>.
 	if _, ok := strings.CutPrefix(path, RolesPrefix); ok {
 		return len(RolesPrefix), len(path), false
+	}
+	// verbose nodes: the class runs to end of string (terminal, like users/<id>).
+	if _, ok := strings.CutPrefix(path, NodesVerboseCollectionsPrefix); ok {
+		return len(NodesVerboseCollectionsPrefix), len(path), false
 	}
 	// groups/ is intentionally not registered: a colon-bearing group id is
 	// matched literally. Don't add it without also carving groups/ out of

@@ -356,6 +356,79 @@ func TestNamespaceAwareMatcher(t *testing.T) {
 			"",
 			true,
 		},
+		// nodes/verbosity/verbose/collections/<class> — terminal namespace-bearing shape.
+		{
+			"ns=customer1, in-ns verbose nodes, wildcard policy → match (specialize)",
+			"nodes/verbosity/verbose/collections/customer1:Movies",
+			conv.CasbinNodes("verbose", "*"),
+			"customer1",
+			true,
+		},
+		{
+			"ns=customer1, cross-ns verbose nodes, wildcard policy → mismatch (cross-ns deny)",
+			"nodes/verbosity/verbose/collections/customer2:Films",
+			conv.CasbinNodes("verbose", "*"),
+			"customer1",
+			false,
+		},
+		{
+			"empty ns, qualified verbose nodes, wildcard policy → match (any-ns widen)",
+			"nodes/verbosity/verbose/collections/customer1:Movies",
+			conv.CasbinNodes("verbose", "*"),
+			"",
+			true,
+		},
+		{
+			"empty ns, unqualified verbose nodes, exact policy → passthrough match",
+			"nodes/verbosity/verbose/collections/Movies",
+			conv.CasbinNodes("verbose", "Movies"),
+			"",
+			true,
+		},
+		{
+			"ns=customer1, minimal nodes request, verbose wildcard policy → mismatch (minimal not covered)",
+			"nodes/verbosity/minimal",
+			conv.CasbinNodes("verbose", "*"),
+			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, in-ns verbose nodes, exact-name policy → match",
+			"nodes/verbosity/verbose/collections/customer1:Movies",
+			conv.CasbinNodes("verbose", "Movies"),
+			"customer1",
+			true,
+		},
+		{
+			"ns=customer1, in-ns Films verbose nodes, exact Movies policy → mismatch",
+			"nodes/verbosity/verbose/collections/customer1:Films",
+			conv.CasbinNodes("verbose", "Movies"),
+			"customer1",
+			false,
+		},
+		// Unshaped policies must not reach verbose nodes for a namespaced
+		// caller — the carve-out admits only verbose-collections-shaped grants.
+		{
+			"ns=customer1, in-ns verbose nodes, raw * policy → mismatch (unshaped)",
+			"nodes/verbosity/verbose/collections/customer1:Movies",
+			"*",
+			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, cross-ns verbose nodes, raw * policy → mismatch (unshaped)",
+			"nodes/verbosity/verbose/collections/customer2:Films",
+			"*",
+			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, verbose nodes, nodes/.* policy → mismatch (unshaped)",
+			"nodes/verbosity/verbose/collections/customer1:Movies",
+			"nodes/.*",
+			"customer1",
+			false,
+		},
 		// roles/<id> — terminal namespace-bearing shape (mirrors users/<id>).
 		{
 			"ns=customer1, in-ns role, roles/.* policy → match (specialize)",
@@ -660,6 +733,29 @@ func TestRewritePolicy(t *testing.T) {
 			fixedNs: true,
 			wantOK:  false,
 		},
+		{
+			name:     "nodes verbose path, fixed-ns specialize, unqualified col",
+			policy:   "nodes/verbosity/verbose/collections/.*",
+			prefix:   "customer1:",
+			fixedNs:  true,
+			wantOK:   true,
+			wantText: "nodes/verbosity/verbose/collections/customer1:.*",
+		},
+		{
+			name:     "nodes verbose path, any-ns widen, unqualified col",
+			policy:   "nodes/verbosity/verbose/collections/.*",
+			prefix:   anyNamespacePattern,
+			fixedNs:  false,
+			wantOK:   true,
+			wantText: "nodes/verbosity/verbose/collections/[^/:]+:.*",
+		},
+		{
+			name:    "nodes verbose path, fixed-ns, already-qualified mismatching col → cross-NS deny",
+			policy:  "nodes/verbosity/verbose/collections/customer2:Movies",
+			prefix:  "customer1:",
+			fixedNs: true,
+			wantOK:  false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -776,6 +872,10 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	assert.True(t, roleHasResourceVerb(viewerRows, "users/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(viewerRows, "roles/", authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH)),
 		"viewer (NS-enabled) must have roles READ at MATCH scope")
+	// Regular namespace users (viewer) get no nodes access.
+	for _, row := range viewerRows {
+		assert.NotContains(t, row[1], "nodes/", "viewer (NS-enabled) must not have any nodes policy")
+	}
 
 	// root and read-only keep wildcard cluster-wide policies.
 	require.Len(t, rootRows, 1)
