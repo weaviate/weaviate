@@ -230,10 +230,7 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 		// Above the restart edge, not below it: a migration the cluster
 		// committed can never be finished here, so restarting its rebuild
 		// would restart it on every load and the record would never terminate.
-		r.wedged(subject, migrationWedgeRemedy,
-			"migration is %s locally but the cluster reports it committed (%s), so no load here can finish it. "+
-				"Properties: %s.",
-			rec.State(), why, strings.Join(migrationReportedNames(subject.Properties()), ", "))
+		r.wedgeUncommittable(rec, why)
 		return nil
 	case migrationVerdictLeave:
 	default:
@@ -368,9 +365,26 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 			}
 			r.logger.WithField("record", subject.Key.String()).Info(
 				"the staged data is the data; the next shard load promotes it onto the canonical name")
+		case verdict == migrationVerdictCommit:
+			// The rebuild never finished here and the cluster is past it, so
+			// no pass can settle this record. Without this arm it matched
+			// nothing: no line, and a leader query for it every minute.
+			r.wedgeUncommittable(rec, why)
 		}
 	}
 	monitoring.GetMetrics().AddMigrationRecordsWedged(r.WedgedCount(), 0)
+}
+
+// The same disposition the load path reaches, from the same verdict. Marked in
+// the store as well as logged, so the pass that polls for a verdict stops
+// asking for one that will not change.
+func (r *migrationReconciler) wedgeUncommittable(rec MigrationRecord, why string) {
+	subject := rec.Subject()
+	r.wedged(subject, migrationWedgeRemedy,
+		"migration is %s locally but the cluster reports it committed (%s), so no load here can finish it. "+
+			"Properties: %s.",
+		rec.State(), why, strings.Join(migrationReportedNames(subject.Properties()), ", "))
+	r.store.MarkWedged(subject.Key)
 }
 
 // As destructive as discard (removes directories before renaming), so

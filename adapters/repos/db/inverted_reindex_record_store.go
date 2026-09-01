@@ -413,6 +413,7 @@ func (s *MigrationRecordStore) Put(rec MigrationRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.records[rec.Subject().Key] = rec
+	delete(s.wedged, rec.Subject().Key)
 	return nil
 }
 
@@ -534,6 +535,10 @@ func (s *MigrationRecordStore) HasUndecided() bool {
 		if !rec.FlipDecided() && !s.wedged[key] {
 			return true
 		}
+		if _, stuck := s.wedged[key]; stuck {
+			continue
+		}
+		return true
 	}
 	return false
 }
