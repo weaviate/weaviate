@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"net/http"
@@ -132,6 +133,10 @@ func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 // the caller may normalize the returned slice in place.
 func setDelegatingTempThunk(cfg *Config) {
 	cfg.TempVectorForIDWithViewThunk = func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+		// Mirror the production thunk (Shard.readVectorByIndexIDIntoSliceWithView),
+		// which writes the ID into Buff8 unconditionally: a caller passing a
+		// container without pool-initialized buffers must fail tests too.
+		binary.LittleEndian.PutUint64(container.Buff8, id)
 		vec, err := cfg.VectorForIDThunk(ctx, id)
 		if err != nil {
 			return nil, err
