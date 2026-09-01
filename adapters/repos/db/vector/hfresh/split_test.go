@@ -358,3 +358,57 @@ func TestCentroidDistanceQuantizerMismatch(t *testing.T) {
 	require.GreaterOrEqual(t, float64(prodOK)/float64(total), 0.95)
 	require.GreaterOrEqual(t, float64(prodOrder)/float64(total), 0.95)
 }
+
+// TestSplitClustersOnFullPrecisionVectors pins the data source of the split's
+// clustering: the centroids a split returns must be the means of its members'
+// REAL vectors, fetched through VectorForIDThunk. A regression to clustering
+// on the posting's 1-bit reconstructions would return centroids whose
+// coordinates all collapse to the same magnitude (±‖x‖/√dims), nowhere near
+// these means — the vectors below carry strong per-coordinate magnitude
+// structure precisely so that any such regression fails loudly.
+func TestSplitClustersOnFullPrecisionVectors(t *testing.T) {
+	tf := createHFreshIndex(t)
+	defer tf.Index.Shutdown(t.Context())
+
+	const perGroup = 8
+	groups := [2][]float32{
+		{8.0, 2.0, 0.5, 0.1},
+		{0.1, 0.5, 2.0, 8.0},
+	}
+	vectors := make([][]float32, 0, 2*perGroup)
+	for g := range groups {
+		for i := range perGroup {
+			v := make([]float32, len(groups[g]))
+			for j := range v {
+				v[j] = groups[g][j] + float32(i)*0.01
+			}
+			vectors = append(vectors, v)
+		}
+	}
+
+	_, posting := createPostingWithVectors(t, &tf, vectors, 300)
+
+	results, err := tf.Index.splitPosting(t.Context(), posting)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	// Whatever membership the clustering settles on, each child's centroid
+	// must be the mean of its members' real vectors. (Membership itself is
+	// not asserted: initialization is randomized, so the exact grouping may
+	// vary — the data-source pin does not depend on it.)
+	for _, result := range results {
+		require.NotEmpty(t, result.Posting)
+
+		mean := make([]float32, len(groups[0]))
+		for _, v := range result.Posting {
+			for j, x := range vectors[v.ID()-300] {
+				mean[j] += x
+			}
+		}
+		for j := range mean {
+			mean[j] /= float32(len(result.Posting))
+			require.InDelta(t, mean[j], result.Uncompressed[j], 1e-3,
+				"centroid coordinate %d must be the mean of the members' full-precision vectors", j)
+		}
+	}
+}
