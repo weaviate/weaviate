@@ -14,6 +14,7 @@ package db
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	stderrors "errors"
 	"fmt"
@@ -942,11 +943,57 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 	return strfmt.UUID(prop[0]), nil
 }
 
+// batchDeleteObject deletes a single object in the crash-safe order (inverted
+// cleanup -> barrier -> row delete), leaving the WAL flushing to the caller
+// (the batcher flushes once per batch). Retained as the standalone entry the
+// batchers' phases compose; callers that batch many objects should instead
+// run prepareBatchDelete for all of them, one invertedDeleteBarrier, then
+// finalizeBatchDelete — see deleteObjectsBatcher.
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
+	prep, err := s.prepareBatchDelete(ctx, id, deletionTime)
+	if err != nil {
+		return err
+	}
+	if !prep.found {
+		// nothing to do
+		return nil
+	}
+	if err := s.invertedDeleteBarrier(ctx, prep.touched); err != nil {
+		return errors.Wrap(err, "inverted delete barrier")
+	}
+	return s.finalizeBatchDelete(ctx, prep, deletionTime)
+}
+
+// preparedBatchDelete carries phase-1 state of a batched delete between the
+// cleanup phase and the row-delete phase.
+type preparedBatchDelete struct {
+	uuid    strfmt.UUID
+	idBytes []byte
+	// found reports whether a live row existed in phase 1; when false the
+	// remaining fields (except uuid/idBytes) are zero and phase 2 is a no-op.
+	found      bool
+	docID      uint64
+	updateTime int64
+	// rowHash fingerprints the row bytes read in phase 1. docID+updateTime
+	// alone cannot detect every concurrent put: a props-only update PRESERVES
+	// the docID, and updateTime has millisecond resolution, so a put landing
+	// in the same millisecond would be invisible to them.
+	rowHash [sha256.Size]byte
+	touched *touchedBuckets
+}
+
+// prepareBatchDelete is phase 1 of a batched delete: under the object's
+// docIdLock it reads the row and removes the docID from every inverted
+// posting — but does NOT delete the row. The caller must run
+// invertedDeleteBarrier over the union of all touched buckets before any
+// finalizeBatchDelete, so a crash between the phases can only ever leave
+// row-without-postings (repairable by retry), never an orphan posting.
+func (s *Shard) prepareBatchDelete(ctx context.Context, id strfmt.UUID, deletionTime time.Time,
+) (*preparedBatchDelete, error) {
 	// Wait outside RLock: initAsyncReplication holds the write lock while
 	// initialising, so blocking under RLock here would deadlock.
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
-		return err
+		return nil, err
 	}
 
 	s.asyncReplicationRWMux.RLock()
@@ -954,12 +1001,12 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	bucket, err := s.objectsBucket()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// see comment in shard_write_put.go::putObjectLSM
@@ -968,52 +1015,97 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	lock.Lock()
 	defer lock.Unlock()
 
-	existing, err := bucket.Get(idBytes)
+	prep, err := s.prepareObjectDeletionLocked(bucket, idBytes, deletionTime, false)
 	if err != nil {
-		return errors.Wrap(err, "unexpected error on previous lookup")
+		return nil, err
+	}
+	if prep == nil {
+		return &preparedBatchDelete{uuid: id, idBytes: idBytes}, nil
 	}
 
-	if existing == nil {
-		// nothing to do
+	touched, err := s.cleanupInvertedIndexOnDelete(prep.existing, prep.docID)
+	if err != nil {
+		return nil, errors.Wrap(err, "delete inverted postings of object")
+	}
+
+	return &preparedBatchDelete{
+		uuid:       id,
+		idBytes:    idBytes,
+		found:      true,
+		docID:      prep.docID,
+		updateTime: prep.updateTime,
+		rowHash:    sha256.Sum256(prep.existing),
+		touched:    touched,
+	}, nil
+}
+
+// finalizeBatchDelete is phase 2 of a batched delete: after the barrier made
+// phase 1's posting removals durable, it re-validates the row under the
+// object's docIdLock and deletes it.
+//
+//   - Row unchanged since phase 1 (same docID, updateTime and row-content
+//     hash): delete the row (+changelog/hashtree) and remove the docID from
+//     the vector/geo queues.
+//   - Row gone: a concurrent delete won; nothing left to do.
+//   - Row changed (a concurrent put won the race between the phases): the
+//     put's FRESH postings landed after phase 1's cleanup, so deleting the row
+//     now would orphan them. Fall back to the full crash-safe single-object
+//     delete under the held lock — re-clean, re-barrier for this one object,
+//     then delete the row.
+func (s *Shard) finalizeBatchDelete(ctx context.Context, prep *preparedBatchDelete, deletionTime time.Time) error {
+	if !prep.found {
 		return nil
 	}
 
-	// we need the doc ID so we can clean up inverted indices currently
-	// pointing to this object
-	docID, updateTime, err := storobj.DocIDAndTimeFromBinary(existing)
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
+		return err
+	}
+
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	bucket, err := s.objectsBucket()
 	if err != nil {
-		return errors.Wrap(err, "get existing doc id from object binary")
+		return err
 	}
 
-	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
-	withSecondary := lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)
-	if deletionTime.IsZero() {
-		err = bucket.Delete(idBytes, withSecondary)
-	} else {
-		err = bucket.DeleteWith(idBytes, deletionTime, withSecondary)
-	}
+	lock := &s.docIdLock[s.uuidToIdLockPoolId(prep.idBytes)]
+
+	lock.Lock()
+	defer lock.Unlock()
+
+	cur, err := s.prepareObjectDeletionLocked(bucket, prep.idBytes, deletionTime, false)
 	if err != nil {
-		return errors.Wrap(err, "delete object from bucket")
+		return err
+	}
+	if cur == nil {
+		// row gone — a concurrent delete already converged this object
+		return nil
 	}
 
-	logTime := updateTime
-	if !deletionTime.IsZero() {
-		logTime = deletionTime.UnixMilli()
-	}
-	s.AppendChangeLogDelete(idBytes, logTime)
-
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime, logTime); err != nil {
-		return errors.Wrap(err, "object deletion in hashtree")
+	if cur.docID == prep.docID && cur.updateTime == prep.updateTime &&
+		sha256.Sum256(cur.existing) == prep.rowHash {
+		if err := s.deleteObjectRowLocked(bucket, cur, deletionTime); err != nil {
+			return err
+		}
+		return s.deleteFromVectorAndGeoQueues(cur.docID)
 	}
 
-	_, err = s.cleanupInvertedIndexOnDelete(existing, docID)
-	if err != nil {
-		return errors.Wrap(err, "delete object from bucket")
+	// concurrent put between the phases: run the full crash-safe delete for
+	// the fresh row
+	docID, deleted, err := s.deleteObjectCrashSafeLocked(ctx, bucket, prep.idBytes, deletionTime, false)
+	if err != nil || !deleted {
+		return err
 	}
+	return s.deleteFromVectorAndGeoQueues(docID)
+}
 
-	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		if err = queue.Delete(docID); err != nil {
+// deleteFromVectorAndGeoQueues removes docID from every vector and geo index
+// queue; the caller is responsible for flushing the queues (the batcher does
+// so once per batch).
+func (s *Shard) deleteFromVectorAndGeoQueues(docID uint64) error {
+	err := s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err := queue.Delete(docID); err != nil {
 			return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
 		}
 		return nil
@@ -1022,7 +1114,12 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return err
 	}
 
-	return nil
+	return s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from geo index queue of prop %q: %w", propName, err)
+		}
+		return nil
+	})
 }
 
 func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) {

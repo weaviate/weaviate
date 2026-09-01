@@ -4070,6 +4070,161 @@ func (_c *MockShardLike_batchDeleteObject_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
+// prepareBatchDelete provides a mock function with given fields: ctx, id, deletionTime
+func (_m *MockShardLike) prepareBatchDelete(ctx context.Context, id strfmt.UUID, deletionTime time.Time) (*preparedBatchDelete, error) {
+	ret := _m.Called(ctx, id, deletionTime)
+
+	if len(ret) == 0 {
+		panic("no return value specified for prepareBatchDelete")
+	}
+
+	var r0 *preparedBatchDelete
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, time.Time) (*preparedBatchDelete, error)); ok {
+		return rf(ctx, id, deletionTime)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, time.Time) *preparedBatchDelete); ok {
+		r0 = rf(ctx, id, deletionTime)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*preparedBatchDelete)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, strfmt.UUID, time.Time) error); ok {
+		r1 = rf(ctx, id, deletionTime)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_prepareBatchDelete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'prepareBatchDelete'
+type MockShardLike_prepareBatchDelete_Call struct {
+	*mock.Call
+}
+
+// prepareBatchDelete is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id strfmt.UUID
+//   - deletionTime time.Time
+func (_e *MockShardLike_Expecter) prepareBatchDelete(ctx interface{}, id interface{}, deletionTime interface{}) *MockShardLike_prepareBatchDelete_Call {
+	return &MockShardLike_prepareBatchDelete_Call{Call: _e.mock.On("prepareBatchDelete", ctx, id, deletionTime)}
+}
+
+func (_c *MockShardLike_prepareBatchDelete_Call) Run(run func(ctx context.Context, id strfmt.UUID, deletionTime time.Time)) *MockShardLike_prepareBatchDelete_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(strfmt.UUID), args[2].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_prepareBatchDelete_Call) Return(_a0 *preparedBatchDelete, _a1 error) *MockShardLike_prepareBatchDelete_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_prepareBatchDelete_Call) RunAndReturn(run func(context.Context, strfmt.UUID, time.Time) (*preparedBatchDelete, error)) *MockShardLike_prepareBatchDelete_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// finalizeBatchDelete provides a mock function with given fields: ctx, prep, deletionTime
+func (_m *MockShardLike) finalizeBatchDelete(ctx context.Context, prep *preparedBatchDelete, deletionTime time.Time) error {
+	ret := _m.Called(ctx, prep, deletionTime)
+
+	if len(ret) == 0 {
+		panic("no return value specified for finalizeBatchDelete")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *preparedBatchDelete, time.Time) error); ok {
+		r0 = rf(ctx, prep, deletionTime)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_finalizeBatchDelete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'finalizeBatchDelete'
+type MockShardLike_finalizeBatchDelete_Call struct {
+	*mock.Call
+}
+
+// finalizeBatchDelete is a helper method to define mock.On call
+//   - ctx context.Context
+//   - prep *preparedBatchDelete
+//   - deletionTime time.Time
+func (_e *MockShardLike_Expecter) finalizeBatchDelete(ctx interface{}, prep interface{}, deletionTime interface{}) *MockShardLike_finalizeBatchDelete_Call {
+	return &MockShardLike_finalizeBatchDelete_Call{Call: _e.mock.On("finalizeBatchDelete", ctx, prep, deletionTime)}
+}
+
+func (_c *MockShardLike_finalizeBatchDelete_Call) Run(run func(ctx context.Context, prep *preparedBatchDelete, deletionTime time.Time)) *MockShardLike_finalizeBatchDelete_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*preparedBatchDelete), args[2].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_finalizeBatchDelete_Call) Return(_a0 error) *MockShardLike_finalizeBatchDelete_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_finalizeBatchDelete_Call) RunAndReturn(run func(context.Context, *preparedBatchDelete, time.Time) error) *MockShardLike_finalizeBatchDelete_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// invertedDeleteBarrier provides a mock function with given fields: ctx, touched
+func (_m *MockShardLike) invertedDeleteBarrier(ctx context.Context, touched *touchedBuckets) error {
+	ret := _m.Called(ctx, touched)
+
+	if len(ret) == 0 {
+		panic("no return value specified for invertedDeleteBarrier")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *touchedBuckets) error); ok {
+		r0 = rf(ctx, touched)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_invertedDeleteBarrier_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'invertedDeleteBarrier'
+type MockShardLike_invertedDeleteBarrier_Call struct {
+	*mock.Call
+}
+
+// invertedDeleteBarrier is a helper method to define mock.On call
+//   - ctx context.Context
+//   - touched *touchedBuckets
+func (_e *MockShardLike_Expecter) invertedDeleteBarrier(ctx interface{}, touched interface{}) *MockShardLike_invertedDeleteBarrier_Call {
+	return &MockShardLike_invertedDeleteBarrier_Call{Call: _e.mock.On("invertedDeleteBarrier", ctx, touched)}
+}
+
+func (_c *MockShardLike_invertedDeleteBarrier_Call) Run(run func(ctx context.Context, touched *touchedBuckets)) *MockShardLike_invertedDeleteBarrier_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*touchedBuckets))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_invertedDeleteBarrier_Call) Return(_a0 error) *MockShardLike_invertedDeleteBarrier_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_invertedDeleteBarrier_Call) RunAndReturn(run func(context.Context, *touchedBuckets) error) *MockShardLike_invertedDeleteBarrier_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // batchExtendInvertedIndexItemsLSMNoFrequency provides a mock function with given fields: b, item
 func (_m *MockShardLike) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error {
 	ret := _m.Called(b, item)

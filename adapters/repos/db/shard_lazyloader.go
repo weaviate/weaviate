@@ -980,6 +980,27 @@ func (l *LazyLoadShard) batchDeleteObject(ctx context.Context, id strfmt.UUID, d
 	return l.shard.batchDeleteObject(ctx, id, deletionTime)
 }
 
+func (l *LazyLoadShard) prepareBatchDelete(ctx context.Context, id strfmt.UUID, deletionTime time.Time) (*preparedBatchDelete, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.prepareBatchDelete(ctx, id, deletionTime)
+}
+
+func (l *LazyLoadShard) finalizeBatchDelete(ctx context.Context, prep *preparedBatchDelete, deletionTime time.Time) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.finalizeBatchDelete(ctx, prep, deletionTime)
+}
+
+func (l *LazyLoadShard) invertedDeleteBarrier(ctx context.Context, touched *touchedBuckets) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.invertedDeleteBarrier(ctx, touched)
+}
+
 func (l *LazyLoadShard) putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
 	l.mustLoad()
 	return l.shard.putObjectLSM(ctx, object, idBytes)
