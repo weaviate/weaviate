@@ -800,6 +800,7 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 }
 
 type BucketConsistentView struct {
+	// Active is always set; Flushing is nil unless a flush is in flight.
 	Active   memtable
 	Flushing memtable
 	Disk     []Segment
@@ -843,6 +844,22 @@ func viewMemtables(view BucketConsistentView) ([2]memtable, int) {
 		return [2]memtable{view.Active, view.Flushing}, 2
 	}
 	return [2]memtable{view.Active, nil}, 1
+}
+
+// viewMemtablesOldestFirst orders them the way a layer fold has to replay them:
+// flushing before active. The other way round the active memtable's re-add is
+// applied before the flushing one's deletion, and a document deleted while
+// flushing and re-added after comes back deleted — no error, just a wrong row.
+//
+// The replace paths want the opposite and take viewMemtables directly. They
+// stop at the first memtable holding the key, so newest first is what makes
+// that first hit the answer.
+func viewMemtablesOldestFirst(view BucketConsistentView) ([2]memtable, int) {
+	mts, count := viewMemtables(view)
+	if count == 2 {
+		mts[0], mts[1] = mts[1], mts[0]
+	}
+	return mts, count
 }
 
 // Get retrieves the single value for the given key.
