@@ -78,6 +78,16 @@ func filterableIndexOn(prop *models.Property) bool {
 	}
 }
 
+func validateNoSidecarShapedProperties(class *models.Class) error {
+	for _, prop := range class.Properties {
+		if entschema.PropertyNameIsSidecarShaped(prop.Name) {
+			return fmt.Errorf("collection %q has property %q, whose name collides with the working directories a migration derives from another property; no migration can start on this collection until that property is removed",
+				class.Class, prop.Name)
+		}
+	}
+	return nil
+}
+
 // validateRangeableProperties validates that the named properties are
 // eligible for enable-rangeable: numeric type, not already rangeable.
 // Whether the property currently has a filterable index is deliberately
