@@ -1114,6 +1114,20 @@ func (t *ShardReindexTaskGeneric) newReindexTrackerGuarded(shard ShardLike) (rei
 	return rt, nil
 }
 
+// flushReindexBuckets makes buffered reindex writes durable, so a checkpoint
+// written after it can never certify rows a crash would discard.
+func (t *ShardReindexTaskGeneric) flushReindexBuckets(buckets map[string]*lsmkv.Bucket, action string) error {
+	for propName, bucket := range buckets {
+		if bucket == nil {
+			continue
+		}
+		if err := bucket.FlushAndSwitch(); err != nil {
+			return fmt.Errorf("flushing reindex bucket for prop %q before %s: %w", propName, action, err)
+		}
+	}
+	return nil
+}
+
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
 ) (rerunAt time.Time, reloadShard bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
@@ -1233,13 +1247,6 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		}
 	}
 
-	defer func() {
-		if err != nil && !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
-			logger.WithField("last_processed_key", lastProcessedKey).Debug("marking progress on error")
-			rt.markProgress(lastProcessedKey, processedCount, indexedCount)
-		}
-	}()
-
 	store := shard.Store()
 	propExtraction := storobj.NewPropExtraction()
 	bucketsByPropName := map[string]*lsmkv.Bucket{}
@@ -1248,6 +1255,17 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		bucketName := t.reindexBucketName(prop)
 		bucketsByPropName[prop] = store.Bucket(bucketName)
 	}
+
+	defer func() {
+		if err != nil && !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
+			if ferr := t.flushReindexBuckets(bucketsByPropName, "checkpointing on error"); ferr != nil {
+				logger.WithError(ferr).Warn("skipping reindex progress checkpoint: buckets not durable")
+				return
+			}
+			logger.WithField("last_processed_key", lastProcessedKey).Debug("marking progress on error")
+			rt.markProgress(lastProcessedKey, processedCount, indexedCount)
+		}
+	}()
 
 	breakCh := make(chan bool, 1)
 	breakCh <- false
@@ -1335,6 +1353,9 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		}
 	}
 	if !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
+		if err = t.flushReindexBuckets(bucketsByPropName, "marking progress"); err != nil {
+			return zerotime, false, err
+		}
 		if err := rt.markProgress(lastProcessedKey, processedCount, indexedCount); err != nil {
 			err = fmt.Errorf("marking reindex progress: %w", err)
 			return zerotime, false, err
