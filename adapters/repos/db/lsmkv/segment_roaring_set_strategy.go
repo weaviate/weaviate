@@ -19,71 +19,63 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// combineReleases folds the additions and deletions releases into one. Either
-// may be nil (empty region); the wrapper closure — which heap-allocates — is
-// only built when both are non-nil.
-func combineReleases(releaseAdd, releaseDel func()) func() {
-	switch {
-	case releaseAdd == nil && releaseDel == nil:
-		return noopRelease
-	case releaseDel == nil:
-		return releaseAdd
-	case releaseAdd == nil:
-		return releaseDel
-	default:
-		return func() { releaseAdd(); releaseDel() }
-	}
-}
-
-// returned bitmaps are cloned and safe to mutate
+// roaringSetGet returns the node's additions bitmap, safe to mutate: cloned
+// into a pooled buffer on the mmap path, backed by the pooled node buffer on
+// the pread path. The node's deletions are deliberately not read: this
+// method only runs for the oldest segment holding the key, whose tombstones
+// cannot mask anything older; newer segments' deletions are applied by
+// roaringSetMergeWith.
 func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
-) (l roaringset.BitmapLayer, release func(), err error) {
-	out := roaringset.BitmapLayer{}
-
+) (bm *sroar.Bitmap, release func(), err error) {
 	if err := segmentindex.CheckStrategyRoaringSet(s.strategy); err != nil {
-		return out, noopRelease, err
+		return nil, noopRelease, err
 	}
 
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		return out, noopRelease, lsmkv.NotFound
+		return nil, noopRelease, lsmkv.NotFound
 	}
 	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
-		return out, noopRelease, err
+		return nil, noopRelease, err
 	}
 
-	var releaseAdd, releaseDel func()
 	offset := nodeOffset{start, end}
 	if s.readFromMemory {
 		sn, err := s.segmentNodeFromBufferMmap(offset)
 		if err != nil {
-			return out, noopRelease, err
+			return nil, noopRelease, err
 		}
-		out.Deletions, releaseDel = sn.DeletionsCloneToBuf(bitmapBufPool)
-		out.Additions, releaseAdd = sn.AdditionsCloneToBuf(bitmapBufPool)
+		bm, release = sn.AdditionsCloneToBuf(bitmapBufPool)
 	} else {
-		sn, release, err := s.segmentNodeFromBufferPread(offset, bitmapBufPool)
+		sn, nodeRelease, err := s.segmentNodeFromBufferPread(offset, bitmapBufPool)
 		if err != nil {
-			return out, noopRelease, err
+			return nil, noopRelease, err
 		}
-		out.Deletions, releaseDel = sn.DeletionsCloneToBuf(bitmapBufPool)
 		// reuse buffer of entire segment node.
 		// node's data might get overwritten by changes of underlying additions bitmap.
 		// overwrites should be safe, as other data is not used later on
-		out.Additions, releaseAdd = sn.AdditionsUnlimited(), release
+		bm, release = sn.AdditionsUnlimited(), nodeRelease
 	}
 
-	if out.Additions == nil {
+	if bm == nil {
 		// deletions-only node: additions become the mutable accumulator base
 		// when layers are folded, so a non-nil, unshared bitmap is needed
-		// even when the node holds none
-		out.Additions = sroar.NewBitmap()
+		// even when the node holds none. It shares nothing with the node, so
+		// the pooled node buffer of a pread read is released right away
+		// instead of being held until the caller's release.
+		if release != nil {
+			release()
+		}
+		return sroar.NewBitmap(), noopRelease, nil
 	}
 
-	return out, combineReleases(releaseAdd, releaseDel), nil
+	return bm, release, nil
 }
 
-func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
+// roaringSetMergeWith applies this segment's node for key onto additions in
+// place: the node's deletions first (masking older segments' additions),
+// then its own additions.
+func (s *segment) roaringSetMergeWith(key []byte, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
 ) error {
 	if err := segmentindex.CheckStrategyRoaringSet(s.strategy); err != nil {
 		return err
@@ -113,7 +105,7 @@ func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, 
 		return err
 	}
 
-	input.Additions.
+	additions.
 		AndNotConc(sn.Deletions(), maxConc).
 		OrConc(sn.Additions(), maxConc)
 	return nil
