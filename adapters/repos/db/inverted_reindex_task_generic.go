@@ -1542,7 +1542,11 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	for _, prop := range props {
 		propExtraction.Add(prop)
 		bucketName := t.reindexBucketName(prop)
-		bucketsByPropName[prop] = store.Bucket(bucketName)
+		bucket := store.Bucket(bucketName)
+		if bucket == nil {
+			return time.Time{}, false, fmt.Errorf("reindex bucket %q: %w", bucketName, lsmkv.ErrBucketNotFound)
+		}
+		bucketsByPropName[prop] = bucket
 	}
 
 	breakCh := make(chan bool, 1)

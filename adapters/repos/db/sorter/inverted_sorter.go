@@ -123,7 +123,11 @@ func (is *invertedSorter) sortDocIDsWithNesting(
 		return nil, err
 	}
 
-	bucket := is.store.Bucket(helpers.BucketFromPropNameLSM(propNames[0]))
+	bucketName := helpers.BucketFromPropNameLSM(propNames[0])
+	bucket := is.store.Bucket(bucketName)
+	if bucket == nil {
+		return nil, fmt.Errorf("bucket %q: %w", bucketName, lsmkv.ErrBucketNotFound)
+	}
 	if bucket.Strategy() != lsmkv.StrategyRoaringSet {
 		// this should never happen, the query planner should already have chosen
 		// another strategy
@@ -369,10 +373,14 @@ func (is *invertedSorter) startNestedSort(
 func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int,
 	ids helpers.AllowList, invertedBucket *lsmkv.Bucket, nesting int,
 ) [][]byte {
-	ob := is.store.Bucket(helpers.ObjectsBucketLSM)
-	totalCount := ob.CountAsync()
 	zeroByte := [][]byte{{0x00}}
 
+	// a torn-down store leaves no bucket to count; fall through to the full
+	// index scan below rather than dereferencing nil
+	totalCount := 0
+	if ob := is.store.Bucket(helpers.ObjectsBucketLSM); ob != nil {
+		totalCount = ob.CountAsync()
+	}
 	if totalCount == 0 {
 		// no objects, likely no disk segments yet, force a full index scan
 		return zeroByte

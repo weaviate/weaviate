@@ -26,7 +26,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -196,6 +200,55 @@ func TestObjectReadsAfterStoreTeardownReturnErrors(t *testing.T) {
 		},
 		"multi vector by doc id": func() error {
 			_, err := shard.multiVectorByIndexID(context.Background(), 0, "")
+			return err
+		},
+		"object by id": func() error {
+			_, err := shard.ObjectByID(context.Background(), id, nil, additional.Properties{})
+			return err
+		},
+		"multi object by id": func() error {
+			_, err := shard.MultiObjectByID(context.Background(), []multi.Identifier{{ID: id.String()}})
+			return err
+		},
+		"multi object raw by id": func() error {
+			_, err := shard.MultiObjectRawByID(context.Background(), []strfmt.UUID{id})
+			return err
+		},
+		"object digests": func() error {
+			_, err := shard.ObjectDigests(context.Background(), []multi.Identifier{{ID: id.String()}})
+			return err
+		},
+		"compare digests": func() error {
+			_, err := shard.CompareDigests(context.Background(),
+				[]types.RepairDigest{{ID: uuid.MustParse(id.String())}})
+			return err
+		},
+		"object by doc id with props": func() error {
+			_, err := shard.objectByIndexIDWithProps(context.Background(), 0, nil)
+			return err
+		},
+		"uuid from doc id": func() error {
+			_, err := shard.uuidFromDocID(0)
+			return err
+		},
+		"object list": func() error {
+			_, err := shard.ObjectList(context.Background(), 10, nil, nil, additional.Properties{},
+				shard.index.Config.ClassName)
+			return err
+		},
+		"cursor object list": func() error {
+			_, err := shard.cursorObjectList(context.Background(), &filters.Cursor{Limit: 10},
+				additional.Properties{}, shard.index.Config.ClassName)
+			return err
+		},
+		"was deleted": func() error {
+			_, _, err := shard.WasDeleted(context.Background(), id)
+			return err
+		},
+		"object vector search": func() error {
+			_, _, err := shard.ObjectVectorSearch(context.Background(),
+				[]models.Vector{[]float32{1, 2, 3, 4}}, []string{""}, 0, 10, nil, nil, nil,
+				additional.Properties{}, nil, nil)
 			return err
 		},
 	}

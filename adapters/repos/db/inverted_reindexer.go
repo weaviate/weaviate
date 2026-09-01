@@ -150,6 +150,9 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 		}
 		tempBucketName := helpers.TempBucketFromBucketName(bucketsToReindex[i])
 		tempBucket := r.shard.Store().Bucket(tempBucketName)
+		if tempBucket == nil {
+			return fmt.Errorf("temp bucket %q: %w", tempBucketName, lsmkv.ErrBucketNotFound)
+		}
 		tempBucket.FlushMemtable()
 		tempBucket.UpdateStatus(storagestate.StatusReadOnly)
 

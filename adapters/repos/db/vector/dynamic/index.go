@@ -842,7 +842,11 @@ func (dynamic *dynamic) cleanupAbortedUpgrade(index VectorIndex) {
 // This can take a while, so we use short-lived cursors to not block
 // other operations on the KV store (e.g. flush)
 func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
-	bucket := dynamic.store.Bucket(dynamic.getBucketName())
+	bucketName := dynamic.getBucketName()
+	bucket := dynamic.store.Bucket(bucketName)
+	if bucket == nil {
+		return fmt.Errorf("copy vectors to hnsw: bucket %q: %w", bucketName, lsmkv.ErrBucketNotFound)
+	}
 
 	var k, v []byte
 

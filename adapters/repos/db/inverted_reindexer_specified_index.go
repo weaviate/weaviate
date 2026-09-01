@@ -134,8 +134,14 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) ObjectsIterator(shard ShardLik
 		PropertyPaths: propertyPaths,
 	}
 
-	objectsBucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
 	return func(ctx context.Context, fn func(object *storobj.Object) error) error {
+		// resolved per call, not once at wiring time: a teardown between the
+		// two would leave this closure holding a bucket that no longer exists
+		objectsBucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+		if objectsBucket == nil {
+			return fmt.Errorf("objects bucket of shard %q: %w", shard.Name(), lsmkv.ErrBucketNotFound)
+		}
+
 		cursor := objectsBucket.Cursor()
 		defer cursor.Close()
 		className, err := objectsBucket.ClassName()

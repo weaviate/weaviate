@@ -80,7 +80,10 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 		return nil, err
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
 
 	className, err := bucket.ClassName()
 	if err != nil {
@@ -118,7 +121,10 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 		ids[i] = idBytes
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
 
 	className, err := bucket.ClassName()
 	if err != nil {
@@ -156,7 +162,10 @@ func (s *Shard) MultiObjectRawByID(ctx context.Context, ids []strfmt.UUID) ([][]
 	s.activityTrackerRead.Add(1)
 	out := make([][]byte, len(ids))
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
 	for i, id := range ids {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -187,7 +196,10 @@ func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]
 	// Replication-internal operation: do not count as user read activity.
 	objects := make([]types.RepairResponse, len(query))
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
 	for i, q := range query {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -295,7 +307,10 @@ func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.Repair
 		return nil, nil
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
 
 	firstUUID := sourceDigests[0].ID
 	lastUUID := sourceDigests[len(sourceDigests)-1].ID
@@ -383,7 +398,10 @@ func (s *Shard) objectByIndexIDWithProps(ctx context.Context, indexID uint64,
 	keyBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
 
 	className, err := bucket.ClassName()
 	if err != nil {
@@ -819,7 +837,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	beforeObjects := time.Now()
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return nil, nil, err
+	}
 	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
 	if err != nil {
 		return nil, nil, err
@@ -843,7 +864,10 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 			return nil, err
 		}
 		helpers.AnnotateSlowQueryLog(ctx, "sort_took", time.Since(beforeSort))
-		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+		bucket, err := s.objectsBucket()
+		if err != nil {
+			return nil, err
+		}
 
 		beforeObjects := time.Now()
 		defer func() {
@@ -863,7 +887,10 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
 
 	bucketClassName, err := bucket.ClassName()
 	if err != nil {
@@ -949,9 +976,9 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 }
 
 func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	if bucket == nil {
-		return "", errors.Errorf("objects bucket not found")
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return "", err
 	}
 
 	docIDBytes := make([]byte, 8)
@@ -1059,6 +1086,9 @@ func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time
 		return false, time.Time{}, err
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return false, time.Time{}, err
+	}
 	return bucket.WasDeleted(idBytes)
 }

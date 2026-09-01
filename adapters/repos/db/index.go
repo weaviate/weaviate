@@ -773,6 +773,9 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 			return cb(i, shard, object)
 		}
 		bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+		if bucket == nil {
+			return fmt.Errorf("objects bucket of shard %q: %w", shard.Name(), lsmkv.ErrBucketNotFound)
+		}
 		return bucket.IterateObjects(ctx, wrapper)
 	})
 }
