@@ -60,6 +60,34 @@ func TestNamespace_GetPutDelete(t *testing.T) {
 	assert.Nil(t, v)
 }
 
+func TestNamespace_PutEmptyValue(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	ns := db.Namespace("dynamic")
+
+	// a bare marker key: stored empty value, distinct from never-written (nil)
+	require.NoError(t, ns.Put([]byte("k"), []byte{}))
+	v, err := ns.Get([]byte("k"))
+	require.NoError(t, err)
+	assert.NotNil(t, v)
+	assert.Empty(t, v)
+}
+
+func TestIsClosed(t *testing.T) {
+	assert.False(t, IsClosed(nil))
+
+	db := openTestDB(t, t.TempDir())
+	ns := db.Namespace("dynamic")
+	require.NoError(t, db.Close())
+
+	_, err := ns.Get([]byte("k"))
+	require.Error(t, err)
+	assert.True(t, IsClosed(err))
+
+	err = ns.Put([]byte("k"), []byte{1})
+	require.Error(t, err)
+	assert.True(t, IsClosed(err))
+}
+
 func TestSnapshot_ConsistentCopy(t *testing.T) {
 	base := t.TempDir()
 	shardDir := filepath.Join(base, "cls", "shard1")
@@ -83,6 +111,26 @@ func TestSnapshot_ConsistentCopy(t *testing.T) {
 		assert.Equal(t, []byte{1}, b.Get([]byte("k")))
 		return nil
 	}))
+}
+
+func TestSnapshot_RejectsEscapeFromStagingDir(t *testing.T) {
+	shardDir := t.TempDir()
+	unrelatedBase := t.TempDir() // NOT an ancestor of shardDir
+	staging := t.TempDir()
+
+	db := openTestDB(t, shardDir)
+	require.NoError(t, db.Namespace("dynamic").Put([]byte("k"), []byte{1}))
+
+	_, err := db.Snapshot(unrelatedBase, staging)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "outside backup base", "must fail via the IsLocal guard, not incidentally")
+
+	// the guard trips before any filesystem write, so stagingDir must stay
+	// completely empty — nothing was written inside it, and (since nothing
+	// was written at all) nothing escaped it either.
+	entries, err := os.ReadDir(staging)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "Snapshot must not write anything when relPath would escape stagingDir")
 }
 
 func TestGetOffline(t *testing.T) {

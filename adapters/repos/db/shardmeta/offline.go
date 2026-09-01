@@ -14,6 +14,7 @@ package shardmeta
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -38,7 +39,7 @@ func GetOffline(shardDir, ns string, key []byte) (val []byte, ok bool, err error
 	path := filepath.Join(shardDir, FileName)
 	db, err := bbolt.Open(path, 0o600, &bbolt.Options{ReadOnly: true, Timeout: offlineOpenTimeout})
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("open shard metadata db %q: %w", path, err)
@@ -62,22 +63,22 @@ func GetOffline(shardDir, ns string, key []byte) (val []byte, ok bool, err error
 }
 
 // DeleteOffline removes key from ns of an UNLOADED shard's metadata DB,
-// opening the file briefly and never creating it (bbolt.Open CREATES missing
-// files, so the path is statted first). A missing file, a missing namespace,
-// or a file locked by a loaded shard is success: nothing was recorded, or
-// the loaded owner deletes through its own handle.
+// opening the file briefly. The open itself never creates the file: its
+// OpenFile hook strips O_CREATE, so a concurrent shard drop racing between a
+// stat and the open can no longer resurrect an empty file (bbolt.Open's
+// default flags include O_CREATE). A missing file, a missing namespace, or a
+// file locked by a loaded shard is success: nothing was recorded, or the
+// loaded owner deletes through its own handle.
 func DeleteOffline(shardDir, ns string, key []byte) error {
 	path := filepath.Join(shardDir, FileName)
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("stat shard metadata db: %w", err)
-	}
-
-	db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: offlineOpenTimeout})
+	db, err := bbolt.Open(path, 0o600, &bbolt.Options{
+		Timeout: offlineOpenTimeout,
+		OpenFile: func(name string, flag int, perm os.FileMode) (*os.File, error) {
+			return os.OpenFile(name, flag&^os.O_CREATE, perm)
+		},
+	})
 	if err != nil {
-		if errors.Is(err, bolterrors.ErrTimeout) {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, bolterrors.ErrTimeout) {
 			return nil
 		}
 		return fmt.Errorf("open shard metadata db: %w", err)

@@ -74,7 +74,10 @@ func IsClosed(err error) bool {
 func (d *DB) Snapshot(basePath, stagingDir string) (string, error) {
 	relPath, err := filepath.Rel(basePath, d.path)
 	if err != nil {
-		return "", fmt.Errorf("%s relative path: %w", FileName, err)
+		return "", fmt.Errorf("compute relative path for %s: %w", FileName, err)
+	}
+	if !filepath.IsLocal(relPath) {
+		return "", fmt.Errorf("shard metadata db %q is outside backup base %q", d.path, basePath)
 	}
 	dst := filepath.Join(stagingDir, relPath)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
