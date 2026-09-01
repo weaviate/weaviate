@@ -22,7 +22,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
@@ -45,7 +44,7 @@ type PostingMap struct {
 	count  atomic.Uint64
 }
 
-func NewPostingMap(bucket *lsmkv.Bucket) *PostingMap {
+func NewPostingMap(bucket bucketRef) *PostingMap {
 	b := NewPostingMapStore(bucket, postingMapBucketPrefixV2)
 
 	return &PostingMap{
@@ -220,11 +219,11 @@ func (v *PostingMap) deleteSlot(postingID uint64) {
 
 // PostingMapStore is a persistent store for vector IDs.
 type PostingMapStore struct {
-	bucket    *lsmkv.Bucket
+	bucket    bucketRef
 	keyPrefix []byte
 }
 
-func NewPostingMapStore(bucket *lsmkv.Bucket, keyPrefix []byte) *PostingMapStore {
+func NewPostingMapStore(bucket bucketRef, keyPrefix []byte) *PostingMapStore {
 	return &PostingMapStore{
 		bucket:    bucket,
 		keyPrefix: keyPrefix,
@@ -464,7 +463,12 @@ func growPackedPostingMetadataCapacity(current, needed int) int {
 //   - count * bytesPerScheme: vector IDs
 func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPostingMetadata, error) {
 	key := p.key(postingID)
-	v, err := p.bucket.Get(key[:])
+	bucket, err := p.bucket.get()
+	if err != nil {
+		return nil, err
+	}
+
+	v, err := bucket.Get(key[:])
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting metadata for %d", postingID)
 	}
@@ -485,16 +489,31 @@ func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, metadata Pa
 	// copy metadata to a new array
 	metadataCopy := bufferPool.Get(len(metadata), len(metadata))
 	copy(metadataCopy, metadata)
-	return p.bucket.Put(key[:], metadataCopy)
+	bucket, err := p.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	return bucket.Put(key[:], metadataCopy)
 }
 
 func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {
 	key := p.key(postingID)
-	return p.bucket.Delete(key[:])
+	bucket, err := p.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	return bucket.Delete(key[:])
 }
 
 func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostingMetadata) error) error {
-	c := p.bucket.Cursor()
+	bucket, err := p.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	c := bucket.Cursor()
 	defer c.Close()
 
 	var i int
@@ -526,15 +545,20 @@ type postingMapMigrationEntry struct {
 	empty     bool
 }
 
-func migratePostingMapV1ToV2(ctx context.Context, bucket *lsmkv.Bucket, logger logrus.FieldLogger) error {
-	store := NewPostingMapStore(bucket, postingMapBucketPrefixV2)
-	sizes := NewPostingSizesStore(bucket, postingSizesBucketPrefix)
+func migratePostingMapV1ToV2(ctx context.Context, bucketRef bucketRef, logger logrus.FieldLogger) error {
+	store := NewPostingMapStore(bucketRef, postingMapBucketPrefixV2)
+	sizes := NewPostingSizesStore(bucketRef, postingSizesBucketPrefix)
 	start := time.Now()
 	var migrated int
 	var loggedStart bool
 
 	for {
-		batch, err := legacyPostingMapBatch(ctx, bucket, postingMapMigrationBatchSize)
+		batch, err := legacyPostingMapBatch(ctx, bucketRef, postingMapMigrationBatchSize)
+		if err != nil {
+			return err
+		}
+
+		bucket, err := bucketRef.get()
 		if err != nil {
 			return err
 		}
@@ -589,7 +613,12 @@ func migratePostingMapV1ToV2(ctx context.Context, bucket *lsmkv.Bucket, logger l
 	}
 }
 
-func legacyPostingMapBatch(ctx context.Context, bucket *lsmkv.Bucket, limit int) ([]postingMapMigrationEntry, error) {
+func legacyPostingMapBatch(ctx context.Context, ref bucketRef, limit int) ([]postingMapMigrationEntry, error) {
+	bucket, err := ref.get()
+	if err != nil {
+		return nil, err
+	}
+
 	c := bucket.Cursor()
 	defer c.Close()
 

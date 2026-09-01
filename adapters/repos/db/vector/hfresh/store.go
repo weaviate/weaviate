@@ -29,13 +29,13 @@ const (
 
 type PostingStore struct {
 	store    *lsmkv.Store
-	bucket   *lsmkv.Bucket
+	bucket   bucketRef
 	locks    *common.ShardedRWLocks
 	metrics  *Metrics
 	versions *PostingVersionsStore
 }
 
-func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
+func NewPostingStore(store *lsmkv.Store, sharedBucket bucketRef, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
 	bName := postingsBucketName(id)
 
 	versions := NewPostingVersionsStore(sharedBucket)
@@ -55,6 +55,14 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Me
 					segmentPostingVersion := key[9]
 					currentPostingVersion, err := versions.Get(ctx, postingID)
 					if err != nil {
+						if errors.Is(err, lsmkv.ErrBucketNotFound) {
+							// This runs during teardown too, and a teardown
+							// deregisters the shared bucket the versions live in
+							// before flushing this one. Keeping the key is always
+							// safe — skipping is an optimization, and a later
+							// compaction drops it once the version is readable.
+							return false, nil
+						}
 						return false, errors.Wrap(err, "get posting version during compaction")
 					}
 					skip := segmentPostingVersion != currentPostingVersion
@@ -67,14 +75,9 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Me
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
 	}
 
-	bucket := store.Bucket(bName)
-	if bucket == nil {
-		return nil, errors.Wrapf(lsmkv.ErrBucketNotFound, "posting store bucket %s", bName)
-	}
-
 	return &PostingStore{
 		store:    store,
-		bucket:   bucket,
+		bucket:   newBucketRef(store, bName),
 		locks:    common.NewDefaultShardedRWLocks(),
 		metrics:  metrics,
 		versions: versions,
@@ -107,7 +110,13 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 		p.locks.RUnlock(postingID)
 		return nil, err
 	}
-	list, err := p.bucket.SetRawList(key)
+	bucket, err := p.bucket.get()
+	if err != nil {
+		p.locks.RUnlock(postingID)
+		return nil, err
+	}
+
+	list, err := bucket.SetRawList(key)
 	p.locks.RUnlock(postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
@@ -162,7 +171,12 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	buf[0] = postingStoreSchemaVersionV1
 	binary.LittleEndian.PutUint64(buf[1:], postingID)
 	buf[9] = newVersion
-	err = p.bucket.SetAdd(buf[:], set)
+	bucket, err := p.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	err = bucket.SetAdd(buf[:], set)
 	if err != nil {
 		return errors.Wrapf(err, "failed to put posting %d", postingID)
 	}
@@ -187,7 +201,12 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 		return err
 	}
 
-	return p.bucket.SetAdd(key, [][]byte{vector})
+	bucket, err := p.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	return bucket.SetAdd(key, [][]byte{vector})
 }
 
 func postingsBucketName(id string) string {
@@ -200,12 +219,12 @@ func postingsBucketName(id string) string {
 // It uses a combination of an LSMKV store for persistence and an in-memory
 // cache for fast access.
 type PostingVersionsStore struct {
-	bucket    *lsmkv.Bucket
+	bucket    bucketRef
 	keyPrefix []byte
 	cache     *otter.Cache[uint64, uint8]
 }
 
-func NewPostingVersionsStore(bucket *lsmkv.Bucket) *PostingVersionsStore {
+func NewPostingVersionsStore(bucket bucketRef) *PostingVersionsStore {
 	cache, _ := otter.New[uint64, uint8](nil)
 	return &PostingVersionsStore{
 		bucket:    bucket,
@@ -224,7 +243,12 @@ func (p *PostingVersionsStore) key(postingID uint64) []byte {
 func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint8, error) {
 	version, err := p.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint8](func(ctx context.Context, key uint64) (uint8, error) {
 		k := p.key(postingID)
-		v, err := p.bucket.Get(k[:])
+		bucket, err := p.bucket.get()
+		if err != nil {
+			return 0, err
+		}
+
+		v, err := bucket.Get(k[:])
 		if err != nil {
 			return 0, errors.Wrapf(err, "failed to get posting size for %d", postingID)
 		}
@@ -243,7 +267,12 @@ func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint8
 
 func (p *PostingVersionsStore) Set(ctx context.Context, postingID uint64, version uint8) error {
 	key := p.key(postingID)
-	err := p.bucket.Put(key[:], []byte{version})
+	bucket, err := p.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	err = bucket.Put(key[:], []byte{version})
 	if err != nil {
 		return err
 	}

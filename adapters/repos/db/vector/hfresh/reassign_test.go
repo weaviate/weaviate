@@ -109,7 +109,7 @@ func TestReassignTaskQueueDedupDoesNotPersistOnClose(t *testing.T) {
 	err = tf.Index.taskQueue.Close(t.Context())
 	require.NoError(t, err)
 
-	data, err := tf.Index.IndexMetadata.bucket.Get(reassignBucketKey)
+	data, err := mustBucket(t, tf.Index.IndexMetadata.bucket).Get(reassignBucketKey)
 	require.NoError(t, err)
 	require.Nil(t, data)
 }

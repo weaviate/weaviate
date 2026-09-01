@@ -58,27 +58,27 @@ var (
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
 // This bucket is used to store metadata in namespaced regions of the bucket.
-func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmkv.Bucket, error) {
+func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (bucketRef, error) {
 	bName := sharedBucketName(indexID)
 	err := store.CreateOrLoadBucket(context.Background(),
 		bName,
 		cfg.MakeBucketOptions(lsmkv.StrategyReplace, lsmkv.WithForceCompaction(true))...,
 	)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
+		return bucketRef{}, errors.Wrapf(err, "failed to create or load bucket %s", bName)
 	}
 
-	bucket := store.Bucket(bName)
-	if bucket == nil {
-		return nil, errors.Wrapf(lsmkv.ErrBucketNotFound, "shared bucket %s", bName)
-	}
-
-	err = cleanupLegacyReassignBucket(bucket)
+	ref := newBucketRef(store, bName)
+	bucket, err := ref.get()
 	if err != nil {
-		return nil, err
+		return bucketRef{}, err
 	}
 
-	return bucket, nil
+	if err := cleanupLegacyReassignBucket(bucket); err != nil {
+		return bucketRef{}, err
+	}
+
+	return ref, nil
 }
 
 func sharedBucketName(id string) string {
@@ -103,10 +103,10 @@ func cleanupLegacyReassignBucket(bucket *lsmkv.Bucket) error {
 
 // IndexMetadataStore manages metadata for the index, such as dimensions and quantization data.
 type IndexMetadataStore struct {
-	bucket *lsmkv.Bucket
+	bucket bucketRef
 }
 
-func NewIndexMetadataStore(bucket *lsmkv.Bucket) *IndexMetadataStore {
+func NewIndexMetadataStore(bucket bucketRef) *IndexMetadataStore {
 	return &IndexMetadataStore{
 		bucket: bucket,
 	}
@@ -122,11 +122,21 @@ func (i *IndexMetadataStore) key(suffix string) []byte {
 func (i *IndexMetadataStore) SetDimensions(dimensions uint32) error {
 	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, dimensions)
-	return i.bucket.Put(i.key(dimensionsKey), buf)
+	bucket, err := i.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	return bucket.Put(i.key(dimensionsKey), buf)
 }
 
 func (i *IndexMetadataStore) GetDimensions() (uint32, error) {
-	data, err := i.bucket.Get(i.key(dimensionsKey))
+	bucket, err := i.bucket.get()
+	if err != nil {
+		return 0, err
+	}
+
+	data, err := bucket.Get(i.key(dimensionsKey))
 	if err != nil {
 		return 0, err
 	}
@@ -146,11 +156,21 @@ func (i *IndexMetadataStore) SetQuantizationData(data *QuantizationData) error {
 		return errors.Wrap(err, "marshal quantization data")
 	}
 
-	return i.bucket.Put(i.key(quantizationKey), serialized)
+	bucket, err := i.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	return bucket.Put(i.key(quantizationKey), serialized)
 }
 
 func (i *IndexMetadataStore) GetQuantizationData() (*QuantizationData, error) {
-	data, err := i.bucket.Get(i.key(quantizationKey))
+	bucket, err := i.bucket.get()
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := bucket.Get(i.key(quantizationKey))
 	if err != nil {
 		return nil, errors.Wrap(err, "get quantization data")
 	}
@@ -290,11 +310,11 @@ func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 
 // BucketStore is a SequenceStore implementation that uses the LSM store as the backend.
 type BucketStore struct {
-	bucket *lsmkv.Bucket
+	bucket bucketRef
 	key    []byte
 }
 
-func NewBucketStore(bucket *lsmkv.Bucket) *BucketStore {
+func NewBucketStore(bucket bucketRef) *BucketStore {
 	return &BucketStore{
 		bucket: bucket,
 		key:    []byte(postingSequenceKey),
@@ -305,11 +325,21 @@ func (s *BucketStore) Store(upperBound uint64) error {
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], upperBound)
 
-	return s.bucket.Put(s.key, buf[:])
+	bucket, err := s.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	return bucket.Put(s.key, buf[:])
 }
 
 func (s *BucketStore) Load() (uint64, error) {
-	v, err := s.bucket.Get(s.key)
+	bucket, err := s.bucket.get()
+	if err != nil {
+		return 0, err
+	}
+
+	v, err := bucket.Get(s.key)
 	if err != nil {
 		return 0, err
 	}

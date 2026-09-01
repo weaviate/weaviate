@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
@@ -81,7 +80,7 @@ type VersionMap struct {
 	store        *VersionStore
 }
 
-func NewVersionMap(bucket *lsmkv.Bucket) *VersionMap {
+func NewVersionMap(bucket bucketRef) *VersionMap {
 	return &VersionMap{
 		data:         common.NewGroupedPagedArray[VectorVersion](16*1024, 64*1024), // 1 billion entries with 64k per page
 		locks:        common.NewShardedRWLocks(512),
@@ -214,7 +213,7 @@ func (v *VersionMap) IsDeleted(ctx context.Context, vectorID uint64) (bool, erro
 // writes. It returns the number of entries installed.
 func (v *VersionMap) Warmup(ctx context.Context) (int, error) {
 	var count int
-	v.store.IterateAll(func(vectorID uint64, loaded VectorVersion) bool {
+	err := v.store.IterateAll(func(vectorID uint64, loaded VectorVersion) bool {
 		if ctx.Err() != nil {
 			return false
 		}
@@ -227,9 +226,11 @@ func (v *VersionMap) Warmup(ctx context.Context) (int, error) {
 		v.locks.Unlock(vectorID)
 		return true
 	})
-
-	err := ctx.Err()
 	if err != nil {
+		return count, err
+	}
+
+	if err := ctx.Err(); err != nil {
 		return count, err
 	}
 	return count, nil
@@ -255,10 +256,10 @@ func (v *VersionMap) EnsureDefault(vectorID uint64) bool {
 // VersionStore is a persistent store for vector versions.
 // It stores the versions in an LSMKV bucket.
 type VersionStore struct {
-	bucket *lsmkv.Bucket
+	bucket bucketRef
 }
 
-func NewVersionStore(bucket *lsmkv.Bucket) *VersionStore {
+func NewVersionStore(bucket bucketRef) *VersionStore {
 	return &VersionStore{
 		bucket: bucket,
 	}
@@ -273,7 +274,12 @@ func (v *VersionStore) key(vectorID uint64) []byte {
 
 func (v *VersionStore) Get(ctx context.Context, vectorID uint64) (VectorVersion, error) {
 	key := v.key(vectorID)
-	version, err := v.bucket.Get(key[:])
+	bucket, err := v.bucket.get()
+	if err != nil {
+		return 0, err
+	}
+
+	version, err := bucket.Get(key[:])
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to get version for %d", vectorID)
 	}
@@ -287,13 +293,23 @@ func (v *VersionStore) Get(ctx context.Context, vectorID uint64) (VectorVersion,
 
 func (v *VersionStore) Set(ctx context.Context, vectorID uint64, version VectorVersion) error {
 	key := v.key(vectorID)
-	return v.bucket.Put(key[:], []byte{byte(version)})
+	bucket, err := v.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	return bucket.Put(key[:], []byte{byte(version)})
 }
 
 // IterateAll calls fn for every persisted vector version, in one sequential
 // sweep over the store. Iteration stops early when fn returns false.
-func (v *VersionStore) IterateAll(fn func(vectorID uint64, version VectorVersion) bool) {
-	c := v.bucket.CursorReplaceReusable()
+func (v *VersionStore) IterateAll(fn func(vectorID uint64, version VectorVersion) bool) error {
+	bucket, err := v.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	c := bucket.CursorReplaceReusable()
 	defer c.Close()
 
 	for k, val := c.Seek(versionMapBucketPrefix); k != nil; k, val = c.Next() {
@@ -308,4 +324,6 @@ func (v *VersionStore) IterateAll(fn func(vectorID uint64, version VectorVersion
 			break
 		}
 	}
+
+	return nil
 }

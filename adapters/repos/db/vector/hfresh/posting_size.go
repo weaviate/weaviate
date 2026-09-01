@@ -18,7 +18,6 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
@@ -30,7 +29,7 @@ type PostingSizes struct {
 	totalSize atomic.Uint64
 }
 
-func NewPostingSizes(bucket *lsmkv.Bucket, metrics *Metrics) *PostingSizes {
+func NewPostingSizes(bucket bucketRef, metrics *Metrics) *PostingSizes {
 	return &PostingSizes{
 		metrics: metrics,
 		data:    common.NewGroupedPagedArray[uint32](16*1024, 64*1024), // 1 billion entries with 64k per page
@@ -172,11 +171,11 @@ func (p *PostingSizes) addToTotalSize(oldSize, newSize uint32) {
 // PostingSizesStore is a persistent store for posting sizes.
 // It stores the sizes in a shared LSMKV bucket.
 type PostingSizesStore struct {
-	bucket    *lsmkv.Bucket
+	bucket    bucketRef
 	keyPrefix []byte
 }
 
-func NewPostingSizesStore(bucket *lsmkv.Bucket, keyPrefix []byte) *PostingSizesStore {
+func NewPostingSizesStore(bucket bucketRef, keyPrefix []byte) *PostingSizesStore {
 	return &PostingSizesStore{
 		bucket:    bucket,
 		keyPrefix: keyPrefix,
@@ -192,7 +191,12 @@ func (p *PostingSizesStore) key(postingID uint64) []byte {
 
 func (p *PostingSizesStore) Get(ctx context.Context, postingID uint64) (uint32, error) {
 	key := p.key(postingID)
-	size, err := p.bucket.Get(key[:])
+	bucket, err := p.bucket.get()
+	if err != nil {
+		return 0, err
+	}
+
+	size, err := bucket.Get(key[:])
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to get size for %d", postingID)
 	}
@@ -208,16 +212,31 @@ func (p *PostingSizesStore) Set(ctx context.Context, postingID uint64, size uint
 	key := p.key(postingID)
 	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, size)
-	return p.bucket.Put(key[:], buf)
+	bucket, err := p.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	return bucket.Put(key[:], buf)
 }
 
 func (p *PostingSizesStore) Delete(ctx context.Context, postingID uint64) error {
 	key := p.key(postingID)
-	return p.bucket.Delete(key[:])
+	bucket, err := p.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	return bucket.Delete(key[:])
 }
 
 func (p *PostingSizesStore) Iter(ctx context.Context, fn func(uint64, uint32) error) error {
-	c := p.bucket.Cursor()
+	bucket, err := p.bucket.get()
+	if err != nil {
+		return err
+	}
+
+	c := bucket.Cursor()
 	defer c.Close()
 
 	var i int

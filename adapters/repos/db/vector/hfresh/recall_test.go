@@ -187,10 +187,13 @@ func runRecallTest(t *testing.T, testCfg testConfig) {
 
 	for index.taskQueue.Size() > 0 {
 		t.Logf("background tasks: %d", index.taskQueue.Size())
-		err := index.IndexMetadata.bucket.FlushAndSwitch()
+		metadataBucket, err := index.IndexMetadata.bucket.get()
 		require.NoError(t, err)
-		err = index.PostingStore.bucket.FlushAndSwitch()
+		require.NoError(t, metadataBucket.FlushAndSwitch())
+
+		postingsBucket, err := index.PostingStore.bucket.get()
 		require.NoError(t, err)
+		require.NoError(t, postingsBucket.FlushAndSwitch())
 		time.Sleep(500 * time.Millisecond)
 	}
 
