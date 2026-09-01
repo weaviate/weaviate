@@ -175,21 +175,19 @@ func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResu
 	// Cluster on the full-precision vectors rather than their 1-bit
 	// reconstructions: the centroids this split produces become the new
 	// postings' routing representatives, and sign-only reconstructions bound
-	// their quality. An entry whose object cannot be fetched (e.g.
-	// deleted concurrently) falls back to its reconstruction so the split
-	// never drops it.
+	// their quality.
 	data := make([][]float32, len(posting))
-	var buf []uint64
 	for i, v := range posting {
-		var vec []float32
-		var err error
-		if h.config.VectorForIDThunk != nil {
-			vec, err = h.config.VectorForIDThunk(ctx, v.ID())
+		// A fetch failure (e.g. a vector deleted between garbage collection
+		// and this read) aborts the split rather than degrading it. The
+		// posting is still over the cap, so the next append re-enqueues the
+		// split, and its garbage collection removes the deleted entry.
+		vec, err := h.config.VectorForIDThunk(ctx, v.ID())
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to fetch vector %d for split", v.ID())
 		}
-		if err != nil || len(vec) == 0 {
-			buf = quantizer.FromCompressedBytesInto(v.Data(), buf)
-			data[i] = quantizer.Decode(buf)
-			continue
+		if len(vec) == 0 {
+			return nil, errors.Errorf("empty vector %d for split", v.ID())
 		}
 		data[i] = h.normalizeVec(vec)
 	}
