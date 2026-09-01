@@ -59,6 +59,34 @@ func TestTaskQueueRegisterIsExplicit(t *testing.T) {
 	require.Equal(t, 4, scheduler.QueueCount())
 }
 
+func TestWaitForMaintenanceDrainsQueuedTasks(t *testing.T) {
+	tf := createHFreshIndex(t)
+	const postingID = uint64(42)
+
+	require.NoError(t, tf.Index.taskQueue.EnqueueAnalyze(postingID))
+	require.True(t, tf.Index.taskQueue.analyzeList.Contains(postingID))
+	require.EqualValues(t, 1, tf.Index.taskQueue.Size())
+
+	tf.Index.waitForMaintenance(t)
+
+	require.Zero(t, tf.Index.taskQueue.Size())
+	require.False(t, tf.Index.taskQueue.analyzeList.Contains(postingID))
+}
+
+func TestWaitForMaintenanceDrainsFollowUpTasks(t *testing.T) {
+	vector := []float32{1, 0, 0, 0}
+	tf := createHFreshIndexWithVectorStore(t, [][]float32{vector})
+	addVectorToIndex(t, &tf, 0, vector)
+	tf.Index.waitForMaintenance(t)
+
+	require.NoError(t, tf.Index.taskQueue.EnqueueReassign(42, 0))
+	tf.Index.waitForMaintenance(t)
+
+	require.Zero(t, tf.Index.taskQueue.Size())
+	require.Zero(t, tf.Index.taskQueue.analyzeList.LivePages())
+	require.Zero(t, tf.Index.taskQueue.reassignList.LivePages())
+}
+
 func TestDecodeReassignTaskLegacyFormat(t *testing.T) {
 	tq := &TaskQueue{}
 	vecID := uint64(1234)

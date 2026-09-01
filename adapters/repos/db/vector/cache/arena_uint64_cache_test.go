@@ -81,10 +81,15 @@ func TestArenaUint64CacheParity(t *testing.T) {
 				require.NoError(t, gotErr, desc)
 				assert.Equal(t, wantVec, gotVec, desc)
 			}
-		case op < 65:
+		case op < 60:
 			code := arenaTestWordsFor(id, testRecordWords)
 			arena.Preload(id, code)
 			oracle.Preload(id, code)
+		case op < 65: // PreloadIfAbsent
+			code := arenaTestWordsFor(id, testRecordWords)
+			gotStored := arena.(IfAbsentPreloader[uint64]).PreloadIfAbsent(id, code)
+			wantStored := oracle.(IfAbsentPreloader[uint64]).PreloadIfAbsent(id, code)
+			assert.Equal(t, wantStored, gotStored, desc)
 		case op < 75:
 			arena.Delete(ctx, id)
 			oracle.Delete(ctx, id)
@@ -98,6 +103,64 @@ func TestArenaUint64CacheParity(t *testing.T) {
 		assert.Equal(t, oracle.Len(), arena.Len(), desc)
 		assert.Equal(t, oracle.CountVectors(), arena.CountVectors(), desc)
 	}
+}
+
+// TestArenaUint64CachePreloadIfAbsent pins the adapter's PreloadIfAbsent
+// against shardedLockCache[uint64]: store into an empty slot (true), refuse
+// an occupied slot (false, bytes kept), refuse an empty vector without
+// growing, and grow-and-store for an id beyond the current length.
+func TestArenaUint64CachePreloadIfAbsent(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	arena, err := NewArenaUint64Cache(arenaTestU64ForID(5000, testRecordWords), testRecordWords,
+		1e12, 1, logger, 0, nil)
+	require.NoError(t, err)
+	t.Cleanup(arena.Drop)
+	arenaIA := arena.(IfAbsentPreloader[uint64])
+	oracle := NewShardedUInt64LockCache(arenaTestU64ForID(5000, testRecordWords), 1e12, 1, logger, 0, nil)
+	t.Cleanup(oracle.Drop)
+	oracleIA := oracle.(IfAbsentPreloader[uint64])
+
+	// store into an empty slot
+	code := arenaTestWordsFor(7, testRecordWords)
+	assert.True(t, arenaIA.PreloadIfAbsent(7, code))
+	assert.True(t, oracleIA.PreloadIfAbsent(7, code))
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+
+	// refuse on an occupied slot: the old words survive
+	other := arenaTestWordsFor(8, testRecordWords)
+	assert.False(t, arenaIA.PreloadIfAbsent(7, other))
+	assert.False(t, oracleIA.PreloadIfAbsent(7, other))
+	got, err := arena.Get(ctx, 7)
+	require.NoError(t, err)
+	assert.Equal(t, code, got, "occupied slot must keep its words")
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+
+	// a deleted slot is empty again
+	arena.Delete(ctx, 7)
+	oracle.Delete(ctx, 7)
+	assert.True(t, arenaIA.PreloadIfAbsent(7, other))
+	assert.True(t, oracleIA.PreloadIfAbsent(7, other))
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+
+	// an empty vector is refused without growing the cache to cover its id
+	lenBefore := arena.Len()
+	assert.False(t, arenaIA.PreloadIfAbsent(1<<20, nil))
+	assert.False(t, oracleIA.PreloadIfAbsent(1<<20, nil))
+	assert.Equal(t, lenBefore, arena.Len(), "empty vec must not grow the cache")
+	assert.Equal(t, oracle.Len(), arena.Len())
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+
+	// an id beyond the current length grows the cache and stores
+	farID := uint64(arena.Len()) + 5000
+	farCode := arenaTestWordsFor(farID, testRecordWords)
+	assert.True(t, arenaIA.PreloadIfAbsent(farID, farCode))
+	assert.True(t, oracleIA.PreloadIfAbsent(farID, farCode))
+	got, err = arena.Get(ctx, farID)
+	require.NoError(t, err)
+	assert.Equal(t, farCode, got)
+	assert.Equal(t, oracle.Len(), arena.Len())
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
 }
 
 // TestArenaUint64CacheAlignmentAndViews pins that word views are 64-byte

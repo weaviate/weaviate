@@ -150,27 +150,27 @@ func (_c *MockReplicator_CommitReplication_Call) RunAndReturn(run func(context.C
 }
 
 // CompareDigests provides a mock function with given fields: ctx, className, shardName, digests
-func (_m *MockReplicator) CompareDigests(ctx context.Context, className string, shardName string, digests []routertypes.RepairResponse) ([]routertypes.RepairResponse, error) {
+func (_m *MockReplicator) CompareDigests(ctx context.Context, className string, shardName string, digests []routertypes.RepairDigest) ([]routertypes.RepairDigest, error) {
 	ret := _m.Called(ctx, className, shardName, digests)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CompareDigests")
 	}
 
-	var r0 []routertypes.RepairResponse
+	var r0 []routertypes.RepairDigest
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, []routertypes.RepairResponse) ([]routertypes.RepairResponse, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []routertypes.RepairDigest) ([]routertypes.RepairDigest, error)); ok {
 		return rf(ctx, className, shardName, digests)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, []routertypes.RepairResponse) []routertypes.RepairResponse); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []routertypes.RepairDigest) []routertypes.RepairDigest); ok {
 		r0 = rf(ctx, className, shardName, digests)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]routertypes.RepairResponse)
+			r0 = ret.Get(0).([]routertypes.RepairDigest)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, []routertypes.RepairResponse) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, []routertypes.RepairDigest) error); ok {
 		r1 = rf(ctx, className, shardName, digests)
 	} else {
 		r1 = ret.Error(1)
@@ -188,24 +188,24 @@ type MockReplicator_CompareDigests_Call struct {
 //   - ctx context.Context
 //   - className string
 //   - shardName string
-//   - digests []routertypes.RepairResponse
+//   - digests []routertypes.RepairDigest
 func (_e *MockReplicator_Expecter) CompareDigests(ctx interface{}, className interface{}, shardName interface{}, digests interface{}) *MockReplicator_CompareDigests_Call {
 	return &MockReplicator_CompareDigests_Call{Call: _e.mock.On("CompareDigests", ctx, className, shardName, digests)}
 }
 
-func (_c *MockReplicator_CompareDigests_Call) Run(run func(ctx context.Context, className string, shardName string, digests []routertypes.RepairResponse)) *MockReplicator_CompareDigests_Call {
+func (_c *MockReplicator_CompareDigests_Call) Run(run func(ctx context.Context, className string, shardName string, digests []routertypes.RepairDigest)) *MockReplicator_CompareDigests_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]routertypes.RepairResponse))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]routertypes.RepairDigest))
 	})
 	return _c
 }
 
-func (_c *MockReplicator_CompareDigests_Call) Return(_a0 []routertypes.RepairResponse, _a1 error) *MockReplicator_CompareDigests_Call {
+func (_c *MockReplicator_CompareDigests_Call) Return(_a0 []routertypes.RepairDigest, _a1 error) *MockReplicator_CompareDigests_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockReplicator_CompareDigests_Call) RunAndReturn(run func(context.Context, string, string, []routertypes.RepairResponse) ([]routertypes.RepairResponse, error)) *MockReplicator_CompareDigests_Call {
+func (_c *MockReplicator_CompareDigests_Call) RunAndReturn(run func(context.Context, string, string, []routertypes.RepairDigest) ([]routertypes.RepairDigest, error)) *MockReplicator_CompareDigests_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -488,23 +488,23 @@ func (_c *MockReplicator_DigestObjects_Call) RunAndReturn(run func(context.Conte
 }
 
 // DigestObjectsInRange provides a mock function with given fields: ctx, className, shardName, initialUUID, finalUUID, limit
-func (_m *MockReplicator) DigestObjectsInRange(ctx context.Context, className string, shardName string, initialUUID strfmt.UUID, finalUUID strfmt.UUID, limit int) ([]routertypes.RepairResponse, error) {
+func (_m *MockReplicator) DigestObjectsInRange(ctx context.Context, className string, shardName string, initialUUID strfmt.UUID, finalUUID strfmt.UUID, limit int) ([]routertypes.RepairDigest, error) {
 	ret := _m.Called(ctx, className, shardName, initialUUID, finalUUID, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DigestObjectsInRange")
 	}
 
-	var r0 []routertypes.RepairResponse
+	var r0 []routertypes.RepairDigest
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, strfmt.UUID, strfmt.UUID, int) ([]routertypes.RepairResponse, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, strfmt.UUID, strfmt.UUID, int) ([]routertypes.RepairDigest, error)); ok {
 		return rf(ctx, className, shardName, initialUUID, finalUUID, limit)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, strfmt.UUID, strfmt.UUID, int) []routertypes.RepairResponse); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, strfmt.UUID, strfmt.UUID, int) []routertypes.RepairDigest); ok {
 		r0 = rf(ctx, className, shardName, initialUUID, finalUUID, limit)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]routertypes.RepairResponse)
+			r0 = ret.Get(0).([]routertypes.RepairDigest)
 		}
 	}
 
@@ -540,12 +540,12 @@ func (_c *MockReplicator_DigestObjectsInRange_Call) Run(run func(ctx context.Con
 	return _c
 }
 
-func (_c *MockReplicator_DigestObjectsInRange_Call) Return(result []routertypes.RepairResponse, err error) *MockReplicator_DigestObjectsInRange_Call {
+func (_c *MockReplicator_DigestObjectsInRange_Call) Return(result []routertypes.RepairDigest, err error) *MockReplicator_DigestObjectsInRange_Call {
 	_c.Call.Return(result, err)
 	return _c
 }
 
-func (_c *MockReplicator_DigestObjectsInRange_Call) RunAndReturn(run func(context.Context, string, string, strfmt.UUID, strfmt.UUID, int) ([]routertypes.RepairResponse, error)) *MockReplicator_DigestObjectsInRange_Call {
+func (_c *MockReplicator_DigestObjectsInRange_Call) RunAndReturn(run func(context.Context, string, string, strfmt.UUID, strfmt.UUID, int) ([]routertypes.RepairDigest, error)) *MockReplicator_DigestObjectsInRange_Call {
 	_c.Call.Return(run)
 	return _c
 }

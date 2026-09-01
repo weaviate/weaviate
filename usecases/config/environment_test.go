@@ -12,7 +12,6 @@
 package config
 
 import (
-	"fmt"
 	"math"
 	"os"
 	"testing"
@@ -585,28 +584,28 @@ func TestEnvironmentBackupGCS(t *testing.T) {
 		wantErr  string
 	}{
 		{
-			name:     "unset selects http",
+			name:     "unset leaves the transport unset, which means grpc",
 			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
-			name:     "empty selects http",
+			name:     "empty leaves the transport unset, which means grpc",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": ""},
 			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
 			name:     "http",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "http"},
-			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+			expected: BackupGCS{UseGRPC: new(false), GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
 			name:     "grpc",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
 			name:     "transport is case insensitive and trimmed",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": " gRPC "},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
 			name:    "unknown transport is rejected",
@@ -616,17 +615,17 @@ func TestEnvironmentBackupGCS(t *testing.T) {
 		{
 			name:     "connection pool overrides the default",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "16"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 16},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 16},
 		},
 		{
 			name:     "connection pool of one is accepted",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "1"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 1},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 1},
 		},
 		{
 			name:     "connection pool at the cap is accepted",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "64"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: MaxBackupGCSGRPCConnPool},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: MaxBackupGCSGRPCConnPool},
 		},
 		{
 			name:    "connection pool of zero is rejected",
@@ -655,43 +654,48 @@ func TestEnvironmentBackupGCS(t *testing.T) {
 		},
 		{
 			name:     "unset transport keeps the config file value",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 		},
 		{
 			name:     "empty transport keeps the config file value",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": ""},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
+		},
+		{
+			name:     "a config file pinned to http stays on http",
+			start:    BackupGCS{UseGRPC: new(false), GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(false), GRPCConnPool: 32},
 		},
 		{
 			name:     "http overrides the config file transport",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "http"},
-			expected: BackupGCS{GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(false), GRPCConnPool: 32},
 		},
 		{
 			name:     "grpc overrides the config file transport",
-			start:    BackupGCS{GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(false), GRPCConnPool: 32},
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 		},
 		{
 			name:     "connection pool overrides the config file value",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 			env:      map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "16"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 16},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 16},
 		},
 		{
 			name:     "config file connection pool out of range is left for validation",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 100},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 100},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 100},
 		},
 		{
 			name:     "connection pool overrides an out of range config file value",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 100},
 			env:      map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "8"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 8},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 8},
 		},
 	}
 
@@ -746,6 +750,48 @@ func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, conf.LazyLoadShardSizeThresholdGB)
 			}
+		})
+	}
+}
+
+func TestEnvironmentLazyLoadShardWarmupMinObjects(t *testing.T) {
+	tests := []struct {
+		name string
+		// preset mirrors a value coming from the config file, which is parsed
+		// before FromEnv runs.
+		preset      int64
+		value       string
+		expected    int64
+		expectedErr bool
+	}{
+		{name: "unset keeps the zero value", value: "", expected: 0},
+		{name: "negative turns the sweep off", value: "-1", expected: -1},
+		{name: "zero sweeps every non-empty shard", value: "0", expected: 0},
+		{name: "positive sets a threshold", value: "1000", expected: 1000},
+		{name: "unparsable value is rejected", value: "not-an-int", expectedErr: true},
+		{name: "config file value survives an unset env var", preset: 500, value: "", expected: 500},
+		{name: "env var overrides the config file", preset: 500, value: "-1", expected: -1},
+		{name: "zero overrides a config-file threshold", preset: 500, value: "0", expected: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Ensure hermetic behavior regardless of outer environment
+			t.Setenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS", "")
+
+			if tt.value != "" {
+				t.Setenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS", tt.value)
+			}
+
+			conf := Config{LazyLoadShardWarmupMinObjects: tt.preset}
+			err := FromEnv(&conf)
+			if tt.expectedErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, conf.LazyLoadShardWarmupMinObjects)
 		})
 	}
 }
@@ -1561,27 +1607,6 @@ func TestEnvironmentHNSWAcornFilterRatio(t *testing.T) {
 	}
 }
 
-func TestEnabledForHost(t *testing.T) {
-	localHostname := "weaviate-1"
-	envName := "HOSTBASED_SETTING"
-
-	enabledVals := []string{"enabled", "1", "true", "on", "weaviate-1", "weaviate-0,weaviate-1,weaviate-2"}
-	for _, val := range enabledVals {
-		t.Run(fmt.Sprintf("enabled %q", val), func(t *testing.T) {
-			t.Setenv(envName, val)
-			assert.True(t, enabledForHost(envName, localHostname))
-		})
-	}
-
-	disabledVals := []string{"disabled", "0", "false", "off", "weaviate-0", "weaviate-0,weaviate-2,weaviate-3", ""}
-	for _, val := range disabledVals {
-		t.Run(fmt.Sprintf("disabled %q", val), func(t *testing.T) {
-			t.Setenv(envName, val)
-			assert.False(t, enabledForHost(envName, localHostname))
-		})
-	}
-}
-
 func TestParseCollectionPropsTenants(t *testing.T) {
 	type testCase struct {
 		env            string
@@ -2189,6 +2214,127 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 	}
 }
 
+func TestEnvironmentReplicaMovementCleanup(t *testing.T) {
+	tests := []struct {
+		name                 string
+		env                  map[string]string
+		errContains          string
+		wantEnabled          bool
+		wantMaxAge           time.Duration
+		wantInterval         time.Duration
+		wantIncludeCancelled bool
+	}{
+		{
+			name:         "defaults: off, 7 days, hourly, READY only",
+			wantEnabled:  false,
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: DefaultReplicaMovementCleanupInterval,
+		},
+		{
+			name: "explicit values are parsed",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_ENABLED":           "true",
+				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE":           "24h",
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL":          "5m",
+				"REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED": "true",
+			},
+			wantEnabled:          true,
+			wantMaxAge:           24 * time.Hour,
+			wantInterval:         5 * time.Minute,
+			wantIncludeCancelled: true,
+		},
+		{
+			// Zero passes the >= 0 validator and is the only disable sentinel.
+			// The sweeper reads it as "off", never as "delete every READY op".
+			name: "zero max age is accepted and handled downstream",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE": "0s",
+			},
+			wantMaxAge:   0,
+			wantInterval: DefaultReplicaMovementCleanupInterval,
+		},
+		{
+			name: "zero interval is accepted and handled downstream",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "0s",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: 0,
+		},
+		{
+			// A negative duration fails startup rather than coercing to zero.
+			// Both rows go red if the parse-time validators are dropped.
+			name: "negative max age fails startup, naming the variable",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE": "-1h",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_MAX_AGE",
+		},
+		{
+			name: "negative interval fails startup, naming the variable",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "-1s",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			// Below the floor a sweep hammers the leader with full-FSM scans.
+			name: "interval below the 1m floor fails startup",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "1ms",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			// Above the ceiling the sweep silently never runs; 0 is the only
+			// sanctioned way to disable it.
+			name: "interval above the 168h ceiling fails startup",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "169h",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			name: "interval bounds are inclusive",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "1m",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: time.Minute,
+		},
+		{
+			name: "interval ceiling is inclusive",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "168h",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: 168 * time.Hour,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.errContains != "" {
+				require.ErrorContains(t, err, tt.errContains,
+					"a rejected value must tell the operator which variable to fix")
+				return
+			}
+			require.NoError(t, err)
+
+			require.Equal(t, tt.wantEnabled, conf.Replication.ReplicaMovementCleanupEnabled.Get())
+			require.Equal(t, tt.wantMaxAge, conf.Replication.ReplicaMovementCleanupMaxAge.Get())
+			require.Equal(t, tt.wantInterval, conf.Replication.ReplicaMovementCleanupInterval.Get())
+			require.Equal(t, tt.wantIncludeCancelled, conf.Replication.ReplicaMovementCleanupIncludeCancelled.Get())
+		})
+	}
+}
+
 // TestEnvironmentRuntimeReindexEnabled pins the kill switch's precedence:
 // the env var wins when set, and an absent one leaves a config-file value
 // alone. Getting the absent case wrong silently forces every
@@ -2218,4 +2364,78 @@ func TestEnvironmentRuntimeReindexEnabled(t *testing.T) {
 			require.Equal(t, tt.expected, conf.RuntimeReindexEnabled)
 		})
 	}
+}
+
+func TestEnvironmentAsyncReplicationGlobalSentinels(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         map[string]string
+		wantHeight  int
+		wantFreq    time.Duration
+		expectedErr bool
+	}{
+		{name: "unset means zero sentinel (per-class or code defaults apply)"},
+		{name: "explicit height", env: map[string]string{"ASYNC_REPLICATION_HASHTREE_HEIGHT": "12"}, wantHeight: 12},
+		{name: "explicit frequency", env: map[string]string{"ASYNC_REPLICATION_FREQUENCY": "7s"}, wantFreq: 7 * time.Second},
+		{name: "negative height rejected", env: map[string]string{"ASYNC_REPLICATION_HASHTREE_HEIGHT": "-1"}, expectedErr: true},
+		{name: "non-numeric height rejected", env: map[string]string{"ASYNC_REPLICATION_HASHTREE_HEIGHT": "tall"}, expectedErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.expectedErr {
+				require.NotNil(t, err)
+				return
+			}
+			require.Nil(t, err)
+			require.Equal(t, tt.wantHeight, conf.Replication.AsyncReplicationHashtreeHeight.Get())
+			require.Equal(t, tt.wantFreq, conf.Replication.AsyncReplicationFrequency.Get())
+		})
+	}
+}
+
+func TestNamespaceCleanupIntervalValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     string
+		wantErr string
+		wantGet time.Duration
+	}{
+		{name: "a sub-second interval fails the boot", env: "500ms", wantErr: "NAMESPACE_CLEANUP_INTERVAL"},
+		{name: "unset yields the default", wantGet: DefaultNamespaceCleanupInterval},
+		// newCronsNamespaceCleanup substitutes the default; Get() keeps the 0 the
+		// operator wrote, and /debug/config omits a zero interval entirely.
+		{name: "a value at or below zero is kept as configured", env: "0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env != "" {
+				t.Setenv("NAMESPACE_CLEANUP_INTERVAL", tt.env)
+			}
+			var conf Config
+
+			err := FromEnv(&conf)
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantGet, conf.Namespaces.CleanupInterval.Get())
+		})
+	}
+
+	t.Run("a sub-second runtime push is refused and the interval stands", func(t *testing.T) {
+		t.Setenv("NAMESPACE_CLEANUP_INTERVAL", "1m")
+		var conf Config
+		require.NoError(t, FromEnv(&conf))
+
+		require.Error(t, conf.Namespaces.CleanupInterval.SetValue(500*time.Millisecond))
+		assert.Equal(t, time.Minute, conf.Namespaces.CleanupInterval.Get(),
+			"a refused push must leave the previous interval in place")
+	})
 }

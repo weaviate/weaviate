@@ -118,7 +118,7 @@ func (b *classBuilder) classField(class *models.Class, fusionEnum *graphql.Enum)
 func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name: b.getClassObjectName(class.Class),
-		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
 			classProperties := graphql.Fields{}
 			for _, property := range class.Properties {
 				propertyType, err := b.schema.FindPropertyDataType(property.DataType)

@@ -27,6 +27,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"golang.org/x/text/unicode/norm"
 
@@ -185,27 +186,31 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	// On namespace-enabled clusters the cap is enforced per namespace.
-	// QualifyForCreate above already required principal.Namespace for this
-	// flow, so it is the correct selector here.
-	countNamespace := ""
-	if h.config.Namespaces.Enabled {
-		countNamespace = principal.Namespace
-	}
-
-	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
-	if err != nil {
-		h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
-	}
-
+	// Read the limit before the count: no cap is the default, and the count
+	// costs a round trip to the leader whose answer an uncapped cluster
+	// discards.
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
+	if limit != config.DefaultMaximumAllowedCollectionsCount {
+		// On namespace-enabled clusters the cap is enforced per namespace.
+		// QualifyForCreate above already required principal.Namespace for this
+		// flow, so it is the correct selector here.
+		countNamespace := ""
+		if h.config.Namespaces.Enabled {
+			countNamespace = principal.Namespace
+		}
 
-	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
-		// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
-		// in the usage-limits work; see docs/usage_limits.md for the wire
-		// contract.
-		return nil, 0, usagelimits.NewLimitExceededError(
-			h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
+		existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
+		if err != nil {
+			h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
+		}
+
+		if existingCollectionsCount >= limit {
+			// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
+			// in the usage-limits work; see docs/usage_limits.md for the wire
+			// contract.
+			return nil, 0, usagelimits.NewLimitExceededError(
+				h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
+		}
 	}
 
 	candidates, err := h.namespaceCandidates(cls.Class)
@@ -549,6 +554,12 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		updated.Vectorizer = ""
 		updated.VectorIndexType = ""
 		updated.VectorIndexConfig = nil
+	}
+
+	if updated.ReplicationConfig != nil {
+		if err := replication.ValidateAsyncConfig(updated.ReplicationConfig.AsyncConfig); err != nil {
+			return fmt.Errorf("async replication config: %w", err)
+		}
 	}
 
 	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true, h.config); err != nil {
@@ -1190,6 +1201,12 @@ func (h *Handler) validateClassInvariants(
 		return err
 	}
 
+	if class.ReplicationConfig != nil {
+		if err := replication.ValidateAsyncConfig(class.ReplicationConfig.AsyncConfig); err != nil {
+			return fmt.Errorf("async replication config: %w", err)
+		}
+	}
+
 	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
@@ -1509,6 +1526,13 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if parsed == nil {
 			continue
 		}
+		// Create/update-only hard limits. They must not live in the config
+		// parser itself: that also runs on startup/restore, where a
+		// persisted out-of-range class must not prevent the node from
+		// starting.
+		if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
+			return fmt.Errorf("target vector %q: %w", name, err)
+		}
 		// Grandfather: same VectorIndexType + same compressions on this
 		// named-vector entry ⇒ skip the policy check.
 		if namedCompressionUnchanged(parsed, name, initial, h) {
@@ -1517,6 +1541,16 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if err := h.validateAllowedCompression(cfg.VectorIndexType, parsed); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
+	}
+	return nil
+}
+
+// validateCreateUpdateOnlyBounds enforces limits that only apply to schema
+// writes (AddClass/UpdateClass), never to parsing persisted schemas at
+// startup or during RAFT log replay.
+func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error {
+	if uc, ok := parsed.(enthfresh.UserConfig); ok {
+		return enthfresh.ValidateMuveraUpperBounds(uc)
 	}
 	return nil
 }

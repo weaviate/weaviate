@@ -13,10 +13,14 @@ package cluster
 
 import (
 	"errors"
+	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 
+	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 )
 
@@ -47,7 +51,35 @@ func (st *Store) Remove(id string) error {
 	if st.raft.State() != raft.Leader {
 		return types.ErrNotLeader
 	}
+	// A namespace can only place shards on its home_node, so losing that node
+	// leaves its shards with no eligible replacement. Checked here, not in
+	// Raft.Remove: a forwarded request reaches the configuration change only here.
+	if pinned := st.namespacesWithHomeNode(id); len(pinned) > 0 {
+		st.log.WithFields(logrus.Fields{
+			"id":         id,
+			"namespaces": pinned,
+		}).Warn("refusing node removal: node is a namespace home_node")
+		return fmt.Errorf("cannot remove node %q: it is the home_node of namespace(s) %s",
+			id, strings.Join(pinned, ", "))
+	}
 	return st.assertFuture(st.raft.RemoveServer(raft.ServerID(id), 0, 0))
+}
+
+// namespacesWithHomeNode returns the names of the namespaces whose home_node is
+// node, sorted. Namespaces being deleted are left out: their shards are on their
+// way out, so blocking on one would outlive anything worth protecting.
+func (st *Store) namespacesWithHomeNode(node string) []string {
+	var pinned []string
+	for _, ns := range st.namespaceManager.List() {
+		if ns.State == api.NamespaceStateDeleting {
+			continue
+		}
+		if ns.Primary() == node {
+			pinned = append(pinned, ns.Name)
+		}
+	}
+	slices.Sort(pinned)
+	return pinned
 }
 
 // Notify signals this Store that a node is ready for bootstrapping at the specified address.

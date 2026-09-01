@@ -125,7 +125,10 @@ func TestZipZstdEncoderNotPooledAfterFailedClose(t *testing.T) {
 		// consumer goes away while the chunk is still being written
 		require.NoError(t, rc.Close())
 		_, _, _ = z.WriteRegulars(context.Background(), &sd, newFileList(t, dir, files), &atomic.Int64{}, "chunk")
-		require.Error(t, z.CloseWithError(errors.New("consumer gone")))
+		closeErr := z.CloseWithError(errors.New("consumer gone"))
+		require.Error(t, closeErr)
+		require.NotContains(t, closeErr.Error(), "%!w(",
+			"a close step that succeeded must not be reported as an error")
 
 		next, _, err := takeZstdEncoder(level, io.Discard)
 		require.NoError(t, err)

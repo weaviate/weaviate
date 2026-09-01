@@ -12,7 +12,6 @@
 package state
 
 import (
-	"context"
 	"net/http"
 	"sync"
 
@@ -87,7 +86,6 @@ type State struct {
 	BatchManager       *objects.BatchManager
 	AutoSchemaManager  *objects.AutoSchemaManager
 	ClusterHttpClient  *http.Client
-	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
 	ClusterService       *rCluster.Service
@@ -99,7 +97,6 @@ type State struct {
 	ObjectTTLLocalStatus *objectttl.LocalStatus
 
 	DistributedTaskScheduler *distributedtask.Scheduler
-	Migrator                 *db.Migrator
 
 	// ReindexProvider is the local handle for the runtime-reindex
 	// distributed-task provider. Exposed here so the REST cancel handler
@@ -139,11 +136,6 @@ type State struct {
 	// authoritative defense; this lock just collapses the local
 	// single-node race window that any realistic UI/CLI flow can hit.
 	ReindexSubmitLocks *ReindexSubmitLocks
-
-	// ReindexDeleteMarkers lets GET /v1/schema/{class}/indexes suppress the
-	// finalize-window bleed for a just-deleted index. Shared between the
-	// DELETE handler (records) and GET-indexes (reads); see its godoc.
-	ReindexDeleteMarkers *ReindexDeleteMarkers
 
 	// UsageLimits gates the object-count cap only. Collections/tenants/
 	// shards caps are read directly at the schema-handler use sites.

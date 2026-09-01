@@ -38,8 +38,10 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
 	modgenerativedeepseek "github.com/weaviate/weaviate/modules/generative-deepseek"
+	modgenerativedigitalocean "github.com/weaviate/weaviate/modules/generative-digitalocean"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
+	modgenerativemeta "github.com/weaviate/weaviate/modules/generative-meta"
 	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
@@ -414,6 +416,18 @@ func (d *Compose) WithGenerativeNvidia(apiKey string) *Compose {
 func (d *Compose) WithGenerativeXAI(apiKey string) *Compose {
 	d.weaviateEnvs["XAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modgenerativexai.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeDigitalOcean(apiKey string) *Compose {
+	d.weaviateEnvs["DIGITALOCEAN_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativedigitalocean.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeMeta(apiKey string) *Compose {
+	d.weaviateEnvs["META_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativemeta.Name)
 	return d
 }
 

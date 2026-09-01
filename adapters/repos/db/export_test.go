@@ -258,7 +258,7 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 						return tt.shardsWithOps[shard]
 					}).
 					Maybe()
-				idx.replicationFSMReader = fsm
+				idx.SetReplicationFSMReader(fsm)
 			}
 			assert.Equal(t, tt.want, idx.IsAsyncReplicationEnabledOrIrrelevant())
 		})
@@ -309,15 +309,16 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 			RunAndReturn(func(_, shard string) bool { return shardsWithOps[shard] }).
 			Maybe()
 
-		return &Index{
+		idx := &Index{
 			Config: IndexConfig{
 				ReplicationFactor: 1,
 				ClassName:         schema.ClassName(className),
 			},
-			logger:               logrus.New(),
-			schemaReader:         sr,
-			replicationFSMReader: fsm,
+			logger:       logrus.New(),
+			schemaReader: sr,
 		}
+		idx.SetReplicationFSMReader(fsm)
+		return idx
 	}
 
 	t.Run("RF=1 index, no shard has non-terminal ops: exportable (irrelevant)", func(t *testing.T) {

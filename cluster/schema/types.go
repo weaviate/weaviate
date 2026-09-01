@@ -40,7 +40,13 @@ type Indexer interface {
 	DeleteTenants(class string, tenants []*models.Tenant) error
 	UpdateTenantsProcess(class string, req *api.TenantProcessRequest) error
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
+	// AddReplicaToShard materializes a replica the schema just assigned to this
+	// node, with no replica movement under way. Success does not guarantee a
+	// local shard: a namespace being deleted opens none.
 	AddReplicaToShard(class, shard, targetNode string) error
+	// AddReplicaToShardForMovement materializes a movement's target shard, which
+	// a suspended namespace still admits.
+	AddReplicaToShardForMovement(class, shard, targetNode string) error
 	DeleteReplicaFromShard(class, shard, targetNode string) error
 	ReconcileAsyncReplicationForShard(class, shard string) error
 	LoadShard(class, shard string)     // is a no-op

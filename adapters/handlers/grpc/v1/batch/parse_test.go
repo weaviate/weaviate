@@ -571,3 +571,41 @@ func TestGRPCBatchRequest_AutoSchemaQualifiesNamespace(t *testing.T) {
 	require.Len(t, out, 1)
 	require.Equal(t, "ns1:Movies", out[0].Class)
 }
+
+// The worker re-sends the same pointers on retry; a parse that rewrites the
+// request changes what the retry sends.
+func TestBatchObjectsFromProtoDoesNotMutateRequest(t *testing.T) {
+	const (
+		rawCollection      = "Zoo"
+		resolvedCollection = "customer1:Zoo"
+		rawTarget          = "customer1:Animal"
+	)
+	classes := map[string]*models.Class{
+		resolvedCollection: {
+			Class: resolvedCollection,
+			Properties: []*models.Property{
+				{Name: "linkedTo", DataType: []string{"customer1:Animal", "customer1:Habitat"}},
+			},
+		},
+	}
+	getClass := func(class, shard string) (string, *models.Class, error) {
+		return resolvedCollection, classes[resolvedCollection], nil
+	}
+	req := &pb.BatchObjectsRequest{Objects: []*pb.BatchObject{{
+		Collection: rawCollection, Uuid: UUID4,
+		Properties: &pb.BatchObject_Properties{
+			MultiTargetRefProps: []*pb.BatchObject_MultiTargetRefProps{
+				{PropName: "linkedTo", Uuids: []string{UUID3}, TargetCollection: rawTarget},
+			},
+		},
+	}}}
+
+	out, _, errs := batch.BatchObjectsFromProto(req, getClass, &models.Principal{Username: "admin"}, true)
+
+	require.Len(t, errs, 0)
+	require.Len(t, out, 1)
+	require.Equal(t, resolvedCollection, out[0].Class, "the parsed object carries the resolved class")
+	require.Equal(t, rawCollection, req.Objects[0].Collection, "the request collection must be untouched")
+	require.Equal(t, rawTarget, req.Objects[0].Properties.MultiTargetRefProps[0].TargetCollection,
+		"the request reference target must be untouched")
+}

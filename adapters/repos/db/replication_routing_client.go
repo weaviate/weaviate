@@ -120,7 +120,7 @@ func (c *routingReplicationClient) DigestObjects(ctx context.Context, host, inde
 
 func (c *routingReplicationClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]types.RepairResponse, error) {
+) ([]types.RepairDigest, error) {
 	if c.isLocal(host) {
 		return c.local.DigestObjectsInRange(ctx, index, shard, initialUUID, finalUUID, limit)
 	}
@@ -128,8 +128,8 @@ func (c *routingReplicationClient) DigestObjectsInRange(ctx context.Context, hos
 }
 
 func (c *routingReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
-	digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	if c.isLocal(host) {
 		return c.local.CompareDigests(ctx, index, shard, digests)
 	}

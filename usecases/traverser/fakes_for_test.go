@@ -79,6 +79,8 @@ type fakeVectorSearcher struct {
 	diversifyCalledSel               *searchparams.Selection
 	diversifyCalledTarget            string
 	diversifyCalledRelevanceFromDist bool
+
+	sparseObjectSearchFn func(params dto.GetParams) ([]*storobj.Object, []float32, error)
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
@@ -130,6 +132,9 @@ func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
 func (f *fakeVectorSearcher) SparseObjectSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]*storobj.Object, []float32, error) {
+	if f.sparseObjectSearchFn != nil {
+		return f.sparseObjectSearchFn(params)
+	}
 	return nil, nil, nil
 }
 

@@ -140,7 +140,7 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 		Status: &models.ReplicationReplicateDetailsReplicaStatus{
 			State:             response.Status.State,
 			Errors:            errors,
-			WhenStartedUnixMs: response.StartTimeUnixMs,
+			WhenStartedUnixMs: response.Status.StartTimeUnixMs,
 		},
 		StatusHistory:     history,
 		Type:              &response.TransferType,
@@ -275,6 +275,12 @@ func (h *replicationHandler) forceDeleteReplications(params replication.ForceDel
 		} else {
 			// This can happen if the user provides only a shard id without a collection id
 			return replication.NewForceDeleteReplicationsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("shard id provided without collection id")))
+		}
+		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+			return replication.NewForceDeleteReplicationsOK().WithPayload(&models.ReplicationReplicateForceDeleteResponse{
+				Deleted: []strfmt.UUID{},
+				DryRun:  true,
+			})
 		}
 		if err != nil {
 			return replication.NewForceDeleteReplicationsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))

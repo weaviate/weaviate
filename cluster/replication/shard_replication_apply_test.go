@@ -431,13 +431,14 @@ func TestShardReplicationFSM_DeleteReplication(t *testing.T) {
 			fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
 			const opID uint64 = 1
 			uuid := seedOp(t, fsm, opID)
+			// SetUnCancellable refuses cancelled ops, so the flag is set first.
+			if tc.unCancellable {
+				require.NoError(t, fsm.SetUnCancellable(opID))
+			}
 			if !tc.driveCancelled {
 				driveToState(t, fsm, opID, tc.state)
 			} else {
 				driveToCancelled(t, fsm, opID)
-			}
-			if tc.unCancellable {
-				require.NoError(t, fsm.SetUnCancellable(opID))
 			}
 
 			err := fsm.DeleteReplication(&api.ReplicationDeleteRequest{
@@ -491,4 +492,201 @@ func TestShardReplicationFSM_SetUnCancellable(t *testing.T) {
 		err := fsm.SetUnCancellable(999)
 		require.ErrorIs(t, err, types.ErrReplicationOperationNotFound)
 	})
+
+	// The cancel-race guard: without it the node registers with a change-capture
+	// log that never seals, and CANCELLED-inert routing serves the write gap.
+	t.Run("cancel accepted first refuses registration, cancel completes", func(t *testing.T) {
+		fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
+		const opID uint64 = 7
+		uuid := seedOp(t, fsm, opID)
+		driveToState(t, fsm, opID, api.FINALIZING)
+
+		require.NoError(t, fsm.CancelReplication(&api.ReplicationCancelRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Uuid:    uuid,
+		}))
+
+		err := fsm.SetUnCancellable(opID)
+		require.ErrorIs(t, err, types.ErrOpCancellationInFlight)
+
+		op, ok := fsm.GetOpById(opID)
+		require.True(t, ok)
+		require.False(t, op.Status.UnCancellable, "a refused add must leave the op cancellable")
+
+		require.NoError(t, fsm.CancellationComplete(&api.ReplicationCancellationCompleteRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Id:      opID,
+		}))
+		op, ok = fsm.GetOpById(opID)
+		require.True(t, ok)
+		require.Equal(t, api.CANCELLED, op.Status.GetCurrentState())
+	})
+
+	t.Run("delete accepted first refuses registration", func(t *testing.T) {
+		fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
+		const opID uint64 = 8
+		uuid := seedOp(t, fsm, opID)
+		driveToState(t, fsm, opID, api.FINALIZING)
+
+		require.NoError(t, fsm.DeleteReplication(&api.ReplicationDeleteRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Uuid:    uuid,
+		}))
+
+		err := fsm.SetUnCancellable(opID)
+		require.ErrorIs(t, err, types.ErrOpCancellationInFlight)
+	})
+
+	t.Run("completed cancellation refuses a late registration", func(t *testing.T) {
+		fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
+		const opID uint64 = 9
+		uuid := seedOp(t, fsm, opID)
+		driveToState(t, fsm, opID, api.FINALIZING)
+
+		require.NoError(t, fsm.CancelReplication(&api.ReplicationCancelRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Uuid:    uuid,
+		}))
+		require.NoError(t, fsm.CancellationComplete(&api.ReplicationCancellationCompleteRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Id:      opID,
+		}))
+
+		err := fsm.SetUnCancellable(opID)
+		require.ErrorIs(t, err, types.ErrOpCancellationInFlight)
+	})
+}
+
+// The CANCELLED transition must adjust opsByStateGauge like every other
+// transition. CompleteCancellation changes state internally, so the Dec/Inc has
+// to wrap the call site.
+func TestCancellationComplete_GaugeAccuracy(t *testing.T) {
+	const opID uint64 = 1
+
+	states := []api.ShardReplicationState{
+		api.REGISTERED,
+		api.HYDRATING,
+		api.FINALIZING,
+		api.INTEGRATING,
+		api.DEHYDRATING,
+	}
+
+	for _, from := range states {
+		t.Run("cancel from "+from.String(), func(t *testing.T) {
+			reg := prometheus.NewPedanticRegistry()
+			fsm := replication.NewShardReplicationFSM(reg)
+			seedOp(t, fsm, opID)
+			driveToState(t, fsm, opID, from)
+
+			require.Equal(t, 1.0, gaugeValue(t, reg, from.String()), "before cancellation")
+
+			driveToCancelled(t, fsm, opID)
+
+			require.Equal(t, 0.0, gaugeValue(t, reg, from.String()), "source state after cancellation")
+			require.Equal(t, 1.0, gaugeValue(t, reg, api.CANCELLED.String()), "CANCELLED after cancellation")
+		})
+	}
+
+	t.Run("replayed cancellation is a no-op for the gauge", func(t *testing.T) {
+		reg := prometheus.NewPedanticRegistry()
+		fsm := replication.NewShardReplicationFSM(reg)
+		seedOp(t, fsm, opID)
+		driveToState(t, fsm, opID, api.HYDRATING)
+		driveToCancelled(t, fsm, opID)
+		driveToCancelled(t, fsm, opID)
+
+		require.Equal(t, 0.0, gaugeValue(t, reg, api.HYDRATING.String()))
+		require.Equal(t, 1.0, gaugeValue(t, reg, api.CANCELLED.String()))
+	})
+}
+
+// gaugeValue returns 0 when the state label has never been touched.
+func gaugeValue(t *testing.T, g prometheus.Gatherer, state string) float64 {
+	t.Helper()
+	families, err := g.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		if family.GetName() != "weaviate_replication_operation_fsm_ops_by_state" {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			for _, label := range metric.GetLabel() {
+				if label.GetName() == "state" && label.GetValue() == state {
+					return metric.GetGauge().GetValue()
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// Every force delete walks an index slice that removeReplicationOp compacts in
+// place, so ranging over that slice directly skips ops and then fails on an id
+// it already deleted. Three ops is the smallest set that shows it.
+func TestShardReplicationFSM_ForceDelete(t *testing.T) {
+	const (
+		coll   = "TestClass"
+		shard  = "shard-0"
+		target = "node2"
+	)
+
+	// Ops that share a target need distinct shards, and ops that share a shard
+	// need distinct targets, or admission rejects them.
+	seedPerShard := func(t *testing.T, fsm *replication.ShardReplicationFSM, n int) {
+		for i := range n {
+			seedOpFull(t, fsm, uint64(i+1), "node1", target, coll, fmt.Sprintf("shard-%d", i), api.COPY)
+		}
+	}
+
+	tests := []struct {
+		name        string
+		seed        func(t *testing.T, fsm *replication.ShardReplicationFSM, n int)
+		forceDelete func(fsm *replication.ShardReplicationFSM) error
+	}{
+		{
+			name: "by collection",
+			seed: seedPerShard,
+			forceDelete: func(fsm *replication.ShardReplicationFSM) error {
+				return fsm.ForceDeleteByCollection(coll)
+			},
+		},
+		{
+			name: "by collection and shard",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM, n int) {
+				for i := range n {
+					seedOpFull(t, fsm, uint64(i+1), "node1", fmt.Sprintf("node-%d", i), coll, shard, api.COPY)
+				}
+			},
+			forceDelete: func(fsm *replication.ShardReplicationFSM) error {
+				return fsm.ForceDeleteByCollectionAndShard(coll, shard)
+			},
+		},
+		{
+			name: "by target node",
+			seed: seedPerShard,
+			forceDelete: func(fsm *replication.ShardReplicationFSM) error {
+				return fsm.ForceDeleteByTargetNode(target)
+			},
+		},
+		{
+			name: "all",
+			seed: seedPerShard,
+			forceDelete: func(fsm *replication.ShardReplicationFSM) error {
+				return fsm.ForceDeleteAll()
+			},
+		},
+	}
+
+	for _, test := range tests {
+		for _, ops := range []int{1, 2, 3, 4, 5} {
+			t.Run(fmt.Sprintf("%s/%d ops", test.name, ops), func(t *testing.T) {
+				fsm := replication.NewShardReplicationFSM(prometheus.NewRegistry())
+				test.seed(t, fsm, ops)
+				require.Len(t, fsm.GetStatusByOps(), ops)
+
+				require.NoError(t, test.forceDelete(fsm))
+				require.Empty(t, fsm.GetStatusByOps(), "force delete leaves no op behind")
+			})
+		}
+	}
 }

@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -284,6 +286,7 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 				data.Rotation.Swaps,
 				data.Rotation.Signs,
 				nil,
+				data.Mean,
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
@@ -291,6 +294,8 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 				h.vectorForID,
 			)
 		})
+	} else if len(data.Mean) > 0 {
+		return errors.New("rq centering is not supported for multivector indexes")
 	} else {
 		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
@@ -331,6 +336,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 				data.Rotation.Swaps,
 				data.Rotation.Signs,
 				data.Rounding,
+				nil,
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
@@ -370,7 +376,7 @@ func (h *hnsw) restoreDocMappings() error {
 	buf := make([]byte, 8)
 
 	// Get the mappings bucket - handle case where it might be nil
-	bucket := h.store.Bucket(h.id + "_mv_mappings")
+	bucket := h.store.Bucket(helpers.MVMappingsBucketName(h.id))
 	if bucket == nil {
 		err := errors.New("multivector mappings bucket not found")
 		h.logger.WithField("action", "restore_doc_mappings").

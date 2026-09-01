@@ -470,6 +470,77 @@ func (_c *MockDbUserAndRolesGetter_GetUsers_Call) RunAndReturn(run func(...strin
 	return _c
 }
 
+// ExportUsers provides a mock function with given fields: userIds
+func (_m *MockDbUserAndRolesGetter) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord, error) {
+	_va := make([]interface{}, len(userIds))
+	for _i := range userIds {
+		_va[_i] = userIds[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExportUsers")
+	}
+
+	var r0 map[string]dbuser.ExportRecord
+	var r1 error
+	if rf, ok := ret.Get(0).(func(...string) (map[string]dbuser.ExportRecord, error)); ok {
+		return rf(userIds...)
+	}
+	if rf, ok := ret.Get(0).(func(...string) map[string]dbuser.ExportRecord); ok {
+		r0 = rf(userIds...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]dbuser.ExportRecord)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(...string) error); ok {
+		r1 = rf(userIds...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockDbUserAndRolesGetter_ExportUsers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExportUsers'
+type MockDbUserAndRolesGetter_ExportUsers_Call struct {
+	*mock.Call
+}
+
+// ExportUsers is a helper method to define mock.On call
+//   - userIds ...string
+func (_e *MockDbUserAndRolesGetter_Expecter) ExportUsers(userIds ...interface{}) *MockDbUserAndRolesGetter_ExportUsers_Call {
+	return &MockDbUserAndRolesGetter_ExportUsers_Call{Call: _e.mock.On("ExportUsers",
+		append([]interface{}{}, userIds...)...)}
+}
+
+func (_c *MockDbUserAndRolesGetter_ExportUsers_Call) Run(run func(userIds ...string)) *MockDbUserAndRolesGetter_ExportUsers_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]string, len(args)-0)
+		for i, a := range args[0:] {
+			if a != nil {
+				variadicArgs[i] = a.(string)
+			}
+		}
+		run(variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *MockDbUserAndRolesGetter_ExportUsers_Call) Return(_a0 map[string]dbuser.ExportRecord, _a1 error) *MockDbUserAndRolesGetter_ExportUsers_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockDbUserAndRolesGetter_ExportUsers_Call) RunAndReturn(run func(...string) (map[string]dbuser.ExportRecord, error)) *MockDbUserAndRolesGetter_ExportUsers_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RevokeRolesForUser provides a mock function with given fields: userName, roles
 func (_m *MockDbUserAndRolesGetter) RevokeRolesForUser(userName string, roles ...string) error {
 	_va := make([]interface{}, len(roles))

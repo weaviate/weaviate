@@ -14,7 +14,6 @@ package propertyspecific
 import (
 	"context"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -55,19 +54,23 @@ func (i Indices) ShutdownGeoIndices(ctx context.Context) error {
 }
 
 func (i Indices) DropAll(ctx context.Context, keepFiles bool) error {
+	// one failing property must not skip the teardown of the remaining ones
+	ec := errorcompounder.New()
 	for propName, index := range i {
 		if index.Type != schema.DataTypeGeoCoordinates {
-			return errors.Errorf("no implementation to delete property %s index of type %v",
+			ec.Addf("no implementation to delete property %s index of type %v",
 				propName, index.Type)
+			continue
 		}
 
 		if err := index.GeoIndex.Drop(ctx, keepFiles); err != nil {
-			return errors.Wrapf(err, "drop property %s", propName)
+			ec.AddWrapf(err, "drop property %s", propName)
+			continue
 		}
 
-		index.GeoIndex = nil
+		// Drop nils the underlying vector index, so a kept entry would panic
+		// the next ShutdownGeoIndices
 		delete(i, propName)
-
 	}
-	return nil
+	return ec.ToError()
 }

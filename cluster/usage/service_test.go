@@ -90,6 +90,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
@@ -220,6 +221,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(className).Return(len(shardingState.Physical), nil)
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	repo := createTestDb(t, mockSchema, shardingState, class, nodeName)
 	putObjectAndFlush(t, repo, className, hotTenant, map[string][]float32{vectorName: {0.1, 0.2, 0.3}}, map[string][]float32{vectorName: {0.4, 0.5, 0.6}})
@@ -229,7 +231,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 
 	logger, _ := logrus.NewNullLogger()
 	migrator := db.NewMigrator(repo, logger, nodeName)
-	require.NoError(t, migrator.LoadShard(context.Background(), class.Class, hotTenant))
+	require.NoError(t, migrator.LoadShardForMovement(context.Background(), class.Class, hotTenant))
 
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
@@ -263,12 +265,14 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	assert.Equal(t, int64(2), hotShard.ObjectsCount)
 	assert.Equal(t, uint64(612), hotShard.ObjectsStorageBytes)
 	assert.Equal(t, strings.ToLower(models.TenantActivityStatusACTIVE), hotShard.Status)
+	assert.False(t, hotShard.LazyUnloaded, "a loaded shard is not marked as unloaded")
 	assert.Len(t, hotShard.NamedVectors, 1)
 
 	require.NotNil(t, coldShard)
 	assert.Equal(t, int64(0), coldShard.ObjectsCount)
 	assert.Equal(t, uint64(0), coldShard.ObjectsStorageBytes)
 	assert.Equal(t, strings.ToLower(models.TenantActivityStatusINACTIVE), coldShard.Status)
+	assert.False(t, coldShard.LazyUnloaded, "an inactive shard is never loaded, so it carries no mark")
 	assert.Len(t, coldShard.NamedVectors, 1)
 
 	vector := hotShard.NamedVectors[0]
@@ -569,6 +573,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 		},
 	)
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	repo := createTestDb(t, mockSchema, shardingState, class, nodeName)
 	repo.Shutdown(ctx)
@@ -658,6 +663,7 @@ func TestService_Usage_MultipleCollectionsConcurrent(t *testing.T) {
 		},
 	)
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
@@ -677,7 +683,7 @@ func TestService_Usage_MultipleCollectionsConcurrent(t *testing.T) {
 	logger, _ := logrus.NewNullLogger()
 	migrator := db.NewMigrator(repo, logger, nodeName)
 	for _, class := range classes {
-		require.NoError(t, migrator.LoadShard(ctx, class.Class, shardName))
+		require.NoError(t, migrator.LoadShardForMovement(ctx, class.Class, shardName))
 		putObjectAndFlush(t, repo, class.Class, "", map[string][]float32{vectorName: {0.1, 0.2, 0.3}})
 	}
 	repo.Shutdown(ctx)
@@ -747,6 +753,7 @@ func TestService_Usage_MultipleCollectionsError(t *testing.T) {
 		},
 	)
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
@@ -764,7 +771,7 @@ func TestService_Usage_MultipleCollectionsError(t *testing.T) {
 	logger, _ := logrus.NewNullLogger()
 	migrator := db.NewMigrator(repo, logger, nodeName)
 	for _, class := range classes {
-		require.NoError(t, migrator.LoadShard(ctx, class.Class, shardName))
+		require.NoError(t, migrator.LoadShardForMovement(ctx, class.Class, shardName))
 		putObjectAndFlush(t, repo, class.Class, "", map[string][]float32{vectorName: {0.1, 0.2, 0.3}})
 	}
 	repo.Shutdown(ctx)
@@ -809,6 +816,7 @@ func createTestDb(t *testing.T, sg schemaUC.SchemaGetter, shardingState *shardin
 		return len(shardingState.Physical), nil
 	}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	logger, _ := logrus.NewNullLogger()
 	repo, err := db.New(logger, nodeName, db.Config{
 		MemtablesFlushDirtyAfter:  0,
@@ -829,7 +837,7 @@ func createTestDb(t *testing.T, sg schemaUC.SchemaGetter, shardingState *shardin
 	if class != nil && shardingState != nil {
 		migrator.AddClass(context.Background(), class)
 		for _, shard := range shardingState.Physical {
-			require.NoError(t, migrator.LoadShard(context.Background(), class.Class, shard.Name))
+			require.NoError(t, migrator.LoadShardForMovement(context.Background(), class.Class, shard.Name))
 			if shard.ActivityStatus() == models.TenantActivityStatusCOLD {
 				require.NoError(t, migrator.ShutdownShard(context.Background(), class.Class, shard.Name))
 			}

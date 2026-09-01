@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -2737,6 +2738,73 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				}, res[1])
 		})
 	})
+}
+
+// failingInputVectorizerProvider overrides VectorFromInput to fail, so the
+// typed wrap applied on the hybrid vector leg can be pinned.
+type failingInputVectorizerProvider struct {
+	fakeModulesProvider
+}
+
+func (p *failingInputVectorizerProvider) VectorFromInput(ctx context.Context,
+	className, input, targetVector string,
+) ([]float32, error) {
+	return nil, errors.New("remote client vectorize: connection refused")
+}
+
+// failingMultiInputVectorizerProvider routes the hybrid vector leg through
+// the multi-vector branch and fails there, so that wrap site can be pinned
+// too.
+type failingMultiInputVectorizerProvider struct {
+	fakeModulesProvider
+}
+
+func (p *failingMultiInputVectorizerProvider) IsTargetVectorMultiVector(className, targetVector string) (bool, error) {
+	return true, nil
+}
+
+func (p *failingMultiInputVectorizerProvider) MultiVectorFromInput(ctx context.Context,
+	className, input, targetVector string,
+) ([][]float32, error) {
+	return nil, errors.New("remote client vectorize: connection refused")
+}
+
+// API handlers (e.g. adapters/handlers/rest/search) classify the failure by
+// this type; one case per vectorize wrap site in explorer_hybrid.go
+func Test_Explorer_Hybrid_VectorizationTypedError(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider ModulesProvider
+	}{
+		{"single-vector target", &failingInputVectorizerProvider{}},
+		{"multi-vector target", &failingMultiInputVectorizerProvider{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := dto.GetParams{
+				ClassName: "BestClass",
+				// alpha 1: only the vector leg runs, which must vectorize the query
+				HybridSearch: &searchparams.HybridSearch{Query: "space", Alpha: 1},
+				Pagination:   &filters.Pagination{Limit: 10},
+			}
+
+			search := &fakeVectorSearcher{}
+			log, _ := test.NewNullLogger()
+			metrics := &fakeMetrics{}
+			explorer := NewExplorer(search, log, tt.provider, metrics, defaultConfig)
+			explorer.SetSchemaGetter(&fakeSchemaGetter{
+				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
+					{Class: "BestClass"},
+				}}},
+			})
+
+			_, err := explorer.GetClass(context.Background(), params)
+			require.Error(t, err)
+			assert.True(t, errors.As(err, &enterrors.ErrQueryVectorization{}),
+				"hybrid vector-leg vectorization failures must carry entities/errors.ErrQueryVectorization, got: %v", err)
+			assert.Contains(t, err.Error(), "remote client vectorize: connection refused")
+		})
+	}
 }
 
 func ptFloat32(in float32) *float32 {
