@@ -106,6 +106,27 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		}
 	}()
 
+	// The shard metadata DB (index.db) is shard-owned: the per-index Drops
+	// below no longer close it, so the drop must, or the handle and its mmap
+	// outlive the directory removal below — deferred so the early-return
+	// failure paths (queue, geo queue and vector-index drops) close it too,
+	// or a drop retry would stall on the still-held flock. Best-effort: the
+	// directory rename and async delete remove the file either way, and a
+	// shard that was shut down before the drop already closed it (Close on a
+	// closed bolt DB is a no-op).
+	defer func() {
+		if s.metadataDB == nil {
+			return
+		}
+		if cerr := s.metadataDB.Close(); cerr != nil {
+			s.index.logger.WithFields(logrus.Fields{
+				"action": "drop_shard",
+				"class":  s.class.Class,
+				"shard":  s.name,
+			}).Warnf("best-effort shard metadata db close during shard drop failed: %v", cerr)
+		}
+	}()
+
 	// queues need to be closed first to make sure they are not writing anymore
 	// to their associated vector index, as they might still be using the store
 	// and other resources we are about to drop.
@@ -137,22 +158,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	})
 	if err != nil {
 		return err
-	}
-
-	// The shard metadata DB (index.db) is shard-owned: the per-index Drops
-	// above no longer close it, so the drop must, or the handle and its mmap
-	// outlive the directory removal below. Best-effort: the directory rename
-	// and async delete right after remove the file either way, and a shard
-	// that was shut down before the drop already closed it (Close on a closed
-	// bolt DB is a no-op).
-	if s.metadataDB != nil {
-		if err := s.metadataDB.Close(); err != nil {
-			s.index.logger.WithFields(logrus.Fields{
-				"action": "drop_shard",
-				"class":  s.class.Class,
-				"shard":  s.name,
-			}).Warnf("best-effort shard metadata db close during shard drop failed: %v", err)
-		}
 	}
 
 	// unregister all callbacks at once, in parallel
