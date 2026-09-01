@@ -55,8 +55,8 @@ func TestTheApplyPathSweepsFromTheLoadedRecordStore(t *testing.T) {
 	subject.TrackerDir = keptTracker
 	require.NoError(t, shard.migrationRecords.Put(NewMigrationRecordMerged(subject)))
 
-	// The map and the files are written together on this instance, so this is
-	// the only way to tell which one the sweep read.
+	// Put writes both the file and the map, so this is the only way to tell
+	// which one the sweep read.
 	require.NoError(t, os.RemoveAll(shard.migrationRecords.Dir()))
 
 	prop := class.Properties[0]

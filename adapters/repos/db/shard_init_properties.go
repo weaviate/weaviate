@@ -255,11 +255,9 @@ func migrationSweepStateFor(lsmPath string, logger logrus.FieldLogger) *migratio
 	}
 }
 
-// migrationSweepState answers from the shard's own record store, which holds
-// what a read of .migrations/records/ would find: Put and Remove update the map
-// and the files together on this instance. The disk read is what the store's
-// contract exists to avoid, since a tenant activation loads its shard on the
-// RAFT apply loop and every shard of the collection pays it.
+// A disk read here would put a directory listing and a read per record file on
+// the RAFT apply loop, once per shard of the collection. The shard's own store
+// is the only writer to .migrations/records/ while the shard is loaded.
 func (s *Shard) migrationSweepState() *migrationSweepState {
 	store := s.migrationRecordStore()
 	if store == nil {
