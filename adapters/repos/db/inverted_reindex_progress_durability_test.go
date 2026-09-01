@@ -34,8 +34,7 @@ const (
 	durabilityCheckpointAt = 20
 )
 
-// interruptingRetokenizeStrategy delegates to FilterableRetokenizeStrategy and
-// cancels the reindex run's context after a fixed number of writes.
+// interruptingRetokenizeStrategy cancels the reindex run's context after a fixed number of writes.
 type interruptingRetokenizeStrategy struct {
 	FilterableRetokenizeStrategy
 	writes      int
@@ -56,11 +55,7 @@ func (s *interruptingRetokenizeStrategy) WriteToReindexBucket(shard ShardLike, b
 	return nil
 }
 
-// TestReindexProgressCheckpointDurability covers both markProgress call sites in
-// OnAfterLsmInitAsync: a checkpoint may only certify postings that are already
-// durable. Each case drives one site, snapshots the reindex bucket the way a
-// SIGKILL would (bytes the kernel already holds are copied, the commit log's
-// user-space buffer is not) and replays that snapshot the way a restart does.
+// TestReindexProgressCheckpointDurability pins that a reindex checkpoint never certifies postings that a crash could still lose.
 func TestReindexProgressCheckpointDurability(t *testing.T) {
 	tests := []struct {
 		name               string
@@ -152,9 +147,8 @@ func TestReindexProgressCheckpointDurability(t *testing.T) {
 	}
 }
 
-// copyBucketDir snapshots a live bucket directory into a fresh temp dir. The
-// copy sees every byte already handed to the kernel and nothing still held in
-// the process, which is what a SIGKILL leaves on disk.
+// copyBucketDir copies a live bucket dir via read/write, keeping only bytes
+// already flushed to the kernel — what survives a SIGKILL.
 func copyBucketDir(t *testing.T, src string) string {
 	t.Helper()
 	dst := t.TempDir()
