@@ -20,26 +20,31 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (s *Shard) deleteNestedInvertedIndicesLSM(nestedProps []inverted.NestedProperty, docID uint64) error {
+func (s *Shard) deleteNestedInvertedIndicesLSM(nestedProps []inverted.NestedProperty, docID uint64,
+	touched *touchedBuckets,
+) error {
 	for _, np := range nestedProps {
-		if err := s.deleteNestedFilterableIndex(np, docID); err != nil {
+		if err := s.deleteNestedFilterableIndex(np, docID, touched); err != nil {
 			return err
 		}
 		// TODO: delete nested searchable index (Phase 2)
 		// TODO: delete nested rangeable index (Phase 3)
-		if err := s.deleteNestedMetaIndex(np, docID); err != nil {
+		if err := s.deleteNestedMetaIndex(np, docID, touched); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Shard) deleteNestedFilterableIndex(np inverted.NestedProperty, docID uint64) error {
+func (s *Shard) deleteNestedFilterableIndex(np inverted.NestedProperty, docID uint64,
+	touched *touchedBuckets,
+) error {
 	if !np.HasFilterableIndex {
 		return nil
 	}
 
-	bucket := s.store.Bucket(helpers.BucketNestedFromPropNameLSM(np.Name))
+	bucketName := helpers.BucketNestedFromPropNameLSM(np.Name)
+	bucket := s.store.Bucket(bucketName)
 	if bucket == nil {
 		return fmt.Errorf("nested prop %q: no filterable value bucket found", np.Name)
 	}
@@ -47,15 +52,19 @@ func (s *Shard) deleteNestedFilterableIndex(np inverted.NestedProperty, docID ui
 	if err := bucket.RoaringSetRemoveBatch(nestedFilterableEntries(np, docID)); err != nil {
 		return fmt.Errorf("nested prop %q: remove filterable values: %w", np.Name, err)
 	}
+	touched.add(bucketName)
 	return nil
 }
 
-func (s *Shard) deleteNestedMetaIndex(np inverted.NestedProperty, docID uint64) error {
+func (s *Shard) deleteNestedMetaIndex(np inverted.NestedProperty, docID uint64,
+	touched *touchedBuckets,
+) error {
 	if len(np.Idx) == 0 && len(np.Exists) == 0 {
 		return nil
 	}
 
-	bucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(np.Name))
+	bucketName := helpers.BucketNestedMetaFromPropNameLSM(np.Name)
+	bucket := s.store.Bucket(bucketName)
 	if bucket == nil {
 		return fmt.Errorf("nested prop %q: no meta bucket found", np.Name)
 	}
@@ -63,6 +72,7 @@ func (s *Shard) deleteNestedMetaIndex(np inverted.NestedProperty, docID uint64) 
 	if err := bucket.RoaringSetRemoveBatch(nestedMetaEntries(np, docID)); err != nil {
 		return fmt.Errorf("nested prop %q: remove meta entries: %w", np.Name, err)
 	}
+	touched.add(bucketName)
 	return nil
 }
 
