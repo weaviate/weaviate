@@ -50,6 +50,9 @@ const (
 // operations it hands to Config.State to this namespace.
 const StateNamespace = "dynamic"
 
+// dynamicBucket is referenced only by test files that seed or assert the
+// on-disk format through raw bolt; production code goes through
+// StateNamespace-scoped state ops.
 var dynamicBucket = []byte(StateNamespace)
 
 type Index interface {
@@ -679,7 +682,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 		err := dynamic.upgradeFn()
 		if err != nil {
-			dynamic.logger.WithError(err).Error("failed to upgrade index")
+			dynamic.logger.Errorf("failed to upgrade index: %v", err)
 			return
 		}
 		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
@@ -806,13 +809,13 @@ func (dynamic *dynamic) doUpgrade() error {
 func (dynamic *dynamic) cleanupAbortedUpgrade(index VectorIndex) {
 	if err := index.Drop(context.Background(), false); err != nil {
 		dynamic.logger.WithField("action", "dynamic_upgrade_abort").
-			Error(errors.Wrap(err, "drop partially-built hnsw index"))
+			Errorf("drop partially-built hnsw index: %v", err)
 	}
 	// Drop removes the commit log directory, but remove it explicitly in case
 	// Drop failed partway through.
 	if err := os.RemoveAll(hnswCommitLogDirectory(dynamic.rootPath, dynamic.id)); err != nil {
 		dynamic.logger.WithField("action", "dynamic_upgrade_abort").
-			Error(errors.Wrap(err, "remove partial hnsw commit log"))
+			Errorf("remove partial hnsw commit log: %v", err)
 	}
 }
 
