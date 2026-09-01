@@ -219,9 +219,10 @@ func TestOnlyAPromotedFlipReportsRangeableReady(t *testing.T) {
 	const propName = filterableToRangeablePropName
 
 	tests := []struct {
-		name      string
-		rec       func(MigrationSubject) MigrationRecord
-		wantReady bool
+		name       string
+		rec        func(MigrationSubject) MigrationRecord
+		unreadable bool
+		wantReady  bool
 	}{
 		{
 			name: "iterating",
@@ -250,6 +251,14 @@ func TestOnlyAPromotedFlipReportsRangeableReady(t *testing.T) {
 			},
 			wantReady: true,
 		},
+		{
+			// No record decodes, so this shard cannot tell a flip that has
+			// finished from one still running. The rangeable bucket is there
+			// and nothing set an explicit entry, which is the one combination
+			// that would otherwise default to ready.
+			name:       "a record that does not decode leaves the flip undecidable",
+			unreadable: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -263,9 +272,18 @@ func TestOnlyAPromotedFlipReportsRangeableReady(t *testing.T) {
 			require.True(t, shard.IsRangeableLocallyReady(propName),
 				"fixture: a property whose rangeable bucket exists defaults to ready")
 
-			task, _ := newFilterableToRangeableTask(t, idx, className, propName)
-			subject := task.migrationSubject(shard, []string{propName}, time.Now())
-			require.NoError(t, task.putMigrationRecord(shard, tt.rec(subject)))
+			if tt.unreadable {
+				require.NoError(t, os.MkdirAll(shard.migrationRecords.Dir(), 0o777))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(shard.migrationRecords.Dir(), "99_enable_searchable.json"),
+					[]byte("{"), 0o600))
+				require.NoError(t, shard.migrationRecords.Load())
+				require.NotEmpty(t, shard.migrationRecords.Unreadable())
+			} else {
+				task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+				subject := task.migrationSubject(shard, []string{propName}, time.Now())
+				require.NoError(t, task.putMigrationRecord(shard, tt.rec(subject)))
+			}
 
 			markInFlightRangeableMigrationsNotReady(shard)
 
