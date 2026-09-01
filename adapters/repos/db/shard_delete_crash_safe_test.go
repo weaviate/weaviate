@@ -115,11 +115,12 @@ func crashSafeTestObject(className string) *storobj.Object {
 // crashSafeObjectState reads everything the assertions below need about a
 // stored object: its row bytes, docID and the analyzed inverted properties.
 type crashSafeObjectState struct {
-	idBytes  []byte
-	row      []byte
-	docID    uint64
-	props    []inverted.Property
-	nilProps []inverted.NilProperty
+	idBytes    []byte
+	row        []byte
+	docID      uint64
+	updateTime int64
+	props      []inverted.Property
+	nilProps   []inverted.NilProperty
 }
 
 func crashSafeReadObjectState(t *testing.T, s *Shard, id strfmt.UUID) *crashSafeObjectState {
@@ -135,7 +136,7 @@ func crashSafeReadObjectState(t *testing.T, s *Shard, id strfmt.UUID) *crashSafe
 	require.NoError(t, err)
 	require.NotNil(t, row, "object row must exist")
 
-	docID, _, err := storobj.DocIDAndTimeFromBinary(row)
+	docID, updateTime, err := storobj.DocIDAndTimeFromBinary(row)
 	require.NoError(t, err)
 
 	className, err := bucket.ClassName()
@@ -147,11 +148,12 @@ func crashSafeReadObjectState(t *testing.T, s *Shard, id strfmt.UUID) *crashSafe
 	require.NoError(t, err)
 
 	return &crashSafeObjectState{
-		idBytes:  idBytes,
-		row:      row,
-		docID:    docID,
-		props:    props,
-		nilProps: nilProps,
+		idBytes:    idBytes,
+		row:        row,
+		docID:      docID,
+		updateTime: updateTime,
+		props:      props,
+		nilProps:   nilProps,
 	}
 }
 
@@ -572,4 +574,106 @@ func TestDeleteCrashSafe_DeleteByFilterViaBatch(t *testing.T) {
 	st := states[nonMatching.ID()]
 	require.True(t, crashSafeRowPresent(t, s, st.idBytes), "non-matching object must survive")
 	require.NotEmpty(t, crashSafePostingsForDocID(t, ctx, s, st))
+}
+
+// TestDeleteCrashSafe_BatchRevalidationRace pins the batcher's phase-2
+// revalidation: when a concurrent put replaces the object between phase 1
+// (inverted cleanup) and phase 2 (row delete), phase 2 must NOT just delete
+// the row — that would orphan the put's fresh postings. It must fall back to
+// the full crash-safe single-object delete, leaving row AND fresh postings
+// gone.
+func TestDeleteCrashSafe_BatchRevalidationRace(t *testing.T) {
+	ctx := testCtx()
+	className := "DeleteCrashSafeBatchRace"
+	s := crashSafeTestShard(t, ctx, className)
+
+	obj := crashSafeTestObject(className)
+	require.NoError(t, s.PutObject(ctx, obj))
+	stOld := crashSafeReadObjectState(t, s, obj.ID())
+
+	// phase 1: postings cleaned, row stays
+	prep, err := s.prepareBatchDelete(ctx, obj.ID(), time.Time{})
+	require.NoError(t, err)
+	require.True(t, prep.found)
+	require.Equal(t, stOld.docID, prep.docID)
+	require.Empty(t, crashSafePostingsForDocID(t, ctx, s, stOld))
+	require.True(t, crashSafeRowPresent(t, s, stOld.idBytes))
+
+	// a concurrent put wins the race between the phases: same uuid, fresh
+	// properties -> fresh postings under a fresh docID
+	updated := &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:    obj.ID(),
+			Class: className,
+			Properties: map[string]interface{}{
+				crashSafeTextProp: "charlie delta",
+				crashSafeIntProp:  float64(7),
+			},
+		},
+	}
+	require.NoError(t, s.PutObject(ctx, updated))
+	stNew := crashSafeReadObjectState(t, s, obj.ID())
+	// NOTE: a props-only update PRESERVES the docID (a fresh docID is only
+	// assigned when vectors/geo change), and updateTime has millisecond
+	// resolution — the revalidation therefore also fingerprints the row
+	// bytes. Assert the row content really did change.
+	require.False(t, bytes.Equal(stOld.row, stNew.row),
+		"concurrent put must change the row bytes")
+	require.NotEmpty(t, crashSafePostingsForDocID(t, ctx, s, stNew),
+		"the put's fresh postings must exist before phase 2")
+
+	// barrier + phase 2: must detect the changed row and fall back to the
+	// full crash-safe delete of the FRESH row
+	require.NoError(t, s.invertedDeleteBarrier(ctx, prep.touched))
+	require.NoError(t, s.finalizeBatchDelete(ctx, prep, time.Time{}))
+
+	require.False(t, crashSafeRowPresent(t, s, stNew.idBytes))
+	require.Empty(t, crashSafePostingsForDocID(t, ctx, s, stNew),
+		"phase 2 fallback must remove the concurrent put's fresh postings (no orphans)")
+	require.Empty(t, crashSafePostingsForDocID(t, ctx, s, stOld))
+}
+
+// TestDeleteCrashSafe_BatchRetryAfterCrashBetweenPhases simulates a crash
+// after the batch barrier but before any phase-2 row delete: rows present,
+// postings gone. Retrying the whole batch through the public API must
+// converge with no error.
+func TestDeleteCrashSafe_BatchRetryAfterCrashBetweenPhases(t *testing.T) {
+	ctx := testCtx()
+	className := "DeleteCrashSafeBatchRetry"
+	s := crashSafeTestShard(t, ctx, className)
+
+	obj1 := crashSafeTestObject(className)
+	obj2 := crashSafeTestObject(className)
+	require.NoError(t, s.PutObject(ctx, obj1))
+	require.NoError(t, s.PutObject(ctx, obj2))
+	st1 := crashSafeReadObjectState(t, s, obj1.ID())
+	st2 := crashSafeReadObjectState(t, s, obj2.ID())
+
+	// phase 1 for both objects + one barrier over the union — then "crash"
+	// before phase 2
+	union := newTouchedBuckets()
+	for _, id := range []strfmt.UUID{obj1.ID(), obj2.ID()} {
+		prep, err := s.prepareBatchDelete(ctx, id, time.Time{})
+		require.NoError(t, err)
+		require.True(t, prep.found)
+		union.merge(prep.touched)
+	}
+	require.NoError(t, s.invertedDeleteBarrier(ctx, union))
+
+	for _, st := range []*crashSafeObjectState{st1, st2} {
+		require.True(t, crashSafeRowPresent(t, s, st.idBytes))
+		require.Empty(t, crashSafePostingsForDocID(t, ctx, s, st))
+	}
+
+	// retry through the public batch API
+	result := s.DeleteObjectBatch(ctx, []strfmt.UUID{obj1.ID(), obj2.ID()}, time.Time{}, false)
+	for _, r := range result {
+		require.NoError(t, r.Err)
+	}
+
+	for _, st := range []*crashSafeObjectState{st1, st2} {
+		require.False(t, crashSafeRowPresent(t, s, st.idBytes))
+		require.Empty(t, crashSafePostingsForDocID(t, ctx, s, st))
+	}
 }
