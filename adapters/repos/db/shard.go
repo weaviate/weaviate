@@ -364,6 +364,12 @@ type Shard struct {
 	// replication
 	replicationMap pendingReplicaTasks
 
+	// testDeletePhaseHook, when non-nil, is invoked after each phase of the
+	// crash-safe delete sequence (see deleteObjectCrashSafeLocked). It exists
+	// ONLY so tests can assert the no-orphan-posting invariant at every
+	// intermediate state; production code never sets it.
+	testDeletePhaseHook func(phase string)
+
 	// Indicates whether searchable buckets should be used
 	// when filterable buckets are missing for text/text[] properties
 	// This can happen for db created before v1.19, where

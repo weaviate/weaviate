@@ -600,10 +600,12 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	if prevObject != nil {
 		// TODO: metrics
-		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID, st); err != nil {
+		// nil touched-bucket collector: the put path replaces the row rather
+		// than deleting it, so it needs no inverted-delete durability barrier
+		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID, st, nil); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
 		}
-		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID); err != nil {
+		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID, nil); err != nil {
 			return fmt.Errorf("delete nested inverted indices: %w", err)
 		}
 		if s.index.Config.TrackVectorDimensions {
