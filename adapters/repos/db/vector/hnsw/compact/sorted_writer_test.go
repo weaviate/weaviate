@@ -13,8 +13,10 @@ package compact
 
 import (
 	"bytes"
+	"io"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -201,4 +203,157 @@ func TestSortedWriter_CombinedScenario(t *testing.T) {
 	// Check counts
 	assert.Equal(t, 3, len(result.Graph.Tombstones), "Should have 3 tombstones")
 	assert.Equal(t, 2, len(result.Graph.TombstonesDeleted), "Should have 2 tombstones deleted")
+}
+
+// decodeAllCommits reads every commit from raw WAL bytes.
+func decodeAllCommits(t *testing.T, raw []byte, logger logrus.FieldLogger) []Commit {
+	t.Helper()
+
+	r := NewWALCommitReader(bytes.NewReader(raw), logger)
+	var out []Commit
+	for {
+		c, err := r.ReadNextCommit()
+		if errors.Is(err, io.EOF) {
+			return out
+		}
+		require.NoError(t, err)
+		out = append(out, c)
+	}
+}
+
+// TestSortedWriter_DocIDReuse verifies the interaction between the reader's
+// re-add reconciliation and the sorted writer's isDeleted-first classification.
+// The DeserializationResult is intentionally produced by the reader (not
+// hand-built): the writer must see the exact state the reader leaves behind.
+func TestSortedWriter_DocIDReuse(t *testing.T) {
+	const id = uint64(7)
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+
+	t.Run("re-added node survives with its new life", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := NewWALWriter(&buf)
+		require.NoError(t, w.WriteAddNode(1, 0))
+		require.NoError(t, w.WriteAddNode(2, 0))
+		// old life
+		require.NoError(t, w.WriteAddNode(id, 2))
+		require.NoError(t, w.WriteReplaceLinksAtLevel(id, 0, []uint64{1}))
+		// delete lifecycle
+		require.NoError(t, w.WriteAddTombstone(id))
+		require.NoError(t, w.WriteDeleteNode(id))
+		require.NoError(t, w.WriteRemoveTombstone(id))
+		// new life (docID reuse)
+		require.NoError(t, w.WriteAddNode(id, 1))
+		require.NoError(t, w.WriteReplaceLinksAtLevel(id, 0, []uint64{2}))
+		require.NoError(t, w.WriteReplaceLinksAtLevel(id, 1, []uint64{2}))
+
+		reader := NewWALCommitReader(&buf, logger)
+		memReader := NewInMemoryReader(reader, logger)
+		res, err := memReader.Do(nil, true)
+		require.NoError(t, err)
+
+		var sortedBuf bytes.Buffer
+		require.NoError(t, NewSortedWriter(&sortedBuf, logger).WriteAll(res))
+
+		// The condensed output must contain the live re-added node and must
+		// not delete or tombstone it.
+		var sawAddNode bool
+		for _, c := range decodeAllCommits(t, sortedBuf.Bytes(), logger) {
+			switch ct := c.(type) {
+			case *AddNodeCommit:
+				if ct.ID == id {
+					sawAddNode = true
+					assert.Equal(t, uint16(1), ct.Level, "AddNode must carry the new life's level")
+				}
+			case *DeleteNodeCommit:
+				assert.NotEqual(t, id, ct.ID, "re-added node must not be deleted in sorted output")
+			case *AddTombstoneCommit:
+				assert.NotEqual(t, id, ct.ID, "re-added node must not be tombstoned in sorted output")
+			case *RemoveTombstoneCommit:
+				assert.NotEqual(t, id, ct.ID, "old life's RemoveTombstone must not leak into sorted output")
+			}
+		}
+		assert.True(t, sawAddNode, "sorted output must contain AddNode for the re-added node")
+
+		// Replaying the sorted output must yield the live new life.
+		replayed, err := NewInMemoryReader(NewWALCommitReader(&sortedBuf, logger), logger).Do(nil, true)
+		require.NoError(t, err)
+		require.NotNil(t, replayed.Graph.Nodes[id], "re-added node must survive the sorted round trip")
+		assert.Equal(t, 1, replayed.Graph.Nodes[id].Level)
+		assert.Equal(t, []uint64{2}, replayed.Graph.Nodes[id].Connections.GetLayer(0))
+		assert.Equal(t, []uint64{2}, replayed.Graph.Nodes[id].Connections.GetLayer(1))
+		assert.NotContains(t, replayed.Graph.NodesDeleted, id)
+		assert.NotContains(t, replayed.Graph.Tombstones, id)
+		assert.NotContains(t, replayed.Graph.TombstonesDeleted, id)
+	})
+
+	t.Run("deleted node without re-add still emits DeleteNode", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := NewWALWriter(&buf)
+		require.NoError(t, w.WriteAddNode(id, 1))
+		require.NoError(t, w.WriteDeleteNode(id))
+
+		reader := NewWALCommitReader(&buf, logger)
+		memReader := NewInMemoryReader(reader, logger)
+		res, err := memReader.Do(nil, true)
+		require.NoError(t, err)
+
+		var sortedBuf bytes.Buffer
+		require.NoError(t, NewSortedWriter(&sortedBuf, logger).WriteAll(res))
+
+		var sawDelete bool
+		for _, c := range decodeAllCommits(t, sortedBuf.Bytes(), logger) {
+			switch ct := c.(type) {
+			case *DeleteNodeCommit:
+				if ct.ID == id {
+					sawDelete = true
+				}
+			case *AddNodeCommit:
+				assert.NotEqual(t, id, ct.ID, "deleted node must not be re-added in sorted output")
+			}
+		}
+		assert.True(t, sawDelete, "DeleteNode must still be emitted when the node is not re-added")
+
+		replayed, err := NewInMemoryReader(NewWALCommitReader(&sortedBuf, logger), logger).Do(nil, true)
+		require.NoError(t, err)
+		assert.Nil(t, replayed.Graph.Nodes[id])
+		assert.Contains(t, replayed.Graph.NodesDeleted, id)
+	})
+}
+
+// TestSortedWriter_LiveTombstonedNode_SurvivesSortedRoundTrip guards the
+// sorted format's canonical per-node ordering: AddTombstone is written BEFORE
+// AddNode for a live tombstoned node. The reader's docID-reuse reconciliation
+// must not treat that AddNode as a re-add, or the live tombstone would be
+// destroyed on every re-read of a .sorted/.condensed file.
+func TestSortedWriter_LiveTombstonedNode_SurvivesSortedRoundTrip(t *testing.T) {
+	const id = uint64(7)
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+
+	var buf bytes.Buffer
+	w := NewWALWriter(&buf)
+	require.NoError(t, w.WriteAddNode(1, 0))
+	require.NoError(t, w.WriteAddNode(id, 2))
+	require.NoError(t, w.WriteReplaceLinksAtLevel(id, 0, []uint64{1}))
+	require.NoError(t, w.WriteAddTombstone(id))
+
+	res, err := NewInMemoryReader(NewWALCommitReader(&buf, logger), logger).Do(nil, true)
+	require.NoError(t, err)
+
+	// Round trip through the sorted format twice: the second pass reads a file
+	// in which AddTombstone(id) precedes AddNode(id).
+	for i := 0; i < 2; i++ {
+		var sortedBuf bytes.Buffer
+		require.NoError(t, NewSortedWriter(&sortedBuf, logger).WriteAll(res))
+		res, err = NewInMemoryReader(NewWALCommitReader(&sortedBuf, logger), logger).Do(nil, true)
+		require.NoError(t, err)
+
+		require.NotNil(t, res.Graph.Nodes[id], "round trip %d: node must stay live", i)
+		assert.Equal(t, 2, res.Graph.Nodes[id].Level, "round trip %d", i)
+		assert.Contains(t, res.Graph.Tombstones, id,
+			"round trip %d: live tombstone must survive the sorted round trip", i)
+	}
 }

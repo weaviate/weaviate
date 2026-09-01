@@ -229,6 +229,22 @@ func (r *InMemoryReader) readNode(c *AddNodeCommit, res *ent.DeserializationResu
 		res.Graph.Nodes = newNodes
 	}
 
+	// docID reuse: an AddNode for an id with recorded delete state is a re-add
+	// (the WAL guarantees DeleteNode precedes any re-add of the same id). The
+	// new life must not inherit the old life's delete/tombstone bookkeeping,
+	// otherwise downstream consumers (SortedWriter, NWayMerger) would classify
+	// the live node as deleted and drop it. Clearing is gated on NodesDeleted
+	// on purpose: the sorted format writes tombstone ops BEFORE AddNode for a
+	// live node, so an ungated clear would destroy live tombstones when
+	// re-reading .sorted/.condensed files. Note that links-only materialization
+	// (readLink & co.) deliberately does NOT count as a re-add — only AddNode
+	// carries the level and marks the beginning of a new life.
+	if _, deleted := res.Graph.NodesDeleted[c.ID]; deleted {
+		delete(res.Graph.NodesDeleted, c.ID)
+		delete(res.Graph.Tombstones, c.ID)
+		delete(res.Graph.TombstonesDeleted, c.ID)
+	}
+
 	if res.Graph.Nodes[c.ID] == nil {
 		conns, err := packedconn.NewWithMaxLayer(uint8(c.Level))
 		if err != nil {

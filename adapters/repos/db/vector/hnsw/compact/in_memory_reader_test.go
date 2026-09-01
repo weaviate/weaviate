@@ -127,6 +127,117 @@ func TestInMemoryReader_HasResetReflectsLastDoCall(t *testing.T) {
 	require.False(t, memReader.HasReset(), "second Do should clear the previous reset state")
 }
 
+// TestInMemoryReader_DocIDReuse_ReAddClearsStaleState verifies that when a
+// docID is re-added after a delete (docID reuse), the reader drops all stale
+// per-id delete/tombstone state. Without this reconciliation, downstream
+// consumers (SortedWriter) would classify the live re-added node as deleted
+// and drop it from the condensed output.
+func TestInMemoryReader_DocIDReuse_ReAddClearsStaleState(t *testing.T) {
+	const id = uint64(5)
+
+	tests := []struct {
+		name      string
+		write     func(t *testing.T, w *WALWriter)
+		wantLevel int
+	}{
+		{
+			name: "full lifecycle then re-add",
+			write: func(t *testing.T, w *WALWriter) {
+				require.NoError(t, w.WriteAddNode(id, 2))
+				require.NoError(t, w.WriteAddTombstone(id))
+				require.NoError(t, w.WriteDeleteNode(id))
+				require.NoError(t, w.WriteRemoveTombstone(id))
+				require.NoError(t, w.WriteAddNode(id, 1))
+			},
+			wantLevel: 1,
+		},
+		{
+			// AddTombstone happened in an older log, so RemoveTombstone records
+			// the asymmetric TombstonesDeleted bookkeeping. It must not survive
+			// the re-add.
+			name: "cleanup tail then re-add leaves no TombstonesDeleted",
+			write: func(t *testing.T, w *WALWriter) {
+				require.NoError(t, w.WriteDeleteNode(id))
+				require.NoError(t, w.WriteRemoveTombstone(id))
+				require.NoError(t, w.WriteAddNode(id, 1))
+			},
+			wantLevel: 1,
+		},
+		{
+			// Tombstone still pending when the id is re-added. The stale
+			// tombstone belongs to the previous life and must not survive.
+			name: "re-add while old-life tombstone still present",
+			write: func(t *testing.T, w *WALWriter) {
+				require.NoError(t, w.WriteAddNode(id, 2))
+				require.NoError(t, w.WriteAddTombstone(id))
+				require.NoError(t, w.WriteDeleteNode(id))
+				require.NoError(t, w.WriteAddNode(id, 1))
+			},
+			wantLevel: 1,
+		},
+		{
+			name: "re-add followed by new-life links",
+			write: func(t *testing.T, w *WALWriter) {
+				require.NoError(t, w.WriteAddNode(1, 0))
+				require.NoError(t, w.WriteAddNode(id, 1))
+				require.NoError(t, w.WriteAddTombstone(id))
+				require.NoError(t, w.WriteDeleteNode(id))
+				require.NoError(t, w.WriteRemoveTombstone(id))
+				require.NoError(t, w.WriteAddNode(id, 2))
+				require.NoError(t, w.WriteReplaceLinksAtLevel(id, 0, []uint64{1}))
+			},
+			wantLevel: 2,
+		},
+	}
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			w := NewWALWriter(&buf)
+			tt.write(t, w)
+
+			reader := NewWALCommitReader(&buf, logger)
+			memReader := NewInMemoryReader(reader, logger)
+			result, err := memReader.Do(nil, true)
+			require.NoError(t, err)
+
+			require.NotNil(t, result.Graph.Nodes[id], "re-added node must be live")
+			assert.Equal(t, tt.wantLevel, result.Graph.Nodes[id].Level, "level must come from the re-add")
+			assert.NotContains(t, result.Graph.NodesDeleted, id, "stale NodesDeleted entry must be cleared on re-add")
+			assert.NotContains(t, result.Graph.Tombstones, id, "stale Tombstones entry must be cleared on re-add")
+			assert.NotContains(t, result.Graph.TombstonesDeleted, id, "stale TombstonesDeleted entry must be cleared on re-add")
+		})
+	}
+}
+
+// TestInMemoryReader_DeleteWithoutReAdd_KeepsDeleteState pins the counterpart:
+// without a re-add, delete/tombstone bookkeeping must be preserved so that the
+// SortedWriter still emits DeleteNode for the id.
+func TestInMemoryReader_DeleteWithoutReAdd_KeepsDeleteState(t *testing.T) {
+	const id = uint64(5)
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+
+	var buf bytes.Buffer
+	w := NewWALWriter(&buf)
+	require.NoError(t, w.WriteAddNode(id, 1))
+	require.NoError(t, w.WriteAddTombstone(id))
+	require.NoError(t, w.WriteDeleteNode(id))
+
+	reader := NewWALCommitReader(&buf, logger)
+	memReader := NewInMemoryReader(reader, logger)
+	result, err := memReader.Do(nil, true)
+	require.NoError(t, err)
+
+	assert.Nil(t, result.Graph.Nodes[id])
+	assert.Contains(t, result.Graph.NodesDeleted, id)
+	assert.Contains(t, result.Graph.Tombstones, id)
+}
+
 func TestFilterValidTargets(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
