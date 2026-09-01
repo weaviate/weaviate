@@ -690,6 +690,107 @@ func TestPropsEqual(t *testing.T) {
 			}(),
 			expectedEqual: false,
 		},
+		// empty typed arrays on the request side must compare equal to the
+		// []interface{}{} placeholder the disk read path produces
+		{
+			prevProps: map[string]interface{}{
+				"texts":    []interface{}{},
+				"ints":     []interface{}{},
+				"numbers":  []interface{}{},
+				"booleans": []interface{}{},
+				"uuids":    []interface{}{},
+				"dates":    []interface{}{},
+			},
+			nextProps: map[string]interface{}{
+				"texts":    []string{},
+				"ints":     []float64{},
+				"numbers":  []float64{},
+				"booleans": []bool{},
+				"uuids":    []uuid.UUID{},
+				"dates":    []time.Time{},
+			},
+			expectedEqual: true,
+		},
+		// a geo-shaped object property is stored as *models.GeoCoordinates on
+		// disk but arrives as a map in the request; unchanged values must
+		// still compare equal
+		{
+			prevProps: map[string]interface{}{
+				"geoObj": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(45.67),
+					Longitude: ptrFloat32(-12.34),
+				},
+			},
+			nextProps: map[string]interface{}{
+				"geoObj": map[string]interface{}{
+					"latitude":  float64(45.67),
+					"longitude": float64(-12.34),
+				},
+			},
+			expectedEqual: true,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geoObj": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(45.67),
+					Longitude: ptrFloat32(-12.34),
+				},
+			},
+			nextProps: map[string]interface{}{
+				"geoObj": map[string]interface{}{
+					"latitude":  float64(45.67),
+					"longitude": float64(100.0),
+				},
+			},
+			expectedEqual: false,
+		},
+		// same for a phone-shaped object property
+		{
+			prevProps: map[string]interface{}{
+				"phoneObj": &models.PhoneNumber{
+					Input:                  "123456789",
+					InternationalFormatted: "+48 12 345 67 89",
+					NationalFormatted:      "12 345 67 89",
+					National:               123456789,
+					CountryCode:            48,
+					Valid:                  true,
+				},
+			},
+			nextProps: map[string]interface{}{
+				"phoneObj": map[string]interface{}{
+					"input":                  "123456789",
+					"internationalFormatted": "+48 12 345 67 89",
+					"nationalFormatted":      "12 345 67 89",
+					"national":               float64(123456789),
+					"countryCode":            float64(48),
+					"valid":                  true,
+				},
+			},
+			expectedEqual: true,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"phoneObj": &models.PhoneNumber{
+					Input:                  "123456789",
+					InternationalFormatted: "+48 12 345 67 89",
+					NationalFormatted:      "12 345 67 89",
+					National:               123456789,
+					CountryCode:            48,
+					Valid:                  true,
+				},
+			},
+			nextProps: map[string]interface{}{
+				"phoneObj": map[string]interface{}{
+					"input":                  "000000000",
+					"internationalFormatted": "+48 12 345 67 89",
+					"nationalFormatted":      "12 345 67 89",
+					"national":               float64(123456789),
+					"countryCode":            float64(48),
+					"valid":                  true,
+				},
+			},
+			expectedEqual: false,
+		},
 	}
 
 	for i, tc := range testCases {
