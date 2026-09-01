@@ -623,6 +623,21 @@ func (p *ReindexProvider) processOneUnit(
 		tasks = p.cachedReindexTasks(task.TaskDescriptor, unitID)
 		cached = len(tasks) > 0
 	}
+	// A non-empty set is not a complete one. Recovery seeds a task per tracker
+	// directory that carries a migration record, so a unit that restarted
+	// between its two halves seeds one half and nothing says so. Running it
+	// alone reports the unit finished and commits the schema for both.
+	if cached {
+		if missing := migrationHalvesMissingFromCache(
+			concreteShard.pathLSM(), task.TaskDescriptor, unitID, tasks); len(missing) > 0 {
+			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf(
+				"recovery rebuilt %d of this unit's migrations and %d more never started (%s); "+
+					"refusing the unit rather than reporting it finished with those unbuilt. "+
+					"Re-run the migration once this node is up",
+				len(tasks), len(missing), strings.Join(migrationReportedNames(missing), ", ")))
+			return
+		}
+	}
 	if !cached {
 		var createErr error
 		tasks, createErr = p.createReindexTasks(task.TaskDescriptor, unitID, payload, concreteShard.pathLSM(), false)

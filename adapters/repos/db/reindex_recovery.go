@@ -16,8 +16,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -304,6 +306,13 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 	if !ok || !state.IterationComplete() || state.State() == MigrationStatePromoted {
 		return rec, recoveryPayloadNotApplicable, nil
 	}
+	return readRecoveryPayload(migDir)
+}
+
+// readRecoveryPayload decodes one tracker's payload.mig, which names the task,
+// the unit and the migration the tracker belongs to.
+func readRecoveryPayload(migDir string) (reindexRecoveryRecord, recoveryPayloadFault, error) {
+	var rec reindexRecoveryRecord
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
 	// Only an oversized payload takes this arm. The bound is checked with a
 	// stat, so every other stat failure — a missing payload.mig above all — would
@@ -325,6 +334,60 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 		}
 	}
 	return rec, recoveryPayloadOK, nil
+}
+
+// migrationHalvesMissingFromCache names the tracker directories this unit
+// created on the shard that the recovery-seeded task set does not cover.
+//
+// A tracker directory exists for every task the unit generated, written before
+// the iteration ran, while a recovered task exists only where the tracker also
+// carries a migration record. So a change-tokenization unit that restarted
+// between its two halves recovers one task and no more, and the consumer reads
+// a non-empty set as the whole unit.
+//
+// Generations are compared away: a retried unit's older tracker names the same
+// half as the running one.
+func migrationHalvesMissingFromCache(lsmPath string, desc distributedtask.TaskDescriptor,
+	unitID string, tasks []*ShardReindexTaskGeneric,
+) []string {
+	covered := map[string]struct{}{}
+	for _, t := range tasks {
+		if base, _, ok := parseMigrationDirName(t.strategy.MigrationDirName()); ok {
+			covered[base] = struct{}{}
+		}
+	}
+
+	entries, err := os.ReadDir(filepath.Join(lsmPath, migrationsDir))
+	if err != nil {
+		// Nothing to compare against. The walk that seeded the cache read the
+		// same directory, so a fault here is one it already reported.
+		return nil
+	}
+
+	missing := map[string]struct{}{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		base, _, ok := parseMigrationDirName(entry.Name())
+		if !ok {
+			continue
+		}
+		if _, there := covered[base]; there {
+			continue
+		}
+		// A tracker whose payload cannot be read names no unit, so it cannot be
+		// claimed for this one.
+		rec, fault, _ := readRecoveryPayload(filepath.Join(lsmPath, migrationsDir, entry.Name()))
+		if fault != recoveryPayloadOK {
+			continue
+		}
+		if rec.TaskID != desc.ID || rec.TaskVersion != desc.Version || rec.UnitID != unitID {
+			continue
+		}
+		missing[base] = struct{}{}
+	}
+	return slices.Sorted(maps.Keys(missing))
 }
 
 func buildRecoveryTasks(
