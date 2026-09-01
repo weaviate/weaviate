@@ -14,8 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -42,28 +40,6 @@ import (
 // renames the live mmap'd main bucket dir, which corrupts the segment
 // registry in-process. Production reaches it only post-restart; the
 // recovery-convergence matrices in this directory cover that path.
-
-// dispatchMatrixSentinel names one of the five sentinel states.
-type dispatchMatrixSentinel string
-
-const (
-	dispatchMatrixIsReindexed dispatchMatrixSentinel = "IsReindexed"
-	dispatchMatrixIsPrepended dispatchMatrixSentinel = "IsPrepended"
-	dispatchMatrixIsMerged    dispatchMatrixSentinel = "IsMerged"
-	dispatchMatrixIsSwapped   dispatchMatrixSentinel = "IsSwapped"
-	dispatchMatrixIsTidied    dispatchMatrixSentinel = "IsTidied"
-)
-
-// dispatchMatrixAllSentinels is the canonical iteration order; used by
-// the inner loop of each strategy row so the failure output reads
-// left-to-right along the state machine.
-var dispatchMatrixAllSentinels = []dispatchMatrixSentinel{
-	dispatchMatrixIsReindexed,
-	dispatchMatrixIsPrepended,
-	dispatchMatrixIsMerged,
-	dispatchMatrixIsSwapped,
-	dispatchMatrixIsTidied,
-}
 
 // dispatchMatrixStrategyCase describes one row in the strategy axis. The
 // closures cover everything that varies by strategy: class fixture
@@ -267,19 +243,14 @@ func dispatchMatrixRangeableFingerprintAsString(t *testing.T, b *lsmkv.Bucket) m
 	return out
 }
 
-// dispatchMatrixDriveCell drives the test shard to the requested
-// sentinel state: RunReindexOnlyOnShard for IsReindexed, +RunPrepareOnShard
-// for IsMerged, +RunSwapOnShard for IsTidied, and synthetic sentinel-file
-// removal for IsPrepended / IsSwapped. Unreachable cells call t.Skip.
+// dispatchMatrixDriveCell drives the test shard to the requested sentinel
+// state, skipping the one cell that is not safely reachable in-process.
 func dispatchMatrixDriveCell(
 	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	sentinel dispatchMatrixSentinel,
+	sentinel reindexSentinelState,
 ) {
 	t.Helper()
-	switch sentinel {
-	case dispatchMatrixIsReindexed:
-		dispatchMatrixDriveToReindexed(t, ctx, shard, task)
-	case dispatchMatrixIsPrepended:
+	if sentinel == sentinelStatePrepended {
 		// recoverRuntimeSwapBuckets renames the live main bucket dir
 		// while the in-memory store still mmaps its segments; that
 		// corrupts the segment registry and any subsequent path-based
@@ -288,98 +259,8 @@ func dispatchMatrixDriveCell(
 		// where FinalizeCompletedMigrations did not already advance
 		// the sentinel. See the file godoc above.
 		t.Skip("IsPrepended dispatch branch requires post-restart in-memory state; not safely reachable in a same-process unit test (recoverRuntimeSwapBuckets renames live mmap'd bucket dirs). Convergence matrices cover the post-restart path.")
-	case dispatchMatrixIsMerged:
-		dispatchMatrixDriveToMerged(t, ctx, shard, task)
-	case dispatchMatrixIsSwapped:
-		dispatchMatrixDriveToTidied(t, ctx, shard, task)
-		dispatchMatrixRemoveTidiedSentinel(t, shard, task)
-	case dispatchMatrixIsTidied:
-		dispatchMatrixDriveToTidied(t, ctx, shard, task)
-	default:
-		t.Fatalf("dispatchMatrix: unknown sentinel %q", sentinel)
 	}
-}
-
-func dispatchMatrixDriveToReindexed(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-) {
-	t.Helper()
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-}
-
-func dispatchMatrixDriveToMerged(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-) {
-	t.Helper()
-	dispatchMatrixDriveToReindexed(t, ctx, shard, task)
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-}
-
-func dispatchMatrixDriveToTidied(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-) {
-	t.Helper()
-	dispatchMatrixDriveToMerged(t, ctx, shard, task)
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
-}
-
-// dispatchMatrixRemoveTidiedSentinel removes tidied.mig to synthesize the
-// IsSwapped-without-IsTidied state. runtimeSwap writes markSwapped and
-// markTidied together (no kernel-level guarantee about file order under a
-// crash); the synthetic removal mimics a crash between the two fsyncs.
-func dispatchMatrixRemoveTidiedSentinel(
-	t *testing.T, shard *Shard, task *ShardReindexTaskGeneric,
-) {
-	t.Helper()
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	ftr := rt.(*fileReindexTracker)
-	require.NoError(t, os.Remove(
-		filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)),
-		"removing tidied.mig to synthesize IsSwapped-only state")
-}
-
-// dispatchMatrixExpectedSentinelsForState returns the sentinel snapshot
-// the test asserts BEFORE calling RunSwapOnShard, so a buggy driveToState
-// doesn't let a downstream pass mask a missed setup.
-func dispatchMatrixExpectedSentinelsForState(s dispatchMatrixSentinel) map[string]bool {
-	switch s {
-	case dispatchMatrixIsReindexed:
-		return map[string]bool{
-			"reindexed": true, "prepended": false, "merged": false, "swapped": false, "tidied": false,
-		}
-	case dispatchMatrixIsPrepended:
-		return map[string]bool{
-			"reindexed": true, "prepended": true, "merged": false, "swapped": false, "tidied": false,
-		}
-	case dispatchMatrixIsMerged:
-		return map[string]bool{
-			"reindexed": true, "prepended": true, "merged": true, "swapped": false, "tidied": false,
-		}
-	case dispatchMatrixIsSwapped:
-		return map[string]bool{
-			"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": false,
-		}
-	case dispatchMatrixIsTidied:
-		return map[string]bool{
-			"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true,
-		}
-	}
-	return nil
-}
-
-// dispatchMatrixReadSentinels snapshots all five sentinels in one call so
-// the assertion failure output displays the full state, not a single
-// missed flag.
-func dispatchMatrixReadSentinels(t *testing.T, rt reindexTracker) map[string]bool {
-	t.Helper()
-	return map[string]bool{
-		"reindexed": rt.IsReindexed(),
-		"prepended": rt.IsPrepended(),
-		"merged":    rt.IsMerged(),
-		"swapped":   rt.IsSwapped(),
-		"tidied":    rt.IsTidied(),
-	}
+	driveToSentinelState(t, ctx, shard, task, sentinel)
 }
 
 // dispatchMatrixComputeBaseline computes the post-clean-migration
@@ -402,7 +283,7 @@ func dispatchMatrixComputeBaseline(
 	dispatchMatrixSeedObjects(t, ctx, shard, sc, className, numObjects)
 
 	task := sc.buildTask(t, idx, className, propName)
-	dispatchMatrixDriveToTidied(t, ctx, shard, task)
+	driveToSentinelState(t, ctx, shard, task, sentinelStateTidied)
 
 	return sc.fingerprint(t, shard, sc.fingerprintBucketName(propName))
 }
@@ -445,7 +326,7 @@ func TestRunSwapOnShard_DispatchMatrix(t *testing.T) {
 				"baseline fingerprint for %s must be non-empty (a strategy whose clean migration produces no terms can't anchor convergence assertions)",
 				sc.strategyName)
 
-			for _, sentinel := range dispatchMatrixAllSentinels {
+			for _, sentinel := range allReindexSentinelStates {
 				sentinel := sentinel
 				t.Run(string(sentinel), func(t *testing.T) {
 					dispatchMatrixRunCell(t, sc, sentinel, numObjects, baseline)
@@ -459,7 +340,7 @@ func TestRunSwapOnShard_DispatchMatrix(t *testing.T) {
 func dispatchMatrixRunCell(
 	t *testing.T,
 	sc dispatchMatrixStrategyCase,
-	sentinel dispatchMatrixSentinel,
+	sentinel reindexSentinelState,
 	numObjects int,
 	baseline map[string][]uint64,
 ) {
@@ -484,8 +365,8 @@ func dispatchMatrixRunCell(
 	// Verify the drive halted at the intended sentinel snapshot.
 	rt, err := task.newReindexTracker(shard.pathLSM())
 	require.NoError(t, err)
-	want := dispatchMatrixExpectedSentinelsForState(sentinel)
-	got := dispatchMatrixReadSentinels(t, rt)
+	want := expectedSentinelsAt(sentinel)
+	got := readReindexSentinels(rt)
 	for name, w := range want {
 		assert.Equalf(t, w, got[name],
 			"pre-RunSwapOnShard sentinel %q (strategy=%s state=%s): want=%v got=%v full=%v",
@@ -500,7 +381,7 @@ func dispatchMatrixRunCell(
 	// Post-call: every sentinel should be set (terminal state).
 	rtPost, err := task.newReindexTracker(shard.pathLSM())
 	require.NoError(t, err)
-	postGot := dispatchMatrixReadSentinels(t, rtPost)
+	postGot := readReindexSentinels(rtPost)
 	postWant := map[string]bool{
 		"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true,
 	}
