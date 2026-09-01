@@ -274,6 +274,18 @@ type Shard struct {
 	queue         *VectorIndexQueue
 	vectorIndexes map[string]VectorIndex
 	queues        map[string]*VectorIndexQueue
+	// vectorIndexRefs counts the in-flight users of one vector index, so
+	// DropVectorIndex can wait for them the way drop() waits for shard
+	// references. Keyed by the legacy-normalized target name (see
+	// [Shard.pinVectorIndex]); a counter is removed with its vector.
+	vectorIndexRefs sync.Map // string -> *atomic.Int64
+	// vectorIndexDropping counts the drops claimed per target: no new
+	// reference may be taken while the count is above zero. Guarded by
+	// vectorIndexMu, which is what orders a claim against an in-flight pin. A
+	// count rather than a flag because a re-enqueued drop can overlap the one
+	// it retries, and the first to finish must not re-open the target the
+	// other is still draining for.
+	vectorIndexDropping map[string]int
 
 	geoQueues map[string]*VectorIndexQueue
 

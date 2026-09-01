@@ -15,7 +15,10 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync/atomic"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"go.etcd.io/bbolt"
 
@@ -427,11 +430,87 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 	return index.Drop(ctx, false)
 }
 
+// claimVectorIndexDrop marks targetVector as being dropped, so no new
+// reference can be taken on it, and returns the key its references are counted
+// under plus the release for that claim. Every exit path must release: a claim
+// left behind would leave a live vector unqueryable, and one released early
+// re-opens a target another drop is still draining for.
+func (s *Shard) claimVectorIndexDrop(targetVector string) (key string, release func()) {
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+
+	key = targetVector
+	if s.isTargetVectorLegacyWithLock(targetVector) {
+		key = ""
+	}
+	if s.vectorIndexDropping == nil {
+		s.vectorIndexDropping = map[string]int{}
+	}
+	s.vectorIndexDropping[key]++
+
+	var released atomic.Bool
+	return key, func() {
+		if !released.CompareAndSwap(false, true) {
+			return
+		}
+		s.vectorIndexMu.Lock()
+		defer s.vectorIndexMu.Unlock()
+		if s.vectorIndexDropping[key]--; s.vectorIndexDropping[key] <= 0 {
+			delete(s.vectorIndexDropping, key)
+		}
+	}
+}
+
+// drainVectorIndexRefs waits for the in-flight users of one vector index to
+// finish, so its drop does not remove the index and its buckets underneath a
+// running request. The caller must have claimed the target first, or new
+// references keep arriving.
+//
+// Bounded like the shard-level drain: on timeout the caller proceeds and the
+// stragglers fail on the deregistered bucket, rather than one stuck reference
+// blocking the drop forever.
+func (s *Shard) drainVectorIndexRefs(key string) error {
+	return backoff.Retry(func() error {
+		if refs := s.vectorIndexRefsFor(key).Load(); refs > 0 {
+			return fmt.Errorf("vector %q of shard %q holds %d reference(s): %w",
+				key, s.name, refs, errShardStillInUse)
+		}
+		return nil
+	}, backoff.WithMaxRetries(backoff.NewConstantBackOff(300*time.Millisecond), 100)) // 30 seconds
+}
+
 // DropVectorIndex shuts down and removes the named vector index and its queue
 // from this shard, deleting associated files from disk. It also removes the
 // LSM buckets that store the raw and compressed vector data.
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
-	if err := s.dropVectorIndexArtifacts(ctx, targetVector); err != nil {
+	key, releaseClaim := s.claimVectorIndexDrop(targetVector)
+	defer releaseClaim()
+
+	// Before the drain, not after: the queue holds the index for as long as it
+	// indexes, so a live queue would keep the reference count above zero until
+	// the window runs out.
+	if err := s.dropVectorIndexQueue(ctx, targetVector); err != nil {
+		return err
+	}
+
+	if drainErr := s.drainVectorIndexRefs(key); drainErr != nil {
+		s.index.logger.WithFields(logrus.Fields{
+			"action":        "drop_vector_index",
+			"class":         s.index.Config.ClassName.String(),
+			"shard":         s.name,
+			"target_vector": targetVector,
+		}).Errorf("proceeding with drop while references are still held; in-flight requests on this vector will fail: %v", drainErr)
+	}
+
+	// A fresh budget for the teardown, started after the drain rather than
+	// before it: the wait above can consume a whole caller deadline, and a
+	// half-dropped vector — queue gone, index and buckets still there — is the
+	// worst outcome of the two. Same reasoning as the fresh shutdown context
+	// in [Shard.drop].
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+	defer cancel()
+
+	if err := s.dropVectorIndexArtifacts(ctx, targetVector, key); err != nil {
 		return err
 	}
 
@@ -444,16 +523,9 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	return nil
 }
 
-func (s *Shard) dropVectorIndexArtifacts(ctx context.Context, targetVector string) error {
+func (s *Shard) dropVectorIndexArtifacts(ctx context.Context, targetVector, key string) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
-
-	if queue, ok := s.queues[targetVector]; ok && queue != nil {
-		if err := queue.Drop(ctx); err != nil {
-			return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
-		}
-		delete(s.queues, targetVector)
-	}
 
 	if index, ok := s.vectorIndexes[targetVector]; ok && index != nil {
 		if err := dropOneVectorIndex(ctx, index); err != nil {
@@ -487,6 +559,29 @@ func (s *Shard) dropVectorIndexArtifacts(ctx context.Context, targetVector strin
 			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
 		}
 	}
+
+	// The vector is gone, so its reference counter has nothing left to guard.
+	// The claim is released by the deferred call, after this lock.
+	s.vectorIndexRefs.Delete(key)
+
+	return nil
+}
+
+// dropVectorIndexQueue stops and forgets targetVector's queue. Split out of
+// DropVectorIndex because it must run before the reference drain, outside the
+// lock the rest of the drop holds.
+func (s *Shard) dropVectorIndexQueue(ctx context.Context, targetVector string) error {
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+
+	queue, ok := s.queues[targetVector]
+	if !ok || queue == nil {
+		return nil
+	}
+	if err := queue.Drop(ctx); err != nil {
+		return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
+	}
+	delete(s.queues, targetVector)
 
 	return nil
 }

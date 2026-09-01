@@ -657,20 +657,25 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 
 	distances := make([]float32, len(targetVectors))
 	for j, target := range targetVectors {
-		index, ok := s.GetVectorIndex(target)
-		if !ok {
-			return nil, fmt.Errorf("index %s not found", target)
-		}
-		var distancer common.QueryVectorDistancer
-		switch v := searchVectors[j].(type) {
-		case []float32:
-			distancer = index.QueryVectorDistancer(v)
-		case [][]float32:
-			distancer = index.(VectorIndexMulti).QueryMultiVectorDistancer(v)
-		default:
-			return nil, fmt.Errorf("unsupported vector type: %T", v)
-		}
-		dist, err := distancer.DistanceToNode(docId)
+		// one pin per target, released before the next one is taken
+		dist, err := func() (float32, error) {
+			index, release, ok := s.pinVectorIndex(target)
+			if !ok {
+				return 0, fmt.Errorf("index %s not found", target)
+			}
+			defer release()
+
+			var distancer common.QueryVectorDistancer
+			switch v := searchVectors[j].(type) {
+			case []float32:
+				distancer = index.QueryVectorDistancer(v)
+			case [][]float32:
+				distancer = index.(VectorIndexMulti).QueryMultiVectorDistancer(v)
+			default:
+				return 0, fmt.Errorf("unsupported vector type: %T", v)
+			}
+			return distancer.DistanceToNode(docId)
+		}()
 		if err != nil {
 			return nil, err
 		}
@@ -736,10 +741,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				err   error
 			)
 
-			vidx, ok := s.GetVectorIndex(targetVector)
+			vidx, release, ok := s.pinVectorIndex(targetVector)
 			if !ok {
 				return fmt.Errorf("index for target vector %q not found", targetVector)
 			}
+			defer release()
 
 			if limit < 0 {
 				switch searchVector := searchVectors[i].(type) {
