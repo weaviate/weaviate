@@ -31,6 +31,10 @@ import (
 
 func scanConcurrency() int { return 2 * runtime.GOMAXPROCS(0) }
 
+// A worker carries its largest object between reads, so this bounds what one
+// outsized object pins. A normal object with its vectors fits under it.
+const maxRetainedBufferBytes = 1 << 20 // 1MB
+
 // ObjectScanFn is called once per object with the context the scan runs under,
 // which is cancelled whenever the caller's is. If an error is returned, the
 // scanning will stop.
@@ -112,6 +116,10 @@ func (os *objectScannerLSM) scan(ctx context.Context) error {
 			// each object is scanned one after the other, so we can reuse the same memory allocations for all objects
 			docIDBytes := make([]byte, 8)
 
+			// Grown to the largest object this worker reads, up to maxRetainedBufferBytes.
+			// Safe to reuse: UnmarshalPropertiesFromObject retains no slice into it.
+			var objBuf []byte
+
 			// The typed properties are needed for extraction from json
 			var properties models.PropertySchema
 
@@ -123,12 +131,13 @@ func (os *objectScannerLSM) scan(ctx context.Context) error {
 					return err
 				}
 				binary.LittleEndian.PutUint64(docIDBytes, id)
-				// GetBySecondary reads ctx for slow-query annotation only, so a worker
-				// already inside this read is not interrupted by a cancellation.
-				res, err := os.objectsBucket.GetBySecondary(groupCtx, 0, docIDBytes)
+				// GetBySecondaryWithBuffer reads ctx for slow-query annotation only, so a
+				// worker already inside this read is not interrupted by a cancellation.
+				res, newBuf, err := os.objectsBucket.GetBySecondaryWithBuffer(groupCtx, 0, docIDBytes, objBuf)
 				if err != nil {
 					return err
 				}
+				objBuf = newBuf
 
 				if res == nil {
 					continue
@@ -154,6 +163,10 @@ func (os *objectScannerLSM) scan(ctx context.Context) error {
 					return nil
 				}(); err != nil {
 					return err
+				}
+
+				if cap(objBuf) > maxRetainedBufferBytes {
+					objBuf = nil
 				}
 			}
 			return nil

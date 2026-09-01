@@ -16,6 +16,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -55,7 +59,7 @@ func TestScanObjectsLSM(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
-			store, pointers := storeWithObjects(t, tt.objectCount, logger)
+			store, pointers := storeWithObjects(t, tt.objectCount, logger, false)
 
 			var calls atomic.Int64
 			scan := func(_ context.Context, _ *models.PropertySchema, _ uint64) error {
@@ -134,7 +138,7 @@ func TestScanObjectsLSMCancellation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
-			store, pointers := storeWithObjects(t, tt.storedObjects, logger)
+			store, pointers := storeWithObjects(t, tt.storedObjects, logger, false)
 			for i := len(pointers); i < tt.pointerCount; i++ {
 				pointers = append(pointers, uint64(i))
 			}
@@ -167,8 +171,101 @@ func TestScanObjectsLSMCancellation(t *testing.T) {
 	}
 }
 
-// Sweeps what the per-doc-ID context poll in scan costs, on the two shapes the
-// loop takes: every doc ID resolving to an object, and none of them resolving.
+// A worker's payload buffer is grown to the largest object it has read, so a
+// smaller object is parsed out of a buffer whose spare capacity still holds a
+// larger one. These rows pin the values scanFn is handed under that reuse.
+func TestScanObjectsLSMPropertyValues(t *testing.T) {
+	const (
+		objectCount = 200
+		sizeStep    = 64
+	)
+	propertyNames := []string{"name", "count", "flag", "tags", "scores", "meta"}
+
+	tests := []struct {
+		name string
+		// largest object first, so the later ones meet an over-sized buffer
+		descending bool
+		// every nth pointer resolves to no object; 0 inserts none
+		missingEvery int
+		// every nth object is padded past maxRetainedBufferBytes; 0 pads none
+		oversizedEvery int
+	}{
+		{name: "sizes descending", descending: true},
+		{name: "sizes ascending", descending: false},
+		{name: "sizes descending, doc IDs missing mid-scan", descending: true, missingEvery: 7},
+		{name: "objects past the retained buffer cap", oversizedEvery: 13},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			props := make([]map[string]interface{}, objectCount)
+			for i := range props {
+				padding := (i + 1) * sizeStep
+				if tt.descending {
+					padding = (objectCount - i) * sizeStep
+				}
+				if tt.oversizedEvery > 0 && i%tt.oversizedEvery == 0 {
+					padding = maxRetainedBufferBytes + sizeStep
+				}
+				props[i] = objectProperties(i, padding)
+			}
+
+			logger, _ := test.NewNullLogger()
+			store, stored := storeWithProperties(t, logger, true, props)
+
+			pointers := stored
+			if tt.missingEvery > 0 {
+				pointers = nil
+				for i, id := range stored {
+					if i%tt.missingEvery == 0 {
+						pointers = append(pointers, uint64(objectCount+i))
+					}
+					pointers = append(pointers, id)
+				}
+			}
+			require.Greater(t, len(pointers), scanConcurrency(),
+				"a worker must read more than one object or its buffer is never reused")
+
+			var lock sync.Mutex
+			scanned := map[uint64]interface{}{}
+			scan := func(_ context.Context, prop *models.PropertySchema, docID uint64) error {
+				lock.Lock()
+				defer lock.Unlock()
+				scanned[docID] = *prop
+				return nil
+			}
+
+			require.NoError(t, ScanObjectsLSM(context.Background(), store, pointers, scan,
+				propertyNames, logger))
+
+			require.Len(t, scanned, objectCount)
+			for i, want := range props {
+				require.Equal(t, want, scanned[uint64(i)], "properties of object %d", i)
+			}
+		})
+	}
+}
+
+// objectProperties returns properties already in the shape UnmarshalProperties
+// decodes them back into, so the fixture doubles as the expected value.
+func objectProperties(i, padding int) map[string]interface{} {
+	tags := make([]interface{}, 0, padding/512+1)
+	for j := 0; j <= padding/512; j++ {
+		tags = append(tags, fmt.Sprintf("tag-%d-%d", i, j))
+	}
+	return map[string]interface{}{
+		"name":   strings.Repeat("x", padding),
+		"count":  float64(i),
+		"flag":   i%2 == 0,
+		"tags":   tags,
+		"scores": []interface{}{float64(i) + 0.5, float64(i) + 1.5},
+		"meta":   map[string]interface{}{"owner": fmt.Sprintf("owner-%d", i), "rank": float64(i)},
+	}
+}
+
+// Sweeps what the per-doc-ID context poll and the reused payload buffer cost,
+// on the two shapes the loop takes: every doc ID resolving to an object, and
+// none of them resolving.
 func BenchmarkScanObjectsLSM(b *testing.B) {
 	const docIDCount = 50000
 
@@ -183,12 +280,13 @@ func BenchmarkScanObjectsLSM(b *testing.B) {
 	for _, bm := range benchmarks {
 		b.Run(bm.name, func(b *testing.B) {
 			logger, _ := test.NewNullLogger()
-			store, pointers := storeWithObjects(b, bm.storedObjects, logger)
+			store, pointers := storeWithObjects(b, bm.storedObjects, logger, true)
 			for i := len(pointers); i < docIDCount; i++ {
 				pointers = append(pointers, uint64(i))
 			}
 			scan := func(_ context.Context, _ *models.PropertySchema, _ uint64) error { return nil }
 
+			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				if err := ScanObjectsLSM(context.Background(), store, pointers, scan,
@@ -203,7 +301,20 @@ func BenchmarkScanObjectsLSM(b *testing.B) {
 // storeWithObjects returns a store holding count objects keyed by their UUID,
 // with the docID secondary index ScanObjectsLSM resolves pointers through, and
 // the docIDs of those objects.
-func storeWithObjects(tb testing.TB, count int, logger logrus.FieldLogger) (*lsmkv.Store, []uint64) {
+func storeWithObjects(tb testing.TB, count int, logger logrus.FieldLogger, flush bool) (*lsmkv.Store, []uint64) {
+	props := make([]map[string]interface{}, count)
+	for i := range props {
+		props[i] = map[string]interface{}{"name": fmt.Sprintf("object-%d", i)}
+	}
+	return storeWithProperties(tb, logger, flush, props)
+}
+
+// storeWithProperties returns a store holding one object per entry in props and
+// the docIDs of those objects. flush is what puts them in a disk segment, the
+// only path on which GetBySecondaryWithBuffer fills the caller's buffer.
+func storeWithProperties(tb testing.TB, logger logrus.FieldLogger, flush bool,
+	props []map[string]interface{},
+) (*lsmkv.Store, []uint64) {
 	ctx := context.Background()
 	dir := tb.TempDir()
 
@@ -218,7 +329,7 @@ func storeWithObjects(tb testing.TB, count int, logger logrus.FieldLogger) (*lsm
 		lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1)))
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
-	pointers := make([]uint64, count)
+	pointers := make([]uint64, len(props))
 	for i := range pointers {
 		docID := uint64(i)
 		pointers[i] = docID
@@ -226,7 +337,7 @@ func storeWithObjects(tb testing.TB, count int, logger logrus.FieldLogger) (*lsm
 		id := uuid.New()
 		obj := storobj.New(docID)
 		obj.SetID(strfmt.UUID(id.String()))
-		obj.Object.Properties = map[string]interface{}{"name": fmt.Sprintf("object-%d", i)}
+		obj.Object.Properties = props[i]
 		objBytes, err := obj.MarshalBinary()
 		require.NoError(tb, err)
 
@@ -240,5 +351,23 @@ func storeWithObjects(tb testing.TB, count int, logger logrus.FieldLogger) (*lsm
 			lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)))
 	}
 
+	if flush && len(props) > 0 {
+		require.NoError(tb, bucket.FlushMemtable())
+		requireSegmentOnDisk(tb, bucket.GetDir())
+	}
+
 	return store, pointers
+}
+
+// requireSegmentOnDisk fails unless the bucket wrote a segment; without one a
+// scan answers from the memtable and never reuses the buffer.
+func requireSegmentOnDisk(tb testing.TB, dir string) {
+	entries, err := os.ReadDir(dir)
+	require.NoError(tb, err)
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".db" {
+			return
+		}
+	}
+	require.Fail(tb, "no segment file in "+dir)
 }
