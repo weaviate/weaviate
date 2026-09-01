@@ -17,11 +17,11 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"go.etcd.io/bbolt"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
@@ -192,7 +192,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		// here we label the main vector index as such.
 		vecIdxID := s.vectorIndexID(targetVector)
 
-		sharedDB, err := s.getOrInitDynamicVectorIndexDB()
+		metaDB, err := s.getOrInitMetadataDB()
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
 		}
@@ -221,7 +221,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				)
 			},
 			TombstoneCallbacks:   s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			SharedDB:             sharedDB,
+			State:                metaDB.Namespace(dynamic.StateNamespace),
 			AllocChecker:         s.index.allocChecker,
 			MakeBucketOptions:    makeBucketOptions,
 			AsyncIndexingEnabled: s.index.AsyncIndexingEnabled,
@@ -311,21 +311,18 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 	return vectorIndex, nil
 }
 
-func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
-	if s.dynamicVectorIndexDB == nil {
-		path := filepath.Join(s.path(), dynamicent.StateDBFileName)
-
-		// Timeout: a leaked handle from a failed shard teardown holds the flock;
-		// without it this open retries forever and wedges the loading goroutine.
-		db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: entlsmkv.BoltFlockTimeout})
+func (s *Shard) getOrInitMetadataDB() (*shardmeta.DB, error) {
+	if s.metadataDB == nil {
+		// Timeout: a leaked handle from a failed shard teardown holds the
+		// flock; without it this open retries forever and wedges the loading
+		// goroutine.
+		db, err := shardmeta.Open(s.path(), entlsmkv.BoltFlockTimeout)
 		if err != nil {
-			return nil, errors.Wrapf(err, "open %q", path)
+			return nil, err
 		}
-
-		s.dynamicVectorIndexDB = db
+		s.metadataDB = db
 	}
-
-	return s.dynamicVectorIndexDB, nil
+	return s.metadataDB, nil
 }
 
 // initTargetVectors builds the named target-vector indexes. legacy and configs
