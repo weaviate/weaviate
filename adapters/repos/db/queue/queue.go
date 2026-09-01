@@ -1160,13 +1160,37 @@ func (w *chunkWriter) Close() error {
 	return stderrors.Join(errs...)
 }
 
+// chunkTimeNow returns the timestamp used to name new chunk files.
+// It is a variable so tests can force a timestamp collision.
+var chunkTimeNow = func() int64 { return time.Now().UnixMicro() }
+
+// createChunkMaxAttempts bounds the number of timestamp increments Create
+// tries before giving up. In practice a single retry is already rare: it
+// requires two chunks created within the same microsecond.
+const createChunkMaxAttempts = 1000
+
 func (w *chunkWriter) Create() error {
 	var err error
 
-	path := filepath.Join(w.dir, fmt.Sprintf(chunkFileFmt, time.Now().UnixMicro()))
-	w.f, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		return errors.Wrap(err, "failed to create chunk file")
+	// Chunk files are named after their creation time in microseconds, so
+	// two chunks created within the same microsecond collide on the same
+	// name. Without O_EXCL the second create would silently reopen the
+	// existing chunk and later header writes would clobber it. Create
+	// exclusively and bump the timestamp until a free name is found.
+	ts := chunkTimeNow()
+	for i := 0; ; i++ {
+		path := filepath.Join(w.dir, fmt.Sprintf(chunkFileFmt, ts))
+		w.f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o644)
+		if err == nil {
+			break
+		}
+		if !os.IsExist(err) {
+			return errors.Wrap(err, "failed to create chunk file")
+		}
+		if i >= createChunkMaxAttempts {
+			return errors.Wrapf(err, "failed to create chunk file after %d attempts", createChunkMaxAttempts)
+		}
+		ts++
 	}
 
 	w.w.Reset(w.f)
