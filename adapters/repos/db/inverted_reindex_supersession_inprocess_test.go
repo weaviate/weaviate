@@ -150,3 +150,46 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 		})
 	}
 }
+
+// A swap removes the directory it displaced, which on a back-to-back migration
+// is the predecessor's staged directory holding its only migrated copy. When
+// the successor covers just some of the predecessor's properties, retirement
+// leaves that record standing, so the swap has to leave what it still names.
+func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
+	ctx := testCtx()
+	className := "SwapKeepsHeldDir_" + uuid.NewString()[:8]
+	class := newEnableFilterableTestClass(className, "title", "body")
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(context.Background())
+
+	for _, obj := range makeConvergenceTestObjects(t, 10, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	predecessor, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 1, "title", "body")
+	require.NoError(t, predecessor.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, predecessor.RunPrepareOnShard(ctx, shard))
+	require.NoError(t, predecessor.RunSwapOnShard(ctx, shard))
+
+	held := predecessor.ingestBucketName("title")
+	require.DirExists(t, filepath.Join(shard.pathLSM(), held),
+		"the flip leaves the migrated data at the staged name until a load promotes it")
+
+	// Only "title" is superseded, so the predecessor keeps its record and goes
+	// on naming both staged directories.
+	successor, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 2, "title")
+	require.NoError(t, successor.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, successor.RunPrepareOnShard(ctx, shard))
+	require.NoError(t, successor.RunSwapOnShard(ctx, shard))
+
+	rec, stillRecorded := shard.migrationRecords.Get(predecessor.migrationRecordKey())
+	require.True(t, stillRecorded,
+		"a record whose properties are only partly superseded is not retired")
+	require.Equal(t, held, rec.Subject().StagedDirs["title"])
+
+	require.DirExists(t, filepath.Join(shard.pathLSM(), held),
+		"the successor's flip must not remove the directory the predecessor names as its staged data")
+}
