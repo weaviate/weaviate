@@ -630,7 +630,7 @@ func TestARecordPromotesPastAPropertyRetirementWillNotReclaim(t *testing.T) {
 	require.Equal(t, old.Props["body"].Staged, f.contentOf(old.Props["body"].Canonical),
 		"the property nothing took over promoted in the same pass")
 
-	require.Equal(t, 1, countErrorsContaining(f, "refusing to reclaim"))
+	require.Len(t, f.errorLines("refusing to reclaim"), 1)
 
 	shard := &Shard{migrationRecords: f.store}
 	markInFlightRangeableMigrationsNotReady(shard)
@@ -638,16 +638,6 @@ func TestARecordPromotesPastAPropertyRetirementWillNotReclaim(t *testing.T) {
 		"a promoted record marks nothing not-ready")
 	require.Contains(t, shard.rangeableLocalReady, "title",
 		"the successor's own property still degrades, which is its own wedge and not this one")
-}
-
-func countErrorsContaining(f *reconcileFixture, want string) int {
-	n := 0
-	for _, entry := range f.logs.AllEntries() {
-		if entry.Level == logrus.ErrorLevel && strings.Contains(entry.Message, want) {
-			n++
-		}
-	}
-	return n
 }
 
 // TestUnretiredSupersededPropertiesReportOncePerRecord pins the report to one
