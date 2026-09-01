@@ -181,6 +181,13 @@ type dynamic struct {
 	// above) lets tests substitute a failing or blocking rebuild without a
 	// test-only branch in the production path. Production always runs doUpgrade.
 	upgradeFn func() error
+
+	// betweenCopyBatchesHook, if set, runs after each cursor batch that
+	// copyToVectorIndex flushed into the new index while more keys remain.
+	// Test-only seam: it lets a test place a concurrent Add/Delete
+	// deterministically inside the upgrade's copy window. Never set in
+	// production.
+	betweenCopyBatchesHook func()
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -956,6 +963,10 @@ func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
 
 		if k == nil {
 			break
+		}
+
+		if dynamic.betweenCopyBatchesHook != nil {
+			dynamic.betweenCopyBatchesHook()
 		}
 	}
 
