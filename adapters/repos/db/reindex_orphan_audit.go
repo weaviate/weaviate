@@ -219,17 +219,10 @@ type orphanReindexTracker struct {
 	indexTypes  []string
 }
 
-// String formats one keyed line per field for greppable log queries.
+// String formats one keyed line per field for greppable log queries, with the
+// property list bounded: the list is user-chosen and unbounded, and every line
+// that carries one is emitted per orphan on a walk over every shard.
 func (o *orphanReindexTracker) String() string {
-	return fmt.Sprintf(
-		"collection=%q shard=%q tracker=%q gen=%d taskID=%q taskVersion=%d unitID=%q properties=%v indexTypes=%v",
-		o.collection, o.shardName, o.dirName, o.generation,
-		o.taskID, o.taskVersion, o.unitID, o.properties, o.indexTypes)
-}
-
-// Capped is String with the property list bounded, for the lines a running
-// unit can emit once per orphan on a walk over every shard on the node.
-func (o *orphanReindexTracker) Capped() string {
 	return fmt.Sprintf(
 		"collection=%q shard=%q tracker=%q gen=%d taskID=%q taskVersion=%d unitID=%q property_count=%d properties=%v indexTypes=%v",
 		o.collection, o.shardName, o.dirName, o.generation,
@@ -703,7 +696,7 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 		o := &orphans[i]
 		release, sealed := db.sealOrphanUnit(o)
 		if !sealed {
-			logger.WithField("orphan", o.Capped()).
+			logger.WithField("orphan", o.String()).
 				Warn("reindex orphan audit: a local unit of this migration is still running; leaving its tracker for the next audit")
 			failed = append(failed, o.dirName)
 			continue
@@ -739,7 +732,7 @@ func (db *DB) cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexT
 		o := &orphans[i]
 		release, sealed := db.sealOrphanUnit(o)
 		if !sealed {
-			logger.WithField("orphan", o.Capped()).
+			logger.WithField("orphan", o.String()).
 				Warn("reindex orphan audit: a local unit of this migration is still running; leaving its tracker for the next audit")
 			failed = append(failed, o.dirName)
 			continue

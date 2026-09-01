@@ -96,11 +96,11 @@ func TestRecoveryWalkReportsMissingPayloadsOnce(t *testing.T) {
 	require.Contains(t, names[len(names)-1], fmt.Sprintf("and %d more", shards-maxReportedErrors))
 }
 
-// TestOrphanTrackerCappedBoundsItsPropertyList pins that the formatter the
+// TestOrphanTrackerStringBoundsItsPropertyList pins that the formatter the
 // orphan audit logs with caps its property list. A property list is
 // user-chosen and unbounded, and the audit emits one line per orphan on a walk
 // over every shard on the node.
-func TestOrphanTrackerCappedBoundsItsPropertyList(t *testing.T) {
+func TestOrphanTrackerStringBoundsItsPropertyList(t *testing.T) {
 	const props = maxReportedErrors*2 + 5
 
 	names := make([]string, props)
@@ -121,16 +121,13 @@ func TestOrphanTrackerCappedBoundsItsPropertyList(t *testing.T) {
 		indexTypes:  []string{"searchable"},
 	}
 
-	capped := orphan.Capped()
-	require.Contains(t, capped, fmt.Sprintf("property_count=%d", props),
+	line := orphan.String()
+	require.Contains(t, line, fmt.Sprintf("property_count=%d", props),
 		"the count of properties survives the cap")
-	require.NotContains(t, capped, beyondCap,
+	require.NotContains(t, line, beyondCap,
 		"a property past the cap must not reach the line")
-	require.Contains(t, capped, fmt.Sprintf("(and %d more", props-maxReportedErrors),
+	require.Contains(t, line, fmt.Sprintf("(and %d more", props-maxReportedErrors),
 		"the line says how many names it left out")
-
-	require.Contains(t, orphan.String(), beyondCap,
-		"fixture: String is the uncapped formatter, so the cap above is Capped's own doing")
 }
 
 // TestOverlayConflictReportsManyPropertiesInOneLine pins the overlay-conflict
