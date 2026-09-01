@@ -543,9 +543,6 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 // the numeric generation tail is off. Keep in lockstep with the strategies'
 // ReindexSuffix / IngestSuffix / BackupSuffix; [TestEverySidecarSuffixIsASidecar]
 // pins that a new strategy either reuses one of these or extends the list.
-//
-// The list lives in entities/schema because property-name validation refuses a
-// name that would give a property this shape.
 var sidecarRoleWords = schema.SidecarRoleWords
 
 // isSidecarDirOf reports whether name is a per-property sidecar of

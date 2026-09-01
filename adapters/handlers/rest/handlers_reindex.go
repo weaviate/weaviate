@@ -78,14 +78,6 @@ func filterableIndexOn(prop *models.Property) bool {
 	}
 }
 
-// validateNoSidecarShapedProperties refuses a migration on a collection holding
-// a property whose own bucket reads as a working directory some migration
-// derives from a different property's name; the two would share a directory.
-//
-// Every property is checked, not just the ones the request names: a migration
-// on "title" collides with a property called
-// "title__enable_filterable_ingest_3" the request never mentions. Such a name
-// can no longer be created; a collection that already has one keeps serving.
 func validateNoSidecarShapedProperties(class *models.Class) error {
 	for _, prop := range class.Properties {
 		if entschema.PropertyNameIsSidecarShaped(prop.Name) {

@@ -414,10 +414,8 @@ func TestValidateRangeableProperties(t *testing.T) {
 	})
 }
 
-// -----------------------------------------------------------------------------
 // validateNoSidecarShapedProperties — a property whose own bucket reads as a
 // migration working directory blocks migrations on the whole collection.
-// -----------------------------------------------------------------------------
 
 func TestValidateNoSidecarShapedProperties(t *testing.T) {
 	cases := []struct {
