@@ -35,6 +35,8 @@ type arenaUint64Cache struct {
 	words int
 }
 
+var _ IfAbsentPreloader[uint64] = (*arenaUint64Cache)(nil)
+
 // NewArenaUint64Cache constructs an arena-backed Cache[uint64] for codes of
 // exactly recordWords words. Parameters mirror NewShardedUInt64LockCache.
 func NewArenaUint64Cache(vecForID common.VectorForID[uint64], recordWords int, maxSize int,
@@ -110,6 +112,13 @@ func (s *arenaUint64Cache) PrefetchGet(id uint64) []uint64 {
 
 func (s *arenaUint64Cache) Preload(id uint64, vec []uint64) {
 	s.inner.Preload(id, u64AsBytes(vec))
+}
+
+// PreloadIfAbsent delegates to the byte arena: it stores only into an empty
+// slot and reports whether it stored. An empty word slice reinterprets to
+// nil bytes, so it is refused (false) without growing, like the oracle.
+func (s *arenaUint64Cache) PreloadIfAbsent(id uint64, vec []uint64) bool {
+	return s.inner.PreloadIfAbsent(id, u64AsBytes(vec))
 }
 
 func (s *arenaUint64Cache) PreloadNoLock(id uint64, vec []uint64) {
