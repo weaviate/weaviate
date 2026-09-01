@@ -19,7 +19,7 @@ require (
 	github.com/bmatcuk/doublestar v1.3.4
 	github.com/brianvoe/gofakeit/v6 v6.28.0
 	github.com/buger/jsonparser v1.2.0
-	github.com/casbin/casbin/v2 v2.128.0
+	github.com/casbin/casbin/v2 v2.135.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/cespare/xxhash/v2 v2.3.0
