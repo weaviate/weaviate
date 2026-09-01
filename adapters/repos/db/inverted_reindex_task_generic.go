@@ -1294,12 +1294,6 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		return fmt.Errorf("recording the flip decision: %w", err)
 	}
 
-	if concrete, err := unwrapShard(ctx, shard); err == nil {
-		concrete.migrations().RetireSuperseded(ctx)
-	} else {
-		logger.Warnf("runtime swap: cannot retire superseded migrations: %v", err)
-	}
-
 	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))
 	for propIdx, propName := range props {
 		var (
@@ -1327,6 +1321,12 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		}
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
+
+	if concrete, err := unwrapShard(ctx, shard); err == nil {
+		concrete.migrations().RetireSuperseded(ctx)
+	} else {
+		logger.Warnf("runtime swap: cannot retire superseded migrations: %v", err)
+	}
 
 	// Phase 2b: only a shut-down bucket may be removed, and Bucket.Shutdown is what
 	// releases its path from lsmkv.GlobalBucketRegistry — skip it and the next
