@@ -90,7 +90,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	}
 
 	// split the vectors into two clusters
-	result, err := h.splitPosting(filtered)
+	result, err := h.splitPosting(ctx, filtered)
 	if err != nil {
 		return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
 	}
@@ -164,7 +164,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 }
 
 // splitPosting takes a posting and returns two groups.
-func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
+func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResult, error) {
 	dims, quantizer := h.loadQuantizer()
 	if quantizer == nil {
 		return nil, errors.New("split called on uninitialized index")
@@ -172,7 +172,27 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 
 	enc := compressionhelpers.NewKMeansEncoder(2, int(dims), 0)
 
-	data := posting.Uncompress(quantizer)
+	// Cluster on the full-precision vectors rather than their 1-bit
+	// reconstructions: the centroids this split produces become the new
+	// postings' routing representatives, and sign-only reconstructions bound
+	// their quality. An entry whose object cannot be fetched (e.g.
+	// deleted concurrently) falls back to its reconstruction so the split
+	// never drops it.
+	data := make([][]float32, len(posting))
+	var buf []uint64
+	for i, v := range posting {
+		var vec []float32
+		var err error
+		if h.config.VectorForIDThunk != nil {
+			vec, err = h.config.VectorForIDThunk(ctx, v.ID())
+		}
+		if err != nil || len(vec) == 0 {
+			buf = quantizer.FromCompressedBytesInto(v.Data(), buf)
+			data[i] = quantizer.Decode(buf)
+			continue
+		}
+		data[i] = h.normalizeVec(vec)
+	}
 
 	idsAssignments, err := enc.FitBalanced(data)
 	if err != nil {
