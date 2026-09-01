@@ -12,8 +12,11 @@
 package hfresh
 
 import (
+	"context"
+	"errors"
 	"math"
 	"math/rand"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -411,4 +414,67 @@ func TestSplitClustersOnFullPrecisionVectors(t *testing.T) {
 				"centroid coordinate %d must be the mean of the members' full-precision vectors", j)
 		}
 	}
+}
+
+// A vector deleted between the split's garbage-collection pass and its
+// full-precision fetch fails that attempt; doSplit must retry, filter the
+// now-deleted entry, and complete the split without it.
+func TestSplitRetriesWhenVectorDeletedDuringSplit(t *testing.T) {
+	tf := createHFreshIndex(t)
+	defer tf.Index.Shutdown(t.Context())
+
+	vectors := createTestVectors(4, 15)
+	postingID, posting := createPostingWithVectors(t, &tf, vectors, 400)
+
+	uncompressed := []float32{1.0, 0.0, 0.0, 0.0}
+	compressed := tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(uncompressed))
+	err := tf.Index.Centroids.Insert(postingID, &Centroid{
+		Uncompressed: uncompressed,
+		Compressed:   compressed,
+		Deleted:      false,
+	})
+	require.NoError(t, err)
+
+	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
+	require.NoError(t, err)
+	err = tf.Index.setPostingVectorIDs(t.Context(), postingID, posting)
+	require.NoError(t, err)
+
+	originalMax := tf.Index.maxPostingSize
+	tf.Index.maxPostingSize = 10
+	defer func() { tf.Index.maxPostingSize = originalMax }()
+
+	// vector 405 is deleted concurrently: its first fetch fails, and the
+	// deletion becomes visible in the version map right after — the retry's
+	// garbage collection must filter it
+	const deletedID = uint64(405)
+	var tripped atomic.Bool
+	base := tf.Index.config.VectorForIDThunk
+	tf.Index.config.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		if id == deletedID && tripped.CompareAndSwap(false, true) {
+			_, err := tf.Index.VersionMap.MarkDeleted(ctx, deletedID)
+			require.NoError(t, err)
+			return nil, errors.New("deleted concurrently")
+		}
+		return base(ctx, id)
+	}
+
+	err = tf.Index.doSplit(t.Context(), postingID, false)
+	require.NoError(t, err)
+	require.True(t, tripped.Load(), "the failing fetch must have been exercised")
+
+	require.False(t, tf.Index.Centroids.Exists(postingID))
+	require.True(t, tf.Index.Centroids.Exists(postingID+1))
+	require.True(t, tf.Index.Centroids.Exists(postingID+2))
+
+	var total int
+	for _, id := range []uint64{postingID + 1, postingID + 2} {
+		p, err := tf.Index.PostingStore.Get(t.Context(), id)
+		require.NoError(t, err)
+		total += len(p)
+		for _, v := range p {
+			require.NotEqual(t, deletedID, v.ID(), "the deleted vector must not survive the retry")
+		}
+	}
+	require.Equal(t, 14, total)
 }

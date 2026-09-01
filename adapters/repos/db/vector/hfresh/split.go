@@ -31,8 +31,16 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	var markedAsDone bool
 	defer func() {
 		if !markedAsDone {
-			h.postingLocks.Unlock(postingID)
+			// Clear the queue's dedup marker before releasing the posting
+			// lock: an append blocked on the lock enqueues its split only
+			// after acquiring it, so this ordering keeps that enqueue from
+			// being swallowed by a marker that is about to be removed —
+			// which would leave an oversized posting with no scheduled
+			// split. (Appends that passed their size check before this
+			// cleanup can still race the marker; the retry loop below makes
+			// failed splits rare enough that this tail is acceptable.)
 			h.taskQueue.SplitDone(postingID)
+			h.postingLocks.Unlock(postingID)
 		}
 	}()
 
@@ -63,36 +71,55 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 		return nil
 	}
 
-	filtered, err := p.GarbageCollect(h.VersionMap)
-	if err != nil {
-		return errors.Wrapf(err, "failed to garbage collect posting %d", postingID)
-	}
+	// splitPosting fetches every entry's full-precision vector, and an entry
+	// deleted between garbage collection and that fetch makes it fail. Such
+	// failures are transient — the next garbage-collection pass filters the
+	// deleted entry — so the collect+split sequence is retried a few times.
+	// An error returned past that is treated as permanent by the task queue
+	// and discards the task, leaving the oversized posting waiting for a
+	// future append to reschedule it.
+	const maxSplitAttempts = 3
+	var result []SplitResult
+	filtered := p
+	for attempt := 1; ; attempt++ {
+		var err error
+		filtered, err = filtered.GarbageCollect(h.VersionMap)
+		if err != nil {
+			return errors.Wrapf(err, "failed to garbage collect posting %d", postingID)
+		}
 
-	// skip if the filtered posting is now too small
-	if lf := len(filtered); lf < int(h.maxPostingSize) {
-		if lf == lp {
-			// no changes, just return
+		// skip if the filtered posting is now too small
+		if lf := len(filtered); lf < int(h.maxPostingSize) {
+			if lf == lp {
+				// no changes, just return
+				return nil
+			}
+
+			// persist the gc'ed posting
+			err = h.PostingStore.Put(ctx, postingID, filtered)
+			if err != nil {
+				return errors.Wrapf(err, "failed to put filtered posting %d after split operation", postingID)
+			}
+
+			err = h.setPostingVectorIDs(ctx, postingID, filtered)
+			if err != nil {
+				return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
+			}
+
 			return nil
 		}
 
-		// persist the gc'ed posting
-		err = h.PostingStore.Put(ctx, postingID, filtered)
-		if err != nil {
-			return errors.Wrapf(err, "failed to put filtered posting %d after split operation", postingID)
+		result, err = h.splitPosting(ctx, filtered)
+		if err == nil {
+			break
+		}
+		if attempt == maxSplitAttempts {
+			return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
 		}
 
-		err = h.setPostingVectorIDs(ctx, postingID, filtered)
-		if err != nil {
-			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", postingID)
-		}
-
-		return nil
-	}
-
-	// split the vectors into two clusters
-	result, err := h.splitPosting(ctx, filtered)
-	if err != nil {
-		return errors.Wrapf(err, "failed to split vectors for posting %d", postingID)
+		h.logger.WithField("postingID", postingID).
+			WithField("attempt", attempt).
+			Debug("retrying split after vector fetch failure")
 	}
 	// if one of the postings is empty, ignore the split
 	if len(result[0].Posting) == 0 || len(result[1].Posting) == 0 {
@@ -179,9 +206,9 @@ func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResu
 	data := make([][]float32, len(posting))
 	for i, v := range posting {
 		// A fetch failure (e.g. a vector deleted between garbage collection
-		// and this read) aborts the split rather than degrading it. The
-		// posting is still over the cap, so the next append re-enqueues the
-		// split, and its garbage collection removes the deleted entry.
+		// and this read) aborts the split rather than degrading it; doSplit
+		// retries the collect+split sequence so the deleted entry gets
+		// filtered on the next attempt.
 		vec, err := h.config.VectorForIDThunk(ctx, v.ID())
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to fetch vector %d for split", v.ID())
