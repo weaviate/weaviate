@@ -1259,7 +1259,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	defer func() {
 		if err != nil && !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
 			if ferr := t.flushReindexBuckets(bucketsByPropName, "checkpointing on error"); ferr != nil {
-				logger.WithError(ferr).Warn("skipping reindex progress checkpoint: buckets not durable")
+logger.Warnf("skipping reindex progress checkpoint: buckets not durable: %v", ferr)
 				return
 			}
 			logger.WithField("last_processed_key", lastProcessedKey).Debug("marking progress on error")
