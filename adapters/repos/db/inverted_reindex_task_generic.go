@@ -343,10 +343,9 @@ func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []
 	return os.WriteFile(target, payload, 0o600)
 }
 
-// RunOnShard runs the full reindex lifecycle on a live shard: the iteration,
-// then prep, then swap. Every phase dispatches on the sentinels it finds on
-// disk, so a task relaunched after a restart resumes from wherever the
-// previous run stopped instead of reporting success on a half-done migration.
+// RunOnShard sequences the reindex lifecycle (iterate, prep, swap) on a live
+// shard. Each phase dispatches on disk sentinels, so a relaunch after
+// restart resumes instead of reporting success on a half-done migration.
 // The shard may be a *Shard or *LazyLoadShard.
 func (t *ShardReindexTaskGeneric) RunOnShard(ctx context.Context, shard ShardLike) error {
 	if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {

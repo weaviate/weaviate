@@ -21,10 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// migrationTrackerDirExists reports whether the tracker directory of one
-// migration is on this shard. The name is a pure function of the strategy,
-// its properties and the task version, so the rehydrate path stats the one
-// name its migration could have written instead of searching for a highest.
+// migrationTrackerDirExists reports whether one migration's tracker dir
+// exists. The dir name is deterministic (strategy + props + task version),
+// so rehydrate stats that one name instead of scanning for a highest gen.
 func migrationTrackerDirExists(lsmPath, dirName string) bool {
 	info, err := os.Stat(filepath.Join(lsmPath, migrationsDir, dirName))
 	return err == nil && info.IsDir()
@@ -118,8 +117,8 @@ func fileExistsInDir(dirPath, fileName string) bool {
 // completed migrations that still need filesystem cleanup, and runs the
 // deferred ingest→canonical rename for each.
 //
-// Every migration tracker dir on disk carries a per-node generation
-// suffix `_<N>` (see [genSuffix]). For each (prop, indexType) tuple
+// Every migration tracker dir on disk carries a generation suffix `_<N>`
+// (see [genSuffix]). For each (prop, indexType) tuple
 // there may be multiple generations on disk if the prior end-of-swap
 // trim hadn't run yet — for example because the process crashed between
 // `markTidied` and the per-shard trim, or because a follow-up migration
