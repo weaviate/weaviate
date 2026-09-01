@@ -78,7 +78,7 @@ func newDynamicForDrop(t *testing.T, meta *shardmeta.DB, rootPath, targetVector 
 func TestDropTargetVector_LeavesTheSharedStateDBUsable(t *testing.T) {
 	ctx := context.Background()
 	rootPath := t.TempDir()
-	dbPath := filepath.Join(rootPath, ent.StateDBFileName)
+	dbPath := filepath.Join(rootPath, shardmeta.FileName)
 	meta, err := shardmeta.Open(rootPath, time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() { meta.Close() })

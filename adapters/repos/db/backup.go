@@ -24,12 +24,12 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -850,7 +850,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 			continue
 		}
 		name := entry.Name()
-		if name != dynamicent.StateDBFileName && !flatent.IsMetadataFile(name) {
+		if name != shardmeta.FileName && !flatent.IsMetadataFile(name) {
 			continue
 		}
 		relPath, err := filepath.Rel(rootPath, filepath.Join(shardDir, name))

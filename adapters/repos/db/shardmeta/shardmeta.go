@@ -26,16 +26,14 @@ import (
 
 	"go.etcd.io/bbolt"
 	bolterrors "go.etcd.io/bbolt/errors"
-
-	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 )
 
-// FileName is the metadata DB's name inside the shard directory. It aliases
-// the historical constant: the file began life as the dynamic index's state
-// DB and existing deployments already have it on disk under that name. The
-// constant itself stays in entities so entities/backup can keep referencing
-// it without importing adapters.
-const FileName = ent.StateDBFileName
+// FileName is the metadata DB's name inside the shard directory, owned here.
+// The file began life as the dynamic index's state DB and existing
+// deployments already have it on disk under this name, so it can never
+// change. entities/backup keeps its own copy (backup.ShardMetadataDBFileName)
+// because entities cannot import adapters; a test pins the two together.
+const FileName = "index.db"
 
 // DB is one shard's metadata database.
 type DB struct {

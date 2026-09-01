@@ -20,8 +20,18 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"
 
+	entbackup "github.com/weaviate/weaviate/entities/backup"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
+
+// TestFileNameMatchesEntitiesBackupCopy pins the two copies of "index.db"
+// together: this package owns the canonical name, and entities/backup keeps
+// its own copy for the immutability filter because entities cannot import
+// adapters. If either side renames, this fails instead of backups silently
+// treating the metadata DB as an immutable file.
+func TestFileNameMatchesEntitiesBackupCopy(t *testing.T) {
+	assert.Equal(t, FileName, entbackup.ShardMetadataDBFileName)
+}
 
 func openTestDB(t *testing.T, dir string) *DB {
 	t.Helper()
