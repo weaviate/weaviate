@@ -13,9 +13,11 @@ package hfresh
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
@@ -119,6 +121,7 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 
 		h.logger.WithField("postingID", postingID).
 			WithField("attempt", attempt).
+			WithField("error", err).
 			Debug("retrying split after vector fetch failure")
 	}
 	// if one of the postings is empty, ignore the split
@@ -202,21 +205,29 @@ func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResu
 	// Cluster on the full-precision vectors rather than their 1-bit
 	// reconstructions: the centroids this split produces become the new
 	// postings' routing representatives, and sign-only reconstructions bound
-	// their quality.
+	// their quality. All reads go through a single bucket view and a pooled
+	// slice — the split holds the posting lock, so per-vector view churn
+	// would extend the time appends to this posting stay blocked.
+	view := h.objectsBucketView()
+	defer view.ReleaseView()
+
+	var slice common.VectorSlice
 	data := make([][]float32, len(posting))
 	for i, v := range posting {
 		// A fetch failure (e.g. a vector deleted between garbage collection
 		// and this read) aborts the split rather than degrading it; doSplit
 		// retries the collect+split sequence so the deleted entry gets
 		// filtered on the next attempt.
-		vec, err := h.config.VectorForIDThunk(ctx, v.ID())
+		vec, err := h.fetchNormalizedVector(ctx, v.ID(), &slice, view)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to fetch vector %d for split", v.ID())
 		}
 		if len(vec) == 0 {
 			return nil, errors.Errorf("empty vector %d for split", v.ID())
 		}
-		data[i] = h.normalizeVec(vec)
+		// vec aliases the pooled slice and the next fetch overwrites it;
+		// clustering needs every vector at once, so copy it out.
+		data[i] = slices.Clone(vec)
 	}
 
 	idsAssignments, err := enc.FitBalanced(data)
