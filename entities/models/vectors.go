@@ -52,7 +52,11 @@ func (v *Vectors) UnmarshalJSON(data []byte) error {
 			// Try unmarshaling as []float32
 			var vector []float32
 			if err := json.Unmarshal(rawMessage, &vector); err == nil {
-				if len(vector) > 0 {
+				// keep empty (non-nil) vectors: schema-aware validation decides
+				// whether an empty vector is a no-op (single-vector targets,
+				// historical behavior) or an error (multi-vector targets).
+				// null unmarshals to nil and still means "no vector provided".
+				if vector != nil {
 					(*v)[targetVector] = vector
 				}
 				continue
@@ -60,7 +64,7 @@ func (v *Vectors) UnmarshalJSON(data []byte) error {
 			// Try unmarshaling as [][]float32
 			var multiVector [][]float32
 			if err := json.Unmarshal(rawMessage, &multiVector); err == nil {
-				if len(multiVector) > 0 {
+				if multiVector != nil {
 					(*v)[targetVector] = multiVector
 				}
 				continue

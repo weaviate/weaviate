@@ -35,6 +35,25 @@ import (
 // If keepFiles==true, all files on disk are kept, only in-memory structures are removed. This is used to allow backups
 // to complete before the files are deleted.
 func (s *Shard) drop(keepFiles bool) (err error) {
+	// The shard is out of the shard map before drop runs, so it stops being
+	// counted even when the teardown below fails partway. Claiming the count
+	// under shutdownLock keeps it outside performShutdown's gauge transition.
+	// A shutdown starting mid-drop would otherwise leave it counted as unloading.
+	s.shutdownLock.RLock()
+	wasCounted := s.metricsRegistered.CompareAndSwap(true, false)
+	countedUnloaded := s.shut.Load()
+	s.shutdownLock.RUnlock()
+
+	if wasCounted {
+		defer func() {
+			if countedUnloaded {
+				s.metrics.baseMetrics.DeleteUnloadedShard(s.registration)
+			} else {
+				s.metrics.baseMetrics.DeleteLoadedShard(s.registration)
+			}
+		}()
+	}
+
 	// Drain before anything is torn down.
 	if drainErr := s.drainRefsForDrop(); drainErr != nil {
 		s.index.logger.WithFields(logrus.Fields{
@@ -45,7 +64,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	}
 
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
-	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.replicationMap.clear()
@@ -58,7 +76,8 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 
 	s.clearDimensionMetrics() // not deleted in s.metrics.DeleteShardLabels
 
-	s.mayStopAsyncReplication()
+	// persistHashtree=false: shard is being destroyed.
+	s.mayStopAsyncReplication(false)
 
 	s.haltForTransferMux.Lock()
 	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
@@ -131,7 +150,10 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		return err
 	}
 
-	if err = s.store.Shutdown(ctx); err != nil {
+	// A shard shut down before the drop closed its store already, which is the
+	// state this step wants. Failing here would abort the drop and leave the
+	// shard's files behind.
+	if err = s.store.Shutdown(ctx); err != nil && !stderrors.Is(err, lsmkv.ErrAlreadyClosed) {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
@@ -175,11 +197,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		if deleted != "" {
 			spawnAsyncDelete(deleted, s.index.logger)
 		}
-	}
-
-	// Only update metrics if the shard was properly registered
-	if s.metricsRegistered.Load() {
-		s.metrics.baseMetrics.DeleteLoadedShard()
 	}
 
 	s.index.logger.WithFields(logrus.Fields{

@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/netresearch/go-cron"
+	"github.com/weaviate/weaviate/entities/cron"
 )
 
 func ValidateFloatGreaterThan0(val float64) error {
@@ -60,9 +60,29 @@ func ValidateDurationGreaterThanEqual0(val time.Duration) error {
 	return fmt.Errorf("duration greater than equal 0 expected, got %v", val)
 }
 
+// ValidateDurationZeroOrInRange accepts exactly 0 (a disable sentinel) or a
+// value within [min, max].
+func ValidateDurationZeroOrInRange(min, max time.Duration) func(time.Duration) error {
+	return func(val time.Duration) error {
+		if val == 0 || (val >= min && val <= max) {
+			return nil
+		}
+		return fmt.Errorf("duration 0 (disabled) or within [%v, %v] expected, got %v", min, max, val)
+	}
+}
+
+// ValidateCronInterval passes a value at or below zero, which asks the caller to
+// apply its own default, and otherwise requires an interval the scheduler can run.
+func ValidateCronInterval(val time.Duration) error {
+	if val <= 0 {
+		return nil
+	}
+	return ValidateGocronSchedule(cron.EverySpec(val))
+}
+
 func ValidateGocronSchedule(val string) error {
 	if val != "" {
-		if _, err := cron.FullParser().Parse(val); err != nil {
+		if _, err := cron.Parser().Parse(val); err != nil {
 			return err
 		}
 	}

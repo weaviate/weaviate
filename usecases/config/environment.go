@@ -16,7 +16,6 @@ import (
 	"math"
 	"os"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -77,6 +76,15 @@ const (
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
 	DefaultNamespaceCleanupInterval = 30 * time.Second
+
+	DefaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
+	DefaultReplicaMovementCleanupInterval = time.Hour
+
+	// Interval bounds; 0 stays the explicit disable sentinel. Below the floor a
+	// sweep hammers the leader with full-FSM scans; above the ceiling it
+	// silently never runs. Both are misconfigurations, not preferences.
+	MinReplicaMovementCleanupInterval = time.Minute
+	MaxReplicaMovementCleanupInterval = 168 * time.Hour
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -163,6 +171,32 @@ func FromEnv(config *Config) error {
 		}
 	} else {
 		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
+	}
+
+	// Written only when the variable is set, so a value from the config file
+	// survives.
+	if v := os.Getenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS"); v != "" {
+		asInt, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS as int: %w", err)
+		}
+		config.LazyLoadShardWarmupMinObjects = asInt
+	}
+	// Eager loading ignores the knob entirely, so warning there would describe a
+	// state no collection on this node is in. Auto-detection is resolved per
+	// collection later, so a nil setting still warns.
+	if minObjects := config.LazyLoadShardWarmupMinObjects; minObjects != 0 &&
+		(config.EnableLazyLoadShards == nil || *config.EnableLazyLoadShards) {
+		left := fmt.Sprintf("only shards holding more than %d objects are warmed up", minObjects)
+		if minObjects < 0 {
+			left = "no shard is warmed up"
+		}
+		logrus.Warnf("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS is %d, so on a collection using lazy loading %s. "+
+			"A HOT tenant left out stays unloaded until first access. "+
+			"While it is unloaded the TTL sweep keeps its expired objects, async replication leaves a "+
+			"stale replica unrepaired, and MAXIMUM_ALLOWED_OBJECTS_COUNT stops counting it, so this "+
+			"node admits writes past its cap.",
+			minObjects, left)
 	}
 
 	// Lazy load shard size threshold for auto-detection (in GB)
@@ -585,7 +619,7 @@ func FromEnv(config *Config) error {
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_SIZE_PERCENTAGE",
 	} {
 		if _, set := os.LookupEnv(envVar); set {
-			logrus.Warnf("%s is set but is a no-op as of 1.38.0: HNSW snapshots are always created and managed automatically; this variable has no effect and will be removed in a future version", envVar)
+			logrus.Warnf("%s is set but is a no-op as of 1.39.0: HNSW snapshots are always created and managed automatically; this variable has no effect and will be removed in a future version", envVar)
 		}
 	}
 	// ---- HNSW snapshots ----
@@ -698,10 +732,6 @@ func FromEnv(config *Config) error {
 			config.Persistence.DataPath = DefaultPersistenceDataPath
 		}
 	}
-
-	parsePositiveFloat("REINDEXER_GOROUTINES_FACTOR",
-		func(val float64) { config.ReindexerGoroutinesFactor = val },
-		DefaultReindexerGoroutinesFactor)
 
 	if err := config.parseMemtableConfig(); err != nil {
 		return err
@@ -1041,7 +1071,7 @@ func FromEnv(config *Config) error {
 
 	if err := parser.ParseDynamicDurationWithValidation("NAMESPACE_CLEANUP_INTERVAL",
 		DefaultNamespaceCleanupInterval,
-		parser.ValidateDurationGreaterThanEqual0,
+		parser.ValidateCronInterval,
 		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
 		return err
 	}
@@ -1067,6 +1097,27 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
+
+	config.Replication.ReplicaMovementCleanupEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_ENABLED")))
+	config.Replication.ReplicaMovementCleanupIncludeCancelled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED")))
+
+	if err := parser.ParseDynamicDurationWithValidation("REPLICA_MOVEMENT_CLEANUP_MAX_AGE",
+		DefaultReplicaMovementCleanupMaxAge,
+		parser.ValidateDurationGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[time.Duration]) {
+			config.Replication.ReplicaMovementCleanupMaxAge = val
+		}); err != nil {
+		return err
+	}
+
+	if err := parser.ParseDynamicDurationWithValidation("REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		DefaultReplicaMovementCleanupInterval,
+		parser.ValidateDurationZeroOrInRange(MinReplicaMovementCleanupInterval, MaxReplicaMovementCleanupInterval),
+		func(val *configRuntime.DynamicValue[time.Duration]) {
+			config.Replication.ReplicaMovementCleanupInterval = val
+		}); err != nil {
+		return err
+	}
 
 	if err := parseIntVerify(
 		"ASYNC_REPLICATION_SCHEDULER_WORKERS",
@@ -2118,16 +2169,6 @@ func parseClusterConfig() (cluster.Config, error) {
 	return cfg, nil
 }
 
-func enabledForHost(envName string, localHostname string) bool {
-	if v := os.Getenv(envName); v != "" {
-		if entcfg.Enabled(v) {
-			return true
-		}
-		return slices.Contains(strings.Split(v, ","), localHostname)
-	}
-	return false
-}
-
 /*
 parses variable of format "colName1:propNames1:tenantNames1;colName2:propNames2:tenantNames2"
 propNames = prop1,prop2,...
@@ -2344,9 +2385,9 @@ func (c *Config) parseBackupGCSConfig() error {
 	switch t := strings.TrimSpace(strings.ToLower(os.Getenv(gcsModuleTransportEnv))); t {
 	case "": // keep the config file value
 	case gcsModuleTransportHTTP:
-		c.BackupGCS.UseGRPC = false
+		c.BackupGCS.UseGRPC = new(false)
 	case gcsModuleTransportGRPC:
-		c.BackupGCS.UseGRPC = true
+		c.BackupGCS.UseGRPC = new(true)
 	default:
 		return fmt.Errorf("%s must be %q or %q. Got: %v",
 			gcsModuleTransportEnv, gcsModuleTransportHTTP, gcsModuleTransportGRPC, t)

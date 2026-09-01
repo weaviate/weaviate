@@ -196,8 +196,9 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 	}, nil
 }
 
-// errIndexClosed stands in for a close whose cause was never signalled, which
-// drop() leaves behind.
+// errIndexClosed stands in for a close whose cause was never signalled. No
+// production teardown leaves one: [DB.DeleteIndex] signals errIndexDropped
+// before it drops, and [Index.Shutdown] signals errIndexShutdown.
 var errIndexClosed = errors.New("collection is closed")
 
 // scanIndexShards appends the shard statuses of one index to status. A closed

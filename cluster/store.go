@@ -214,6 +214,13 @@ type Config struct {
 	// tenant-cap rejection, matching the handler fast-path.
 	UsageLimitsErrorMessage *runtime.DynamicValue[string]
 
+	// Replica-movement cleanup knobs. The sweeper re-reads them every tick, so
+	// a change takes effect without a restart.
+	ReplicaMovementCleanupEnabled          *runtime.DynamicValue[bool]
+	ReplicaMovementCleanupMaxAge           *runtime.DynamicValue[time.Duration]
+	ReplicaMovementCleanupInterval         *runtime.DynamicValue[time.Duration]
+	ReplicaMovementCleanupIncludeCancelled *runtime.DynamicValue[bool]
+
 	// DBLoadProgress reports local shard-loading progress (loaded,
 	// total) while the DB is being restored on startup.
 	DBLoadProgress func() *db.StartupProgressSnapshot
@@ -444,11 +451,18 @@ func (st *Store) SetDistributedTaskSchemaMutationDetectors(detectors map[string]
 	st.distributedTasksManager.SetSchemaMutationDetectors(detectors)
 }
 
-// RegisterDistributedTaskCollectionExtractor opts a task namespace into
-// [SchemaManager.DeleteClass]'s cascade-delete of task records.
-// weaviate/0-weaviate-issues#231.
-func (st *Store) RegisterDistributedTaskCollectionExtractor(namespace string, extractor distributedtask.CollectionExtractor) {
-	st.distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
+// LocalUnrecognizedDistributedTasks backs
+// [distributedtask.LocalTaskInspector] on [Raft].
+func (st *Store) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
+	return st.distributedTasksManager.LocalUnrecognizedDistributedTasks()
+}
+
+// LocalDistributedTasks reads the task map this node has applied, with no
+// leader round-trip. [Raft.LocalDistributedTasks] exposes it to the
+// index-status read; callers that decide a mutation want the leader-routed
+// [Raft.ListDistributedTasks] instead.
+func (st *Store) LocalDistributedTasks() map[string][]*distributedtask.Task {
+	return st.distributedTasksManager.LocalDistributedTasks()
 }
 
 // lastIndex returns the last index in stable storage,

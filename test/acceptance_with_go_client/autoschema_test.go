@@ -12,6 +12,7 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 
@@ -20,8 +21,7 @@ import (
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
-
-	"acceptance_tests_with_client/internal/wvhost"
+	"github.com/weaviate/weaviate/entities/modelsext"
 )
 
 func TestAutoschemaCasingClass(t *testing.T) {
@@ -291,7 +291,18 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 		require.NotNil(t, resp[0].Result)
 		require.Nil(t, resp[0].Result.Errors)
 		require.NotNil(t, resp[0].Object)
-		assert.True(t, len(resp[0].Object.Vector) > 0)
+		// auto-schema creates a "default" named vector with the none vectorizer,
+		// so nothing is vectorized even though DEFAULT_VECTORIZER_MODULE is set
+		assert.Empty(t, resp[0].Object.Vector)
+		assert.Empty(t, resp[0].Object.Vectors)
+
+		class, err := c.Schema().ClassGetter().WithClassName(className).Do(ctx)
+		require.Nil(t, err)
+		assert.Empty(t, class.Vectorizer)
+		require.Len(t, class.VectorConfig, 1)
+		defaultVector, ok := class.VectorConfig[modelsext.DefaultNamedVectorName]
+		require.True(t, ok)
+		assert.Equal(t, map[string]interface{}{"none": map[string]interface{}{}}, defaultVector.Vectorizer)
 
 		objs, err := c.Data().ObjectsGetter().WithClassName(className).Do(ctx)
 		require.Nil(t, err)

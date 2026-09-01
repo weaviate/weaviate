@@ -54,11 +54,14 @@ type fakeSchemaManager struct {
 	// test controls
 	AddTenantsSchemaVersion uint64
 	AutoSchemaVersion       uint64
+	ClassVersion            uint64
 	AddClassPropertyErr     error
+	WaitForUpdateErr        error
 	// observed
 	WaitedSchemaVersion    uint64
 	MaxWaitedSchemaVersion uint64
 	WaitedVersions         []uint64
+	GetClassCalls          []string
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -91,6 +94,7 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { re
 func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
 ) (*models.Class, error) {
+	f.GetClassCalls = append(f.GetClassCalls, name)
 	if f.GetSchemaResponse.Objects == nil {
 		return nil, f.GetschemaErr
 	}
@@ -118,7 +122,7 @@ func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
 		if err != nil {
 			return res, err
 		}
-		res[name] = versioned.Class{Class: cls}
+		res[name] = versioned.Class{Class: cls, Version: f.ClassVersion}
 	}
 	return res, nil
 }
@@ -150,9 +154,19 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
-	class.VectorIndexConfig = hnsw.UserConfig{}
-	class.VectorIndexType = "hnsw"
-	class.Vectorizer = "none"
+	// mimic the parts of (*schema.Handler).setClassDefaults that callers care about
+	if len(class.VectorConfig) == 0 {
+		class.VectorIndexConfig = hnsw.UserConfig{}
+		class.VectorIndexType = "hnsw"
+		class.Vectorizer = "none"
+	}
+	for targetVector, vectorConfig := range class.VectorConfig {
+		if vectorConfig.VectorIndexType == "" {
+			vectorConfig.VectorIndexType = "hnsw"
+			vectorConfig.VectorIndexConfig = hnsw.UserConfig{}
+			class.VectorConfig[targetVector] = vectorConfig
+		}
+	}
 	classes := f.GetSchemaResponse.Objects.Classes
 	if classes != nil {
 		classes = append(classes, class)
@@ -209,6 +223,11 @@ func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uin
 		f.MaxWaitedSchemaVersion = schemaVersion
 	}
 	f.WaitedVersions = append(f.WaitedVersions, schemaVersion)
+	// The real WaitForUpdate returns nil for version 0 without consulting RAFT,
+	// so the fake must not fail there either.
+	if schemaVersion > 0 {
+		return f.WaitForUpdateErr
+	}
 	return nil
 }
 
@@ -288,6 +307,7 @@ func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects
 func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchReferences,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchReferences, error) {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }
@@ -295,6 +315,7 @@ func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchRefe
 func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (BatchDeleteResult, error) {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(params)
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
 }
@@ -307,6 +328,7 @@ func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *a
 func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
 	id strfmt.UUID, deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(className, id, deletionTime)
 	return args.Error(0)
 }

@@ -154,6 +154,38 @@ func (p ReadRoutingPlan) Replicas() []Replica {
 	return p.ReplicaSet.Replicas
 }
 
+// ShardPlans splits p into one plan per shard, so a caller holding a
+// collection-wide plan need not have the router resolve every shard again.
+// p must hold every read replica of each shard it covers: cl resolves against
+// that count, and a failed read retries against the replicas past that level.
+func (p ReadRoutingPlan) ShardPlans(cl ConsistencyLevel) []ReadRoutingPlan {
+	plans := make([]ReadRoutingPlan, 0, len(p.ReplicaSet.Replicas))
+	indexByShard := make(map[string]int, len(p.ReplicaSet.Replicas))
+
+	for _, replica := range p.ReplicaSet.Replicas {
+		i, ok := indexByShard[replica.ShardName]
+		if !ok {
+			i = len(plans)
+			indexByShard[replica.ShardName] = i
+			plans = append(plans, ReadRoutingPlan{
+				LocalHostname:    p.LocalHostname,
+				Shard:            replica.ShardName,
+				Tenant:           p.Tenant,
+				ConsistencyLevel: cl,
+			})
+		}
+		plans[i].ReplicaSet.Replicas = append(plans[i].ReplicaSet.Replicas, replica)
+	}
+
+	// No ValidateConsistencyLevel call: it guards plans spanning several shards,
+	// and a per-shard plan always holds at least the replica that created it.
+	for i := range plans {
+		plans[i].IntConsistencyLevel = cl.ToInt(len(plans[i].ReplicaSet.Replicas))
+	}
+
+	return plans
+}
+
 // HostNames returns the hostnames of the primary write Replicas
 // in the WriteRoutingPlan.
 func (p WriteRoutingPlan) HostNames() []string {

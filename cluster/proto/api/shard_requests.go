@@ -275,10 +275,6 @@ type ReplicationDeleteAllRequest struct {
 	Version int
 }
 
-type ReplicationPurgeRequest struct {
-	Version int
-}
-
 type ReplicationOperationStateRequest struct {
 	Id uint64
 }
@@ -316,4 +312,9 @@ type ReplicationForceDeleteByTargetNodeRequest struct {
 
 type ReplicationForceDeleteByUuidRequest struct {
 	Uuid strfmt.UUID
+}
+
+type ReplicationForceDeleteByIdsRequest struct {
+	Version int
+	Ids     []uint64
 }

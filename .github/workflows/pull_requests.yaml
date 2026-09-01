@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - name: Get build date
         id: date
@@ -77,7 +77,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           sarif_file: results/image.sarif
 
@@ -149,7 +149,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
@@ -187,7 +187,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - name: Build Docker image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
@@ -219,7 +219,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           sarif_file: results/image.sarif
 
@@ -316,6 +316,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
         uses: ./.github/actions/setup-go
+      - name: Install golangci-lint
+        uses: ./.github/actions/golangci-lint
+        with:
+          install-only: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
       - name: Error on change
@@ -500,7 +504,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-light:
     name: modules light (${{ matrix.name }})
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-4
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
@@ -533,7 +537,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-api:
     name: modules api (${{ matrix.name }})
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-4
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork && !startsWith(github.ref, 'refs/tags') }}  # no PRs from fork
     strategy:
@@ -580,6 +584,10 @@ jobs:
             test: "--only-module-multi2vec-voyageai"
           - name: "text2vec-digitalocean"
             test: "--only-module-text2vec-digitalocean"
+          - name: "generative-digitalocean"
+            test: "--only-module-generative-digitalocean"
+          - name: "generative-meta"
+            test: "--only-module-generative-meta"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -639,6 +647,7 @@ jobs:
           ANTHROPIC_APIKEY: ${{ secrets.ANTHROPIC_APIKEY }}
           JINAAI_APIKEY: ${{ secrets.JINAAI_APIKEY }}
           DIGITALOCEAN_APIKEY: ${{ secrets.DIGITALOCEAN_APIKEY }}
+          META_APIKEY: ${{ secrets.META_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
@@ -828,13 +837,14 @@ jobs:
         name: check
         env:
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           commit_message=$(git log -1 --format=%B $COMMIT_SHA)
-          if [[ "$commit_message" == *"drop-vector-index"* || "$commit_message" == "prepare release"* ]]; then
+          if [[ "$commit_message" == *"drop-vector-index"* || "$commit_message" == "prepare release"* || "$BRANCH_NAME" == merge* ]]; then
             echo "Run pipeline"
             echo "run_pipeline=true" >> $GITHUB_OUTPUT
           else
-            echo "Skip pipeline. In order to run the pipeline commit title must contain: drop-vector-index"
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: drop-vector-index, or the branch name must start with: merge"
             echo "run_pipeline=false" >> $GITHUB_OUTPUT
           fi
   Acceptance-DropVectorIndex-Tests:
@@ -846,12 +856,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: "cluster"
-            test: "--acceptance-drop-vector-index-cluster"
+          - name: "cluster-group1"
+            test: "--acceptance-drop-vector-index-cluster-group1"
+          - name: "cluster-group2"
+            test: "--acceptance-drop-vector-index-cluster-group2"
           - name: "restart-cluster"
             test: "--acceptance-drop-vector-index-restart-cluster"
           - name: "rolling-restart"
             test: "--acceptance-drop-vector-index-rolling-restart"
+          - name: "async-indexing-group1"
+            test: "--acceptance-drop-vector-index-async-indexing-group1"
+          - name: "async-indexing-group2"
+            test: "--acceptance-drop-vector-index-async-indexing-group2"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go

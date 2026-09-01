@@ -151,6 +151,122 @@ func Test_BatchCLIPVectorizer(t *testing.T) {
 	})
 }
 
+// Objects that carry none of the configured image/text fields used to make
+// Objects() return a slice shorter than the input, which the batch caller maps
+// back positionally.
+func Test_BatchCLIPVectorizer_ObjectsWithoutVectorizableProperties(t *testing.T) {
+	type testCase struct {
+		name       string
+		objects    []*models.Object
+		client     *fakeClient
+		wantVector []bool
+	}
+
+	vectorizable := map[string]any{"image": image, "text": "text"}
+	imageOnly := map[string]any{"image": image}
+	nonVectorizable := map[string]any{"number": 1.0, "description": "not configured"}
+
+	tests := []testCase{
+		{
+			name: "no object has a vectorizable property",
+			objects: []*models.Object{
+				{ID: "a", Properties: nonVectorizable},
+				{ID: "b", Properties: nonVectorizable},
+			},
+			wantVector: []bool{false, false},
+		},
+		{
+			name: "no properties at all",
+			objects: []*models.Object{
+				{ID: "a"},
+				{ID: "b"},
+			},
+			wantVector: []bool{false, false},
+		},
+		{
+			name: "first object vectorizable, second not",
+			objects: []*models.Object{
+				{ID: "a", Properties: vectorizable},
+				{ID: "b", Properties: nonVectorizable},
+			},
+			wantVector: []bool{true, false},
+		},
+		{
+			name: "non-vectorizable object between two vectorizable ones",
+			objects: []*models.Object{
+				{ID: "a", Properties: imageOnly},
+				{ID: "b", Properties: nonVectorizable},
+				{ID: "c", Properties: imageOnly},
+			},
+			client: &fakeClient{result: &modulecomponents.VectorizationCLIPResult[[]float32]{
+				ImageVectors: [][]float32{{10.0, 20.0}, {30.0, 40.0}},
+			}},
+			wantVector: []bool{true, false, true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := tt.client
+			if client == nil {
+				client = &fakeClient{}
+			}
+			vectorizer := New("moduleName", client)
+			config := newConfigBuilder().
+				addSetting("imageFields", []any{"image"}).
+				addSetting("textFields", []any{"text"}).
+				build()
+
+			vectors, _, err := vectorizer.Objects(context.Background(), tt.objects, config)
+
+			require.NoError(t, err)
+			require.Len(t, vectors, len(tt.objects))
+			for i, wantVector := range tt.wantVector {
+				if wantVector {
+					assert.NotEmpty(t, vectors[i])
+				} else {
+					assert.Nil(t, vectors[i])
+				}
+			}
+		})
+	}
+}
+
+// Same as above for multi vectors, where combining an empty set of vectors used
+// to panic instead of yielding no vector.
+func Test_BatchCLIPMultiVectorizer_ObjectsWithoutVectorizableProperties(t *testing.T) {
+	vectorizer := New("moduleName", &fakeMultiVectorClient{})
+	config := newConfigBuilder().
+		addSetting("imageFields", []any{"image"}).
+		addSetting("textFields", []any{"text"}).
+		build()
+
+	objects := []*models.Object{
+		{ID: "a", Properties: map[string]any{"text": "text"}},
+		{ID: "b", Properties: map[string]any{"number": 1.0}},
+	}
+
+	vectors, _, err := vectorizer.Objects(context.Background(), objects, config)
+
+	require.NoError(t, err)
+	require.Len(t, vectors, len(objects))
+	assert.NotEmpty(t, vectors[0])
+	assert.Nil(t, vectors[1])
+}
+
+// A single object without vectorizable properties gets no vector rather than a
+// bogus "more than one embedding found" error.
+func Test_BatchCLIPVectorizer_ObjectWithoutVectorizableProperties(t *testing.T) {
+	vectorizer := New("moduleName", &fakeClient{})
+	config := newConfigBuilder().addSetting("imageFields", []any{"image"}).build()
+
+	vector, _, err := vectorizer.Object(context.Background(),
+		&models.Object{ID: "a", Properties: map[string]any{"number": 1.0}}, config)
+
+	require.NoError(t, err)
+	assert.Nil(t, vector)
+}
+
 func Test_BatchCLIPVectorizer_WithDiff(t *testing.T) {
 	type testCase struct {
 		name    string
@@ -358,6 +474,33 @@ func (c *fakeClient) Vectorize(ctx context.Context,
 	texts, images []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
 	return c.getEmbeddings()
+}
+
+type fakeMultiVectorClient struct{}
+
+func (c *fakeMultiVectorClient) VectorizeImages(ctx context.Context,
+	images []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[][]float32], error) {
+	return c.getEmbeddings()
+}
+
+func (c *fakeMultiVectorClient) VectorizeQuery(ctx context.Context,
+	texts []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[][]float32], error) {
+	return c.getEmbeddings()
+}
+
+func (c *fakeMultiVectorClient) Vectorize(ctx context.Context,
+	texts, images []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult[[][]float32], error) {
+	return c.getEmbeddings()
+}
+
+func (c *fakeMultiVectorClient) getEmbeddings() (*modulecomponents.VectorizationCLIPResult[[][]float32], error) {
+	return &modulecomponents.VectorizationCLIPResult[[][]float32]{
+		TextVectors:  [][][]float32{{{1.0, 2.0}, {3.0, 4.0}}},
+		ImageVectors: [][][]float32{{{10.0, 20.0}, {30.0, 40.0}}},
+	}, nil
 }
 
 func (c *fakeClient) getEmbeddings() (*modulecomponents.VectorizationCLIPResult[[]float32], error) {

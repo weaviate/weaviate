@@ -101,12 +101,17 @@ func TestArenaByteCacheParity(t *testing.T) {
 				require.NoError(t, gotErr, desc)
 				assert.Equal(t, wantVec, gotVec, desc)
 			}
-		case op < 60: // Preload
+		case op < 55: // Preload
 			code := arenaTestCodeFor(id, testRecordSize)
 			// grow both first: the oracle's Preload loops on Grow itself,
 			// and so must the arena.
 			arena.Preload(id, code)
 			oracle.Preload(id, code)
+		case op < 60: // PreloadIfAbsent
+			code := arenaTestCodeFor(id, testRecordSize)
+			gotStored := arena.(IfAbsentPreloader[byte]).PreloadIfAbsent(id, code)
+			wantStored := oracle.(IfAbsentPreloader[byte]).PreloadIfAbsent(id, code)
+			assert.Equal(t, wantStored, gotStored, desc)
 		case op < 70: // Delete
 			arena.Delete(ctx, id)
 			oracle.Delete(ctx, id)
@@ -215,12 +220,21 @@ func TestArenaByteCacheRecordSizeEnforced(t *testing.T) {
 	assert.Panics(t, func() { c.Preload(1, make([]byte, testRecordSize-1)) })
 	assert.Panics(t, func() { c.Preload(1, make([]byte, testRecordSize+1)) })
 	assert.Panics(t, func() { c.Preload(1, nil) })
+
+	// PreloadIfAbsent shares the size check for non-empty records, but an
+	// empty record is refused (false) rather than fatal, mirroring the
+	// oracle's early return.
+	ia := c.(IfAbsentPreloader[byte])
+	assert.Panics(t, func() { ia.PreloadIfAbsent(1, make([]byte, testRecordSize-1)) })
+	assert.Panics(t, func() { ia.PreloadIfAbsent(1, make([]byte, testRecordSize+1)) })
+	assert.NotPanics(t, func() { assert.False(t, ia.PreloadIfAbsent(1, nil)) })
 }
 
 // TestArenaByteCacheNoLockPaths covers the two NoLock entry points against
-// the oracle, including the surprising semantics they inherit: PreloadNoLock
-// does not bump the vector count, and SetSizeAndGrowNoLock overwrites the
-// count with the given size.
+// the oracle, pinning the occupied-slot counting they share with every
+// other write path: SetSizeAndGrowNoLock only grows coverage and never
+// touches the count, and PreloadNoLock bumps the count exactly when it
+// fills an empty slot (and not on overwrites).
 func TestArenaByteCacheNoLockPaths(t *testing.T) {
 	ctx := context.Background()
 	arena := newTestArena(t, testRecordSize)
@@ -229,6 +243,8 @@ func TestArenaByteCacheNoLockPaths(t *testing.T) {
 	arena.SetSizeAndGrowNoLock(1234)
 	oracle.SetSizeAndGrowNoLock(1234)
 	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+	assert.EqualValues(t, 0, arena.CountVectors(),
+		"SetSizeAndGrowNoLock must not touch the count")
 	assert.Equal(t, oracle.Len(), arena.Len())
 
 	for id := uint64(0); id < 100; id++ {
@@ -236,8 +252,20 @@ func TestArenaByteCacheNoLockPaths(t *testing.T) {
 		arena.PreloadNoLock(id, code)
 		oracle.PreloadNoLock(id, code)
 	}
-	assert.Equal(t, oracle.CountVectors(), arena.CountVectors(),
-		"PreloadNoLock must not change the count")
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+	assert.EqualValues(t, 100, arena.CountVectors(),
+		"PreloadNoLock must count newly occupied slots")
+
+	// overwriting the same ids must not move the count
+	for id := uint64(0); id < 100; id++ {
+		code := arenaTestCodeFor(id+1, testRecordSize)
+		arena.PreloadNoLock(id, code)
+		oracle.PreloadNoLock(id, code)
+	}
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+	assert.EqualValues(t, 100, arena.CountVectors(),
+		"PreloadNoLock overwrites must not change the count")
+
 	for id := uint64(0); id < 100; id++ {
 		want, wantErr := oracle.Get(ctx, id)
 		got, gotErr := arena.Get(ctx, id)
@@ -245,6 +273,64 @@ func TestArenaByteCacheNoLockPaths(t *testing.T) {
 		require.NoError(t, gotErr)
 		assert.Equal(t, want, got, "id %d", id)
 	}
+}
+
+// TestArenaByteCachePreloadIfAbsent pins PreloadIfAbsent against the
+// oracle: it stores into an empty slot (reporting true), refuses to clobber
+// an occupied slot (reporting false), refuses an empty vector without
+// growing the cache, and — like the oracle — grows to cover an id beyond
+// the current length and stores there.
+func TestArenaByteCachePreloadIfAbsent(t *testing.T) {
+	ctx := context.Background()
+	arena := newTestArena(t, testRecordSize)
+	arenaIA := arena.(IfAbsentPreloader[byte])
+	oracle := newOracle(t, testRecordSize)
+	oracleIA := oracle.(IfAbsentPreloader[byte])
+
+	// store into an empty slot
+	code := arenaTestCodeFor(7, testRecordSize)
+	assert.True(t, arenaIA.PreloadIfAbsent(7, code))
+	assert.True(t, oracleIA.PreloadIfAbsent(7, code))
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+
+	// refuse on an occupied slot: the old bytes survive
+	other := arenaTestCodeFor(8, testRecordSize)
+	assert.False(t, arenaIA.PreloadIfAbsent(7, other))
+	assert.False(t, oracleIA.PreloadIfAbsent(7, other))
+	got, err := arena.Get(ctx, 7)
+	require.NoError(t, err)
+	assert.Equal(t, code, got, "occupied slot must keep its bytes")
+	want, err := oracle.Get(ctx, 7)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+
+	// a deleted slot is empty again
+	arena.Delete(ctx, 7)
+	oracle.Delete(ctx, 7)
+	assert.True(t, arenaIA.PreloadIfAbsent(7, other))
+	assert.True(t, oracleIA.PreloadIfAbsent(7, other))
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+
+	// an empty vector is refused without growing the cache to cover its id
+	lenBefore := arena.Len()
+	assert.False(t, arenaIA.PreloadIfAbsent(1<<20, nil))
+	assert.False(t, oracleIA.PreloadIfAbsent(1<<20, nil))
+	assert.Equal(t, lenBefore, arena.Len(), "empty vec must not grow the cache")
+	assert.Equal(t, oracle.Len(), arena.Len())
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+
+	// an id beyond the current length grows the cache and stores, like the
+	// oracle's preload slow path
+	farID := uint64(arena.Len()) + 5000
+	farCode := arenaTestCodeFor(farID, testRecordSize)
+	assert.True(t, arenaIA.PreloadIfAbsent(farID, farCode))
+	assert.True(t, oracleIA.PreloadIfAbsent(farID, farCode))
+	got, err = arena.Get(ctx, farID)
+	require.NoError(t, err)
+	assert.Equal(t, farCode, got)
+	assert.Equal(t, oracle.Len(), arena.Len())
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
 }
 
 // TestArenaByteCacheMultiVectorPanics pins that the single-vector arena

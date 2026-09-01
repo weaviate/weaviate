@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/klauspost/compress/zstd"
 	"github.com/sirupsen/logrus"
 
@@ -139,6 +138,14 @@ func (i *replicatedIndices) handleRequest(w http.ResponseWriter, r *http.Request
 	// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
 	// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
 	switch {
+	case path == shared.CompareHashTreeRootsMultiPath:
+		if r.Method == http.MethodPost {
+			i.postCompareHashTreeRootsMulti().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
 	case regxObjectsDigest.MatchString(path):
 		if r.Method == http.MethodGet {
 			i.getObjectsDigest().ServeHTTP(w, r)
@@ -474,7 +481,7 @@ func (i *replicatedIndices) getObjectsDigestsInRange() http.Handler {
 		digests, err := i.replicator.DigestObjectsInRange(r.Context(), index, shard, rangeReq.InitialUUID, rangeReq.FinalUUID, rangeReq.Limit)
 		if err != nil {
 			http.Error(w, "digest objects in range: "+err.Error(),
-				http.StatusInternalServerError)
+				asyncCheckpointHTTPStatus(err))
 			return
 		}
 
@@ -528,6 +535,51 @@ func (i *replicatedIndices) getHashTreeLevel() http.Handler {
 	})
 }
 
+func (i *replicatedIndices) postCompareHashTreeRootsMulti() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		var req replica.CompareHashTreeRootsMultiReq
+		body := http.MaxBytesReader(w, r.Body, maxDecompressedReplicaBody)
+		if err := json.NewDecoder(body).Decode(&req); err != nil {
+			http.Error(w, "unmarshal compare hashtree roots multi request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		total := 0
+		for _, wireRoots := range req.Classes {
+			total += len(wireRoots)
+		}
+		if total > replica.CompareHashTreeRootsMaxShardsPerRequest {
+			http.Error(w, fmt.Sprintf("too many shards: %d exceeds maximum %d",
+				total, replica.CompareHashTreeRootsMaxShardsPerRequest), http.StatusBadRequest)
+			return
+		}
+
+		resp := replica.CompareHashTreeRootsMultiResp{
+			Classes: make(map[string]replica.CompareHashTreeRootsMultiClassResp, len(req.Classes)),
+		}
+		for class, wireRoots := range req.Classes {
+			roots := make(map[string]hashtree.Digest, len(wireRoots))
+			for shard, root := range wireRoots {
+				roots[shard] = hashtree.Digest(root)
+			}
+			diverging, err := i.replicator.CompareHashTreeRoots(r.Context(), class, roots)
+			if err != nil {
+				resp.Classes[class] = replica.CompareHashTreeRootsMultiClassResp{Error: err.Error()}
+				continue
+			}
+			resp.Classes[class] = replica.CompareHashTreeRootsMultiClassResp{DivergingShards: diverging}
+		}
+
+		resBytes, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Write(resBytes) //nolint:errcheck
+	})
+}
+
 func (i *replicatedIndices) postCompareHashTreeRoots() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := regexCompareHashTreeRoots.FindStringSubmatch(r.URL.Path)
@@ -578,9 +630,14 @@ func (i *replicatedIndices) postCompareHashTreeRoots() http.Handler {
 // binary form) followed by 8 bytes UpdateTime (int64 big-endian). The Err and
 // Deleted fields are intentionally omitted — ObjectDigestsInRange never
 // populates them.
-func writeDigestsInRangeResponse(w http.ResponseWriter, r *http.Request, results []types.RepairResponse) {
+func writeDigestsInRangeResponse(w http.ResponseWriter, r *http.Request, results []types.RepairDigest) {
 	if r.Header.Get("X-Accept-Response-Encoding") != "binary" {
-		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{Digests: results})
+		// Legacy JSON shape keeps string IDs; conversion happens only on this fallback.
+		responses := make([]types.RepairResponse, len(results))
+		for i, d := range results {
+			responses[i] = types.RepairResponse{ID: d.ID.String(), UpdateTime: d.UpdateTime, Deleted: d.Deleted}
+		}
+		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{Digests: responses})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -589,18 +646,10 @@ func writeDigestsInRangeResponse(w http.ResponseWriter, r *http.Request, results
 		return
 	}
 
-	// Encode all records before writing any headers so that errors don't
-	// produce an http.Error response with a stale Content-Length already set.
 	body := make([]byte, 0, len(results)*replica.DigestObjectsInRangeRecordLength)
 	var buf [replica.DigestObjectsInRangeRecordLength]byte
 	for _, d := range results {
-		uuidParsed, err := uuid.Parse(d.ID)
-		if err != nil {
-			// Should never happen — IDs come directly from the LSM store.
-			http.Error(w, "parse uuid: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		copy(buf[:16], uuidParsed[:])
+		copy(buf[:16], d.ID[:])
 		binary.BigEndian.PutUint64(buf[16:], uint64(d.UpdateTime))
 		body = append(body, buf[:]...)
 	}
@@ -625,15 +674,11 @@ func writeHashTreeLevelResponse(w http.ResponseWriter, r *http.Request, results 
 		return
 	}
 
+	body := hashtree.DigestsToBinary(results)
 	w.Header().Set("X-Response-Encoding", "binary")
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.FormatInt(int64(len(results))*int64(hashtree.DigestLength), 10))
-	var buf [hashtree.DigestLength]byte
-	for _, d := range results {
-		binary.BigEndian.PutUint64(buf[:8], d[0])
-		binary.BigEndian.PutUint64(buf[8:], d[1])
-		w.Write(buf[:]) //nolint:errcheck
-	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.Write(body) //nolint:errcheck
 }
 
 func readRequestBodyWithOptionalCompression(
@@ -731,7 +776,7 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 		results, err := i.replicator.OverwriteObjects(r.Context(), index, shard, vobjs)
 		if err != nil {
 			http.Error(w, "overwrite objects: "+err.Error(),
-				http.StatusInternalServerError)
+				asyncCheckpointHTTPStatus(err))
 			return
 		}
 
@@ -771,54 +816,19 @@ func (i *replicatedIndices) postCompareDigests() http.Handler {
 			return
 		}
 
-		var sourceDigests []types.RepairResponse
-		if len(body) > 0 {
-			if len(body)%replica.CompareDigestsRecordLength != 0 {
-				http.Error(w, "invalid binary payload length", http.StatusBadRequest)
-				return
-			}
-			n := len(body) / replica.CompareDigestsRecordLength
-			sourceDigests = make([]types.RepairResponse, n)
-			for j := 0; j < n; j++ {
-				off := j * replica.CompareDigestsRecordLength
-				rec := body[off : off+replica.CompareDigestsRecordLength]
-				id, err := uuid.FromBytes(rec[:16])
-				if err != nil {
-					http.Error(w, "parse uuid from binary: "+err.Error(), http.StatusBadRequest)
-					return
-				}
-				sourceDigests[j] = types.RepairResponse{
-					ID:         id.String(),
-					UpdateTime: int64(binary.BigEndian.Uint64(rec[16:24])),
-					Deleted:    rec[24]&replica.CompareDigestsFlagDeleted != 0,
-				}
-			}
+		sourceDigests, err := replica.RepairDigestsFromBinary(body)
+		if err != nil {
+			http.Error(w, "decode packed digests: "+err.Error(), http.StatusBadRequest)
+			return
 		}
 
 		stale, err := i.replicator.CompareDigests(r.Context(), index, shard, sourceDigests)
 		if err != nil {
-			http.Error(w, "compare digests: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "compare digests: "+err.Error(), asyncCheckpointHTTPStatus(err))
 			return
 		}
 
-		// Encode all records before writing headers so that a UUID parse error
-		// doesn't produce an http.Error after headers have been sent.
-		out := make([]byte, 0, len(stale)*replica.CompareDigestsRecordLength)
-		var obuf [replica.CompareDigestsRecordLength]byte
-		for _, d := range stale {
-			id, err := uuid.Parse(d.ID)
-			if err != nil {
-				http.Error(w, "parse uuid: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			copy(obuf[:16], id[:])
-			binary.BigEndian.PutUint64(obuf[16:24], uint64(d.UpdateTime))
-			obuf[24] = 0
-			if d.Deleted {
-				obuf[24] = replica.CompareDigestsFlagDeleted
-			}
-			out = append(out, obuf[:]...)
-		}
+		out := replica.RepairDigestsToBinary(stale)
 
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Length", strconv.Itoa(len(out)))
@@ -1245,6 +1255,9 @@ func asyncCheckpointHTTPStatus(err error) int {
 	case errors.Is(err, replica.ErrAsyncReplicationNotActive):
 		return http.StatusPreconditionFailed
 	case errors.Is(err, replica.ErrAsyncCheckpointCutoffInPast):
+		return http.StatusPreconditionFailed
+	// LOADING is retry-later, matching gRPC's ErrUnprocessable→FailedPrecondition.
+	case errors.As(err, &enterrors.ErrUnprocessable{}):
 		return http.StatusPreconditionFailed
 	}
 	return http.StatusInternalServerError

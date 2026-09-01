@@ -145,7 +145,7 @@ func TestTornState_OnAfterLsmInit_RecoveryConvergesToBaseline(t *testing.T) {
 	// matrix; it's the only faithful way to exercise the guard +
 	// recovery end-to-end because OnAfterLsmInit alone doesn't
 	// re-create the buckets — the proper init path inside `initShard`
-	// does (OnBeforeLsmInit runs first, then LSM init, then
+	// does (FinalizeCompletedMigrations, then LSM init, then
 	// OnAfterLsmInit).
 	strategy0 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task0 := newTestTask(idx.logger, strategy0)
@@ -299,35 +299,4 @@ func TestTornState_OnAfterLsmInit_NoReindexedSentinel_GuardNoOp(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, rt.IsReindexed(),
 		"prior to iteration, IsReindexed must be false — this is the no-op-by-precondition case")
-}
-
-// TestTornState_OnBeforeLsmInit_GuardFires_ResetsReindexed pins the
-// SAME guard on the OnBeforeLsmInit code path. OnBeforeLsmInit runs
-// strictly before OnAfterLsmInit at shard init, so a torn state must
-// be caught there too — otherwise the LSM init proceeds with a
-// stale sentinel and OnAfterLsmInit's catch is the second line of
-// defense.
-//
-// This test is the symmetric pin: ensure the guard at
-// inverted_reindex_task_generic.go:885 also fires.
-func TestTornState_OnBeforeLsmInit_GuardFires_ResetsReindexed(t *testing.T) {
-	ctx := testCtx()
-	className := "TornGuardF_" + uuid.NewString()[:8]
-	shard, idx := runTornStateMigrationToReindexed(t, ctx, className)
-	defer shard.Shutdown(ctx)
-
-	strategy0 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task0 := newTestTask(idx.logger, strategy0)
-	reindexBucketDir := shard.pathLSM() + "/" + task0.reindexBucketName(tornGuardPropName)
-	require.NoError(t, os.RemoveAll(reindexBucketDir))
-
-	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2)
-	require.NoError(t, task2.OnBeforeLsmInit(ctx, shard),
-		"OnBeforeLsmInit must not error on torn-state recovery")
-
-	rt, err := task2.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	assert.False(t, rt.IsReindexed(),
-		"OnBeforeLsmInit torn-state guard MUST unmark reindexed.mig when the reindex bucket dir is missing")
 }

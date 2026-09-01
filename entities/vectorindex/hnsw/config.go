@@ -114,9 +114,11 @@ func (u *UserConfig) SetDefaults() {
 		RescoreLimit:  DefaultSQRescoreLimit,
 	}
 	u.RQ = RQConfig{
-		Enabled:      DefaultRQEnabled,
-		Bits:         DefaultRQBits,
-		RescoreLimit: DefaultRQRescoreLimit,
+		Enabled:       DefaultRQEnabled,
+		Bits:          DefaultRQBits,
+		RescoreLimit:  DefaultRQRescoreLimit,
+		Centering:     DefaultRQCentering,
+		TrainingLimit: DefaultRQTrainingLimit,
 	}
 	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategySweeping {
 		u.FilterStrategy = FilterStrategySweeping
@@ -315,8 +317,12 @@ func (u *UserConfig) validate() error {
 		return err
 	}
 
+	if u.RQ.Enabled && u.RQ.Centering && u.Multivector.Enabled && !u.Multivector.MuveraConfig.Enabled {
+		return fmt.Errorf("invalid hnsw config: rq centering is not supported for multivector indexes")
+	}
+
 	if u.Multivector.MuveraConfig.Enabled && u.Multivector.MuveraConfig.KSim > 10 {
-		return fmt.Errorf("invalid hnsw config: ksim must be less than 10")
+		return fmt.Errorf("invalid hnsw config: ksim must be at most 10")
 	}
 
 	return nil

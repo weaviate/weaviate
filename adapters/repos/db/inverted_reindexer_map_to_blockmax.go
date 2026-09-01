@@ -41,8 +41,6 @@ func NewRuntimeMapToBlockmaxTask(
 	}
 
 	cfg := reindexTaskConfig{
-		swapBuckets:                   true,
-		tidyBuckets:                   true,
 		concurrency:                   2,
 		memtableOptFactor:             4,
 		backupMemtableOptFactor:       1,
@@ -63,20 +61,4 @@ func NewRuntimeMapToBlockmaxTask(
 		"MapToBlockmax", logger, strategy, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
-}
-
-// NewFileMapToBlockmaxReindexTracker creates a file-based reindex tracker
-// for the most recent searchable map-to-blockmax migration. This is used by
-// the debug handler to inspect on-disk migration state. Migration dirs carry
-// a per-node generation suffix (`_<N>`); the debug handler doesn't know the
-// gen, so we pick the highest existing one. Returns a tracker pointing at
-// the first generation if no on-disk state exists yet — operators using the
-// debug endpoint to inspect a not-yet-started migration see the same
-// "not_started" output they did before.
-func NewFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser) *fileReindexTracker {
-	gen := maxMigrationGeneration(lsmPath, MigrationDirSearchableMapToBlockmax, "")
-	if gen == 0 {
-		gen = 1
-	}
-	return NewFileReindexTracker(lsmPath, MigrationDirSearchableMapToBlockmax+genSuffix(gen), keyParser)
 }

@@ -201,7 +201,7 @@ func TestLocalNodeShardStats(t *testing.T) {
 			wantErr: errIndexShutdown,
 		},
 		{
-			// drop() closes an index without signalling a cause
+			// no production teardown leaves an unsignalled close; see errIndexClosed
 			name: "index closed with no cause", class: className,
 			closeIndex: true, wantShards: 0, wantScanned: 0, wantErr: errIndexClosed,
 		},

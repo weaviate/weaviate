@@ -100,11 +100,12 @@ func (c *arenaChunk) clearLive(slot uint64) bool {
 // per record.
 //
 // Semantics mirror shardedLockCache[byte] operation for operation — the
-// same growth targets, the same counting quirks (Preload increments the
-// count even when overwriting, PreloadNoLock does not increment it at all,
-// a cache miss increments it even when the fetched vector is nil), the same
-// panics on the multi-vector methods. Two deliberate divergences, both
-// consequences of the fixed-stride layout:
+// same growth targets, the same occupied-slot counting (every write path
+// moves the count only when a slot flips between empty and occupied, so
+// overwrites and repeated misses on the same id cannot inflate it; see
+// storeLocked in the sharded cache), the same panics on the multi-vector
+// methods. Two deliberate divergences, both consequences of the
+// fixed-stride layout:
 //
 //   - Records must have exactly the construction-time size; storing any
 //     other length panics (the map-backed cache would silently accept it).
@@ -154,6 +155,8 @@ type arenaByteCache struct {
 	prefetchBytes          int
 }
 
+var _ IfAbsentPreloader[byte] = (*arenaByteCache)(nil)
+
 // NewArenaByteCache constructs an arena-backed Cache[byte] for codes of
 // exactly recordSize bytes. It is not wired as a default anywhere; callers
 // opt in per index. The parameters after recordSize match
@@ -170,9 +173,9 @@ func NewArenaByteCache(vecForID common.VectorForID[byte], recordSize int, maxSiz
 		vectorForID:      vecForID,
 		recordSize:       recordSize,
 		stride:           stride,
-		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
+		maxSize:          maxSizeOrDefault(int64(maxSize)),
 		shardedLocks:     common.NewLazyShardedRWLocks(initialShardedLocksCount, pageSize),
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
@@ -248,10 +251,13 @@ func (s *arenaByteCache) checkRecordSize(id uint64, vec []byte) {
 	}
 }
 
-// storeRecord copies vec into id's record and marks it live. Caller must
-// hold the id's stripe lock (or be the caller-synchronized NoLock path),
-// have ensured coverage (id < logicalLen), and have validated the record
-// size via checkRecordSize.
+// storeRecord copies vec into id's record and marks it live, moving the
+// count only when the slot flips from dead to live — the arena's analogue
+// of the sharded cache's storeLocked occupancy delta (count feeds
+// replaceIfFull, which wipes the whole cache when it believes the cache is
+// full). Caller must hold the id's stripe lock (or be the
+// caller-synchronized NoLock path), have ensured coverage (id <
+// logicalLen), and have validated the record size via checkRecordSize.
 func (s *arenaByteCache) storeRecord(id uint64, vec []byte) {
 	ci := id >> arenaChunkShift
 	ch := s.chunkAt(ci)
@@ -261,7 +267,9 @@ func (s *arenaByteCache) storeRecord(id uint64, vec []byte) {
 	slot := id & arenaChunkMask
 	off := int(slot) * s.stride
 	copy(ch.data[off:off+s.recordSize], vec)
-	ch.setLive(slot)
+	if ch.setLive(slot) {
+		atomic.AddInt64(&s.count, 1)
+	}
 }
 
 func (s *arenaByteCache) Get(ctx context.Context, id uint64) ([]byte, error) {
@@ -280,9 +288,10 @@ func (s *arenaByteCache) Get(ctx context.Context, id uint64) ([]byte, error) {
 	return s.handleCacheMiss(ctx, id)
 }
 
-// handleCacheMiss mirrors the map-backed implementation, including counting
-// the fetch before the nil check. It returns the freshly fetched slice, not
-// the arena view, so miss results are never aliased to arena memory.
+// handleCacheMiss mirrors the map-backed implementation: the count moves
+// inside storeRecord, and only when the fetch actually fills an empty slot.
+// It returns the freshly fetched slice, not the arena view, so miss results
+// are never aliased to arena memory.
 func (s *arenaByteCache) handleCacheMiss(ctx context.Context, id uint64) ([]byte, error) {
 	if s.allocChecker != nil {
 		// The estimate mirrors the map-backed cache: accuracy doesn't matter
@@ -303,9 +312,7 @@ func (s *arenaByteCache) handleCacheMiss(ctx context.Context, id uint64) ([]byte
 		return nil, err
 	}
 
-	atomic.AddInt64(&s.count, 1)
-
-	if vec != nil {
+	if len(vec) != 0 {
 		s.checkRecordSize(id, vec)
 		s.shardedLocks.Lock(id)
 		s.storeRecord(id, vec)
@@ -399,25 +406,50 @@ func (s *arenaByteCache) Delete(ctx context.Context, id uint64) {
 
 func (s *arenaByteCache) Preload(id uint64, vec []byte) {
 	s.checkRecordSize(id, vec)
+	s.preload(id, vec, false)
+}
+
+// PreloadIfAbsent writes vec only when the slot is empty, so it cannot clobber a
+// newer vector written concurrently. Reports whether it stored the vector.
+func (s *arenaByteCache) PreloadIfAbsent(id uint64, vec []byte) bool {
+	if len(vec) == 0 {
+		// nothing to store, and refusing here avoids growing the cache to
+		// cover id — mirrored from the map-backed cache, and checked before
+		// the record-size panic so an empty vec is refused, not fatal
+		return false
+	}
+	s.checkRecordSize(id, vec)
+	return s.preload(id, vec, true)
+}
+
+func (s *arenaByteCache) preload(id uint64, vec []byte, ifAbsent bool) bool {
 	for {
 		s.shardedLocks.Lock(id)
 		// reading logicalLen under a stripe lock is safe: it only changes
 		// while all stripes are held (see grow).
 		if id < s.logicalLen {
+			if ifAbsent && s.liveView(id) != nil {
+				s.shardedLocks.Unlock(id)
+				return false
+			}
 			s.storeRecord(id, vec)
-			atomic.AddInt64(&s.count, 1)
 			s.shardedLocks.Unlock(id)
-			return
+			return true
 		}
 		s.shardedLocks.Unlock(id)
+
+		// slow path: the cache doesn't cover id yet — preloaders don't grow
+		// the cache themselves. Grow guarantees coverage of id, so the next
+		// iteration stores.
 		s.Grow(id)
 	}
 }
 
-// PreloadNoLock stores without locks and, mirroring the map-backed cache,
-// without touching the vector count; the caller owns synchronization and
-// must have grown the cache to cover id (it panics otherwise, as the
-// map-backed version panics on the out-of-range index).
+// PreloadNoLock stores without locks; like every other write path it moves
+// the count only when the slot was empty (the map-backed cache routes this
+// through storeLocked). The caller owns synchronization and must have grown
+// the cache to cover id (it panics otherwise, as the map-backed version
+// panics on the out-of-range index).
 func (s *arenaByteCache) PreloadNoLock(id uint64, vec []byte) {
 	s.checkRecordSize(id, vec)
 	if id >= s.logicalLen {
@@ -426,12 +458,11 @@ func (s *arenaByteCache) PreloadNoLock(id uint64, vec []byte) {
 	s.storeRecord(id, vec)
 }
 
-// SetSizeAndGrowNoLock mirrors the map-backed semantics: the count is
-// overwritten with size (callers use it when rebuilding a cache from a
-// snapshot), and coverage grows if needed. Caller owns synchronization.
+// SetSizeAndGrowNoLock mirrors the map-backed semantics: it only grows
+// coverage to size — the count is never touched (it tracks occupied slots,
+// which growing doesn't change) — and returns early when size is already
+// covered. Caller owns synchronization.
 func (s *arenaByteCache) SetSizeAndGrowNoLock(size uint64) {
-	atomic.StoreInt64(&s.count, int64(size))
-
 	if size < s.logicalLen {
 		return
 	}
@@ -589,7 +620,7 @@ func (s *arenaByteCache) replaceIfFull() {
 }
 
 func (s *arenaByteCache) UpdateMaxSize(size int64) {
-	atomic.StoreInt64(&s.maxSize, size)
+	atomic.StoreInt64(&s.maxSize, maxSizeOrDefault(size))
 }
 
 func (s *arenaByteCache) CopyMaxSize() int64 {
