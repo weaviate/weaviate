@@ -124,15 +124,22 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 	return fa.prepareResult(ctx, foundIDs)
 }
 
+// properties runs the property aggregations over ids. It also returns how
+// many of the ids resolved to a stored object: ids can contain doc ids of
+// deleted objects (see prepareResult), which the scan skips.
 func (fa *filteredAggregator) properties(ctx context.Context,
 	ids []uint64,
-) (map[string]aggregation.Property, error) {
+) (map[string]aggregation.Property, int, error) {
 	propAggs, err := fa.prepareAggregatorsForProps()
 	if err != nil {
-		return nil, errors.Wrap(err, "prepare aggregators for props")
+		return nil, 0, errors.Wrap(err, "prepare aggregators for props")
 	}
 
+	// only invoked for ids that resolved to a live object; the scanner
+	// serializes the calls, so the count needs no synchronization of its own
+	liveCount := 0
 	scan := func(properties *models.PropertySchema, docID uint64) error {
+		liveCount++
 		if err := fa.AnalyzeObject(ctx, properties, propAggs); err != nil {
 			return errors.Wrapf(err, "analyze object %d", docID)
 		}
@@ -145,10 +152,15 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 
 	err = docid.ScanObjectsLSM(fa.store, ids, scan, propertyNames, fa.logger)
 	if err != nil {
-		return nil, errors.Wrap(err, "properties view tx")
+		return nil, 0, errors.Wrap(err, "properties view tx")
 	}
 
-	return propAggs.results()
+	props, err := propAggs.results()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return props, liveCount, nil
 }
 
 func (fa *filteredAggregator) AnalyzeObject(ctx context.Context,
@@ -333,13 +345,19 @@ func (fa *filteredAggregator) prepareResult(ctx context.Context, foundIDs []uint
 	// without grouping there is always exactly one group
 	out.Groups = make([]aggregation.Group, 1)
 
-	if fa.params.IncludeMetaCount {
-		out.Groups[0].Count = len(foundIDs)
-	}
-
-	props, err := fa.properties(ctx, foundIDs)
+	props, liveCount, err := fa.properties(ctx, foundIDs)
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate properties")
+	}
+
+	if fa.params.IncludeMetaCount {
+		// foundIDs can contain doc ids of deleted objects: a negated filter
+		// builds its allow list by subtracting the matches from the bitmap
+		// factory's universe, which is prefilled from the doc id counter's
+		// high-water mark on shard init and therefore contains every doc id
+		// deleted before the last restart. Count only the ids that still
+		// resolved to a stored object.
+		out.Groups[0].Count = liveCount
 	}
 
 	out.Groups[0].Properties = props

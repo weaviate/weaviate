@@ -73,7 +73,7 @@ func (ga *groupedAggregator) aggregateGroup(ctx context.Context,
 ) (aggregation.Group, error) {
 	out := in
 	fa := newFilteredAggregator(ga.Aggregator)
-	props, err := fa.properties(ctx, ids)
+	props, _, err := fa.properties(ctx, ids)
 	if err != nil {
 		return out, errors.Wrap(err, "aggregate properties")
 	}
