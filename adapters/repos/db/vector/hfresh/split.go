@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
@@ -211,14 +210,19 @@ func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResu
 	view := h.objectsBucketView()
 	defer view.ReleaseView()
 
-	var slice common.VectorSlice
+	// The pooled container is required, not just an optimization: the
+	// production thunk writes the vector ID into the container's Buff8,
+	// which only the pool initializes.
+	slice := h.tempVectors.Get(int(dims))
+	defer h.tempVectors.Put(slice)
+
 	data := make([][]float32, len(posting))
 	for i, v := range posting {
 		// A fetch failure (e.g. a vector deleted between garbage collection
 		// and this read) aborts the split rather than degrading it; doSplit
 		// retries the collect+split sequence so the deleted entry gets
 		// filtered on the next attempt.
-		vec, err := h.fetchNormalizedVector(ctx, v.ID(), &slice, view)
+		vec, err := h.fetchNormalizedVector(ctx, v.ID(), slice, view)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to fetch vector %d for split", v.ID())
 		}
