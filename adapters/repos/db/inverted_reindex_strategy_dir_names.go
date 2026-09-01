@@ -189,7 +189,6 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 // wider could remove another property's tracker.
 type migrationDirScope struct {
 	lsmPath  string
-	dirs     *dirNamesCache
 	propName string
 	// prefixes are the per-property strategy prefixes this cleanup deletes.
 	prefixes []string
@@ -212,11 +211,10 @@ func (s migrationDirScope) knownFrom(state migrationPreservedState) migrationDir
 }
 
 // migrationDirsOf returns the tracker dirs a (propName, indexType) cleanup
-// deletes on the shard at lsmPath. A nil cache reads the filesystem every time.
-func migrationDirsOf(lsmPath string, dirs *dirNamesCache, propName, indexType string) migrationDirScope {
+// deletes on the shard at lsmPath.
+func migrationDirsOf(lsmPath, propName, indexType string) migrationDirScope {
 	return migrationDirScope{
 		lsmPath:  lsmPath,
-		dirs:     dirs,
 		propName: propName,
 		prefixes: migrationDirPrefixesForIndexType(indexType),
 	}

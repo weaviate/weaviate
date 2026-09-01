@@ -642,6 +642,32 @@ func (t *ShardReindexTaskGeneric) stagedPropsStillOnDisk(logger logrus.FieldLogg
 	return kept, nil
 }
 
+// requireCanonicalHoldsMigratedData refuses to commit a migration's schema
+// effect unless the canonical name really holds this migration's data.
+//
+// The flip decision is written before the first pointer moves (see
+// [migrationRecordQuestions.FlipDecided]), so it proves the flip was DECIDED,
+// never that it ran. Two things put the data under the canonical name, and
+// they answer in different places:
+//
+//   - an in-process flip points the canonical name at the staged directory,
+//     which the open bucket's own directory says;
+//   - a promotion renamed that directory onto the canonical name, which only
+//     disk says. An enable-* migration commits the very schema flag that
+//     decides whether shard init opens that bucket, so requiring an open one
+//     here would make the retry uncommittable exactly when it is needed.
+//
+// Promoted means every property is either promoted or superseded, and both
+// leave the same disk shape: the canonical directory present, the staged one
+// gone. A missing canonical directory is one a later load deleted, and the
+// schema effect must stay off an index nothing serves.
+//
+// A superseded property therefore commits its schema effect over a successor's
+// data. That is only safe because [typesConflictReason] refuses a new task
+// overlapping an in-flight one's properties, so a successor can only exist
+// once this migration's task is terminal — and a terminal task never re-enters
+// here. Without that, an enable-searchable successor targeting a different
+// tokenization would have its predecessor commit the wrong one.
 func (t *ShardReindexTaskGeneric) requireCanonicalHoldsMigratedData(shard ShardLike, rec MigrationRecord) error {
 	subject := rec.Subject()
 	for _, propName := range subject.Properties() {
@@ -708,7 +734,7 @@ func (t *ShardReindexTaskGeneric) ensureCanonicalBucketsOpen(ctx context.Context
 
 // finalizeMigrationAfterRecovery runs the strategy's OnMigrationComplete
 // hook and trims older on-disk generations. This is the rehydrate-path
-// equivalent of runtimeSwap's final two steps (lines 1103/1124),
+// equivalent of runtimeSwap's final two steps,
 // invoked by the recovery branches in [RunSwapOnShard] which don't go
 // through runtimeSwap.
 //
@@ -1829,8 +1855,8 @@ func (t *ShardReindexTaskGeneric) selectedProps(collectionName string) ([]string
 	for propName := range selected {
 		propNames = append(propNames, propName)
 	}
-	// Sort for determinism — map iteration order is randomized and downstream
-	// downstream state hashes the list.
+	// Sort for determinism — map iteration order is randomized and the record's
+	// property list is compared and logged.
 	sort.Strings(propNames)
 	return propNames, true
 }

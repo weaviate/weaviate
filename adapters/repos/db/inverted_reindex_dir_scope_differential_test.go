@@ -211,7 +211,7 @@ func TestWidenedMatchesAgreesWithTheNarrowGate(t *testing.T) {
 
 			for _, propName := range diffPropNames {
 				for _, indexType := range diffIndexTypes {
-					scope := migrationDirsOf(lsm, nil, propName, indexType).
+					scope := migrationDirsOf(lsm, propName, indexType).
 						cachingProps(&taskPropsCache{}).knownFrom(state)
 					for _, d := range dirs {
 						narrow, widened := narrowMatches(scope, d.name), scope.inScope(d.name)
@@ -285,7 +285,7 @@ func TestWidenedSweepLeavesTheSameDirsBehind(t *testing.T) {
 				for _, indexType := range diffIndexTypes {
 					refLSM, dirs := writeDiffTree(t, mode, committed)
 					refState := migrationPreservedStateAt(refLSM, logger)
-					refScope := migrationDirsOf(refLSM, nil, propName, indexType).
+					refScope := migrationDirsOf(refLSM, propName, indexType).
 						cachingProps(&taskPropsCache{}).knownFrom(refState)
 					var names []string
 					for _, d := range dirs {

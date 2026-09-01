@@ -35,8 +35,8 @@ import (
 //
 // Caller MUST ensure no local reindex goroutine is touching the tuple —
 // otherwise the cleanup races the worker's writes to the __reindex/__ingest
-// buckets. The cancel handler enforces this via
-// [ReindexProvider.WaitForLocalTaskDrain].
+// buckets. All three callers enforce this via
+// [ReindexProvider.SealLocalTaskDrain].
 type StalePartialReindexSweep func(ctx context.Context, collection, propName, indexType string) error
 
 // NewStalePartialReindexSweep returns the CANCEL→retry counterpart to the
@@ -318,7 +318,7 @@ func hasStalePartialReindexState(
 	case committed.withholdEverything:
 		return false, false
 	}
-	scope := migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props).knownFrom(committed)
+	scope := migrationDirsOf(lsmPath, propName, indexType).cachingProps(props).knownFrom(committed)
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep must preserve.
 	for _, name := range names {

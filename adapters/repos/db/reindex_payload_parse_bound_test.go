@@ -126,7 +126,7 @@ func TestOversizedTrackerPayloadIsRefusedNotParsed(t *testing.T) {
 			}
 
 			props := &taskPropsCache{}
-			_, unreadable := migrationDirsOf(lsm, nil, "a", "filterable").
+			_, unreadable := migrationDirsOf(lsm, "a", "filterable").
 				cachingProps(props).inScopeFailingOpen(name)
 			require.Equal(t, tc.wantUnreadable, unreadable,
 				"the scope must report a refused payload the way it reports an unparseable one")
@@ -232,7 +232,7 @@ func TestStaleMigrationDirCleanupStopsOnCancelledContext(t *testing.T) {
 
 	props := &taskPropsCache{}
 	committed := migrationPreservedStateAt(lsm, logger)
-	scope := migrationDirsOf(lsm, nil, "a", "filterable").cachingProps(props).knownFrom(committed)
+	scope := migrationDirsOf(lsm, "a", "filterable").cachingProps(props).knownFrom(committed)
 	err := cleanStaleMigrationDirsIn(ctx, scope, committed, logger)
 
 	require.ErrorIs(t, err, context.Canceled)

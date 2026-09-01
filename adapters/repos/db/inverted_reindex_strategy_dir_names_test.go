@@ -330,7 +330,7 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			}
 
 			require.Equal(t, tc.want,
-				migrationDirsOf(lsm, nil, propName, indexType).inScope(tc.dir))
+				migrationDirsOf(lsm, propName, indexType).inScope(tc.dir))
 		})
 	}
 }

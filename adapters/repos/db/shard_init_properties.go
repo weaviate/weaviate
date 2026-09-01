@@ -327,7 +327,7 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 	if sweep == nil {
 		sweep = migrationSweepStateFor(lsmPath, logger)
 	}
-	scope := migrationDirsOf(lsmPath, nil, propName, indexType).
+	scope := migrationDirsOf(lsmPath, propName, indexType).
 		cachingProps(sweep.props).knownFrom(sweep.committed)
 	if err := cleanStaleMigrationDirsIn(ctx, scope, sweep.committed, logger); err != nil && ctx.Err() == nil {
 		// Logged and dropped here only: the DELETE this serves has already
@@ -460,7 +460,7 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 
 	sweep := migrationSweepStateFor(s.pathLSM(), s.index.logger)
 	committed := sweep.committed
-	scope := migrationDirsOf(s.pathLSM(), nil, propName, indexType).
+	scope := migrationDirsOf(s.pathLSM(), propName, indexType).
 		cachingProps(sweep.props).knownFrom(committed)
 
 	loaded := s.store.GetBucketsByName()

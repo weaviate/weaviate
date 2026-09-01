@@ -464,9 +464,9 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 	// properties and would repeat itself for as long as the record stands.
 	if reported := unretired.ToErrorLimited(maxReportedErrors); reported != nil {
 		r.logger.WithField("record", subject.Key.String()).Warnf(
-			"%d superseded propert%s of this record still hold their staged directory, so retirement "+
+			"%d superseded propert(y/ies) of this record still hold their staged directory, so retirement "+
 				"has not run for them; keeping the record, which is what lets the next load retry: %v",
-			unretired.Len(), pluralY(unretired.Len()), reported)
+			unretired.Len(), reported)
 	}
 
 	// A Promoted record is read as "this rename happened". A pass that renamed
@@ -497,14 +497,6 @@ func (r *migrationReconciler) supersededPropertyIsRetired(all []MigrationRecord,
 		return false, fmt.Sprintf("property %q: staged directory %q is still on disk", prop, staged)
 	}
 	return true, ""
-}
-
-// pluralY renders the "y"/"ies" tail of "property" for a count.
-func pluralY(n int) string {
-	if n == 1 {
-		return "y"
-	}
-	return "ies"
 }
 
 // Directory presence can't prove a rename ran (canonical is pre-created

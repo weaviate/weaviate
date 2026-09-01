@@ -869,7 +869,7 @@ shard. See §6 crash safety.
 **`reindex_cancel_cleanup.go`** — `DB.NewStalePartialReindexSweep()`
 returns a `func(ctx, collection, prop, indexType) error` that fans out to
 `Shard.CleanStalePartialReindexState` per shard. Called from the cancel
-handler (after `WaitForLocalTaskDrain`), from the submit handler
+handler (after `SealLocalTaskDrain`), from the submit handler
 (defense in depth), and from `autoCleanupAfterTerminal` on every node once
 a task reaches FAILED or CANCELLED. Per-shard failures don't stop
 iteration so a stuck shard can't permanently wedge a
@@ -1494,7 +1494,7 @@ phases of different concerns and don't share state.
    409 the pre-flight would have.
 3. RAFT `CancelDistributedTask`.
 4. Wait for the local reindex goroutine to drain
-   (`WaitForLocalTaskDrain`, 10s timeout). Bounded so a stuck
+   (`SealLocalTaskDrain`, 10s timeout). Bounded so a stuck
    goroutine doesn't turn the HTTP request into a hang.
 5. `DB.NewStalePartialReindexSweep()` — wipe sidecars + migration dir
    so the next submit starts from a clean slate. Runs for every index
@@ -1589,21 +1589,13 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 **Migration records, both directions.** Drain and promote every reindex before
 you change the binary, up or down. Neither direction is enforced.
 
-Upgrading past a migration a previous release completed but did not promote is
-already the accepted limitation: this build preserves that data but cannot
-promote it, so the property answers from an empty bucket until an operator
-restores or downgrades (`migrationCompletionMarker`).
+This build emits no load-time signal for an unpromoted marker-era migration.
 
-Three things about that limitation are sharper than they read:
-
-- **The warning fires once, on the first load only.** That same load creates
-  the empty canonical directory, and `servesEmpty` compares the two names — so
-  from the second load on it reports nothing. An operator who missed the first
-  line has no second one.
 - **"Drain and promote before you change the binary" is not executable for a
   multi-tenant collection.** The old build's only promoter runs per shard load,
   so a tenant that has not been activated since its swap never promotes, and
-  never emits the warning either. There is no operation that drains them all.
+  never emits the old build's warning either. There is no operation that drains
+  them all.
 - **The preserve set no longer depends on reading the payload.** A
   marker-carrying tracker whose property list cannot be learned — a v1.37.x
   tracker has `tidied.mig` and no `payload.mig`, since payloads first ship in

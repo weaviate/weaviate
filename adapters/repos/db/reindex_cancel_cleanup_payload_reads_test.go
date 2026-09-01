@@ -211,7 +211,7 @@ func TestSweepPayloadReadCount(t *testing.T) {
 				require.True(t, gateStale,
 					"unloaded-shard gate must hydrate rather than report a shard with an "+
 						"unreadable payload as clean")
-				_, unreadable := migrationDirsOf(lsm, nil, tc.propName, tc.indexTypes[0]).
+				_, unreadable := migrationDirsOf(lsm, tc.propName, tc.indexTypes[0]).
 					inScopeFailingOpen(tc.gateFailsOpenOn)
 				require.True(t, unreadable,
 					"inScopeFailingOpen must keep reporting the unreadable payload the gate fails open on")
@@ -349,7 +349,7 @@ func TestMatchByNameAgreesWithMatch(t *testing.T) {
 
 		for _, propName := range propNames {
 			for _, indexType := range []string{"filterable", "searchable", "rangeable"} {
-				scope := migrationDirsOf(lsm, nil, propName, indexType)
+				scope := migrationDirsOf(lsm, propName, indexType)
 				for _, dir := range dirs {
 					byName, decided := scope.matchByName(dir)
 					if !decided {
@@ -391,7 +391,7 @@ func TestMatchByNameOverridesAContradictingPayload(t *testing.T) {
 	mkTrackerDir(t, lsm, dir)
 	mkRecoveryPayload(t, lsm, dir, "cat", "dog")
 
-	scope := migrationDirsOf(lsm, nil, "cat", "filterable")
+	scope := migrationDirsOf(lsm, "cat", "filterable")
 
 	matched, decided := scope.matchByName(dir)
 	require.True(t, decided, "an underscore-free name is decided without the payload")
@@ -430,7 +430,7 @@ func TestTaskPropsCacheReadsEachPayloadOnce(t *testing.T) {
 	mkRecoveryPayload(t, lsm, "enable_filterable_a_b_1", "a", "b")
 
 	cache := &taskPropsCache{}
-	scope := migrationDirsOf(lsm, nil, "a", "filterable").cachingProps(cache)
+	scope := migrationDirsOf(lsm, "a", "filterable").cachingProps(cache)
 	for range 3 {
 		props, ok, unreadable := scope.taskProperties("enable_filterable_a_b_1")
 		require.True(t, ok)
