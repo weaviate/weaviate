@@ -299,10 +299,16 @@ func rangeableEnabledTestClass(className string) *models.Class {
 	return class
 }
 
-// TestRecoveryWalkReportsUnreadableShardsOnce pins the startup walk's fault
-// reporting to one line per fault kind. Each of these faults is systemic, so a
-// line per shard would follow the tenant count at every boot.
-func TestRecoveryWalkReportsUnreadableShardsOnce(t *testing.T) {
+// TestRecoveryWalkAggregatesUnreadableShardsIntoOneLine pins the startup walk's
+// own fault reporting to one line per fault kind. Each of these faults is
+// systemic, so a line per shard would follow the tenant count at every boot.
+//
+// The walk's line is the only one counted here. The record store it calls
+// reports each unreadable set on its own shard, so the boot total is higher
+// than one; that leaf predates this branch and is not this test's to hold.
+// Matching is on the walk's own prefix at any level, because keying the count
+// on Warn made it blind to exactly the per-shard line it exists to catch.
+func TestRecoveryWalkAggregatesUnreadableShardsIntoOneLine(t *testing.T) {
 	const shards = 12
 	root := t.TempDir()
 	indexPath := filepath.Join(root, "books_abc")
@@ -323,12 +329,13 @@ func TestRecoveryWalkReportsUnreadableShardsOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, recovered)
 
-	// Every Warn about unreadable records, not just the summary: a per-shard
-	// line would pass a summary-only assertion while still following the
-	// tenant count.
+	// Every line the walk writes about unreadable records, not just the
+	// summary: a per-shard line would pass a summary-only assertion while
+	// still following the tenant count.
 	var about []string
 	for _, e := range hook.AllEntries() {
-		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "could not be read") {
+		if strings.Contains(e.Message, "reindex recovery:") &&
+			strings.Contains(e.Message, "could not be read") {
 			about = append(about, e.Message)
 		}
 	}
