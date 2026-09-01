@@ -13,7 +13,7 @@
 // ================================
 //
 // The runtime swap path (semantic migrations through OnGroupCompleted,
-// and non-semantic migrations through OnAfterLsmInitAsync) is partitioned
+// and non-semantic migrations through RunOnShard) is partitioned
 // into THREE phases. Maintainers MUST preserve the boundary between them
 // — drift between phases causes the per-shard "FINALIZING window"
 // misalignment between bucket content and the query analyzer at
@@ -130,7 +130,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -160,17 +159,6 @@ type ShardReindexTaskGeneric struct {
 	keyParser            indexKeyParser
 	objectsIteratorAsync objectsIteratorAsync
 	config               reindexTaskConfig
-
-	// skipSwapOnFinish, when true, causes the reindex iteration to stop after
-	// markReindexed() without proceeding to runtimeSwap(). This is used by
-	// RunReindexOnlyOnShard for barrier semantics: all shards must finish
-	// reindexing before any shard swaps.
-	//
-	// Atomic because the field is written by runShardLifecycle (from the
-	// StartTask worker goroutine) and read by OnAfterLsmInitAsync's loop
-	// body (which can run on a separate goroutine when the cached task
-	// instance is later invoked from OnGroupCompleted's swap phase).
-	skipSwapOnFinish atomic.Bool
 
 	// callbackDisableFuncs collects the disable functions returned by
 	// registerAddToPropertyValueIndex / registerDeleteFromPropertyValueIndex.
@@ -355,12 +343,36 @@ func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []
 	return os.WriteFile(target, payload, 0o600)
 }
 
-// RunOnShard runs the full reindex lifecycle on a live shard: OnAfterLsmInit
-// followed by repeated OnAfterLsmInitAsync calls until the task is complete.
-// This is intended for debug/runtime-triggered migrations on an already-running shard.
+// RunOnShard runs the full reindex lifecycle on a live shard: the iteration,
+// then prep, then swap. Every phase dispatches on the sentinels it finds on
+// disk, so a task relaunched after a restart resumes from wherever the
+// previous run stopped instead of reporting success on a half-done migration.
 // The shard may be a *Shard or *LazyLoadShard.
 func (t *ShardReindexTaskGeneric) RunOnShard(ctx context.Context, shard ShardLike) error {
-	return t.runShardLifecycle(ctx, shard, false)
+	if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
+		return err
+	}
+
+	// The iteration has two exits that never start a migration on this shard:
+	// the shard is not selected, and no reindexable props were found. Prep and
+	// swap error out on a shard with no in-flight state, so peek at the
+	// tracker before entering them.
+	concreteShard, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+	}
+	rt, err := t.newReindexTrackerGuarded(concreteShard)
+	if err != nil {
+		return fmt.Errorf("creating reindex tracker: %w", err)
+	}
+	if !rt.IsStarted() {
+		return nil
+	}
+
+	if err := t.RunPrepareOnShard(ctx, shard); err != nil {
+		return err
+	}
+	return t.RunSwapOnShard(ctx, shard)
 }
 
 // RunReindexOnlyOnShard runs the reindex iteration WITHOUT swap/tidy.
@@ -377,19 +389,6 @@ func (t *ShardReindexTaskGeneric) RunOnShard(ctx context.Context, shard ShardLik
 // until RunSwapOnShard completes — callers must use the same task instance for
 // both calls.
 func (t *ShardReindexTaskGeneric) RunReindexOnlyOnShard(ctx context.Context, shard ShardLike) error {
-	return t.runShardLifecycle(ctx, shard, true)
-}
-
-// runShardLifecycle is the shared body of RunOnShard / RunReindexOnlyOnShard.
-// skipSwap=true sets the same-named flag for the duration of the call so the
-// iteration loop stops after IsReindexed() — used for the barrier semantics
-// of semantic migrations. skipSwap=false runs all the way through swap+tidy.
-func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard ShardLike, skipSwap bool) error {
-	if skipSwap {
-		t.skipSwapOnFinish.Store(true)
-		defer t.skipSwapOnFinish.Store(false)
-	}
-
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
 		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
@@ -1358,13 +1357,10 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		//
 		// FlushAndSwitch's contract is durability: every write that
 		// returned before the call is in a segment file (fsynced) by
-		// the time FlushAndSwitch returns. Doing it here closes the
-		// "markReindexed happens-before durability" gap unique to the
-		// FINALIZING-barrier path, where the inline runtimeSwap is
-		// deferred and a crash window opens between markReindexed and
-		// the eventual flush. The inline path (skipSwapOnFinish=false)
-		// also benefits — markReindexed now strictly happens-after
-		// durable persistence regardless of which path runs next.
+		// the time FlushAndSwitch returns. Doing it here makes
+		// markReindexed strictly happen-after durable persistence, so
+		// the swap phase that runs later — in this process or after a
+		// restart — always finds every iterated row on disk.
 		//
 		// Failure mode the durability barrier prevents: a SIGKILL
 		// between markReindexed and the eventual flush leaves rows
@@ -1384,29 +1380,10 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			err = fmt.Errorf("marking reindexed: %w", err)
 			return zerotime, false, err
 		}
-		if t.skipSwapOnFinish.Load() {
-			logger.WithFields(map[string]any{
-				"processed_count": processedCount,
-				"indexed_count":   indexedCount,
-			}).Info("reindex complete (swap deferred for barrier)")
-			return zerotime, false, nil
-		}
-		// Inline runtime swap path (non-semantic migrations: MapToBlockmax,
-		// RoaringSetRefresh, EnableRangeable / Repair-*). Semantic
-		// migrations have skipSwapOnFinish=true and go through
-		// OnGroupCompleted's three-phase flow (prep → overlay → atomic
-		// swap). Here we run prep + atomic-swap inline: no overlay
-		// needed — these migration types don't change the analyzer's
-		// tokenization view of the bucket, so there is no FINALIZING
-		// window where the analyzer and bucket content can disagree.
-		if err = t.runtimePrepare(ctx, logger, shard, rt, props); err != nil {
-			err = fmt.Errorf("runtime prepare: %w", err)
-			return zerotime, false, err
-		}
-		if err = t.runtimeSwap(ctx, logger, shard, rt, props); err != nil {
-			err = fmt.Errorf("runtime swap: %w", err)
-			return zerotime, false, err
-		}
+		logger.WithFields(map[string]any{
+			"processed_count": processedCount,
+			"indexed_count":   indexedCount,
+		}).Info("reindex iteration complete")
 		return zerotime, false, nil
 	}
 	return time.Now().Add(t.config.pauseDuration), false, nil

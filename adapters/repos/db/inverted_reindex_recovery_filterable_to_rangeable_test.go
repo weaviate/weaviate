@@ -14,12 +14,15 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -254,14 +257,7 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 		"pre-migration rangeable bucket must NOT exist (IndexRangeFilters defaults to false)")
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted,
 		"OnMigrationComplete must fire post-migration")
 
@@ -290,4 +286,190 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 	require.True(t, rt.IsMerged())
 	require.True(t, rt.IsSwapped())
 	require.True(t, rt.IsTidied())
+}
+
+// computeFilterableToRangeableBaseline runs a clean migration on a
+// throw-away shard and returns its post-migration rangeable fingerprint.
+// The matrix cells below compare against this as ground truth.
+func computeFilterableToRangeableBaseline(t *testing.T, propName string, numObjects int) map[uint64][]uint64 {
+	t.Helper()
+	ctx := testCtx()
+	className := "FilterToRangeBaselineRef_" + uuid.NewString()[:8]
+	class := newFilterableToRangeableTestClass(className)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	require.NoError(t, task.RunOnShard(ctx, shard))
+
+	return filterableToRangeableFingerprint(t,
+		shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName)))
+}
+
+// TestRecoveryConvergence_FilterableToRangeable_FromEachState pins the
+// same invariant the RebuildSearchable matrix pins, for the rangeable
+// family (enable-rangeable and repair-rangeable both run through
+// FilterableToRangeableStrategy): from any on-disk state a replica can
+// land in after a mid-migration restart, one relaunch drives the
+// migration to the terminal state and the rangeable bucket content
+// matches a clean baseline run.
+//
+// Five sentinel states, reached through the production entry points
+// except for the two states that live inside an atomic method
+// (IsPrepended, IsSwapped), which are synthesized by removing the later
+// sentinel file.
+func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
+	const numObjects = 25
+	propName := filterableToRangeablePropName
+
+	baseline := computeFilterableToRangeableBaseline(t, propName, numObjects)
+	require.NotEmpty(t, baseline, "baseline fingerprint must be non-empty")
+
+	cases := []recoveryConvergenceCase{
+		{
+			name: "FilterableToRangeable_IsReindexed_via_RunReindexOnlyOnShard",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": false, "merged": false, "swapped": false, "tidied": false,
+			},
+		},
+		{
+			name: "FilterableToRangeable_IsPrepended_synthetic_merged_removed",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+				rt, err := task.newReindexTracker(shard.pathLSM())
+				require.NoError(t, err)
+				ftr := rt.(*fileReindexTracker)
+				require.NoError(t, os.Remove(
+					filepath.Join(ftr.config.migrationPath, ftr.config.filenameMerged)))
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": true, "merged": false, "swapped": false, "tidied": false,
+			},
+		},
+		{
+			name: "FilterableToRangeable_IsSwapped_synthetic_tidied_removed",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				require.NoError(t, task.RunOnShard(ctx, shard))
+				rt, err := task.newReindexTracker(shard.pathLSM())
+				require.NoError(t, err)
+				ftr := rt.(*fileReindexTracker)
+				require.NoError(t, os.Remove(
+					filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)))
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": false,
+			},
+		},
+		{
+			name: "FilterableToRangeable_IsMerged_via_RunPrepareOnShard",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": true, "merged": true, "swapped": false, "tidied": false,
+			},
+		},
+		{
+			name: "FilterableToRangeable_IsTidied_via_RunOnShard",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				require.NoError(t, task.RunOnShard(ctx, shard))
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "FilterToRangeCase_" + uuid.NewString()[:8]
+			class := newFilterableToRangeableTestClass(className)
+
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+
+			for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+
+			task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+			tc.driveToState(t, ctx, shard, task)
+
+			// Verify driveToState actually landed at the intended on-disk
+			// state. Without this guard a buggy driveToState would let
+			// recovery from a different state appear to "converge".
+			rt, err := task.newReindexTracker(shard.pathLSM())
+			require.NoError(t, err)
+			got := map[string]bool{
+				"reindexed": rt.IsReindexed(),
+				"prepended": rt.IsPrepended(),
+				"merged":    rt.IsMerged(),
+				"swapped":   rt.IsSwapped(),
+				"tidied":    rt.IsTidied(),
+			}
+			for name, want := range tc.expectedPostStateSentinels {
+				assert.Equalf(t, want, got[name], "after driveToState, sentinel %q (case %q)", name, tc.name)
+			}
+
+			// Simulated restart: graceful shutdown, fresh task, then
+			// idx.initShard re-runs FinalizeCompletedMigrations → LSM
+			// init → OnAfterLsmInit.
+			shardName := shard.Name()
+			require.NoError(t, shard.Shutdown(ctx))
+
+			task2, wrapped2 := newFilterableToRangeableTask(t, idx, className, propName)
+			idx.shardReindexer = &testShardReindexer{task: task2}
+
+			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+			require.NoErrorf(t, err, "shard re-init must succeed (case %q)", tc.name)
+			shard2 := shd2.(*Shard)
+			defer shard2.Shutdown(ctx)
+			idx.shards.Store(shardName, shd2)
+
+			// Relaunch the task the way the provider does after a
+			// restart: one RunOnShard drives whatever the previous run
+			// left unfinished through to the terminal state.
+			require.NoErrorf(t, task2.RunOnShard(ctx, shard2),
+				"recovery RunOnShard must not error (case %q)", tc.name)
+
+			rt2, err := task2.newReindexTracker(shard2.pathLSM())
+			require.NoErrorf(t, err, "post-recovery tracker init (case %q)", tc.name)
+			require.Truef(t, rt2.IsTidied(),
+				"recovery must reach the terminal tidied state (case %q)", tc.name)
+			require.Truef(t, wrapped2.migrationCompleted,
+				"recovery must run OnMigrationComplete (case %q)", tc.name)
+
+			bucket := shard2.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
+			require.NotNilf(t, bucket, "post-recovery rangeable bucket must exist (case %q)", tc.name)
+
+			gotFP := filterableToRangeableFingerprint(t, bucket)
+			assert.Equalf(t, len(baseline), len(gotFP),
+				"post-recovery rangeable term count diverges from baseline (case %q)", tc.name)
+			for term, expectedIDs := range baseline {
+				gotIDs, ok := gotFP[term]
+				if !ok {
+					assert.Failf(t, "missing term",
+						"term %d present in baseline but missing post-recovery (case %q)", term, tc.name)
+					continue
+				}
+				assert.Equalf(t, expectedIDs, gotIDs,
+					"term %d post-recovery doc-id list diverges from baseline (case %q)", term, tc.name)
+			}
+		})
+	}
 }

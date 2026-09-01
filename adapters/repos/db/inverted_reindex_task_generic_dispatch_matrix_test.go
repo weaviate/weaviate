@@ -76,10 +76,6 @@ var dispatchMatrixAllSentinels = []dispatchMatrixSentinel{
 // stringifying the lex key for matrix-wide assertion uniformity).
 type dispatchMatrixStrategyCase struct {
 	strategyName string
-	// path indicates whether the strategy uses the trio (semantic) or
-	// inline (non-semantic) drive-to-state primitives. Affects how each
-	// sentinel cell is reached.
-	path dispatchMatrixPath
 	// buildClass returns the class fixture this strategy operates on
 	// (and the property name to migrate — same for every cell).
 	buildClass func(className string) (*models.Class, string)
@@ -98,26 +94,11 @@ type dispatchMatrixStrategyCase struct {
 	fingerprint func(t *testing.T, shard *Shard, bucketName string) map[string][]uint64
 }
 
-// dispatchMatrixPath distinguishes the trio (semantic) drive primitives
-// from the inline (non-semantic) ones. Inline strategies don't expose
-// RunPrepareOnShard / RunSwapOnShard as their normal production
-// invocation route — they're driven inline by OnAfterLsmInitAsync — but
-// the trio methods are still well-defined and callable. The dispatch
-// matrix uses the production-natural primitives for each path: trio
-// methods for semantic strategies, OnAfterLsmInit+loop for inline.
-type dispatchMatrixPath int
-
-const (
-	dispatchMatrixPathInline dispatchMatrixPath = iota // OnAfterLsmInit + async loop
-	dispatchMatrixPathTrio                             // RunReindexOnlyOnShard + RunPrepareOnShard
-)
-
 // dispatchMatrixStrategyCases enumerates all 8 strategy structs.
 func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 	return []dispatchMatrixStrategyCase{
 		{
 			strategyName: "MapToBlockmax",
-			path:         dispatchMatrixPathInline,
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
@@ -134,7 +115,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "RebuildSearchable",
-			path:         dispatchMatrixPathTrio,
 			buildClass: func(className string) (*models.Class, string) {
 				return newRebuildSearchableTestClass(className, []string{"title"}), "title"
 			},
@@ -149,7 +129,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "RoaringSetRefresh",
-			path:         dispatchMatrixPathInline,
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
@@ -164,7 +143,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "FilterableToRangeable",
-			path:         dispatchMatrixPathInline,
 			buildClass: func(className string) (*models.Class, string) {
 				return newFilterableToRangeableTestClass(className), filterableToRangeablePropName
 			},
@@ -186,7 +164,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "EnableFilterable",
-			path:         dispatchMatrixPathTrio,
 			buildClass: func(className string) (*models.Class, string) {
 				return newEnableFilterableTestClass(className, "title"), "title"
 			},
@@ -201,7 +178,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "EnableSearchable",
-			path:         dispatchMatrixPathTrio,
 			buildClass: func(className string) (*models.Class, string) {
 				return newEnableSearchableTestClass(className, []string{"title"}), "title"
 			},
@@ -217,7 +193,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "FilterableRetokenize",
-			path:         dispatchMatrixPathTrio,
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
@@ -233,7 +208,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "SearchableRetokenize",
-			path:         dispatchMatrixPathTrio,
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
@@ -294,26 +268,17 @@ func dispatchMatrixRangeableFingerprintAsString(t *testing.T, b *lsmkv.Bucket) m
 }
 
 // dispatchMatrixDriveCell drives the test shard to the requested
-// sentinel state. Returns true on success, false (with t.Skip on the
-// underlying t) if the cell is unreachable at unit level for this
-// strategy.
-//
-// The drive primitives differ by path:
-//   - inline path: OnAfterLsmInit + OnAfterLsmInitAsync loop with
-//     skipSwapOnFinish for IsReindexed; direct runtimePrepare call for
-//     IsMerged; full migration for IsTidied; synthetic file removal for
-//     IsPrepended/IsSwapped.
-//   - trio path: RunReindexOnlyOnShard for IsReindexed; +RunPrepareOnShard
-//     for IsMerged; +RunSwapOnShard for IsTidied; synthetic file removal
-//     for IsPrepended/IsSwapped.
+// sentinel state: RunReindexOnlyOnShard for IsReindexed, +RunPrepareOnShard
+// for IsMerged, +RunSwapOnShard for IsTidied, and synthetic sentinel-file
+// removal for IsPrepended / IsSwapped. Unreachable cells call t.Skip.
 func dispatchMatrixDriveCell(
 	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	path dispatchMatrixPath, sentinel dispatchMatrixSentinel,
+	sentinel dispatchMatrixSentinel,
 ) {
 	t.Helper()
 	switch sentinel {
 	case dispatchMatrixIsReindexed:
-		dispatchMatrixDriveToReindexed(t, ctx, shard, task, path)
+		dispatchMatrixDriveToReindexed(t, ctx, shard, task)
 	case dispatchMatrixIsPrepended:
 		// recoverRuntimeSwapBuckets renames the live main bucket dir
 		// while the in-memory store still mmaps its segments; that
@@ -324,12 +289,12 @@ func dispatchMatrixDriveCell(
 		// the sentinel. See the file godoc above.
 		t.Skip("IsPrepended dispatch branch requires post-restart in-memory state; not safely reachable in a same-process unit test (recoverRuntimeSwapBuckets renames live mmap'd bucket dirs). Convergence matrices cover the post-restart path.")
 	case dispatchMatrixIsMerged:
-		dispatchMatrixDriveToMerged(t, ctx, shard, task, path)
+		dispatchMatrixDriveToMerged(t, ctx, shard, task)
 	case dispatchMatrixIsSwapped:
-		dispatchMatrixDriveToTidied(t, ctx, shard, task, path)
+		dispatchMatrixDriveToTidied(t, ctx, shard, task)
 		dispatchMatrixRemoveTidiedSentinel(t, shard, task)
 	case dispatchMatrixIsTidied:
-		dispatchMatrixDriveToTidied(t, ctx, shard, task, path)
+		dispatchMatrixDriveToTidied(t, ctx, shard, task)
 	default:
 		t.Fatalf("dispatchMatrix: unknown sentinel %q", sentinel)
 	}
@@ -337,84 +302,25 @@ func dispatchMatrixDriveCell(
 
 func dispatchMatrixDriveToReindexed(
 	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	path dispatchMatrixPath,
 ) {
 	t.Helper()
-	switch path {
-	case dispatchMatrixPathTrio:
-		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	case dispatchMatrixPathInline:
-		task.skipSwapOnFinish.Store(true)
-		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-		for {
-			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-			require.NoError(t, err)
-			if rerunAt.IsZero() {
-				break
-			}
-		}
-		// Release the flag — RunSwapOnShard's default branch
-		// (IsReindexed) will re-issue runtimePrepare + runtimeSwap
-		// itself; skipSwapOnFinish on a fresh swap-only call is
-		// undefined and we want the dispatch to behave exactly as it
-		// does in production OnGroupCompleted.
-		task.skipSwapOnFinish.Store(false)
-	}
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 }
 
 func dispatchMatrixDriveToMerged(
 	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	path dispatchMatrixPath,
 ) {
 	t.Helper()
-	switch path {
-	case dispatchMatrixPathTrio:
-		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-		require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	case dispatchMatrixPathInline:
-		task.skipSwapOnFinish.Store(true)
-		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-		for {
-			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-			require.NoError(t, err)
-			if rerunAt.IsZero() {
-				break
-			}
-		}
-		task.skipSwapOnFinish.Store(false)
-		// Inline strategies don't expose a trio entry point for prep
-		// alone; call runtimePrepare directly. This matches what the
-		// existing inline-path convergence rows do (e.g.
-		// FilterableToRangeable_IsMerged_via_runtimePrepare_no_runtimeSwap
-		// at inverted_reindex_recovery_filterable_to_rangeable_test.go:472).
-		rt, err := task.newReindexTracker(shard.pathLSM())
-		require.NoError(t, err)
-		props, err := task.readPropsToReindex(rt)
-		require.NoError(t, err)
-		require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
-	}
+	dispatchMatrixDriveToReindexed(t, ctx, shard, task)
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 }
 
 func dispatchMatrixDriveToTidied(
 	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	path dispatchMatrixPath,
 ) {
 	t.Helper()
-	switch path {
-	case dispatchMatrixPathTrio:
-		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-		require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-		require.NoError(t, task.RunSwapOnShard(ctx, shard))
-	case dispatchMatrixPathInline:
-		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-		for {
-			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-			require.NoError(t, err)
-			if rerunAt.IsZero() {
-				break
-			}
-		}
-	}
+	dispatchMatrixDriveToMerged(t, ctx, shard, task)
+	require.NoError(t, task.RunSwapOnShard(ctx, shard))
 }
 
 // dispatchMatrixRemoveTidiedSentinel removes tidied.mig to synthesize the
@@ -496,7 +402,7 @@ func dispatchMatrixComputeBaseline(
 	dispatchMatrixSeedObjects(t, ctx, shard, sc, className, numObjects)
 
 	task := sc.buildTask(t, idx, className, propName)
-	dispatchMatrixDriveToTidied(t, ctx, shard, task, sc.path)
+	dispatchMatrixDriveToTidied(t, ctx, shard, task)
 
 	return sc.fingerprint(t, shard, sc.fingerprintBucketName(propName))
 }
@@ -573,7 +479,7 @@ func dispatchMatrixRunCell(
 	// driveToState may call t.Skip for unreachable cells; if so, the
 	// subtest is recorded as skipped (not failed). The defer-Shutdown
 	// above is still honored on the skip path.
-	dispatchMatrixDriveCell(t, ctx, shard, task, sc.path, sentinel)
+	dispatchMatrixDriveCell(t, ctx, shard, task, sentinel)
 
 	// Verify the drive halted at the intended sentinel snapshot.
 	rt, err := task.newReindexTracker(shard.pathLSM())

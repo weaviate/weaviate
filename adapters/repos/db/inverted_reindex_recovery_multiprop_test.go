@@ -70,14 +70,7 @@ func computeMultiPropBaseline(t *testing.T, propNames []string, numObjects int) 
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, strategy.migrationCompleted)
 
 	out := make(map[string]map[string][]uint64, len(propNames))
@@ -116,15 +109,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	task := newTestTask(idx.logger, strategy)
 
 	// Drive iteration + runtimePrepare so runtimeSwap's Phase 2a is next.
-	task.skipSwapOnFinish.Store(true)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	rt, err := task.newReindexTracker(shard.pathLSM())
 	require.NoError(t, err)
 	props, err := task.readPropsToReindex(rt)
@@ -193,7 +178,6 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task2 := newTestTask(idx.logger, strategy2)
-	task2.skipSwapOnFinish.Store(false)
 	idx.shardReindexer = &testShardReindexer{task: task2}
 
 	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
@@ -202,13 +186,10 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	defer shard2.Shutdown(ctx)
 	idx.shards.Store(shardName, shd2)
 
-	for {
-		rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
-		require.NoError(t, err, "recovery loop")
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	// The relaunch is a no-op here: shard init's FinalizeCompletedMigrations
+	// already completed the swap from the on-disk merged state and removed
+	// the tracker. Convergence is asserted on the bucket content below.
+	require.NoError(t, task2.RunOnShard(ctx, shard2), "recovery relaunch")
 
 	for _, propName := range propNames {
 		bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
@@ -318,14 +299,8 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 	// Run the full migration pipeline.
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err, "cross-replica migration loop (reverse=%v)", reverse)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard),
+		"cross-replica migration (reverse=%v)", reverse)
 
 	// Fingerprint each prop's post-migration bucket, resolving local
 	// docIDs to global object UUIDs so the comparison is replica-invariant.

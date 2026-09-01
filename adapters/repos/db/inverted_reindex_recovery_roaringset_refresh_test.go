@@ -89,14 +89,7 @@ func computeRoaringSetRefreshBaseline(t *testing.T, propName string, numObjects 
 	}
 
 	task, _ := newRoaringSetRefreshTask(t, idx)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 
 	return fingerprintRoaringSetBucket(t,
 		shard.store.Bucket(helpers.BucketFromPropNameLSM(propName)))
@@ -134,14 +127,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 		"pre-migration filterable fingerprint must be non-empty")
 
 	task, wrapped := newRoaringSetRefreshTask(t, idx)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted,
 		"OnMigrationComplete must fire post-migration")
 
@@ -180,12 +166,12 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 // the recovery code path converges on filterable-bucket content
 // bit-equivalent to the clean baseline run.
 //
-// Five sentinel states, all reached via either the production
-// OnAfterLsmInit+OnAfterLsmInitAsync loop (with skipSwapOnFinish to halt
-// at IsReindexed) plus direct runtimePrepare invocations for the
-// intermediate states, or — for the two atomic-method-internal states
-// (IsPrepended, IsSwapped) — synthetic removal of the later sentinel
-// file. Same scheme PR #11415 uses for MapToBlockmax.
+// Five sentinel states, all reached via the production entry points
+// (RunReindexOnlyOnShard to halt at IsReindexed, RunOnShard for the full
+// lifecycle) plus direct runtimePrepare invocations for the intermediate
+// states, or — for the two atomic-method-internal states (IsPrepended,
+// IsSwapped) — synthetic removal of the later sentinel file. Same scheme
+// PR #11415 uses for MapToBlockmax.
 func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25
@@ -195,17 +181,9 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 
 	cases := []recoveryConvergenceCase{
 		{
-			name: "RoaringSetRefresh_IsReindexed_via_skipSwapOnFinish",
+			name: "RoaringSetRefresh_IsReindexed",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				task.skipSwapOnFinish.Store(true)
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			},
 			expectedPostStateSentinels: map[string]bool{
 				"reindexed": true,
@@ -224,15 +202,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 				// alone. Drive to IsMerged via runtimePrepare, then
 				// remove merged.mig by hand to simulate a crash
 				// between markPrepended() and markMerged().
-				task.skipSwapOnFinish.Store(true)
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				rt, err := task.newReindexTracker(shard.pathLSM())
 				require.NoError(t, err)
 				props, err := task.readPropsToReindex(rt)
@@ -258,14 +228,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 				// atomically. Drive the migration to completion, then
 				// remove tidied.mig by hand to simulate a crash between
 				// markSwapped() and markTidied().
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
+				require.NoError(t, task.RunOnShard(ctx, shard))
 				rt, err := task.newReindexTracker(shard.pathLSM())
 				require.NoError(t, err)
 				ftr := rt.(*fileReindexTracker)
@@ -286,15 +249,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
 				// Step 1: drive iteration to markReindexed via the
 				// production barrier path.
-				task.skipSwapOnFinish.Store(true)
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				// Step 2: call runtimePrepare directly (production code
 				// path; same package access). This writes markPrepended
 				// + cleanup + markMerged in one atomic method. We stop
@@ -316,14 +271,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 		{
 			name: "RoaringSetRefresh_IsTidied_full_migration",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				for {
-					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-					require.NoError(t, err)
-					if rerunAt.IsZero() {
-						break
-					}
-				}
+				require.NoError(t, task.RunOnShard(ctx, shard))
 			},
 			expectedPostStateSentinels: map[string]bool{
 				"reindexed": true,
@@ -382,8 +330,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
-			task2, _ := newRoaringSetRefreshTask(t, idx)
-			task2.skipSwapOnFinish.Store(false)
+			task2, wrapped2 := newRoaringSetRefreshTask(t, idx)
 			idx.shardReindexer = &testShardReindexer{task: task2}
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
@@ -392,16 +339,18 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			defer shard2.Shutdown(ctx)
 			idx.shards.Store(shardName, shd2)
 
-			// Drive the async loop to completion in case recovery is
-			// only partially handled by OnAfterLsmInit.
-			for {
-				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
-				require.NoErrorf(t, err,
-					"recovery OnAfterLsmInitAsync must not error (case %q)", tc.name)
-				if rerunAt.IsZero() {
-					break
-				}
-			}
+			// Relaunch the task the way the provider does after a
+			// restart: one RunOnShard drives whatever the previous run
+			// left unfinished through to the terminal state.
+			require.NoErrorf(t, task2.RunOnShard(ctx, shard2),
+				"recovery RunOnShard must not error (case %q)", tc.name)
+
+			rt2, err := task2.newReindexTracker(shard2.pathLSM())
+			require.NoError(t, err)
+			require.Truef(t, rt2.IsTidied(),
+				"recovery must reach the terminal tidied state (case %q)", tc.name)
+			require.Truef(t, wrapped2.migrationCompleted,
+				"recovery must run OnMigrationComplete (case %q)", tc.name)
 
 			// Phase 3: convergence check against baseline fingerprint.
 			bucket := shard2.store.Bucket(helpers.BucketFromPropNameLSM(propName))

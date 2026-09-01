@@ -352,9 +352,12 @@ preceding a transition on the per-task field. Annotations
         │     (per unit: PENDING → IN_PROGRESS → COMPLETED on success)  │
         │   • Build ShardReindexTaskGeneric per (strategy, unit)        │
         │   • persistRecoveryRecord (payload.mig)                       │
-        │   • RunReindexOnlyOnShard — iterate objects, write to         │
-        │     __reindex_<N>/ bucket; install double-write callbacks     │
-        │   • markReindexed → UnitStatus = COMPLETED  ← per-Unit status │
+        │   • Semantic: RunReindexOnlyOnShard — iterate objects, write  │
+        │     to __reindex_<N>/ bucket; install double-write callbacks; │
+        │     stop at markReindexed (the swap waits for the barrier)    │
+        │   • Format-only: RunOnShard — the same iteration, then prep   │
+        │     and swap, all locally                                     │
+        │   • UnitStatus = COMPLETED  ← per-Unit status                 │
         └──────────────────────────────────┬─────────────────────────────┘
                               All units terminal across the cluster
                                            │
@@ -391,10 +394,10 @@ preceding a transition on the per-task field. Annotations
         │    + OnMigrationComplete (per-strategy hook)                  │
         │   RecordPostCompletionAck(success bool) — RAFT (per node)     │
         │                                                                │
-        │  (Format-only path: Provider.OnGroupCompleted runs the       │
-        │   inline PREP+OVERLAY+SWAP body in a single callback; no      │
-        │   PreparationCompleteAck barrier; SWAPPING fires directly from       │
-        │   AllUnitsTerminal.)                                          │
+        │  (Format-only path: neither callback does swap work —        │
+        │   RunOnShard already finished PREP+SWAP on the node during    │
+        │   StartTask. No PreparationCompleteAck barrier; SWAPPING      │
+        │   fires directly from AllUnitsTerminal.)                      │
         └──────────────────────────────────┬─────────────────────────────┘
               Every node's PostCompletionAck landed (success on all)
                                            │
@@ -421,9 +424,13 @@ preceding a transition on the per-task field. Annotations
 
 Format-only migrations (`enable-rangeable`, `repair-filterable`,
 `repair-rangeable`, `rebuild-searchable`) skip the OnGroupCompleted
-barrier — each shard
-runs the full lifecycle inside its own `RunOnShard` and there is no
-cluster-wide schema flip. The flow is otherwise identical.
+barrier. Each shard runs the full lifecycle inside its own `RunOnShard`,
+which sequences `RunReindexOnlyOnShard` → `RunPrepareOnShard` →
+`RunSwapOnShard` against the sentinels on disk, and there is no
+cluster-wide schema flip. Because every phase dispatches on persisted
+state, a task relaunched after a restart resumes from wherever the
+previous run stopped rather than reporting the unit COMPLETED with the
+swap still outstanding. The flow is otherwise identical.
 
 ### What goes through RAFT vs. what is local-only
 
@@ -1061,8 +1068,9 @@ The post-completion barrier is split into two phases.
    `completedCallbackFired` is unset.
 
 **Format-only migrations (NeedsPreparationBarrier=false):** PHASE A is
-skipped; the FSM goes `STARTED → SWAPPING` directly. `OnGroupCompleted`
-runs the inline PREP+OVERLAY+SWAP body and the scheduler emits
+skipped; the FSM goes `STARTED → SWAPPING` directly. PREP and SWAP have
+already run locally inside `RunOnShard` during `StartTask`, so
+`OnGroupCompleted` is a no-op and the scheduler emits
 `RecordPostCompletionAck`. SWAPPING → FINISHED is gated on the
 PostCompletionAck barrier only.
 

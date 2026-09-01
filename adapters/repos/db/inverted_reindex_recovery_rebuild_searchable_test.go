@@ -347,7 +347,7 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
-			task2, _ := newRebuildSearchableTask(t, idx, className, propName)
+			task2, wrapped2 := newRebuildSearchableTask(t, idx, className, propName)
 			idx.shardReindexer = &testShardReindexer{task: task2}
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
@@ -356,32 +356,18 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 			defer shard2.Shutdown(ctx)
 			idx.shards.Store(shardName, shd2)
 
-			// Drive the async loop. For RebuildSearchable the
-			// in-process OnAfterLsmInitAsync path stops at IsReindexed
-			// when skipSwapOnFinish is set; for non-set cases we still
-			// drain it in case any work is pending.
-			for {
-				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
-				require.NoErrorf(t, err, "recovery OnAfterLsmInitAsync must not error (case %q)", tc.name)
-				if rerunAt.IsZero() {
-					break
-				}
-			}
+			// Relaunch the task the way the provider does after a
+			// restart: one RunOnShard drives whatever the previous run
+			// left unfinished through to the terminal state.
+			require.NoErrorf(t, task2.RunOnShard(ctx, shard2),
+				"recovery RunOnShard must not error (case %q)", tc.name)
 
-			// Trio-style migrations require an explicit RunSwapOnShard
-			// to move past IsReindexed (in production OnGroupCompleted
-			// does this on re-ack for semantic migrations; for the
-			// non-semantic inline path runtimeSwap fires inside the
-			// async loop above and this is a no-op). Mirrors the
-			// SearchableRetokenize / FilterableRetokenize recovery
-			// finalization at convergence_test.go:790-795.
 			rt2, err := task2.newReindexTracker(shard2.pathLSM())
 			require.NoErrorf(t, err, "post-recovery tracker init (case %q)", tc.name)
-			if !rt2.IsTidied() {
-				if err := task2.RunSwapOnShard(ctx, shard2); err != nil {
-					t.Logf("explicit RunSwapOnShard (case %q): %v", tc.name, err)
-				}
-			}
+			require.Truef(t, rt2.IsTidied(),
+				"recovery must reach the terminal tidied state (case %q)", tc.name)
+			require.Truef(t, wrapped2.migrationCompleted,
+				"recovery must run OnMigrationComplete (case %q)", tc.name)
 
 			bucket := shard2.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 			require.NotNilf(t, bucket, "post-recovery searchable bucket must exist (case %q)", tc.name)
