@@ -2420,6 +2420,19 @@ func (b *Bucket) WriteWAL() error {
 	return b.active.writeWAL()
 }
 
+// SyncWAL is WriteWAL's durable sibling: it flushes the active memtable's
+// commit-log buffers AND fsyncs the WAL file, so every write acknowledged
+// before the call survives a crash. Writes that already rotated into the
+// flushing memtable are made durable by the flush cycle itself (its commit
+// log is flushed+fsynced via close() at the start of the memtable flush);
+// like WriteWAL, this only touches the currently active memtable.
+func (b *Bucket) SyncWAL() error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	return b.active.syncWAL()
+}
+
 func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBoost float32, cfgs ...MapListOption) ([]terms.DocPointerWithScore, error) {
 	view := b.GetConsistentView()
 	defer view.ReleaseView()

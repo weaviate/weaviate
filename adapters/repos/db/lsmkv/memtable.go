@@ -61,6 +61,7 @@ type memtable interface {
 	commitlogWalPath() string
 
 	writeWAL() error
+	syncWAL() error
 	flushWAL() error
 	flush() (string, error)
 	setAveragePropertyLength(avgPropLength float64, propLengthCount uint64)
@@ -674,6 +675,21 @@ func (m *Memtable) writeWAL() error {
 	defer m.Unlock()
 
 	return m.commitlog.flushBuffers()
+}
+
+// syncWAL goes one step further than writeWAL: after flushing the commit
+// logger's in-memory buffers to the OS, it also fsyncs the WAL file. Use it
+// when the caller needs a durability barrier, i.e. a guarantee that every
+// prior write to this memtable survives a crash, not just a process exit.
+func (m *Memtable) syncWAL() error {
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.flushBuffers(); err != nil {
+		return err
+	}
+
+	return m.commitlog.sync()
 }
 
 // ReadOnlyTombstones returns a shared, immutable snapshot of the memtable's tombstones.

@@ -331,6 +331,69 @@ func (s *Store) WriteWALs() error {
 	return nil
 }
 
+// SyncWALs makes the WALs of the named buckets durable: for each bucket it
+// flushes the active memtable's commit-log buffers and fsyncs the WAL file
+// (Bucket.SyncWAL). Use it as a crash-durability barrier when later writes
+// (e.g. deleting an object row) must not become durable before the named
+// buckets' earlier writes are.
+//
+// An unknown bucket name is an ERROR, not a no-op: callers use this as a
+// durability barrier, and silently skipping a misnamed bucket would void the
+// guarantee the caller depends on.
+func (s *Store) SyncWALs(ctx context.Context, bucketNames ...string) error {
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	if s.closed {
+		return fmt.Errorf("%w: syncing wals of store %q", ErrAlreadyClosed, s.dir)
+	}
+
+	s.bucketAccessLock.RLock()
+	defer s.bucketAccessLock.RUnlock()
+
+	for _, name := range bucketNames {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("sync wals of store %q: %w", s.dir, err)
+		}
+		bucket := s.bucketNoLock(name)
+		if bucket == nil {
+			return fmt.Errorf("sync wal: bucket %q of store %q: %w", name, s.dir, ErrBucketNotFound)
+		}
+		if err := bucket.SyncWAL(); err != nil {
+			return errors.Wrapf(err, "sync wal of bucket %q", name)
+		}
+	}
+
+	return nil
+}
+
+// SyncAllWALs is SyncWALs over every bucket currently registered in the
+// store. It exists for callers that cannot enumerate which buckets an opaque
+// write path touched (e.g. migration double-write callbacks) and must fall
+// back to a conservative full barrier.
+func (s *Store) SyncAllWALs(ctx context.Context) error {
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	if s.closed {
+		return fmt.Errorf("%w: syncing wals of store %q", ErrAlreadyClosed, s.dir)
+	}
+
+	s.bucketAccessLock.RLock()
+	defer s.bucketAccessLock.RUnlock()
+
+	for name, bucket := range s.bucketsByName {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("sync wals of store %q: %w", s.dir, err)
+		}
+		if err := bucket.SyncWAL(); err != nil {
+			return errors.Wrapf(err, "sync wal of bucket %q", name)
+		}
+	}
+
+	return nil
+}
+
 // bucketJobStatus is used to safely track the status of
 // a job applied to each of a store's buckets when run
 // in parallel
