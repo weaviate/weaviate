@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 type shardInvertedReindexTaskMissingTextFilterable struct {
@@ -120,5 +122,11 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) OnPostResumeStore(ctx co
 }
 
 func (t *shardInvertedReindexTaskMissingTextFilterable) ObjectsIterator(shard ShardLike) objectsIterator {
-	return shard.Store().Bucket(helpers.ObjectsBucketLSM).IterateObjects
+	return func(ctx context.Context, fn func(object *storobj.Object) error) error {
+		bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+		if bucket == nil {
+			return fmt.Errorf("objects bucket of shard %q: %w", shard.Name(), lsmkv.ErrBucketNotFound)
+		}
+		return bucket.IterateObjects(ctx, fn)
+	}
 }

@@ -669,7 +669,7 @@ func (s *Shard) reportTornStoreAccess(err error) {
 		"action": "objects_bucket_missing",
 		"class":  s.index.Config.ClassName.String(),
 		"shard":  s.name,
-	}).Warnf("mutation reached a torn-down store, a teardown drain was outrun, %v", err)
+	}).Warnf("request reached a torn-down store, a teardown drain was outrun, %v", err)
 }
 
 // ObjectCount returns the exact count at any moment

@@ -162,6 +162,55 @@ func TestShardDropProceedsWhenDrainTimesOut(t *testing.T) {
 	require.True(t, warned, "a drop that outran its drain must be logged, not silent")
 }
 
+// TestObjectReadsAfterStoreTeardownReturnErrors is the read-side sibling: a
+// query outliving the drain reads the objects bucket through the same
+// deregistered-bucket window. The bucket view has no error to return, so it
+// yields the zero view and the reads taken against it fail individually.
+func TestObjectReadsAfterStoreTeardownReturnErrors(t *testing.T) {
+	index, cleanup := initIndexAndPopulate(t, t.TempDir())
+	defer cleanup()
+
+	_, shard := loadTestShard(t, index)
+	require.NoError(t, shard.store.Shutdown(context.Background()))
+
+	obj, _ := dropTestObject(nil)
+	id := obj.ID()
+
+	reads := map[string]func() error{
+		"exists": func() error {
+			_, err := shard.Exists(context.Background(), id)
+			return err
+		},
+		"object digest": func() error {
+			_, err := shard.ObjectDigestErrDeleted(context.Background(), id)
+			return err
+		},
+		"object digests in range": func() error {
+			end := strfmt.UUID(uuid.Max.String())
+			_, err := shard.ObjectDigestsInRange(context.Background(), id, end, 10)
+			return err
+		},
+		"vector by doc id": func() error {
+			_, err := shard.vectorByIndexID(context.Background(), 0, "")
+			return err
+		},
+		"multi vector by doc id": func() error {
+			_, err := shard.multiVectorByIndexID(context.Background(), 0, "")
+			return err
+		},
+	}
+
+	for name, read := range reads {
+		t.Run(name, func(t *testing.T) {
+			require.ErrorIs(t, read(), lsmkv.ErrBucketNotFound)
+		})
+	}
+
+	t.Run("releasing the zero bucket view", func(t *testing.T) {
+		require.NotPanics(t, func() { shard.GetObjectsBucketView().ReleaseView() })
+	})
+}
+
 // TestObjectWritesAfterStoreTeardownReturnErrors covers the backstop: a write
 // outliving the drain must fail on the deregistered bucket rather than
 // dereference nil, and must be reported once.
@@ -210,7 +259,7 @@ func TestObjectWritesAfterStoreTeardownReturnErrors(t *testing.T) {
 
 	var reports int
 	for _, e := range hook.AllEntries() {
-		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "mutation reached a torn-down store") {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "request reached a torn-down store") {
 			reports++
 		}
 	}

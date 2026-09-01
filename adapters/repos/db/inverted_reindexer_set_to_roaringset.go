@@ -13,10 +13,12 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 type ShardInvertedReindexTaskSetToRoaringSet struct{}
@@ -77,5 +79,11 @@ func (t *ShardInvertedReindexTaskSetToRoaringSet) OnPostResumeStore(ctx context.
 }
 
 func (t *ShardInvertedReindexTaskSetToRoaringSet) ObjectsIterator(shard ShardLike) objectsIterator {
-	return shard.Store().Bucket(helpers.ObjectsBucketLSM).IterateObjects
+	return func(ctx context.Context, fn func(object *storobj.Object) error) error {
+		bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+		if bucket == nil {
+			return fmt.Errorf("objects bucket of shard %q: %w", shard.Name(), lsmkv.ErrBucketNotFound)
+		}
+		return bucket.IterateObjects(ctx, fn)
+	}
 }

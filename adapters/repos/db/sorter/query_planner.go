@@ -106,7 +106,12 @@ func NewQueryPlanner(store *lsmkv.Store, dataTypesHelper *dataTypesHelper,
 func (s *queryPlanner) EstimateCosts(ctx context.Context, ids helpers.AllowList, limit int,
 	sort []filters.Sort,
 ) (float64, float64) {
-	totalObjects := s.store.Bucket(helpers.ObjectsBucketLSM).CountAsync()
+	// a torn-down store leaves no bucket to count; fall through to the
+	// no-segments estimate below rather than dereferencing nil
+	totalObjects := 0
+	if bucket := s.store.Bucket(helpers.ObjectsBucketLSM); bucket != nil {
+		totalObjects = bucket.CountAsync()
+	}
 	var matches int
 	if ids == nil {
 		matches = totalObjects

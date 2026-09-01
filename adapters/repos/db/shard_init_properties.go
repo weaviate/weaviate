@@ -547,7 +547,11 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			return err
 		}
 
-		if actualStrategy := s.store.Bucket(bucketName).Strategy(); actualStrategy == lsmkv.StrategyInverted {
+		bucket := s.store.Bucket(bucketName)
+		if bucket == nil {
+			return fmt.Errorf("searchable bucket %q of shard %q: %w", bucketName, s.name, lsmkv.ErrBucketNotFound)
+		}
+		if actualStrategy := bucket.Strategy(); actualStrategy == lsmkv.StrategyInverted {
 			s.markSearchableBlockmaxProperties(prop.Name)
 		}
 	}

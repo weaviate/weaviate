@@ -1124,6 +1124,18 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 	return &stats, nil
 }
 
+// getBucket returns the named bucket, or an error if the store no longer holds
+// it. A shard teardown deregisters every bucket up front and drains in-flight
+// requests afterwards, so an operation that is already running finds no bucket
+// under the name it resolved.
+func (h *hnsw) getBucket(name string) (*lsmkv.Bucket, error) {
+	bucket := h.store.Bucket(name)
+	if bucket == nil {
+		return nil, fmt.Errorf("hnsw index %q: bucket %q: %w", h.id, name, lsmkv.ErrBucketNotFound)
+	}
+	return bucket, nil
+}
+
 func (h *hnsw) Type() common.IndexType {
 	return common.IndexTypeHNSW
 }

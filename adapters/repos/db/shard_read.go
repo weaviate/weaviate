@@ -50,7 +50,12 @@ func (s *Shard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (typ
 		return types.RepairResponse{}, err
 	}
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).GetErrDeleted(idBytes)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return types.RepairResponse{}, err
+	}
+
+	bytes, err := bucket.GetErrDeleted(idBytes)
 	if err != nil {
 		return types.RepairResponse{}, err
 	}
@@ -229,9 +234,14 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 		return nil, fmt.Errorf("invalid final UUID %q: %w", finalUUID, err)
 	}
 
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+
 	// Digest mode: only the header is read below, so skip the full value copy.
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).
-		CursorReplaceDigestReusableRange(storobj.MarshallerV1HeaderLen, initialUUID16[:], finalUUID16[:])
+	cursor := bucket.CursorReplaceDigestReusableRange(
+		storobj.MarshallerV1HeaderLen, initialUUID16[:], finalUUID16[:])
 	defer cursor.Close()
 
 	return collectObjectDigests(ctx, cursor, initialUUID16[:], finalUUID16[:], limit)
@@ -344,7 +354,12 @@ func (s *Shard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 		return false, err
 	}
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).Get(idBytes)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return false, err
+	}
+
+	bytes, err := bucket.Get(idBytes)
 	if err != nil {
 		return false, errors.Wrap(err, "read request")
 	}
@@ -410,8 +425,12 @@ func (s *Shard) multiVectorByIndexID(ctx context.Context, indexID uint64, target
 func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([][]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
-	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondaryWithBuffer(ctx, 0, container.Buff8, container.Buff)
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+
+	bytes, newBuff, err := bucket.GetBySecondaryWithBuffer(ctx, 0, container.Buff8, container.Buff)
 	if err != nil {
 		return nil, err
 	}
@@ -435,8 +454,17 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 
 // GetObjectsBucketView returns a consistent view of the objects bucket that can
 // be reused for multiple reads without acquiring locks for each read.
+//
+// On a torn-down store it returns the zero view instead of failing: the thunk
+// signature every vector index shares has no error to report, so the reads
+// taken against the view fail individually (they check the view's bucket)
+// while releasing the zero view stays a no-op.
 func (s *Shard) GetObjectsBucketView() common.BucketView {
-	return s.store.Bucket(helpers.ObjectsBucketLSM).GetConsistentView()
+	bucket, err := s.objectsBucket()
+	if err != nil {
+		return lsmkv.BucketConsistentView{}
+	}
+	return bucket.GetConsistentView()
 }
 
 func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]float32, error) {
@@ -445,6 +473,9 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 	bucketView, ok := view.(lsmkv.BucketConsistentView)
 	if !ok {
 		return nil, fmt.Errorf("invalid view type: expected BucketConsistentView, got %T", view)
+	}
+	if bucketView.Bucket == nil {
+		return nil, fmt.Errorf("objects bucket of shard %q: %w", s.name, lsmkv.ErrBucketNotFound)
 	}
 
 	bytes, newBuff, err := bucketView.Bucket.
@@ -476,6 +507,9 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 	bucketView, ok := view.(lsmkv.BucketConsistentView)
 	if !ok {
 		return nil, fmt.Errorf("invalid view type: expected BucketConsistentView, got %T", view)
+	}
+	if bucketView.Bucket == nil {
+		return nil, fmt.Errorf("objects bucket of shard %q: %w", s.name, lsmkv.ErrBucketNotFound)
 	}
 
 	bytes, newBuff, err := bucketView.Bucket.GetBySecondaryWithBufferAndView(ctx, 0, container.Buff8, container.Buff, bucketView)

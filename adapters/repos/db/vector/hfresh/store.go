@@ -67,9 +67,14 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Me
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
 	}
 
+	bucket := store.Bucket(bName)
+	if bucket == nil {
+		return nil, errors.Wrapf(lsmkv.ErrBucketNotFound, "posting store bucket %s", bName)
+	}
+
 	return &PostingStore{
 		store:    store,
-		bucket:   store.Bucket(bName),
+		bucket:   bucket,
 		locks:    common.NewDefaultShardedRWLocks(),
 		metrics:  metrics,
 		versions: versions,

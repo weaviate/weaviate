@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -238,10 +239,15 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 }
 
 // objectsBucketView returns a consistent view of the objects bucket, valid
-// until ReleaseView. A missing objects bucket is a wiring bug — the shard
-// creates it before any vector index — and panics rather than degrading.
+// until ReleaseView. A torn-down store yields the zero view: releasing it is a
+// no-op and the reads taken against it fail individually, which is all this
+// signature can report.
 func (h *HFresh) objectsBucketView() common.BucketView {
-	return h.store.Bucket(helpers.ObjectsBucketLSM).GetConsistentView()
+	bucket := h.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return lsmkv.BucketConsistentView{}
+	}
+	return bucket.GetConsistentView()
 }
 
 // fetchNormalizedVector reads the full vector for id into the pooled slice

@@ -2894,7 +2894,16 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 		// where data is parked in `b.flushing` invisible to the
 		// segment cursor — the original race that the
 		// flushAndSwitchMu lock was added to close.
-		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk()
+		bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+		if bucket == nil {
+			startedCh <- time.Now()
+			mdCh <- &migrationData{err: fmt.Errorf("objects bucket of shard %q: %w",
+				shard.Name(), lsmkv.ErrBucketNotFound)}
+			close(mdCh)
+			return
+		}
+
+		cursor := bucket.CursorOnDisk()
 		defer cursor.Close()
 
 		startedCh <- time.Now() // after cursor created (necessary locks acquired)
