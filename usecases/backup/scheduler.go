@@ -346,7 +346,10 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string,
 	store coordStore, filename, overrideBucket, overridePath string,
 ) error {
-	meta, err := store.Meta(ctx, filename, overrideBucket, overridePath)
+	// Bounded: an unreachable backend must fail a status/cancel fast, not hang the request.
+	readCtx, cancel := context.WithTimeout(ctx, metaReadTimeout)
+	defer cancel()
+	meta, err := store.Meta(readCtx, filename, overrideBucket, overridePath)
 	if err != nil {
 		// A read concurrent with a write yields a partial file that fails to
 		// unmarshal; treat it as not-found so a mid-write status poll retries.
@@ -360,6 +363,9 @@ func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.P
 }
 
 const metaReadAttempts = 3
+
+// metaReadTimeout bounds descriptor reads on the status/authz paths; var for tests.
+var metaReadTimeout = 15 * time.Second
 
 // metaWithRetry reads the backup meta, retrying briefly on a partial file mid-write
 // (json.SyntaxError) so a class-scoped caller can resolve the real classes for a

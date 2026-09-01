@@ -221,8 +221,8 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		// In-flight backup: meta has not yet been persisted, so the meta read
 		// that backs authorizeBackupByID returns ErrNotFound and is a no-op.
 		// OnStatus then short-circuits on lastOp.
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
-		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", mock.Anything, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", mock.Anything, id, BackupFile).Return(nil, backup.ErrNotFound{})
 		st, err := s.BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
@@ -239,8 +239,8 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		}
 		// A status poll racing an in-progress meta write reads a partial file
 		// that fails to unmarshal; authz must tolerate it so the poll succeeds.
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return([]byte("{"), nil)
-		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", mock.Anything, id, GlobalBackupFile).Return([]byte("{"), nil)
+		fs.backend.On("GetObject", mock.Anything, id, BackupFile).Return(nil, backup.ErrNotFound{})
 		st, err := s.BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
@@ -255,8 +255,8 @@ func TestSchedulerBackupStatus(t *testing.T) {
 
 	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
-		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", mock.Anything, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", mock.Anything, id, BackupFile).Return(nil, backup.ErrNotFound{})
 
 		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
@@ -270,8 +270,8 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		// A transient/operational read failure propagates raw so the handler
 		// default arm maps it to 500 instead of misclassifying as 404.
 		fs := newFakeScheduler(nil)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
-		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, ErrAny)
+		fs.backend.On("GetObject", mock.Anything, id, GlobalBackupFile).Return(nil, ErrAny)
+		fs.backend.On("GetObject", mock.Anything, id, BackupFile).Return(nil, ErrAny)
 
 		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.ErrorIs(t, err, ErrAny, "underlying backend error should propagate unwrapped")
@@ -293,7 +293,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		want.CompletedAt = completedAt
 		want.Status = backup.Success
 		want.Size = 2.5
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("GetObject", mock.Anything, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
@@ -309,8 +309,8 @@ func TestSchedulerBackupStatus(t *testing.T) {
 				Status:      backup.Success,
 			},
 		)
-		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
-		fs.backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
+		fs.backend.On("GetObject", mock.Anything, id, GlobalBackupFile).Return(nil, ErrAny)
+		fs.backend.On("GetObject", mock.Anything, id, BackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
 		require.ErrorIs(t, err, errLegacySingleNode)
@@ -346,7 +346,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		// In-flight restore: meta has not yet been persisted, so the meta read
 		// that backs authorizeBackupByID returns ErrNotFound and is a no-op.
 		// OnStatus then short-circuits on lastOp.
-		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", mock.Anything, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		st, err := s.RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
@@ -363,7 +363,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		}
 		// A status poll racing an in-progress meta write reads a partial file
 		// that fails to unmarshal; authz must tolerate it so the poll succeeds.
-		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return([]byte("{"), nil)
+		fs.backend.On("GetObject", mock.Anything, id, GlobalRestoreFile).Return([]byte("{"), nil)
 		st, err := s.RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
@@ -378,7 +378,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 
 	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", mock.Anything, id, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
 		nerr := backup.ErrNotFound{}
@@ -391,7 +391,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		// A transient/operational read failure propagates raw so the handler
 		// default arm maps it to 500 instead of misclassifying as 404.
 		fs := newFakeScheduler(nil)
-		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, ErrAny)
+		fs.backend.On("GetObject", mock.Anything, id, GlobalRestoreFile).Return(nil, ErrAny)
 		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.ErrorIs(t, err, ErrAny, "underlying backend error should propagate unwrapped")
 	})
@@ -403,7 +403,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		want := want
 		want.CompletedAt = completedAt
 		want.Status = backup.Success
-		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(bytes, nil)
+		fs.backend.On("GetObject", mock.Anything, id, GlobalRestoreFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		got, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
@@ -3077,4 +3077,27 @@ func TestRestoreIgnoresNodeMappingForUnknownNode(t *testing.T) {
 			fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, newNode, mock.Anything)
 		})
 	}
+}
+
+// TestBackupStatusBoundedWhenBackendUnreachable pins that status polls fail fast instead of hanging with the backend down.
+func TestBackupStatusBoundedWhenBackendUnreachable(t *testing.T) {
+	old := metaReadTimeout
+	metaReadTimeout = 100 * time.Millisecond
+	defer func() { metaReadTimeout = old }()
+	fs := newFakeScheduler(nil)
+	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("home/")
+	fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { <-args.Get(0).(context.Context).Done() }).
+		Return(nil, errors.New("backend unreachable"))
+	s := fs.scheduler()
+
+	t0 := time.Now()
+	_, err := s.BackupStatus(context.Background(), nil, "s3", "bounded-status", "", "")
+	require.Error(t, err)
+	require.Less(t, time.Since(t0), 3*time.Second, "backup status must be bounded when the backend hangs")
+
+	t0 = time.Now()
+	_, err = s.RestorationStatus(context.Background(), nil, "s3", "bounded-status", "", "")
+	require.Error(t, err)
+	require.Less(t, time.Since(t0), 3*time.Second, "restore status must be bounded when the backend hangs")
 }
