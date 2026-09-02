@@ -76,7 +76,9 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 			cs[i] = u.Class
 
 			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
-				e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
+				e.logger.WithField("index", u.Class.Class).
+					WithFields(enterrors.DocsLinkFields(err)).
+					Errorf("failed to reload local index: %v", err)
 				err := fmt.Errorf("failed to reload local index %d: %w", i, err)
 
 				errMutex.Lock()
@@ -328,7 +330,8 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest, pr
 		e.logger.WithFields(logrus.Fields{
 			"action": "update_tenants",
 			"class":  class,
-		}).WithError(err).Error("error updating tenants")
+		}).WithFields(enterrors.DocsLinkFields(err)).
+			Errorf("error updating tenants: %v", err)
 		return err
 	}
 	return nil
@@ -361,7 +364,8 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",
 			"class":      class,
-		}).Errorf("error updating tenants: %v", err)
+		}).WithFields(enterrors.DocsLinkFields(err)).
+			Errorf("error updating tenants: %v", err)
 		return err
 	}
 	return nil

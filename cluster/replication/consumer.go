@@ -709,7 +709,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	// Must precede the cap'd drain: replay writes to the local target shard.
 	if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
-		logger.Errorf("failure while loading shard: %v", err)
+		logger.WithFields(enterrors.DocsLinkFields(err)).Errorf("failure while loading shard: %v", err)
 		return api.ShardReplicationState(""), err
 	}
 

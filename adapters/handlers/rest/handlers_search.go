@@ -22,6 +22,7 @@ import (
 	searchops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/search"
 	restsearch "github.com/weaviate/weaviate/adapters/handlers/rest/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -106,10 +107,12 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 		})
 }
 
-// searchErrPayload renders a search APIError as the standard REST error body.
+// searchErrPayload renders a search APIError as the standard REST error body,
+// with the docs link appended for a documented error. Err already has the
+// caller's namespace stripped by the search package.
 func searchErrPayload(apiErr *restsearch.APIError) *models.ErrorResponse {
 	return &models.ErrorResponse{
-		Error: []*models.ErrorResponseErrorItems0{{Message: apiErr.Error()}},
+		Error: []*models.ErrorResponseErrorItems0{{Message: enterrors.MessageWithDocsLink(apiErr.Err)}},
 	}
 }
 

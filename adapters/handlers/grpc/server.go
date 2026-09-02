@@ -50,6 +50,7 @@ import (
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
@@ -111,6 +112,7 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 
 	// Add OpenTelemetry tracing interceptors
 	interceptors = append(interceptors, monitoring.GRPCTracingInterceptor())
+	interceptors = append(interceptors, makeDocsLinkUnaryInterceptor())
 
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
@@ -127,6 +129,7 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 
 	o = append(o, grpc.ChainStreamInterceptor(makeAuthStreamInterceptor(auth.NewHandler(allowAnonymous, authComposer))))
 	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
+	o = append(o, grpc.ChainStreamInterceptor(makeDocsLinkStreamInterceptor()))
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
@@ -356,6 +359,33 @@ func makeMaintenanceModeUnaryInterceptor(maintenanceModeEnabledForLocalhost func
 		}
 		return handler(ctx, req)
 	}
+}
+
+// makeDocsLinkUnaryInterceptor appends the documenting page to the message of
+// a documented error, keeping the status code the handler chose.
+func makeDocsLinkUnaryInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		resp, err := handler(ctx, req)
+		return resp, withDocsLink(err)
+	}
+}
+
+func makeDocsLinkStreamInterceptor() grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		return withDocsLink(handler(srv, ss))
+	}
+}
+
+func withDocsLink(err error) error {
+	if _, ok := enterrors.Documented(err); !ok {
+		return err
+	}
+	// A plain error becomes codes.Unknown, which is what grpc does with it anyway.
+	code := codes.Unknown
+	if st, isStatus := status.FromError(err); isStatus {
+		code = st.Code()
+	}
+	return status.Error(code, enterrors.MessageWithDocsLink(err))
 }
 
 func makeMaintenanceModeStreamInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.StreamServerInterceptor {

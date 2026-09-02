@@ -252,7 +252,7 @@ func (w *worker) fanInReplies(
 				outer := outerIdxs[resp.offset+k]
 				failed[outer] = struct{}{}
 				errs = append(errs, &pb.BatchStreamReply_Results_Error{
-					Error:  resp.err.Error(),
+					Error:  enterrors.MessageWithDocsLink(resp.err),
 					Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: objs[outer].Uuid},
 				})
 			}

@@ -29,6 +29,12 @@ func (e ErrGraphQLUser) OriginalError() error {
 	return e.err
 }
 
+// Unwrap lets errors.Is and errors.As see the resolver's error through this
+// metrics wrapper.
+func (e ErrGraphQLUser) Unwrap() error {
+	return e.err
+}
+
 func (e ErrGraphQLUser) QueryType() string {
 	return e.queryType
 }
