@@ -20,14 +20,14 @@ import (
 	"github.com/stretchr/testify/require"
 	bbolt "go.etcd.io/bbolt"
 
-	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 )
 
 // writeVerdicts records an "upgraded" verdict for each target, as a shard that
 // crossed the threshold would have.
 func writeVerdicts(t *testing.T, rootPath string, targets ...string) {
 	t.Helper()
-	db, err := bbolt.Open(filepath.Join(rootPath, ent.StateDBFileName), 0o600, nil)
+	db, err := bbolt.Open(filepath.Join(rootPath, shardmeta.FileName), 0o600, nil)
 	require.NoError(t, err)
 	defer db.Close()
 	require.NoError(t, db.Update(func(tx *bbolt.Tx) error {
@@ -88,14 +88,14 @@ func TestRemoveStateKey(t *testing.T) {
 			assert: func(t *testing.T, rootPath string) {
 				// A shard that never ran a dynamic index must not gain an empty
 				// state DB from being swept: bbolt.Open creates what it opens.
-				_, err := os.Stat(filepath.Join(rootPath, ent.StateDBFileName))
+				_, err := os.Stat(filepath.Join(rootPath, shardmeta.FileName))
 				assert.True(t, os.IsNotExist(err), "the sweep must not create a state db")
 			},
 		},
 		{
 			name: "a state db without the bucket is not an error",
 			setup: func(t *testing.T, rootPath string) {
-				db, err := bbolt.Open(filepath.Join(rootPath, ent.StateDBFileName), 0o600, nil)
+				db, err := bbolt.Open(filepath.Join(rootPath, shardmeta.FileName), 0o600, nil)
 				require.NoError(t, err)
 				require.NoError(t, db.Close())
 			},
@@ -129,7 +129,7 @@ func TestRemoveStateKey_LockedStateDBIsSkipped(t *testing.T) {
 	rootPath := t.TempDir()
 	writeVerdicts(t, rootPath, "a")
 
-	held, err := bbolt.Open(filepath.Join(rootPath, ent.StateDBFileName), 0o600, nil)
+	held, err := bbolt.Open(filepath.Join(rootPath, shardmeta.FileName), 0o600, nil)
 	require.NoError(t, err)
 	defer held.Close()
 

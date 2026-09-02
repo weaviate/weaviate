@@ -18,7 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"go.etcd.io/bbolt"
 )
 
@@ -183,7 +183,7 @@ func TestUpgradedOnDisk(t *testing.T) {
 func setUpStateDB(t *testing.T, rootPath string, state stateDB, key string, value []byte) {
 	t.Helper()
 
-	path := filepath.Join(rootPath, ent.StateDBFileName)
+	path := filepath.Join(rootPath, shardmeta.FileName)
 	switch state {
 	case stateDBMissing:
 		return
