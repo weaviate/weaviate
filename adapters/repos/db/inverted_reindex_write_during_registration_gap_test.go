@@ -73,16 +73,21 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 
 	// Wrap the ingest-window registration to land the gap writes at exactly
 	// the markStarted→register seam #11688 is about — right before callbacks
-	// arm, so only the fixed markStarted ordering keeps them.
+	// arm, so only the fixed markStarted ordering keeps them. Only the first
+	// firing writes: RunOnShard re-enters this hook with the first firing's
+	// callbacks already live, which would mirror the replayed writes into
+	// ingest whatever the markStarted ordering does.
 	gapWritesDone := false
 	origRegister := task.registerDoubleWriteCallbacksFn
 	task.registerDoubleWriteCallbacksFn = func(shard *Shard, props []string,
 		bucketNamer func(string) string, forTargetStrategy bool,
 	) func() {
-		for i := 0; i < numGapUpdates; i++ {
-			update(i, gapValueBase+int64(i))
+		if !gapWritesDone {
+			for i := 0; i < numGapUpdates; i++ {
+				update(i, gapValueBase+int64(i))
+			}
+			gapWritesDone = true
 		}
-		gapWritesDone = true
 		return origRegister(shard, props, bucketNamer, forTargetStrategy)
 	}
 
