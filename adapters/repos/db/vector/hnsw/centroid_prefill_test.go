@@ -33,26 +33,23 @@ type centroidPrefillNoopBucketView struct{}
 
 func (centroidPrefillNoopBucketView) ReleaseView() {}
 
-// TestParallelPrefillFallsBackToLegacyVectorWhenTargetVectorEmpty pins the
-// hnsw-level mechanism behind a real bug fixed in hfresh: an index whose
-// TargetVector is "" — the shape of hfresh's centroid graph, which has no
-// object-vector identity of its own (see hfresh/hnsw.go) — and which carries
-// no VectorFromObject override falls back, on a parallel cache-prefill scan,
-// to reading the LEGACY object vector for every object in the objects
-// bucket.
+// TestPrefillWithoutVectorFromObjectNeverScansObjectStorage pins the
+// structural guarantee that replaced the old TargetVector-based fallback: an
+// index built with no VectorFromObject — the shape of hfresh's centroid
+// graph, which has no object-vector identity of its own (see
+// hfresh/hnsw.go) — must never read the objects bucket during startup
+// prefill, no matter what it finds there. useParallelPrefill only takes the
+// parallel objects-bucket scan when h.vectorFromObject is set (see
+// startup.go); a nil closure here takes the serial, VectorForIDThunk-based
+// path instead, which this test's thunk starves on purpose (returns nil,
+// nil for every id) so any accidental object-storage read would show up as
+// cached vectors.
 //
-// hfresh's centroid graph must never be fed this way: its vectors only ever
-// arrive via Insert/Add. hfresh.NewHNSWIndex installs a VectorFromObject
-// override that explicitly skips every object, and
-// TestCentroidPrefillNeverReadsObjectStorage in the hfresh package pins that
-// override through the real hfresh.New() construction path — deleting the
-// override there fails that test. This test is narrower and lower-level: it
-// does not touch the override at all, and instead pins the fallback
-// mechanism the override exists to guard against, so a future change to
-// hnsw's own TargetVector-empty resolution (e.g. no longer defaulting to the
-// legacy vector) is caught here even though it wouldn't otherwise be visible
-// through hfresh's wiring test.
-func TestParallelPrefillFallsBackToLegacyVectorWhenTargetVectorEmpty(t *testing.T) {
+// hfresh.NewHNSWIndex used to install a VectorFromObject override for
+// exactly this reason; TestCentroidPrefillNeverReadsObjectStorage in the
+// hfresh package now pins the same guarantee through the real hfresh.New()
+// construction path, by construction rather than by override.
+func TestPrefillWithoutVectorFromObjectNeverScansObjectStorage(t *testing.T) {
 	store := testinghelpers.NewTestObjectsStore(t)
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 	testinghelpers.PutTestObject(t, bucket, 1, []float32{0.1, 0.2, 0.3}, nil)
@@ -60,21 +57,21 @@ func TestParallelPrefillFallsBackToLegacyVectorWhenTargetVectorEmpty(t *testing.
 
 	rootPath := t.TempDir()
 	cfg := Config{
-		RootPath:         rootPath,
-		ID:               "vectors_tv_centroids",
-		TargetVector:     "", // the shape of a centroid graph's config
-		Logger:           logrus.New(),
-		DistanceProvider: distancer.NewCosineDistanceProvider(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) { return nil, nil },
-		GetViewThunk:     func() common.BucketView { return centroidPrefillNoopBucketView{} },
+		RootPath:            rootPath,
+		ID:                  "vectors_tv_centroids",
+		Logger:              logrus.New(),
+		DistanceProvider:    distancer.NewCosineDistanceProvider(),
+		WaitForCachePrefill: true,
+		VectorForIDThunk:    func(ctx context.Context, id uint64) ([]float32, error) { return nil, nil },
+		GetViewThunk:        func() common.BucketView { return centroidPrefillNoopBucketView{} },
 		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
 			return NewCommitLogger(rootPath, "vectors_tv_centroids", logrus.New(),
 				cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		AllocChecker:      memwatch.NewDummyMonitor(),
-		// VectorFromObject is deliberately left unset: this test exercises
-		// the fallback the hfresh-installed override exists to bypass.
+		// VectorFromObject is deliberately left unset: this is the shape of
+		// an index with no object-vector identity of its own.
 	}
 
 	uc := enthnsw.NewDefaultUserConfig()
@@ -84,8 +81,8 @@ func TestParallelPrefillFallsBackToLegacyVectorWhenTargetVectorEmpty(t *testing.
 	require.NoError(t, err)
 	t.Cleanup(func() { idx.Shutdown(context.Background()) })
 
-	require.NoError(t, idx.prefillCacheParallel(context.Background()))
+	idx.PostStartup(context.Background())
 
-	assert.Equal(t, int64(2), idx.cache.CountVectors(),
-		`expected the unguarded TargetVector="" fallback to read legacy object vectors`)
+	assert.Equal(t, int64(0), idx.cache.CountVectors(),
+		"an index without VectorFromObject must never scan the objects bucket during prefill")
 }

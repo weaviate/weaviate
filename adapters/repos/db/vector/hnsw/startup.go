@@ -562,9 +562,13 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			} else {
 				h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
 			}
-		} else if h.useParallelPrefill() {
+		} else if h.vectorFromObject != nil && h.useParallelPrefill() {
 			// Unbounded uncompressed cache: scan the objects bucket with a parallel
 			// cursor instead of looking up every vector by id (disk-seek bound).
+			// vectorFromObject != nil: only an index with an object-vector identity
+			// of its own (bound by the shard) can read one out of stored bytes; an
+			// index without one (e.g. hfresh's centroid graph) always takes the
+			// serial, VectorForIDThunk-based path below instead.
 			err = h.prefillCacheParallel(ctx)
 		} else {
 			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
