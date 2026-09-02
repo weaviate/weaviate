@@ -29,14 +29,18 @@ import (
 )
 
 type Config struct {
-	ID                           string
-	TargetVector                 string
-	Logger                       logrus.FieldLogger
-	RootPath                     string
-	ShardName                    string
-	ClassName                    string
-	PrometheusMetrics            *monitoring.PrometheusMetrics
-	VectorForIDThunk             common.VectorForID[float32]
+	ID                string
+	TargetVector      string
+	Logger            logrus.FieldLogger
+	RootPath          string
+	ShardName         string
+	ClassName         string
+	PrometheusMetrics *monitoring.PrometheusMetrics
+	VectorForIDThunk  common.VectorForID[float32]
+	// VectorFromObject is forwarded to the inner hnsw index, once the
+	// dynamic index has upgraded to it; it plays no part while the inner
+	// index is flat. See hnsw.Config.VectorFromObject.
+	VectorFromObject             hnsw.VectorFromObject
 	GetViewThunk                 common.GetViewThunk
 	TempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32]
 	DistanceProvider             distancer.Provider

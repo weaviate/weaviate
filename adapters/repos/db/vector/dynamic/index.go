@@ -159,6 +159,7 @@ type dynamic struct {
 	className                    string
 	prometheusMetrics            *monitoring.PrometheusMetrics
 	vectorForIDThunk             common.VectorForID[float32]
+	vectorFromObject             hnsw.VectorFromObject
 	getViewThunk                 common.GetViewThunk
 	tempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32]
 	distanceProvider             distancer.Provider
@@ -213,6 +214,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		className:                    cfg.ClassName,
 		prometheusMetrics:            cfg.PrometheusMetrics,
 		vectorForIDThunk:             cfg.VectorForIDThunk,
+		vectorFromObject:             cfg.VectorFromObject,
 		getViewThunk:                 cfg.GetViewThunk,
 		tempVectorForIDWithViewThunk: cfg.TempVectorForIDWithViewThunk,
 		distanceProvider:             cfg.DistanceProvider,
@@ -243,11 +245,11 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				Logger:                       index.logger,
 				RootPath:                     index.rootPath,
 				ID:                           index.id,
-				TargetVector:                 index.targetVector,
 				ShardName:                    index.shardName,
 				ClassName:                    index.className,
 				PrometheusMetrics:            index.prometheusMetrics,
 				VectorForIDThunk:             index.vectorForIDThunk,
+				VectorFromObject:             index.vectorFromObject,
 				GetViewThunk:                 index.getViewThunk,
 				TempVectorForIDWithViewThunk: index.tempVectorForIDWithViewThunk,
 				DistanceProvider:             index.distanceProvider,
@@ -711,11 +713,11 @@ func (dynamic *dynamic) doUpgrade() error {
 				Logger:                       dynamic.logger,
 				RootPath:                     dynamic.rootPath,
 				ID:                           dynamic.id,
-				TargetVector:                 dynamic.targetVector,
 				ShardName:                    dynamic.shardName,
 				ClassName:                    dynamic.className,
 				PrometheusMetrics:            dynamic.prometheusMetrics,
 				VectorForIDThunk:             dynamic.vectorForIDThunk,
+				VectorFromObject:             dynamic.vectorFromObject,
 				GetViewThunk:                 dynamic.getViewThunk,
 				TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
 				DistanceProvider:             dynamic.distanceProvider,
