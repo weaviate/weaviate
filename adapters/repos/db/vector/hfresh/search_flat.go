@@ -51,8 +51,11 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	view := h.objectsBucketView()
-	defer view.ReleaseView()
+	view, releaseView, err := h.objectsBucketView()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer releaseView()
 
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
 	for workerID := range flatSearchConcurrency {
