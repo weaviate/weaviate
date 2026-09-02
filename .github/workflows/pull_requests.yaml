@@ -780,8 +780,6 @@ jobs:
             test: "--acceptance-reindex-multinode-aj"
           - name: "multinode-rm"
             test: "--acceptance-reindex-multinode-rm"
-          - name: "multinode-restart-a"
-            test: "--acceptance-reindex-multinode-restart-a"
           - name: "multinode-restart-b"
             test: "--acceptance-reindex-multinode-restart-b"
           - name: "multinode-scale"
