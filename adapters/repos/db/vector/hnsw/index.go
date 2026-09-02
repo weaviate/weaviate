@@ -415,8 +415,12 @@ func New(cfg Config, uc ent.UserConfig,
 		fs:                common.NewOSFS(),
 	}
 	index.logger = cfg.Logger.WithFields(logrus.Fields{
-		"shard":        cfg.ShardName,
-		"class":        cfg.ClassName,
+		"shard": cfg.ShardName,
+		"class": cfg.ClassName,
+		// index_id distinguishes indexes that share an (often empty) logical
+		// name — e.g. a centroid graph and a geo index both log
+		// targetVector="" — from their physical ID.
+		"index_id":     index.id,
 		"targetVector": index.getTargetVector(),
 	})
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
