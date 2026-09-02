@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -317,4 +318,58 @@ func TestObjectWritesAfterStoreTeardownReturnErrors(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, reports, "an outrun drain must be reported exactly once per shard")
+}
+
+// TestInFlightObjectReadHoldsOffBucketTeardown is the read matrix's mirror
+// image. The matrix covers the read that arrives once teardown has finished,
+// which only exercises the nil-bucket guards. This covers the read that
+// resolved its bucket first: the lifetime pin it holds must make
+// Bucket.Shutdown wait, because a teardown that ran anyway would unmap the
+// segments the read is still in.
+func TestInFlightObjectReadHoldsOffBucketTeardown(t *testing.T) {
+	index, cleanup := initIndexAndPopulate(t, t.TempDir())
+	defer cleanup()
+
+	_, shard := loadTestShard(t, index)
+
+	reading := make(chan struct{})
+	resume := make(chan struct{})
+	iterated := make(chan error, 1)
+
+	go func() {
+		var once sync.Once
+		iterated <- index.IterateObjects(context.Background(),
+			func(*Index, ShardLike, *storobj.Object) error {
+				once.Do(func() {
+					close(reading)
+					<-resume
+				})
+				return nil
+			})
+	}()
+
+	select {
+	case <-reading:
+	case err := <-iterated:
+		t.Fatalf("iteration finished without reading an object: %v", err)
+	}
+
+	torn := make(chan error, 1)
+	go func() { torn <- shard.store.Shutdown(context.Background()) }()
+
+	select {
+	case err := <-torn:
+		t.Fatalf("teardown completed while a read still held the objects bucket: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	close(resume)
+	require.NoError(t, <-iterated)
+
+	select {
+	case err := <-torn:
+		require.NoError(t, err)
+	case <-time.After(time.Minute):
+		t.Fatal("teardown never completed after the read released its pin")
+	}
 }

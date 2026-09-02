@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -369,14 +370,15 @@ func (h *hnsw) restoreDocMappings() error {
 	maxDocID := uint64(0)
 	buf := make([]byte, 8)
 
-	// Get the mappings bucket - handle case where it might be nil
-	bucket := h.store.Bucket(h.id + "_mv_mappings")
-	if bucket == nil {
-		err := errors.New("multivector mappings bucket not found")
+	// pinned for the whole scan below: without it a teardown racing this
+	// lookup could unmap the segments the Gets read from
+	bucket, release, err := h.getBucket(helpers.MVMappingsBucketName(h.id))
+	if err != nil {
 		h.logger.WithField("action", "restore_doc_mappings").
-			WithError(err)
-		return err
+			Errorf("multivector mappings bucket not found: %v", err)
+		return errors.Wrap(err, "multivector mappings bucket not found")
 	}
+	defer release()
 
 	for _, node := range h.nodes {
 		if node == nil {

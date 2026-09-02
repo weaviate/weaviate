@@ -107,10 +107,12 @@ func (s *queryPlanner) EstimateCosts(ctx context.Context, ids helpers.AllowList,
 	sort []filters.Sort,
 ) (float64, float64) {
 	// a torn-down store leaves no bucket to count; fall through to the
-	// no-segments estimate below rather than dereferencing nil
+	// no-segments estimate below rather than dereferencing nil. The pin keeps
+	// the count from racing a teardown that starts right after the lookup.
 	totalObjects := 0
-	if bucket := s.store.Bucket(helpers.ObjectsBucketLSM); bucket != nil {
+	if bucket, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM); bucket != nil {
 		totalObjects = bucket.CountAsync()
+		release()
 	}
 	var matches int
 	if ids == nil {

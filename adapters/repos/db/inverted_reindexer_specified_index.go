@@ -136,11 +136,14 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) ObjectsIterator(shard ShardLik
 
 	return func(ctx context.Context, fn func(object *storobj.Object) error) error {
 		// resolved per call, not once at wiring time: a teardown between the
-		// two would leave this closure holding a bucket that no longer exists
-		objectsBucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+		// two would leave this closure holding a bucket that no longer exists.
+		// Pinned for the whole cursor, so a teardown starting mid-scan waits
+		// rather than unmapping the segments the cursor reads.
+		objectsBucket, release := shard.Store().AcquireBucketForRead(helpers.ObjectsBucketLSM)
 		if objectsBucket == nil {
 			return fmt.Errorf("objects bucket of shard %q: %w", shard.Name(), lsmkv.ErrBucketNotFound)
 		}
+		defer release()
 
 		cursor := objectsBucket.Cursor()
 		defer cursor.Close()

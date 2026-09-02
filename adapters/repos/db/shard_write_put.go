@@ -257,10 +257,11 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		}
 	}
 
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return status, err
 	}
+	defer release()
 	var prevObj *storobj.Object
 
 	// First the object bucket is checked if an object with the same uuid is alreadypresent,

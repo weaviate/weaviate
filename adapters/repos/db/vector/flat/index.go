@@ -133,27 +133,34 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	return index, nil
 }
 
-// getBucket returns the named bucket, or an error if the store no longer holds
-// it. A shard teardown deregisters every bucket up front and drains in-flight
-// requests afterwards, and DropVectorIndex removes a single vector's buckets
-// from a shard that stays alive; either way an operation that is already
-// running finds no bucket under the name it resolved.
-func (index *flat) getBucket(name string) (*lsmkv.Bucket, error) {
-	bucket := index.store.Bucket(name)
+// getBucket returns the named bucket pinned for the caller's operation, or an
+// error if the store no longer holds it. A shard teardown deregisters every
+// bucket up front and drains in-flight requests afterwards, and
+// DropVectorIndex removes a single vector's buckets from a shard that stays
+// alive; either way an operation that is already running finds no bucket under
+// the name it resolved.
+//
+// The release closure is always non-nil and must be called exactly once. It
+// holds off the bucket's Shutdown for the operation's duration, so a teardown
+// racing a lookup that already succeeded cannot unmap the segments underneath
+// it.
+func (index *flat) getBucket(name string) (*lsmkv.Bucket, func(), error) {
+	bucket, release := index.store.AcquireBucketForRead(name)
 	if bucket == nil {
-		return nil, fmt.Errorf("flat index %q: bucket %q: %w", index.id, name, lsmkv.ErrBucketNotFound)
+		return nil, release, fmt.Errorf("flat index %q: bucket %q: %w", index.id, name, lsmkv.ErrBucketNotFound)
 	}
-	return bucket, nil
+	return bucket, release, nil
 }
 
 func (flat *flat) getUint64QuantizedVector(ctx context.Context, id uint64) ([]uint64, error) {
 	key := flat.pool.byteSlicePool.Get(8)
 	defer flat.pool.byteSlicePool.Put(key)
 	binary.BigEndian.PutUint64(key.slice, id)
-	bucket, err := flat.getBucket(flat.getCompressedBucketName())
+	bucket, release, err := flat.getBucket(flat.getCompressedBucketName())
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	bytes, err := bucket.Get(key.slice)
 	if err != nil {
 		return nil, err
@@ -168,10 +175,11 @@ func (flat *flat) getByteQuantizedVector(ctx context.Context, id uint64) ([]byte
 	key := flat.pool.byteSlicePool.Get(8)
 	defer flat.pool.byteSlicePool.Put(key)
 	binary.BigEndian.PutUint64(key.slice, id)
-	bucket, err := flat.getBucket(flat.getCompressedBucketName())
+	bucket, release, err := flat.getBucket(flat.getCompressedBucketName())
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	bytes, err := bucket.Get(key.slice)
 	if err != nil {
 		return nil, err
@@ -233,10 +241,11 @@ func (index *flat) storeVector(id uint64, vector []byte) error {
 }
 
 func (index *flat) storeGenericVector(id uint64, vector []byte, bucketName string) error {
-	bucket, err := index.getBucket(bucketName)
+	bucket, release, err := index.getBucket(bucketName)
 	if err != nil {
 		return err
 	}
+	defer release()
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
 	return bucket.Put(idBytes, vector)
@@ -309,10 +318,11 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 		}
 	}
 
-	bucket, err := index.getBucket(index.getBucketName())
+	bucket, release, err := index.getBucket(index.getBucketName())
 	if err != nil {
 		return err
 	}
+	defer release()
 	atomic.StoreUint64(&index.count, uint64(bucket.CountAsync()))
 
 	return nil
@@ -435,25 +445,39 @@ func (index *flat) Delete(ids ...uint64) error {
 		idBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(idBytes, ids[i])
 
-		bucket, err := index.getBucket(index.getBucketName())
-		if err != nil {
+		if err := index.deleteFromBuckets(idBytes); err != nil {
 			return err
-		}
-		if err := bucket.Delete(idBytes); err != nil {
-			return err
-		}
-
-		if index.Compressed() {
-			compressed, err := index.getBucket(index.getCompressedBucketName())
-			if err != nil {
-				return err
-			}
-			if err := compressed.Delete(idBytes); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
+}
+
+// deleteFromBuckets drops one id from the vector bucket and, when the index is
+// compressed, from the compressed bucket. Split out of [flat.Delete] so each
+// id's bucket pins are released as its iteration ends rather than piling up
+// for the whole batch.
+func (index *flat) deleteFromBuckets(idBytes []byte) error {
+	bucket, release, err := index.getBucket(index.getBucketName())
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	if err := bucket.Delete(idBytes); err != nil {
+		return err
+	}
+
+	if !index.Compressed() {
+		return nil
+	}
+
+	compressed, releaseCompressed, err := index.getBucket(index.getCompressedBucketName())
+	if err != nil {
+		return err
+	}
+	defer releaseCompressed()
+
+	return compressed.Delete(idBytes)
 }
 
 func (index *flat) searchTimeRescore(k int) int {
@@ -483,10 +507,11 @@ func (index *flat) searchByVector(ctx context.Context, vector []float32, k int, 
 
 	vector = index.normalized(vector)
 
-	bucket, err := index.getBucket(index.getBucketName())
+	bucket, release, err := index.getBucket(index.getBucketName())
 	if err != nil {
 		return nil, nil, err
 	}
+	defer release()
 
 	if err := index.findTopVectors(heap, allow, k,
 		bucket.Cursor,
@@ -531,10 +556,11 @@ func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32
 			return nil, nil, err
 		}
 	} else {
-		bucket, err := index.getBucket(index.getCompressedBucketName())
+		bucket, release, err := index.getBucket(index.getCompressedBucketName())
 		if err != nil {
 			return nil, nil, err
 		}
+		defer release()
 
 		if err := index.findTopVectors(heap, allow, rescore,
 			bucket.Cursor,
@@ -631,10 +657,11 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 	defer index.pool.byteSlicePool.Put(idSlice)
 
 	binary.BigEndian.PutUint64(idSlice.slice, id)
-	bucket, err := index.getBucket(index.getBucketName())
+	bucket, release, err := index.getBucket(index.getBucketName())
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return bucket.Get(idSlice.slice)
 }
 
@@ -984,11 +1011,12 @@ func (index *flat) PostStartup(ctx context.Context) {
 	// one additional struct per vector while loading. Should be negligible)
 
 	before := time.Now()
-	bucket, err := index.getBucket(index.getCompressedBucketName())
+	bucket, release, err := index.getBucket(index.getCompressedBucketName())
 	if err != nil {
 		index.logger.Errorf("preload vectors of flat index %q: %v", index.id, err)
 		return
 	}
+	defer release()
 	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
 	// however want some kind of relationship to the machine size, so
 	// 2*GOMAXPROCS seems like a good default.
@@ -1173,10 +1201,11 @@ func (index *flat) ContainsDoc(id uint64) bool {
 		bucketName = index.getBucketName()
 	}
 
-	bucket, err := index.getBucket(bucketName)
+	bucket, release, err := index.getBucket(bucketName)
 	if err != nil {
 		return false
 	}
+	defer release()
 
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
@@ -1199,11 +1228,12 @@ func (index *flat) Iterate(fn func(docID uint64) bool) {
 		bucketName = index.getBucketName()
 	}
 
-	bucket, err := index.getBucket(bucketName)
+	bucket, release, err := index.getBucket(bucketName)
 	if err != nil {
 		index.logger.Errorf("iterate flat index %q: %v", index.id, err)
 		return
 	}
+	defer release()
 
 	cursor := bucket.Cursor()
 	defer cursor.Close()

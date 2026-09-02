@@ -123,11 +123,14 @@ func (is *invertedSorter) sortDocIDsWithNesting(
 		return nil, err
 	}
 
+	// pinned for the whole sort: the bucket backs every cursor opened below,
+	// and an unpinned pointer can be shut down between the lookup and the scan
 	bucketName := helpers.BucketFromPropNameLSM(propNames[0])
-	bucket := is.store.Bucket(bucketName)
+	bucket, release := is.store.AcquireBucketForRead(bucketName)
 	if bucket == nil {
 		return nil, fmt.Errorf("bucket %q: %w", bucketName, lsmkv.ErrBucketNotFound)
 	}
+	defer release()
 	if bucket.Strategy() != lsmkv.StrategyRoaringSet {
 		// this should never happen, the query planner should already have chosen
 		// another strategy
@@ -378,8 +381,9 @@ func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int
 	// a torn-down store leaves no bucket to count; fall through to the full
 	// index scan below rather than dereferencing nil
 	totalCount := 0
-	if ob := is.store.Bucket(helpers.ObjectsBucketLSM); ob != nil {
+	if ob, release := is.store.AcquireBucketForRead(helpers.ObjectsBucketLSM); ob != nil {
 		totalCount = ob.CountAsync()
+		release()
 	}
 	if totalCount == 0 {
 		// no objects, likely no disk segments yet, force a full index scan

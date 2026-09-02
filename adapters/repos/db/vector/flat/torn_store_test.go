@@ -14,7 +14,9 @@ package flat
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -180,5 +182,81 @@ func TestFlatOperationsOnTornDownStore(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			require.NotPanics(t, op)
 		})
+	}
+}
+
+// TestFlatIterationHoldsBucketAgainstTeardown covers the other half of the
+// race. The cases above start after teardown has finished, so they only prove
+// the nil-bucket guards. This one resolves the bucket first and then lets the
+// teardown in: the lifetime pin the operation holds must make Bucket.Shutdown
+// wait, because a teardown that ran anyway would unmap the segments the scan
+// is still walking.
+func TestFlatIterationHoldsBucketAgainstTeardown(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	dir := t.TempDir()
+	store, err := lsmkv.New(dir, dir, logger, nil, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+
+	index, err := New(Config{
+		ID:                "pinned-store",
+		RootPath:          dir,
+		Logger:            logger,
+		DistanceProvider:  distancer.NewL2SquaredProvider(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	}, flatent.UserConfig{VectorCacheMaxObjects: 1_000}, store)
+	require.Nil(t, err)
+
+	ids := make([]uint64, 100)
+	vectors := make([][]float32, 100)
+	for i := range vectors {
+		ids[i] = uint64(i)
+		vectors[i] = []float32{float32(i), float32(i) + 1, float32(i) + 2, float32(i) + 3}
+	}
+	require.Nil(t, index.AddBatch(ctx, ids, vectors))
+
+	scanning := make(chan struct{})
+	resume := make(chan struct{})
+	scanned := make(chan struct{})
+
+	go func() {
+		defer close(scanned)
+		var once sync.Once
+		index.Iterate(func(uint64) bool {
+			once.Do(func() {
+				close(scanning)
+				<-resume
+			})
+			return true
+		})
+	}()
+
+	select {
+	case <-scanning:
+	case <-scanned:
+		t.Fatal("iteration finished without visiting a vector")
+	}
+
+	torn := make(chan error, 1)
+	go func() { torn <- store.Shutdown(context.Background()) }()
+
+	select {
+	case err := <-torn:
+		t.Fatalf("teardown completed while an iteration still held the bucket: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	close(resume)
+	<-scanned
+
+	select {
+	case err := <-torn:
+		require.NoError(t, err)
+	case <-time.After(time.Minute):
+		t.Fatal("teardown never completed after the iteration released its pin")
 	}
 }

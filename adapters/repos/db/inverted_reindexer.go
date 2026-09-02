@@ -149,12 +149,18 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 			return err
 		}
 		tempBucketName := helpers.TempBucketFromBucketName(bucketsToReindex[i])
-		tempBucket := r.shard.Store().Bucket(tempBucketName)
+		tempBucket, releaseTempBucket := r.shard.Store().AcquireBucketForRead(tempBucketName)
 		if tempBucket == nil {
 			return fmt.Errorf("temp bucket %q: %w", tempBucketName, lsmkv.ErrBucketNotFound)
 		}
 		tempBucket.FlushMemtable()
 		tempBucket.UpdateStatus(storagestate.StatusReadOnly)
+		// released before the rename/replace below: both take
+		// bucketAccessLock for write, and the store's order is
+		// bucketAccessLock OUTER -> lifetimeLock INNER. Holding the pin
+		// across them inverts it, which is exactly what the teardown
+		// invariant on AcquireBucketForRead exists to rule out.
+		releaseTempBucket()
 
 		if reindexProperties[i].NewIndex {
 			if err := r.shard.Store().RenameBucket(ctx, tempBucketName, bucketsToReindex[i]); err != nil {

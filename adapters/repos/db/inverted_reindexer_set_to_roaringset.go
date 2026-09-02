@@ -80,10 +80,15 @@ func (t *ShardInvertedReindexTaskSetToRoaringSet) OnPostResumeStore(ctx context.
 
 func (t *ShardInvertedReindexTaskSetToRoaringSet) ObjectsIterator(shard ShardLike) objectsIterator {
 	return func(ctx context.Context, fn func(object *storobj.Object) error) error {
-		bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+		// pinned for the whole iteration: the cursor underneath reads the
+		// bucket's segments, and an unpinned pointer can be shut down between
+		// the lookup and the scan
+		bucket, release := shard.Store().AcquireBucketForRead(helpers.ObjectsBucketLSM)
 		if bucket == nil {
 			return fmt.Errorf("objects bucket of shard %q: %w", shard.Name(), lsmkv.ErrBucketNotFound)
 		}
+		defer release()
+
 		return bucket.IterateObjects(ctx, fn)
 	}
 }
