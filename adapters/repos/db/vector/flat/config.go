@@ -23,11 +23,8 @@ type Config struct {
 	// ID is the index's physical identity: it names everything the index
 	// stores on disk. "main" for the legacy unnamed vector, canonically
 	// "vectors_<name>" for a named vector.
-	ID       string
-	RootPath string
-	// TargetVector is the index's logical name — the named vector it serves.
-	// It routes object-vector lookup and diagnostics and never names storage.
-	TargetVector      string
+	ID                string
+	RootPath          string
 	Logger            logrus.FieldLogger
 	DistanceProvider  distancer.Provider
 	AllocChecker      memwatch.AllocChecker
