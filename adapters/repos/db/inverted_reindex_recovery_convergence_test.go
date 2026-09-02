@@ -457,3 +457,59 @@ func (m recoveryConvergenceMatrix[K]) runCase(
 			key, state, len(wantIDs), wantIDs, len(gotIDs), gotIDs)
 	}
 }
+
+func startedSentinelFile(ftr *fileReindexTracker) string { return ftr.config.filenameStarted }
+
+// breakSentinelRead replaces a sentinel with a symlink to itself: the file is
+// still on disk, but the tracker's os.Stat of it fails with ELOOP. It stands in
+// for the stat errors a unit test cannot produce (EIO, EACCES, no descriptors
+// left), all of which the tracker reports as "this sentinel is not set".
+func breakSentinelRead(t *testing.T, task *ShardReindexTaskGeneric, shard *Shard,
+	pick func(*fileReindexTracker) string,
+) {
+	t.Helper()
+	rt, err := task.newReindexTracker(shard.pathLSM())
+	require.NoError(t, err)
+	ftr := rt.(*fileReindexTracker)
+	path := filepath.Join(ftr.config.migrationPath, pick(ftr))
+	require.NoError(t, os.Remove(path))
+	require.NoError(t, os.Symlink(filepath.Base(path), path))
+}
+
+// A shard that is swapped but not yet tidied has a migration in flight, and the
+// swap phase is the one that finalizes it. Deciding to enter that phase by
+// reading started.mig means any failed read of that one file retires the
+// migration and reports the unit complete with the schema flag never flipped.
+// The iteration reports whether it has a migration in flight instead.
+func TestRunOnShardFinishesInFlightMigrationWhenStartedMarkerCannotBeRead(t *testing.T) {
+	ctx := testCtx()
+	const propName = "title"
+	className := "UnreadableStartedMarker_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{propName})
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	for _, obj := range makeConvergenceTestObjects(t, 25, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	interrupted := newTestTask(idx.logger,
+		&testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}})
+	driveToSentinelState(t, ctx, shard, interrupted, sentinelStateSwapped)
+	breakSentinelRead(t, interrupted, shard, startedSentinelFile)
+
+	rt, err := interrupted.newReindexTracker(shard.pathLSM())
+	require.NoError(t, err)
+	require.False(t, rt.IsStarted(), "the started marker must no longer read as set")
+	require.True(t, rt.IsSwapped(), "the migration must really be in flight")
+
+	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+	require.NoError(t, newTestTask(idx.logger, strategy).RunOnShard(ctx, shard))
+
+	require.True(t, strategy.migrationCompleted,
+		"the relaunch must finish the migration rather than report the unit complete")
+	require.True(t, rt.IsTidied(), "the migration must reach its terminal state")
+}
