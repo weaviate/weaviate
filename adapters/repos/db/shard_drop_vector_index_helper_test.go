@@ -353,16 +353,27 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 // this fix, otherTargetVectors walked only class.VectorConfig, which never
 // contains "", so the legacy vector was never in the protected set and
 // dropping "compressed" would delete the legacy vector's quantized data.
+// classWithCompressedSibling builds a TestClass whose VectorConfig always
+// contains the named vector "compressed", optionally alongside a legacy
+// (unnamed, "") vector and/or a second named vector "other" — the two axes
+// the tests below vary independently.
+func classWithCompressedSibling(legacy, withOther bool) *models.Class {
+	vectorConfig := map[string]models.VectorConfig{
+		"compressed": {VectorIndexType: "hnsw"},
+	}
+	if withOther {
+		vectorConfig["other"] = models.VectorConfig{VectorIndexType: "hnsw"}
+	}
+	class := &models.Class{Class: "TestClass", VectorConfig: vectorConfig}
+	if legacy {
+		class.VectorIndexType = "hnsw"
+	}
+	return class
+}
+
 func TestOtherTargetVectors_ProtectsTheLegacyVector(t *testing.T) {
 	t.Run("class with a legacy vector: \"\" is included as a sibling", func(t *testing.T) {
-		class := &models.Class{
-			Class:           "TestClass",
-			VectorIndexType: "hnsw",
-			VectorConfig: map[string]models.VectorConfig{
-				"compressed": {VectorIndexType: "hnsw"},
-				"other":      {VectorIndexType: "hnsw"},
-			},
-		}
+		class := classWithCompressedSibling(true, true)
 
 		got := otherTargetVectors(class, "compressed")
 
@@ -372,13 +383,7 @@ func TestOtherTargetVectors_ProtectsTheLegacyVector(t *testing.T) {
 	})
 
 	t.Run("class with named vectors only: \"\" is not included", func(t *testing.T) {
-		class := &models.Class{
-			Class: "TestClass",
-			VectorConfig: map[string]models.VectorConfig{
-				"compressed": {VectorIndexType: "hnsw"},
-				"other":      {VectorIndexType: "hnsw"},
-			},
-		}
+		class := classWithCompressedSibling(false, true)
 
 		got := otherTargetVectors(class, "compressed")
 
@@ -393,13 +398,7 @@ func TestOtherTargetVectors_ProtectsTheLegacyVector(t *testing.T) {
 // actually survive dropping a colliding named vector.
 func TestOtherTargetVectors_ArtifactsForEndToEnd(t *testing.T) {
 	t.Run("mixed class: dropping named vector \"compressed\" must not take the legacy vector's quantized bucket", func(t *testing.T) {
-		class := &models.Class{
-			Class:           "TestClass",
-			VectorIndexType: "hnsw",
-			VectorConfig: map[string]models.VectorConfig{
-				"compressed": {VectorIndexType: "hnsw"},
-			},
-		}
+		class := classWithCompressedSibling(true, false)
 
 		artifacts := helpers.VectorIndexArtifactsFor("compressed", otherTargetVectors(class, "compressed"))
 
@@ -408,12 +407,7 @@ func TestOtherTargetVectors_ArtifactsForEndToEnd(t *testing.T) {
 	})
 
 	t.Run("named vectors only: no legacy sibling exists, so the named vector's own bucket is listed", func(t *testing.T) {
-		class := &models.Class{
-			Class: "TestClass",
-			VectorConfig: map[string]models.VectorConfig{
-				"compressed": {VectorIndexType: "hnsw"},
-			},
-		}
+		class := classWithCompressedSibling(false, false)
 
 		artifacts := helpers.VectorIndexArtifactsFor("compressed", otherTargetVectors(class, "compressed"))
 
