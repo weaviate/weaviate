@@ -360,6 +360,18 @@ func TestPostingVersionsGetOnTornDownStoreWithWarmCache(t *testing.T) {
 // [lsmkv.Store.AcquireBucketForRead]. An operation holding an unpinned pointer
 // reads through freed memory. acquire must pin, so a concurrent teardown
 // blocks until the operation releases.
+// A zero bucketRef has no store behind it, so acquiring through it would
+// dereference nil. Using one is a wiring bug, but it has to surface as an
+// error rather than take the process down — and not as ErrBucketNotFound,
+// which the compaction callback deliberately swallows.
+func TestZeroBucketRefAcquireReportsUninitialized(t *testing.T) {
+	var ref bucketRef
+
+	_, _, err := ref.acquire()
+	require.ErrorIs(t, err, errUninitializedBucketRef)
+	require.NotErrorIs(t, err, lsmkv.ErrBucketNotFound)
+}
+
 func TestBucketRefAcquirePinsAgainstShutdown(t *testing.T) {
 	ctx := context.Background()
 

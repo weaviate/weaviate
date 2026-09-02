@@ -43,6 +43,13 @@ const (
 // which holds that pin for the caller's whole operation, cursor iteration
 // included. A bucket already gone at resolve time reports
 // [lsmkv.ErrBucketNotFound].
+// errUninitializedBucketRef reports a zero bucketRef — one that was never
+// given a store. It is deliberately not [lsmkv.ErrBucketNotFound]: that
+// sentinel means "the store no longer holds this bucket", which callers
+// legitimately tolerate (the compaction callback swallows it), whereas a zero
+// ref is a wiring bug that must surface.
+var errUninitializedBucketRef = errors.New("bucket ref used before initialization")
+
 type bucketRef struct {
 	store *lsmkv.Store
 	name  string
@@ -53,10 +60,15 @@ func newBucketRef(store *lsmkv.Store, name string) bucketRef {
 }
 
 // acquire resolves the bucket and pins it against teardown, or reports that
-// the store no longer holds it. The pin blocks a concurrent bucket shutdown,
-// so callers MUST call the returned release exactly once — deferring it at the
-// call site — and MUST NOT retain the bucket beyond it.
+// the store no longer holds it ([lsmkv.ErrBucketNotFound]) or that the ref was
+// never initialized ([errUninitializedBucketRef]). The pin blocks a concurrent
+// bucket shutdown, so callers MUST call the returned release exactly once —
+// deferring it at the call site — and MUST NOT retain the bucket beyond it.
 func (r bucketRef) acquire() (*lsmkv.Bucket, func(), error) {
+	if r.store == nil {
+		return nil, nil, errUninitializedBucketRef
+	}
+
 	bucket, release := r.store.AcquireBucketForRead(r.name)
 	if bucket == nil {
 		release()
