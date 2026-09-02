@@ -313,14 +313,14 @@ func New(cfg Config, uc ent.UserConfig,
 			muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
 			err := store.CreateOrLoadBucket(
 				context.Background(),
-				cfg.ID+"_muvera_vectors",
+				helpers.MuveraBucketName(cfg.ID),
 				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
 			}
 			muveraVectorForID := func(ctx context.Context, id uint64) ([]float32, error) {
-				return muveraEncoder.GetMuveraVectorForID(id, cfg.ID+"_muvera_vectors")
+				return muveraEncoder.GetMuveraVectorForID(id, helpers.MuveraBucketName(cfg.ID))
 			}
 			vectorCache = cache.NewShardedFloat32LockCache(
 				muveraVectorForID, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
@@ -441,7 +441,7 @@ func New(cfg Config, uc ent.UserConfig,
 		if !uc.Multivector.MuveraEnabled() {
 			err := index.store.CreateOrLoadBucket(
 				context.Background(),
-				cfg.ID+"_mv_mappings",
+				helpers.MVMappingsBucketName(cfg.ID),
 				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
@@ -1122,6 +1122,48 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 	stats.CompressionType = stats.CompressorStats.CompressionType()
 
 	return &stats, nil
+}
+
+// getBucket returns the named bucket pinned for the caller's operation, or an
+// error if the store no longer holds it. A shard teardown deregisters every
+// bucket up front and drains in-flight requests afterwards, so an operation
+// that is already running finds no bucket under the name it resolved.
+//
+// The release closure is always non-nil and must be called exactly once. It
+// holds off the bucket's Shutdown for the operation's duration, so a teardown
+// racing a lookup that already succeeded cannot unmap the segments underneath
+// it. Prefer [hnsw.putInBucket] / [hnsw.deleteFromBucket], which pair the pin
+// with its release for a single operation.
+func (h *hnsw) getBucket(name string) (*lsmkv.Bucket, func(), error) {
+	bucket, release := h.store.AcquireBucketForRead(name)
+	if bucket == nil {
+		return nil, release, fmt.Errorf("hnsw index %q: bucket %q: %w", h.id, name, lsmkv.ErrBucketNotFound)
+	}
+	return bucket, release, nil
+}
+
+// putInBucket writes one entry to the named bucket under a lifetime pin held
+// for exactly that write. Callers write inside per-vector loops, where a
+// deferred release would pile pins up until the whole batch is done.
+func (h *hnsw) putInBucket(name string, key, value []byte) error {
+	bucket, release, err := h.getBucket(name)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Put(key, value)
+}
+
+// deleteFromBucket is [hnsw.putInBucket]'s counterpart for removals.
+func (h *hnsw) deleteFromBucket(name string, key []byte) error {
+	bucket, release, err := h.getBucket(name)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Delete(key)
 }
 
 func (h *hnsw) Type() common.IndexType {

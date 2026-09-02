@@ -69,6 +69,10 @@ func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmk
 	}
 
 	bucket := store.Bucket(bName)
+	if bucket == nil {
+		return nil, errors.Wrapf(lsmkv.ErrBucketNotFound, "shared bucket %s", bName)
+	}
+
 	err = cleanupLegacyReassignBucket(bucket)
 	if err != nil {
 		return nil, err

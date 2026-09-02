@@ -42,6 +42,18 @@ func GetVectorsBucketName(targetVector string) string {
 	return VectorsBucketLSM
 }
 
+// MuveraBucketName is the bucket an HNSW index stores its MUVERA-encoded
+// vectors in, keyed by doc id.
+func MuveraBucketName(indexID string) string {
+	return indexID + "_muvera_vectors"
+}
+
+// MVMappingsBucketName is the bucket an HNSW index stores its multi-vector
+// node-id to doc-id mappings in.
+func MVMappingsBucketName(indexID string) string {
+	return indexID + "_mv_mappings"
+}
+
 func GetHNSWCommitLogDirName(targetVector string) string {
 	if targetVector != "" {
 		return fmt.Sprintf("%s.hnsw.commitlog.d", GetVectorsBucketName(targetVector))

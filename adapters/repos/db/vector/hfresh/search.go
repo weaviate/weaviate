@@ -238,10 +238,15 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 }
 
 // objectsBucketView returns a consistent view of the objects bucket, valid
-// until ReleaseView. A missing objects bucket is a wiring bug — the shard
-// creates it before any vector index — and panics rather than degrading.
+// until ReleaseView. The bucket stays pinned for the view's lifetime, so a
+// teardown starting while the search workers still hold the view waits for
+// them instead of unmapping the segments they read from.
+//
+// A torn-down store yields the zero view: releasing it is a no-op and the
+// reads taken against it fail individually, which is all this signature can
+// report.
 func (h *HFresh) objectsBucketView() common.BucketView {
-	return h.store.Bucket(helpers.ObjectsBucketLSM).GetConsistentView()
+	return h.store.AcquireBucketConsistentViewForRead(helpers.ObjectsBucketLSM)
 }
 
 // fetchNormalizedVector reads the full vector for id into the pooled slice
