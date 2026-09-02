@@ -343,3 +343,81 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 		require.NoError(t, err)
 	})
 }
+
+// TestOtherTargetVectors_ProtectsTheLegacyVector pins that the legacy
+// (unnamed, "") vector is treated as a sibling too: a mixed class (legacy
+// vector plus named vectors, legal via a class update) can have a named
+// vector whose artifacts collide with the legacy vector's — e.g. a named
+// vector literally called "compressed" owns raw bucket "vectors_compressed",
+// which is byte-identical to the legacy vector's quantized bucket. Before
+// this fix, otherTargetVectors walked only class.VectorConfig, which never
+// contains "", so the legacy vector was never in the protected set and
+// dropping "compressed" would delete the legacy vector's quantized data.
+func TestOtherTargetVectors_ProtectsTheLegacyVector(t *testing.T) {
+	t.Run("class with a legacy vector: \"\" is included as a sibling", func(t *testing.T) {
+		class := &models.Class{
+			Class:           "TestClass",
+			VectorIndexType: "hnsw",
+			VectorConfig: map[string]models.VectorConfig{
+				"compressed": {VectorIndexType: "hnsw"},
+				"other":      {VectorIndexType: "hnsw"},
+			},
+		}
+
+		got := otherTargetVectors(class, "compressed")
+
+		assert.Contains(t, got, "", "the legacy vector must be protected as a sibling")
+		assert.Contains(t, got, "other")
+		assert.NotContains(t, got, "compressed", "the excluded target itself must not be its own sibling")
+	})
+
+	t.Run("class with named vectors only: \"\" is not included", func(t *testing.T) {
+		class := &models.Class{
+			Class: "TestClass",
+			VectorConfig: map[string]models.VectorConfig{
+				"compressed": {VectorIndexType: "hnsw"},
+				"other":      {VectorIndexType: "hnsw"},
+			},
+		}
+
+		got := otherTargetVectors(class, "compressed")
+
+		assert.NotContains(t, got, "", "there is no legacy vector on this class")
+		assert.Contains(t, got, "other")
+	})
+}
+
+// TestOtherTargetVectors_ArtifactsForEndToEnd drives otherTargetVectors
+// straight into helpers.VectorIndexArtifactsFor, the way the live drop and
+// the file sweep both do, to prove the legacy vector's on-disk artifacts
+// actually survive dropping a colliding named vector.
+func TestOtherTargetVectors_ArtifactsForEndToEnd(t *testing.T) {
+	t.Run("mixed class: dropping named vector \"compressed\" must not take the legacy vector's quantized bucket", func(t *testing.T) {
+		class := &models.Class{
+			Class:           "TestClass",
+			VectorIndexType: "hnsw",
+			VectorConfig: map[string]models.VectorConfig{
+				"compressed": {VectorIndexType: "hnsw"},
+			},
+		}
+
+		artifacts := helpers.VectorIndexArtifactsFor("compressed", otherTargetVectors(class, "compressed"))
+
+		assert.NotContains(t, artifacts.LSMBuckets, "vectors_compressed",
+			"vectors_compressed is the legacy vector's quantized bucket and must survive dropping the named vector \"compressed\"")
+	})
+
+	t.Run("named vectors only: no legacy sibling exists, so the named vector's own bucket is listed", func(t *testing.T) {
+		class := &models.Class{
+			Class: "TestClass",
+			VectorConfig: map[string]models.VectorConfig{
+				"compressed": {VectorIndexType: "hnsw"},
+			},
+		}
+
+		artifacts := helpers.VectorIndexArtifactsFor("compressed", otherTargetVectors(class, "compressed"))
+
+		assert.Contains(t, artifacts.LSMBuckets, "vectors_compressed",
+			"vectors_compressed is the named vector's own raw bucket and there is no legacy sibling to protect")
+	})
+}
