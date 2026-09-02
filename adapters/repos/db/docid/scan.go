@@ -102,6 +102,9 @@ func (os *objectScannerLSM) scan(ctx context.Context) error {
 		propertyPaths[i] = []string{os.properties[i]}
 	}
 
+	lookup, release := os.objectsBucket.SecondaryViewLookup()
+	defer release()
+
 	lock := sync.Mutex{}
 	eg, groupCtx := enterrors.NewErrorGroupWithContextWrapper(os.logger, ctx)
 	concurrency := scanConcurrency()
@@ -131,9 +134,7 @@ func (os *objectScannerLSM) scan(ctx context.Context) error {
 					return err
 				}
 				binary.LittleEndian.PutUint64(docIDBytes, id)
-				// GetBySecondaryWithBuffer reads ctx for slow-query annotation only, so a
-				// worker already inside this read is not interrupted by a cancellation.
-				res, newBuf, err := os.objectsBucket.GetBySecondaryWithBuffer(groupCtx, 0, docIDBytes, objBuf)
+				res, newBuf, err := lookup(groupCtx, 0, docIDBytes, objBuf)
 				if err != nil {
 					return err
 				}
