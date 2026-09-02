@@ -478,3 +478,54 @@ func TestSplitRetriesWhenVectorDeletedDuringSplit(t *testing.T) {
 	}
 	require.Equal(t, 14, total)
 }
+
+// A muvera index routes on the encoded FDE, which is stored in the muvera
+// bucket rather than in the object store the single-vector path reads. The
+// split must cluster on those stored FDEs: reading the object store instead
+// fails every fetch, and on the synchronous split path that failure is
+// returned to the insert which triggered the split.
+func TestSplitMuveraPostingClustersOnStoredFDEs(t *testing.T) {
+	tf := createMuveraHFreshIndex(t)
+	defer tf.Index.Shutdown(t.Context())
+
+	const docs = 16
+	rng := rand.New(rand.NewSource(42))
+	for i := range docs {
+		addMultiVectorToIndex(t, &tf, uint64(i), randomMultiVector(rng, 2, 16))
+	}
+
+	var postingIDs []uint64
+	for id := range tf.Index.PostingMap.Iter() {
+		postingIDs = append(postingIDs, id)
+	}
+	require.Len(t, postingIDs, 1, "the corpus must stay in one posting so the split input is known")
+
+	posting, err := tf.Index.PostingStore.Get(t.Context(), postingIDs[0])
+	require.NoError(t, err)
+	require.Len(t, posting, docs)
+
+	results, err := tf.Index.splitPosting(t.Context(), posting)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	// Whatever membership the clustering settles on, each child's centroid
+	// must be the mean of its members' stored FDEs. (Membership itself is not
+	// asserted: initialization is randomized, so the exact grouping may vary.)
+	for _, result := range results {
+		require.NotEmpty(t, result.Posting)
+
+		mean := make([]float32, len(result.Uncompressed))
+		for _, v := range result.Posting {
+			fde, err := tf.Index.muveraEncoder.GetMuveraVectorForID(v.ID(), tf.Index.id+"_muvera_vectors")
+			require.NoError(t, err)
+			for j, x := range tf.Index.normalizeVec(fde) {
+				mean[j] += x
+			}
+		}
+		for j := range mean {
+			mean[j] /= float32(len(result.Posting))
+			require.InDelta(t, mean[j], result.Uncompressed[j], 1e-3,
+				"centroid coordinate %d must be the mean of the members' stored FDEs", j)
+		}
+	}
+}
