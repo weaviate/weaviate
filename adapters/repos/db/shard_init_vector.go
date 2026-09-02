@@ -231,9 +231,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		}
 		vectorIndex = vi
 	case vectorindex.VectorIndexTypeHFresh:
-		if !s.index.HFreshEnabled {
-			return nil, errors.New("hfresh index is available only in experimental mode")
-		}
 		userConfig, ok := vectorIndexUserConfig.(hfreshent.UserConfig)
 		if !ok {
 			return nil, errors.Errorf("hfresh vector index: config is not hfresh.UserConfig: %T",

@@ -1749,7 +1749,7 @@ func (h *Handler) validateVectorizer(vectorizer string) error {
 }
 
 // validateVectorIndexTypeBasic is the per-type correctness gate
-// (async-indexing for dynamic, experimental flag for hfresh, known name).
+// (async-indexing for dynamic, known name).
 // Runs unconditionally — these are invariants, not policy.
 func (h *Handler) validateVectorIndexTypeBasic(vectorIndexType string) error {
 	switch vectorIndexType {
@@ -1761,9 +1761,6 @@ func (h *Handler) validateVectorIndexTypeBasic(vectorIndexType string) error {
 		}
 		return nil
 	case vectorindex.VectorIndexTypeHFresh:
-		if !h.config.HFreshEnabled {
-			return fmt.Errorf("the hfresh index is available only in experimental mode")
-		}
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",

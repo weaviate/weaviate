@@ -266,7 +266,6 @@ type Index struct {
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
 	vectorIndexUserConfigs    map[string]schemaConfig.VectorIndexConfig
-	HFreshEnabled             bool
 
 	partitioningEnabled  bool
 	AsyncIndexingEnabled bool
@@ -504,7 +503,6 @@ func NewIndex(
 		router:                  router,
 		shardResolver:           shardResolver,
 		bitmapBufPool:           bitmapBufPool,
-		HFreshEnabled:           cfg.HFreshEnabled,
 		tenantsManager:          tenantsManager,
 	}
 	index.closeRequestedCtx, index.signalCloseRequested = context.WithCancelCause(context.Background())
@@ -1570,8 +1568,6 @@ type IndexConfig struct {
 	QueryBatchedContainsEnabled *configRuntime.DynamicValue[bool]
 	LazyPropertyLengthsEnabled  *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
-
-	HFreshEnabled bool
 
 	AutoTenantActivation bool
 
