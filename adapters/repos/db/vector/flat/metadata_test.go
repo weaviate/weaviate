@@ -136,7 +136,6 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 	index, err := New(Config{
 		ID:                indexID,
 		RootPath:          rootPath,
-		TargetVector:      "target",
 		DistanceProvider:  distancer,
 		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, config, store)
@@ -159,7 +158,6 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 		index, err = New(Config{
 			ID:                indexID,
 			RootPath:          rootPath,
-			TargetVector:      "target",
 			DistanceProvider:  distancer,
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, config, store)
@@ -412,7 +410,6 @@ func TestSnapshotMutableFiles(t *testing.T) {
 			// it must match target the way production always constructs it.
 			ID:                helpers.VectorIndexIDForTarget(target),
 			RootPath:          rootPath,
-			TargetVector:      target,
 			DistanceProvider:  dp,
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, uc, store)

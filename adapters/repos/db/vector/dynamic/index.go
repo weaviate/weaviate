@@ -151,7 +151,6 @@ func (s *status) TryUpgrading() bool {
 type dynamic struct {
 	sync.RWMutex
 	id                           string
-	targetVector                 string
 	store                        *lsmkv.Store
 	logger                       logrus.FieldLogger
 	rootPath                     string
@@ -196,7 +195,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	flatConfig := flat.Config{
 		ID:                cfg.ID,
 		RootPath:          cfg.RootPath,
-		TargetVector:      cfg.TargetVector,
 		Logger:            cfg.Logger,
 		DistanceProvider:  cfg.DistanceProvider,
 		AllocChecker:      cfg.AllocChecker,
@@ -207,7 +205,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 	index := &dynamic{
 		id:                           cfg.ID,
-		targetVector:                 cfg.TargetVector,
 		logger:                       cfg.Logger,
 		rootPath:                     cfg.RootPath,
 		shardName:                    cfg.ShardName,
@@ -377,12 +374,16 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		// a stored empty value reads back non-nil, so length is what says
 		// whether a state was recorded
 		upgraded = v[0] != 0
-	case cfg.TargetVector != "":
+	case helpers.PhysicalIDSuffix(cfg.ID) != "":
 		// a bug in earlier versions caused target vectors to all use the same
 		// key. this is a mitigation to preserve existing upgraded state and
 		// migrate to target-vector-specific keys going forward: no recorded
 		// state means the verdict is inferred from the existence of the HNSW
 		// dir and recorded under this vector's own key.
+		//
+		// PhysicalIDSuffix(cfg.ID) != "" is the ID-based equivalent of the old
+		// cfg.TargetVector != "" check: for a canonical ID they agree — "main"
+		// (the legacy unnamed vector) yields "", "vectors_<tv>" yields "<tv>".
 		verdict := []byte{0}
 		if hnswDirExists {
 			verdict = []byte{1}
@@ -498,7 +499,7 @@ func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 
 	if !keepFiles {
 		if err := dynamic.state.Delete(dynamic.dbKey()); err != nil && !shardmeta.IsClosed(err) {
-			return fmt.Errorf("delete dynamic state for %q: %w", dynamic.targetVector, err)
+			return fmt.Errorf("delete dynamic state for %q: %w", dynamic.id, err)
 		}
 	}
 
@@ -526,7 +527,7 @@ func (dynamic *dynamic) DropTargetVector(ctx context.Context) error {
 	defer dynamic.Unlock()
 
 	if err := dynamic.state.Delete(dynamic.dbKey()); err != nil {
-		return fmt.Errorf("delete dynamic state for %q: %w", dynamic.targetVector, err)
+		return fmt.Errorf("delete dynamic state for %q: %w", dynamic.id, err)
 	}
 
 	// keepFiles=false: the underlying index's own files go, but the SHARED

@@ -43,12 +43,7 @@ type Config struct {
 	// muvera bucket, and (via helpers.CentroidsID) the centroid sub-index.
 	// "main" for the legacy unnamed vector, canonically "vectors_<name>" for
 	// a named vector.
-	ID string
-	// TargetVector is the index's logical name — the named vector it serves.
-	// hfresh does not read it today (object vectors arrive through the thunks
-	// below); it is kept for diagnostics and future routing and never names
-	// storage.
-	TargetVector                 string
+	ID                           string
 	ShardName                    string
 	ClassName                    string
 	PrometheusMetrics            *monitoring.PrometheusMetrics

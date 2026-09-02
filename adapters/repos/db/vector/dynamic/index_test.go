@@ -101,7 +101,6 @@ func (env *dynamicTestEnv) newIndex(t *testing.T, indexID, targetVector string) 
 		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              env.rootPath,
 		ID:                    indexID,
-		TargetVector:          targetVector,
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 		DistanceProvider:      env.distancer,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -686,7 +685,6 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 
 			config := Config{
 				AllocChecker: memwatch.NewDummyMonitor(),
-				TargetVector: "",
 				RootPath:     rootPath,
 				ID:           "vector-test_0",
 				MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
@@ -1102,7 +1100,7 @@ func TestDynamicStaleCommitLogCleanedOnRestart(t *testing.T) {
 // newUpgradeTestDynamic builds a dynamic index for tests around the
 // flat->HNSW upgrade path. The caller controls the commit logger thunk so
 // tests can observe the on-disk HNSW commit log directory.
-func newUpgradeTestDynamic(t *testing.T, rootPath, id, targetVector string,
+func newUpgradeTestDynamic(t *testing.T, rootPath, id string,
 	meta *shardmeta.DB, vectors [][]float32, thunk hnsw.MakeCommitLogger,
 ) *dynamic {
 	t.Helper()
@@ -1121,7 +1119,6 @@ func newUpgradeTestDynamic(t *testing.T, rootPath, id, targetVector string,
 		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              rootPath,
 		ID:                    id,
-		TargetVector:          targetVector,
 		MakeCommitLoggerThunk: thunk,
 		DistanceProvider:      distancer,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -1165,7 +1162,7 @@ func TestDynamicCopyToVectorIndexPropagatesAddBatchError(t *testing.T) {
 	})
 
 	vectors, _ := testinghelpers.RandomVecs(100, 0, 8)
-	idx := newUpgradeTestDynamic(t, t.TempDir(), "copy-err-test", "", meta, vectors, hnsw.MakeNoopCommitLogger)
+	idx := newUpgradeTestDynamic(t, t.TempDir(), "copy-err-test", meta, vectors, hnsw.MakeNoopCommitLogger)
 
 	for i := range vectors {
 		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
@@ -1188,7 +1185,7 @@ func TestDynamicAbortedUpgradeCleansPartialCommitLog(t *testing.T) {
 	})
 
 	vectors, _ := testinghelpers.RandomVecs(1_000, 0, 20)
-	idx := newUpgradeTestDynamic(t, rootPath, id, "", meta, vectors, func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+	idx := newUpgradeTestDynamic(t, rootPath, id, meta, vectors, func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
 		return hnsw.NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
 	})
 
@@ -1231,7 +1228,7 @@ func TestDynamicUpgradeStatePersistFailureCleansPartialCommitLog(t *testing.T) {
 	require.NoError(t, err)
 
 	vectors, _ := testinghelpers.RandomVecs(200, 0, 8)
-	idx := newUpgradeTestDynamic(t, rootPath, id, "", meta, vectors, func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+	idx := newUpgradeTestDynamic(t, rootPath, id, meta, vectors, func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
 		return hnsw.NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop())
 	})
 	t.Cleanup(func() {
@@ -1268,8 +1265,6 @@ func TestDynamicUpgradeStatePersistFailureCleansPartialCommitLog(t *testing.T) {
 // unless the vector is positively marked as upgraded — otherwise the partial
 // state gets replayed into the rebuilt index.
 func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
-	const id = "stale-commitlog-test"
-
 	tests := []struct {
 		name         string
 		targetVector string
@@ -1320,6 +1315,12 @@ func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			rootPath := t.TempDir()
 
+			// Canonical: init()'s migration branch now keys off the physical
+			// ID's suffix rather than a logical target-vector name passed
+			// alongside it, so the ID must match tt.targetVector the way
+			// production always constructs it.
+			id := helpers.VectorIndexIDForTarget(tt.targetVector)
+
 			meta, err := shardmeta.Open(t.TempDir(), time.Second)
 			require.NoError(t, err)
 			t.Cleanup(func() {
@@ -1333,15 +1334,11 @@ func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(commitLogDir, "1000"), nil, 0o644))
 
 			if tt.storedState != nil {
-				key := composerUpgradedKey
-				if tt.targetVector != "" {
-					key += "_" + tt.targetVector
-				}
-				require.NoError(t, meta.Namespace(StateNamespace).Put([]byte(key), tt.storedState))
+				require.NoError(t, meta.Namespace(StateNamespace).Put(dbKeyForID(id), tt.storedState))
 			}
 
 			vectors, _ := testinghelpers.RandomVecs(10, 0, 8)
-			idx := newUpgradeTestDynamic(t, rootPath, id, tt.targetVector, meta, vectors, hnsw.MakeNoopCommitLogger)
+			idx := newUpgradeTestDynamic(t, rootPath, id, meta, vectors, hnsw.MakeNoopCommitLogger)
 			t.Cleanup(func() {
 				idx.Shutdown(context.Background())
 			})

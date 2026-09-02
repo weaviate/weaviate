@@ -70,26 +70,29 @@ func seedUncompressedCentroidState(t *testing.T, rootPath, centroidID string, st
 }
 
 // TestCentroidPrefillNeverReadsObjectStorage is the wiring-level regression
-// test for the bug fixed alongside this test: hfresh's centroid graph has no
-// object-vector identity of its own (see hfresh/hnsw.go NewHNSWIndex) — its
-// vectors only ever arrive via Insert/Add — but its underlying hnsw.Config
-// carries TargetVector "". Left unguarded, restarting a centroid graph that
-// has real node state but no persisted compression record — a torn write
-// tail, or a failed RQ initialization, both of which leave it in exactly
-// this shape — falls back, during its parallel cache-prefill scan, to
-// reading the LEGACY object vector and leaks real object data into the
-// centroid cache. NewHNSWIndex installs a VectorFromObject override to close
-// that gap.
+// test for a bug that used to be guarded by an explicit override: hfresh's
+// centroid graph has no object-vector identity of its own (see
+// hfresh/hnsw.go NewHNSWIndex) — its vectors only ever arrive via
+// Insert/Add — and its underlying hnsw.Config's VectorFromObject is left
+// nil, both here and in production (shard_init_vector.go never sets one for
+// the centroid graph). By hnsw's structural guarantee, a nil
+// VectorFromObject means the startup prefill never scans the objects
+// bucket, so a centroid graph restarted with real node state but no
+// persisted compression record — a torn write tail, or a failed RQ
+// initialization, both of which leave it in exactly this shape — can no
+// longer leak real object data into the centroid cache the way it once did
+// when hnsw itself would fall back to reading the LEGACY object vector for
+// an index with no configured name.
 //
 // This test builds a real HFresh index — not a hand-assembled hnsw.Config —
 // over a store whose objects bucket already holds legacy vectors, with the
 // centroid graph's on-disk state pre-seeded (via seedUncompressedCentroidState)
-// to the "nodes but no compression" shape the bug depends on. It exercises
+// to the "nodes but no compression" shape the bug depended on. It exercises
 // the actual production wiring (hfresh.New -> NewHNSWIndex) rather than the
-// fallback mechanism in isolation — removing the VectorFromObject override
-// in NewHNSWIndex makes this test fail, with the seeded legacy object
-// vectors put into the objects bucket above appearing in the centroid
-// cache.
+// guarantee in isolation, so a regression that makes the centroid graph's
+// VectorFromObject non-nil somewhere on that path would fail here too, with
+// the seeded legacy object vectors put into the objects bucket above
+// appearing in the centroid cache.
 func TestCentroidPrefillNeverReadsObjectStorage(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	createObjectsBucket(t, store)
