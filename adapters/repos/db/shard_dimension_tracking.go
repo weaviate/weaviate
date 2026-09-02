@@ -311,6 +311,30 @@ func (s *Shard) removeDimensionsLSM(dimLength int, docID uint64, targetVector st
 	return s.addToDimensionBucket(dimLength, docID, targetVector, true)
 }
 
+// removeAllDimensionsLSM clears every dimension row targetVector owns.
+//
+// A missing bucket means the shard never tracked dimensions — unless it is
+// shutting down, because Store.Shutdown blanks bucketsByName before it drains.
+// Reporting success there would lose the clear for good: the finalizer then
+// drops the name from the schema and no route ever looks at it again. Callers
+// that can race a teardown hold preventShutdown; this is what catches the ones
+// that forget.
+func (s *Shard) removeAllDimensionsLSM(ctx context.Context, targetVector string) error {
+	// Pinned, not just fetched: the clear holds a cursor open across the whole
+	// scan and write, and resetDimensionsLSM can swap this bucket underneath it
+	// (Store.ReplaceBuckets). The pin also covers the segments the cursor reads,
+	// which a concurrent Shutdown would otherwise unmap.
+	b, release := s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM)
+	defer release()
+	if b == nil {
+		if s.shut.Load() || s.shutdownRequested.Load() {
+			return fmt.Errorf("remove dimensions for %q: %w", targetVector, errAlreadyShutdown)
+		}
+		return nil
+	}
+	return shardusage.RemoveTargetVectorDimensions(ctx, b, targetVector)
+}
+
 func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string, tombstone bool) error {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
