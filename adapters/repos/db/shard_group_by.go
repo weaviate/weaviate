@@ -29,10 +29,11 @@ func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 	dists []float32, groupBy *searchparams.GroupBy,
 	additional additional.Properties, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	objsBucket, err := s.objectsBucket()
+	objsBucket, release, err := s.objectsBucket()
 	if err != nil {
 		return nil, nil, err
 	}
+	defer release()
 
 	className := s.index.Config.ClassName
 	class := s.index.getSchema.ReadOnlyClass(className.String())
