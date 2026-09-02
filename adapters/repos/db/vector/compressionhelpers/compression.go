@@ -22,7 +22,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -102,15 +101,15 @@ type VectorCompressor interface {
 }
 
 type quantizedVectorsCompressor[T byte | uint64] struct {
-	cache             cache.Cache[T]
-	compressedStore   *lsmkv.Store
-	quantizer         quantizer[T]
-	storeId           func([]byte, uint64)
-	loadId            func([]byte) uint64
-	logger            logrus.FieldLogger
-	targetVector      string
-	makeBucketOptions lsmkv.MakeBucketOptions
-	vectorForID       common.VectorForID[float32]
+	cache                cache.Cache[T]
+	compressedStore      *lsmkv.Store
+	quantizer            quantizer[T]
+	storeId              func([]byte, uint64)
+	loadId               func([]byte) uint64
+	logger               logrus.FieldLogger
+	compressedBucketName string
+	makeBucketOptions    lsmkv.MakeBucketOptions
+	vectorForID          common.VectorForID[float32]
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Get(id uint64) ([]float32, error) {
@@ -158,7 +157,7 @@ func (compressor *quantizedVectorsCompressor[T]) Len() int32 {
 // before draining, and async compress/prefill goroutines can outlive the
 // shard); callers treat nil as "shard is gone, skip".
 func (compressor *quantizedVectorsCompressor[T]) compressedBucket() *lsmkv.Bucket {
-	return compressor.compressedStore.Bucket(helpers.GetCompressedBucketName(compressor.targetVector))
+	return compressor.compressedStore.Bucket(compressor.compressedBucketName)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id uint64) {
@@ -314,9 +313,9 @@ func (compressor *quantizedVectorsCompressor[T]) recoverCompressedVector(
 	if err := bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressed)); err != nil {
 		if stderrors.Is(err, storagestate.ErrStatusReadOnly) {
 			compressor.logger.WithFields(logrus.Fields{
-				"action":        "recover_compressed_vector",
-				"target_vector": compressor.targetVector,
-				"id":            id,
+				"action":            "recover_compressed_vector",
+				"compressed_bucket": compressor.compressedBucketName,
+				"id":                id,
 			}).Debugf("skip write-back to compressed bucket: store is read-only: %v", err)
 			return compressed, nil
 		}
@@ -370,7 +369,7 @@ func (compressor *quantizedVectorsCompressor[T]) NewBag() CompressionDistanceBag
 func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
 	err := compressor.compressedStore.CreateOrLoadBucket(
 		context.Background(),
-		helpers.GetCompressedBucketName(compressor.targetVector),
+		compressor.compressedBucketName,
 		compressor.makeBucketOptions(lsmkv.StrategyReplace)...,
 	)
 	if err != nil {
@@ -529,7 +528,7 @@ func NewHNSWPQCompressor(
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizer(cfg, distance, dimensions, logger)
@@ -537,14 +536,14 @@ func NewHNSWPQCompressor(
 		return nil, err
 	}
 	pqVectorsCompressor := &quantizedVectorsCompressor[byte]{
-		quantizer:         quantizer,
-		compressedStore:   store,
-		storeId:           binary.LittleEndian.PutUint64,
-		loadId:            binary.LittleEndian.Uint64,
-		logger:            logger,
-		targetVector:      targetVector,
-		makeBucketOptions: makeBucketOptions,
-		vectorForID:       vectorForID,
+		quantizer:            quantizer,
+		compressedStore:      store,
+		storeId:              binary.LittleEndian.PutUint64,
+		loadId:               binary.LittleEndian.Uint64,
+		logger:               logger,
+		compressedBucketName: compressedBucketName,
+		makeBucketOptions:    makeBucketOptions,
+		vectorForID:          vectorForID,
 	}
 	if err := pqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -570,7 +569,7 @@ func RestoreHNSWPQCompressor(
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders, logger)
@@ -578,14 +577,14 @@ func RestoreHNSWPQCompressor(
 		return nil, err
 	}
 	pqVectorsCompressor := &quantizedVectorsCompressor[byte]{
-		quantizer:         quantizer,
-		compressedStore:   store,
-		storeId:           binary.LittleEndian.PutUint64,
-		loadId:            binary.LittleEndian.Uint64,
-		logger:            logger,
-		targetVector:      targetVector,
-		makeBucketOptions: makeBucketOptions,
-		vectorForID:       vectorForID,
+		quantizer:            quantizer,
+		compressedStore:      store,
+		storeId:              binary.LittleEndian.PutUint64,
+		loadId:               binary.LittleEndian.Uint64,
+		logger:               logger,
+		compressedBucketName: compressedBucketName,
+		makeBucketOptions:    makeBucketOptions,
+		vectorForID:          vectorForID,
 	}
 	if err := pqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -606,7 +605,7 @@ func NewHNSWPQMultiCompressor(
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizer(cfg, distance, dimensions, logger)
@@ -614,14 +613,14 @@ func NewHNSWPQMultiCompressor(
 		return nil, err
 	}
 	pqVectorsCompressor := &quantizedVectorsCompressor[byte]{
-		quantizer:         quantizer,
-		compressedStore:   store,
-		storeId:           binary.LittleEndian.PutUint64,
-		loadId:            binary.LittleEndian.Uint64,
-		logger:            logger,
-		targetVector:      targetVector,
-		makeBucketOptions: makeBucketOptions,
-		vectorForID:       vectorForID,
+		quantizer:            quantizer,
+		compressedStore:      store,
+		storeId:              binary.LittleEndian.PutUint64,
+		loadId:               binary.LittleEndian.Uint64,
+		logger:               logger,
+		compressedBucketName: compressedBucketName,
+		makeBucketOptions:    makeBucketOptions,
+		vectorForID:          vectorForID,
 	}
 	if err := pqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -647,7 +646,7 @@ func RestoreHNSWPQMultiCompressor(
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders, logger)
@@ -655,14 +654,14 @@ func RestoreHNSWPQMultiCompressor(
 		return nil, err
 	}
 	pqVectorsCompressor := &quantizedVectorsCompressor[byte]{
-		quantizer:         quantizer,
-		compressedStore:   store,
-		storeId:           binary.LittleEndian.PutUint64,
-		loadId:            binary.LittleEndian.Uint64,
-		logger:            logger,
-		targetVector:      targetVector,
-		makeBucketOptions: makeBucketOptions,
-		vectorForID:       vectorForID,
+		quantizer:            quantizer,
+		compressedStore:      store,
+		storeId:              binary.LittleEndian.PutUint64,
+		loadId:               binary.LittleEndian.Uint64,
+		logger:               logger,
+		compressedBucketName: compressedBucketName,
+		makeBucketOptions:    makeBucketOptions,
+		vectorForID:          vectorForID,
 	}
 	if err := pqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -680,19 +679,19 @@ func NewBQCompressor(
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	quantizer := NewBinaryQuantizer(distance)
 	bqVectorsCompressor := &quantizedVectorsCompressor[uint64]{
-		quantizer:         &quantizer,
-		compressedStore:   store,
-		storeId:           binary.BigEndian.PutUint64,
-		loadId:            binary.BigEndian.Uint64,
-		logger:            logger,
-		targetVector:      targetVector,
-		makeBucketOptions: makeBucketOptions,
-		vectorForID:       vectorForID,
+		quantizer:            &quantizer,
+		compressedStore:      store,
+		storeId:              binary.BigEndian.PutUint64,
+		loadId:               binary.BigEndian.Uint64,
+		logger:               logger,
+		compressedBucketName: compressedBucketName,
+		makeBucketOptions:    makeBucketOptions,
+		vectorForID:          vectorForID,
 	}
 	if err := bqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -710,19 +709,19 @@ func NewBQMultiCompressor(
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	quantizer := NewBinaryQuantizer(distance)
 	bqVectorsCompressor := &quantizedVectorsCompressor[uint64]{
-		quantizer:         &quantizer,
-		compressedStore:   store,
-		storeId:           binary.BigEndian.PutUint64,
-		loadId:            binary.BigEndian.Uint64,
-		logger:            logger,
-		targetVector:      targetVector,
-		makeBucketOptions: makeBucketOptions,
-		vectorForID:       vectorForID,
+		quantizer:            &quantizer,
+		compressedStore:      store,
+		storeId:              binary.BigEndian.PutUint64,
+		loadId:               binary.BigEndian.Uint64,
+		logger:               logger,
+		compressedBucketName: compressedBucketName,
+		makeBucketOptions:    makeBucketOptions,
+		vectorForID:          vectorForID,
 	}
 	if err := bqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -741,19 +740,19 @@ func NewHNSWSQCompressor(
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	quantizer := NewScalarQuantizer(data, distance)
 	sqVectorsCompressor := &quantizedVectorsCompressor[byte]{
-		quantizer:         quantizer,
-		compressedStore:   store,
-		storeId:           binary.BigEndian.PutUint64,
-		loadId:            binary.BigEndian.Uint64,
-		logger:            logger,
-		targetVector:      targetVector,
-		makeBucketOptions: makeBucketOptions,
-		vectorForID:       vectorForID,
+		quantizer:            quantizer,
+		compressedStore:      store,
+		storeId:              binary.BigEndian.PutUint64,
+		loadId:               binary.BigEndian.Uint64,
+		logger:               logger,
+		compressedBucketName: compressedBucketName,
+		makeBucketOptions:    makeBucketOptions,
+		vectorForID:          vectorForID,
 	}
 	if err := sqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -774,7 +773,7 @@ func RestoreHNSWSQCompressor(
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	quantizer, err := RestoreScalarQuantizer(a, b, dimensions, distance)
@@ -782,14 +781,14 @@ func RestoreHNSWSQCompressor(
 		return nil, err
 	}
 	sqVectorsCompressor := &quantizedVectorsCompressor[byte]{
-		quantizer:         quantizer,
-		compressedStore:   store,
-		storeId:           binary.BigEndian.PutUint64,
-		loadId:            binary.BigEndian.Uint64,
-		logger:            logger,
-		targetVector:      targetVector,
-		makeBucketOptions: makeBucketOptions,
-		vectorForID:       vectorForID,
+		quantizer:            quantizer,
+		compressedStore:      store,
+		storeId:              binary.BigEndian.PutUint64,
+		loadId:               binary.BigEndian.Uint64,
+		logger:               logger,
+		compressedBucketName: compressedBucketName,
+		makeBucketOptions:    makeBucketOptions,
+		vectorForID:          vectorForID,
 	}
 	if err := sqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -808,19 +807,19 @@ func NewHNSWSQMultiCompressor(
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	quantizer := NewScalarQuantizer(data, distance)
 	sqVectorsCompressor := &quantizedVectorsCompressor[byte]{
-		quantizer:         quantizer,
-		compressedStore:   store,
-		storeId:           binary.BigEndian.PutUint64,
-		loadId:            binary.BigEndian.Uint64,
-		logger:            logger,
-		targetVector:      targetVector,
-		makeBucketOptions: makeBucketOptions,
-		vectorForID:       vectorForID,
+		quantizer:            quantizer,
+		compressedStore:      store,
+		storeId:              binary.BigEndian.PutUint64,
+		loadId:               binary.BigEndian.Uint64,
+		logger:               logger,
+		compressedBucketName: compressedBucketName,
+		makeBucketOptions:    makeBucketOptions,
+		vectorForID:          vectorForID,
 	}
 	if err := sqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -841,7 +840,7 @@ func RestoreHNSWSQMultiCompressor(
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	quantizer, err := RestoreScalarQuantizer(a, b, dimensions, distance)
@@ -849,14 +848,14 @@ func RestoreHNSWSQMultiCompressor(
 		return nil, err
 	}
 	sqVectorsCompressor := &quantizedVectorsCompressor[byte]{
-		quantizer:         quantizer,
-		compressedStore:   store,
-		storeId:           binary.BigEndian.PutUint64,
-		loadId:            binary.BigEndian.Uint64,
-		logger:            logger,
-		targetVector:      targetVector,
-		makeBucketOptions: makeBucketOptions,
-		vectorForID:       vectorForID,
+		quantizer:            quantizer,
+		compressedStore:      store,
+		storeId:              binary.BigEndian.PutUint64,
+		loadId:               binary.BigEndian.Uint64,
+		logger:               logger,
+		compressedBucketName: compressedBucketName,
+		makeBucketOptions:    makeBucketOptions,
+		vectorForID:          vectorForID,
 	}
 	if err := sqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -876,7 +875,7 @@ func NewRQCompressor(
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	bits int,
 	dim int,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	var rqVectorsCompressor VectorCompressor
@@ -887,14 +886,14 @@ func NewRQCompressor(
 			return nil, err
 		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[uint64]{
-			quantizer:         quantizer,
-			compressedStore:   store,
-			storeId:           binary.BigEndian.PutUint64,
-			loadId:            binary.BigEndian.Uint64,
-			targetVector:      targetVector,
-			logger:            logger,
-			makeBucketOptions: makeBucketOptions,
-			vectorForID:       vectorForID,
+			quantizer:            quantizer,
+			compressedStore:      store,
+			storeId:              binary.BigEndian.PutUint64,
+			loadId:               binary.BigEndian.Uint64,
+			compressedBucketName: compressedBucketName,
+			logger:               logger,
+			makeBucketOptions:    makeBucketOptions,
+			vectorForID:          vectorForID,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
 			return nil, err
@@ -905,14 +904,14 @@ func NewRQCompressor(
 	case 4:
 		quantizer := NewFourBitRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
-			quantizer:         quantizer,
-			compressedStore:   store,
-			storeId:           binary.BigEndian.PutUint64,
-			loadId:            binary.BigEndian.Uint64,
-			targetVector:      targetVector,
-			logger:            logger,
-			makeBucketOptions: makeBucketOptions,
-			vectorForID:       vectorForID,
+			quantizer:            quantizer,
+			compressedStore:      store,
+			storeId:              binary.BigEndian.PutUint64,
+			loadId:               binary.BigEndian.Uint64,
+			compressedBucketName: compressedBucketName,
+			logger:               logger,
+			makeBucketOptions:    makeBucketOptions,
+			vectorForID:          vectorForID,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
 			return nil, err
@@ -923,14 +922,14 @@ func NewRQCompressor(
 	case 8:
 		quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
-			quantizer:         quantizer,
-			compressedStore:   store,
-			storeId:           binary.BigEndian.PutUint64,
-			loadId:            binary.BigEndian.Uint64,
-			targetVector:      targetVector,
-			logger:            logger,
-			makeBucketOptions: makeBucketOptions,
-			vectorForID:       vectorForID,
+			quantizer:            quantizer,
+			compressedStore:      store,
+			storeId:              binary.BigEndian.PutUint64,
+			loadId:               binary.BigEndian.Uint64,
+			compressedBucketName: compressedBucketName,
+			logger:               logger,
+			makeBucketOptions:    makeBucketOptions,
+			vectorForID:          vectorForID,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
 			return nil, err
@@ -975,7 +974,7 @@ func NewCenteredRQ4Compressor(
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	dim int,
 	mean []float32,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	quantizer, err := NewCenteredFourBitRotationalQuantizer(dim, DefaultFastRotationSeed, distance, mean)
@@ -983,14 +982,14 @@ func NewCenteredRQ4Compressor(
 		return nil, err
 	}
 	rqVectorsCompressor := &quantizedVectorsCompressor[byte]{
-		quantizer:         quantizer,
-		compressedStore:   store,
-		storeId:           binary.BigEndian.PutUint64,
-		loadId:            binary.BigEndian.Uint64,
-		targetVector:      targetVector,
-		logger:            logger,
-		makeBucketOptions: makeBucketOptions,
-		vectorForID:       vectorForID,
+		quantizer:            quantizer,
+		compressedStore:      store,
+		storeId:              binary.BigEndian.PutUint64,
+		loadId:               binary.BigEndian.Uint64,
+		compressedBucketName: compressedBucketName,
+		logger:               logger,
+		makeBucketOptions:    makeBucketOptions,
+		vectorForID:          vectorForID,
 	}
 	if err := rqVectorsCompressor.initCompressedStore(); err != nil {
 		return nil, err
@@ -1016,7 +1015,7 @@ func RestoreRQCompressor(
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	if mean != nil && bits != 4 {
@@ -1030,14 +1029,14 @@ func RestoreRQCompressor(
 			return nil, err
 		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[uint64]{
-			quantizer:         quantizer,
-			compressedStore:   store,
-			storeId:           binary.BigEndian.PutUint64,
-			loadId:            binary.BigEndian.Uint64,
-			targetVector:      targetVector,
-			logger:            logger,
-			makeBucketOptions: makeBucketOptions,
-			vectorForID:       vectorForID,
+			quantizer:            quantizer,
+			compressedStore:      store,
+			storeId:              binary.BigEndian.PutUint64,
+			loadId:               binary.BigEndian.Uint64,
+			compressedBucketName: compressedBucketName,
+			logger:               logger,
+			makeBucketOptions:    makeBucketOptions,
+			vectorForID:          vectorForID,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
 			return nil, err
@@ -1051,14 +1050,14 @@ func RestoreRQCompressor(
 			return nil, err
 		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
-			quantizer:         quantizer,
-			compressedStore:   store,
-			storeId:           binary.BigEndian.PutUint64,
-			loadId:            binary.BigEndian.Uint64,
-			targetVector:      targetVector,
-			logger:            logger,
-			makeBucketOptions: makeBucketOptions,
-			vectorForID:       vectorForID,
+			quantizer:            quantizer,
+			compressedStore:      store,
+			storeId:              binary.BigEndian.PutUint64,
+			loadId:               binary.BigEndian.Uint64,
+			compressedBucketName: compressedBucketName,
+			logger:               logger,
+			makeBucketOptions:    makeBucketOptions,
+			vectorForID:          vectorForID,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
 			return nil, err
@@ -1072,14 +1071,14 @@ func RestoreRQCompressor(
 			return nil, err
 		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
-			quantizer:         quantizer,
-			compressedStore:   store,
-			storeId:           binary.BigEndian.PutUint64,
-			loadId:            binary.BigEndian.Uint64,
-			targetVector:      targetVector,
-			logger:            logger,
-			makeBucketOptions: makeBucketOptions,
-			vectorForID:       vectorForID,
+			quantizer:            quantizer,
+			compressedStore:      store,
+			storeId:              binary.BigEndian.PutUint64,
+			loadId:               binary.BigEndian.Uint64,
+			compressedBucketName: compressedBucketName,
+			logger:               logger,
+			makeBucketOptions:    makeBucketOptions,
+			vectorForID:          vectorForID,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
 			return nil, err
@@ -1102,7 +1101,7 @@ func NewRQMultiCompressor(
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	bits int,
 	dim int,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	var rqVectorsCompressor VectorCompressor
@@ -1113,14 +1112,14 @@ func NewRQMultiCompressor(
 			return nil, err
 		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[uint64]{
-			quantizer:         quantizer,
-			compressedStore:   store,
-			storeId:           binary.BigEndian.PutUint64,
-			loadId:            binary.BigEndian.Uint64,
-			targetVector:      targetVector,
-			logger:            logger,
-			makeBucketOptions: makeBucketOptions,
-			vectorForID:       vectorForID,
+			quantizer:            quantizer,
+			compressedStore:      store,
+			storeId:              binary.BigEndian.PutUint64,
+			loadId:               binary.BigEndian.Uint64,
+			compressedBucketName: compressedBucketName,
+			logger:               logger,
+			makeBucketOptions:    makeBucketOptions,
+			vectorForID:          vectorForID,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
 			return nil, err
@@ -1131,14 +1130,14 @@ func NewRQMultiCompressor(
 	case 4:
 		quantizer := NewFourBitRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
-			quantizer:         quantizer,
-			compressedStore:   store,
-			storeId:           binary.BigEndian.PutUint64,
-			loadId:            binary.BigEndian.Uint64,
-			targetVector:      targetVector,
-			logger:            logger,
-			makeBucketOptions: makeBucketOptions,
-			vectorForID:       vectorForID,
+			quantizer:            quantizer,
+			compressedStore:      store,
+			storeId:              binary.BigEndian.PutUint64,
+			loadId:               binary.BigEndian.Uint64,
+			compressedBucketName: compressedBucketName,
+			logger:               logger,
+			makeBucketOptions:    makeBucketOptions,
+			vectorForID:          vectorForID,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
 			return nil, err
@@ -1149,14 +1148,14 @@ func NewRQMultiCompressor(
 	case 8:
 		quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
-			quantizer:         quantizer,
-			compressedStore:   store,
-			storeId:           binary.BigEndian.PutUint64,
-			loadId:            binary.BigEndian.Uint64,
-			targetVector:      targetVector,
-			logger:            logger,
-			makeBucketOptions: makeBucketOptions,
-			vectorForID:       vectorForID,
+			quantizer:            quantizer,
+			compressedStore:      store,
+			storeId:              binary.BigEndian.PutUint64,
+			loadId:               binary.BigEndian.Uint64,
+			compressedBucketName: compressedBucketName,
+			logger:               logger,
+			makeBucketOptions:    makeBucketOptions,
+			vectorForID:          vectorForID,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
 			return nil, err
@@ -1184,7 +1183,7 @@ func RestoreRQMultiCompressor(
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 	makeBucketOptions lsmkv.MakeBucketOptions,
-	targetVector string,
+	compressedBucketName string,
 	vectorForID common.VectorForID[float32],
 ) (VectorCompressor, error) {
 	var rqVectorsCompressor VectorCompressor
@@ -1195,14 +1194,14 @@ func RestoreRQMultiCompressor(
 			return nil, err
 		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[uint64]{
-			quantizer:         quantizer,
-			compressedStore:   store,
-			storeId:           binary.BigEndian.PutUint64,
-			loadId:            binary.BigEndian.Uint64,
-			targetVector:      targetVector,
-			logger:            logger,
-			makeBucketOptions: makeBucketOptions,
-			vectorForID:       vectorForID,
+			quantizer:            quantizer,
+			compressedStore:      store,
+			storeId:              binary.BigEndian.PutUint64,
+			loadId:               binary.BigEndian.Uint64,
+			compressedBucketName: compressedBucketName,
+			logger:               logger,
+			makeBucketOptions:    makeBucketOptions,
+			vectorForID:          vectorForID,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).initCompressedStore(); err != nil {
 			return nil, err
@@ -1216,14 +1215,14 @@ func RestoreRQMultiCompressor(
 			return nil, err
 		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
-			quantizer:         quantizer,
-			compressedStore:   store,
-			storeId:           binary.BigEndian.PutUint64,
-			loadId:            binary.BigEndian.Uint64,
-			targetVector:      targetVector,
-			logger:            logger,
-			makeBucketOptions: makeBucketOptions,
-			vectorForID:       vectorForID,
+			quantizer:            quantizer,
+			compressedStore:      store,
+			storeId:              binary.BigEndian.PutUint64,
+			loadId:               binary.BigEndian.Uint64,
+			compressedBucketName: compressedBucketName,
+			logger:               logger,
+			makeBucketOptions:    makeBucketOptions,
+			vectorForID:          vectorForID,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
 			return nil, err
@@ -1237,14 +1236,14 @@ func RestoreRQMultiCompressor(
 			return nil, err
 		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
-			quantizer:         quantizer,
-			compressedStore:   store,
-			storeId:           binary.BigEndian.PutUint64,
-			loadId:            binary.BigEndian.Uint64,
-			targetVector:      targetVector,
-			logger:            logger,
-			makeBucketOptions: makeBucketOptions,
-			vectorForID:       vectorForID,
+			quantizer:            quantizer,
+			compressedStore:      store,
+			storeId:              binary.BigEndian.PutUint64,
+			loadId:               binary.BigEndian.Uint64,
+			compressedBucketName: compressedBucketName,
+			logger:               logger,
+			makeBucketOptions:    makeBucketOptions,
+			vectorForID:          vectorForID,
 		}
 		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
 			return nil, err

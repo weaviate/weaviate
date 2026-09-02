@@ -112,10 +112,13 @@ func NewIndex(config Config,
 	}
 
 	vi, err := hnsw.New(hnsw.Config{
-		VectorForIDThunk:      config.CoordinatesForID.VectorForID,
-		VectorFromObject:      vectorFromObject,
-		WaitForCachePrefill:   config.WaitForCachePrefill,
-		ID:                    config.ID,
+		VectorForIDThunk:    config.CoordinatesForID.VectorForID,
+		VectorFromObject:    vectorFromObject,
+		WaitForCachePrefill: config.WaitForCachePrefill,
+		ID:                  config.ID,
+		// geo reads property values, not object vectors: it has no
+		// object-vector identity to route lookup by.
+		TargetVector:          "",
 		ClassName:             config.ClassName,
 		ShardName:             config.ShardName,
 		RootPath:              config.RootPath,

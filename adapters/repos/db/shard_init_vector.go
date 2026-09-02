@@ -114,6 +114,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				Logger:                            s.index.logger,
 				RootPath:                          s.path(),
 				ID:                                vecIdxID,
+				TargetVector:                      targetVector,
 				ShardName:                         s.name,
 				ClassName:                         s.index.Config.ClassName.String(),
 				PrometheusMetrics:                 s.promMetrics,
@@ -265,9 +266,12 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			TombstoneCallbacks:           s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			Centroids: hfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
-					Logger:                            s.index.logger,
-					RootPath:                          rootPath,
-					ID:                                hfreshConfigID + "_centroids",
+					Logger:   s.index.logger,
+					RootPath: rootPath,
+					ID:       hfreshConfigID + "_centroids",
+					// The centroid graph has no object-vector identity of its own;
+					// its vectors come from thunks, not from named object properties.
+					TargetVector:                      "",
 					ShardName:                         s.name,
 					ClassName:                         s.index.Config.ClassName.String(),
 					PrometheusMetrics:                 s.promMetrics,
