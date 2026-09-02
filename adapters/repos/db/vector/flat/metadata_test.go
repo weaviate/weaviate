@@ -172,20 +172,14 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 		require.ErrorContains(t, err, "insert called with a vector of the wrong size")
 	})
 
-	// NOTE: this subtest used to mutate index.targetVector to a path-escaping
-	// value and assert that getMetadataFile() sanitized it via
-	// flatent.MetadataFileName. getMetadataFile() now derives from the
-	// physical ID via helpers.FlatMetadataFileNameForID, which does NOT run
-	// the Clean/Base sanitization flatent.MetadataFileName does — matching
-	// every other storage-name helper (GetVectorsBucketName,
-	// GetCompressedBucketName, ...), none of which ever sanitized either.
-	// The physical ID is built from the target vector the same unsanitized
-	// way ("vectors_"+targetVector, see VectorIndexIDForTarget), so this was
-	// never a new gap: TargetVectorNameRegex is and was the only thing
-	// standing between an attacker and a path-escaping name reaching any of
-	// these functions. flatent.MetadataFileName's own sanitization remains
-	// fully covered by TestMetadataFileName in metadata_file_test.go, it is
-	// just no longer reachable from this call site.
+	t.Run("target vector file validation", func(t *testing.T) {
+		// getMetadataFile derives from the physical ID now, not TargetVector
+		// directly, so the path-escaping value arrives via the ID's
+		// "vectors_<suffix>" shape. helpers.FlatMetadataFileName delegates to
+		// flatent.MetadataFileName, so the Clean/Base sanitization still runs.
+		index.id = "vectors_./../foo"
+		require.Equal(t, "meta_foo.db", index.getMetadataFile())
+	})
 }
 
 func Test_RQDataSerialization(t *testing.T) {
