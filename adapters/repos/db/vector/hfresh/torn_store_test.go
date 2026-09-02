@@ -21,11 +21,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
-// A shard teardown deregisters every bucket while requests are still in
-// flight. These stores are built once and live as long as the index, so a
-// bucket resolved at construction would outlive the bucket itself: reads
-// through it see an emptied segment list and quietly return nothing instead
-// of failing.
+// Every operation must report a bucket that is already gone rather than
+// working on a stale pointer. This covers the resolve step only: teardown has
+// completed before the operation starts. The concurrent case — teardown
+// landing mid-operation, which the resolve alone cannot catch — is pinned by
+// TestBucketRefAcquirePinsAgainstShutdown and
+// TestHFreshIterationPinsBucketForItsWholeDuration.
 func TestHFreshStoresOnTornDownStore(t *testing.T) {
 	ctx := context.Background()
 

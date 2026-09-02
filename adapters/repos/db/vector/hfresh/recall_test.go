@@ -107,6 +107,18 @@ func Test_NoRace_HFreshRecallParquet(t *testing.T) {
 	}
 }
 
+// flushBucket pins the bucket only for the flush; the caller loops, so a
+// test-scoped pin would accumulate.
+func flushBucket(t *testing.T, ref bucketRef) {
+	t.Helper()
+
+	bucket, release, err := ref.acquire()
+	require.NoError(t, err)
+	defer release()
+
+	require.NoError(t, bucket.FlushAndSwitch())
+}
+
 func runRecallTest(t *testing.T, testCfg testConfig) {
 	store := testinghelpers.NewDummyStore(t)
 	tmpDir := t.TempDir()
@@ -187,13 +199,8 @@ func runRecallTest(t *testing.T, testCfg testConfig) {
 
 	for index.taskQueue.Size() > 0 {
 		t.Logf("background tasks: %d", index.taskQueue.Size())
-		metadataBucket, err := index.IndexMetadata.bucket.get()
-		require.NoError(t, err)
-		require.NoError(t, metadataBucket.FlushAndSwitch())
-
-		postingsBucket, err := index.PostingStore.bucket.get()
-		require.NoError(t, err)
-		require.NoError(t, postingsBucket.FlushAndSwitch())
+		flushBucket(t, index.IndexMetadata.bucket)
+		flushBucket(t, index.PostingStore.bucket)
 		time.Sleep(500 * time.Millisecond)
 	}
 

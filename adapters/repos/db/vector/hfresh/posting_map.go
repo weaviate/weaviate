@@ -463,10 +463,11 @@ func growPackedPostingMetadataCapacity(current, needed int) int {
 //   - count * bytesPerScheme: vector IDs
 func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPostingMetadata, error) {
 	key := p.key(postingID)
-	bucket, err := p.bucket.get()
+	bucket, release, err := p.bucket.acquire()
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 
 	v, err := bucket.Get(key[:])
 	if err != nil {
@@ -489,29 +490,32 @@ func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, metadata Pa
 	// copy metadata to a new array
 	metadataCopy := bufferPool.Get(len(metadata), len(metadata))
 	copy(metadataCopy, metadata)
-	bucket, err := p.bucket.get()
+	bucket, release, err := p.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	return bucket.Put(key[:], metadataCopy)
 }
 
 func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {
 	key := p.key(postingID)
-	bucket, err := p.bucket.get()
+	bucket, release, err := p.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	return bucket.Delete(key[:])
 }
 
 func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostingMetadata) error) error {
-	bucket, err := p.bucket.get()
+	bucket, release, err := p.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	c := bucket.Cursor()
 	defer c.Close()
@@ -558,10 +562,6 @@ func migratePostingMapV1ToV2(ctx context.Context, bucketRef bucketRef, logger lo
 			return err
 		}
 
-		bucket, err := bucketRef.get()
-		if err != nil {
-			return err
-		}
 		if len(batch) == 0 {
 			if loggedStart {
 				logger.WithFields(logrus.Fields{
@@ -594,13 +594,8 @@ func migratePostingMapV1ToV2(ctx context.Context, bucketRef bucketRef, logger lo
 			}
 		}
 
-		for _, entry := range batch {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := bucket.Delete(entry.key); err != nil {
-				return errors.Wrapf(err, "delete legacy posting map metadata for posting %d", entry.postingID)
-			}
+		if err := deleteLegacyPostingMapKeys(ctx, bucketRef, batch); err != nil {
+			return err
 		}
 
 		migrated += len(batch)
@@ -613,11 +608,34 @@ func migratePostingMapV1ToV2(ctx context.Context, bucketRef bucketRef, logger lo
 	}
 }
 
+// deleteLegacyPostingMapKeys removes one migrated batch of v1 rows. It is its
+// own function so the bucket pin scopes to the batch rather than to the whole
+// migration, which may run for many batches.
+func deleteLegacyPostingMapKeys(ctx context.Context, ref bucketRef, batch []postingMapMigrationEntry) error {
+	bucket, release, err := ref.acquire()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	for _, entry := range batch {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := bucket.Delete(entry.key); err != nil {
+			return errors.Wrapf(err, "delete legacy posting map metadata for posting %d", entry.postingID)
+		}
+	}
+
+	return nil
+}
+
 func legacyPostingMapBatch(ctx context.Context, ref bucketRef, limit int) ([]postingMapMigrationEntry, error) {
-	bucket, err := ref.get()
+	bucket, release, err := ref.acquire()
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 
 	c := bucket.Cursor()
 	defer c.Close()

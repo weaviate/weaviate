@@ -274,10 +274,11 @@ func (v *VersionStore) key(vectorID uint64) []byte {
 
 func (v *VersionStore) Get(ctx context.Context, vectorID uint64) (VectorVersion, error) {
 	key := v.key(vectorID)
-	bucket, err := v.bucket.get()
+	bucket, release, err := v.bucket.acquire()
 	if err != nil {
 		return 0, err
 	}
+	defer release()
 
 	version, err := bucket.Get(key[:])
 	if err != nil {
@@ -293,10 +294,11 @@ func (v *VersionStore) Get(ctx context.Context, vectorID uint64) (VectorVersion,
 
 func (v *VersionStore) Set(ctx context.Context, vectorID uint64, version VectorVersion) error {
 	key := v.key(vectorID)
-	bucket, err := v.bucket.get()
+	bucket, release, err := v.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	return bucket.Put(key[:], []byte{byte(version)})
 }
@@ -304,10 +306,11 @@ func (v *VersionStore) Set(ctx context.Context, vectorID uint64, version VectorV
 // IterateAll calls fn for every persisted vector version, in one sequential
 // sweep over the store. Iteration stops early when fn returns false.
 func (v *VersionStore) IterateAll(fn func(vectorID uint64, version VectorVersion) bool) error {
-	bucket, err := v.bucket.get()
+	bucket, release, err := v.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	c := bucket.CursorReplaceReusable()
 	defer c.Close()

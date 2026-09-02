@@ -42,11 +42,14 @@ func makePostingMetadataBucket(t *testing.T) bucketRef {
 }
 
 // mustBucket resolves a ref for the assertions that need the bucket itself.
+// The pin is released at the end of the test; these tests never tear the store
+// down while running, so holding it that long cannot block a shutdown.
 func mustBucket(t *testing.T, ref bucketRef) *lsmkv.Bucket {
 	t.Helper()
 
-	bucket, err := ref.get()
+	bucket, release, err := ref.acquire()
 	require.NoError(t, err)
+	t.Cleanup(release)
 	return bucket
 }
 

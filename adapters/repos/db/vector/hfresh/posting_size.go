@@ -191,10 +191,11 @@ func (p *PostingSizesStore) key(postingID uint64) []byte {
 
 func (p *PostingSizesStore) Get(ctx context.Context, postingID uint64) (uint32, error) {
 	key := p.key(postingID)
-	bucket, err := p.bucket.get()
+	bucket, release, err := p.bucket.acquire()
 	if err != nil {
 		return 0, err
 	}
+	defer release()
 
 	size, err := bucket.Get(key[:])
 	if err != nil {
@@ -212,29 +213,32 @@ func (p *PostingSizesStore) Set(ctx context.Context, postingID uint64, size uint
 	key := p.key(postingID)
 	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, size)
-	bucket, err := p.bucket.get()
+	bucket, release, err := p.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	return bucket.Put(key[:], buf)
 }
 
 func (p *PostingSizesStore) Delete(ctx context.Context, postingID uint64) error {
 	key := p.key(postingID)
-	bucket, err := p.bucket.get()
+	bucket, release, err := p.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	return bucket.Delete(key[:])
 }
 
 func (p *PostingSizesStore) Iter(ctx context.Context, fn func(uint64, uint32) error) error {
-	bucket, err := p.bucket.get()
+	bucket, release, err := p.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	c := bucket.Cursor()
 	defer c.Close()

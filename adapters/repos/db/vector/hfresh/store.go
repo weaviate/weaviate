@@ -110,11 +110,12 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 		p.locks.RUnlock(postingID)
 		return nil, err
 	}
-	bucket, err := p.bucket.get()
+	bucket, release, err := p.bucket.acquire()
 	if err != nil {
 		p.locks.RUnlock(postingID)
 		return nil, err
 	}
+	defer release()
 
 	list, err := bucket.SetRawList(key)
 	p.locks.RUnlock(postingID)
@@ -171,10 +172,11 @@ func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Postin
 	buf[0] = postingStoreSchemaVersionV1
 	binary.LittleEndian.PutUint64(buf[1:], postingID)
 	buf[9] = newVersion
-	bucket, err := p.bucket.get()
+	bucket, release, err := p.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	err = bucket.SetAdd(buf[:], set)
 	if err != nil {
@@ -201,10 +203,11 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 		return err
 	}
 
-	bucket, err := p.bucket.get()
+	bucket, release, err := p.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	return bucket.SetAdd(key, [][]byte{vector})
 }
@@ -243,10 +246,11 @@ func (p *PostingVersionsStore) key(postingID uint64) []byte {
 func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint8, error) {
 	version, err := p.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint8](func(ctx context.Context, key uint64) (uint8, error) {
 		k := p.key(postingID)
-		bucket, err := p.bucket.get()
+		bucket, release, err := p.bucket.acquire()
 		if err != nil {
 			return 0, err
 		}
+		defer release()
 
 		v, err := bucket.Get(k[:])
 		if err != nil {
@@ -267,10 +271,11 @@ func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint8
 
 func (p *PostingVersionsStore) Set(ctx context.Context, postingID uint64, version uint8) error {
 	key := p.key(postingID)
-	bucket, err := p.bucket.get()
+	bucket, release, err := p.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	err = bucket.Put(key[:], []byte{version})
 	if err != nil {

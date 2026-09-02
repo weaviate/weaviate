@@ -69,10 +69,11 @@ func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (bucke
 	}
 
 	ref := newBucketRef(store, bName)
-	bucket, err := ref.get()
+	bucket, release, err := ref.acquire()
 	if err != nil {
 		return bucketRef{}, err
 	}
+	defer release()
 
 	if err := cleanupLegacyReassignBucket(bucket); err != nil {
 		return bucketRef{}, err
@@ -122,19 +123,21 @@ func (i *IndexMetadataStore) key(suffix string) []byte {
 func (i *IndexMetadataStore) SetDimensions(dimensions uint32) error {
 	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, dimensions)
-	bucket, err := i.bucket.get()
+	bucket, release, err := i.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	return bucket.Put(i.key(dimensionsKey), buf)
 }
 
 func (i *IndexMetadataStore) GetDimensions() (uint32, error) {
-	bucket, err := i.bucket.get()
+	bucket, release, err := i.bucket.acquire()
 	if err != nil {
 		return 0, err
 	}
+	defer release()
 
 	data, err := bucket.Get(i.key(dimensionsKey))
 	if err != nil {
@@ -156,19 +159,21 @@ func (i *IndexMetadataStore) SetQuantizationData(data *QuantizationData) error {
 		return errors.Wrap(err, "marshal quantization data")
 	}
 
-	bucket, err := i.bucket.get()
+	bucket, release, err := i.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	return bucket.Put(i.key(quantizationKey), serialized)
 }
 
 func (i *IndexMetadataStore) GetQuantizationData() (*QuantizationData, error) {
-	bucket, err := i.bucket.get()
+	bucket, release, err := i.bucket.acquire()
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 
 	data, err := bucket.Get(i.key(quantizationKey))
 	if err != nil {
@@ -325,19 +330,21 @@ func (s *BucketStore) Store(upperBound uint64) error {
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], upperBound)
 
-	bucket, err := s.bucket.get()
+	bucket, release, err := s.bucket.acquire()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	return bucket.Put(s.key, buf[:])
 }
 
 func (s *BucketStore) Load() (uint64, error) {
-	bucket, err := s.bucket.get()
+	bucket, release, err := s.bucket.acquire()
 	if err != nil {
 		return 0, err
 	}
+	defer release()
 
 	v, err := bucket.Get(s.key)
 	if err != nil {
