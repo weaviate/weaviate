@@ -14,7 +14,6 @@ package hnsw
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -91,10 +90,14 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	if bucket == nil {
 		return fmt.Errorf("prefill cache: objects bucket %q not found", helpers.ObjectsBucketLSM)
 	}
-	vectorFromObject := h.vectorFromObject
-	if vectorFromObject == nil {
-		vectorFromObject = targetVectorFromObject(h.getTargetVector())
+	// The shard binds VectorFromObject for indexes with an object-vector
+	// identity; useParallelPrefill only routes here when it is set, so a nil
+	// closure at this point means a caller invoked this method directly
+	// (e.g. a test) without going through that gate.
+	if h.vectorFromObject == nil {
+		return fmt.Errorf("prefill cache: no VectorFromObject configured for parallel prefill")
 	}
+	vectorFromObject := h.vectorFromObject
 
 	var loaded atomic.Int64
 	onVector := func(id uint64, vec []float32) {
@@ -123,25 +126,9 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 
 // VectorFromObject reads the vector an index caches out of one stored object's
 // binary form. A nil vector means the object carries none, so the scan skips it.
+// hnsw never derives this from a logical name itself — the shard binds it (like
+// every other object read) so the index never learns the name it is addressed by.
 type VectorFromObject func(objectBytes []byte) ([]float32, error)
-
-// targetVectorFromObject reads the named (or, for an empty name, legacy) vector
-// an index was built on.
-func targetVectorFromObject(targetVector string) VectorFromObject {
-	return func(objectBytes []byte) ([]float32, error) {
-		// nil buffer forces a fresh allocation; a reused buffer would be aliased by
-		// VectorFromBinary across iterations and corrupt previously cached vectors.
-		vec, err := storobj.VectorFromBinary(objectBytes, nil, targetVector)
-		if err != nil {
-			var notFound storobj.ErrTargetVectorNotFound
-			if errors.As(err, &notFound) {
-				return nil, nil
-			}
-			return nil, err
-		}
-		return vec, nil
-	}
-}
 
 // scanObjectVectorsParallel scans the objects bucket across GOMAXPROCS cursors over
 // disjoint key ranges. onVector must be safe for concurrent use.

@@ -138,9 +138,8 @@ type hnsw struct {
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
 
-	id           string
-	rootPath     string
-	targetVector string
+	id       string
+	rootPath string
 
 	logger                 logrus.FieldLogger
 	distancerProvider      distancer.Provider
@@ -367,7 +366,6 @@ func New(cfg Config, uc ent.UserConfig,
 		multiVectorForID:      vectorCache.MultiGet,
 		id:                    cfg.ID,
 		rootPath:              cfg.RootPath,
-		targetVector:          cfg.TargetVector,
 		tombstones:            map[uint64]struct{}{},
 		logger:                cfg.Logger,
 		distancerProvider:     cfg.DistanceProvider,
@@ -473,14 +471,6 @@ func New(cfg Config, uc ent.UserConfig,
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	return index, nil
-}
-
-// getTargetVector returns the index's logical name, as configured. It routes
-// object-vector lookup and diagnostics only — never storage. Storage names
-// are derived from h.id, the physical index ID, via the helpers.*ForID
-// functions.
-func (h *hnsw) getTargetVector() string {
-	return h.targetVector
 }
 
 // TODO: use this for incoming replication

@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -30,12 +31,34 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
+// testVectorFromObject reads the named (or, for an empty name, legacy)
+// vector an index was built on. Production code never does this itself —
+// the shard binds VectorFromObject to the index's target vector (see
+// adapters/repos/db/shard_init_vector.go); this is the test-only equivalent,
+// kept so tests exercising the parallel-prefill mechanism by target-vector
+// name can still express that directly.
+func testVectorFromObject(targetVector string) VectorFromObject {
+	return func(objectBytes []byte) ([]float32, error) {
+		// nil buffer forces a fresh allocation; a reused buffer would be aliased by
+		// VectorFromBinary across iterations and corrupt previously cached vectors.
+		vec, err := storobj.VectorFromBinary(objectBytes, nil, targetVector)
+		if err != nil {
+			var notFound storobj.ErrTargetVectorNotFound
+			if stderrors.As(err, &notFound) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		return vec, nil
+	}
+}
+
 func collectScan(t *testing.T, bucket *lsmkv.Bucket, target string) map[uint64][]float32 {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	var mu sync.Mutex
 	got := map[uint64][]float32{}
-	err := scanObjectVectorsParallel(context.Background(), bucket, targetVectorFromObject(target),
+	err := scanObjectVectorsParallel(context.Background(), bucket, testVectorFromObject(target),
 		func(id uint64, vec []float32) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -122,7 +145,7 @@ func TestScanObjectVectorsParallel(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		logger, _ := test.NewNullLogger()
-		err := scanObjectVectorsParallel(ctx, bucket, targetVectorFromObject(""), func(uint64, []float32) {}, logger)
+		err := scanObjectVectorsParallel(ctx, bucket, testVectorFromObject(""), func(uint64, []float32) {}, logger)
 		require.ErrorIs(t, err, context.Canceled)
 	})
 }
@@ -192,6 +215,7 @@ func prefillParallelIntoCache(t *testing.T, vecs map[uint64][]float32, preGrown 
 		id:                "main", // no "vectors_" prefix => legacy default target vector
 		logger:            logger,
 		distancerProvider: dp,
+		vectorFromObject:  testVectorFromObject(""),
 	}
 	require.NoError(t, h.prefillCacheParallel(context.Background()))
 	return c
@@ -410,6 +434,7 @@ func TestPrefillCacheParallelNormalizesForCosine(t *testing.T) {
 		id:                "main",
 		logger:            logger,
 		distancerProvider: distancer.NewCosineDistanceProvider(),
+		vectorFromObject:  testVectorFromObject(""),
 	}
 
 	require.NoError(t, h.prefillCacheParallel(context.Background()))

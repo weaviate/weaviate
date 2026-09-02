@@ -28,19 +28,17 @@ import (
 // Config.UserConfig
 type Config struct {
 	// internal
-	RootPath string
-	ID       string
-	// TargetVector is the index's logical name: the name it is addressed by
-	// for object-vector lookup (VectorForIDThunk et al.) and diagnostics
-	// (logging). It never names anything on disk — storage is derived from
-	// ID, the physical index identifier, via the helpers.*ForID functions.
-	// Empty for the legacy (unnamed) vector, and for indexes with no
-	// object-vector identity of their own (geo reads property values, not
-	// object vectors; hfresh's centroid graph gets its vectors from thunks).
-	TargetVector                      string
-	MakeCommitLoggerThunk             MakeCommitLogger
-	VectorForIDThunk                  common.VectorForID[float32]
-	MultiVectorForIDThunk             common.VectorForID[[]float32]
+	RootPath              string
+	ID                    string
+	MakeCommitLoggerThunk MakeCommitLogger
+	VectorForIDThunk      common.VectorForID[float32]
+	MultiVectorForIDThunk common.VectorForID[[]float32]
+	// VectorFromObject reads the vector this index caches straight out of an
+	// object's stored bytes; optional; when set, startup prefill reads
+	// vectors straight from object bytes in parallel; when nil, prefill goes
+	// through VectorForIDThunk. The shard binds this to the index's target
+	// vector; an index without an object-vector identity (geo, hfresh
+	// centroids) leaves it nil or supplies its own.
 	VectorFromObject                  VectorFromObject
 	TempMultiVectorForIDThunk         common.TempVectorForID[[]float32]
 	GetViewThunk                      common.GetViewThunk
