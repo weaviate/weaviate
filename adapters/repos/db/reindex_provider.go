@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -632,6 +633,15 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 	if len(payload.Properties) > maxReindexPropertiesPerTask {
 		return nil, fmt.Errorf("%s payload has %d properties; max is %d",
 			payload.MigrationType, len(payload.Properties), maxReindexPropertiesPerTask)
+	}
+
+	// genSuffix reserves generation 0 for the canonical post-finalize bucket,
+	// so a version outside [1, MaxInt] names a directory
+	// FinalizeCompletedMigrations skips: the rebuilt data is never promoted
+	// while the completion marker and the schema flag already report success.
+	if desc.Version < 1 || desc.Version > math.MaxInt {
+		return nil, fmt.Errorf("task version %d cannot name a migration generation (must be 1..%d); a migration named from it would never be promoted to its canonical bucket",
+			desc.Version, math.MaxInt)
 	}
 
 	gen := int(desc.Version)

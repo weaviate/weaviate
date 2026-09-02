@@ -12,6 +12,7 @@
 package db
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -138,6 +139,44 @@ func TestRehydrateRebuildsTheDirectoryNamesTheMigrationWrote(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, resumed, "the tracker on disk is the one the rehydrate looks for")
 			require.Equal(t, workingCopyDirs(started), workingCopyDirs(resumed))
+		})
+	}
+}
+
+// The generation in a migration's directory name is the submission's task
+// version. FinalizeCompletedMigrations only looks at generations of 1 and up,
+// so a version outside that range builds a task whose rebuilt data is never
+// promoted, while the completion marker and the schema flag already say the
+// migration succeeded. Fail the unit instead.
+func TestCreateReindexTasksRejectsUnusableGeneration(t *testing.T) {
+	payload := &ReindexTaskPayload{
+		MigrationType: ReindexTypeRepairFilterable,
+		Collection:    "Books",
+		Properties:    []string{dirOwnershipProp},
+	}
+
+	for _, tc := range []struct {
+		name    string
+		version uint64
+		wantDir string
+	}{
+		{name: "zero names the canonical bucket", version: 0},
+		{name: "past what an int holds", version: math.MaxUint64},
+		{name: "lowest live generation", version: 1, wantDir: MigrationDirFilterableRoaringsetRefresh + "_1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, _ := newTestProvider(t)
+
+			tasks, err := p.createReindexTasks(taskDescAt(tc.version), payload, t.TempDir(), false)
+
+			if tc.wantDir == "" {
+				require.Error(t, err)
+				require.Empty(t, tasks)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, tasks, 1)
+			require.Equal(t, tc.wantDir, tasks[0].strategy.MigrationDirName())
 		})
 	}
 }
