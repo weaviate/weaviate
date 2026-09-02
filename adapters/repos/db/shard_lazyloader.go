@@ -624,12 +624,25 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 	})
 }
 
+// DropVectorIndex routes to the loaded shard or to disk. The decision is taken
+// under l.mutex and committed to before the lock is released: a loaded shard's
+// reference is taken first, so a deactivation cannot blank its store in
+// between, and the cold branch keeps the lock because loadIfCold holds it
+// across the whole of NewShard — released early, a concurrent load would open
+// the dimensions bucket that dropUnloadedVectorIndex is about to open from
+// disk, and one of the two would lose the registry claim.
 func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string) error {
-	if l.isLoaded() {
-		return l.shard.DropVectorIndex(ctx, targetVector)
-	} else {
-		return l.dropUnloadedVectorIndex(targetVector)
+	l.mutex.Lock()
+	if l.loaded && l.shard != nil {
+		if release, err := l.shard.preventShutdown(); err == nil {
+			inner := l.shard
+			l.mutex.Unlock()
+			defer release()
+			return inner.DropVectorIndex(ctx, targetVector)
+		}
 	}
+	defer l.mutex.Unlock()
+	return l.dropUnloadedVectorIndex(targetVector)
 }
 
 func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
@@ -653,7 +666,21 @@ func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
 		}
 	}
-	return nil
+
+	// Last, so a failure here cannot leave the checkpoint entry behind: a
+	// re-created vector would then resume async indexing from that doc ID and
+	// never index the objects below it.
+	if err := shardusage.RemoveUnloadedTargetVectorDimensions(context.Background(),
+		l.shardOpts.index.logger, l.shardOpts.index.path(), l.shardOpts.name,
+		targetVector); err != nil {
+		return err
+	}
+
+	// The saved usage record is keyed by a hash of the active vector configs
+	// alone, so re-creating this name with the same config would serve the
+	// pre-drop numbers again.
+	return shardusage.RemoveComputedUsageDataForUnloadedShard(
+		l.shardOpts.index.path(), l.shardOpts.name)
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {

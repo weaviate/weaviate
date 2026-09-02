@@ -14,11 +14,14 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -106,8 +109,93 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 			otherTargetVectors(class, target)); err != nil {
 			return err
 		}
+		if err := removeDimensionsForDroppedVector(idx, shardName, target); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// removeDimensionsForDroppedVector clears target's dimension rows on one shard.
+// The route has to branch: this callback re-fires over loaded units too, and a
+// loaded shard holds the bucket open through its own store.
+//
+// A shard that finishes loading between the routing decision and the open takes
+// the same registry claim, which TryAdd reports at once instead of waiting. One
+// retry re-resolves it and goes through the store that won.
+func removeDimensionsForDroppedVector(idx *Index, shardName, target string) error {
+	ctx := context.Background()
+	err := removeDimensionsOnShard(ctx, idx, shardName, target)
+	if errors.Is(err, lsmkv.ErrBucketAlreadyRegistered) {
+		err = removeDimensionsOnShard(ctx, idx, shardName, target)
+	}
+	if err != nil {
+		return err
+	}
+	return invalidateComputedUsage(idx, shardName)
+}
+
+// invalidateComputedUsage drops a cold shard's saved usage record, which is
+// keyed only by a hash of the active vector configs. Dropping a vector and
+// re-creating it with the same config produces the same hash, so a record
+// written before the drop is served again afterwards — reporting the old
+// vector's count against a vector that holds nothing. Nothing else invalidates
+// it: NewShard is the only other caller, and re-creating a vector does not load
+// a cold shard.
+func invalidateComputedUsage(idx *Index, shardName string) error {
+	if err := shardusage.RemoveComputedUsageDataForUnloadedShard(idx.path(), shardName); err != nil {
+		return fmt.Errorf("invalidate computed usage for shard %q: %w", shardName, err)
+	}
+	return nil
+}
+
+func removeDimensionsOnShard(ctx context.Context, idx *Index, shardName, target string) error {
+	switch shard := idx.shards.Load(shardName).(type) {
+	case *Shard:
+		release, err := shard.preventShutdown()
+		if err != nil {
+			// Tearing down: the store is on its way out, so take the disk route
+			// rather than write through a handle that is about to disappear.
+			break
+		}
+		defer release()
+		if err := shard.removeAllDimensionsLSM(ctx, target); !errors.Is(err, errAlreadyShutdown) {
+			return err
+		}
+	case *LazyLoadShard:
+		return removeDimensionsOnLazyShard(ctx, idx, shardName, target, shard)
+	}
+
+	return shardusage.RemoveUnloadedTargetVectorDimensions(ctx, idx.logger,
+		idx.path(), shardName, target)
+}
+
+// removeDimensionsOnLazyShard commits to the answer it reads under l.mutex. A
+// loaded shard's reference is taken before the lock is released, so a
+// deactivation cannot blank the store in between — Store.Shutdown clears
+// bucketsByName before draining, and a nil bucket would read as nothing to do.
+// The cold branch keeps the lock, because loadIfCold holds it across the whole
+// of NewShard: released early, this would open a bucket that store is opening
+// at the same moment and one of the two would lose the registry claim.
+func removeDimensionsOnLazyShard(ctx context.Context, idx *Index,
+	shardName, target string, l *LazyLoadShard,
+) error {
+	l.mutex.Lock()
+	if l.loaded && l.shard != nil {
+		if release, err := l.shard.preventShutdown(); err == nil {
+			inner := l.shard
+			l.mutex.Unlock()
+			defer release()
+			if err := inner.removeAllDimensionsLSM(ctx, target); !errors.Is(err, errAlreadyShutdown) {
+				return err
+			}
+			return shardusage.RemoveUnloadedTargetVectorDimensions(ctx, idx.logger,
+				idx.path(), shardName, target)
+		}
+	}
+	defer l.mutex.Unlock()
+	return shardusage.RemoveUnloadedTargetVectorDimensions(ctx, idx.logger,
+		idx.path(), shardName, target)
 }
 
 // schemaClassUpdater is the slice of the schema manager the finalizer needs: read a

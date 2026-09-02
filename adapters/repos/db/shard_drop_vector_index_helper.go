@@ -12,11 +12,15 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -34,6 +38,7 @@ func newVectorDropIndexHelper() *vectorDropIndexHelper {
 // - tenant was inactive during a drop vector index operation, so files remain on disk
 // - an error occurred during the drop operation and files were not fully cleaned up
 func (h *vectorDropIndexHelper) ensureFilesAreRemovedForDroppedVectorIndexes(
+	ctx context.Context, logger logrus.FieldLogger,
 	indexPath, shardName string, class *models.Class,
 ) error {
 	for name, cfg := range class.VectorConfig {
@@ -44,6 +49,19 @@ func (h *vectorDropIndexHelper) ensureFilesAreRemovedForDroppedVectorIndexes(
 			otherTargetVectors(class, name)); err != nil {
 			return fmt.Errorf("failed to remove dropped vector index %q files for class %s: %w",
 				name, class.Class, err)
+		}
+		// The shard is still being constructed; its store is not open yet.
+		//
+		// Not fatal. These rows are usage accounting, and both the next shard init
+		// and the group-completion sweep re-run the clear, so continuing costs a
+		// delayed reclaim — where returning would cost the tenant its activation,
+		// including when the only problem is a usage collection holding the
+		// bucket lock this call waits on.
+		if err := shardusage.RemoveUnloadedTargetVectorDimensions(
+			ctx, logger, indexPath, shardName, name); err != nil {
+			logger.WithField("shard", shardName).WithField("class", class.Class).
+				WithField("target_vector", name).
+				Warnf("drop vector index: could not clear dimension rows, leaving them for the next sweep: %v", err)
 		}
 	}
 	return nil
