@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -85,7 +86,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			var err error
 			h.compressor, err = compressionhelpers.NewCenteredRQ4Compressor(
 				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker,
-				h.makeBucketOptions, dims, mean, h.getTargetVector(), h.vectorForID)
+				h.makeBucketOptions, dims, mean, helpers.CompressedBucketNameForID(h.id), h.vectorForID)
 			if err != nil {
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
@@ -101,11 +102,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.vectorForID)
+					h.makeBucketOptions, h.allocChecker, helpers.CompressedBucketNameForID(h.id), h.vectorForID)
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWPQMultiCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
+					h.makeBucketOptions, h.allocChecker, helpers.CompressedBucketNameForID(h.id), h.multiVectorForNodeID)
 			}
 			if err != nil {
 				h.pqConfig.Enabled = false
@@ -116,11 +117,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.vectorForID)
+					h.makeBucketOptions, h.allocChecker, helpers.CompressedBucketNameForID(h.id), h.vectorForID)
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWSQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
+					h.makeBucketOptions, h.allocChecker, helpers.CompressedBucketNameForID(h.id), h.multiVectorForNodeID)
 			}
 			if err != nil {
 				h.sqConfig.Enabled = false
@@ -132,11 +133,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		if singleVector {
 			h.compressor, err = compressionhelpers.NewBQCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
-				h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.vectorForID)
+				h.makeBucketOptions, h.allocChecker, helpers.CompressedBucketNameForID(h.id), h.vectorForID)
 		} else {
 			h.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
-				h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
+				h.makeBucketOptions, h.allocChecker, helpers.CompressedBucketNameForID(h.id), h.multiVectorForNodeID)
 		}
 		if err != nil {
 			return err

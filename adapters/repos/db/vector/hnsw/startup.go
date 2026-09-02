@@ -164,7 +164,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 						h.store,
 						h.makeBucketOptions,
 						h.allocChecker,
-						h.getTargetVector(),
+						helpers.CompressedBucketNameForID(h.id),
 						h.vectorForID,
 					)
 				} else {
@@ -178,7 +178,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 						h.store,
 						h.makeBucketOptions,
 						h.allocChecker,
-						h.getTargetVector(),
+						helpers.CompressedBucketNameForID(h.id),
 						h.multiVectorForNodeID,
 					)
 				}
@@ -199,7 +199,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 					h.store,
 					h.makeBucketOptions,
 					h.allocChecker,
-					h.getTargetVector(),
+					helpers.CompressedBucketNameForID(h.id),
 					h.vectorForID,
 				)
 			} else {
@@ -213,7 +213,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 					h.store,
 					h.makeBucketOptions,
 					h.allocChecker,
-					h.getTargetVector(),
+					helpers.CompressedBucketNameForID(h.id),
 					h.multiVectorForNodeID,
 				)
 			}
@@ -289,7 +289,7 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				helpers.CompressedBucketNameForID(h.id),
 				h.vectorForID,
 			)
 		})
@@ -311,7 +311,7 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				helpers.CompressedBucketNameForID(h.id),
 				h.multiVectorForNodeID,
 			)
 		})
@@ -339,7 +339,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				helpers.CompressedBucketNameForID(h.id),
 				h.vectorForID,
 			)
 		})
@@ -359,7 +359,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				helpers.CompressedBucketNameForID(h.id),
 				h.multiVectorForNodeID,
 			)
 		})

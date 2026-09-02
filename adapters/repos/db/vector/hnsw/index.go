@@ -138,8 +138,9 @@ type hnsw struct {
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
 
-	id       string
-	rootPath string
+	id           string
+	rootPath     string
+	targetVector string
 
 	logger                 logrus.FieldLogger
 	distancerProvider      distancer.Provider
@@ -259,6 +260,9 @@ type CommitLogger interface {
 	Flush() error
 	Shutdown(ctx context.Context) error
 	RootPath() string
+	// Directory returns the commit logger's own directory under RootPath,
+	// i.e. where its raw/condensed/sorted commit log files live.
+	Directory() string
 	PrepareForBackup(bool) error
 	// ActiveFilePath returns the absolute path of the file the writer would
 	// append to right now. The lookup happens under the commit-logger mutex,
@@ -363,6 +367,7 @@ func New(cfg Config, uc ent.UserConfig,
 		multiVectorForID:      vectorCache.MultiGet,
 		id:                    cfg.ID,
 		rootPath:              cfg.RootPath,
+		targetVector:          cfg.TargetVector,
 		tombstones:            map[uint64]struct{}{},
 		logger:                cfg.Logger,
 		distancerProvider:     cfg.DistanceProvider,
@@ -421,11 +426,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraEnabled() {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
+				cfg.MakeBucketOptions, cfg.AllocChecker, helpers.CompressedBucketNameForID(cfg.ID), index.vectorForID)
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
+				cfg.MakeBucketOptions, cfg.AllocChecker, helpers.CompressedBucketNameForID(cfg.ID), index.vectorForID)
 		}
 		if err != nil {
 			return nil, err
@@ -470,12 +475,12 @@ func New(cfg Config, uc ent.UserConfig,
 	return index, nil
 }
 
+// getTargetVector returns the index's logical name, as configured. It routes
+// object-vector lookup and diagnostics only — never storage. Storage names
+// are derived from h.id, the physical index ID, via the helpers.*ForID
+// functions.
 func (h *hnsw) getTargetVector() string {
-	if name, found := strings.CutPrefix(h.id, fmt.Sprintf("%s_", helpers.VectorsBucketLSM)); found {
-		return name
-	}
-	// legacy vector index
-	return ""
+	return h.targetVector
 }
 
 // TODO: use this for incoming replication

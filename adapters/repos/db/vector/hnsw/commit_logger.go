@@ -311,6 +311,11 @@ func (l *hnswCommitLogger) ID() string {
 	return l.id
 }
 
+// Directory returns the commit logger's own directory under its root path.
+func (l *hnswCommitLogger) Directory() string {
+	return commitLogDirectory(l.rootPath, l.id)
+}
+
 func (l *hnswCommitLogger) AddPQCompression(data compression.PQData) error {
 	l.Lock()
 	defer l.Unlock()

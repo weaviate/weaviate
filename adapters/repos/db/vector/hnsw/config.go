@@ -28,8 +28,16 @@ import (
 // Config.UserConfig
 type Config struct {
 	// internal
-	RootPath                          string
-	ID                                string
+	RootPath string
+	ID       string
+	// TargetVector is the index's logical name: the name it is addressed by
+	// for object-vector lookup (VectorForIDThunk et al.) and diagnostics
+	// (logging). It never names anything on disk — storage is derived from
+	// ID, the physical index identifier, via the helpers.*ForID functions.
+	// Empty for the legacy (unnamed) vector, and for indexes with no
+	// object-vector identity of their own (geo reads property values, not
+	// object vectors; hfresh's centroid graph gets its vectors from thunks).
+	TargetVector                      string
 	MakeCommitLoggerThunk             MakeCommitLogger
 	VectorForIDThunk                  common.VectorForID[float32]
 	MultiVectorForIDThunk             common.VectorForID[[]float32]

@@ -76,7 +76,7 @@ func (h *hnsw) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir st
 // caller's read.
 func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	var (
-		logRoot = filepath.Join(h.commitLog.RootPath(), fmt.Sprintf("%s.hnsw.commitlog.d", h.commitLog.ID()))
+		logRoot = h.commitLog.Directory()
 		found   = make(map[string]struct{})
 		files   []string
 	)

@@ -29,7 +29,7 @@ func TestCompressorSurvivesStoreShutdown(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	compressor, err := compressionhelpers.NewBQCompressor(
 		distancer.NewCosineDistanceProvider(), 1e12, nil, store,
-		lsmkv.MakeNoopBucketOptions, nil, "name", nil)
+		lsmkv.MakeNoopBucketOptions, nil, "vectors_compressed_name", nil)
 	require.NoError(t, err)
 
 	compressor.Preload(1, []float32{-0.5, 0.5})

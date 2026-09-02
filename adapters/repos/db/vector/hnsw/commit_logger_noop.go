@@ -119,6 +119,10 @@ func (n *NoopCommitLogger) RootPath() string {
 	return ""
 }
 
+func (n *NoopCommitLogger) Directory() string {
+	return ""
+}
+
 func (n *NoopCommitLogger) PrepareForBackup(force bool) error {
 	return nil
 }
