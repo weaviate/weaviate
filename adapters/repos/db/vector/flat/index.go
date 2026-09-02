@@ -1089,6 +1089,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		"count":    count,
 		"took":     took,
 		"index_id": index.id,
+		// logical name alongside the physical id, so an operator can map a
+		// log line back to the schema's vector name
+		"target_vector": index.targetVector,
 	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 
