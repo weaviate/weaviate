@@ -61,7 +61,7 @@ func (s *segment) loadTombstones() (*sroar.Bitmap, error) {
 
 	buffer := make([]byte, 8)
 	if err := s.copyNode(buffer, nodeOffset{s.invertedHeader.TombstoneOffset, s.invertedHeader.TombstoneOffset + 8}); err != nil {
-		return nil, fmt.Errorf("copy node: %w", err)
+		return nil, err
 	}
 	bitmapSize := binary.LittleEndian.Uint64(buffer)
 
@@ -72,7 +72,7 @@ func (s *segment) loadTombstones() (*sroar.Bitmap, error) {
 
 	buffer = make([]byte, bitmapSize)
 	if err := s.copyNode(buffer, nodeOffset{s.invertedHeader.TombstoneOffset + 8, s.invertedHeader.TombstoneOffset + 8 + bitmapSize}); err != nil {
-		return nil, fmt.Errorf("copy node: %w", err)
+		return nil, err
 	}
 
 	bitmap := sroar.FromBuffer(buffer)
@@ -98,7 +98,7 @@ func (s *segment) loadPropertyLengthsStats() error {
 
 	buffer := make([]byte, 8*3)
 	if err := s.copyNode(buffer, nodeOffset{s.invertedHeader.PropertyLengthsOffset, s.invertedHeader.PropertyLengthsOffset + 8*3}); err != nil {
-		return fmt.Errorf("copy node: %w", err)
+		return err
 	}
 
 	s.invertedData.avgPropertyLengthsAvg = math.Float64frombits(binary.LittleEndian.Uint64(buffer))
@@ -140,7 +140,7 @@ func (s *segment) loadPropertyLengthsLocked() ([]uint32, uint64, []uint64, []uin
 	buffer := make([]byte, 8*3)
 
 	if err := s.copyNode(buffer, nodeOffset{s.invertedHeader.PropertyLengthsOffset, s.invertedHeader.PropertyLengthsOffset + 8*3}); err != nil {
-		return nil, 0, nil, nil, fmt.Errorf("copy node: %w", err)
+		return nil, 0, nil, nil, err
 	}
 
 	// don't re-write stats already set at open: readers access them unlocked
@@ -161,7 +161,7 @@ func (s *segment) loadPropertyLengthsLocked() ([]uint32, uint64, []uint64, []uin
 
 	buffer = make([]byte, propertyLengthsSize)
 	if err := s.copyNode(buffer, nodeOffset{propertyLengthsStart, propertyLengthsEnd}); err != nil {
-		return nil, 0, nil, nil, fmt.Errorf("copy node: %w", err)
+		return nil, 0, nil, nil, err
 	}
 	ids, lens, err := gobenc.DecodePairs(buffer)
 	if err != nil {

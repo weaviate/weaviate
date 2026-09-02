@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -764,11 +765,13 @@ type nodeOffset struct {
 	start, end uint64
 }
 
-// readMetricName is the sync.Map key bufferedReaderAt meters under. Joining it
-// per call allocates, and read paths that fetch a few bytes per row do this once
-// a row, so the operations used there are pre-joined.
+// readMetricName is the sync.Map key bufferedReaderAt and copyNode meter under.
+// Joining it per call allocates, so the operations the switch lists are joined
+// at compile time; the rest join per call in the default arm.
 func readMetricName(operation string) string {
 	switch operation {
+	case copyNodeOp:
+		return "ReadFromSegment" + copyNodeOp
 	case targetedScanPeekOp:
 		return "ReadFromSegment" + targetedScanPeekOp
 	case targetedScanRangeOp:
@@ -799,19 +802,27 @@ func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReade
 	return &nodeReader{r: r, releaseFn: release}, nil
 }
 
+const copyNodeOp = "copyNode"
+
 func (s *segment) copyNode(b []byte, offset nodeOffset) error {
 	if s.readFromMemory {
 		copy(b, s.contents[offset.start:offset.end])
 		return nil
 	}
-	n, err := s.newNodeReader(offset, "copyNode")
-	if err != nil {
-		return fmt.Errorf("copy node: %w", err)
-	}
-	defer n.Release()
 
-	_, err = io.ReadFull(n, b)
-	return err
+	if s.contentFile == nil {
+		return fmt.Errorf("copyNode: nil contentFile for segment at %s", s.path)
+	}
+
+	readStart := time.Now()
+	// ReadAt errors on a short read; all io.ReadFull adds is io.ErrUnexpectedEOF in place of io.EOF
+	n, err := s.contentFile.ReadAt(b, int64(offset.start))
+	if err != nil {
+		return fmt.Errorf("copyNode: %w", err)
+	}
+	observe := readObserver.GetOrCreate(readMetricName(copyNodeOp), s.metrics)
+	observe(int64(n), time.Since(readStart).Nanoseconds())
+	return nil
 }
 
 func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {

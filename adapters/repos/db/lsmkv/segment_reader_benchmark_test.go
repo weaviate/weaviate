@@ -28,20 +28,10 @@ func BenchmarkSegmentReader(b *testing.B) {
 	f.Write(make([]byte, 1024*1024)) // Write 1MB of data
 	f.Sync()
 
-	reg := prometheus.NewRegistry()
-
-	ioRead := prometheus.NewSummaryVec(prometheus.SummaryOpts{
-		Name: "test_file_io_reads_total_bytes",
-		Help: "Total number of bytes read from disk",
-	}, []string{"operation"})
-
-	err = reg.Register(ioRead)
-	require.NoError(b, err)
-
 	segment := &segment{
 		contentFile: f,
 		size:        1024 * 1024,
-		metrics:     &Metrics{IORead: ioRead},
+		metrics:     benchIOReadMetrics(b),
 	}
 
 	b.ReportAllocs()
@@ -50,4 +40,17 @@ func BenchmarkSegmentReader(b *testing.B) {
 		_, release, _ := segment.bufferedReaderAt(0, "some op")
 		release()
 	}
+}
+
+// benchIOReadMetrics is the read-byte summary the segment benchmarks meter into,
+// registered privately so two of them in one binary do not collide.
+func benchIOReadMetrics(tb testing.TB) *Metrics {
+	tb.Helper()
+
+	ioRead := prometheus.NewSummaryVec(prometheus.SummaryOpts{
+		Name: "test_file_io_reads_total_bytes",
+		Help: "Total number of bytes read from disk",
+	}, []string{"operation"})
+	require.NoError(tb, prometheus.NewRegistry().Register(ioRead))
+	return &Metrics{IORead: ioRead}
 }
