@@ -169,7 +169,7 @@ func TestUpgradedOnDisk(t *testing.T) {
 			}
 			setUpStateDB(t, rootPath, tt.db, tt.storedKey, tt.storedValue)
 
-			upgraded, err := UpgradedOnDisk(rootPath, id, tt.targetVector)
+			upgraded, err := UpgradedOnDisk(rootPath, id)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
