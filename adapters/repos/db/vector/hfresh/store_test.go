@@ -364,6 +364,19 @@ func TestPostingVersionsGetOnTornDownStoreWithWarmCache(t *testing.T) {
 // dereference nil. Using one is a wiring bug, but it has to surface as an
 // error rather than take the process down — and not as ErrBucketNotFound,
 // which the compaction callback deliberately swallows.
+// awaitTeardownStarted blocks until the store has deregistered the bucket,
+// which Store.Shutdown does before it drains read pins. The assertions that
+// follow it would otherwise also hold when the shutdown goroutine had simply
+// not been scheduled yet, and would stop pinning the regression.
+func awaitTeardownStarted(t *testing.T, store *lsmkv.Store, name string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		return store.Bucket(name) == nil
+	}, 10*time.Second, time.Millisecond,
+		"store never deregistered bucket %q: shutdown did not start", name)
+}
+
 func TestZeroBucketRefAcquireReportsUninitialized(t *testing.T) {
 	var ref bucketRef
 
@@ -396,6 +409,11 @@ func TestBucketRefAcquirePinsAgainstShutdown(t *testing.T) {
 		done.Store(true)
 	}()
 
+	awaitTeardownStarted(t, store, shared.name)
+
+	// Teardown is now past the registry and into the drain. Give a shutdown
+	// that is NOT held by a pin room to run to completion, so a missing pin
+	// fails here instead of passing on timing.
 	time.Sleep(100 * time.Millisecond)
 	require.False(t, done.Load(),
 		"store shutdown completed while an acquired bucket was still in use: the bucket was not pinned")
@@ -505,6 +523,10 @@ func TestHFreshIterationPinsBucketForItsWholeDuration(t *testing.T) {
 				done.Store(true)
 			}()
 
+			awaitTeardownStarted(t, store, shared.name)
+
+			// As above: the drain has begun, so an unpinned shutdown gets to
+			// finish within this window and trips the assertion below.
 			time.Sleep(100 * time.Millisecond)
 			shutdownRaced := done.Load()
 			close(unblock)
