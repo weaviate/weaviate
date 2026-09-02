@@ -33,6 +33,13 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		"class": req.Class,
 	}).Debug("server.execute")
 
+	// PreApplyFilter below judges against in-memory FSM state, so a leader that
+	// has not drained what it inherited must not judge yet. Ahead of the tenant
+	// lock, not worth holding across a barrier round-trip.
+	if err := st.waitLeaderFSMCaughtUp(); err != nil {
+		return 0, err
+	}
+
 	// Serialize AddTenants per class so the pre-commit cap check can't race the
 	// apply that increments the count (Execute blocks until apply). Skipped when
 	// the cap is unlimited — nothing to make race-free.
