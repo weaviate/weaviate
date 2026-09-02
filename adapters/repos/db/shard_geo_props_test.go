@@ -478,6 +478,53 @@ func TestInitGeoPropNamesItsShard(t *testing.T) {
 	}
 }
 
+// TestVectorIndexLoggerCarriesIdentity pins the contract that lets storage-layer
+// entities (compressors, commit loggers, queues) log without ever being told
+// the logical target-vector name: the shard bakes both identities - the
+// logical name for operators and the physical id for storage - into the
+// logger it hands to initVectorIndex, once, and every implementation
+// (hnsw/flat/dynamic/hfresh) and everything it constructs inherits that
+// logger unchanged.
+func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
+	ctx := context.Background()
+
+	vic := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
+	vic.SetDefaults()
+	shd, idx := testShardWithNamedVector(t, ctx, "LoggerIdentityNamed", vic)
+	s := shd.(*Shard)
+	defer removeRootPath(t, idx)
+	defer func() { require.NoError(t, idx.drop()) }()
+
+	// hooking the shard's own logger rather than replacing it: the field is read
+	// unsynchronized from background goroutines the shard already started
+	logger, ok := s.index.logger.(*logrus.Logger)
+	require.True(t, ok, "the test shard no longer carries a hookable logger")
+	hook := test.NewLocal(logger)
+	logger.SetLevel(logrus.DebugLevel)
+
+	// Force a fresh construction of the named vector's index while the hook is
+	// attached. hnsw.New unconditionally logs a line ("restored data from
+	// disk") as part of its startup, through the identified logger baked in
+	// at construction time - a deterministic way to observe the identity
+	// without depending on cache-prefill timing or async goroutines.
+	require.NoError(t, s.DropVectorIndex(ctx, "title"))
+	require.NoError(t, s.initTargetVector(ctx, "title", vic, false))
+
+	var sawIdentifiedLine bool
+	for _, entry := range hook.AllEntries() {
+		targetVector, ok := entry.Data["target_vector"]
+		if !ok {
+			continue
+		}
+		sawIdentifiedLine = true
+		require.Equalf(t, "title", targetVector, "line %q", entry.Message)
+		require.Equalf(t, "vectors_title", entry.Data["index_id"], "line %q", entry.Message)
+		require.Equalf(t, "LoggerIdentityNamed", entry.Data["class"], "line %q", entry.Message)
+		require.Equalf(t, s.name, entry.Data["shard"], "line %q", entry.Message)
+	}
+	require.True(t, sawIdentifiedLine, "no log line under the recreated index carried target_vector")
+}
+
 // TestInitGeoPropQueueFailureIsRetryable pins that a failed queue build leaves
 // no index registered. Keeping it would make the guard skip the retry, so the
 // prop would serve reads with an index nothing ever drains into.
