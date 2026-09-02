@@ -451,7 +451,7 @@ func (i *Index) unloadedVectorState(shardName, targetVector string,
 	}
 	if vectorConfig.VectorIndexType == common.IndexTypeDynamic {
 		upgraded, err := dynamic.UpgradedOnDisk(shardPath(i.path(), shardName),
-			vectorIndexID(targetVector), targetVector)
+			vectorIndexID(targetVector))
 		if err != nil {
 			i.logger.WithFields(logrus.Fields{
 				"class":         i.Config.ClassName.String(),
