@@ -1004,7 +1004,7 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 	//
 	// Without this check, the next OnAfterLsmInitAsync hits the
 	// `if rt.IsReindexed() { ... "nothing to do" ... }` short-circuit at
-	// the top of the loop, the iteration is skipped, the runtime swap
+	// the top of the loop, the iteration is skipped, the swap phase
 	// runs against an EMPTY reindex bucket, and the migration reports
 	// FINISHED while the target bucket is silently empty. Schema flag
 	// flips on top of no data — Sev 1 silent failure.

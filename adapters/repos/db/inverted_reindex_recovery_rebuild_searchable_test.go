@@ -149,9 +149,7 @@ func TestRecoveryConvergence_RebuildSearchable_Baseline(t *testing.T) {
 		"pre-migration searchable fingerprint must be non-empty (objects already inserted)")
 
 	task, wrapped := newRebuildSearchableTask(t, idx, className, propName)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted,
 		"OnMigrationComplete must fire post-migration")
 

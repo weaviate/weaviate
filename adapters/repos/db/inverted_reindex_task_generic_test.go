@@ -118,8 +118,8 @@ func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardRe
 }
 
 // TestMapToBlockmaxMigration_RuntimeSwap tests the runtime swap path where
-// merge, swap, and tidy all happen inline after the reindex iteration
-// completes — no shard restart needed.
+// merge, swap, and tidy follow the reindex iteration in the same
+// RunOnShard call — no shard restart needed.
 func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	ctx := testCtx()
 	className := "TestMigrationRuntime"
@@ -140,7 +140,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, initialObjects[i]))
 	}
 
-	// Start migration (reloadShards=false → runtime swap)
+	// Start migration on the live shard.
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 
@@ -522,15 +522,15 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 		len(propNames), totalDelta, atomicPhaseBudget)
 
 	// Sanity: assert markers landed as the contract specifies post-Phase
-	// 2c (since this is the inline path, runtimeSwap also runs 2b + 2c
-	// for the dead-bucket tidy and OnMigrationComplete + trim).
+	// 2c (runtimeSwap runs 2b + 2c too, for the dead-bucket tidy and
+	// OnMigrationComplete + trim).
 	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	for _, p := range propNames {
 		assert.True(t, rt.IsSwappedProp(p),
 			"prop %q should be IsSwappedProp post-runtimeSwap", p)
 	}
 	assert.True(t, rt.IsSwapped(), "aggregate swapped sentinel should be set post-runtimeSwap")
-	assert.True(t, rt.IsTidied(), "aggregate tidied sentinel should be set post-runtimeSwap (inline path)")
+	assert.True(t, rt.IsTidied(), "aggregate tidied sentinel should be set post-runtimeSwap")
 
 	require.NoError(t, shard.Shutdown(ctx))
 }

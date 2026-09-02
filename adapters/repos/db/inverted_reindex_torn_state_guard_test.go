@@ -114,7 +114,7 @@ func TestTornState_OnAfterLsmInit_GuardFires_ResetsReindexed(t *testing.T) {
 
 // TestTornState_OnAfterLsmInit_RecoveryConvergesToBaseline pins the
 // end-to-end positive case: after the guard resets reindexed.mig,
-// driving the async loop to completion must produce a fingerprint
+// driving the migration to completion must produce a fingerprint
 // identical to a clean baseline run. Pins the fix for
 // weaviate/0-weaviate-issues#244 (unmarkReindexed now also clears
 // every progress.mig.<N> checkpoint so the resumed iteration starts
