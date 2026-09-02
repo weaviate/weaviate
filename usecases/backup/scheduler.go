@@ -364,7 +364,7 @@ func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.P
 
 const metaReadAttempts = 3
 
-// metaReadTimeout bounds descriptor reads on the status/authz paths; var for tests.
+// metaReadTimeout bounds descriptor reads on the status/authz paths.
 var metaReadTimeout = 15 * time.Second
 
 // metaWithRetry reads the backup meta, retrying briefly on a partial file mid-write
