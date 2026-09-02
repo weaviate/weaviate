@@ -49,6 +49,22 @@ func TestVectorIndexArtifactsFor_CoversEveryArtifact(t *testing.T) {
 	assert.Len(t, got.All(), len(got.LSMBuckets)+len(got.ShardDirs))
 }
 
+// TestVectorIndexArtifactNamesLegacy pins the fix for a latent trap: the
+// artifact list used to derive the legacy index's ID as "vectors" while the
+// real ID is "main", so a hypothetical legacy drop would have deleted the
+// wrong names. Unreachable today (only named vectors are dropped), pinned so
+// a future caller with targetVector=="" gets the true artifact set.
+func TestVectorIndexArtifactNamesLegacy(t *testing.T) {
+	a := vectorIndexArtifactNames("")
+	assert.Contains(t, a.LSMBuckets, "vectors")
+	assert.Contains(t, a.LSMBuckets, "vectors_compressed")
+	assert.Contains(t, a.LSMBuckets, "main_muvera_vectors")
+	assert.Contains(t, a.LSMBuckets, "hfresh_postings_main")
+	assert.Contains(t, a.ShardDirs, "main.hnsw.commitlog.d")
+	assert.Contains(t, a.ShardDirs, "main.hfresh.d")
+	assert.Contains(t, a.ShardDirs, "main.queue.d")
+}
+
 // TestVectorIndexArtifactsFor_NeverTakesASiblingsArtifact pins the guard
 // against a name collision that would DELETE LIVE DATA, over every artifact a
 // sibling owns rather than just its primary bucket.

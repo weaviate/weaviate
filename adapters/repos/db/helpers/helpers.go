@@ -130,6 +130,13 @@ func HFreshSharedBucketName(indexID string) string {
 	return fmt.Sprintf("hfresh_shared_%s", indexID)
 }
 
+// CentroidsID derives the hfresh centroid sub-index's physical ID from its
+// parent's. The centroid HNSW stores its compressed bucket in the SHARD's
+// lsm dir under the name this ID yields via CompressedBucketNameForID.
+func CentroidsID(physicalID string) string {
+	return physicalID + "_centroids"
+}
+
 // FlatMetadataFileName is the single derivation of the flat index's
 // quantisation metadata file name, under the shard directory. Both the live
 // index (via FlatMetadataFileNameForID) and the drop-artifact list
@@ -158,23 +165,29 @@ func (a VectorIndexArtifacts) All() []string {
 // vectorIndexArtifactNames is the raw, unfiltered artifact set for a target
 // vector. Split out from VectorIndexArtifactsFor so the sibling-collision guard
 // can compute what OTHER vectors own without recursing through the filter.
+//
+// Every name is derived from the canonical physical ID through the same ForID
+// helpers the live indexes use, so the list and the storage cannot disagree.
+// For a named vector the ID is "vectors_<tv>" and every string is what it
+// always was; for the legacy unnamed vector ("") the ID is "main", which the
+// previous derivation got wrong (it assumed "vectors").
 func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
-	indexID := GetVectorsBucketName(targetVector)
+	indexID := VectorIndexIDForTarget(targetVector)
 	return VectorIndexArtifacts{
 		LSMBuckets: []string{
-			indexID,                               // raw vectors
-			GetCompressedBucketName(targetVector), // BQ/PQ/SQ/RQ
-			MuveraBucketName(indexID),             // multivector + muvera
-			MVMappingsBucketName(indexID),         // multivector without muvera
-			HFreshPostingsBucketName(indexID),     // hfresh
-			HFreshSharedBucketName(indexID),       // hfresh
-			// hfresh runs a nested centroids HNSW whose id is
-			// "<indexID>_centroids"; hnsw derives its compressed bucket from
-			// that id with the "vectors_" prefix stripped, so it lands in the
-			// shard's lsm dir under this name. Its commitlog and snapshot dirs
-			// do NOT need listing — they live inside the .hfresh.d directory
-			// below, which goes wholesale.
-			GetCompressedBucketName(targetVector + "_centroids"),
+			VectorsBucketNameForID(indexID),    // raw vectors
+			CompressedBucketNameForID(indexID), // BQ/PQ/SQ/RQ
+			MuveraBucketName(indexID),          // multivector + muvera
+			MVMappingsBucketName(indexID),      // multivector without muvera
+			HFreshPostingsBucketName(indexID),  // hfresh
+			HFreshSharedBucketName(indexID),    // hfresh
+			// hfresh runs a nested centroids HNSW whose physical id is
+			// CentroidsID(indexID); hnsw derives its compressed bucket from that
+			// id the same way as any other, so it lands in the shard's lsm dir
+			// under this name. Its commitlog and snapshot dirs do NOT need
+			// listing — they live inside the .hfresh.d directory below, which
+			// goes wholesale.
+			CompressedBucketNameForID(CentroidsID(indexID)),
 		},
 		ShardDirs: []string{
 			GetHNSWCommitLogDirName(targetVector),
@@ -188,7 +201,7 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 			indexID + ".queue.d",
 			// flat.Drop removes this on the live path only; the files-only
 			// paths leave it, same gap as the queue directory above.
-			FlatMetadataFileName(targetVector),
+			FlatMetadataFileNameForID(indexID),
 		},
 	}
 }
