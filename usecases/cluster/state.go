@@ -101,7 +101,7 @@ type memberView struct {
 	byName map[string]memberInfo
 }
 
-func (v *memberView) record(node *memberlist.Node) {
+func (v *memberView) record(node *memberlist.Node) (metaOK bool) {
 	info := memberInfo{addr: node.Addr.String(), gossipPort: node.Port}
 	if len(node.Meta) > 0 && json.Unmarshal(node.Meta, &info.meta) == nil {
 		info.metaOK = true
@@ -112,6 +112,7 @@ func (v *memberView) record(node *memberlist.Node) {
 		v.byName = make(map[string]memberInfo)
 	}
 	v.byName[node.Name] = info
+	return info.metaOK
 }
 
 func (v *memberView) remove(name string) {
