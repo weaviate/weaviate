@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,6 +57,7 @@ func TestNodeReadersDoNotRaceAliveUpdates(t *testing.T) {
 
 	done := make(chan struct{})
 	readerDone := make(chan struct{})
+	var readerErr error
 	go func() {
 		defer close(readerDone)
 		for {
@@ -64,8 +66,9 @@ func TestNodeReadersDoNotRaceAliveUpdates(t *testing.T) {
 				return
 			default:
 			}
-			if hostname, ok := s1.NodeHostname("race-n2"); ok {
-				require.Contains(t, hostname, fmt.Sprintf("%d", port2+1))
+			if hostname, ok := s1.NodeHostname("race-n2"); ok && !strings.Contains(hostname, fmt.Sprintf(":%d", port2+1)) {
+				readerErr = fmt.Errorf("unexpected data port in %q", hostname)
+				return
 			}
 			s1.AllHostnames()
 			s1.Hostnames()
@@ -81,4 +84,5 @@ func TestNodeReadersDoNotRaceAliveUpdates(t *testing.T) {
 	}
 	close(done)
 	<-readerDone
+	require.NoError(t, readerErr)
 }
