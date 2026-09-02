@@ -271,7 +271,17 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					ID:       hfreshConfigID + "_centroids",
 					// The centroid graph has no object-vector identity of its own;
 					// its vectors come from thunks, not from named object properties.
-					TargetVector:                      "",
+					TargetVector: "",
+					// Before physical-ID plumbing, the centroid hnsw's ID carried a
+					// "_centroids" suffix that getTargetVector() stripped down to a
+					// nonexistent target-vector name, so the parallel cache prefiller's
+					// per-object lookup always missed and silently no-opped. TargetVector
+					// is now "" (above), which — left unguarded — would make that same
+					// prefiller fall back to the LEGACY object vector and read real
+					// object vectors into the centroid cache. Explicitly skipping here
+					// restores the old no-op instead of accidentally reading object
+					// storage: the centroid graph must only ever be fed via Insert/Add.
+					VectorFromObject:                  func([]byte) ([]float32, error) { return nil, nil },
 					ShardName:                         s.name,
 					ClassName:                         s.index.Config.ClassName.String(),
 					PrometheusMetrics:                 s.promMetrics,
