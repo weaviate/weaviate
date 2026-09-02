@@ -172,8 +172,7 @@ func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id 
 		compressor.logger.WithFields(logrus.Fields{
 			"action": "compressor_delete",
 			"id":     id,
-		}).WithError(err).
-			Warnf("cannot delete vector from compressed cache")
+		}).Warnf("cannot delete vector from compressed cache: %v", err)
 	}
 }
 
@@ -374,7 +373,7 @@ func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
 	)
 	if err != nil {
 		compressor.logger.WithField("action", "initCompressedStore").
-			WithError(err).Error("Create or load bucket (compressed vectors store)")
+			Errorf("Create or load bucket (compressed vectors store): %v", err)
 		return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
 	}
 	return nil
