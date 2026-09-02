@@ -118,19 +118,10 @@ func DiscoverInFlightReindexTasks(
 					continue
 				}
 
-				// Parse the per-node generation suffix from the migration dir
-				// name. With per-migration generation, the strategy instances
-				// reconstructed here MUST use the same gen as the in-flight
-				// state on disk, otherwise their SourceBucketName / Reindex
-				// SuffixName paths won't match the on-disk dirs.
-				_, generation, parseOk := parseMigrationDirName(migEntry.Name())
-				if !parseOk {
-					logger.WithField("migrationDir", migDir).
-						Warn("reindex recovery: migration dir name missing _<gen> suffix; skipping")
-					continue
-				}
-
-				tasks, err := buildRecoveryTasks(rec, shardName, generation, logger, schemaManager)
+				// The generation is the submission's task version, which the
+				// record carries, so the strategy instances rebuilt here name
+				// the same sidecar dirs the in-flight migration wrote.
+				tasks, err := buildRecoveryTasks(rec, shardName, int(rec.TaskVersion), logger, schemaManager)
 				if err != nil {
 					logger.WithField("migrationDir", migDir).
 						Warnf("reindex recovery: skipping migration; cannot build tasks: %v", err)
