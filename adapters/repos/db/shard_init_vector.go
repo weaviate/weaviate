@@ -88,6 +88,24 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		makeBucketOptions = s.overwrittenMakeDefaultBucketOptions(lsmkv.WithLazySegmentLoading(lazyLoadSegments))
 	}
 
+	// a shard can actually have multiple vector indexes:
+	// - the main index, which is used for all normal object vectors
+	// - a geo property index for each geo prop in the schema
+	//
+	// here we label the main vector index as such.
+	vecIdxID := s.vectorIndexID(targetVector)
+
+	// Every log line under this index carries both identities: the logical
+	// name for operators ("which vector?") and the physical id for storage
+	// ("which files?"). Implementations and the entities they own (compressors,
+	// commit loggers, queues) inherit it and add nothing of their own.
+	logger := s.index.logger.WithFields(logrus.Fields{
+		"class":         s.index.Config.ClassName.String(),
+		"shard":         s.name,
+		"target_vector": targetVector,
+		"index_id":      vecIdxID,
+	})
+
 	switch vectorIndexUserConfig.IndexType() {
 	case vectorindex.VectorIndexTypeHNSW:
 		hnswUserConfig, ok := vectorIndexUserConfig.(hnswent.UserConfig)
@@ -103,15 +121,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 			s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
-			// a shard can actually have multiple vector indexes:
-			// - the main index, which is used for all normal object vectors
-			// - a geo property index for each geo prop in the schema
-			//
-			// here we label the main vector index as such.
-			vecIdxID := s.vectorIndexID(targetVector)
-
 			vi, err := hnsw.New(hnsw.Config{
-				Logger:                            s.index.logger,
+				Logger:                            logger,
 				RootPath:                          s.path(),
 				ID:                                vecIdxID,
 				ShardName:                         s.name,
@@ -156,18 +167,11 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		}
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 
-		// a shard can actually have multiple vector indexes:
-		// - the main index, which is used for all normal object vectors
-		// - a geo property index for each geo prop in the schema
-		//
-		// here we label the main vector index as such.
-		vecIdxID := s.vectorIndexID(targetVector)
-
 		vi, err := flat.New(flat.Config{
 			ID:                vecIdxID,
 			TargetVector:      targetVector,
 			RootPath:          s.path(),
-			Logger:            s.index.logger,
+			Logger:            logger,
 			DistanceProvider:  distProv,
 			AllocChecker:      s.index.allocChecker,
 			MakeBucketOptions: makeBucketOptions,
@@ -185,13 +189,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
-		// a shard can actually have multiple vector indexes:
-		// - the main index, which is used for all normal object vectors
-		// - a geo property index for each geo prop in the schema
-		//
-		// here we label the main vector index as such.
-		vecIdxID := s.vectorIndexID(targetVector)
-
 		metaDB, err := s.getOrInitMetadataDB()
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
@@ -200,7 +197,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		vi, err := dynamic.New(dynamic.Config{
 			ID:                           vecIdxID,
 			TargetVector:                 targetVector,
-			Logger:                       s.index.logger,
+			Logger:                       logger,
 			DistanceProvider:             distProv,
 			RootPath:                     s.path(),
 			ShardName:                    s.name,
@@ -240,11 +237,11 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
-		hfreshConfigID := s.vectorIndexID(targetVector)
+		hfreshConfigID := vecIdxID
 		rootPath := filepath.Join(s.path(), helpers.HFreshDirName(hfreshConfigID))
 
 		hfreshConfig := &hfresh.Config{
-			Logger:            s.index.logger,
+			Logger:            logger,
 			Scheduler:         s.index.scheduler,
 			DistanceProvider:  distProv,
 			RootPath:          rootPath,
@@ -262,7 +259,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			TombstoneCallbacks:           s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			Centroids: hfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
-					Logger:                            s.index.logger,
+					Logger:                            logger,
 					RootPath:                          rootPath,
 					ID:                                hfreshConfigID + "_centroids",
 					ShardName:                         s.name,
