@@ -110,9 +110,10 @@ func seedUncompressedCentroidState(t *testing.T, rootPath, centroidID string, st
 // centroid graph's on-disk state pre-seeded (via seedUncompressedCentroidState)
 // to the "nodes but no compression" shape the bug depends on. It exercises
 // the actual production wiring (hfresh.New -> NewHNSWIndex) rather than the
-// fallback mechanism in isolation — commenting out the VectorFromObject
-// override in NewHNSWIndex makes this test fail (verified manually; see the
-// fix commit message).
+// fallback mechanism in isolation — removing the VectorFromObject override
+// in NewHNSWIndex makes this test fail, with the seeded legacy object
+// vectors put into the objects bucket above appearing in the centroid
+// cache.
 func TestCentroidPrefillNeverReadsObjectStorage(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	createObjectsBucket(t, store)
