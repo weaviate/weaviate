@@ -134,14 +134,14 @@ func TestRecoveryWalkStampsAMigrationItCouldNotArm(t *testing.T) {
 		{
 			name: "swapped but not promoted, no payload",
 			rec: func(s MigrationSubject) MigrationRecord {
-				return NewMigrationRecordSwapped(s, s.Properties, map[string]string{"title": s.CanonicalDirs["title"]})
+				return NewMigrationRecordSwapped(s, s.Properties(), map[string]string{"title": s.Props["title"].Canonical})
 			},
 			wantUnmirrored: true,
 		},
 		{
 			name: "promoted: the canonical name already holds the migrated data",
 			rec: func(s MigrationSubject) MigrationRecord {
-				return NewMigrationRecordPromoted(s, s.Properties, map[string]string{"title": s.CanonicalDirs["title"]})
+				return NewMigrationRecordPromoted(s, s.Properties(), map[string]string{"title": s.Props["title"].Canonical})
 			},
 		},
 		{

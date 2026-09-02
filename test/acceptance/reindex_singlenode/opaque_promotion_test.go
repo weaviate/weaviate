@@ -90,7 +90,7 @@ func plantSwappedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose
 
 	subject := opaqueMigrationSubject(t, staged)
 	recordName, record := reindexrecords.Encode(t, db.NewMigrationRecordSwapped(
-		subject, []string{"score"}, subject.CanonicalDirs))
+		subject, []string{"score"}, map[string]string{"score": subject.Props["score"].Canonical}))
 
 	defer func() { helper.SetupClient(compose.GetWeaviate().URI()) }()
 
@@ -124,10 +124,11 @@ func opaqueMigrationSubject(t *testing.T, staged string) db.MigrationSubject {
 		},
 		TaskID:          "opaque-promotion",
 		MigrationType:   db.ReindexTypeRepairFilterable,
-		Properties:      []string{"score"},
 		IterationCutoff: time.Now().UTC(),
 		TrackerDir:      "opaque_promotion_tracker",
-		StagedDirs:      map[string]string{"score": staged},
-		CanonicalDirs:   map[string]string{"score": handles.Canonical},
+		Props: map[string]db.MigrationPropertyDirs{"score": {
+			Staged:    staged,
+			Canonical: handles.Canonical,
+		}},
 	}
 }

@@ -274,16 +274,15 @@ func mkMigrationRecordFor(t *testing.T, lsmPath, trackerDir, taskID string, task
 		},
 		TaskID:        taskID,
 		MigrationType: mt,
-		Properties:    props,
 		TrackerDir:    trackerDir,
-		StagedDirs:    map[string]string{},
-		CanonicalDirs: map[string]string{},
-		SidecarDirs:   map[string]string{},
+		Props:         map[string]MigrationPropertyDirs{},
 	}
 	for _, prop := range props {
-		subject.StagedDirs[prop] = "property_" + prop + "__" + trackerDir + "_ingest"
-		subject.CanonicalDirs[prop] = "property_" + prop + "_searchable"
-		subject.SidecarDirs[prop] = fixtureSidecarFor(subject.StagedDirs[prop])
+		subject.Props[prop] = MigrationPropertyDirs{
+			Staged:    "property_" + prop + "__" + trackerDir + "_ingest",
+			Canonical: "property_" + prop + "_searchable",
+			Sidecar:   fixtureSidecarFor(subject.Props[prop].Staged),
+		}
 	}
 
 	var rec MigrationRecord
@@ -295,7 +294,7 @@ func mkMigrationRecordFor(t *testing.T, lsmPath, trackerDir, taskID string, task
 	case MigrationStateMerged:
 		rec = NewMigrationRecordMerged(subject)
 	case MigrationStateSwapped:
-		rec = NewMigrationRecordSwapped(subject, props, subject.CanonicalDirs)
+		rec = NewMigrationRecordSwapped(subject, props, subject.dirsInRole(migrationCanonicalOf))
 	default:
 		require.FailNowf(t, "unsupported fixture state", "%q", state)
 	}

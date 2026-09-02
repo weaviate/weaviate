@@ -659,8 +659,8 @@ func TestUnretiredSupersededPropertiesReportOncePerRecord(t *testing.T) {
 	dirs := []string{}
 	canonical := map[string]string{}
 	for _, prop := range taken {
-		dirs = append(dirs, old.StagedDirs[prop], old.CanonicalDirs[prop])
-		canonical[prop] = old.CanonicalDirs[prop]
+		dirs = append(dirs, old.Props[prop].Staged, old.Props[prop].Canonical)
+		canonical[prop] = old.Props[prop].Canonical
 	}
 	f.mkdirs(dirs...)
 
@@ -670,7 +670,7 @@ func TestUnretiredSupersededPropertiesReportOncePerRecord(t *testing.T) {
 	f.put(successorRec)
 
 	r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-	require.NoError(t, r.promoteSealed(oldRec, []MigrationRecord{oldRec, successorRec}))
+	require.NoError(t, r.promoteSealed(testCtx(), oldRec))
 
 	state, present := f.state(old.Key)
 	require.True(t, present)

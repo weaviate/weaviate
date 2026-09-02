@@ -127,7 +127,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	}
 	iterated, ok := task.migrationRecord(shard)
 	require.True(t, ok, "the rebuild must have left a record")
-	props := iterated.Subject().Properties
+	props := iterated.Subject().Properties()
 	require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, props))
 
 	// Panic prefix lets the recover() handler distinguish THE expected

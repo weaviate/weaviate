@@ -127,7 +127,7 @@ func TestReconcileWithClusterWithholdsWhereItCannotAct(t *testing.T) {
 			for _, dir := range migrationOwnedDirs(subject) {
 				require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), dir), 0o777))
 			}
-			staged := filepath.Join(shard.pathLSM(), subject.StagedDirs[propName])
+			staged := filepath.Join(shard.pathLSM(), subject.Props[propName].Staged)
 
 			if tt.shuttingDown {
 				shard.shutdownRequested.Store(true)
@@ -179,7 +179,7 @@ func TestReconcileWithoutADatabaseHandle(t *testing.T) {
 			for _, dir := range migrationOwnedDirs(subject) {
 				require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), dir), 0o777))
 			}
-			staged := filepath.Join(shard.pathLSM(), subject.StagedDirs[propName])
+			staged := filepath.Join(shard.pathLSM(), subject.Props[propName].Staged)
 
 			handle := idx.db
 			idx.db = nil

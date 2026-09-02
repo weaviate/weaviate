@@ -177,7 +177,9 @@ type plantedMigration struct {
 func (p plantedMigration) subject() MigrationSubject {
 	subject := testMigrationSubject(p.taskVersion, p.code, p.prop)
 	if p.canonical != "" {
-		subject.CanonicalDirs[p.prop] = p.canonical
+		dirs := subject.Props[p.prop]
+		dirs.Canonical = p.canonical
+		subject.Props[p.prop] = dirs
 	}
 	return subject
 }
@@ -185,7 +187,7 @@ func (p plantedMigration) subject() MigrationSubject {
 func (p plantedMigration) record(t *testing.T) MigrationRecord {
 	t.Helper()
 	subject := p.subject()
-	flipped, displaced := []string{p.prop}, map[string]string{p.prop: subject.CanonicalDirs[p.prop]}
+	flipped, displaced := []string{p.prop}, map[string]string{p.prop: subject.Props[p.prop].Canonical}
 	switch p.state {
 	case MigrationStateIterating:
 		return NewMigrationRecordIterating(subject, MigrationCheckpoint{})
@@ -274,7 +276,7 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 			}
 			for _, planted := range tt.plant {
 				subject := planted.subject()
-				f.mkdirs(append(migrationOwnedDirs(subject), subject.CanonicalDirs[planted.prop])...)
+				f.mkdirs(append(migrationOwnedDirs(subject), subject.Props[planted.prop].Canonical)...)
 				f.put(planted.record(t))
 				props = append(props, planted.prop)
 				if planted.running {

@@ -17,7 +17,6 @@ import (
 	"hash/fnv"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -48,17 +47,15 @@ func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
 		TaskID:        "fixture:" + trackerName,
 		MigrationType: migrationType,
 		TrackerDir:    trackerName,
-		StagedDirs:    map[string]string{},
-		CanonicalDirs: map[string]string{},
-		SidecarDirs:   map[string]string{},
+		Props:         map[string]MigrationPropertyDirs{},
 	}
 	for prop, dir := range staged {
-		subject.Properties = append(subject.Properties, prop)
-		subject.StagedDirs[prop] = dir
-		subject.CanonicalDirs[prop] = "property_" + prop
-		subject.SidecarDirs[prop] = fixtureSidecarFor(dir)
+		subject.Props[prop] = MigrationPropertyDirs{
+			Staged:    dir,
+			Canonical: "property_" + prop,
+			Sidecar:   fixtureSidecarFor(dir),
+		}
 	}
-	sort.Strings(subject.Properties)
 
 	var rec MigrationRecord
 	switch state {
@@ -69,16 +66,16 @@ func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
 	case MigrationStateMerged:
 		rec = NewMigrationRecordMerged(subject)
 	case MigrationStateSwapped:
-		rec = NewMigrationRecordSwapped(subject, subject.Properties, subject.CanonicalDirs)
+		rec = NewMigrationRecordSwapped(subject, subject.Properties(), subject.dirsInRole(migrationCanonicalOf))
 	case MigrationStatePromoted:
-		rec = NewMigrationRecordPromoted(subject, subject.Properties, subject.CanonicalDirs)
+		rec = NewMigrationRecordPromoted(subject, subject.Properties(), subject.dirsInRole(migrationCanonicalOf))
 	default:
 		require.FailNowf(t, "unknown migration state", "%q", state)
 	}
 
 	logger, _ := test.NewNullLogger()
 	store := NewMigrationRecordStore(lsmPath, logger)
-	if len(subject.Properties) == 0 {
+	if len(subject.Properties()) == 0 {
 		plantMigrationRecordFile(t, store, rec)
 		return
 	}

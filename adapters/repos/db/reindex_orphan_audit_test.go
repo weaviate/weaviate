@@ -609,16 +609,15 @@ func mkAuditTracker(t *testing.T, lsmPath, trackerName, taskID string, taskVersi
 		},
 		TaskID:        taskID,
 		MigrationType: ReindexTypeChangeTokenization,
-		Properties:    props,
 		TrackerDir:    trackerName,
-		StagedDirs:    map[string]string{},
-		CanonicalDirs: map[string]string{},
-		SidecarDirs:   map[string]string{},
+		Props:         map[string]MigrationPropertyDirs{},
 	}
 	for _, prop := range props {
-		subject.StagedDirs[prop] = "property_" + prop + "_searchable__retokenize_ingest_1"
-		subject.CanonicalDirs[prop] = "property_" + prop + "_searchable"
-		subject.SidecarDirs[prop] = fixtureSidecarFor(subject.StagedDirs[prop])
+		subject.Props[prop] = MigrationPropertyDirs{
+			Staged:    "property_" + prop + "_searchable__retokenize_ingest_1",
+			Canonical: "property_" + prop + "_searchable",
+			Sidecar:   fixtureSidecarFor(subject.Props[prop].Staged),
+		}
 	}
 
 	var rec MigrationRecord
@@ -628,7 +627,7 @@ func mkAuditTracker(t *testing.T, lsmPath, trackerName, taskID string, taskVersi
 	case MigrationStateIterated:
 		rec = NewMigrationRecordIterated(subject)
 	case MigrationStateSwapped:
-		rec = NewMigrationRecordSwapped(subject, props, subject.CanonicalDirs)
+		rec = NewMigrationRecordSwapped(subject, props, subject.dirsInRole(migrationCanonicalOf))
 	default:
 		require.FailNowf(t, "unsupported fixture state", "%q", state)
 	}

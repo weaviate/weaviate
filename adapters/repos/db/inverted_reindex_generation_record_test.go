@@ -91,7 +91,7 @@ func runRetriedGenerationCase(t *testing.T, seamOnly bool) {
 	subject := gen1.migrationSubject(shard, []string{propName}, time.Now())
 	require.Equal(t, "rebuild_searchable_title_1", subject.TrackerDir)
 	require.Equal(t, "property_title_searchable__rebuild_searchable_ingest_1",
-		subject.StagedDirs[propName])
+		subject.Props[propName].Staged)
 	require.NoError(t, gen1.putMigrationRecord(shard, NewMigrationRecordIterating(subject,
 		MigrationCheckpoint{LastProcessedKey: []byte("halfway"), UpdatedAt: time.Now()})))
 
@@ -112,7 +112,7 @@ func runRetriedGenerationCase(t *testing.T, seamOnly bool) {
 	require.Equal(t, "rebuild_searchable_title_2", rec.Subject().TrackerDir,
 		"the record now names the directories this generation writes")
 	require.Equal(t, "property_title_searchable__rebuild_searchable_ingest_2",
-		rec.Subject().StagedDirs[propName])
+		rec.Subject().Props[propName].Staged)
 	iterating, isIterating := rec.(MigrationRecordIterating)
 	require.True(t, isIterating)
 	require.Empty(t, iterating.Checkpoint().LastProcessedKey,

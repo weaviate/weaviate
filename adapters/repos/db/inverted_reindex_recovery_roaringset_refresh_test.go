@@ -217,7 +217,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 				}
 				rec, ok := task.migrationRecord(shard)
 				require.True(t, ok)
-				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rec.Subject().Properties))
+				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rec.Subject().Properties()))
 			},
 			expectedState: MigrationStateMerged,
 		},

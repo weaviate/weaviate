@@ -159,7 +159,7 @@ func writeDiffRecord(t *testing.T, lsm string, d diffDir, seq int, committed boo
 	if committed {
 		state = MigrationStateSwapped
 	}
-	mkMigrationRecordAt(t, lsm, d.name, staged, canonical, state)
+	mkMigrationRecordAt(t, lsm, "shard-1__node-0", d.name, staged, canonical, state)
 }
 
 func writeDiffPayload(t *testing.T, lsm string, d diffDir, mode string) {

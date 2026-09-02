@@ -63,14 +63,14 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 		{
 			name: "swapped but not promoted",
 			rec: func(s MigrationSubject) MigrationRecord {
-				return NewMigrationRecordSwapped(s, s.Properties, map[string]string{"title": s.CanonicalDirs["title"]})
+				return NewMigrationRecordSwapped(s, s.Properties(), map[string]string{"title": s.Props["title"].Canonical})
 			},
 			wantIn: true,
 		},
 		{
 			name: "promoted",
 			rec: func(s MigrationSubject) MigrationRecord {
-				return NewMigrationRecordPromoted(s, s.Properties, map[string]string{"title": s.CanonicalDirs["title"]})
+				return NewMigrationRecordPromoted(s, s.Properties(), map[string]string{"title": s.Props["title"].Canonical})
 			},
 			wantFault: recoveryPayloadNotApplicable,
 			because:   "the staged copy is the canonical one, so there is nothing left to mirror into",
@@ -162,21 +162,21 @@ func TestShardLoadArmsTheMirrorForAnUnpromotedFlip(t *testing.T) {
 		{
 			name: "swapped but not promoted",
 			rec: func(s MigrationSubject) MigrationRecord {
-				return NewMigrationRecordSwapped(s, s.Properties, map[string]string{propName: s.CanonicalDirs[propName]})
+				return NewMigrationRecordSwapped(s, s.Properties(), map[string]string{propName: s.Props[propName].Canonical})
 			},
 			wantArmed: true,
 		},
 		{
 			name: "swapped, staged dir already promoted away",
 			rec: func(s MigrationSubject) MigrationRecord {
-				return NewMigrationRecordSwapped(s, s.Properties, map[string]string{propName: s.CanonicalDirs[propName]})
+				return NewMigrationRecordSwapped(s, s.Properties(), map[string]string{propName: s.Props[propName].Canonical})
 			},
 			noStagedDir: true,
 		},
 		{
 			name: "promoted",
 			rec: func(s MigrationSubject) MigrationRecord {
-				return NewMigrationRecordPromoted(s, s.Properties, map[string]string{propName: s.CanonicalDirs[propName]})
+				return NewMigrationRecordPromoted(s, s.Properties(), map[string]string{propName: s.Props[propName].Canonical})
 			},
 		},
 	}
@@ -193,7 +193,7 @@ func TestShardLoadArmsTheMirrorForAnUnpromotedFlip(t *testing.T) {
 			task, _ := newFilterableToRangeableTask(t, idx, className, propName)
 			subject := task.migrationSubject(shard, []string{propName}, time.Now())
 			require.NoError(t, task.putMigrationRecord(shard, tt.rec(subject)))
-			stagedDir := filepath.Join(shard.pathLSM(), subject.StagedDirs[propName])
+			stagedDir := filepath.Join(shard.pathLSM(), subject.Props[propName].Staged)
 			if !tt.noStagedDir {
 				require.NoError(t, os.MkdirAll(stagedDir, 0o777))
 			}
@@ -241,13 +241,13 @@ func TestOnlyAPromotedFlipReportsRangeableReady(t *testing.T) {
 		{
 			name: "swapped but not promoted",
 			rec: func(s MigrationSubject) MigrationRecord {
-				return NewMigrationRecordSwapped(s, s.Properties, map[string]string{propName: s.CanonicalDirs[propName]})
+				return NewMigrationRecordSwapped(s, s.Properties(), map[string]string{propName: s.Props[propName].Canonical})
 			},
 		},
 		{
 			name: "promoted",
 			rec: func(s MigrationSubject) MigrationRecord {
-				return NewMigrationRecordPromoted(s, s.Properties, map[string]string{propName: s.CanonicalDirs[propName]})
+				return NewMigrationRecordPromoted(s, s.Properties(), map[string]string{propName: s.Props[propName].Canonical})
 			},
 			wantReady: true,
 		},

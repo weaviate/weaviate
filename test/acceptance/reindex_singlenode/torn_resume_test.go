@@ -226,20 +226,19 @@ func plantTornMigrationAcrossRestart(
 		},
 		TaskID:          "torn-resume-crashed-run",
 		MigrationType:   db.ReindexMigrationType(migrationType),
-		Properties:      props,
 		IterationCutoff: time.Now().UTC(),
 		TrackerDir:      migDir,
-		StagedDirs:      make(map[string]string, len(props)),
-		CanonicalDirs:   make(map[string]string, len(props)),
-		SidecarDirs:     make(map[string]string, len(props)),
+		Props:           make(map[string]db.MigrationPropertyDirs, len(props)),
 	}
 	quoted := make([]string, len(props))
 	for i, prop := range props {
 		quoted[i] = strconv.Quote(prop)
 		handles := reindexrecords.HandlesFor(t, strategyCode, prop, tornResumeGeneration)
-		subject.StagedDirs[prop] = handles.Staged
-		subject.CanonicalDirs[prop] = handles.Canonical
-		subject.SidecarDirs[prop] = handles.Sidecar
+		subject.Props[prop] = db.MigrationPropertyDirs{
+			Staged:    handles.Staged,
+			Canonical: handles.Canonical,
+			Sidecar:   handles.Sidecar,
+		}
 	}
 	recordName, record := reindexrecords.Encode(t,
 		db.NewMigrationRecordIterating(subject, db.MigrationCheckpoint{}))

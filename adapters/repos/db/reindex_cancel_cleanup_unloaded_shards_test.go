@@ -48,11 +48,11 @@ func mustMainBucket(t *testing.T, propName, indexType string) string {
 
 func mkFlippedMigrationRecord(t *testing.T, lsmPath, trackerName, prop, staged, canonical string) {
 	t.Helper()
-	mkMigrationRecordAt(t, lsmPath, trackerName,
+	mkMigrationRecordAt(t, lsmPath, "shard-1__node-0", trackerName,
 		map[string]string{prop: staged}, map[string]string{prop: canonical}, MigrationStateSwapped)
 }
 
-func mkMigrationRecordAt(t *testing.T, lsmPath, trackerName string,
+func mkMigrationRecordAt(t *testing.T, lsmPath, unitID, trackerName string,
 	staged, canonical map[string]string, state MigrationState,
 ) {
 	t.Helper()
@@ -61,29 +61,29 @@ func mkMigrationRecordAt(t *testing.T, lsmPath, trackerName string,
 		Key: MigrationRecordKey{
 			TaskVersion:  fixtureRecordVersion(trackerName),
 			StrategyCode: code,
-			UnitID:       "shard-1__node-0",
+			UnitID:       unitID,
 		},
 		TaskID:        "fixture:" + trackerName,
 		MigrationType: migrationType,
 		TrackerDir:    trackerName,
-		StagedDirs:    staged,
-		CanonicalDirs: canonical,
-		SidecarDirs:   map[string]string{},
+		Props:         map[string]MigrationPropertyDirs{},
 	}
 	for prop, dir := range staged {
-		subject.Properties = append(subject.Properties, prop)
-		subject.SidecarDirs[prop] = fixtureSidecarFor(dir)
+		subject.Props[prop] = MigrationPropertyDirs{
+			Staged:    dir,
+			Canonical: canonical[prop],
+			Sidecar:   fixtureSidecarFor(dir),
+		}
 	}
-	sort.Strings(subject.Properties)
 
 	var rec MigrationRecord
 	switch state {
 	case MigrationStateIterating:
 		rec = NewMigrationRecordIterating(subject, MigrationCheckpoint{})
 	case MigrationStateSwapped:
-		rec = NewMigrationRecordSwapped(subject, subject.Properties, canonical)
+		rec = NewMigrationRecordSwapped(subject, subject.Properties(), canonical)
 	case MigrationStatePromoted:
-		rec = NewMigrationRecordPromoted(subject, subject.Properties, canonical)
+		rec = NewMigrationRecordPromoted(subject, subject.Properties(), canonical)
 	default:
 		require.FailNowf(t, "unsupported fixture state", "%q", state)
 	}
@@ -709,7 +709,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				if c.promoted {
 					state = MigrationStatePromoted
 				}
-				mkMigrationRecordAt(t, lsm, c.dir,
+				mkMigrationRecordAt(t, lsm, "shard-1__node-0", c.dir,
 					map[string]string{c.prop: c.owned},
 					map[string]string{c.prop: mustMainBucket(t, c.prop, tc.indexType)}, state)
 			}
@@ -937,7 +937,7 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			for prop := range tc.staged {
 				canonical[prop] = mustMainBucket(t, prop, "filterable")
 			}
-			mkMigrationRecordAt(t, lsm, tc.tracker, tc.staged, canonical, tc.state)
+			mkMigrationRecordAt(t, lsm, "shard-1__node-0", tc.tracker, tc.staged, canonical, tc.state)
 			mkSidecarDir(t, lsm, sidecar)
 
 			logger, _ := test.NewNullLogger()

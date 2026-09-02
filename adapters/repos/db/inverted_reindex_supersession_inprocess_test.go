@@ -188,7 +188,7 @@ func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
 	rec, stillRecorded := shard.migrationRecords.Get(predecessor.migrationRecordKey())
 	require.True(t, stillRecorded,
 		"a record whose properties are only partly superseded is not retired")
-	require.Equal(t, held, rec.Subject().StagedDirs["title"])
+	require.Equal(t, held, rec.Subject().Props["title"].Staged)
 
 	require.DirExists(t, filepath.Join(shard.pathLSM(), held),
 		"the successor's flip must not remove the directory the predecessor names as its staged data")

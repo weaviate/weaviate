@@ -91,12 +91,13 @@ func TestHandlesAreAcceptedByTheRecordWriter(t *testing.T) {
 						},
 						TaskID:          "handles-are-accepted",
 						MigrationType:   db.ReindexTypeRepairFilterable,
-						Properties:      []string{prop},
 						IterationCutoff: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 						TrackerDir:      TrackerDir(t, strategy.StrategyCode(), []string{prop}, generation),
-						StagedDirs:      map[string]string{prop: handles.Staged},
-						CanonicalDirs:   map[string]string{prop: handles.Canonical},
-						SidecarDirs:     map[string]string{prop: handles.Sidecar},
+						Props: map[string]db.MigrationPropertyDirs{prop: {
+							Staged:    handles.Staged,
+							Canonical: handles.Canonical,
+							Sidecar:   handles.Sidecar,
+						}},
 					}, db.MigrationCheckpoint{}))
 				})
 			}

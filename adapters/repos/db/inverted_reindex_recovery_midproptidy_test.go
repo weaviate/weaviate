@@ -96,7 +96,7 @@ func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 			}
 			rec, ok := task.migrationRecord(shard)
 			require.True(t, ok, "the rebuild must have left a record")
-			props := rec.Subject().Properties
+			props := rec.Subject().Properties()
 			require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, props))
 
 			midPropSwapInstallFault(task, haltAfter)
