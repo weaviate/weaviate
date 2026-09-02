@@ -222,10 +222,18 @@ func MuveraFromBytes(bytes []byte) []float32 {
 	return vec
 }
 
-func (e *MuveraEncoder) GetMuveraVectorForID(id uint64, bucket string) ([]float32, error) {
+func (e *MuveraEncoder) GetMuveraVectorForID(id uint64, bucketName string) ([]float32, error) {
+	// pinned for the read: an unpinned pointer can be shut down between the
+	// lookup and the Get, unmapping the segments underneath it
+	bucket, release := e.muveraStore.AcquireBucketForRead(bucketName)
+	if bucket == nil {
+		return nil, fmt.Errorf("muvera bucket %q: %w", bucketName, lsmkv.ErrBucketNotFound)
+	}
+	defer release()
+
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
-	muveraBytes, err := e.muveraStore.Bucket(bucket).Get(idBytes)
+	muveraBytes, err := bucket.Get(idBytes)
 	if err != nil {
 		return nil, fmt.Errorf("getting vector for id: %w", err)
 	}
