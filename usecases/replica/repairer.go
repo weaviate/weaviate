@@ -40,7 +40,8 @@ type repairer struct {
 	logger              logrus.FieldLogger
 }
 
-// repairOne repairs a single object (used by Finder::GetOne)
+// repairOne repairs a single object (used by Finder::GetOne).
+// contentIdx is -1 when no reply carried the full object.
 func (r *repairer) repairOne(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
@@ -55,6 +56,10 @@ func (r *repairer) repairOne(ctx context.Context,
 		}
 		r.metrics.ObserveReadRepairDuration(time.Since(start))
 	}(time.Now())
+
+	if contentIdx < 0 || contentIdx >= len(votes) {
+		return nil, fmt.Errorf("no reply identified as the caller's copy among %d replies", len(votes))
+	}
 
 	var (
 		deleted          bool
@@ -205,6 +210,10 @@ func (r *repairer) repairExist(ctx context.Context,
 		}
 		r.metrics.ObserveReadRepairDuration(time.Since(start))
 	}(time.Now())
+
+	if len(votes) == 0 {
+		return false, fmt.Errorf("no replies to repair from")
+	}
 
 	var (
 		deleted          bool

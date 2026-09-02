@@ -237,3 +237,100 @@ func TestRepairBatchPartWithoutCallerCopy(t *testing.T) {
 	require.ErrorContains(t, err, "no reply identified as the caller's copy")
 	require.Equal(t, []bool{false}, resolved)
 }
+
+// TestRepairOneWithoutCallerCopy pins that a missing caller copy is reported
+// instead of indexing votes[-1]. Counterpart to TestRepairBatchPartWithoutCallerCopy.
+func TestRepairOneWithoutCallerCopy(t *testing.T) {
+	id := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
+
+	metrics, err := NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err)
+	logger, _ := test.NewNullLogger()
+
+	newRepairer := func(strategy string) *repairer {
+		return &repairer{
+			class:               "C1",
+			getDeletionStrategy: func() string { return strategy },
+			client:              NewFinderClient(NewMockRClient(t), logger),
+			metrics:             metrics,
+			logger:              logger,
+		}
+	}
+
+	digestOnly := []ObjTuple{
+		{Sender: "A", UTime: 100, O: Replica{ID: id, LastUpdateTimeUnixMilli: 100}},
+		{Sender: "B", UTime: 200, O: Replica{ID: id, LastUpdateTimeUnixMilli: 200}},
+	}
+
+	cases := []struct {
+		name       string
+		votes      []ObjTuple
+		contentIdx int
+		strategy   string
+	}{
+		{
+			name:       "no reply carried content",
+			votes:      digestOnly,
+			contentIdx: -1,
+			strategy:   models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+		},
+		{
+			// the delete branches run before the content lookup
+			name:       "no reply carried content, deleted replica",
+			votes:      []ObjTuple{{Sender: "A", UTime: 100, O: Replica{ID: id, LastUpdateTimeUnixMilli: 100, Deleted: true}}},
+			contentIdx: -1,
+			strategy:   models.ReplicationConfigDeletionStrategyTimeBasedResolution,
+		},
+		{
+			name:       "every reply was lost",
+			votes:      nil,
+			contentIdx: -1,
+			strategy:   models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+		},
+		{
+			name:       "content index past the surviving replies",
+			votes:      digestOnly,
+			contentIdx: len(digestOnly),
+			strategy:   models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRepairer(tc.strategy)
+
+			var obj *storobj.Object
+			var err error
+			require.NotPanics(t, func() {
+				obj, err = r.repairOne(context.Background(), "S1", id, tc.votes, tc.contentIdx)
+			})
+			require.ErrorContains(t, err, "no reply identified as the caller's copy")
+			require.Nil(t, obj)
+		})
+	}
+}
+
+// TestRepairExistWithoutReplies pins that an empty vote slice is reported
+// instead of indexing votes[0].
+func TestRepairExistWithoutReplies(t *testing.T) {
+	id := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
+
+	metrics, err := NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err)
+	logger, _ := test.NewNullLogger()
+
+	r := &repairer{
+		class:               "C1",
+		getDeletionStrategy: func() string { return models.ReplicationConfigDeletionStrategyNoAutomatedResolution },
+		client:              NewFinderClient(NewMockRClient(t), logger),
+		metrics:             metrics,
+		logger:              logger,
+	}
+
+	var exists bool
+	require.NotPanics(t, func() {
+		exists, err = r.repairExist(context.Background(), "S1", id, nil)
+	})
+	require.ErrorContains(t, err, "no replies to repair from")
+	require.False(t, exists)
+}
