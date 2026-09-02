@@ -201,6 +201,41 @@ func TestEnvironmentDropVectorReconcileInterval(t *testing.T) {
 	}
 }
 
+func TestEnvironmentBannerInterval(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       []string
+		preset      time.Duration // as the config file would set it
+		expected    time.Duration
+		expectedErr bool
+	}{
+		{name: "valid", value: []string{"48h"}, expected: 48 * time.Hour},
+		// Zero means "not set" to the repeater, which falls back to its default.
+		{name: "not given", value: []string{}, expected: 0},
+		{name: "below the floor is clamped", value: []string{"1m"}, expected: time.Hour},
+		{name: "config file value below the floor is clamped", preset: time.Minute, expected: time.Hour},
+		{name: "config file value above the floor is kept", preset: 2 * time.Hour, expected: 2 * time.Hour},
+		{name: "env wins over the config file", value: []string{"48h"}, preset: time.Minute, expected: 48 * time.Hour},
+		{name: "not parsable", value: []string{"garbage"}, expected: -1, expectedErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("BANNER_INTERVAL", tt.value[0])
+			}
+			conf := Config{BannerInterval: tt.preset}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, conf.BannerInterval)
+			}
+		})
+	}
+}
+
 // TestEnvironmentDistributedTasksIntervals pins the caps on the two sibling
 // DTM knobs: unchecked, seconds*time.Second (hours*time.Hour) overflows into
 // a negative duration — the tick interval panics time.NewTicker after boot,

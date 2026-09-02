@@ -164,6 +164,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/banner"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -690,6 +691,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
 	appState.ClusterService.SetInflightDrainer(repo.WaitForLocalInflightWrites)
+
+	// Docs links carry ?clusterid= only when telemetry is enabled. Installed
+	// before ClusterService.Open so links logged during restore-time shard
+	// loads already carry it.
+	if telemetryEnabled(appState) {
+		enterrors.SetClusterIDSource(appState.ClusterService.ClusterID)
+	}
 
 	// Wrap RestoreClassDir so each post-RAFT-apply class-dir move also
 	// fires the orphan-reindex audit on the restored on-disk state.
@@ -1517,6 +1525,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 		setupTelemetryDebugHandlers(telemeter)
+
+		// The banner waits for the cluster id and fetches its art from
+		// weaviate.io, so it only runs when telemetry is enabled.
+		if !bannerDisabled() {
+			repeater := banner.NewRepeater(appState.Logger, appState.ClusterService.ClusterID,
+				restURLFromArgs(os.Args[1:]), appState.ServerConfig.Config.BannerInterval, nil)
+			enterrors.GoWrapper(func() { repeater.Run(serverShutdownCtx) }, appState.Logger)
+		}
 	}
 	if entconfig.Enabled(os.Getenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")) {
 		enterrors.GoWrapper(
