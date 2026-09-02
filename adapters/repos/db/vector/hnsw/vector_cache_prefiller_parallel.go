@@ -116,7 +116,6 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 		"action":   "hnsw_vector_cache_prefill",
 		"count":    loaded.Load(),
 		"took":     time.Since(before),
-		"index_id": h.id,
 		"parallel": true,
 	}).Info("prefilled vector cache")
 	return nil
