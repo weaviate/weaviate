@@ -72,11 +72,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 
 	t.Run("hnsw named", func(t *testing.T) {
 		vic := hnswent.UserConfig{BQ: hnswent.BQConfig{Enabled: true}}
-		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinHNSWNamed"}, nil, false, true, true,
-			func(i *Index) {
-				i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": vic}
-			},
-		)
+		shd, idx := testShardWithNamedVector(t, ctx, "PinHNSWNamed", vic)
 		s := shd.(*Shard)
 		defer removeRootPath(t, idx)
 
@@ -92,11 +88,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 	t.Run("flat named", func(t *testing.T) {
 		fuc := flatent.UserConfig{}
 		fuc.SetDefaults()
-		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinFlatNamed"}, nil, false, true, true,
-			func(i *Index) {
-				i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": fuc}
-			},
-		)
+		shd, idx := testShardWithNamedVector(t, ctx, "PinFlatNamed", fuc)
 		s := shd.(*Shard)
 		defer removeRootPath(t, idx)
 
@@ -112,11 +104,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 	t.Run("dynamic named", func(t *testing.T) {
 		duc := dynamicent.UserConfig{}
 		duc.SetDefaults()
-		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinDynamicNamed"}, nil, false, true, true, /* async indexing required for dynamic */
-			func(i *Index) {
-				i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": duc}
-			},
-		)
+		shd, idx := testShardWithNamedVector(t, ctx, "PinDynamicNamed", duc)
 		s := shd.(*Shard)
 		defer removeRootPath(t, idx)
 
@@ -133,11 +121,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 	t.Run("hfresh named", func(t *testing.T) {
 		huc := hfreshent.UserConfig{}
 		huc.SetDefaults()
-		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinHFreshNamed"}, nil, false, true, true,
-			func(i *Index) {
-				i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": huc}
-			},
-		)
+		shd, idx := testShardWithNamedVector(t, ctx, "PinHFreshNamed", huc)
 		s := shd.(*Shard)
 		defer removeRootPath(t, idx)
 
@@ -149,6 +133,21 @@ func TestPhysicalLayoutPin(t *testing.T) {
 
 		require.Nil(t, idx.drop())
 	})
+}
+
+// testShardWithNamedVector builds a shard whose only vector index is the
+// named vector "title", configured with vic. All four "named" subtests above
+// share this scaffolding; only the class name and the vector index's own
+// settings differ between them.
+func testShardWithNamedVector(t *testing.T, ctx context.Context, className string,
+	vic schemaConfig.VectorIndexConfig,
+) (ShardLike, *Index) {
+	t.Helper()
+	return testShardWithSettings(t, ctx, &models.Class{Class: className}, nil, false, true, true, /* async indexing required for dynamic */
+		func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": vic}
+		},
+	)
 }
 
 func removeRootPath(t *testing.T, idx *Index) {
