@@ -24,6 +24,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 	bolt "go.etcd.io/bbolt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -171,10 +172,20 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 		require.ErrorContains(t, err, "insert called with a vector of the wrong size")
 	})
 
-	t.Run("target vector file validation", func(t *testing.T) {
-		index.targetVector = "./../foo"
-		require.Equal(t, "meta_foo.db", index.getMetadataFile())
-	})
+	// NOTE: this subtest used to mutate index.targetVector to a path-escaping
+	// value and assert that getMetadataFile() sanitized it via
+	// flatent.MetadataFileName. getMetadataFile() now derives from the
+	// physical ID via helpers.FlatMetadataFileNameForID, which does NOT run
+	// the Clean/Base sanitization flatent.MetadataFileName does — matching
+	// every other storage-name helper (GetVectorsBucketName,
+	// GetCompressedBucketName, ...), none of which ever sanitized either.
+	// The physical ID is built from the target vector the same unsanitized
+	// way ("vectors_"+targetVector, see VectorIndexIDForTarget), so this was
+	// never a new gap: TargetVectorNameRegex is and was the only thing
+	// standing between an attacker and a path-escaping name reaching any of
+	// these functions. flatent.MetadataFileName's own sanitization remains
+	// fully covered by TestMetadataFileName in metadata_file_test.go, it is
+	// just no longer reachable from this call site.
 }
 
 func Test_RQDataSerialization(t *testing.T) {
@@ -403,7 +414,9 @@ func TestSnapshotMutableFiles(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
 		t.Cleanup(func() { store.Shutdown(context.Background()) })
 		index, err := New(Config{
-			ID:                "snapshot-test",
+			// Canonical: the metadata file name derives from the physical ID, so
+			// it must match target the way production always constructs it.
+			ID:                helpers.VectorIndexIDForTarget(target),
 			RootPath:          rootPath,
 			TargetVector:      target,
 			DistanceProvider:  dp,

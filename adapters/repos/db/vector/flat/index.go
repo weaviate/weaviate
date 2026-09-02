@@ -264,14 +264,11 @@ func (index *flat) Multivector() bool {
 }
 
 func (index *flat) getBucketName() string {
-	if index.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, index.targetVector)
-	}
-	return helpers.VectorsBucketLSM
+	return helpers.VectorsBucketNameForID(index.id)
 }
 
 func (index *flat) getCompressedBucketName() string {
-	return helpers.GetCompressedBucketName(index.targetVector)
+	return helpers.CompressedBucketNameForID(index.id)
 }
 
 func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
