@@ -28,7 +28,7 @@ func TestVectorizingObjects_AllPropertyTypes(t *testing.T) {
 	className := "TestClass"
 	var nilAnyArray []any
 	asTime := func(date string) time.Time {
-		if asTime, err := time.Parse(time.RFC3339, date); err == nil {
+		if asTime, err := time.Parse(time.RFC3339Nano, date); err == nil {
 			return asTime
 		}
 		// fallback to current time, this will surely fail tests
@@ -210,6 +210,25 @@ func TestVectorizingObjects_AllPropertyTypes(t *testing.T) {
 				"date_prop": asTime("2011-05-05T07:16:30+02:00"),
 			}},
 			wantCorpi: "2011-05-05T07:16:30+02:00",
+		},
+		{
+			name: "date property as time.Time keeps fractional seconds",
+			object: &models.Object{Class: className, Properties: map[string]any{
+				"date_prop": asTime("2011-05-05T07:16:30.123+02:00"),
+			}},
+			vectorizableProperties: []string{"date_prop"},
+			wantCorpi:              "2011-05-05T07:16:30.123+02:00",
+		},
+		{
+			name: "date array property as []time.Time keeps fractional seconds",
+			object: &models.Object{Class: className, Properties: map[string]any{
+				"date_array_prop": []time.Time{
+					asTime("2011-05-05T07:16:30.123+02:00"),
+					asTime("2011-05-06T07:16:30.456+02:00"),
+				},
+			}},
+			vectorizableProperties: []string{"date_array_prop"},
+			wantCorpi:              "2011-05-05T07:16:30.123+02:00 2011-05-06T07:16:30.456+02:00",
 		},
 		{
 			name: "date array property as []time.Time",

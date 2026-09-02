@@ -390,6 +390,28 @@ func TestPropsEqual(t *testing.T) {
 
 	prevProps := createPrevProps(1)
 	nextProps := createNextProps(1)
+
+	// shared fixtures for the shaped geo/phone property cases below
+	geoStruct := &models.GeoCoordinates{
+		Latitude:  ptrFloat32(45.67),
+		Longitude: ptrFloat32(-12.34),
+	}
+	phoneStruct := &models.PhoneNumber{
+		Input:                  "123456789",
+		InternationalFormatted: "+48 12 345 67 89",
+		NationalFormatted:      "12 345 67 89",
+		National:               123456789,
+		CountryCode:            48,
+		Valid:                  true,
+	}
+	phoneMap := map[string]interface{}{
+		"input":                  "123456789",
+		"internationalFormatted": "+48 12 345 67 89",
+		"nationalFormatted":      "12 345 67 89",
+		"national":               float64(123456789),
+		"countryCode":            float64(48),
+		"valid":                  true,
+	}
 	testCases := []testCase{
 		{
 			prevProps:     nil,
@@ -715,80 +737,60 @@ func TestPropsEqual(t *testing.T) {
 		// disk but arrives as a map in the request; unchanged values must
 		// still compare equal
 		{
-			prevProps: map[string]interface{}{
-				"geoObj": &models.GeoCoordinates{
-					Latitude:  ptrFloat32(45.67),
-					Longitude: ptrFloat32(-12.34),
-				},
-			},
-			nextProps: map[string]interface{}{
-				"geoObj": map[string]interface{}{
-					"latitude":  float64(45.67),
-					"longitude": float64(-12.34),
-				},
-			},
+			prevProps: map[string]interface{}{"geoObj": geoStruct},
+			nextProps: map[string]interface{}{"geoObj": map[string]interface{}{
+				"latitude":  float64(45.67),
+				"longitude": float64(-12.34),
+			}},
 			expectedEqual: true,
 		},
 		{
+			prevProps: map[string]interface{}{"geoObj": geoStruct},
+			nextProps: map[string]interface{}{"geoObj": map[string]interface{}{
+				"latitude":  float64(45.67),
+				"longitude": float64(100.0),
+			}},
+			expectedEqual: false,
+		},
+		// nested properties are never geo/phone-shaped on the disk read path,
+		// so nested maps must not be shaped during comparison either; shaping
+		// would collapse sub-float32 differences and silently skip a real
+		// update
+		{
 			prevProps: map[string]interface{}{
-				"geoObj": &models.GeoCoordinates{
-					Latitude:  ptrFloat32(45.67),
-					Longitude: ptrFloat32(-12.34),
+				"outer": map[string]interface{}{
+					"inner": map[string]interface{}{
+						"latitude":  float64(45.6700001),
+						"longitude": float64(-12.34),
+					},
 				},
 			},
 			nextProps: map[string]interface{}{
-				"geoObj": map[string]interface{}{
-					"latitude":  float64(45.67),
-					"longitude": float64(100.0),
+				"outer": map[string]interface{}{
+					"inner": map[string]interface{}{
+						"latitude":  float64(45.6700002),
+						"longitude": float64(-12.34),
+					},
 				},
 			},
 			expectedEqual: false,
 		},
 		// same for a phone-shaped object property
 		{
-			prevProps: map[string]interface{}{
-				"phoneObj": &models.PhoneNumber{
-					Input:                  "123456789",
-					InternationalFormatted: "+48 12 345 67 89",
-					NationalFormatted:      "12 345 67 89",
-					National:               123456789,
-					CountryCode:            48,
-					Valid:                  true,
-				},
-			},
-			nextProps: map[string]interface{}{
-				"phoneObj": map[string]interface{}{
-					"input":                  "123456789",
-					"internationalFormatted": "+48 12 345 67 89",
-					"nationalFormatted":      "12 345 67 89",
-					"national":               float64(123456789),
-					"countryCode":            float64(48),
-					"valid":                  true,
-				},
-			},
+			prevProps:     map[string]interface{}{"phoneObj": phoneStruct},
+			nextProps:     map[string]interface{}{"phoneObj": phoneMap},
 			expectedEqual: true,
 		},
 		{
-			prevProps: map[string]interface{}{
-				"phoneObj": &models.PhoneNumber{
-					Input:                  "123456789",
-					InternationalFormatted: "+48 12 345 67 89",
-					NationalFormatted:      "12 345 67 89",
-					National:               123456789,
-					CountryCode:            48,
-					Valid:                  true,
-				},
-			},
-			nextProps: map[string]interface{}{
-				"phoneObj": map[string]interface{}{
-					"input":                  "000000000",
-					"internationalFormatted": "+48 12 345 67 89",
-					"nationalFormatted":      "12 345 67 89",
-					"national":               float64(123456789),
-					"countryCode":            float64(48),
-					"valid":                  true,
-				},
-			},
+			prevProps: map[string]interface{}{"phoneObj": phoneStruct},
+			nextProps: map[string]interface{}{"phoneObj": map[string]interface{}{
+				"input":                  "000000000",
+				"internationalFormatted": "+48 12 345 67 89",
+				"nationalFormatted":      "12 345 67 89",
+				"national":               float64(123456789),
+				"countryCode":            float64(48),
+				"valid":                  true,
+			}},
 			expectedEqual: false,
 		},
 	}

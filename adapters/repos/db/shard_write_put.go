@@ -658,8 +658,8 @@ func compareObjsForInsertStatus(prevObj, nextObj *storobj.Object) (preserve, ski
 	if !ok {
 		return false, false
 	}
-	prevProps = canonicalizePropsForComparison(prevProps)
-	nextProps = canonicalizePropsForComparison(nextProps)
+	prevProps = canonicalizePropsForComparison(prevProps, false)
+	nextProps = canonicalizePropsForComparison(nextProps, false)
 	if !geoPropsEqual(prevProps, nextProps) {
 		return false, false
 	}
@@ -778,18 +778,23 @@ func addPropsEqual(prevAddProps, nextAddProps models.AdditionalProperties) bool 
 // []interface{}{} on disk, and geo/phone-shaped object maps are stored as
 // *models.GeoCoordinates / *models.PhoneNumber. Without this, an unchanged
 // object never compares equal and every PUT is rewritten.
-func canonicalizePropsForComparison(props map[string]interface{}) map[string]interface{} {
+//
+// Shaping is only applied to top-level properties (nested == false). The disk
+// read path explicitly skips geo/phone shaping for nested properties, so
+// shaping nested maps here would collapse sub-float32 differences and silently
+// skip a real update.
+func canonicalizePropsForComparison(props map[string]interface{}, nested bool) map[string]interface{} {
 	if props == nil {
 		return nil
 	}
 	out := make(map[string]interface{}, len(props))
 	for name, value := range props {
-		out[name] = canonicalizeValueForComparison(value)
+		out[name] = canonicalizeValueForComparison(value, nested)
 	}
 	return out
 }
 
-func canonicalizeValueForComparison(value interface{}) interface{} {
+func canonicalizeValueForComparison(value interface{}, nested bool) interface{} {
 	switch val := value.(type) {
 	case []string:
 		if len(val) == 0 {
@@ -812,16 +817,22 @@ func canonicalizeValueForComparison(value interface{}) interface{} {
 			return []interface{}{}
 		}
 	case map[string]interface{}:
-		if shaped, err := storobj.ShapeConvertMap(val); err == nil {
-			return shaped
+		if !nested {
+			if shaped, err := storobj.ShapeConvertMap(val); err == nil {
+				return shaped
+			}
 		}
 	}
 	return value
 }
 
 func propsEqual(prevProps, nextProps map[string]interface{}) bool {
-	prevProps = canonicalizePropsForComparison(prevProps)
-	nextProps = canonicalizePropsForComparison(nextProps)
+	return propsEqualNested(prevProps, nextProps, false)
+}
+
+func propsEqualNested(prevProps, nextProps map[string]interface{}, nested bool) bool {
+	prevProps = canonicalizePropsForComparison(prevProps, nested)
+	nextProps = canonicalizePropsForComparison(nextProps, nested)
 
 	if len(prevProps) != len(nextProps) {
 		return false
@@ -876,7 +887,7 @@ func propsEqual(prevProps, nextProps map[string]interface{}) bool {
 			if !ok {
 				return false
 			}
-			if !propsEqual(prevVal, nextVal) {
+			if !propsEqualNested(prevVal, nextVal, true) {
 				return false
 			}
 
@@ -897,7 +908,7 @@ func propsEqual(prevProps, nextProps map[string]interface{}) bool {
 				if !ok {
 					return false
 				}
-				if !propsEqual(prevValI, nextValI) {
+				if !propsEqualNested(prevValI, nextValI, true) {
 					return false
 				}
 			}

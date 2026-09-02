@@ -105,13 +105,14 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 			case []time.Time:
 				// the disk read path stores date[] values as strings; keep the
 				// request form consistent so embeddings don't depend on whether
-				// the value came from a request or from disk
+				// the value came from a request or from disk. JSON persistence
+				// keeps fractional seconds, so they must be kept here too.
 				for i := range val {
-					corpi, titlePropertyValue = v.insertValue(val[i].Format(time.RFC3339), propName,
+					corpi, titlePropertyValue = v.insertValue(val[i].Format(time.RFC3339Nano), propName,
 						toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
 				}
 			case time.Time:
-				corpi, titlePropertyValue = v.insertValue(val.Format(time.RFC3339), propName,
+				corpi, titlePropertyValue = v.insertValue(val.Format(time.RFC3339Nano), propName,
 					toLowerCase, isPropertyNameVectorizable, isTitleProperty, corpi, titlePropertyValue)
 			case []uuid.UUID:
 				for i := range val {
