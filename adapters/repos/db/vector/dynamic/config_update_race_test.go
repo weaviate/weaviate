@@ -40,8 +40,20 @@ import (
 func newDynamicAboveThreshold(t *testing.T) (*dynamic, ent.UserConfig, [][]float32) {
 	t.Helper()
 	ctx := context.Background()
+	idx, uc, vectors := newAsyncDynamic(t, "race-uc-test", 1_000)
+
+	compressionhelpers.Concurrently(logger, uint64(len(vectors)), func(i uint64) {
+		require.NoError(t, idx.Add(ctx, i, vectors[i]))
+	})
+	return idx, uc, vectors
+}
+
+// newAsyncDynamic builds an unseeded async dynamic index with vectorsSize random
+// vectors available via the thunks and an upgrade threshold of 100. Shared by
+// the upgrade-race and copy-window tests; callers seed it as they need.
+func newAsyncDynamic(t *testing.T, id string, vectorsSize int) (*dynamic, ent.UserConfig, [][]float32) {
+	t.Helper()
 	dimensions := 20
-	vectorsSize := 1_000
 	threshold := 100
 
 	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
@@ -71,7 +83,7 @@ func newDynamicAboveThreshold(t *testing.T) (*dynamic, ent.UserConfig, [][]float
 	idx, err := New(Config{
 		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              t.TempDir(),
-		ID:                    "race-uc-test",
+		ID:                    id,
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 		DistanceProvider:      dist,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -89,10 +101,6 @@ func newDynamicAboveThreshold(t *testing.T) (*dynamic, ent.UserConfig, [][]float
 		AsyncIndexingEnabled:         true, // required: New() errors otherwise
 	}, uc, testinghelpers.NewDummyStore(t))
 	require.NoError(t, err)
-
-	compressionhelpers.Concurrently(logger, uint64(vectorsSize), func(i uint64) {
-		require.NoError(t, idx.Add(ctx, i, vectors[i]))
-	})
 	return idx, uc, vectors
 }
 
