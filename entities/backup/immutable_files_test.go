@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
@@ -39,7 +38,7 @@ func TestIsImmutableFile(t *testing.T) {
 		{"myclass/shard1/meta_custom.db", false, "flat index BoltDB (multi-vector)"},
 		{"myclass/shard1/main.hnsw.commitlog.d/1709203456", false, "non-condensed HNSW commitlog"},
 		{"myclass/shard1/main.queue.d/chunk-1709203456000000.bin", false, "async indexing queue chunk"},
-		{"myclass/shard1/index.db", false, "dynamic vector index BoltDB"},
+		{"myclass/shard1/index.db", false, "shard metadata BoltDB"},
 
 		// Unknown files default to mutable (safe — copied and re-uploaded):
 		{"myclass/shard1/lsm/.migrations/m1", false, "migration file (unknown, copied)"},
@@ -55,15 +54,16 @@ func TestIsImmutableFile(t *testing.T) {
 		})
 	}
 
-	// Builds both paths from MetadataFileName and StateDBFileName, so renaming
-	// either fails here rather than hard-linking a file that is rewritten in place.
+	// Builds both paths from MetadataFileName and ShardMetadataDBFileName, so
+	// renaming either fails here rather than hard-linking a file that is
+	// rewritten in place.
 	t.Run("the index bolt files stay mutable under their own names", func(t *testing.T) {
 		for _, targetVector := range []string{"", "custom"} {
 			relPath := "myclass/shard1/" + flatent.MetadataFileName(targetVector)
 			assert.False(t, IsImmutableFile(relPath), "IsImmutableFile(%q)", relPath)
 		}
 
-		relPath := "myclass/shard1/" + dynamicent.StateDBFileName
+		relPath := "myclass/shard1/" + ShardMetadataDBFileName
 		assert.False(t, IsImmutableFile(relPath), "IsImmutableFile(%q)", relPath)
 	})
 }
