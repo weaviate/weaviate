@@ -126,8 +126,9 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 			}
 			idBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(idBytes, id)
-			if err := h.store.Bucket(helpers.MVMappingsBucketName(h.id)).Delete(idBytes); err != nil {
-				return errors.Wrap(err, fmt.Sprintf("failed to delete %s_mv_mappings from the bucket", h.id))
+			mappings := helpers.MVMappingsBucketName(h.id)
+			if err := h.deleteFromBucket(mappings, idBytes); err != nil {
+				return errors.Wrapf(err, "failed to delete %s from the bucket", mappings)
 			}
 		}
 		h.Lock()
@@ -952,12 +953,14 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 		if h.muvera.Load() {
 			idBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(idBytes, id)
-			if err := h.store.Bucket(helpers.MuveraBucketName(h.id)).Delete(idBytes); err != nil {
+			// no early return: the node teardown below must run, and
+			// resetLock is held until after it
+			err := h.deleteFromBucket(helpers.MuveraBucketName(h.id), idBytes)
+			if err != nil {
 				h.logger.WithFields(logrus.Fields{
 					"action": "muvera_delete",
 					"id":     id,
-				}).WithError(err).
-					Warnf("cannot delete vector from muvera bucket")
+				}).Warnf("cannot delete vector from muvera bucket: %v", err)
 			}
 		}
 		if err := h.commitLog.DeleteNode(id); err != nil {

@@ -207,8 +207,11 @@ func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResu
 	// their quality. All reads go through a single bucket view and a pooled
 	// slice — the split holds the posting lock, so per-vector view churn
 	// would extend the time appends to this posting stay blocked.
-	view := h.objectsBucketView()
-	defer view.ReleaseView()
+	view, releaseView, err := h.objectsBucketView()
+	if err != nil {
+		return nil, err
+	}
+	defer releaseView()
 
 	// The pooled container is required, not just an optimization: the
 	// production thunk writes the vector ID into the container's Buff8,
