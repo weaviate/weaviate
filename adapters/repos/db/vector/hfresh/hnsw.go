@@ -72,6 +72,16 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	cfg.Centroids.HNSWConfig.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
 		return nil, nil
 	}
+	// The centroid graph has no object-vector identity of its own — its
+	// vectors only ever arrive via Insert/Add above, never by looking one up
+	// on an object. Its TargetVector is "" (the caller's config), which,
+	// unguarded, would make the hnsw cache prefiller's objects-bucket scan
+	// fall back to reading the LEGACY object vector and leak real object data
+	// into the centroid cache. Enforced here, not left to the caller, so
+	// every construction path — including test configs — gets it for free.
+	cfg.Centroids.HNSWConfig.VectorFromObject = func(objectBytes []byte) ([]float32, error) {
+		return nil, nil
+	}
 
 	var userConfig ent.UserConfig
 	userConfig.SetDefaults()

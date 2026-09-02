@@ -32,39 +32,48 @@ type centroidPrefillNoopBucketView struct{}
 
 func (centroidPrefillNoopBucketView) ReleaseView() {}
 
-// newCentroidLikeIndex builds an hnsw index shaped like hfresh's centroid
-// graph: TargetVector "" (no object-vector identity of its own — see
-// shard_init_vector.go's Centroids.HNSWConfig literal) and, when
-// installVectorFromObject is true, the same VectorFromObject sentinel that
-// literal installs on the real centroid config. store must already hold an
-// objects bucket, matching prefillCacheParallel's expectations.
-func newCentroidLikeIndex(t *testing.T, store *lsmkv.Store, installVectorFromObject bool) *hnsw {
-	t.Helper()
+// TestParallelPrefillFallsBackToLegacyVectorWhenTargetVectorEmpty pins the
+// hnsw-level mechanism behind a real bug fixed in hfresh: an index whose
+// TargetVector is "" — the shape of hfresh's centroid graph, which has no
+// object-vector identity of its own (see hfresh/hnsw.go) — and which carries
+// no VectorFromObject override falls back, on a parallel cache-prefill scan,
+// to reading the LEGACY object vector for every object in the objects
+// bucket.
+//
+// hfresh's centroid graph must never be fed this way: its vectors only ever
+// arrive via Insert/Add. hfresh.NewHNSWIndex installs a VectorFromObject
+// override that explicitly skips every object, and
+// TestCentroidPrefillNeverReadsObjectStorage in the hfresh package pins that
+// override through the real hfresh.New() construction path — deleting the
+// override there fails that test. This test is narrower and lower-level: it
+// does not touch the override at all, and instead pins the fallback
+// mechanism the override exists to guard against, so a future change to
+// hnsw's own TargetVector-empty resolution (e.g. no longer defaulting to the
+// legacy vector) is caught here even though it wouldn't otherwise be visible
+// through hfresh's wiring test.
+func TestParallelPrefillFallsBackToLegacyVectorWhenTargetVectorEmpty(t *testing.T) {
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	putTestObject(t, bucket, 1, []float32{0.1, 0.2, 0.3}, nil)
+	putTestObject(t, bucket, 2, []float32{0.4, 0.5, 0.6}, nil)
+
 	rootPath := t.TempDir()
 	cfg := Config{
 		RootPath:         rootPath,
 		ID:               "vectors_tv_centroids",
-		TargetVector:     "",
+		TargetVector:     "", // the shape of a centroid graph's config
 		Logger:           logrus.New(),
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			// Centroid graphs never look object vectors up by id either — hfresh
-			// forces this same (nil, nil) thunk (see hfresh/hnsw.go NewHNSWIndex).
-			return nil, nil
-		},
-		GetViewThunk: func() common.BucketView { return centroidPrefillNoopBucketView{} },
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) { return nil, nil },
+		GetViewThunk:     func() common.BucketView { return centroidPrefillNoopBucketView{} },
 		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
 			return NewCommitLogger(rootPath, "vectors_tv_centroids", logrus.New(),
 				cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
-		MakeBucketOptions:   lsmkv.MakeNoopBucketOptions,
-		AllocChecker:        memwatch.NewDummyMonitor(),
-		WaitForCachePrefill: true,
-	}
-	if installVectorFromObject {
-		cfg.VectorFromObject = func(objectBytes []byte) ([]float32, error) {
-			return nil, nil
-		}
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		AllocChecker:      memwatch.NewDummyMonitor(),
+		// VectorFromObject is deliberately left unset: this test exercises
+		// the fallback the hfresh-installed override exists to bypass.
 	}
 
 	uc := enthnsw.NewDefaultUserConfig()
@@ -72,58 +81,10 @@ func newCentroidLikeIndex(t *testing.T, store *lsmkv.Store, installVectorFromObj
 
 	idx, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), store)
 	require.NoError(t, err)
-	return idx
-}
+	t.Cleanup(func() { idx.Shutdown(context.Background()) })
 
-// TestCentroidGraphNeverPrefillsFromObjectStorage pins hfresh's centroid-graph
-// invariant: the centroid hnsw has no object-vector identity of its own — its
-// vectors only ever arrive via Insert/Add (see hfresh/hnsw.go) — so its cache
-// must never be populated by scanning the shard's objects bucket, no matter
-// what real vectors that bucket holds.
-//
-// Before physical-ID plumbing (PR2 Task 2), the centroid hnsw's ID carried a
-// "_centroids" suffix ("vectors_<tv>_centroids") that getTargetVector()
-// stripped down to a nonexistent target-vector name ("<tv>_centroids"), so
-// the parallel prefiller's per-object lookup always missed and silently
-// no-opped. TargetVector is now explicit and empty for centroids, which —
-// left unguarded — makes that same fallback resolve to the LEGACY vector
-// name and read real object vectors into the centroid cache.
-// shard_init_vector.go closes that gap with an explicit VectorFromObject
-// override; this test pins both the failure mode it closes and the fix.
-func TestCentroidGraphNeverPrefillsFromObjectStorage(t *testing.T) {
-	ctx := context.Background()
+	require.NoError(t, idx.prefillCacheParallel(context.Background()))
 
-	t.Run("without the centroid VectorFromObject override, empty TargetVector leaks legacy object vectors", func(t *testing.T) {
-		store := newTestObjectsStore(t)
-		bucket := store.Bucket(helpers.ObjectsBucketLSM)
-		putTestObject(t, bucket, 1, []float32{0.1, 0.2, 0.3}, nil)
-		putTestObject(t, bucket, 2, []float32{0.4, 0.5, 0.6}, nil)
-
-		idx := newCentroidLikeIndex(t, store, false)
-		t.Cleanup(func() { idx.Shutdown(context.Background()) })
-
-		require.NoError(t, idx.prefillCacheParallel(ctx))
-
-		// Documents the failure mode the fix closes: with no VectorFromObject
-		// override, an empty TargetVector falls back to reading the legacy
-		// vector, so the centroid cache ends up holding real OBJECT vectors
-		// keyed by doc ID — data that does not belong in the centroid space.
-		assert.Equal(t, int64(2), idx.cache.CountVectors(),
-			"expected the unguarded fallback to leak legacy object vectors into the centroid cache")
-	})
-
-	t.Run("with the centroid VectorFromObject override, nothing is ever preloaded from object storage", func(t *testing.T) {
-		store := newTestObjectsStore(t)
-		bucket := store.Bucket(helpers.ObjectsBucketLSM)
-		putTestObject(t, bucket, 1, []float32{0.1, 0.2, 0.3}, nil)
-		putTestObject(t, bucket, 2, []float32{0.4, 0.5, 0.6}, nil)
-
-		idx := newCentroidLikeIndex(t, store, true)
-		t.Cleanup(func() { idx.Shutdown(context.Background()) })
-
-		require.NoError(t, idx.prefillCacheParallel(ctx))
-
-		assert.Equal(t, int64(0), idx.cache.CountVectors(),
-			"centroid graph must never prefill from object storage")
-	})
+	assert.Equal(t, int64(2), idx.cache.CountVectors(),
+		`expected the unguarded TargetVector="" fallback to read legacy object vectors`)
 }
