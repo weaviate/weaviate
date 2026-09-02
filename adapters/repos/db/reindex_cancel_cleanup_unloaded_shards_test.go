@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -1229,7 +1230,8 @@ func sweptMigrationDirPrefixes() []string {
 }
 
 // Every migration strategy's sidecar suffix must be recognized by
-// [isSidecarDirOf]; extend [sidecarRoleWords] if a new one is added.
+// [isSidecarDirOf]. It reads them out of [buildSidecarSuffixes], so a new
+// strategy is covered as soon as the registry knows it.
 func TestEverySidecarSuffixIsASidecar(t *testing.T) {
 	const main = "property_category"
 
@@ -1270,9 +1272,13 @@ func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
 		{name: "a property whose name carries the separator", dir: main + "__extra"},
 		{name: "a generation-suffixed main bucket", dir: main + "__gen2"},
 		{name: "a longer property's main bucket", dir: main + "_x"},
+		// Also property "category__enable_filterable_ingest_1"'s own main
+		// bucket, which PropertyNameRegex admits. The two are byte-for-byte
+		// identical, so no filename rule separates them; closing that residual
+		// needs the sweep to consult the class's live properties. #12621
 		{name: "a sidecar", dir: main + "__enable_filterable_ingest_1", want: true},
-		{name: "category__reindex's own bucket, wrongly accepted", dir: main + "__reindex", want: true},
-		{name: "category__ingest_0's own bucket, wrongly accepted", dir: main + "__ingest_0", want: true},
+		{name: "category__reindex's own bucket", dir: main + "__reindex"},
+		{name: "category__ingest_0's own bucket", dir: main + "__ingest_0"},
 		{name: "a property named after a number", dir: main + "__12", want: false},
 		{name: "a blockmax backup sidecar", dir: main + "__blockmax_map_3", want: true},
 		{name: "a property whose name extends a role word", dir: main + "__ingest_x", want: false},
@@ -1284,14 +1290,45 @@ func TestIsSidecarDirOfRejectsOtherPropertiesBuckets(t *testing.T) {
 			name: "the dir a crashed bucket replacement left behind",
 			dir:  main + lsmkv.ReplacedBucketDirSuffix, want: true,
 		},
-		// weaviate/weaviate#12621: "category__<word>_<role>" is a property's own
-		// main bucket on every index type, and sweeping "category" deletes it.
-		{name: "a property whose name ends in a role word", dir: main + "__ingest", want: true},
+		// weaviate/weaviate#12621: every one of these is a property's own main
+		// bucket that the role-word match read as a sidecar of "category".
+		{name: "a property whose name ends in a role word", dir: main + "__ingest"},
+		{name: "a property whose name ends in the backup role word", dir: main + "__backup"},
+		{name: "a property whose name ends in the map role word", dir: main + "__map"},
+		{name: "a property whose name ends in a role word after a word", dir: main + "__data_ingest"},
+		{name: "a property whose name ends in the reindex role word after a word", dir: main + "__x_reindex"},
+		{name: "a property whose name ends in a role word and a generation", dir: main + "__ingest_2"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, isSidecarDirOf(tc.dir, main))
+		})
+	}
+}
+
+// weaviate/weaviate#12621 reaches all three index types, because the main
+// bucket name is the only thing that differs between them and the role-word
+// match never looked past it.
+func TestIsSidecarDirOfRejectsRoleWordPropertiesOnEveryIndexType(t *testing.T) {
+	cases := map[string]struct {
+		mainBucket    func(string) string
+		sidecarSuffix string
+	}{
+		"filterable": {helpers.BucketFromPropNameLSM, "__enable_filterable_ingest_1"},
+		"searchable": {helpers.BucketSearchableFromPropNameLSM, "__enable_searchable_ingest_1"},
+		"rangeable":  {helpers.BucketRangeableFromPropNameLSM, "__rangeable_ingest_1"},
+	}
+
+	for indexType, tc := range cases {
+		t.Run(indexType, func(t *testing.T) {
+			main := tc.mainBucket("category")
+			victim := strings.TrimPrefix(main, "property_") + "__ingest"
+			require.False(t, isSidecarDirOf(helpers.BucketFromPropNameLSM(victim), main),
+				"sweeping %q must not reach property %q's filterable bucket",
+				"category", victim)
+			require.True(t, isSidecarDirOf(main+tc.sidecarSuffix, main),
+				"a real sidecar of %q still has to be swept", main)
 		})
 	}
 }
