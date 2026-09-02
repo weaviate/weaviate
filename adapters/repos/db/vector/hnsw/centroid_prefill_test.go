@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -52,10 +53,10 @@ func (centroidPrefillNoopBucketView) ReleaseView() {}
 // legacy vector) is caught here even though it wouldn't otherwise be visible
 // through hfresh's wiring test.
 func TestParallelPrefillFallsBackToLegacyVectorWhenTargetVectorEmpty(t *testing.T) {
-	store := newTestObjectsStore(t)
+	store := testinghelpers.NewTestObjectsStore(t)
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
-	putTestObject(t, bucket, 1, []float32{0.1, 0.2, 0.3}, nil)
-	putTestObject(t, bucket, 2, []float32{0.4, 0.5, 0.6}, nil)
+	testinghelpers.PutTestObject(t, bucket, 1, []float32{0.1, 0.2, 0.3}, nil)
+	testinghelpers.PutTestObject(t, bucket, 2, []float32{0.4, 0.5, 0.6}, nil)
 
 	rootPath := t.TempDir()
 	cfg := Config{

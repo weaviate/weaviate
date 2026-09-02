@@ -18,7 +18,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,66 +25,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
-
-func newTestObjectsStore(t *testing.T) *lsmkv.Store {
-	t.Helper()
-	dir := t.TempDir()
-	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(dir, dir, logger, nil, nil,
-		cyclemanager.NewCallbackGroup("objects", logger, 1),
-		cyclemanager.NewCallbackGroup("nonObjects", logger, 1),
-		cyclemanager.NewCallbackGroupNoop())
-	require.NoError(t, err)
-	t.Cleanup(func() { store.Shutdown(context.Background()) })
-
-	require.NoError(t, store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM,
-		lsmkv.WithStrategy(lsmkv.StrategyReplace)))
-	return store
-}
-
-func newTestObjectsBucket(t *testing.T) *lsmkv.Bucket {
-	t.Helper()
-	return newTestObjectsStore(t).Bucket(helpers.ObjectsBucketLSM)
-}
-
-// putTestObject stores an object marshalled exactly as the write path does, so the
-// scan reads real on-disk data rather than a hand-rolled encoding.
-func putTestObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, legacyVec []float32, named map[string][]float32) {
-	t.Helper()
-	putTestObjectWithProps(t, bucket, docID, legacyVec, named, nil)
-}
-
-// putTestObjectWithProps also stores properties, for an index whose cached vector
-// is derived from one rather than stored verbatim.
-func putTestObjectWithProps(t *testing.T, bucket *lsmkv.Bucket, docID uint64,
-	legacyVec []float32, named map[string][]float32, props map[string]interface{},
-) {
-	t.Helper()
-	id := strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", docID))
-	obj := storobj.New(docID)
-	obj.Object = models.Object{ID: id, Class: "Test", Properties: props}
-	obj.Vector = legacyVec
-	if named != nil {
-		obj.Vectors = named
-	}
-	data, err := obj.MarshalBinary()
-	require.NoError(t, err)
-
-	require.NoError(t, bucket.Put(keyForDocID(docID), data))
-}
-
-// keyForDocID builds a unique, sortable bucket key. The scan reads docID + vector from
-// the value, not the key, so a 16-byte big-endian docID stands in for the real UUID key.
-func keyForDocID(docID uint64) []byte {
-	key := make([]byte, 16)
-	binary.BigEndian.PutUint64(key[8:], docID)
-	return key
-}
 
 func collectScan(t *testing.T, bucket *lsmkv.Bucket, target string) map[uint64][]float32 {
 	t.Helper()
@@ -116,22 +59,22 @@ func assertVectorsEqual(t *testing.T, exp, got map[uint64][]float32) {
 
 func TestScanObjectVectorsParallel(t *testing.T) {
 	t.Run("legacy single vector, memtable only", func(t *testing.T) {
-		bucket := newTestObjectsBucket(t)
+		bucket := testinghelpers.NewTestObjectsBucket(t)
 		exp := map[uint64][]float32{}
 		for i := uint64(0); i < 50; i++ {
 			vec := []float32{float32(i), float32(i) + 0.5, float32(i) * 2}
-			putTestObject(t, bucket, i, vec, nil)
+			testinghelpers.PutTestObject(t, bucket, i, vec, nil)
 			exp[i] = vec
 		}
 		assertVectorsEqual(t, exp, collectScan(t, bucket, ""))
 	})
 
 	t.Run("legacy, flushed to segment (exercises parallel ranges)", func(t *testing.T) {
-		bucket := newTestObjectsBucket(t)
+		bucket := testinghelpers.NewTestObjectsBucket(t)
 		exp := map[uint64][]float32{}
 		for i := uint64(0); i < 3000; i++ {
 			vec := []float32{float32(i), float32(-int64(i))}
-			putTestObject(t, bucket, i, vec, nil)
+			testinghelpers.PutTestObject(t, bucket, i, vec, nil)
 			exp[i] = vec
 		}
 		require.NoError(t, bucket.FlushAndSwitch())
@@ -139,40 +82,40 @@ func TestScanObjectVectorsParallel(t *testing.T) {
 	})
 
 	t.Run("named target vector", func(t *testing.T) {
-		bucket := newTestObjectsBucket(t)
+		bucket := testinghelpers.NewTestObjectsBucket(t)
 		exp := map[uint64][]float32{}
 		for i := uint64(0); i < 60; i++ {
 			vec := []float32{float32(i) + 0.25, float32(i) - 0.25}
-			putTestObject(t, bucket, i, nil, map[string][]float32{"custom": vec})
+			testinghelpers.PutTestObject(t, bucket, i, nil, map[string][]float32{"custom": vec})
 			exp[i] = vec
 		}
 		assertVectorsEqual(t, exp, collectScan(t, bucket, "custom"))
 	})
 
 	t.Run("objects without the target vector are skipped", func(t *testing.T) {
-		bucket := newTestObjectsBucket(t)
+		bucket := testinghelpers.NewTestObjectsBucket(t)
 		exp := map[uint64][]float32{}
 		for i := uint64(0); i < 40; i++ {
 			if i%2 == 0 {
 				vec := []float32{float32(i)}
-				putTestObject(t, bucket, i, nil, map[string][]float32{"custom": vec})
+				testinghelpers.PutTestObject(t, bucket, i, nil, map[string][]float32{"custom": vec})
 				exp[i] = vec
 			} else {
-				putTestObject(t, bucket, i, nil, map[string][]float32{"other": {1, 2, 3}})
+				testinghelpers.PutTestObject(t, bucket, i, nil, map[string][]float32{"other": {1, 2, 3}})
 			}
 		}
 		assertVectorsEqual(t, exp, collectScan(t, bucket, "custom"))
 	})
 
 	t.Run("empty bucket", func(t *testing.T) {
-		bucket := newTestObjectsBucket(t)
+		bucket := testinghelpers.NewTestObjectsBucket(t)
 		assert.Empty(t, collectScan(t, bucket, ""))
 	})
 
 	t.Run("context cancelled before scan returns error", func(t *testing.T) {
-		bucket := newTestObjectsBucket(t)
+		bucket := testinghelpers.NewTestObjectsBucket(t)
 		for i := uint64(0); i < 3000; i++ {
-			putTestObject(t, bucket, i, []float32{float32(i)}, nil)
+			testinghelpers.PutTestObject(t, bucket, i, []float32{float32(i)}, nil)
 		}
 		require.NoError(t, bucket.FlushAndSwitch())
 
@@ -227,10 +170,10 @@ func prefillParallelIntoCache(t *testing.T, vecs map[uint64][]float32, preGrown 
 	dp distancer.Provider, normalizeOnRead bool,
 ) cache.Cache[float32] {
 	t.Helper()
-	store := newTestObjectsStore(t)
+	store := testinghelpers.NewTestObjectsStore(t)
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 	for id, v := range vecs {
-		putTestObject(t, bucket, id, v, nil)
+		testinghelpers.PutTestObject(t, bucket, id, v, nil)
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 
@@ -292,11 +235,11 @@ func TestPrefillCacheParallelGrowsBeyondPreGrown(t *testing.T) {
 // TestScanObjectVectorsParallelLatestWinsAcrossSegments verifies that when the same
 // key is written in two segments, the cursor yields the latest value exactly once.
 func TestScanObjectVectorsParallelLatestWinsAcrossSegments(t *testing.T) {
-	bucket := newTestObjectsBucket(t)
+	bucket := testinghelpers.NewTestObjectsBucket(t)
 
-	putTestObject(t, bucket, 7, []float32{1, 1}, nil)
+	testinghelpers.PutTestObject(t, bucket, 7, []float32{1, 1}, nil)
 	require.NoError(t, bucket.FlushAndSwitch())
-	putTestObject(t, bucket, 7, []float32{2, 2}, nil) // same key, newer segment
+	testinghelpers.PutTestObject(t, bucket, 7, []float32{2, 2}, nil) // same key, newer segment
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	got := collectScan(t, bucket, "")
@@ -307,14 +250,14 @@ func TestScanObjectVectorsParallelLatestWinsAcrossSegments(t *testing.T) {
 // TestScanObjectVectorsParallelSkipsDeleted verifies tombstoned objects are skipped,
 // matching the serial path (which never sees a deleted doc id).
 func TestScanObjectVectorsParallelSkipsDeleted(t *testing.T) {
-	bucket := newTestObjectsBucket(t)
+	bucket := testinghelpers.NewTestObjectsBucket(t)
 
-	putTestObject(t, bucket, 1, []float32{1}, nil)
-	putTestObject(t, bucket, 2, []float32{2}, nil)
-	putTestObject(t, bucket, 3, []float32{3}, nil)
+	testinghelpers.PutTestObject(t, bucket, 1, []float32{1}, nil)
+	testinghelpers.PutTestObject(t, bucket, 2, []float32{2}, nil)
+	testinghelpers.PutTestObject(t, bucket, 3, []float32{3}, nil)
 	require.NoError(t, bucket.FlushAndSwitch())
 
-	require.NoError(t, bucket.Delete(keyForDocID(2)))
+	require.NoError(t, bucket.Delete(testinghelpers.KeyForDocID(2)))
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	assertVectorsEqual(t, map[uint64][]float32{
@@ -329,14 +272,14 @@ func TestScanObjectVectorsParallelSkipsDeleted(t *testing.T) {
 // scan for one target must yield only that target's vectors and skip objects that
 // lack it — never bleed a sibling's vector or a legacy vector into the wrong cache.
 func TestScanObjectVectorsParallelNamedVectorIsolation(t *testing.T) {
-	bucket := newTestObjectsBucket(t)
+	bucket := testinghelpers.NewTestObjectsBucket(t)
 
 	// Deliberately sparse: not every object has every target.
-	putTestObject(t, bucket, 0, []float32{0, 0}, map[string][]float32{"title": {1, 0}, "body": {2, 0}})
-	putTestObject(t, bucket, 1, nil, map[string][]float32{"title": {1, 1}})
-	putTestObject(t, bucket, 2, nil, map[string][]float32{"body": {2, 2}})
-	putTestObject(t, bucket, 3, []float32{3, 3}, nil)
-	putTestObject(t, bucket, 4, nil, map[string][]float32{"title": {1, 4}, "body": {2, 4}})
+	testinghelpers.PutTestObject(t, bucket, 0, []float32{0, 0}, map[string][]float32{"title": {1, 0}, "body": {2, 0}})
+	testinghelpers.PutTestObject(t, bucket, 1, nil, map[string][]float32{"title": {1, 1}})
+	testinghelpers.PutTestObject(t, bucket, 2, nil, map[string][]float32{"body": {2, 2}})
+	testinghelpers.PutTestObject(t, bucket, 3, []float32{3, 3}, nil)
+	testinghelpers.PutTestObject(t, bucket, 4, nil, map[string][]float32{"title": {1, 4}, "body": {2, 4}})
 
 	// legacy target: only objects with a legacy vector.
 	assertVectorsEqual(t, map[uint64][]float32{
@@ -363,7 +306,7 @@ func TestScanObjectVectorsParallelNamedVectorIsolation(t *testing.T) {
 // cache with vectors that are not coordinates instead of failing loudly.
 func TestPrefillCacheParallelUsesConfiguredDecode(t *testing.T) {
 	const n = 300
-	store := newTestObjectsStore(t)
+	store := testinghelpers.NewTestObjectsStore(t)
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
 	// every third object carries no coordinate, and one payload cannot be decoded
@@ -375,9 +318,9 @@ func TestPrefillCacheParallelUsesConfiguredDecode(t *testing.T) {
 			props = map[string]interface{}{"lat": float64(i), "lon": float64(i) + 0.5}
 			want[i] = []float32{float32(i), float32(i) + 0.5}
 		}
-		putTestObjectWithProps(t, bucket, i, []float32{-1, -2}, nil, props)
+		testinghelpers.PutTestObjectWithProps(t, bucket, i, []float32{-1, -2}, nil, props)
 	}
-	require.NoError(t, bucket.Put(keyForDocID(n), undecodablePayload(n)))
+	require.NoError(t, bucket.Put(testinghelpers.KeyForDocID(n), undecodablePayload(n)))
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	logger, _ := test.NewNullLogger()
@@ -441,13 +384,13 @@ func coordinatesFromTestProps(objectBytes []byte) ([]float32, error) {
 // path must match, or cosine search silently returns wrong distances.
 func TestPrefillCacheParallelNormalizesForCosine(t *testing.T) {
 	const n = 50
-	store := newTestObjectsStore(t)
+	store := testinghelpers.NewTestObjectsStore(t)
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
 	raw := make(map[uint64][]float32, n)
 	for i := uint64(0); i < n; i++ {
 		vec := []float32{float32(i) + 1, float32(i) + 2, float32(i) + 3} // non-unit on purpose
-		putTestObject(t, bucket, i, vec, nil)
+		testinghelpers.PutTestObject(t, bucket, i, vec, nil)
 		raw[i] = vec
 	}
 	require.NoError(t, bucket.FlushAndSwitch())

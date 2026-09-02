@@ -13,11 +13,8 @@ package hfresh
 
 import (
 	"context"
-	"encoding/binary"
-	"fmt"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,30 +25,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
-
-// putLegacyVectorObject stores an object marshalled the way the write path
-// does, carrying only a legacy (unnamed) vector, so a scan across the objects
-// bucket reads real on-disk data rather than a hand-rolled encoding. Ported
-// from the equivalent helper in the hnsw package's centroid_prefill_test.go
-// — hfresh does not otherwise need object fixtures with real vector payloads.
-func putLegacyVectorObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, vec []float32) {
-	t.Helper()
-	id := strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", docID))
-	obj := storobj.New(docID)
-	obj.Object = models.Object{ID: id, Class: "Test"}
-	obj.Vector = vec
-	data, err := obj.MarshalBinary()
-	require.NoError(t, err)
-
-	key := make([]byte, 16)
-	binary.BigEndian.PutUint64(key[8:], docID)
-	require.NoError(t, bucket.Put(key, data))
-}
 
 // seedUncompressedCentroidState writes real hnsw node state — but no
 // compression record — directly into the commit log directory the hfresh
@@ -118,8 +94,8 @@ func TestCentroidPrefillNeverReadsObjectStorage(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	createObjectsBucket(t, store)
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
-	putLegacyVectorObject(t, bucket, 1, []float32{0.1, 0.2, 0.3})
-	putLegacyVectorObject(t, bucket, 2, []float32{0.4, 0.5, 0.6})
+	testinghelpers.PutTestObject(t, bucket, 1, []float32{0.1, 0.2, 0.3}, nil)
+	testinghelpers.PutTestObject(t, bucket, 2, []float32{0.4, 0.5, 0.6}, nil)
 
 	cfg, uc := makeHFreshConfig(t)
 
