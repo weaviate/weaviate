@@ -191,3 +191,25 @@ func TestHFreshStoresOnTornDownStore(t *testing.T) {
 		})
 	}
 }
+
+// A warm cache must not paper over a torn-down bucket. The version read backs
+// a subsequent postings read, so answering from cache while the store no
+// longer holds the bucket makes the same call succeed or fail depending only
+// on what happens to be cached.
+func TestPostingVersionsGetOnTornDownStoreWithWarmCache(t *testing.T) {
+	ctx := context.Background()
+
+	store := testinghelpers.NewDummyStore(t)
+	cfg := StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions}
+	shared, err := NewSharedBucket(store, "torn", cfg)
+	require.NoError(t, err)
+
+	versions := NewPostingVersionsStore(shared)
+	// Set populates the cache, so the Get below never reaches its loader.
+	require.NoError(t, versions.Set(ctx, 7, 3))
+
+	require.NoError(t, store.Shutdown(ctx))
+
+	_, err = versions.Get(ctx, 7)
+	require.ErrorIs(t, err, lsmkv.ErrBucketNotFound)
+}

@@ -244,14 +244,19 @@ func (p *PostingVersionsStore) key(postingID uint64) []byte {
 }
 
 func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint8, error) {
+	// Acquire before consulting the cache, not inside the loader: a cache hit
+	// would otherwise skip the check entirely and report a version for a
+	// bucket the store no longer holds, making the same call succeed or fail
+	// on nothing but cache state. Holding the pin across cache.Get also covers
+	// the loader's read.
+	bucket, release, err := p.bucket.acquire()
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+
 	version, err := p.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint8](func(ctx context.Context, key uint64) (uint8, error) {
 		k := p.key(postingID)
-		bucket, release, err := p.bucket.acquire()
-		if err != nil {
-			return 0, err
-		}
-		defer release()
-
 		v, err := bucket.Get(k[:])
 		if err != nil {
 			return 0, errors.Wrapf(err, "failed to get posting size for %d", postingID)
