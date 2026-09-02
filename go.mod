@@ -285,4 +285,4 @@ require (
 
 go 1.26
 
-replace github.com/weaviate/weaviate/grpc/generated/protocol v0.0.0 => ./grpc/generated/protocol
+replace github.com/weaviate/weaviate/grpc/generated/protocol => ./grpc/generated/protocol

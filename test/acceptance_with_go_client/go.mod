@@ -198,6 +198,7 @@ require (
 	github.com/weaviate/s5cmd/v2 v2.0.1 // indirect
 	github.com/weaviate/sroar v0.0.16 // indirect
 	github.com/weaviate/tiktoken-go v0.0.3 // indirect
+	github.com/weaviate/weaviate/grpc/generated/protocol v0.0.0 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
@@ -238,3 +239,5 @@ require (
 	gopkg.in/ini.v1 v1.67.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/weaviate/weaviate/grpc/generated/protocol => ../../grpc/generated/protocol
