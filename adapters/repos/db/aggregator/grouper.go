@@ -288,7 +288,7 @@ func ScanAllLSM(ctx context.Context, store *lsmkv.Store, scan docid.ObjectScanFn
 		return fmt.Errorf("objects bucket not found")
 	}
 
-	c := b.Cursor()
+	c := b.CursorReplaceReusable()
 	defer c.Close()
 
 	className, err := b.ClassName()
