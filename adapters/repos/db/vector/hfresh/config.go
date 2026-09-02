@@ -34,11 +34,19 @@ const (
 )
 
 type Config struct {
-	Logger                       logrus.FieldLogger
-	Scheduler                    *queue.Scheduler
-	DistanceProvider             distancer.Provider
-	RootPath                     string
-	ID                           string
+	Logger           logrus.FieldLogger
+	Scheduler        *queue.Scheduler
+	DistanceProvider distancer.Provider
+	RootPath         string
+	// ID is the index's physical identity: it names everything the index
+	// stores on disk — its directory, its postings and shared buckets, the
+	// muvera bucket, and (via helpers.CentroidsID) the centroid sub-index.
+	// Canonically "vectors_<name>" for a named vector.
+	ID string
+	// TargetVector is the index's logical name — the named vector it serves.
+	// hfresh does not read it today (object vectors arrive through the thunks
+	// below); it is kept for diagnostics and future routing and never names
+	// storage.
 	TargetVector                 string
 	ShardName                    string
 	ClassName                    string

@@ -268,7 +268,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				HNSWConfig: &hnsw.Config{
 					Logger:   s.index.logger,
 					RootPath: rootPath,
-					ID:       hfreshConfigID + "_centroids",
+					ID:       helpers.CentroidsID(hfreshConfigID),
 					// The centroid graph has no object-vector identity of its own;
 					// its vectors come from thunks, not from named object properties.
 					// hfresh.NewHNSWIndex enforces the no-object-storage-prefill
@@ -290,7 +290,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 							// consistent with previous logic where the individual limit is 1/5 of the combined limit
 							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 						}, opts...)
-						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
+						return hnsw.NewCommitLogger(rootPath, helpers.CentroidsID(hfreshConfigID),
 							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							allOpts...,
 						)
