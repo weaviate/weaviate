@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
 var (
@@ -129,13 +130,16 @@ func HFreshSharedBucketName(indexID string) string {
 	return fmt.Sprintf("hfresh_shared_%s", indexID)
 }
 
-// FlatMetadataFileName is the flat index's quantisation metadata, under the
-// shard directory (see flat.getMetadataFile).
+// FlatMetadataFileName is the single derivation of the flat index's
+// quantisation metadata file name, under the shard directory. Both the live
+// index (via FlatMetadataFileNameForID) and the drop-artifact list
+// (vectorIndexArtifactNames) call through here, so they cannot disagree.
+// Previously they were two independent implementations — this one a plain
+// Sprintf, entities/vectorindex/flat.MetadataFileName sanitizing via
+// filepath.Clean/Base — which drifted for any name the sanitizer alters.
+// Delegating keeps that sanitization intact for both callers.
 func FlatMetadataFileName(targetVector string) string {
-	if targetVector != "" {
-		return fmt.Sprintf("meta_%s.db", targetVector)
-	}
-	return "meta.db"
+	return flatent.MetadataFileName(targetVector)
 }
 
 // VectorIndexArtifacts is everything a named vector's index owns on disk:
