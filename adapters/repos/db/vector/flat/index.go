@@ -954,10 +954,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 		if <-abortedCh {
 			index.logger.WithFields(logrus.Fields{
-				"action":   "preload_cache",
-				"count":    len(vecs),
-				"took":     time.Since(before),
-				"index_id": index.id,
+				"action": "preload_cache",
+				"count":  len(vecs),
+				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
 			return
 		}
@@ -995,10 +994,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 		if <-abortedCh {
 			index.logger.WithFields(logrus.Fields{
-				"action":   "preload_cache",
-				"count":    len(vecs),
-				"took":     time.Since(before),
-				"index_id": index.id,
+				"action": "preload_cache",
+				"count":  len(vecs),
+				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
 			return
 		}
@@ -1048,10 +1046,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 		if <-abortedCh {
 			index.logger.WithFields(logrus.Fields{
-				"action":   "preload_cache",
-				"count":    count,
-				"took":     time.Since(before),
-				"index_id": index.id,
+				"action": "preload_cache",
+				"count":  count,
+				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
 			return
 		}
@@ -1071,10 +1068,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 		if <-abortedCh {
 			index.logger.WithFields(logrus.Fields{
-				"action":   "preload_cache",
-				"count":    count,
-				"took":     time.Since(before),
-				"index_id": index.id,
+				"action": "preload_cache",
+				"count":  count,
+				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
 			return
 		}
@@ -1084,14 +1080,10 @@ func (index *flat) PostStartup(ctx context.Context) {
 
 	took := time.Since(before)
 	index.logger.WithFields(logrus.Fields{
-		"action":   "preload_cache",
-		"type":     index.compressionType.String(),
-		"count":    count,
-		"took":     took,
-		"index_id": index.id,
-		// logical name alongside the physical id, so an operator can map a
-		// log line back to the schema's vector name
-		"target_vector": index.targetVector,
+		"action": "preload_cache",
+		"type":   index.compressionType.String(),
+		"count":  count,
+		"took":   took,
 	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 

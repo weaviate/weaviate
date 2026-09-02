@@ -685,14 +685,14 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 				dynamic.status.Reset()
 			}
 		}()
-		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
+		dynamic.logger.Debugf("upgrade to HNSW started")
 
 		err := dynamic.upgradeFn()
 		if err != nil {
 			dynamic.logger.Errorf("failed to upgrade index: %v", err)
 			return
 		}
-		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
+		dynamic.logger.Debugf("upgrade to HNSW completed")
 	}, dynamic.logger)
 
 	return nil
