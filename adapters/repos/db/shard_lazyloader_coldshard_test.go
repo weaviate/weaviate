@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
@@ -88,19 +89,11 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 
 	repo, err := New(logger, "node1", Config{
-<<<<<<< HEAD
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
+		MemtablesFlushDirtyAfter:  int(time.Hour.Seconds()),
 		EnableLazyLoadShards:      boolPtr(true),
-=======
-		RootPath:                      t.TempDir(),
-		QueryMaximumResults:           10000,
-		MaxImportGoroutinesFactor:     1,
-		MemtablesFlushDirtyAfter:      int(time.Hour.Seconds()),
-		EnableLazyLoadShards:          boolPtr(lazyLoad),
-		LazyLoadShardWarmupMinObjects: warmupMinObjects,
->>>>>>> ec9666116f (fix(replica): bounds-check read repair, guard group-by objects bucket)
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
