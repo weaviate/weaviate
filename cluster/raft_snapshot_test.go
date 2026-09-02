@@ -149,6 +149,14 @@ func TestSnapshotRestoreReloadsDBBeforeWaitToRestoreDB(t *testing.T) {
 	require.NoError(t, srv.WaitUntilDBRestored(ctx, time.Second, make(chan struct{})))
 	require.True(t, tryNTimesWithWait(20, time.Millisecond*200, srv.store.IsLeader))
 
+	// With telemetry on, onLeaderFound commits a cluster-ID entry up to a second
+	// after leadership. Let it land before the snapshot.
+	if m.cfg.TelemetryEnabled {
+		require.True(t, tryNTimesWithWait(30, time.Millisecond*200, func() bool {
+			return srv.store.ClusterID() != ""
+		}), "background cluster-ID command was never committed")
+	}
+
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	m.indexer.On("AddClass", Anything).Return(nil)
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
@@ -159,6 +167,11 @@ func TestSnapshotRestoreReloadsDBBeforeWaitToRestoreDB(t *testing.T) {
 
 	require.NoError(t, srv.store.raft.Barrier(2*time.Second).Error())
 	require.NoError(t, srv.store.raft.Snapshot().Error())
+
+	lastCmd, err := srv.store.LastAppliedCommand()
+	require.NoError(t, err)
+	require.LessOrEqual(t, lastCmd, lastSnapshotIndex(srv.store.snapshotStore),
+		"a command was committed after the snapshot, so the reopen would take the log-replay path")
 
 	m.indexer.On("Close", Anything).Return(nil)
 	require.NoError(t, srv.Close(ctx))
