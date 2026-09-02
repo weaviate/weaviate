@@ -93,7 +93,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		reindexer:                       reindexer,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 		bitmapBufPool:                   bitmapBufPool,
-		HFreshEnabled:                   index.HFreshEnabled,
 		lazySegmentLoadingEnabled:       lazyLoadSegments,
 		registration:                    registration,
 	}

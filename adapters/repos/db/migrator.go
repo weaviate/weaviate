@@ -229,7 +229,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			QueryBatchedContainsEnabled:  m.db.config.QueryBatchedContainsEnabled,
 			LazyPropertyLengthsEnabled:   m.db.config.LazyPropertyLengthsEnabled,
 			MaintenanceModeEnabled:       m.db.config.MaintenanceModeEnabled,
-			HFreshEnabled:                m.db.config.HFreshEnabled,
 			AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 		},
 		// no backward-compatibility check required, since newly added classes will
@@ -893,9 +892,6 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
 	case vectorindex.VectorIndexTypeHFresh:
-		if !m.db.config.HFreshEnabled {
-			return errors.New("hfresh index is available only in experimental mode")
-		}
 		return hfresh.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("invalid index type: %s", old.IndexType())

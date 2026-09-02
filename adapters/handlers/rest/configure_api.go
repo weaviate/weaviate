@@ -533,7 +533,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LazyPropertyLengthsEnabled:   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
 		MaintenanceModeEnabled:       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		AsyncIndexingEnabled:         appState.ServerConfig.Config.AsyncIndexingEnabled,
-		HFreshEnabled:                appState.ServerConfig.Config.HFreshEnabled,
 		OperationalMode:              appState.ServerConfig.Config.OperationalMode,
 		DisableDimensionMetrics:      appState.ServerConfig.Config.DisableDimensionMetrics,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil, appState.NamespacesController) // TODO client

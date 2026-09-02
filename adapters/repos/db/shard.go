@@ -507,8 +507,6 @@ type Shard struct {
 	// dropRequested marks shard as requested for drop.
 	dropRequested atomic.Bool
 
-	HFreshEnabled bool
-
 	lazySegmentLoadingEnabled bool
 
 	// metricsRegistered tracks whether this shard was registered with shard lifecycle metrics
