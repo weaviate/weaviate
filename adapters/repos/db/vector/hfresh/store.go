@@ -88,11 +88,11 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket bucketRef, metrics *Metric
 // - 1 byte: schema version of the posting store
 // - 8 bytes: posting ID (little endian uint64)
 // - 1 byte: version of the posting list (incremented on each Put operation)
-func (p *PostingStore) getKeyBytes(ctx context.Context, postingID uint64) ([]byte, error) {
+func (p *PostingStore) getKeyBytes(ctx context.Context, versionsBucket *lsmkv.Bucket, postingID uint64) ([]byte, error) {
 	var buf [10]byte
 	buf[0] = postingStoreSchemaVersionV1
 	binary.LittleEndian.PutUint64(buf[1:], postingID)
-	version, err := p.versions.Get(ctx, postingID)
+	version, err := p.versions.getWithBucket(ctx, versionsBucket, postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "get posting version for id %d", postingID)
 	}
@@ -100,24 +100,51 @@ func (p *PostingStore) getKeyBytes(ctx context.Context, postingID uint64) ([]byt
 	return buf[:], nil
 }
 
-func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
-	start := time.Now()
-	defer p.metrics.StoreGetDuration(start)
-
-	p.locks.RLock(postingID)
-	key, err := p.getKeyBytes(ctx, postingID)
+// acquireBuckets pins both buckets a posting operation touches: the postings
+// bucket and the shared bucket the versions live in. Pinning is against a
+// store-wide lock, so operations that fan out take it once here rather than
+// once per posting.
+func (p *PostingStore) acquireBuckets() (postings, versions *lsmkv.Bucket, release func(), err error) {
+	postings, releasePostings, err := p.bucket.acquire()
 	if err != nil {
-		p.locks.RUnlock(postingID)
-		return nil, err
+		return nil, nil, nil, err
 	}
-	bucket, release, err := p.bucket.acquire()
+
+	versions, releaseVersions, err := p.versions.bucket.acquire()
 	if err != nil {
-		p.locks.RUnlock(postingID)
+		releasePostings()
+		return nil, nil, nil, err
+	}
+
+	return postings, versions, func() {
+		releaseVersions()
+		releasePostings()
+	}, nil
+}
+
+func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
+	postingsBucket, versionsBucket, release, err := p.acquireBuckets()
+	if err != nil {
 		return nil, err
 	}
 	defer release()
 
-	list, err := bucket.SetRawList(key)
+	return p.getWithBuckets(ctx, postingsBucket, versionsBucket, postingID)
+}
+
+// getWithBuckets reads one posting through buckets the caller already pinned.
+func (p *PostingStore) getWithBuckets(ctx context.Context, postingsBucket, versionsBucket *lsmkv.Bucket, postingID uint64) (Posting, error) {
+	start := time.Now()
+	defer p.metrics.StoreGetDuration(start)
+
+	p.locks.RLock(postingID)
+	key, err := p.getKeyBytes(ctx, versionsBucket, postingID)
+	if err != nil {
+		p.locks.RUnlock(postingID)
+		return nil, err
+	}
+
+	list, err := postingsBucket.SetRawList(key)
 	p.locks.RUnlock(postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
@@ -135,8 +162,16 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
 	postings := make([]Posting, 0, len(postingIDs))
 
+	// One pin for the whole fan-out; a search reaches this with every selected
+	// centroid at once.
+	postingsBucket, versionsBucket, release, err := p.acquireBuckets()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	for _, id := range postingIDs {
-		posting, err := p.Get(ctx, id)
+		posting, err := p.getWithBuckets(ctx, postingsBucket, versionsBucket, id)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get posting %d", id)
 		}
@@ -198,18 +233,18 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 	p.locks.Lock(postingID)
 	defer p.locks.Unlock(postingID)
 
-	key, err := p.getKeyBytes(ctx, postingID)
-	if err != nil {
-		return err
-	}
-
-	bucket, release, err := p.bucket.acquire()
+	postingsBucket, versionsBucket, release, err := p.acquireBuckets()
 	if err != nil {
 		return err
 	}
 	defer release()
 
-	return bucket.SetAdd(key, [][]byte{vector})
+	key, err := p.getKeyBytes(ctx, versionsBucket, postingID)
+	if err != nil {
+		return err
+	}
+
+	return postingsBucket.SetAdd(key, [][]byte{vector})
 }
 
 func postingsBucketName(id string) string {
@@ -255,6 +290,11 @@ func (p *PostingVersionsStore) Get(ctx context.Context, postingID uint64) (uint8
 	}
 	defer release()
 
+	return p.getWithBucket(ctx, bucket, postingID)
+}
+
+// getWithBucket reads a version through a bucket the caller already pinned.
+func (p *PostingVersionsStore) getWithBucket(ctx context.Context, bucket *lsmkv.Bucket, postingID uint64) (uint8, error) {
 	version, err := p.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint8](func(ctx context.Context, key uint64) (uint8, error) {
 		k := p.key(postingID)
 		v, err := bucket.Get(k[:])
