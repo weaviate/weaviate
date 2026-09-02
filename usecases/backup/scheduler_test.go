@@ -3079,25 +3079,54 @@ func TestRestoreIgnoresNodeMappingForUnknownNode(t *testing.T) {
 	}
 }
 
-// TestBackupStatusBoundedWhenBackendUnreachable pins that status polls fail fast instead of hanging with the backend down.
+// TestBackupStatusBoundedWhenBackendUnreachable pins that both descriptor reads
+// of a status poll — the authz read and the coordinator read — fail fast instead
+// of hanging with the backend down.
 func TestBackupStatusBoundedWhenBackendUnreachable(t *testing.T) {
 	old := metaReadTimeout
 	metaReadTimeout = 100 * time.Millisecond
 	defer func() { metaReadTimeout = old }()
-	fs := newFakeScheduler(nil)
-	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("home/")
-	fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything).
-		Run(func(args mock.Arguments) { <-args.Get(0).(context.Context).Done() }).
-		Return(nil, errors.New("backend unreachable"))
-	s := fs.scheduler()
-
-	t0 := time.Now()
-	_, err := s.BackupStatus(context.Background(), nil, "s3", "bounded-status", "", "")
-	require.Error(t, err)
-	require.Less(t, time.Since(t0), 3*time.Second, "backup status must be bounded when the backend hangs")
-
-	t0 = time.Now()
-	_, err = s.RestorationStatus(context.Background(), nil, "s3", "bounded-status", "", "")
-	require.Error(t, err)
-	require.Less(t, time.Since(t0), 3*time.Second, "restore status must be bounded when the backend hangs")
+	id := "bounded-status"
+	authzMeta := marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
+		StartedAt: time.Now().UTC(),
+		Nodes:     map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"C1"}}},
+		Status:    backup.Success,
+	})
+	backupStatus := func(s *Scheduler) error {
+		_, err := s.BackupStatus(context.Background(), nil, "s3", id, "", "")
+		return err
+	}
+	restoreStatus := func(s *Scheduler) error {
+		_, err := s.RestorationStatus(context.Background(), nil, "s3", id, "", "")
+		return err
+	}
+	tests := []struct {
+		name      string
+		filename  string
+		authzMeta []byte
+		status    func(*Scheduler) error
+	}{
+		{"BackupAuthzReadBlocks", GlobalBackupFile, nil, backupStatus},
+		{"BackupCoordinatorReadBlocks", GlobalBackupFile, authzMeta, backupStatus},
+		{"RestoreAuthzReadBlocks", GlobalRestoreFile, nil, restoreStatus},
+		{"RestoreCoordinatorReadBlocks", GlobalRestoreFile, authzMeta, restoreStatus},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := newFakeScheduler(nil)
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("home/")
+			if tc.authzMeta != nil {
+				fs.backend.On("GetObject", mock.Anything, id, tc.filename).Return(tc.authzMeta, nil).Once()
+			}
+			fs.backend.On("GetObject", mock.Anything, id, tc.filename).
+				Run(func(args mock.Arguments) { <-args.Get(0).(context.Context).Done() }).
+				Return(nil, errors.New("backend unreachable"))
+			fs.backend.On("GetObject", mock.Anything, id, BackupFile).Return(nil, backup.ErrNotFound{})
+			t0 := time.Now()
+			err := tc.status(fs.scheduler())
+			require.Error(t, err)
+			require.ErrorContains(t, err, "backend unreachable")
+			require.Less(t, time.Since(t0), 3*time.Second, "status must be bounded when the backend hangs")
+		})
+	}
 }
