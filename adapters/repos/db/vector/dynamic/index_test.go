@@ -46,27 +46,49 @@ import (
 
 var logger, _ = test.NewNullLogger()
 
-func TestDynamic(t *testing.T) {
-	ctx := context.Background()
-	dimensions := 20
-	vectors_size := 1_000
-	queries_size := 10
-	k := 10
+// dynamicTestEnv is the scaffolding most tests here start from: a bbolt DB
+// holding the upgrade state, random vectors with their queries, and the
+// distancer they are indexed with.
+type dynamicTestEnv struct {
+	db        *bbolt.DB
+	rootPath  string
+	distancer distancer.Provider
+	vectors   [][]float32
+	queries   [][]float32
+}
 
+func newDynamicTestEnv(t *testing.T, vectorsSize, queriesSize, dimensions int) *dynamicTestEnv {
+	t.Helper()
 	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		db.Close()
 	})
 
-	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
-	rootPath := t.TempDir()
-	distancer := distancer.NewL2SquaredProvider()
-	truths := make([][]uint64, queries_size)
-	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
+	vectors, queries := testinghelpers.RandomVecs(vectorsSize, queriesSize, dimensions)
+	return &dynamicTestEnv{
+		db:        db,
+		rootPath:  t.TempDir(),
+		distancer: distancer.NewL2SquaredProvider(),
+		vectors:   vectors,
+		queries:   queries,
+	}
+}
+
+// groundTruth brute-forces the k nearest vectors of every query.
+func (env *dynamicTestEnv) groundTruth(k int) [][]uint64 {
+	truths := make([][]uint64, len(env.queries))
+	compressionhelpers.Concurrently(logger, uint64(len(env.queries)), func(i uint64) {
+		truths[i], _ = testinghelpers.BruteForce(logger, env.vectors, env.queries[i], k, testinghelpers.DistanceWrapper(env.distancer))
 	})
-	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	return truths
+}
+
+// newIndex builds a dynamic index over env's vectors with the flat and HNSW
+// settings these tests share and the upgrade threshold at the vector count.
+// targetVector is empty for the unnamed vector.
+func (env *dynamicTestEnv) newIndex(t *testing.T, indexID, targetVector string) (*dynamic, error) {
+	t.Helper()
 	fuc := flatent.UserConfig{}
 	fuc.SetDefaults()
 	hnswuc := hnswent.UserConfig{
@@ -75,42 +97,103 @@ func TestDynamic(t *testing.T) {
 		EF:                    32,
 		VectorCacheMaxObjects: 1_000_000,
 	}
-	dynamic, err := New(Config{
+	return New(Config{
 		AllocChecker:          memwatch.NewDummyMonitor(),
-		RootPath:              rootPath,
-		ID:                    "nil-vector-test",
+		RootPath:              env.rootPath,
+		ID:                    indexID,
+		TargetVector:          targetVector,
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-		DistanceProvider:      distancer,
+		DistanceProvider:      env.distancer,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			vec := vectors[int(id)]
+			vec := env.vectors[int(id)]
 			if vec == nil {
 				return nil, storobj.NewErrNotFoundf(id, "nil vec")
 			}
 			return vec, nil
 		},
 		GetViewThunk:                 GetViewThunk,
-		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-		TombstoneCallbacks:           noopCallback,
-		SharedDB:                     db,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(env.vectors),
+		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
+		SharedDB:                     env.db,
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
-		Threshold: uint64(vectors_size),
-		Distance:  distancer.Type(),
+		Threshold: uint64(len(env.vectors)),
+		Distance:  env.distancer.Type(),
 		HnswUC:    hnswuc,
 		FlatUC:    fuc,
 	}, testinghelpers.NewDummyStore(t))
-	assert.Nil(t, err)
+}
 
-	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
-		err := dynamic.Add(ctx, i, vectors[i])
+// openNamedIndexes builds one index per named vector target_0..target_{n-1}.
+// Each physical ID is derived the way production always constructs it
+// (helpers.VectorIndexIDForTarget): the upgrade-verdict state key comes from
+// the physical ID, so the per-named-vector key assertions of these tests only
+// mean something when it matches the target vector canonically.
+func (env *dynamicTestEnv) openNamedIndexes(t *testing.T, n int) []*dynamic {
+	t.Helper()
+	var indexes []*dynamic
+	for i := 0; i < n; i++ {
+		target := "target_" + strconv.Itoa(i)
+		idx, err := env.newIndex(t, helpers.VectorIndexIDForTarget(target), target)
+		require.NoError(t, err)
+		indexes = append(indexes, idx)
+	}
+	return indexes
+}
+
+// addAll indexes every vector of env into idx.
+func (env *dynamicTestEnv) addAll(t *testing.T, idx *dynamic) {
+	t.Helper()
+	compressionhelpers.Concurrently(logger, uint64(len(env.vectors)), func(i uint64) {
+		err := idx.Add(context.Background(), i, env.vectors[i])
 		require.NoError(t, err)
 	})
+}
+
+// requireUpgradedKeyPerTarget asserts that each of the n named vectors has
+// its own upgraded flag in the dynamic bucket.
+func requireUpgradedKeyPerTarget(t *testing.T, db *bbolt.DB, n int) {
+	t.Helper()
+	err := db.View(func(tx *bbolt.Tx) error {
+		for i := 0; i < n; i++ {
+			b := tx.Bucket(dynamicBucket)
+			require.NotNil(t, b, "bucket should exist")
+
+			upgraded := b.Get([]byte(composerUpgradedKey + "_target_" + strconv.Itoa(i)))
+			require.Equal(t, []byte{1}, upgraded)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+func shutdownAll(t *testing.T, indexes []*dynamic) {
+	t.Helper()
+	for _, v := range indexes {
+		err := v.Shutdown(context.Background())
+		require.NoError(t, err)
+	}
+}
+
+func TestDynamic(t *testing.T) {
+	ctx := context.Background()
+	dimensions := 20
+	vectors_size := 1_000
+	queries_size := 10
+	k := 10
+
+	env := newDynamicTestEnv(t, vectors_size, queries_size, dimensions)
+	truths := env.groundTruth(k)
+	dynamic, err := env.newIndex(t, "nil-vector-test", "")
+	assert.Nil(t, err)
+
+	env.addAll(t, dynamic)
 	shouldUpgrade, at := dynamic.ShouldUpgrade()
 	assert.True(t, shouldUpgrade)
 	assert.Equal(t, vectors_size, at)
 	assert.False(t, dynamic.Upgraded())
-	recall1, latency1 := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
+	recall1, latency1 := testinghelpers.RecallAndLatency(ctx, env.queries, k, dynamic, truths)
 	t.Logf("recall: %f, latency %f\n", recall1, latency1)
 	assert.True(t, recall1 > 0.99)
 	wg := sync.WaitGroup{}
@@ -122,7 +205,7 @@ func TestDynamic(t *testing.T) {
 	wg.Wait()
 	shouldUpgrade, _ = dynamic.ShouldUpgrade()
 	assert.False(t, shouldUpgrade)
-	recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
+	recall2, latency2 := testinghelpers.RecallAndLatency(ctx, env.queries, k, dynamic, truths)
 	t.Logf("recall: %f, latency %f\n", recall2, latency2)
 	assert.True(t, recall2 > 0.9)
 }
@@ -194,77 +277,20 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 	queries_size := 10
 	k := 10
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		db.Close()
-	})
-
-	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
-	rootPath := t.TempDir()
-	distancer := distancer.NewL2SquaredProvider()
-	truths := make([][]uint64, queries_size)
-	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
-	})
-	noopCallback := cyclemanager.NewCallbackGroupNoop()
-	fuc := flatent.UserConfig{}
-	fuc.SetDefaults()
-	hnswuc := hnswent.UserConfig{
-		MaxConnections:        30,
-		EFConstruction:        64,
-		EF:                    32,
-		VectorCacheMaxObjects: 1_000_000,
-	}
-
-	var indexes []*dynamic
-
-	for i := 0; i < 5; i++ {
-		dynamic, err := New(Config{
-			AllocChecker: memwatch.NewDummyMonitor(),
-			TargetVector: "target_" + strconv.Itoa(i),
-			RootPath:     rootPath,
-			// Canonical: the upgrade-verdict state key derives from the physical
-			// ID, so it must match TargetVector the way production always
-			// constructs it (helpers.VectorIndexIDForTarget) for these
-			// per-named-vector key assertions to mean anything.
-			ID:                    helpers.VectorIndexIDForTarget("target_" + strconv.Itoa(i)),
-			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-			DistanceProvider:      distancer,
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				vec := vectors[int(id)]
-				if vec == nil {
-					return nil, storobj.NewErrNotFoundf(id, "nil vec")
-				}
-				return vec, nil
-			},
-			GetViewThunk:                 GetViewThunk,
-			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-			TombstoneCallbacks:           noopCallback,
-			SharedDB:                     db,
-			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
-			AsyncIndexingEnabled:         true,
-		}, ent.UserConfig{
-			Threshold: uint64(vectors_size),
-			Distance:  distancer.Type(),
-			HnswUC:    hnswuc,
-			FlatUC:    fuc,
-		}, testinghelpers.NewDummyStore(t))
-		require.NoError(t, err)
-
-		indexes = append(indexes, dynamic)
-	}
+	env := newDynamicTestEnv(t, vectors_size, queries_size, dimensions)
+	truths := env.groundTruth(k)
+	indexes := env.openNamedIndexes(t, 5)
 
 	for _, v := range indexes {
 		v := v
 		compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
-			v.Add(ctx, i, vectors[i])
+			v.Add(ctx, i, env.vectors[i])
 		})
 		shouldUpgrade, at := v.ShouldUpgrade()
 		assert.True(t, shouldUpgrade)
 		assert.Equal(t, vectors_size, at)
 		assert.False(t, v.Upgraded())
-		recall1, latency1 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
+		recall1, latency1 := testinghelpers.RecallAndLatency(ctx, env.queries, k, v, truths)
 		t.Logf("recall: %f, latency %f\n", recall1, latency1)
 		assert.True(t, recall1 > 0.99)
 		wg := sync.WaitGroup{}
@@ -275,7 +301,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 		wg.Wait()
 		shouldUpgrade, _ = v.ShouldUpgrade()
 		assert.False(t, shouldUpgrade)
-		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
+		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, env.queries, k, v, truths)
 		t.Logf("recall: %f, latency %f\n", recall2, latency2)
 		assert.True(t, recall2 > 0.9)
 	}
@@ -286,60 +312,13 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
-	k := 10
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		db.Close()
-	})
-
-	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
-	rootPath := t.TempDir()
-	distancer := distancer.NewL2SquaredProvider()
-	truths := make([][]uint64, queries_size)
-	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
-	})
-	noopCallback := cyclemanager.NewCallbackGroupNoop()
-	fuc := flatent.UserConfig{}
-	fuc.SetDefaults()
-	hnswuc := hnswent.UserConfig{
-		MaxConnections:        30,
-		EFConstruction:        64,
-		EF:                    32,
-		VectorCacheMaxObjects: 1_000_000,
-	}
-
-	dynamic, err := New(Config{
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		RootPath:              rootPath,
-		ID:                    "foo",
-		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-		DistanceProvider:      distancer,
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			vec := vectors[int(id)]
-			if vec == nil {
-				return nil, storobj.NewErrNotFoundf(id, "nil vec")
-			}
-			return vec, nil
-		},
-		GetViewThunk:                 GetViewThunk,
-		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-		TombstoneCallbacks:           noopCallback,
-		SharedDB:                     db,
-		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
-		AsyncIndexingEnabled:         true,
-	}, ent.UserConfig{
-		Threshold: uint64(vectors_size),
-		Distance:  distancer.Type(),
-		HnswUC:    hnswuc,
-		FlatUC:    fuc,
-	}, testinghelpers.NewDummyStore(t))
+	env := newDynamicTestEnv(t, vectors_size, queries_size, dimensions)
+	dynamic, err := env.newIndex(t, "foo", "")
 	require.NoError(t, err)
 
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
-		dynamic.Add(ctx, i, vectors[i])
+		dynamic.Add(ctx, i, env.vectors[i])
 	})
 
 	shouldUpgrade, at := dynamic.ShouldUpgrade()
@@ -528,6 +507,20 @@ func TestDynamicUpgradeAfterShutdownInvokesCallbackSynchronously(t *testing.T) {
 func TestDynamicUpgradeCompression(t *testing.T) {
 	// Similar to BQ we need to ensure we can upgrade to a little endian quantization like with PQ
 	// See this PR for details https://github.com/weaviate/weaviate/pull/8617
+	// enablePQ is the HNSW-side setup shared by the cases that upgrade into PQ.
+	enablePQ := func(hnswuc *hnswent.UserConfig, threshold int) {
+		hnswuc.PQ = hnswent.PQConfig{
+			Enabled:        true,
+			BitCompression: false,
+			Segments:       5,
+			Centroids:      255,
+			TrainingLimit:  threshold - 1,
+			Encoder: hnswent.PQEncoder{
+				Type:         hnswent.PQEncoderTypeKMeans,
+				Distribution: hnswent.PQEncoderDistributionLogNormal,
+			},
+		}
+	}
 	tests := []struct {
 		name            string
 		setupFlatConfig func(*flatent.UserConfig)
@@ -569,19 +562,7 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					Cache:   true,
 				}
 			},
-			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
-				hnswuc.PQ = hnswent.PQConfig{
-					Enabled:        true,
-					BitCompression: false,
-					Segments:       5,
-					Centroids:      255,
-					TrainingLimit:  threshold - 1,
-					Encoder: hnswent.PQEncoder{
-						Type:         hnswent.PQEncoderTypeKMeans,
-						Distribution: hnswent.PQEncoderDistributionLogNormal,
-					},
-				}
-			},
+			setupHNSWConfig: enablePQ,
 			compressed:      true,
 			compressionType: "pq",
 		},
@@ -610,19 +591,7 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 					Bits:    8,
 				}
 			},
-			setupHNSWConfig: func(hnswuc *hnswent.UserConfig, threshold int) {
-				hnswuc.PQ = hnswent.PQConfig{
-					Enabled:        true,
-					BitCompression: false,
-					Segments:       5,
-					Centroids:      255,
-					TrainingLimit:  threshold - 1,
-					Encoder: hnswent.PQEncoder{
-						Type:         hnswent.PQEncoderTypeKMeans,
-						Distribution: hnswent.PQEncoderDistributionLogNormal,
-					},
-				}
-			},
+			setupHNSWConfig: enablePQ,
 			compressed:      true,
 			compressionType: "pq",
 		},
@@ -854,65 +823,15 @@ func TestDynamicIndexUnderlyingIndexDetection(t *testing.T) {
 }
 
 func TestDynamicAndStoreOperations(t *testing.T) {
-	ctx := context.Background()
 	dimensions := 20
 	vectors_size := 1_000
 	queries_size := 10
-	k := 10
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		db.Close()
-	})
-
-	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
-	rootPath := t.TempDir()
-	distancer := distancer.NewL2SquaredProvider()
-	truths := make([][]uint64, queries_size)
-	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
-	})
-	noopCallback := cyclemanager.NewCallbackGroupNoop()
-	fuc := flatent.UserConfig{}
-	fuc.SetDefaults()
-	hnswuc := hnswent.UserConfig{
-		MaxConnections:        30,
-		EFConstruction:        64,
-		EF:                    32,
-		VectorCacheMaxObjects: 1_000_000,
-	}
-	dynamic, err := New(Config{
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		RootPath:              rootPath,
-		ID:                    "nil-vector-test",
-		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-		DistanceProvider:      distancer,
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			vec := vectors[int(id)]
-			if vec == nil {
-				return nil, storobj.NewErrNotFoundf(id, "nil vec")
-			}
-			return vec, nil
-		},
-		GetViewThunk:                 GetViewThunk,
-		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-		TombstoneCallbacks:           noopCallback,
-		SharedDB:                     db,
-		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
-		AsyncIndexingEnabled:         true,
-	}, ent.UserConfig{
-		Threshold: uint64(vectors_size),
-		Distance:  distancer.Type(),
-		HnswUC:    hnswuc,
-		FlatUC:    fuc,
-	}, testinghelpers.NewDummyStore(t))
+	env := newDynamicTestEnv(t, vectors_size, queries_size, dimensions)
+	dynamic, err := env.newIndex(t, "nil-vector-test", "")
 	assert.Nil(t, err)
 
-	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
-		err := dynamic.Add(ctx, i, vectors[i])
-		require.NoError(t, err)
-	})
+	env.addAll(t, dynamic)
 
 	shouldUpgrade, at := dynamic.ShouldUpgrade()
 	assert.True(t, shouldUpgrade)
@@ -952,14 +871,10 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	queries_size := 10
 	k := 10
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		db.Close()
-	})
+	env := newDynamicTestEnv(t, vectors_size, queries_size, dimensions)
 
 	// update the boltdb with the old bugged state
-	err = db.Update(func(tx *bbolt.Tx) error {
+	err := env.db.Update(func(tx *bbolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
 		if err != nil {
 			return err
@@ -970,70 +885,18 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
-	rootPath := t.TempDir()
-	distancer := distancer.NewL2SquaredProvider()
-	truths := make([][]uint64, queries_size)
-	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
-	})
-	noopCallback := cyclemanager.NewCallbackGroupNoop()
-	fuc := flatent.UserConfig{}
-	fuc.SetDefaults()
-	hnswuc := hnswent.UserConfig{
-		MaxConnections:        30,
-		EFConstruction:        64,
-		EF:                    32,
-		VectorCacheMaxObjects: 1_000_000,
-	}
-
-	var indexes []*dynamic
-
-	for i := 0; i < 5; i++ {
-		dynamic, err := New(Config{
-			TargetVector: "target_" + strconv.Itoa(i),
-			RootPath:     rootPath,
-			// Canonical: the upgrade-verdict state key derives from the physical
-			// ID, so it must match TargetVector the way production always
-			// constructs it (helpers.VectorIndexIDForTarget) for these
-			// per-named-vector key assertions to mean anything.
-			ID:                    helpers.VectorIndexIDForTarget("target_" + strconv.Itoa(i)),
-			AllocChecker:          memwatch.NewDummyMonitor(),
-			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-			DistanceProvider:      distancer,
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				vec := vectors[int(id)]
-				if vec == nil {
-					return nil, storobj.NewErrNotFoundf(id, "nil vec")
-				}
-				return vec, nil
-			},
-			GetViewThunk:                 GetViewThunk,
-			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-			TombstoneCallbacks:           noopCallback,
-			SharedDB:                     db,
-			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
-			AsyncIndexingEnabled:         true,
-		}, ent.UserConfig{
-			Threshold: uint64(vectors_size),
-			Distance:  distancer.Type(),
-			HnswUC:    hnswuc,
-			FlatUC:    fuc,
-		}, testinghelpers.NewDummyStore(t))
-		require.NoError(t, err)
-
-		indexes = append(indexes, dynamic)
-	}
+	truths := env.groundTruth(k)
+	indexes := env.openNamedIndexes(t, 5)
 
 	for _, v := range indexes {
 		compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
-			v.Add(ctx, i, vectors[i])
+			v.Add(ctx, i, env.vectors[i])
 		})
 		shouldUpgrade, at := v.ShouldUpgrade()
 		assert.True(t, shouldUpgrade)
 		assert.Equal(t, vectors_size, at)
 		assert.False(t, v.Upgraded())
-		recall1, latency1 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
+		recall1, latency1 := testinghelpers.RecallAndLatency(ctx, env.queries, k, v, truths)
 		fmt.Println(recall1, latency1)
 		assert.True(t, recall1 > 0.99)
 		wg := sync.WaitGroup{}
@@ -1044,68 +907,19 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		wg.Wait()
 		shouldUpgrade, _ = v.ShouldUpgrade()
 		assert.False(t, shouldUpgrade)
-		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
+		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, env.queries, k, v, truths)
 		fmt.Println(recall2, latency2)
 		assert.True(t, recall2 > 0.9)
 	}
 
 	// check the content of the bolt db
-	err = db.View(func(tx *bbolt.Tx) error {
-		for i := 0; i < 5; i++ {
-			b := tx.Bucket(dynamicBucket)
-			require.NotNil(t, b, "bucket should exist")
-
-			upgraded := b.Get([]byte(composerUpgradedKey + "_target_" + strconv.Itoa(i)))
-			require.Equal(t, []byte{1}, upgraded)
-		}
-		return nil
-	})
-	require.NoError(t, err)
+	requireUpgradedKeyPerTarget(t, env.db, 5)
 
 	// close the indexes
-	for _, v := range indexes {
-		err := v.Shutdown(context.Background())
-		require.NoError(t, err)
-	}
-
-	indexes = indexes[:0]
+	shutdownAll(t, indexes)
 
 	// open them again to ensure the state is correct
-	for i := 0; i < 5; i++ {
-		dynamic, err := New(Config{
-			TargetVector: "target_" + strconv.Itoa(i),
-			RootPath:     rootPath,
-			// Canonical: the upgrade-verdict state key derives from the physical
-			// ID, so it must match TargetVector the way production always
-			// constructs it (helpers.VectorIndexIDForTarget) for these
-			// per-named-vector key assertions to mean anything.
-			ID:                    helpers.VectorIndexIDForTarget("target_" + strconv.Itoa(i)),
-			AllocChecker:          memwatch.NewDummyMonitor(),
-			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-			DistanceProvider:      distancer,
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				vec := vectors[int(id)]
-				if vec == nil {
-					return nil, storobj.NewErrNotFoundf(id, "nil vec")
-				}
-				return vec, nil
-			},
-			GetViewThunk:                 GetViewThunk,
-			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-			TombstoneCallbacks:           noopCallback,
-			SharedDB:                     db,
-			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
-			AsyncIndexingEnabled:         true,
-		}, ent.UserConfig{
-			Threshold: uint64(vectors_size),
-			Distance:  distancer.Type(),
-			HnswUC:    hnswuc,
-			FlatUC:    fuc,
-		}, testinghelpers.NewDummyStore(t))
-		require.NoError(t, err)
-
-		indexes = append(indexes, dynamic)
-	}
+	indexes = env.openNamedIndexes(t, 5)
 
 	// check the upgraded state
 	for _, v := range indexes {
@@ -1115,30 +929,15 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	}
 
 	// check the content of the bolt db
-	err = db.View(func(tx *bbolt.Tx) error {
-		for i := 0; i < 5; i++ {
-			b := tx.Bucket(dynamicBucket)
-			require.NotNil(t, b, "bucket should exist")
-
-			upgraded := b.Get([]byte(composerUpgradedKey + "_target_" + strconv.Itoa(i)))
-			require.Equal(t, []byte{1}, upgraded)
-		}
-		return nil
-	})
-	require.NoError(t, err)
+	requireUpgradedKeyPerTarget(t, env.db, 5)
 
 	// close the indexes
-	for _, v := range indexes {
-		err := v.Shutdown(context.Background())
-		require.NoError(t, err)
-	}
-
-	indexes = indexes[:0]
+	shutdownAll(t, indexes)
 
 	// we know have 5 upgraded target vectors.
 	// let's now simulate a similar case where they all share the same key
 	// but this time they are already upgraded.
-	err = db.Update(func(tx *bbolt.Tx) error {
+	err = env.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
 
 		// delete all individual upgraded keys
@@ -1153,41 +952,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	require.NoError(t, err)
 
 	// in this scenario, we must not lose the upgraded state
-	for i := 0; i < 5; i++ {
-		dynamic, err := New(Config{
-			TargetVector: "target_" + strconv.Itoa(i),
-			RootPath:     rootPath,
-			// Canonical: the upgrade-verdict state key derives from the physical
-			// ID, so it must match TargetVector the way production always
-			// constructs it (helpers.VectorIndexIDForTarget) for these
-			// per-named-vector key assertions to mean anything.
-			ID:                    helpers.VectorIndexIDForTarget("target_" + strconv.Itoa(i)),
-			AllocChecker:          memwatch.NewDummyMonitor(),
-			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-			DistanceProvider:      distancer,
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				vec := vectors[int(id)]
-				if vec == nil {
-					return nil, storobj.NewErrNotFoundf(id, "nil vec")
-				}
-				return vec, nil
-			},
-			GetViewThunk:                 GetViewThunk,
-			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-			TombstoneCallbacks:           noopCallback,
-			SharedDB:                     db,
-			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
-			AsyncIndexingEnabled:         true,
-		}, ent.UserConfig{
-			Threshold: uint64(vectors_size),
-			Distance:  distancer.Type(),
-			HnswUC:    hnswuc,
-			FlatUC:    fuc,
-		}, testinghelpers.NewDummyStore(t))
-		require.NoError(t, err)
-
-		indexes = append(indexes, dynamic)
-	}
+	indexes = env.openNamedIndexes(t, 5)
 
 	// check the upgraded state
 	for _, v := range indexes {
@@ -1197,17 +962,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	}
 
 	// check the content of the bolt db
-	err = db.View(func(tx *bbolt.Tx) error {
-		for i := 0; i < 5; i++ {
-			b := tx.Bucket(dynamicBucket)
-			require.NotNil(t, b, "bucket should exist")
-
-			upgraded := b.Get([]byte(composerUpgradedKey + "_target_" + strconv.Itoa(i)))
-			require.Equal(t, []byte{1}, upgraded)
-		}
-		return nil
-	})
-	require.NoError(t, err)
+	requireUpgradedKeyPerTarget(t, env.db, 5)
 }
 
 // TestDynamicStaleCommitLogCleanedOnRestart is a regression test for a
