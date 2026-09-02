@@ -646,7 +646,7 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 
 	gen := int(desc.Version)
 	genFor := func(prefix, propSuffix string) (int, bool) {
-		if rehydrate && !migrationTrackerDirExists(lsmPath, prefix+propSuffix+genSuffix(gen)) {
+		if rehydrate && migrationTrackerDirAbsent(lsmPath, prefix+propSuffix+genSuffix(gen)) {
 			return 0, false
 		}
 		return gen, true

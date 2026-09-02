@@ -63,6 +63,27 @@ func TestGenSuffix(t *testing.T) {
 	require.Equal(t, "_0", genSuffix(0)) // 0 is reserved (canonical) but genSuffix still emits — callers don't pass 0
 }
 
+// The rehydrate path retires a migration whose tracker dir it reports absent,
+// and a retired migration is recorded complete with the index never rebuilt.
+// Only a definite "not there" may say that: a failed read must not.
+func TestMigrationTrackerDirAbsentDoesNotReadAStatFailureAsAbsence(t *testing.T) {
+	lsmPath := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(lsmPath, ".migrations"), 0o755))
+	const dirName = MigrationDirSearchableMapToBlockmax + "_1"
+	dirPath := filepath.Join(lsmPath, ".migrations", dirName)
+
+	require.True(t, migrationTrackerDirAbsent(lsmPath, dirName))
+	require.NoError(t, os.Mkdir(dirPath, 0o755))
+	require.False(t, migrationTrackerDirAbsent(lsmPath, dirName))
+
+	// A symlink loop stands in for the stat failures a unit test cannot
+	// produce (EIO, EACCES, no descriptors left), as in [breakSentinelRead].
+	require.NoError(t, os.Remove(dirPath))
+	require.NoError(t, os.Symlink(dirName, dirPath))
+	require.False(t, migrationTrackerDirAbsent(lsmPath, dirName),
+		"a tracker dir whose stat fails must not read as one that is not there")
+}
+
 // touchSentinel creates an empty file at the given path. Used to
 // simulate sentinel files (started.mig, tidied.mig, etc.) in tests.
 func touchSentinel(t *testing.T, path string) {
