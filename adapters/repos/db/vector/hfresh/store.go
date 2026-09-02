@@ -61,6 +61,11 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket bucketRef, metrics *Metric
 							// before flushing this one. Keeping the key is always
 							// safe — skipping is an optimization, and a later
 							// compaction drops it once the version is readable.
+							//
+							// Deregistration happens before the drain, so the
+							// pin this lookup takes cannot park behind the
+							// teardown that made it fail: it reports the bucket
+							// missing instead of blocking compaction.
 							return false, nil
 						}
 						return false, errors.Wrap(err, "get posting version during compaction")
@@ -104,6 +109,14 @@ func (p *PostingStore) getKeyBytes(ctx context.Context, versionsBucket *lsmkv.Bu
 // bucket and the shared bucket the versions live in. Pinning is against a
 // store-wide lock, so operations that fan out take it once here rather than
 // once per posting.
+//
+// PIN ORDER: postings bucket BEFORE shared bucket, and every overlapping pin
+// in this package follows it — Put releases its version read before pinning
+// the postings bucket and only re-pins the shared bucket underneath it; the
+// shared-bucket stores never reach back into the postings bucket. A caller
+// that pinned the shared bucket first and then wanted the postings bucket
+// could deadlock against two concurrent bucket teardowns, each parked
+// draining the pin the other holds.
 func (p *PostingStore) acquireBuckets() (postings, versions *lsmkv.Bucket, release func(), err error) {
 	postings, releasePostings, err := p.bucket.acquire()
 	if err != nil {
