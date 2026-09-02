@@ -13,24 +13,11 @@ package dynamic
 
 import (
 	"context"
-	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/bbolt"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/storobj"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
-	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // newCopyWindowDynamic builds an async dynamic index seeded with enough vectors
@@ -41,61 +28,15 @@ import (
 func newCopyWindowDynamic(t *testing.T, omit ...uint64) (*dynamic, [][]float32) {
 	t.Helper()
 	ctx := context.Background()
-	dimensions := 20
-	vectorsSize := 2 * batchSize
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
-
-	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
-	dist := distancer.NewL2SquaredProvider()
-
-	fuc := flatent.UserConfig{}
-	fuc.SetDefaults()
-	hnswuc := hnswent.UserConfig{
-		MaxConnections:        30,
-		EFConstruction:        64,
-		EF:                    32,
-		VectorCacheMaxObjects: 1_000_000,
-	}
-	hnswuc.SetDefaults()
-
-	uc := ent.UserConfig{
-		Threshold: 100,
-		Distance:  dist.Type(),
-		HnswUC:    hnswuc,
-		FlatUC:    fuc,
-	}
-
-	idx, err := New(Config{
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		RootPath:              t.TempDir(),
-		ID:                    "copy-window-test",
-		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-		DistanceProvider:      dist,
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			vec := vectors[int(id)]
-			if vec == nil {
-				return nil, storobj.NewErrNotFoundf(id, "nil vec")
-			}
-			return vec, nil
-		},
-		GetViewThunk:                 GetViewThunk,
-		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
-		SharedDB:                     db,
-		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
-		AsyncIndexingEnabled:         true, // required: New() errors otherwise
-	}, uc, testinghelpers.NewDummyStore(t))
-	require.NoError(t, err)
+	idx, _, vectors := newAsyncDynamic(t, "copy-window-test", 2*batchSize)
 	t.Cleanup(func() { idx.Shutdown(context.Background()) })
 
 	omitted := make(map[uint64]bool, len(omit))
 	for _, id := range omit {
 		omitted[id] = true
 	}
-	for i := uint64(0); i < uint64(vectorsSize); i++ {
+	for i := uint64(0); i < uint64(len(vectors)); i++ {
 		if omitted[i] {
 			continue
 		}
