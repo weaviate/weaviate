@@ -13,7 +13,9 @@ package hfresh
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -37,6 +39,36 @@ type muveraTestStore struct {
 	multiVectors map[uint64][][]float32
 }
 
+// testVectorStore backs VectorForIDThunk in tests: splitPosting and
+// doReassign require every posting entry's full-precision vector to be
+// fetchable. Test helpers that create vectors record them here.
+type testVectorStore struct {
+	mu sync.RWMutex
+	m  map[uint64][]float32
+}
+
+func (s *testVectorStore) put(id uint64, v []float32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.m[id] = v
+}
+
+func (s *testVectorStore) get(_ context.Context, id uint64) ([]float32, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if v, ok := s.m[id]; ok {
+		return v, nil
+	}
+	return nil, fmt.Errorf("vector %d not stored in this test", id)
+}
+
+type TestHFresh struct {
+	Index   *HFresh
+	Logs    *test.Hook
+	mvStore *muveraTestStore
+	Vectors *testVectorStore
+}
+
 func newMuveraTestStore() *muveraTestStore {
 	return &muveraTestStore{
 		multiVectors: make(map[uint64][][]float32),
@@ -53,12 +85,6 @@ func (s *muveraTestStore) getMultiVector(id uint64) ([][]float32, error) {
 		return nil, errors.Errorf("multi-vector not found for id %d", id)
 	}
 	return vecs, nil
-}
-
-type TestHFresh struct {
-	Index   *HFresh
-	Logs    *test.Hook
-	mvStore *muveraTestStore
 }
 
 // waitForMaintenance blocks until all HFresh background queues are drained.
@@ -150,6 +176,8 @@ func newTestIndex(t *testing.T, uc ent.UserConfig, mvStore *muveraTestStore, opt
 	})
 
 	setDelegatingTempThunk(cfg)
+	vectors := &testVectorStore{m: make(map[uint64][]float32)}
+	cfg.VectorForIDThunk = vectors.get
 
 	store := testinghelpers.NewDummyStore(t)
 	createObjectsBucket(t, store)
@@ -164,6 +192,7 @@ func newTestIndex(t *testing.T, uc ent.UserConfig, mvStore *muveraTestStore, opt
 		Index:   index,
 		Logs:    hook,
 		mvStore: mvStore,
+		Vectors: vectors,
 	}
 }
 
@@ -200,6 +229,7 @@ func createTestVectors(dims int, count int) [][]float32 {
 // addVectorToIndex initializes dimensions if needed and adds a vector to the index
 func addVectorToIndex(t *testing.T, tf *TestHFresh, vectorID uint64, vector []float32) {
 	t.Helper()
+	tf.Vectors.put(vectorID, vector)
 	err := tf.Index.Add(t.Context(), vectorID, vector)
 	require.NoError(t, err)
 }
@@ -241,6 +271,7 @@ func createPostingWithVectors(t *testing.T, tf *TestHFresh, vectors [][]float32,
 		vectorID := startID + uint64(i)
 		version := VectorVersion(1)
 
+		tf.Vectors.put(vectorID, vec)
 		err := tf.Index.VersionMap.store.Set(t.Context(), vectorID, version)
 		require.NoError(t, err)
 
