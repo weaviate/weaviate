@@ -73,6 +73,28 @@ func WithMinMMapSize(minMMapSize int64) BucketOption {
 	}
 }
 
+const (
+	// SegmentIndexPinScopeObjects limits heap-pinning to the objects bucket
+	// (default): its secondary docID index dominates index-descent cost.
+	SegmentIndexPinScopeObjects = "objects"
+	// SegmentIndexPinScopeAll heap-pins every bucket's index region under
+	// the size threshold.
+	SegmentIndexPinScopeAll = "all"
+)
+
+// WithSegmentIndexPin heap-pins a segment's index region when <= threshold
+// bytes, avoiding descent page faults under memory pressure. scope selects
+// eligible buckets (empty == SegmentIndexPinScopeObjects); totalLimit caps
+// pinned bytes node-wide; threshold 0 disables pinning.
+func WithSegmentIndexPin(threshold, totalLimit int64, scope string) BucketOption {
+	return func(b *Bucket) error {
+		b.segmentIndexPinThreshold = threshold
+		b.segmentIndexPinTotalLimit = totalLimit
+		b.segmentIndexPinScope = scope
+		return nil
+	}
+}
+
 func WithMinWalThreshold(threshold int64) BucketOption {
 	return func(b *Bucket) error {
 		b.minWalThreshold = uint64(threshold)

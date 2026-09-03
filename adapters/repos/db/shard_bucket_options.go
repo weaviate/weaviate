@@ -25,6 +25,7 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithSegmentIndexPin(s.index.Config.SegmentIndexPinThreshold, s.index.Config.SegmentIndexPinTotalLimit, s.index.Config.SegmentIndexPinScope),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithWriteSegmentInfoIntoFileName(s.index.Config.SegmentInfoIntoFileNameEnabled),
 		lsmkv.WithWriteMetadata(s.index.Config.WriteMetadataFilesEnabled),
