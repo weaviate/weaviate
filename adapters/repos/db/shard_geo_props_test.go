@@ -484,24 +484,6 @@ func TestInitGeoPropNamesItsShard(t *testing.T) {
 	}
 }
 
-// testShardWithNamedVector builds a shard whose only vector index is the named
-// vector "title" with the given config (async indexing on, as dynamic needs).
-func testShardWithNamedVector(t *testing.T, ctx context.Context, className string,
-	vic schemaConfig.VectorIndexConfig,
-) (ShardLike, *Index) {
-	t.Helper()
-	return testShardWithSettings(t, ctx, &models.Class{Class: className}, nil, false, true, true,
-		func(i *Index) {
-			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": vic}
-		},
-	)
-}
-
-func removeRootPath(t *testing.T, idx *Index) {
-	t.Helper()
-	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-}
-
 // TestVectorIndexLoggerCarriesIdentity pins the contract that lets storage-layer
 // entities (compressors, commit loggers, queues) log without ever being told
 // the logical target-vector name: the shard bakes both identities — the
