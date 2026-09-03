@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -89,15 +88,7 @@ func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOn
 		return false, err
 	}
 
-	netAdditions, err := s.recalcCountNetAdditions(exists, precomputedCNAValue)
-	if errors.Is(err, errApproximateNetAdditions) {
-		// writing the file would fix a wrong object count on disk; reporting no
-		// metadata sends the caller to the per-sidecar path, which skips it too
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
+	netAdditions := s.recalcCountNetAdditions(exists, precomputedCNAValue)
 
 	return true, s.writeMetadataToDisk(path, primaryBloom, secondaryBloom, netAdditions)
 }
@@ -260,24 +251,20 @@ func (s *segment) initCNAFromData(netAdditions []byte) error {
 	return nil
 }
 
-func (s *segment) recalcCountNetAdditions(exists existsOnLowerSegmentsFn, precomputedCNAValue *int) ([]byte, error) {
+func (s *segment) recalcCountNetAdditions(exists existsOnLowerSegmentsFn, precomputedCNAValue *int) []byte {
 	if !s.calcCountNetAdditions || s.strategy != segmentindex.StrategyReplace {
-		return nil, nil
+		return nil
 	}
 
 	if precomputedCNAValue != nil {
 		s.countNetAdditions = *precomputedCNAValue
 	} else {
-		count, err := s.computeNetAdditions(exists)
-		s.countNetAdditions = count
-		if err != nil {
-			return nil, err
-		}
+		s.countNetAdditions = s.computeNetAdditions(exists)
 	}
 
 	data := make([]byte, 8)
 	binary.LittleEndian.PutUint64(data, uint64(s.countNetAdditions))
-	return data, nil
+	return data
 }
 
 // ReadObjectCountFromMetadataFile reads a .metadata file and returns the count net additions value

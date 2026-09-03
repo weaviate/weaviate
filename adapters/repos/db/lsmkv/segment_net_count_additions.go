@@ -48,18 +48,11 @@ func (s *segment) countNetPath() string {
 	return s.buildPath("%s.cna")
 }
 
-// errApproximateNetAdditions reports a count that could not consult every lower
-// segment. The count is still usable for the life of the process, but its
-// callers must not write it to a sidecar: nothing recomputes a sidecar that
-// parses, so the wrong number would outlive the segment that caused it.
-var errApproximateNetAdditions = errors.New("net additions count is approximate")
-
-// computeNetAdditions walks this segment's keys and nets the new ones against
-// its tombstones, asking exists whether each key is already held further down.
-// A key exists cannot answer for is counted the way that can only lower the
-// total: a live one is left out rather than assumed new, a tombstone subtracts
-// rather than being skipped.
-func (s *segment) computeNetAdditions(exists existsOnLowerSegmentsFn) (int, error) {
+// computeNetAdditions takes a key exists cannot answer for as new, as
+// Bucket.existsOnDiskAndPreviousMemtable does, so the count can overstate.
+// Reported rather than returned: a flush failing here strands writes whose
+// commit log is already gone.
+func (s *segment) computeNetAdditions(exists existsOnLowerSegmentsFn) int {
 	var lookupErr error
 	unanswered := 0
 	countNet := 0
@@ -68,10 +61,7 @@ func (s *segment) computeNetAdditions(exists existsOnLowerSegmentsFn) (int, erro
 		if err != nil {
 			lookupErr = err
 			unanswered++
-			if tombstone {
-				countNet--
-			}
-			return
+			existedOnPrior = false
 		}
 
 		if tombstone && existedOnPrior {
@@ -89,11 +79,10 @@ func (s *segment) computeNetAdditions(exists existsOnLowerSegmentsFn) (int, erro
 
 	if lookupErr != nil {
 		s.logger.WithField("path", s.path).
-			Errorf("object count omits %d keys whose lower segments could not be read: %v",
+			Errorf("object count takes %d keys as new because their lower segments could not be read, last error: %v",
 				unanswered, lookupErr)
-		return countNet, fmt.Errorf("%w: %w", errApproximateNetAdditions, lookupErr)
 	}
-	return countNet, nil
+	return countNet
 }
 
 func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int, existingFilesList map[string]int64) error {
@@ -132,13 +121,7 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 	if precomputedCNAValue != nil {
 		s.countNetAdditions = *precomputedCNAValue
 	} else {
-		count, err := s.computeNetAdditions(exists)
-		s.countNetAdditions = count
-		if errors.Is(err, errApproximateNetAdditions) {
-			// leaving the sidecar absent is what makes the next load recompute,
-			// so the count corrects itself once the segment below can be read
-			return nil
-		}
+		s.countNetAdditions = s.computeNetAdditions(exists)
 	}
 
 	if err := s.storeCountNetOnDisk(); err != nil {

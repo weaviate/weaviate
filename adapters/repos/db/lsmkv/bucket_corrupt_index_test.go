@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,6 +185,130 @@ func TestBucketCollectionReadOverTwoSegmentsFailsOnCorruptOne(t *testing.T) {
 			require.Equal(t, len(keys)-1, errs,
 				"every key below the corrupt root must fail the read")
 		})
+	}
+}
+
+// A flush must survive an unreadable lower segment: its commit log is already
+// gone. An unresolved key inflates the count, never drops it.
+func TestBucketFlushOverCorruptLowerSegment(t *testing.T) {
+	ctx := context.Background()
+
+	rounds := []struct {
+		name string
+		// same keys as round one, so the bloom filter passes and the count must
+		// descend the corrupt segment
+		write  func(t *testing.T, b *Bucket, key []byte, i int)
+		verify func(t *testing.T, b *Bucket, keys [][]byte, count int)
+	}{
+		{
+			name: "writes over it",
+			write: func(t *testing.T, b *Bucket, key []byte, i int) {
+				require.NoError(t, b.Put(key, []byte(fmt.Sprintf("v2-%03d", i))))
+			},
+			verify: func(t *testing.T, b *Bucket, keys [][]byte, count int) {
+				for i, key := range keys {
+					value, err := b.Get(key)
+					require.NoError(t, err)
+					require.Equal(t, fmt.Sprintf("v2-%03d", i), string(value))
+				}
+				require.Greater(t, count, len(keys),
+					"a key the lower segment could not answer for is counted as new, so "+
+						"the total exceeds what the bucket holds")
+			},
+		},
+		{
+			name: "deletes over it",
+			write: func(t *testing.T, b *Bucket, key []byte, i int) {
+				require.NoError(t, b.Delete(key))
+			},
+			verify: func(t *testing.T, b *Bucket, keys [][]byte, count int) {
+				require.Positive(t, count,
+					"a delete the lower segment cannot confirm must not subtract, or the "+
+						"count would fall short of what the bucket may still hold")
+			},
+		},
+	}
+
+	// the two files a segment's count can reach disk in
+	sidecars := []struct {
+		name          string
+		writeMetadata bool
+		suffix        string
+	}{
+		{name: "cna", writeMetadata: false, suffix: ".cna"},
+		{name: "metadata", writeMetadata: true, suffix: ".metadata"},
+	}
+
+	for _, round := range rounds {
+		for _, sidecar := range sidecars {
+			t.Run(round.name+"/"+sidecar.name, func(t *testing.T) {
+				logger, hook := test.NewNullLogger()
+				dir := t.TempDir()
+
+				keys := make([][]byte, 16)
+				b := countingBucket(t, ctx, dir, logger, sidecar.writeMetadata)
+				for i := range keys {
+					keys[i] = []byte(fmt.Sprintf("key-%03d", i))
+					require.NoError(t, b.Put(keys[i], []byte(fmt.Sprintf("v1-%03d", i))))
+				}
+				require.NoError(t, b.FlushAndSwitch())
+				require.NoError(t, b.Shutdown(ctx))
+
+				repair := corruptRootChildPointers(t, dir)
+
+				b = countingBucket(t, ctx, dir, logger, sidecar.writeMetadata)
+				shutdown := func() {
+					// a stuck flush never clears b.flushing and Shutdown polls it without a
+					// deadline; bound it so a regression here fails in seconds, not by
+					// hanging the package
+					shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+					defer cancel()
+					require.NoError(t, b.Shutdown(shutdownCtx))
+				}
+				defer shutdown()
+
+				for i, key := range keys {
+					round.write(t, b, key, i)
+				}
+				require.NoError(t, b.FlushAndSwitch(),
+					"a flush must not fail because a lower segment's index is unreadable")
+
+				count, err := b.Count(ctx)
+				require.NoError(t, err)
+				round.verify(t, b, keys, count)
+
+				// the log is the only thing that tells an operator the count is inflated
+				var inflated int
+				for _, entry := range hook.AllEntries() {
+					if strings.Contains(entry.Message, "object count takes") {
+						inflated++
+						require.Equal(t, logrus.ErrorLevel, entry.Level)
+					}
+				}
+				require.NotZero(t, inflated, "an incomplete count must say so")
+
+				// and the segment is complete, sidecar included
+				segments, err := filepath.Glob(filepath.Join(dir, "*.db"))
+				require.NoError(t, err)
+				require.Len(t, segments, 2,
+					"expected the corrupt segment and the one flushed over it")
+				sort.Strings(segments)
+				newest := strings.TrimSuffix(segments[len(segments)-1], ".db")
+				require.FileExists(t, newest+sidecar.suffix)
+
+				// count read back after restart is what the flush wrote, not recomputed:
+				// repairing first would let a recompute resolve every key and answer lower
+				shutdown()
+				repair()
+				reopened := countingBucket(t, ctx, dir, logger, sidecar.writeMetadata)
+				t.Cleanup(func() { require.NoError(t, reopened.Shutdown(ctx)) })
+				b = reopened
+				reloaded, err := reopened.Count(ctx)
+				require.NoError(t, err)
+				require.Equal(t, count, reloaded,
+					"the sidecar must report what the flush counted, not a fresh count")
+			})
+		}
 	}
 }
 
@@ -399,6 +524,18 @@ func TestLazySegmentThatCannotLoadLeavesTheBucketDrainable(t *testing.T) {
 	shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	require.NoError(t, b.Shutdown(shutdownCtx))
+}
+
+// countingBucket keeps the net-additions count, without which a flush consults
+// the lower segments for nothing. writeMetadata picks the sidecar it lands in.
+func countingBucket(t *testing.T, ctx context.Context, dir string, logger logrus.FieldLogger,
+	writeMetadata bool,
+) *Bucket {
+	t.Helper()
+
+	return openCorruptTestBucket(t, ctx, dir, logger,
+		WithStrategy(StrategyReplace), WithCalcCountNetAdditions(true),
+		WithWriteMetadata(writeMetadata))
 }
 
 func openCorruptTestBucket(t *testing.T, ctx context.Context, dir string,

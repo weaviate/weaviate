@@ -1647,9 +1647,9 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
-// CountApproximate is a cheap O(#segments) alternative to Count: exact
-// per-segment counts plus each memtable's approximate counter (see
-// Memtable.netCountAdditions for the drift bounds).
+// CountApproximate is a cheap O(#segments) alternative to Count. It can drift:
+// the memtable counter approximates (see Memtable.netCountAdditions), and an
+// unreadable lower segment makes a key count as new.
 func (b *Bucket) CountApproximate() (int, error) {
 	if err := CheckExpectedStrategy(b.strategy, StrategyReplace); err != nil {
 		return 0, fmt.Errorf("Bucket::CountApproximate(): %w", err)

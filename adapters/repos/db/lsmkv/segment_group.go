@@ -680,7 +680,7 @@ func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn
 			// any key in this segment is previously unseen.
 			return false, nil
 		}
-		if _, err := sg.getWithSegmentList(key, segments); err != nil {
+		if err := sg.existsWithSegmentList(key, segments); err != nil {
 			if !errors.Is(err, lsmkv.Deleted) && !errors.Is(err, lsmkv.NotFound) {
 				return false, fmt.Errorf("check exists on segments: %w", err)
 			}

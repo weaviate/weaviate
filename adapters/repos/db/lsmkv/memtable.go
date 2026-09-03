@@ -132,9 +132,9 @@ type Memtable struct {
 	size            uint64
 	// netCountAdditions approximates the net live keys this memtable adds on
 	// top of the rest of the LSM tree. Whether a key already exists further
-	// down is unknown at write time: updates of flushed keys over-count,
-	// deletes of never-written keys under-count, and the drift is corrected by
-	// the exact per-segment count at flush. StrategyReplace only.
+	// down is unknown at write time: updates of flushed keys over-count, deletes
+	// of never-written keys under-count, and flushing replaces the drift with the
+	// segment's own count. StrategyReplace only.
 	netCountAdditions  int
 	path               string
 	strategy           string
