@@ -17,8 +17,6 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -81,7 +79,7 @@ func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmk
 }
 
 func sharedBucketName(id string) string {
-	return helpers.HFreshSharedBucketName(id)
+	return HFreshSharedBucketName(id)
 }
 
 func cleanupLegacyReassignBucket(bucket *lsmkv.Bucket) error {

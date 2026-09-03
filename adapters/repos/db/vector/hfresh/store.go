@@ -17,8 +17,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -188,7 +186,7 @@ func (p *PostingStore) Append(ctx context.Context, postingID uint64, vector Vect
 }
 
 func postingsBucketName(id string) string {
-	return helpers.HFreshPostingsBucketName(id)
+	return HFreshPostingsBucketName(id)
 }
 
 // PostingVersions keeps track of the version of the posting list.

@@ -89,23 +89,14 @@ func FlatMetadataFileNameForID(physicalID string) string {
 
 // HFresh keeps more on-disk state than the other index types: a directory of
 // its own under the shard, plus two dedicated LSM buckets. All three are keyed
-// on the index ID (vectorIndexID, i.e. "vectors_<target>" for a named vector),
-// and they live here so the index that creates them and the drop that removes
-// them cannot drift apart.
+// on the index ID (vectorIndexID, i.e. "vectors_<target>" for a named vector).
+// The postings and shared bucket names now live in package hfresh, next to the
+// index that creates them; HFreshDirName and CentroidsID stay here because the
+// shard's initVectorIndex uses them directly.
 
 // HFreshDirName is the hfresh index's own directory under the shard.
 func HFreshDirName(indexID string) string {
 	return fmt.Sprintf("%s.hfresh.d", indexID)
-}
-
-// HFreshPostingsBucketName is the LSM bucket holding hfresh's posting lists.
-func HFreshPostingsBucketName(indexID string) string {
-	return fmt.Sprintf("hfresh_postings_%s", indexID)
-}
-
-// HFreshSharedBucketName is the LSM bucket holding hfresh's shared metadata.
-func HFreshSharedBucketName(indexID string) string {
-	return fmt.Sprintf("hfresh_shared_%s", indexID)
 }
 
 // CentroidsID derives the hfresh centroid sub-index's physical ID from its

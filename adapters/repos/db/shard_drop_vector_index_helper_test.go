@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex"
@@ -99,8 +100,8 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		const target = "hfresh_vec"
 		indexID := helpers.GetVectorsBucketName(target)
 		lsm := filepath.Join(indexPath, shardName, "lsm")
-		postings := filepath.Join(lsm, helpers.HFreshPostingsBucketName(indexID))
-		shared := filepath.Join(lsm, helpers.HFreshSharedBucketName(indexID))
+		postings := filepath.Join(lsm, hfresh.HFreshPostingsBucketName(indexID))
+		shared := filepath.Join(lsm, hfresh.HFreshSharedBucketName(indexID))
 		hfreshDir := filepath.Join(indexPath, shardName, helpers.HFreshDirName(indexID))
 
 		for _, dir := range []string{postings, shared, hfreshDir} {

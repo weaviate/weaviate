@@ -13,6 +13,7 @@ package db
 
 import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 )
 
@@ -46,8 +47,8 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 			helpers.CompressedBucketNameForID(indexID), // BQ/PQ/SQ/RQ
 			hnsw.MuveraBucketName(indexID),             // multivector + muvera
 			hnsw.MVMappingsBucketName(indexID),         // multivector without muvera
-			helpers.HFreshPostingsBucketName(indexID),  // hfresh
-			helpers.HFreshSharedBucketName(indexID),    // hfresh
+			hfresh.HFreshPostingsBucketName(indexID),   // hfresh
+			hfresh.HFreshSharedBucketName(indexID),     // hfresh
 			// hfresh runs a nested centroids HNSW whose physical id is
 			// CentroidsID(indexID); hnsw derives its compressed bucket from that
 			// id the same way as any other, so it lands in the shard's lsm dir
