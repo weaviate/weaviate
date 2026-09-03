@@ -372,8 +372,12 @@ func (s *lazySegment) decRef() {
 	s.segment.decRef()
 }
 
+// getRefs reads the count without loading: a segment nobody could load holds no
+// references, and shutdown polls this until every count reaches zero.
 func (s *lazySegment) getRefs() int {
-	s.mustLoad()
+	if !s.loaded.Load() {
+		return 0
+	}
 	return s.segment.getRefs()
 }
 

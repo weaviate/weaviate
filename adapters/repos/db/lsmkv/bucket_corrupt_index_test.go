@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -336,6 +337,68 @@ func TestBucketCursorOnCorruptSegmentPanics(t *testing.T) {
 				"a cursor that dies on a corrupt segment must name it first")
 		})
 	}
+}
+
+// A lazy load fails inside getConsistentViewOfSegments, holding the maintenance
+// read lock and refs on earlier segments. Leak either and compaction blocks
+// forever and Shutdown never drains.
+func TestLazySegmentThatCannotLoadLeavesTheBucketDrainable(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	dir := t.TempDir()
+
+	newBucket := func() *Bucket {
+		return openCorruptTestBucket(t, ctx, dir, logger,
+			WithStrategy(StrategyReplace), WithLazySegmentLoading(true))
+	}
+
+	keys := make([][]byte, 16)
+	b := newBucket()
+	for i := range keys {
+		keys[i] = []byte(fmt.Sprintf("key-%03d", i))
+		require.NoError(t, b.Put(keys[i], []byte(fmt.Sprintf("v1-%03d", i))))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	for i, key := range keys {
+		require.NoError(t, b.Put(key, []byte(fmt.Sprintf("v2-%03d", i))))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Shutdown(ctx))
+
+	matches, err := filepath.Glob(filepath.Join(dir, "*.db"))
+	require.NoError(t, err)
+	require.Len(t, matches, 2, "expected two flushed segments")
+	sort.Strings(matches)
+	setHeaderIndexStartPastFile(t, matches[len(matches)-1])
+
+	b = newBucket()
+
+	// the read that loads the segment, and the panic the load owes its caller
+	require.Panics(t, func() { _, _ = b.Get(keys[0]) },
+		"a segment that cannot be read must not answer as though it held nothing")
+
+	// the compaction cycle takes this lock, so a read lock the panic unwound
+	// through holds it off forever. Taking it is also what makes the counts below
+	// a consistent read.
+	require.True(t, b.disk.maintenanceLock.TryLock(),
+		"the maintenance write lock is still held by the unwound read")
+	refs := make([]int, len(b.disk.segments))
+	for i, seg := range b.disk.segments {
+		refs[i] = seg.getRefs()
+	}
+	b.disk.maintenanceLock.Unlock()
+
+	// every reference the unwound read took is back. Asserted here rather than
+	// through Shutdown alone: waitForReferenceCountToReachZero polls without a
+	// deadline, so a stranded reference hangs the shutdown instead of failing it
+	for i, count := range refs {
+		require.Zero(t, count,
+			"segment %d still carries a reference taken before the panic", i)
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	require.NoError(t, b.Shutdown(shutdownCtx))
 }
 
 func openCorruptTestBucket(t *testing.T, ctx context.Context, dir string,
