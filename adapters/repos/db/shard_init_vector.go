@@ -285,7 +285,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 						}, opts...)
 						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
-							logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+							logger.WithField("index_id", hfreshConfigID+"_centroids"), s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							allOpts...,
 						)
 					},
