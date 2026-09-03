@@ -59,6 +59,18 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	return nil
 }
 
+// vectorIndexLogger identifies every log line under one vector index: the
+// logical name for operators, the physical id for storage. The index, its
+// queue and everything they construct inherit it.
+func (s *Shard) vectorIndexLogger(targetVector, indexID string) logrus.FieldLogger {
+	return s.index.logger.WithFields(logrus.Fields{
+		"class":         s.index.Config.ClassName.String(),
+		"shard":         s.name,
+		"target_vector": targetVector,
+		"index_id":      indexID,
+	})
+}
+
 func (s *Shard) initVectorIndex(ctx context.Context,
 	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig, lazyLoadSegments bool,
 ) (VectorIndex, error) {
@@ -99,12 +111,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 	// name for operators ("which vector?") and the physical id for storage
 	// ("which files?"). Implementations and the entities they own (compressors,
 	// commit loggers, queues) inherit it and add nothing of their own.
-	logger := s.index.logger.WithFields(logrus.Fields{
-		"class":         s.index.Config.ClassName.String(),
-		"shard":         s.name,
-		"target_vector": targetVector,
-		"index_id":      vecIdxID,
-	})
+	logger := s.vectorIndexLogger(targetVector, vecIdxID)
 
 	switch vectorIndexUserConfig.IndexType() {
 	case vectorindex.VectorIndexTypeHNSW:
@@ -142,7 +149,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 					}, opts...)
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
-						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+						logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 						allOpts...,
 					)
 				},
@@ -213,7 +220,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 				}, opts...)
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
-					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+					logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 					allOpts...,
 				)
 			},
@@ -278,7 +285,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 						}, opts...)
 						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
-							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+							logger.WithField("index_id", hfreshConfigID+"_centroids"), s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							allOpts...,
 						)
 					},
