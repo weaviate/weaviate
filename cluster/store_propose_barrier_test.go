@@ -197,3 +197,54 @@ func TestProposeBarrier_ConcurrentCallersShareOneBarrier(t *testing.T) {
 	require.Equal(t, float64(1), barrierCount(t, st)-before,
 		"%d concurrent first-of-term callers appended one barrier each", callers)
 }
+
+// The tenant lock is held across the apply, so a caller can wait on it long
+// enough for leadership to turn over. A term confirmed before that wait says
+// nothing about the term it wakes up in, so the gate must run after the lock.
+//
+// Red if the gate moves back above the tenant lock: the caller passes it on the
+// memo while the term is still current, and issues no barrier once the
+// confirmation is invalidated under it.
+func TestProposeBarrier_ReconfirmsAfterWaitingOnTheTenantLock(t *testing.T) {
+	srv, m := newBarrierTestStore(t)
+	st := srv.store
+	m.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil).Maybe()
+	st.schemaManager.SetTenantLimit(func() int { return 100 }, nil)
+
+	const class = "Docs"
+	sub, err := proto.Marshal(&command.AddTenantsRequest{
+		ClusterNodes: []string{st.cfg.NodeID},
+		Tenants:      []*command.Tenant{{Name: "t1", Status: "HOT"}},
+	})
+	require.NoError(t, err)
+	addTenants := &command.ApplyRequest{
+		Type: command.ApplyRequest_TYPE_ADD_TENANT, Class: class, SubCommand: sub,
+	}
+
+	// Confirm the term first, so a gate above the lock would find the memo warm
+	// and issue nothing. Without this the two orderings are indistinguishable.
+	require.NoError(t, st.waitLeaderFSMCaughtUp())
+
+	st.tenantAddLocks.Lock(class)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = st.Execute(addTenants)
+	}()
+
+	// Let the caller reach the lock, then invalidate the confirmation it would
+	// have been travelling on — this stands in for the leadership turnover.
+	time.Sleep(300 * time.Millisecond)
+	st.fsmCaughtUpTerm.Store(0)
+	before := barrierCount(t, st)
+
+	st.tenantAddLocks.Unlock(class)
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Execute never returned")
+	}
+
+	require.Equal(t, float64(1), barrierCount(t, st)-before,
+		"a stale confirmation must be re-established after the tenant-lock wait")
+}
