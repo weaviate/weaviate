@@ -548,10 +548,7 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 // vectorIndexID names the files a target vector's index owns inside the shard
 // directory. Unloaded shards need it too, so it does not hang off [Shard].
 func vectorIndexID(targetVector string) string {
-	if targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, targetVector)
-	}
-	return "main"
+	return helpers.VectorIndexIDForTarget(targetVector)
 }
 
 // uuidToIdLockPoolId computes a lock pool id for a given uuid. The lock pool

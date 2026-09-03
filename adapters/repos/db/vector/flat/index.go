@@ -47,7 +47,6 @@ const (
 
 type flat struct {
 	id                string
-	targetVector      string
 	rootPath          string
 	dims              int32
 	metadata          *bolt.DB
@@ -90,7 +89,6 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 
 	index := &flat{
 		id:                   cfg.ID,
-		targetVector:         cfg.TargetVector,
 		rootPath:             cfg.RootPath,
 		logger:               cfg.Logger,
 		distancerProvider:    cfg.DistanceProvider,
@@ -264,14 +262,11 @@ func (index *flat) Multivector() bool {
 }
 
 func (index *flat) getBucketName() string {
-	if index.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, index.targetVector)
-	}
-	return helpers.VectorsBucketLSM
+	return helpers.VectorsBucketNameForID(index.id)
 }
 
 func (index *flat) getCompressedBucketName() string {
-	return helpers.GetCompressedBucketName(index.targetVector)
+	return helpers.CompressedBucketNameForID(index.id)
 }
 
 func (index *flat) initBuckets(ctx context.Context, cfg Config) error {

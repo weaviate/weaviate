@@ -13,9 +13,11 @@ package helpers
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
 var (
@@ -40,6 +42,49 @@ func GetVectorsBucketName(targetVector string) string {
 		return fmt.Sprintf("%s_%s", VectorsBucketLSM, targetVector)
 	}
 	return VectorsBucketLSM
+}
+
+// VectorIndexIDForTarget derives the canonical physical index ID for a
+// target vector: "main" for the legacy unnamed vector, "vectors_<tv>"
+// otherwise. The shard derives its IDs through it, and so can packages
+// below the shard.
+func VectorIndexIDForTarget(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_%s", VectorsBucketLSM, targetVector)
+	}
+	return "main"
+}
+
+// PhysicalIDSuffix extracts the naming suffix from a physical index ID:
+// "vectors_<x>" → "<x>", anything else (including "main") → "". Suffix-based
+// names (compressed bucket, flat metadata, dynamic state key) append
+// "_<suffix>" when it is non-empty and use their bare legacy form otherwise.
+// The anything-else→"" rule reproduces hnsw's historical CutPrefix fallback,
+// which is what shipped bytes on disk for geo and centroid IDs depend on.
+func PhysicalIDSuffix(physicalID string) string {
+	if suffix, found := strings.CutPrefix(physicalID, VectorsBucketLSM+"_"); found {
+		return suffix
+	}
+	return ""
+}
+
+// VectorsBucketNameForID names the raw-vectors LSM bucket for a physical
+// index ID. NOTE the legacy asymmetry: ID "main" stores raw vectors in
+// bucket "vectors", not "main".
+func VectorsBucketNameForID(physicalID string) string {
+	return GetVectorsBucketName(PhysicalIDSuffix(physicalID))
+}
+
+// CompressedBucketNameForID names the quantized-vectors LSM bucket for a
+// physical index ID.
+func CompressedBucketNameForID(physicalID string) string {
+	return GetCompressedBucketName(PhysicalIDSuffix(physicalID))
+}
+
+// FlatMetadataFileNameForID names the flat index's quantization metadata
+// file for a physical index ID.
+func FlatMetadataFileNameForID(physicalID string) string {
+	return FlatMetadataFileName(PhysicalIDSuffix(physicalID))
 }
 
 // A multivector index keeps one bucket of its own, named off the index ID:
@@ -85,13 +130,16 @@ func HFreshSharedBucketName(indexID string) string {
 	return fmt.Sprintf("hfresh_shared_%s", indexID)
 }
 
-// FlatMetadataFileName is the flat index's quantisation metadata, under the
-// shard directory (see flat.getMetadataFile).
+// FlatMetadataFileName is the single derivation of the flat index's
+// quantisation metadata file name, under the shard directory. Both the live
+// index (via FlatMetadataFileNameForID) and the drop-artifact list
+// (vectorIndexArtifactNames) call through here, so they cannot disagree.
+// Previously they were two independent implementations — this one a plain
+// Sprintf, entities/vectorindex/flat.MetadataFileName sanitizing via
+// filepath.Clean/Base — which drifted for any name the sanitizer alters.
+// Delegating keeps that sanitization intact for both callers.
 func FlatMetadataFileName(targetVector string) string {
-	if targetVector != "" {
-		return fmt.Sprintf("meta_%s.db", targetVector)
-	}
-	return "meta.db"
+	return flatent.MetadataFileName(targetVector)
 }
 
 // VectorIndexArtifacts is everything a named vector's index owns on disk:
