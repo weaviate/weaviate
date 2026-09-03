@@ -69,7 +69,7 @@ func computeMultiPropBaseline(t *testing.T, propNames []string, numObjects int) 
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -113,7 +113,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 
 	// Drive iteration + runtimePrepare so runtimeSwap's Phase 2a is next.
 	task.skipSwapOnFinish.Store(true)
@@ -195,7 +195,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	simulateProcessRestartBucketCleanup(t, shardLSMPath)
 
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2)
+	task2 := newTestTask(idx.logger, strategy2, testMigrationUnitFor(idx, shardName))
 	task2.skipSwapOnFinish.Store(false)
 	idx.shardReindexer = &testShardReindexer{task: task2}
 
@@ -320,7 +320,7 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 
 	// Run the full migration pipeline.
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)

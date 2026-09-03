@@ -149,11 +149,14 @@ func writeDiffRecord(t *testing.T, lsm string, d diffDir, seq int, committed boo
 	if len(props) == 0 {
 		props = []string{"cat"}
 	}
+	code, _ := fixtureStrategyOf(t, d.name)
 	staged := map[string]string{}
 	canonical := map[string]string{}
 	for _, prop := range props {
 		staged[prop] = fmt.Sprintf("property_%s__enable_filterable_ingest_%d", prop, seq+1)
-		canonical[prop] = "property_" + prop
+		// The canonical directory is the strategy's own source bucket; the
+		// record writer refuses any other name.
+		canonical[prop] = sourceBucketNameFor(code, prop)
 	}
 	state := MigrationStateIterating
 	if committed {

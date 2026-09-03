@@ -32,13 +32,13 @@ import (
 // newEnableFilterableTask wraps EnableFilterableStrategy. Selection is
 // mandatory: the strategy can't discover targets via the schema-flag
 // scan because that flag is still false at migration time.
-func newEnableFilterableTask(t *testing.T, idx *Index, className string, propNames ...string) (*ShardReindexTaskGeneric, *testEnableFilterableStrategyWrapper) {
+func newEnableFilterableTask(t *testing.T, idx *Index, className, unitID string, propNames ...string) (*ShardReindexTaskGeneric, *testEnableFilterableStrategyWrapper) {
 	t.Helper()
-	return newEnableFilterableTaskAtGeneration(t, idx, className, 1, propNames...)
+	return newEnableFilterableTaskAtGeneration(t, idx, className, 1, unitID, propNames...)
 }
 
 func newEnableFilterableTaskAtGeneration(t *testing.T, idx *Index, className string,
-	generation int, propNames ...string,
+	generation int, unitID string, propNames ...string,
 ) (*ShardReindexTaskGeneric, *testEnableFilterableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testEnableFilterableStrategyWrapper{
@@ -73,7 +73,7 @@ func newEnableFilterableTaskAtGeneration(t *testing.T, idx *Index, className str
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-enable-filterable", Version: uint64(generation)},
-		"shard-1__node-0",
+		unitID,
 		&ReindexTaskPayload{MigrationType: ReindexTypeEnableFilterable},
 	)
 	return task, wrapped
@@ -134,7 +134,7 @@ func TestRecoveryConvergence_EnableFilterable_Baseline(t *testing.T) {
 	require.Nilf(t, preBucket,
 		"pre-migration filterable bucket must be absent (IndexFilterable=false on class)")
 
-	task, wrapped := newEnableFilterableTask(t, idx, className, propName)
+	task, wrapped := newEnableFilterableTask(t, idx, className, shard.migrationUnit(), propName)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))

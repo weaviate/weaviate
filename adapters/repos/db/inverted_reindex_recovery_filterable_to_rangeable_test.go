@@ -165,7 +165,7 @@ func filterableToRangeableFingerprint(t *testing.T, b *lsmkv.Bucket) map[uint64]
 //  2. The OnMigrationComplete observer is a flag setter, so the baseline
 //     test can assert the hook fired without needing a real RAFT/schema
 //     wire-up.
-func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName string) (*ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
+func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName, unitID string) (*ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testFilterableToRangeableStrategyWrapper{
 		FilterableToRangeableStrategy: FilterableToRangeableStrategy{
@@ -199,7 +199,7 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-filterable-to-rangeable", Version: 1},
-		"shard-1__node-0",
+		unitID,
 		&ReindexTaskPayload{MigrationType: ReindexTypeEnableRangeable},
 	)
 	return task, wrapped
@@ -265,7 +265,7 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 	require.Nil(t, shard.store.Bucket(rangeBucketName),
 		"pre-migration rangeable bucket must NOT exist (IndexRangeFilters defaults to false)")
 
-	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
+	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)

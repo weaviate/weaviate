@@ -103,17 +103,24 @@ func newTestClassWithProps(className string, propNames []string) *models.Class {
 	}
 }
 
-func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardReindexTaskGeneric {
-	return newTestTaskWithGuard(logger, strategy, defaultIndexClosingGuard)
+// testMigrationUnitFor derives the unit identity of shardName the same way the
+// shard derives its own, so records a test task writes are the shard's own and
+// survive the record store's foreign-unit filter on reload.
+func testMigrationUnitFor(idx *Index, shardName string) string {
+	return MigrationUnitID(shardName, idx.getSchema.NodeName())
+}
+
+func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy, unitID string) *ShardReindexTaskGeneric {
+	return newTestTaskWithGuard(logger, strategy, defaultIndexClosingGuard, unitID)
 }
 
 func newTestTaskWithGuard(logger logrus.FieldLogger, strategy MigrationStrategy,
-	closingGuard indexClosingGuard,
+	closingGuard indexClosingGuard, unitID string,
 ) *ShardReindexTaskGeneric {
 	task := newTestTaskWithoutIdentity(logger, strategy, closingGuard)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-reindex-task", Version: 1},
-		"shard-1__node-0",
+		unitID,
 		&ReindexTaskPayload{MigrationType: ReindexTypeChangeAlgorithm},
 	)
 	return task
@@ -157,7 +164,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 
 	// Start migration (reloadShards=false → runtime swap)
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
@@ -251,7 +258,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
 	for {
@@ -268,7 +275,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	require.NoError(t, shard.Shutdown(ctx))
 
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2)
+	task2 := newTestTask(idx.logger, strategy2, testMigrationUnitFor(idx, shardName))
 	idx.shardReindexer = &testShardReindexer{task: task2}
 
 	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
@@ -335,7 +342,7 @@ func TestRunSwapOnShard_RecordAwareDispatch(t *testing.T) {
 
 			driver := newTestTask(idx.logger, &testMigrationStrategy{
 				MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1},
-			})
+			}, shard.migrationUnit())
 			tc.driveTo(t, ctx, driver, shard)
 
 			rec, ok := shard.migrationRecords.Get(driver.migrationRecordKey())
@@ -344,7 +351,7 @@ func TestRunSwapOnShard_RecordAwareDispatch(t *testing.T) {
 				"the drive landed somewhere other than the state this row dispatches from")
 
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-			task := newTestTask(idx.logger, strategy)
+			task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 			require.NoErrorf(t, task.RunSwapOnShard(ctx, shard),
 				"RunSwapOnShard should succeed from the %s state", tc.wantState)
 
@@ -398,7 +405,7 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 
 	var (
 		hookMu        sync.Mutex

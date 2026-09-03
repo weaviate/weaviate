@@ -31,7 +31,7 @@ import (
 // behind `repair-filterable`). Inline runtimeSwap path.
 
 // newRoaringSetRefreshTask wraps RoaringSetRefreshStrategy.
-func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneric, *roaringSetRefreshStrategyWrapper) {
+func newRoaringSetRefreshTask(t *testing.T, idx *Index, unitID string) (*ShardReindexTaskGeneric, *roaringSetRefreshStrategyWrapper) {
 	t.Helper()
 	wrapped := &roaringSetRefreshStrategyWrapper{
 		RoaringSetRefreshStrategy: RoaringSetRefreshStrategy{
@@ -52,7 +52,7 @@ func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneri
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-roaringset-refresh", Version: 1},
-		"shard-1__node-0",
+		unitID,
 		&ReindexTaskPayload{MigrationType: ReindexTypeRepairFilterable},
 	)
 	return task, wrapped
@@ -92,7 +92,7 @@ func computeRoaringSetRefreshBaseline(t *testing.T, propName string, numObjects 
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	task, _ := newRoaringSetRefreshTask(t, idx)
+	task, _ := newRoaringSetRefreshTask(t, idx, shard.migrationUnit())
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -137,7 +137,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 	require.NotEmpty(t, preFP,
 		"pre-migration filterable fingerprint must be non-empty")
 
-	task, wrapped := newRoaringSetRefreshTask(t, idx)
+	task, wrapped := newRoaringSetRefreshTask(t, idx, shard.migrationUnit())
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -254,7 +254,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 
 			// Phase 1: drive the migration to the case-specific state
 			// using the production code path.
-			task, _ := newRoaringSetRefreshTask(t, idx)
+			task, _ := newRoaringSetRefreshTask(t, idx, shard.migrationUnit())
 			tc.driveToState(t, ctx, shard, task)
 
 			rec, ok := task.migrationRecord(shard)
@@ -275,7 +275,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
-			task2, _ := newRoaringSetRefreshTask(t, idx)
+			task2, _ := newRoaringSetRefreshTask(t, idx, testMigrationUnitFor(idx, shardName))
 			task2.skipSwapOnFinish.Store(false)
 			idx.shardReindexer = &testShardReindexer{task: task2}
 

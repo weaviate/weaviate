@@ -69,13 +69,13 @@ func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint6
 // SearchableRetokenizeStrategy in test scaffolding. Semantic
 // migration: swap is driven via RunReindexOnly/RunPrepare/RunSwap on
 // each shard, not the inline runtimeSwap used by MapToBlockmax.
-func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, bucketStrategy string) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
+func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, bucketStrategy, unitID string) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
 	t.Helper()
-	return newSearchableRetokenizeTaskAtGeneration(t, idx, className, propName, targetTokenization, bucketStrategy, 1)
+	return newSearchableRetokenizeTaskAtGeneration(t, idx, className, propName, targetTokenization, bucketStrategy, 1, unitID)
 }
 
 func newSearchableRetokenizeTaskAtGeneration(t *testing.T, idx *Index, className, propName,
-	targetTokenization, bucketStrategy string, generation int,
+	targetTokenization, bucketStrategy string, generation int, unitID string,
 ) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
 	t.Helper()
 	wrapped := &testSearchableRetokenizeStrategyWrapper{
@@ -101,7 +101,7 @@ func newSearchableRetokenizeTaskAtGeneration(t *testing.T, idx *Index, className
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-searchable-retokenize", Version: uint64(generation)},
-		"shard-1__node-0",
+		unitID,
 		&ReindexTaskPayload{
 			MigrationType:      ReindexTypeChangeTokenization,
 			TargetTokenization: targetTokenization,
@@ -169,7 +169,7 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	require.Equal(t, lsmkv.StrategyMapCollection, preBucket.Strategy())
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -220,7 +220,7 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)

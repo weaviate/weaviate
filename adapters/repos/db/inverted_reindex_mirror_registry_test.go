@@ -181,7 +181,7 @@ func TestMigrationMirrorDisarmIsPerProperty(t *testing.T) {
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
-	task, _ := newEnableFilterableTask(t, idx, className, retired, kept)
+	task, _ := newEnableFilterableTask(t, idx, className, shard.migrationUnit(), retired, kept)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
 	registry := shard.migrationMirrorRegistry()
@@ -235,7 +235,7 @@ func TestRegistrationRollbackDisarmsOnlyWhatItArmed(t *testing.T) {
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
-	task, _ := newEnableFilterableTask(t, idx, className, rolledBack, untouched)
+	task, _ := newEnableFilterableTask(t, idx, className, shard.migrationUnit(), rolledBack, untouched)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
 	registry := shard.migrationMirrorRegistry()
@@ -272,7 +272,7 @@ func TestArmingTheMirrorRefusesAPropertyWithNoStagedBucket(t *testing.T) {
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
-	task, _ := newEnableFilterableTask(t, idx, className, armedProp)
+	task, _ := newEnableFilterableTask(t, idx, className, shard.migrationUnit(), armedProp)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
 	registry := shard.migrationMirrorRegistry()
@@ -365,10 +365,10 @@ func TestOverlappingMirrorsOnOneProperty(t *testing.T) {
 
 			bucketStrategy := shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)).Strategy()
 			predecessor, _ := newSearchableRetokenizeTaskAtGeneration(t, idx, className, propName,
-				models.PropertyTokenizationField, bucketStrategy, 1)
+				models.PropertyTokenizationField, bucketStrategy, 1, shard.migrationUnit())
 			require.NoError(t, predecessor.OnAfterLsmInit(ctx, shard))
 			successor, _ := newSearchableRetokenizeTaskAtGeneration(t, idx, className, propName,
-				models.PropertyTokenizationField, bucketStrategy, 2)
+				models.PropertyTokenizationField, bucketStrategy, 2, shard.migrationUnit())
 			require.NoError(t, successor.OnAfterLsmInit(ctx, shard))
 			require.Equal(t, 2, shard.migrationMirrorRegistry().ArmedMigrationMirrors(),
 				"two migrations on one property is the steady state under test")

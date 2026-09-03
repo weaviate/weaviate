@@ -73,7 +73,7 @@ func newEnableSearchableTestClass(className string, propNames []string) *models.
 // would let the test pass while production fails the same convergence
 // invariant.
 func newEnableSearchableTask(
-	t *testing.T, idx *Index, className, propName, tokenization string,
+	t *testing.T, idx *Index, className, propName, tokenization, unitID string,
 ) (*ShardReindexTaskGeneric, *testEnableSearchableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testEnableSearchableStrategyWrapper{
@@ -106,7 +106,7 @@ func newEnableSearchableTask(
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-enable-searchable", Version: 1},
-		"shard-1__node-0",
+		unitID,
 		&ReindexTaskPayload{
 			MigrationType:      ReindexTypeEnableSearchable,
 			TargetTokenization: tokenization,
@@ -159,7 +159,7 @@ func TestRecoveryConvergence_EnableSearchable_Baseline(t *testing.T) {
 		"pre-migration searchable bucket must NOT exist (IndexSearchable=false)")
 
 	task, wrapped := newEnableSearchableTask(t, idx, className, propName,
-		models.PropertyTokenizationWord)
+		models.PropertyTokenizationWord, shard.migrationUnit())
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))

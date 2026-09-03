@@ -71,7 +71,7 @@ func newRebuildSearchableTestClass(className string, propNames []string) *models
 // schema-stable). Config mirrors blockmaxSearchableTaskConfig with
 // selection enabled so selectedProps picks up the requested
 // property even though discovery-by-strategy would also find it.
-func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName string) (*ShardReindexTaskGeneric, *testRebuildSearchableStrategyWrapper) {
+func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName, unitID string) (*ShardReindexTaskGeneric, *testRebuildSearchableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testRebuildSearchableStrategyWrapper{
 		RebuildSearchableStrategy: RebuildSearchableStrategy{
@@ -101,7 +101,7 @@ func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName stri
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-rebuild-searchable", Version: 1},
-		"shard-1__node-0",
+		unitID,
 		&ReindexTaskPayload{MigrationType: ReindexTypeRebuildSearchable},
 	)
 	return task, wrapped
@@ -143,7 +143,7 @@ func computeRebuildSearchableBaseline(t *testing.T, propName string, numObjects 
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	task, _ := newRebuildSearchableTask(t, idx, className, propName)
+	task, _ := newRebuildSearchableTask(t, idx, className, propName, shard.migrationUnit())
 
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
@@ -185,7 +185,7 @@ func TestRecoveryConvergence_RebuildSearchable_Baseline(t *testing.T) {
 	require.NotEmpty(t, preFP,
 		"pre-migration searchable fingerprint must be non-empty (objects already inserted)")
 
-	task, wrapped := newRebuildSearchableTask(t, idx, className, propName)
+	task, wrapped := newRebuildSearchableTask(t, idx, className, propName, shard.migrationUnit())
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
@@ -271,7 +271,7 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
 
-			task, _ := newRebuildSearchableTask(t, idx, className, propName)
+			task, _ := newRebuildSearchableTask(t, idx, className, propName, shard.migrationUnit())
 
 			tc.driveToState(t, ctx, shard, task)
 
@@ -283,7 +283,7 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
-			task2, _ := newRebuildSearchableTask(t, idx, className, propName)
+			task2, _ := newRebuildSearchableTask(t, idx, className, propName, testMigrationUnitFor(idx, shardName))
 			idx.shardReindexer = &testShardReindexer{task: task2}
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)

@@ -52,7 +52,7 @@ type dispatchMatrixStrategyCase struct {
 	// migration. Each cell builds a new shard + task; the task is the
 	// same instance used for both driveToState and RunSwapOnShard
 	// (mirroring the production "cached task" preservation rule).
-	buildTask func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric
+	buildTask func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric
 	// fingerprintBucketName returns the canonical bucket name whose
 	// post-migration content we compare against the baseline. For
 	// EnableSearchable / RebuildSearchable / SearchableRetokenize this
@@ -86,11 +86,11 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, _, _ string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, _, _, unitID string) *ShardReindexTaskGeneric {
 				strategy := &testMigrationStrategy{
 					MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1},
 				}
-				return newTestTask(idx.logger, strategy)
+				return newTestTask(idx.logger, strategy, unitID)
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
 			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
@@ -103,8 +103,8 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newRebuildSearchableTestClass(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-				task, _ := newRebuildSearchableTask(t, idx, className, propName)
+			buildTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newRebuildSearchableTask(t, idx, className, propName, unitID)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
@@ -118,8 +118,8 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, _, _ string) *ShardReindexTaskGeneric {
-				task, _ := newRoaringSetRefreshTask(t, idx)
+			buildTask: func(t *testing.T, idx *Index, _, _, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newRoaringSetRefreshTask(t, idx, unitID)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketFromPropNameLSM,
@@ -133,8 +133,8 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newFilterableToRangeableTestClass(className), filterableToRangeablePropName
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-				task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+			buildTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newFilterableToRangeableTask(t, idx, className, propName, unitID)
 				return task
 			},
 			// FilterableToRangeable's target bucket is the rangeable
@@ -155,8 +155,8 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newEnableFilterableTestClass(className, "title"), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-				task, _ := newEnableFilterableTask(t, idx, className, propName)
+			buildTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, unitID, propName)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketFromPropNameLSM,
@@ -170,9 +170,9 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newEnableSearchableTestClass(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
 				task, _ := newEnableSearchableTask(t, idx, className, propName,
-					models.PropertyTokenizationWord)
+					models.PropertyTokenizationWord, unitID)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
@@ -186,9 +186,9 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
 				task, _ := newFilterableRetokenizeTask(t, idx, className, propName,
-					models.PropertyTokenizationField)
+					models.PropertyTokenizationField, unitID)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketFromPropNameLSM,
@@ -202,7 +202,7 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
 				// SearchableRetokenize needs to know the source bucket
 				// strategy (MapCollection here, given UsingBlockMaxWAND=false
 				// in newTestClassWithProps). Resolve it from the live shard
@@ -210,6 +210,7 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 				task, _ := newSearchableRetokenizeTask(t, idx, className, propName,
 					models.PropertyTokenizationField,
 					dispatchMatrixSearchableSourceStrategy(t, idx, className, propName),
+					unitID,
 				)
 				return task
 			},
@@ -344,7 +345,7 @@ func dispatchMatrixComputeBaseline(
 
 	dispatchMatrixSeedObjects(t, ctx, shard, sc, className, numObjects)
 
-	task := sc.buildTask(t, idx, className, propName)
+	task := sc.buildTask(t, idx, className, propName, shard.migrationUnit())
 	dispatchMatrixDriveToSwapped(t, ctx, shard, task, sc.path)
 
 	rec := dispatchMatrixRecordOf(t, shard, task)
@@ -415,7 +416,7 @@ func dispatchMatrixRunCell(
 
 	dispatchMatrixSeedObjects(t, ctx, shard, sc, className, numObjects)
 
-	task := sc.buildTask(t, idx, className, propName)
+	task := sc.buildTask(t, idx, className, propName, shard.migrationUnit())
 
 	dispatchMatrixDriveCell(t, ctx, shard, task, sc.path, state)
 

@@ -46,7 +46,7 @@ func runTornStateMigrationToIterated(t *testing.T, ctx context.Context,
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 	task.skipSwapOnFinish.Store(true) // halt at a complete rebuild, BEFORE the swap
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
@@ -79,7 +79,7 @@ func tornGuardReload(t *testing.T, ctx context.Context, shard *Shard, idx *Index
 
 	task := newTestTask(idx.logger, &testMigrationStrategy{
 		MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1},
-	})
+	}, testMigrationUnitFor(idx, shardName))
 	idx.shardReindexer = &testShardReindexer{task: task}
 
 	shd, err := idx.initShard(ctx, shardName, class, nil, true, true)

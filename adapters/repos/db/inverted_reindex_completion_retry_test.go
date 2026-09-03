@@ -61,8 +61,8 @@ func TestCompletionRetriesAfterASchemaEffectFailure(t *testing.T) {
 				class.Properties[0].IndexRangeFilters = &on
 				return nil
 			}
-			newTask := func(idx *Index) *ShardReindexTaskGeneric {
-				task, wrapper := newFilterableToRangeableTask(t, idx, class.Class, propName)
+			newTask := func(idx *Index, unitID string) *ShardReindexTaskGeneric {
+				task, wrapper := newFilterableToRangeableTask(t, idx, class.Class, propName, unitID)
 				wrapper.onComplete = effect
 				return task
 			}
@@ -71,7 +71,7 @@ func TestCompletionRetriesAfterASchemaEffectFailure(t *testing.T) {
 			shard := shd.(*Shard)
 			putRangeableTestObjects(t, ctx, shard, class.Class, 25)
 
-			task := newTask(idx)
+			task := newTask(idx, shard.migrationUnit())
 			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 			require.Error(t, task.RunSwapOnShard(ctx, shard),
@@ -104,7 +104,7 @@ func TestCompletionRetriesAfterASchemaEffectFailure(t *testing.T) {
 			defer post.Shutdown(ctx)
 
 			refuse = false
-			err := test.reenter(ctx, newTask(idx), post)
+			err := test.reenter(ctx, newTask(idx, post.migrationUnit()), post)
 			if test.destroyFirst {
 				require.Error(t, err, "the migration was reported complete over a directory nothing serves")
 				require.Zero(t, committed)

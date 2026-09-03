@@ -30,7 +30,7 @@ func TestPromotedCompletionServesTheIndexItAdvertises(t *testing.T) {
 	tests := []struct {
 		name      string
 		class     func(className string) *models.Class
-		newTask   func(t *testing.T, idx *Index, className string) *ShardReindexTaskGeneric
+		newTask   func(t *testing.T, idx *Index, className, unitID string) *ShardReindexTaskGeneric
 		enable    func(prop *models.Property)
 		canonical func(propName string) string
 		serves    func(t *testing.T, b *lsmkv.Bucket) map[string][]uint64
@@ -38,8 +38,8 @@ func TestPromotedCompletionServesTheIndexItAdvertises(t *testing.T) {
 		{
 			name:  "enable-filterable",
 			class: func(cn string) *models.Class { return newEnableFilterableTestClass(cn, propName) },
-			newTask: func(t *testing.T, idx *Index, cn string) *ShardReindexTaskGeneric {
-				task, _ := newEnableFilterableTask(t, idx, cn, propName)
+			newTask: func(t *testing.T, idx *Index, cn, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, cn, unitID, propName)
 				return task
 			},
 			enable:    func(p *models.Property) { p.IndexFilterable = boolPtr(true) },
@@ -49,8 +49,8 @@ func TestPromotedCompletionServesTheIndexItAdvertises(t *testing.T) {
 		{
 			name:  "enable-searchable",
 			class: func(cn string) *models.Class { return newEnableSearchableTestClass(cn, []string{propName}) },
-			newTask: func(t *testing.T, idx *Index, cn string) *ShardReindexTaskGeneric {
-				task, _ := newEnableSearchableTask(t, idx, cn, propName, models.PropertyTokenizationWord)
+			newTask: func(t *testing.T, idx *Index, cn, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newEnableSearchableTask(t, idx, cn, propName, models.PropertyTokenizationWord, unitID)
 				return task
 			},
 			enable:    func(p *models.Property) { p.IndexSearchable = boolPtr(true) },
@@ -71,7 +71,7 @@ func TestPromotedCompletionServesTheIndexItAdvertises(t *testing.T) {
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
 
-			task := tc.newTask(t, idx, className)
+			task := tc.newTask(t, idx, className, shard.migrationUnit())
 			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 			require.NoError(t, task.RunSwapOnShard(ctx, shard))

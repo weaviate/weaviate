@@ -175,6 +175,7 @@ func TestReconcileWithoutADatabaseHandle(t *testing.T) {
 			defer shard.Shutdown(context.Background())
 
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, propName)
+			subject.Key.UnitID = shard.migrationUnit()
 			require.NoError(t, shard.migrationRecords.Put(tt.rec(subject)))
 			for _, dir := range migrationOwnedDirs(subject) {
 				require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), dir), 0o777))

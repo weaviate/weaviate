@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -63,7 +64,7 @@ func TestCheckpointNeverOutrunsThePostingsItVouchesFor(t *testing.T) {
 			shard := shd.(*Shard)
 			defer shard.Shutdown(context.Background())
 
-			task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+			task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
 			rec, ok := task.migrationRecord(shard)
@@ -80,10 +81,13 @@ func TestCheckpointNeverOutrunsThePostingsItVouchesFor(t *testing.T) {
 			}
 
 			if tt.poisonStore {
-				foreign := subject
-				foreign.Key.UnitID = "shard-9__node-9"
-				require.NoError(t, shard.migrationRecords.Put(
-					NewMigrationRecordIterating(foreign, MigrationCheckpoint{})))
+				// An unreadable record file freezes the store: it refuses every
+				// write while any record cannot be read. A foreign-unit record
+				// would not do — the loader sets those aside without freezing.
+				require.NoError(t, os.MkdirAll(shard.migrationRecords.Dir(), 0o755))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(shard.migrationRecords.Dir(), "99_enable_searchable.json"),
+					[]byte("{"), 0o600))
 				require.NoError(t, shard.migrationRecords.Load())
 			}
 

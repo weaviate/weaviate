@@ -83,7 +83,7 @@ func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 			}
 
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-			task := newTestTask(idx.logger, strategy)
+			task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 
 			task.skipSwapOnFinish.Store(true)
 			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
@@ -140,7 +140,7 @@ func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 			simulateProcessRestartBucketCleanup(t, shardLSMPath)
 
 			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-			task2 := newTestTask(idx.logger, strategy2)
+			task2 := newTestTask(idx.logger, strategy2, testMigrationUnitFor(idx, shardName))
 			task2.skipSwapOnFinish.Store(false)
 			idx.shardReindexer = &testShardReindexer{task: task2}
 

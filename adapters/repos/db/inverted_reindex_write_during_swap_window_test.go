@@ -85,7 +85,7 @@ func (sc swapWindowScenario) run(t *testing.T) *lsmkv.Bucket {
 	}
 	// objs[0] carries value 0 (0 % numDistinct); the injected op targets it.
 
-	task, _ := newFilterableToRangeableTask(t, idx, className, filterableToRangeablePropName)
+	task, _ := newFilterableToRangeableTask(t, idx, className, filterableToRangeablePropName, shard.migrationUnit())
 
 	injected := false
 	origSwap := task.processOneSwapPropFn

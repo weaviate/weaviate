@@ -97,7 +97,7 @@ func testRegistrationGapWritesSurvive(t *testing.T,
 		}))
 	}
 
-	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
+	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 
 	gapWritesDone := false
 	origRegister := task.registerDoubleWriteCallbacksFn

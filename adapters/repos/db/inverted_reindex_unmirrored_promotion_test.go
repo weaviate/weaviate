@@ -45,7 +45,7 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 			unmirrored:    true,
 			canonicalDir:  true,
 			wantState:     MigrationStateSwapped,
-			wantCanonical: "property_title",
+			wantCanonical: "property_title_searchable",
 		},
 		{
 			name:          "unmirrored, but the flip already moved the pointer off the canonical dir: nothing to lose",
@@ -62,14 +62,15 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
 			subject.Unmirrored = tt.unmirrored
+			canonical := subject.Props["title"].Canonical
 
 			present := []string{"property_title__g42_ingest"}
 			if tt.canonicalDir {
-				present = append(present, "property_title")
+				present = append(present, canonical)
 			}
 			f.mkdirs(present...)
 			f.put(NewMigrationRecordSwapped(subject, []string{"title"},
-				map[string]string{"title": "property_title"}))
+				map[string]string{"title": canonical}))
 
 			f.reconcile()
 
@@ -78,7 +79,7 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 			require.Equal(t, tt.wantState, state)
 			// mkdirs stamps each directory's own name into its segment file, so
 			// this reads which directory now answers to the canonical name.
-			require.Equal(t, tt.wantCanonical, f.contentOf("property_title"))
+			require.Equal(t, tt.wantCanonical, f.contentOf(canonical))
 		})
 	}
 }

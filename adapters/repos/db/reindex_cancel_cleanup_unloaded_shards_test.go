@@ -46,9 +46,9 @@ func mustMainBucket(t *testing.T, propName, indexType string) string {
 	return name
 }
 
-func mkFlippedMigrationRecord(t *testing.T, lsmPath, trackerName, prop, staged, canonical string) {
+func mkFlippedMigrationRecord(t *testing.T, lsmPath, unitID, trackerName, prop, staged, canonical string) {
 	t.Helper()
-	mkMigrationRecordAt(t, lsmPath, "shard-1__node-0", trackerName,
+	mkMigrationRecordAt(t, lsmPath, unitID, trackerName,
 		map[string]string{prop: staged}, map[string]string{prop: canonical}, MigrationStateSwapped)
 }
 
@@ -256,8 +256,8 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 
 			residueLSM := shardPathLSM(idx.path(), residueTenant)
 			mkTrackerDir(t, residueLSM, tc.tracker)
-			mkFlippedMigrationRecord(t, residueLSM, tc.tracker, tc.propName,
-				tc.ingestDir, tc.canonical)
+			mkFlippedMigrationRecord(t, residueLSM, testMigrationUnitFor(idx, residueTenant),
+				tc.tracker, tc.propName, tc.ingestDir, tc.canonical)
 			mkBucketDir(t, residueLSM, tc.ingestDir, promoted)
 			mkBucketDir(t, residueLSM, tc.legacyDir, "superseded.marker")
 
@@ -997,8 +997,8 @@ func TestCleanStalePartialReindexStateRemovesAReplacedBucketDir(t *testing.T) {
 			mkSidecarDir(t, lsm, leftover)
 			if tc.completedTracker != "" {
 				mkTrackerDir(t, lsm, tc.completedTracker)
-				mkFlippedMigrationRecord(t, lsm, tc.completedTracker, propName,
-					tc.liveSidecar, mainBucket)
+				mkFlippedMigrationRecord(t, lsm, shard.migrationUnit(), tc.completedTracker,
+					propName, tc.liveSidecar, mainBucket)
 				mkSidecarDir(t, lsm, tc.liveSidecar)
 			}
 
@@ -1138,7 +1138,7 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 			plantOnGateShard: func(t *testing.T, lsm string) {
 				const staged = "property_category__enable_filterable_ingest_1"
 				mkTrackerDir(t, lsm, tracker)
-				mkFlippedMigrationRecord(t, lsm, tracker, propName, staged, "property_category")
+				mkFlippedMigrationRecord(t, lsm, MigrationUnitID(gateShard, "node1"), tracker, propName, staged, "property_category")
 				mkSidecarDir(t, lsm, staged)
 			},
 		},

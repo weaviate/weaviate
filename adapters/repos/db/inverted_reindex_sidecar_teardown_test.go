@@ -47,7 +47,7 @@ func TestDisablingAnIndexUnderAnArmedMirrorKeepsWritesWorking(t *testing.T) {
 	}
 	require.NoError(t, put("alpha bravo charlie"))
 
-	task, _ := newEnableFilterableTask(t, idx, className, propName)
+	task, _ := newEnableFilterableTask(t, idx, className, shard.migrationUnit(), propName)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.Equal(t, 1, shard.migrationMirrors.ArmedMigrationMirrors(),

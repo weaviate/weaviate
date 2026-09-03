@@ -190,7 +190,7 @@ func TestShardLoadArmsTheMirrorForAnUnpromotedFlip(t *testing.T) {
 			shard := shd.(*Shard)
 			defer shard.Shutdown(context.Background())
 
-			task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+			task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 			subject := task.migrationSubject(shard, []string{propName}, time.Now())
 			require.NoError(t, task.putMigrationRecord(shard, tt.rec(subject)))
 			stagedDir := filepath.Join(shard.pathLSM(), subject.Props[propName].Staged)
@@ -280,7 +280,7 @@ func TestOnlyAPromotedFlipReportsRangeableReady(t *testing.T) {
 				require.NoError(t, shard.migrationRecords.Load())
 				require.NotEmpty(t, shard.migrationRecords.Unreadable())
 			} else {
-				task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+				task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 				subject := task.migrationSubject(shard, []string{propName}, time.Now())
 				require.NoError(t, task.putMigrationRecord(shard, tt.rec(subject)))
 			}

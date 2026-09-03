@@ -43,7 +43,7 @@ func TestBackToBackMigrationsRetireInProcess(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	failed, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 1, propName)
+	failed, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 1, shard.migrationUnit(), propName)
 	failed.processOneSwapPropFn = func(context.Context, *lsmkv.Store, int, string) (*lsmkv.Bucket, error) {
 		return nil, errors.New("injected swap failure")
 	}
@@ -58,7 +58,7 @@ func TestBackToBackMigrationsRetireInProcess(t *testing.T) {
 	failedStaged := failed.ingestBucketName(propName)
 	require.DirExists(t, filepath.Join(shard.pathLSM(), failedStaged))
 
-	successor, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 2, propName)
+	successor, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 2, shard.migrationUnit(), propName)
 	require.NoError(t, successor.RunReindexOnlyOnShard(ctx, shard))
 	require.Equal(t, 2, registry.ArmedMigrationMirrors(),
 		"two mirrors on one property are a steady state until the older one is superseded")
@@ -122,7 +122,7 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 			shard := shd.(*Shard)
 			defer shard.Shutdown(context.Background())
 
-			older, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 1, propName)
+			older, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 1, shard.migrationUnit(), propName)
 			staged := older.ingestBucketName(propName)
 			tracker := older.strategy.MigrationDirName()
 			require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), staged), 0o777))
@@ -140,7 +140,7 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 			}
 
 			logger, _ := test.NewNullLogger()
-			newer, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 2, propName)
+			newer, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 2, shard.migrationUnit(), propName)
 			newer.trimOlderGenerationsLocked(logger, shard, []string{propName})
 
 			require.Equal(t, tt.wantDir, dirExists(t, filepath.Join(shard.pathLSM(), staged)),
@@ -169,7 +169,7 @@ func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	predecessor, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 1, "title", "body")
+	predecessor, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 1, shard.migrationUnit(), "title", "body")
 	require.NoError(t, predecessor.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, predecessor.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, predecessor.RunSwapOnShard(ctx, shard))
@@ -180,7 +180,7 @@ func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
 
 	// Only "title" is superseded, so the predecessor keeps its record and goes
 	// on naming both staged directories.
-	successor, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 2, "title")
+	successor, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 2, shard.migrationUnit(), "title")
 	require.NoError(t, successor.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, successor.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, successor.RunSwapOnShard(ctx, shard))

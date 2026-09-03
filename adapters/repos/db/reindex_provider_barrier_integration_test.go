@@ -71,7 +71,7 @@ func barrierIntegrationDrivenToReindexed(
 ) (*ShardReindexTaskGeneric, *testMigrationStrategy) {
 	t.Helper()
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(logger, strategy)
+	task := newTestTask(logger, strategy, shard.migrationUnit())
 	task.skipSwapOnFinish.Store(true)
 
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
@@ -241,7 +241,7 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 	// Construct a task instance (matches what processOneUnit's
 	// createReindexTasks would produce for ChangeAlgorithm/MapToBlockmax).
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 
 	// Build a synthetic task + payload that processOneUnit would have
 	// constructed before calling persistRecoveryRecord.

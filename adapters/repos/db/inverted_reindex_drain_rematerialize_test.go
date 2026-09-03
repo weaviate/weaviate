@@ -72,7 +72,7 @@ func TestModeADrainRematerialize(t *testing.T) {
 			}
 
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-			task := newTestTaskWithGuard(idx.logger, strategy, blockingGuard)
+			task := newTestTaskWithGuard(idx.logger, strategy, blockingGuard, shard.migrationUnit())
 
 			// Arm a real migration with objects still to drain, so a worker
 			// that ignores the guard has bucket writes left to make. Without

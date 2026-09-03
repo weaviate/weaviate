@@ -27,7 +27,7 @@ import (
 // generation left to the caller, so one test can hold two generations of the
 // same task at once.
 func newRebuildSearchableTaskAtGen(t *testing.T, idx *Index, className, propName string,
-	generation int,
+	generation int, unitID string,
 ) *ShardReindexTaskGeneric {
 	t.Helper()
 	task := NewShardReindexTaskGeneric(
@@ -53,7 +53,7 @@ func newRebuildSearchableTaskAtGen(t *testing.T, idx *Index, className, propName
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-rebuild-searchable", Version: 1},
-		"shard-1__node-0",
+		unitID,
 		&ReindexTaskPayload{MigrationType: ReindexTypeRebuildSearchable},
 	)
 	return task
@@ -83,8 +83,8 @@ func runRetriedGenerationCase(t *testing.T, seamOnly bool) {
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
-	gen1 := newRebuildSearchableTaskAtGen(t, idx, className, propName, 1)
-	gen2 := newRebuildSearchableTaskAtGen(t, idx, className, propName, 2)
+	gen1 := newRebuildSearchableTaskAtGen(t, idx, className, propName, 1, shard.migrationUnit())
+	gen2 := newRebuildSearchableTaskAtGen(t, idx, className, propName, 2, shard.migrationUnit())
 	require.Equal(t, gen1.migrationRecordKey(), gen2.migrationRecordKey(),
 		"the two generations share one record key, which is what makes this reachable")
 

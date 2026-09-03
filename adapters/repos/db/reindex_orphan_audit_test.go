@@ -613,10 +613,11 @@ func mkAuditTracker(t *testing.T, lsmPath, trackerName, taskID string, taskVersi
 		Props:         map[string]MigrationPropertyDirs{},
 	}
 	for _, prop := range props {
+		staged := "property_" + prop + "_searchable__retokenize_ingest_1"
 		subject.Props[prop] = MigrationPropertyDirs{
-			Staged:    "property_" + prop + "_searchable__retokenize_ingest_1",
+			Staged:    staged,
 			Canonical: "property_" + prop + "_searchable",
-			Sidecar:   fixtureSidecarFor(subject.Props[prop].Staged),
+			Sidecar:   fixtureSidecarFor(staged),
 		}
 	}
 

@@ -215,14 +215,11 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 			name: "two strategies on one property settle into their own buckets",
 			plant: []plantedMigration{
 				{taskVersion: 10, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateMerged},
-				{
-					taskVersion: 11, code: StrategyCodeFilterableRetokenize, prop: "title",
-					canonical: "property_title_filterable", state: MigrationStateMerged,
-				},
+				{taskVersion: 11, code: StrategyCodeFilterableRetokenize, prop: "title", state: MigrationStateMerged},
 			},
 			wantCanonical: map[string]string{
-				"property_title":            "property_title__g10_ingest",
-				"property_title_filterable": "property_title__g11_ingest",
+				"property_title_searchable": "property_title__g10_ingest",
+				"property_title":            "property_title__g11_ingest",
 			},
 		},
 		{
@@ -233,9 +230,9 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 				{taskVersion: 22, code: StrategyCodeFilterableToRangeable, prop: "gamma", state: MigrationStateMerged},
 			},
 			wantCanonical: map[string]string{
-				"property_alpha": "property_alpha__g20_ingest",
-				"property_beta":  "property_beta__g21_ingest",
-				"property_gamma": "property_gamma__g22_ingest",
+				"property_alpha_searchable": "property_alpha__g20_ingest",
+				"property_beta":             "property_beta__g21_ingest",
+				"property_gamma_rangeable":  "property_gamma__g22_ingest",
 			},
 		},
 		{
@@ -248,8 +245,8 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 				},
 			},
 			wantCanonical: map[string]string{
-				"property_title": "property_title__g30_ingest",
-				"property_body":  "property_body",
+				"property_title_searchable": "property_title__g30_ingest",
+				"property_body_searchable":  "property_body_searchable",
 			},
 			wantStaged: []string{"property_body__g31_ingest"},
 		},
@@ -259,7 +256,7 @@ func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 				{taskVersion: 40, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateSwapped},
 				{taskVersion: 41, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateMerged},
 			},
-			wantCanonical: map[string]string{"property_title": "property_title__g41_ingest"},
+			wantCanonical: map[string]string{"property_title_searchable": "property_title__g41_ingest"},
 		},
 		{
 			name:          "a bucket no record names is left alone",

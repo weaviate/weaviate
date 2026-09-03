@@ -47,7 +47,8 @@ func TestPromotionNeverRenamesAStagedDirTheLoadCreated(t *testing.T) {
 	}
 
 	task := newTestTask(idx.logger,
-		&testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}})
+		&testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}},
+		shard.migrationUnit())
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -68,7 +69,8 @@ func TestPromotionNeverRenamesAStagedDirTheLoadCreated(t *testing.T) {
 		require.NoError(t, prev.Shutdown(ctx))
 		simulateProcessRestartBucketCleanup(t, lsmPath)
 		next := newTestTask(idx.logger,
-			&testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}})
+			&testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}},
+			testMigrationUnitFor(idx, shardName))
 		idx.shardReindexer = &testShardReindexer{task: next}
 		loaded, err := idx.initShard(ctx, shardName, class, nil, true, true)
 		require.NoError(t, err)
@@ -113,7 +115,7 @@ func TestRunSwapRefusesAPropertyItNeverFlipped(t *testing.T) {
 			}
 
 			swap, wrapper := newSearchableRetokenizeTask(t, idx, className, propName,
-				models.PropertyTokenizationField, preStrategy)
+				models.PropertyTokenizationField, preStrategy, cold.migrationUnit())
 			err := swap.RunSwapOnShard(ctx, cold)
 
 			if !test.wantErr {
@@ -161,7 +163,7 @@ func TestCompletionRefusesARecordNoPromotionSettled(t *testing.T) {
 			disableSearchableIndexOnProp(t, ctx, cold, propName)
 
 			swap, _ := newSearchableRetokenizeTask(t, idx, className, propName,
-				models.PropertyTokenizationField, preStrategy)
+				models.PropertyTokenizationField, preStrategy, cold.migrationUnit())
 			require.Error(t, swap.RunSwapOnShard(ctx, cold),
 				"fixture: the flip cannot run, but its decision is recorded write-ahead")
 
@@ -181,7 +183,7 @@ func TestCompletionRefusesARecordNoPromotionSettled(t *testing.T) {
 				"fixture: shard init must have re-created the canonical bucket empty")
 
 			reenter, wrapper := newSearchableRetokenizeTask(t, idx, className, propName,
-				models.PropertyTokenizationField, preStrategy)
+				models.PropertyTokenizationField, preStrategy, post.migrationUnit())
 			err = test.reenter(t, ctx, reenter, post)
 			require.Error(t, err,
 				"the migration was reported complete over an index nothing ever promoted")
@@ -205,7 +207,7 @@ func aColdShardWithMergedStagedData(t *testing.T, ctx context.Context, class *mo
 	canonical := helpers.BucketSearchableFromPropNameLSM(propName)
 	preStrategy := shard.store.Bucket(canonical).Strategy()
 	task, _ := newSearchableRetokenizeTask(t, idx, class.Class, propName,
-		models.PropertyTokenizationField, preStrategy)
+		models.PropertyTokenizationField, preStrategy, shard.migrationUnit())
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 

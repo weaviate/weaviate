@@ -75,7 +75,7 @@ func TestMirrorStragglerNeverWritesIntoLiveData(t *testing.T) {
 			}
 
 			task, _ := newFilterableRetokenizeTask(t, idx, className, propName,
-				models.PropertyTokenizationField)
+				models.PropertyTokenizationField, shard.migrationUnit())
 			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 
 			st := shard.loadPropValueIndexState()

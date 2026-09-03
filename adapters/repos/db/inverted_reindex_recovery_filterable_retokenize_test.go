@@ -64,7 +64,7 @@ func fingerprintRoaringSetBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uin
 // `targetTokenization` is the post-migration tokenization (e.g.
 // `models.PropertyTokenizationField` for word→field, the exact change
 // the production e2e tests exercise).
-func newFilterableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization string) (*ShardReindexTaskGeneric, *testFilterableRetokenizeStrategyWrapper) {
+func newFilterableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, unitID string) (*ShardReindexTaskGeneric, *testFilterableRetokenizeStrategyWrapper) {
 	t.Helper()
 	wrapped := &testFilterableRetokenizeStrategyWrapper{
 		FilterableRetokenizeStrategy: FilterableRetokenizeStrategy{
@@ -88,7 +88,7 @@ func newFilterableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 	)
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-filterable-retokenize", Version: 1},
-		"shard-1__node-0",
+		unitID,
 		&ReindexTaskPayload{
 			MigrationType:      ReindexTypeChangeTokenizationFilterable,
 			TargetTokenization: targetTokenization,
@@ -144,7 +144,7 @@ func TestRecoveryConvergence_FilterableRetokenize_Baseline(t *testing.T) {
 		"pre-migration filterable fingerprint must be non-empty (word tokenization)")
 
 	task, wrapped := newFilterableRetokenizeTask(t, idx, className, propName,
-		models.PropertyTokenizationField)
+		models.PropertyTokenizationField, shard.migrationUnit())
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))

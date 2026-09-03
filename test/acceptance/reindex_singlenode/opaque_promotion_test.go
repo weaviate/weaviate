@@ -60,7 +60,9 @@ func testPromotionRunsOnRecordedHandles(t *testing.T, compose *docker.DockerComp
 		"the fixture must serve before anything is moved")
 
 	container := compose.GetWeaviate().Container()
-	lsmPath := findShardPathInContainer(t, container, class) + "/lsm"
+	shardPath := findShardPathInContainer(t, container, class)
+	shardName := filepath.Base(shardPath)
+	lsmPath := shardPath + "/lsm"
 
 	handles := reindexrecords.HandlesFor(t, db.StrategyCodeFilterableRoaringsetRefresh,
 		"score", opaquePromotionGeneration)
@@ -72,7 +74,7 @@ func testPromotionRunsOnRecordedHandles(t *testing.T, compose *docker.DockerComp
 	require.NoError(t, err)
 	require.Zero(t, code, "moving the live bucket aside must succeed")
 
-	plantSwappedRecordAcrossRestart(t, compose, lsmPath, staged)
+	plantSwappedRecordAcrossRestart(t, compose, lsmPath, staged, shardName)
 
 	require.Equal(t, opaquePromotionObjectCount/2, rangeFilterHits(t, class, "score", 50),
 		"the recorded staged directory %q was not promoted to the canonical name; the "+
@@ -84,11 +86,11 @@ func testPromotionRunsOnRecordedHandles(t *testing.T, compose *docker.DockerComp
 	require.NotZero(t, code, "the staged directory must be gone once its data is at the canonical name")
 }
 
-func plantSwappedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose, lsmPath, staged string) {
+func plantSwappedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose, lsmPath, staged, shardName string) {
 	t.Helper()
 	ctx := context.Background()
 
-	subject := opaqueMigrationSubject(t, staged)
+	subject := opaqueMigrationSubject(t, staged, shardName)
 	recordName, record := reindexrecords.Encode(t, db.NewMigrationRecordSwapped(
 		subject, []string{"score"}, map[string]string{"score": subject.Props["score"].Canonical}))
 
@@ -111,7 +113,7 @@ func plantSwappedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose
 	require.NoError(t, compose.StartAt(ctx, 0), "restart after planting must succeed")
 }
 
-func opaqueMigrationSubject(t *testing.T, staged string) db.MigrationSubject {
+func opaqueMigrationSubject(t *testing.T, staged, shardName string) db.MigrationSubject {
 	t.Helper()
 
 	handles := reindexrecords.HandlesFor(t, db.StrategyCodeFilterableRoaringsetRefresh,
@@ -120,7 +122,10 @@ func opaqueMigrationSubject(t *testing.T, staged string) db.MigrationSubject {
 		Key: db.MigrationRecordKey{
 			TaskVersion:  4711,
 			StrategyCode: db.StrategyCodeFilterableRoaringsetRefresh,
-			UnitID:       "u0",
+			// The record store sets a record of any other unit aside as
+			// foreign on load, so the planted record must carry the shard's
+			// own identity for the reconciler to promote it.
+			UnitID: db.MigrationUnitID(shardName, docker.Weaviate0),
 		},
 		TaskID:          "opaque-promotion",
 		MigrationType:   db.ReindexTypeRepairFilterable,

@@ -43,8 +43,10 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 		prop   = "title"
 		node   = "node1"
 		tenant = "cold-shard"
-		unitID = "u1__node1"
 	)
+	// The unit is the tenant shard's own identity: its record store sets
+	// records of any other unit aside as foreign on load.
+	unitID := MigrationUnitID(tenant, node)
 	className := "SwapClaimOrder" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{prop})
 	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)

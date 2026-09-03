@@ -51,8 +51,10 @@ func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
 	}
 	for prop, dir := range staged {
 		subject.Props[prop] = MigrationPropertyDirs{
-			Staged:    dir,
-			Canonical: "property_" + prop,
+			Staged: dir,
+			// The canonical directory is the strategy's own source bucket;
+			// the record writer refuses any other name.
+			Canonical: sourceBucketNameFor(code, prop),
 			Sidecar:   fixtureSidecarFor(dir),
 		}
 	}

@@ -38,10 +38,10 @@ import (
 // narrow to hit black-box.
 
 // newRangeableInMemoryTestTask installs a fault-injecting rebuildRangeableRepFn.
-func newRangeableInMemoryTestTask(t *testing.T, idx *Index, className, propName string, failing *atomic.Bool, calls *atomic.Int32,
+func newRangeableInMemoryTestTask(t *testing.T, idx *Index, className, propName, unitID string, failing *atomic.Bool, calls *atomic.Int32,
 ) (*ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
 	t.Helper()
-	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
+	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName, unitID)
 	task.rebuildRangeableRepFn = func(ctx context.Context, b *lsmkv.Bucket) error {
 		calls.Add(1)
 		if failing.Load() {
@@ -131,7 +131,7 @@ func setupRangeableFinalizeDegradeFixture(t *testing.T, classNamePrefix string) 
 	failing.Store(true)
 	calls := &atomic.Int32{}
 
-	task, wrapped := newRangeableInMemoryTestTask(t, idx, className, propName, failing, calls)
+	task, wrapped := newRangeableInMemoryTestTask(t, idx, className, propName, shard.migrationUnit(), failing, calls)
 	require.NoError(t, runReindexToCompletionOrError(t, ctx, task, shard),
 		"a non-cancellation rebuild failure must not fail the migration")
 
@@ -185,13 +185,13 @@ func TestRangeableFinalize_RebuildCancellation_RoutesTransient(t *testing.T) {
 	// Drive the migration to completion first so the rangeable bucket
 	// exists: cancellation must route through the rebuild-error branch
 	// here, not the (separately tested) nil-bucket branch.
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 	require.NoError(t, runReindexToCompletionOrError(t, ctx, task, shard))
 
 	bucketName := task.strategy.SourceBucketName(propName)
 	require.NotNil(t, shard.Store().Bucket(bucketName), "precondition: bucket must exist post-swap")
 
-	task2, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task2, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 	task2.rebuildRangeableRepFn = func(ctx context.Context, b *lsmkv.Bucket) error {
 		return fmt.Errorf("injected fault under cancellation")
 	}
@@ -214,7 +214,7 @@ func TestRangeableFinalize_DataWorkFailure_StillFAILED(t *testing.T) {
 	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableDataWorkFail_")
 	putRangeableTestObjects(t, ctx, shard, className, 5)
 
-	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
+	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 	task.processOneSwapPropFn = func(_ context.Context, _ *lsmkv.Store, _ int, _ string) (*lsmkv.Bucket, error) {
 		return nil, fmt.Errorf("injected data-work swap failure")
 	}
@@ -243,7 +243,7 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	// cluster-wide RAFT commit of IndexRangeFilters=true that a real
 	// cluster's first-successful-shard triggers.
 	ctxA, shardA, idxA, classNameA := newReplica("RangeableMultiReplicaA_")
-	taskA, wrappedA := newFilterableToRangeableTask(t, idxA, classNameA, propName)
+	taskA, wrappedA := newFilterableToRangeableTask(t, idxA, classNameA, propName, shardA.migrationUnit())
 	require.NoError(t, runReindexToCompletionOrError(t, ctxA, taskA, shardA))
 	require.True(t, wrappedA.migrationCompleted)
 
@@ -261,7 +261,7 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	failing := &atomic.Bool{}
 	failing.Store(true)
 	calls := &atomic.Int32{}
-	taskB, wrappedB := newRangeableInMemoryTestTask(t, idxB, classNameB, propName, failing, calls)
+	taskB, wrappedB := newRangeableInMemoryTestTask(t, idxB, classNameB, propName, shardB.migrationUnit(), failing, calls)
 	require.NoError(t, runReindexToCompletionOrError(t, ctxB, taskB, shardB),
 		"a non-cancellation rebuild failure must not fail the migration")
 	require.True(t, wrappedB.migrationCompleted,
@@ -283,7 +283,7 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	shardName := shardB.Name()
 	require.NoError(t, shardB.Shutdown(ctxB))
 
-	taskB2, _ := newFilterableToRangeableTask(t, idxB, classNameB, propName)
+	taskB2, _ := newFilterableToRangeableTask(t, idxB, classNameB, propName, testMigrationUnitFor(idxB, shardName))
 	idxB.shardReindexer = &testShardReindexer{task: taskB2}
 
 	migratedClass := newFilterableToRangeableTestClass(classNameB)
@@ -312,7 +312,7 @@ func TestRebuildRangeableInMemoryReps_NilBucketRoutesContextCancellation(t *test
 	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableNilBucketCtxCancel_")
 	putRangeableTestObjects(t, ctx, shard, className, 5)
 
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 
 	// A prop whose bucket was never created: store.Bucket(...) returns nil
 	// for it regardless of context state, giving a deterministic nil-bucket
@@ -345,7 +345,7 @@ func TestRebuildRangeableInMemoryReps_NilBucketDegradesWithoutCancellation(t *te
 
 	putRangeableTestObjects(t, ctx, shard, className, 5)
 
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 
 	missingPropName := "never_created_prop"
 	require.Nil(t, shard.Store().Bucket(task.strategy.SourceBucketName(missingPropName)))
