@@ -13,6 +13,7 @@ package db
 
 import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 )
@@ -69,7 +70,7 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 			indexID + ".queue.d",
 			// flat.Drop removes this on the live path only; the files-only
 			// paths leave it, same gap as the queue directory above.
-			helpers.FlatMetadataFileNameForID(indexID),
+			flat.FlatMetadataFileNameForID(indexID),
 		},
 	}
 }

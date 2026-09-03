@@ -20,7 +20,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -67,7 +66,7 @@ type RQ8Data struct {
 }
 
 func (index *flat) getMetadataFile() string {
-	return helpers.FlatMetadataFileNameForID(index.id)
+	return FlatMetadataFileNameForID(index.id)
 }
 
 func (index *flat) removeMetadataFile(keepFiles bool) error {

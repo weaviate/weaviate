@@ -173,7 +173,7 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 	t.Run("target vector file validation", func(t *testing.T) {
 		// getMetadataFile derives from the physical ID now, not TargetVector
 		// directly, so the path-escaping value arrives via the ID's
-		// "vectors_<suffix>" shape. helpers.FlatMetadataFileName delegates to
+		// "vectors_<suffix>" shape. FlatMetadataFileName delegates to
 		// flatent.MetadataFileName, so the Clean/Base sanitization still runs.
 		index.id = "vectors_./../foo"
 		require.Equal(t, "meta_foo.db", index.getMetadataFile())

@@ -17,7 +17,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
 var (
@@ -81,12 +80,6 @@ func CompressedBucketNameForID(physicalID string) string {
 	return GetCompressedBucketName(PhysicalIDSuffix(physicalID))
 }
 
-// FlatMetadataFileNameForID names the flat index's quantization metadata
-// file for a physical index ID.
-func FlatMetadataFileNameForID(physicalID string) string {
-	return FlatMetadataFileName(PhysicalIDSuffix(physicalID))
-}
-
 // HFresh keeps more on-disk state than the other index types: a directory of
 // its own under the shard, plus two dedicated LSM buckets. All three are keyed
 // on the index ID (vectorIndexID, i.e. "vectors_<target>" for a named vector).
@@ -104,18 +97,6 @@ func HFreshDirName(indexID string) string {
 // lsm dir under the name this ID yields via CompressedBucketNameForID.
 func CentroidsID(physicalID string) string {
 	return physicalID + "_centroids"
-}
-
-// FlatMetadataFileName is the single derivation of the flat index's
-// quantisation metadata file name, under the shard directory. Both the live
-// index (via FlatMetadataFileNameForID) and the drop-artifact list
-// (vectorIndexArtifactNames) call through here, so they cannot disagree.
-// Previously they were two independent implementations — this one a plain
-// Sprintf, entities/vectorindex/flat.MetadataFileName sanitizing via
-// filepath.Clean/Base — which drifted for any name the sanitizer alters.
-// Delegating keeps that sanitization intact for both callers.
-func FlatMetadataFileName(targetVector string) string {
-	return flatent.MetadataFileName(targetVector)
 }
 
 // MetaCountProp helps create an internally used propName for meta props that
