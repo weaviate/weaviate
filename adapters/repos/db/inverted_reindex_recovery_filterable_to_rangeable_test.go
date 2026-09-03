@@ -285,17 +285,10 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 	require.True(t, rt.IsTidied())
 }
 
-// TestRecoveryConvergence_FilterableToRangeable_FromEachState pins the
-// same invariant the RebuildSearchable matrix pins, for the rangeable
-// family (enable-rangeable and repair-rangeable both run through
-// FilterableToRangeableStrategy): from any on-disk state a replica can
-// land in after a mid-migration restart, one relaunch drives the
-// migration to the terminal state and the rangeable bucket content
-// matches a clean baseline run.
-//
-// Five sentinel states, reached through the production entry points
-// except for the two that live inside an atomic method (IsPrepended,
-// IsSwapped), which are synthesized by removing the later sentinel file.
+// FromEachState pins the same recovery invariant as the RebuildSearchable
+// matrix, for the rangeable family (enable-/repair-rangeable): from any
+// on-disk state a restart can interrupt at, one relaunch must converge to
+// a clean-run baseline.
 func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 	const numObjects = 25
 	propName := filterableToRangeablePropName

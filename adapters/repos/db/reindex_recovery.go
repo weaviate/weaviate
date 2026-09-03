@@ -118,11 +118,9 @@ func DiscoverInFlightReindexTasks(
 					continue
 				}
 
-				// The generation belongs to this directory, so it comes from
-				// this directory's name, the way every other reader of the
-				// state takes it. One payload.mig is copied into each of its
-				// task's directories, so it cannot say which of them is being
-				// read.
+				// Generation comes from the dir name, like every other reader
+				// of this state: payload.mig is copied into every task dir
+				// for this migration, so it can't tell generations apart.
 				_, generation, hasGeneration := parseMigrationDirName(migEntry.Name())
 				if !hasGeneration {
 					logger.WithField("migrationDir", migDir).

@@ -106,14 +106,10 @@ func migrationDirWithProps(prefix string, propNames []string) string {
 	return prefix + "_" + strings.Join(sorted, "_")
 }
 
-// genSuffix returns the migration's generation suffix, e.g. "_2". The
-// generation is the submission's RAFT task version, so two migrations can
-// never collide on a directory name, and versions rising monotonically
-// keeps finalize's "higher generation wins" comparisons valid.
-//
-// Generation 0 is reserved for the canonical (post-finalize) bucket at
-// `property_<prop>_<index>`, which has no suffix. Live migrations always
-// use generation ≥ 1.
+// genSuffix returns the migration's generation suffix, e.g. "_2". Generation
+// is the RAFT task version: monotonic, so migrations never collide on a dir
+// name and finalize's "higher generation wins" check stays valid. Generation
+// 0 (no suffix) is the canonical post-finalize bucket; live migrations use ≥ 1.
 func genSuffix(generation int) string {
 	return "_" + strconv.Itoa(generation)
 }

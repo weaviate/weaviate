@@ -21,12 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// migrationTrackerDirAbsent reports whether one migration's tracker dir is
-// provably not on disk. The dir name is deterministic (strategy + props +
-// task version), so rehydrate stats that one name instead of scanning for a
-// highest gen. Only a definite "not there" counts: reading a failed stat as
-// an absence retires a migration whose directory is right there, and records
-// the unit complete with the index never rebuilt.
+// migrationTrackerDirAbsent reports whether a migration's tracker dir is
+// provably missing. A stat error must not be read as absence, or a pending
+// migration gets marked complete without its index ever rebuilt.
 func migrationTrackerDirAbsent(lsmPath, dirName string) bool {
 	info, err := os.Stat(filepath.Join(lsmPath, migrationsDir, dirName))
 	if err != nil {

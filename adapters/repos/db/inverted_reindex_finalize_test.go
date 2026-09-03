@@ -63,9 +63,8 @@ func TestGenSuffix(t *testing.T) {
 	require.Equal(t, "_0", genSuffix(0)) // 0 is reserved (canonical) but genSuffix still emits — callers don't pass 0
 }
 
-// The rehydrate path retires a migration whose tracker dir it reports absent,
-// and a retired migration is recorded complete with the index never rebuilt.
-// Only a definite "not there" may say that: a failed read must not.
+// A stat failure must not read as absence: that would retire an in-flight
+// migration and record it complete without ever rebuilding the index.
 func TestMigrationTrackerDirAbsentDoesNotReadAStatFailureAsAbsence(t *testing.T) {
 	lsmPath := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(lsmPath, ".migrations"), 0o755))

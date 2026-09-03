@@ -71,12 +71,10 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
 
-	// Wrap the ingest-window registration to land the gap writes at exactly
-	// the markStarted→register seam #11688 is about — right before callbacks
-	// arm, so only the fixed markStarted ordering keeps them. Only the first
-	// firing writes: RunOnShard re-enters this hook with the first firing's
-	// callbacks already live, which would mirror the replayed writes into
-	// ingest whatever the markStarted ordering does.
+	// Land the gap writes at the markStarted→register seam #11688 is about,
+	// right before callbacks arm. Guarded to fire once: RunOnShard's
+	// re-entry has callbacks already live, which would double-write them
+	// regardless of the ordering fix.
 	gapWritesDone := false
 	origRegister := task.registerDoubleWriteCallbacksFn
 	task.registerDoubleWriteCallbacksFn = func(shard *Shard, props []string,

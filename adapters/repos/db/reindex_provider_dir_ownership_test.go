@@ -161,11 +161,9 @@ func TestRehydrateRebuildsTheDirectoryNamesTheMigrationWrote(t *testing.T) {
 	}
 }
 
-// The generation in a migration's directory name is the submission's task
-// version. FinalizeCompletedMigrations only looks at generations of 1 and up,
-// so a version outside that range builds a task whose rebuilt data is never
-// promoted, while the completion marker and the schema flag already say the
-// migration succeeded. Fail the unit instead.
+// A version outside [1, MaxInt] would build a task whose rebuilt data is
+// never promoted, while the completion marker and schema flag already say
+// the migration succeeded. Fail the unit instead.
 func TestCreateReindexTasksRejectsUnusableGeneration(t *testing.T) {
 	payload := &ReindexTaskPayload{
 		MigrationType: ReindexTypeRepairFilterable,
@@ -199,14 +197,10 @@ func TestCreateReindexTasksRejectsUnusableGeneration(t *testing.T) {
 	}
 }
 
-// seedInFlightMigration lays out the on-disk state one shard carries while a
-// migration submitted at dirGen is past its iteration and waiting for the
-// swap, and returns the tracker directory names it wrote.
-//
-// recordedVersion is what payload.mig says the submission's task version was.
-// A node that started the migration on a build numbering directories per node
-// carries a recordedVersion unrelated to dirGen, which is what makes the two
-// separable here.
+// seedInFlightMigration lays out an in-flight migration's on-disk state at
+// dirGen and returns the tracker dirs it wrote. recordedVersion, kept
+// separate from dirGen, simulates a node that numbered dirs per-node
+// before this branch switched to task-version generations.
 func seedInFlightMigration(t *testing.T, p *ReindexProvider, lsmPath string,
 	c dirOwnershipCase, dirGen, recordedVersion uint64,
 ) []string {
@@ -259,17 +253,9 @@ func recoveredMigrationDirs(recovered []RecoveredReindex) []string {
 	return out
 }
 
-// A migration's generation is a property of the directory it lives in, and
-// every other reader takes it from that directory's name: finalize names the
-// sidecar buckets it promotes from it, the end-of-swap trim decides what is
-// obsolete from it, the orphan audit names what it deletes from it. Startup
-// recovery reopens those same sidecar buckets, so it has to read the
-// generation the same way.
-//
-// payload.mig cannot answer the question. One record is written per task and
-// copied into each of that task's tracker directories, so it says nothing
-// about which of them is being read, and on a node upgraded mid-migration the
-// version it recorded is not the number in any of their names.
+// Recovery must read the generation from the directory name, like every
+// other reader — payload.mig is copied into every tracker dir for a task
+// and can't tell them apart.
 func TestRecoveryNamesTheDirectoriesItRecoveredFrom(t *testing.T) {
 	for _, tc := range recoverableDirOwnershipCases() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -295,11 +281,9 @@ func TestRecoveryNamesTheDirectoriesItRecoveredFrom(t *testing.T) {
 	}
 }
 
-// A tracker directory whose name carries no generation is one no writer on
-// this branch produces, and one every other reader skips. Recovery must skip
-// it too: the alternative is inventing a generation, which names sidecar
-// buckets that do not exist and leaves the directory on disk to be reported
-// in flight again on the next restart.
+// A tracker dir with no generation suffix must be skipped, not given an
+// invented one — that would name sidecar buckets that don't exist and
+// leave the dir reported in-flight forever.
 func TestRecoverySkipsATrackerDirectoryThatNamesNoGeneration(t *testing.T) {
 	for _, tc := range recoverableDirOwnershipCases() {
 		t.Run(tc.name, func(t *testing.T) {

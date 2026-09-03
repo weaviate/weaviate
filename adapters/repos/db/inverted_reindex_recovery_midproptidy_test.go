@@ -336,10 +336,9 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 			defer shard2.Shutdown(ctx)
 			idx.shards.Store(shardName, shd2)
 
-			// The relaunch is a no-op here: shard init's
-			// FinalizeCompletedMigrations already completed the swap from
-			// the on-disk merged state and removed the tracker.
-			// Convergence is asserted on the bucket content below.
+			// Relaunch is a no-op: FinalizeCompletedMigrations already
+			// completed the swap during shard init and removed the
+			// tracker; convergence is checked on bucket content below.
 			require.NoErrorf(t, task2.RunOnShard(ctx, shard2),
 				"mid-prop-tidy recovery relaunch (phase=%s, haltAfter=%d)",
 				tc.phase, tc.haltAfter)

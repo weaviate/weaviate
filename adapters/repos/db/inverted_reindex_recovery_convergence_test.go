@@ -258,14 +258,9 @@ func expectedSentinelsAt(s reindexSentinelState) map[string]bool {
 }
 
 // driveToSentinelState drives a fresh shard to state s through the
-// production entry points.
-//
-// IsPrepended and IsSwapped are synthesized rather than driven: each
-// lives inside an atomic method (runtimePrepare writes markPrepended and
-// markMerged together, runtimeSwap writes markSwapped and markTidied
-// together), so the only way to land between the two writes is to drive
-// past them and remove the later sentinel. Same scheme PR #11415 uses
-// for MapToBlockmax.
+// production entry points. IsPrepended and IsSwapped are synthesized: each
+// pairs with the next sentinel inside one atomic write, so reaching the
+// state between them means driving past it and removing the later sentinel.
 func driveToSentinelState(t *testing.T, ctx context.Context, shard *Shard,
 	task *ShardReindexTaskGeneric, s reindexSentinelState,
 ) {
@@ -321,13 +316,10 @@ func mergedSentinelFile(ftr *fileReindexTracker) string { return ftr.config.file
 
 func tidiedSentinelFile(ftr *fileReindexTracker) string { return ftr.config.filenameTidied }
 
-// recoveryConvergenceMatrix is the shared body of the per-strategy
-// "recover from each interrupted state" matrices. Only the fixture and
-// the target bucket differ per strategy; the restart-and-converge
-// procedure is the same for all of them.
-//
-// K is the fingerprint's key type: a term for the inverted and
-// roaring-set buckets, a lexicographic value key for the rangeable one.
+// recoveryConvergenceMatrix is the shared body of the per-strategy "recover
+// from each interrupted state" matrices; only the fixture and target bucket
+// vary per strategy. K is the fingerprint key type (term, roaring-set value,
+// or rangeable lexicographic key).
 type recoveryConvergenceMatrix[K comparable] struct {
 	// namePrefix seeds the throw-away collection names.
 	namePrefix string
@@ -476,11 +468,8 @@ func breakSentinelRead(t *testing.T, task *ShardReindexTaskGeneric, shard *Shard
 	require.NoError(t, os.Symlink(filepath.Base(path), path))
 }
 
-// A shard that is swapped but not yet tidied has a migration in flight, and the
-// swap phase is the one that finalizes it. Deciding to enter that phase by
-// reading started.mig means any failed read of that one file retires the
-// migration and reports the unit complete with the schema flag never flipped.
-// The iteration reports whether it has a migration in flight instead.
+// Regression: a failed read of started.mig must not retire an in-flight,
+// unswapped migration without finishing it.
 func TestRunOnShardFinishesInFlightMigrationWhenStartedMarkerCannotBeRead(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"

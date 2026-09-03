@@ -137,11 +137,6 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 // on-disk state a replica could land in after a mid-migration restart,
 // the recovery code path converges on filterable-bucket content
 // bit-equivalent to the clean baseline run.
-//
-// Five sentinel states, reached through the production entry points
-// except for the two that live inside an atomic method (IsPrepended,
-// IsSwapped), which are synthesized by removing the later sentinel file.
-// Same scheme PR #11415 uses for MapToBlockmax.
 func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25

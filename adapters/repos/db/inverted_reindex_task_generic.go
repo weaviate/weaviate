@@ -942,10 +942,9 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, sha
 }
 
 // onAfterLsmInitWithTracker is the shared body of OnAfterLsmInit /
-// onAfterLsmInitGuarded; newTracker selects the plain or guarded factory. It
-// reports whether the prepare and swap phases should run on this shard. A
-// migration already finished on disk still says yes: both phases dispatch on
-// the sentinels and converge.
+// onAfterLsmInitGuarded; newTracker selects the plain or guarded factory. The
+// returned bool reports whether prep+swap should run; a finished migration
+// still returns true since both phases are idempotent on sentinels.
 func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context, shard *Shard,
 	newTracker func(*Shard) (reindexTracker, error),
 ) (shouldRunPrepareAndSwap bool, err error) {
