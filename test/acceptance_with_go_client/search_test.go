@@ -12,10 +12,11 @@
 package acceptance_with_go_client
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"testing"
+
+	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
