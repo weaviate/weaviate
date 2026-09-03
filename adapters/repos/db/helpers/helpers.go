@@ -130,6 +130,12 @@ func HFreshSharedBucketName(indexID string) string {
 	return fmt.Sprintf("hfresh_shared_%s", indexID)
 }
 
+// CentroidsID is the physical ID of the hnsw graph hfresh keeps its centroids
+// in; hnsw names that graph's commit log and compressed bucket from it.
+func CentroidsID(indexID string) string {
+	return indexID + "_centroids"
+}
+
 // FlatMetadataFileName is the single derivation of the flat index's
 // quantisation metadata file name, under the shard directory. Both the live
 // index (via FlatMetadataFileNameForID) and the drop-artifact list
