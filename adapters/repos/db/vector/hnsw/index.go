@@ -409,14 +409,6 @@ func New(cfg Config, uc ent.UserConfig,
 		makeBucketOptions: cfg.MakeBucketOptions,
 		fs:                common.NewOSFS(),
 	}
-	// shard/class/target_vector are already baked into cfg.Logger by the
-	// caller (the shard, for the main index; geo/hfresh callers that build
-	// their own hnsw indexes do the same). index_id is the one thing hnsw
-	// itself must override: a centroid graph or geo index shares an (often
-	// empty) logical target-vector name with its owning index, so only the
-	// physical ID told to us here — not the inherited one — distinguishes
-	// them. WithField/WithFields is last-write-wins, so this line always
-	// wins over whatever index_id the caller's logger already carried.
 	index.logger = cfg.Logger.WithField("index_id", index.id)
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
