@@ -170,6 +170,23 @@ func TestPhysicalNamesForID(t *testing.T) {
 	}
 }
 
+// TestCentroidsID pins the hfresh centroid graph's ID for both shipped
+// parent shapes; #12923's layout pin checks the files it names on disk.
+func TestCentroidsID(t *testing.T) {
+	tests := []struct {
+		id   string
+		want string
+	}{
+		{"main", "main_centroids"},
+		{"vectors_title", "vectors_title_centroids"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.id, func(t *testing.T) {
+			assert.Equal(t, tc.want, CentroidsID(tc.id))
+		})
+	}
+}
+
 // The ForID functions and the legacy targetVector-based helpers must agree
 // for every canonical pairing — the drop path still derives from schema
 // names while the live index derives from its ID.
