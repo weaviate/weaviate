@@ -151,11 +151,6 @@ func TestPhysicalLayoutPin(t *testing.T) {
 	})
 }
 
-func removeRootPath(t *testing.T, idx *Index) {
-	t.Helper()
-	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-}
-
 func putLegacyBatch(t *testing.T, ctx context.Context, shd ShardLike, className string, n, dim int) {
 	t.Helper()
 	r := rand.New(rand.NewSource(1))
