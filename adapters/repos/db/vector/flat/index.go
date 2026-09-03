@@ -47,7 +47,6 @@ const (
 
 type flat struct {
 	id                string
-	targetVector      string
 	rootPath          string
 	dims              int32
 	metadata          *bolt.DB
@@ -90,7 +89,6 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 
 	index := &flat{
 		id:                   cfg.ID,
-		targetVector:         cfg.TargetVector,
 		rootPath:             cfg.RootPath,
 		logger:               cfg.Logger,
 		distancerProvider:    cfg.DistanceProvider,

@@ -137,7 +137,6 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 	index, err := New(Config{
 		ID:                indexID,
 		RootPath:          rootPath,
-		TargetVector:      "target",
 		DistanceProvider:  distancer,
 		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, config, store)
@@ -160,7 +159,6 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 		index, err = New(Config{
 			ID:                indexID,
 			RootPath:          rootPath,
-			TargetVector:      "target",
 			DistanceProvider:  distancer,
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, config, store)
@@ -174,7 +172,7 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 	})
 
 	t.Run("target vector file validation", func(t *testing.T) {
-		// getMetadataFile derives from the physical ID now, not TargetVector
+		// getMetadataFile derives from the physical ID
 		// directly, so the path-escaping value arrives via the ID's
 		// "vectors_<suffix>" shape. helpers.FlatMetadataFileName delegates to
 		// flatent.MetadataFileName, so the Clean/Base sanitization still runs.
@@ -409,11 +407,8 @@ func TestSnapshotMutableFiles(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
 		t.Cleanup(func() { store.Shutdown(context.Background()) })
 		index, err := New(Config{
-			// Canonical: the metadata file name derives from the physical ID, so
-			// it must match target the way production always constructs it.
 			ID:                helpers.VectorIndexIDForTarget(target),
 			RootPath:          rootPath,
-			TargetVector:      target,
 			DistanceProvider:  dp,
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, uc, store)
@@ -544,15 +539,12 @@ func TestSnapshotMutableFiles(t *testing.T) {
 	})
 }
 
-// Test_FlatStorageNamesDeriveFromID pins that every storage name keys off the
-// physical ID, never the logical target vector. The mismatched case is the
-// regression: canonical pairs would pass even if a name silently reverted to
-// deriving from the target vector.
+// Test_FlatStorageNamesDeriveFromID pins every storage name for the two
+// shipped ID shapes; the index has no other name to derive them from.
 func Test_FlatStorageNamesDeriveFromID(t *testing.T) {
 	tests := []struct {
 		name           string
 		id             string
-		targetVector   string
 		wantBucket     string
 		wantCompressed string
 		wantMetadata   string
@@ -565,20 +557,11 @@ func Test_FlatStorageNamesDeriveFromID(t *testing.T) {
 			wantMetadata:   "meta.db",
 		},
 		{
-			name:           "named canonical",
+			name:           "named",
 			id:             "vectors_title",
-			targetVector:   "title",
 			wantBucket:     "vectors_title",
 			wantCompressed: "vectors_compressed_title",
 			wantMetadata:   "meta_title.db",
-		},
-		{
-			name:           "id and target vector differ",
-			id:             "vectors_physical",
-			targetVector:   "logical",
-			wantBucket:     "vectors_physical",
-			wantCompressed: "vectors_compressed_physical",
-			wantMetadata:   "meta_physical.db",
 		},
 	}
 	for _, tt := range tests {
@@ -590,7 +573,6 @@ func Test_FlatStorageNamesDeriveFromID(t *testing.T) {
 			index, err := New(Config{
 				ID:                tt.id,
 				RootPath:          t.TempDir(),
-				TargetVector:      tt.targetVector,
 				DistanceProvider:  distancer.NewCosineDistanceProvider(),
 				MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 			}, uc, store)

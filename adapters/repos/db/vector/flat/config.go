@@ -25,9 +25,7 @@ type Config struct {
 	// "vectors_<name>" for a named vector.
 	ID       string
 	RootPath string
-	// TargetVector is the index's logical name — the named vector it serves.
 	// It routes object-vector lookup and diagnostics and never names storage.
-	TargetVector      string
 	Logger            logrus.FieldLogger
 	DistanceProvider  distancer.Provider
 	AllocChecker      memwatch.AllocChecker
