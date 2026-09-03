@@ -507,8 +507,15 @@ func removeRootPath(t *testing.T, idx *Index) {
 // the logical target-vector name: the shard bakes both identities — the
 // logical name for operators and the physical id for storage — into one
 // logger, and every implementation, its queue, and everything they construct
-// inherit it. Lines under an index are recognised by their index_id; every one
-// of them must also carry target_vector, class and shard.
+// inherit it.
+//
+// Observed lines: the queue's own lines while it indexes the inserted vectors
+// (every index type), and the construction lines of the implementations that
+// emit them (hnsw "restored data from disk", hfresh's posting-size line). flat
+// and dynamic construct silently on an empty index, so for them the queue lines
+// are what proves the inheritance. Every line carrying index_id must also carry
+// target_vector, class and shard; queue lines are additionally required to be
+// present, so losing the queue's identity fails the test on its own.
 func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
 	hnswUC := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
 	hnswUC.SetDefaults()
@@ -549,9 +556,8 @@ func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
 			hook := test.NewLocal(logger)
 			logger.SetLevel(logrus.DebugLevel)
 
-			// a few vectors first, so that the recreated index has something to
-			// preload (an empty flat index constructs silently); wait for the
-			// async queue to hand them to the index before recreating it
+			// a few vectors, so the queue produces lines under this index while
+			// indexing them; wait for it to drain before recreating the index
 			var objs []*storobj.Object
 			for i := 0; i < 8; i++ {
 				objs = append(objs, &storobj.Object{
@@ -572,9 +578,13 @@ func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
 			require.NoError(t, s.DropVectorIndex(ctx, "title"))
 			require.NoError(t, s.initTargetVector(ctx, "title", tc.vic, false))
 
-			var indexLines int
+			var indexLines, queueLines int
 			for _, entry := range hook.AllEntries() {
 				indexID, ok := entry.Data["index_id"].(string)
+				if entry.Data["component"] == "vector_index_queue" {
+					require.Truef(t, ok, "queue line %q lost its index_id", entry.Message)
+					queueLines++
+				}
 				if !ok {
 					continue // not a line under a vector index
 				}
@@ -586,6 +596,7 @@ func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
 				require.Equalf(t, s.name, entry.Data["shard"], "line %q", entry.Message)
 			}
 			require.NotZero(t, indexLines, "no log line under the recreated index carried index_id")
+			require.NotZero(t, queueLines, "the vector index queue logged no identified line")
 		})
 	}
 }
