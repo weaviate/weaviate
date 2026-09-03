@@ -237,7 +237,8 @@ func toRPCError(err error) error {
 		// leader-local apply would otherwise reach the follower as
 		// codes.Internal and render 500.
 		ec = NotLeaderRPCCode
-	case errors.Is(err, types.ErrNotOpen):
+	case errors.Is(err, types.ErrNotOpen),
+		errors.Is(err, types.ErrFSMNotCaughtUp):
 		ec = codes.Unavailable
 	case errors.Is(err, namespaces.ErrNamespaceGone),
 		errors.Is(err, namespaces.ErrNotFound):
