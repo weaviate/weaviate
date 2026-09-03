@@ -348,15 +348,14 @@ func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []
 // restart resumes instead of reporting success on a half-done migration.
 // The shard may be a *Shard or *LazyLoadShard.
 func (t *ShardReindexTaskGeneric) RunOnShard(ctx context.Context, shard ShardLike) error {
-	// The iteration reports whether a migration is in flight: two of its exits
-	// start none (shard not selected, no reindexable props), and prep and swap
-	// error out with no in-flight state. Re-reading the started marker instead
-	// would retire a half-done migration whenever that read fails.
-	started, err := t.runReindexOnlyOnShard(ctx, shard)
+	// Prep and swap error out on a shard with no migration on disk, so they
+	// need a gate. The iteration answers it: re-reading the started marker
+	// here would retire a half-done migration whenever that read fails.
+	shouldRunPrepareAndSwap, err := t.runReindexOnlyOnShard(ctx, shard)
 	if err != nil {
 		return err
 	}
-	if !started {
+	if !shouldRunPrepareAndSwap {
 		return nil
 	}
 
@@ -385,8 +384,8 @@ func (t *ShardReindexTaskGeneric) RunReindexOnlyOnShard(ctx context.Context, sha
 }
 
 // runReindexOnlyOnShard is the body of RunReindexOnlyOnShard. It additionally
-// reports whether a migration is in flight on this shard, which is what
-// [ShardReindexTaskGeneric.RunOnShard] sequences prep and swap on.
+// reports whether the prepare and swap phases should run on this shard, which
+// is what [ShardReindexTaskGeneric.RunOnShard] sequences them on.
 func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, shard ShardLike) (bool, error) {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
@@ -395,7 +394,7 @@ func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, sha
 
 	// context.Canceled means the index is closing — propagate unwrapped so
 	// callers treat it as a clean stop, consistent with OnAfterLsmInitAsync.
-	started, err := t.onAfterLsmInitGuarded(ctx, concreteShard)
+	shouldRunPrepareAndSwap, err := t.onAfterLsmInitGuarded(ctx, concreteShard)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return false, err
@@ -409,7 +408,7 @@ func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, sha
 			return false, fmt.Errorf("after async LSM init: %w", err)
 		}
 		if rerunAt.IsZero() {
-			return started, nil
+			return shouldRunPrepareAndSwap, nil
 		}
 	}
 }
@@ -944,10 +943,12 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, sha
 
 // onAfterLsmInitWithTracker is the shared body of OnAfterLsmInit /
 // onAfterLsmInitGuarded; newTracker selects the plain or guarded factory. It
-// reports whether a migration is in flight on this shard.
+// reports whether the prepare and swap phases should run on this shard. A
+// migration already finished on disk still says yes: both phases dispatch on
+// the sentinels and converge.
 func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context, shard *Shard,
 	newTracker func(*Shard) (reindexTracker, error),
-) (migrationStarted bool, err error) {
+) (shouldRunPrepareAndSwap bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
 	shardName := shard.Name()
 	logger, done := t.logPhase(collectionName, shardName, "OnAfterLsmInit")
@@ -1095,8 +1096,9 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 		}
 	}
 
-	// Both branches above act on an in-flight migration, so prep and swap have
-	// work on this shard.
+	// The shard carries a migration on disk, finished or not. Both phases
+	// dispatch on the sentinels: prep no-ops once merged, and swap's tidied
+	// branch re-runs the idempotent completion hook.
 	return true, nil
 }
 
