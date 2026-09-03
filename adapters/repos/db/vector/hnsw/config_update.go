@@ -205,7 +205,7 @@ func (h *hnsw) compressThenCallback(callback func()) {
 			"action":     "compress",
 			"shard":      h.shardName,
 			"collection": h.className,
-		}).Errorf("vector compression failed: %v", err)
+		}).WithError(err).Error("vector compression failed")
 		return
 	}
 	h.logger.WithFields(logrus.Fields{
