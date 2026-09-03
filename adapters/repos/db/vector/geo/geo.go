@@ -101,12 +101,9 @@ func NewIndex(config Config,
 		return nil, errors.Errorf("geo index %q: coordinatesFromObject is required alongside a store", config.ID)
 	}
 
-	// hnsw no longer bakes class/shard/target_vector into the logger it's
-	// handed — the shard does that for its own vector indexes, but a geo
-	// index is built outside that path, so it must do so itself here.
-	// index_id is the key its prefill lines already give this id, which also
-	// names the files on disk; target_vector is left out since a geo index
-	// has no object-vector identity of its own.
+	// A geo index is built outside the shard's vector-index path, so it
+	// identifies its own log lines. No target_vector: a geo index has no
+	// object-vector identity.
 	config.Logger = config.Logger.WithFields(logrus.Fields{
 		"class":    config.ClassName,
 		"shard":    config.ShardName,
