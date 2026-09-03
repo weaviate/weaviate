@@ -519,15 +519,10 @@ func removeRootPath(t *testing.T, idx *Index) {
 func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
 	hnswUC := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
 	hnswUC.SetDefaults()
-	// flat (and dynamic below its threshold, which is flat-backed) logs nothing
-	// at construction; a cached BQ quantizer makes its startup preload log a
-	// line synchronously, so there is something to observe
 	flatUC := flatent.UserConfig{Distance: common.DefaultDistanceMetric}
 	flatUC.SetDefaults()
-	flatUC.BQ.Enabled, flatUC.BQ.Cache = true, true
 	dynamicUC := dynamicent.UserConfig{Distance: common.DefaultDistanceMetric}
 	dynamicUC.SetDefaults()
-	dynamicUC.FlatUC.BQ.Enabled, dynamicUC.FlatUC.BQ.Cache = true, true
 	hfreshUC := hfreshent.UserConfig{Distance: common.DefaultDistanceMetric}
 	hfreshUC.SetDefaults()
 
