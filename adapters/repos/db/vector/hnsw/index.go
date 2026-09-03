@@ -299,7 +299,9 @@ func New(cfg Config, uc ent.UserConfig,
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
+	// index_id before anything is built from cfg.Logger (cache, compressors):
+	// a centroid graph or geo index inherits its owner's id and must override it
+	cfg.Logger = common.LoggerOrDiscard(cfg.Logger).WithField("index_id", cfg.ID)
 
 	if cfg.AllocChecker == nil {
 		// Insert paths call CheckAlloc unconditionally; a caller that does not
@@ -409,7 +411,6 @@ func New(cfg Config, uc ent.UserConfig,
 		makeBucketOptions: cfg.MakeBucketOptions,
 		fs:                common.NewOSFS(),
 	}
-	index.logger = cfg.Logger.WithField("index_id", index.id)
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
