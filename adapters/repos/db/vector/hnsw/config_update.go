@@ -167,10 +167,9 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 
 func (h *hnsw) Upgrade(callback func()) error {
 	h.logger.WithFields(logrus.Fields{
-		"action":       "compress",
-		"shard":        h.shardName,
-		"collection":   h.className,
-		"targetVector": h.getTargetVector(),
+		"action":     "compress",
+		"shard":      h.shardName,
+		"collection": h.className,
 	}).Info("switching to compressed vectors")
 
 	err := ent.ValidatePQConfig(h.pqConfig)
@@ -203,17 +202,15 @@ func (h *hnsw) compressThenCallback(callback func()) {
 	}
 	if err := h.compress(uc); err != nil {
 		h.logger.WithFields(logrus.Fields{
-			"action":       "compress",
-			"shard":        h.shardName,
-			"collection":   h.className,
-			"targetVector": h.getTargetVector(),
+			"action":     "compress",
+			"shard":      h.shardName,
+			"collection": h.className,
 		}).WithError(err).Error("vector compression failed")
 		return
 	}
 	h.logger.WithFields(logrus.Fields{
-		"action":       "compress",
-		"shard":        h.shardName,
-		"collection":   h.className,
-		"targetVector": h.getTargetVector(),
+		"action":     "compress",
+		"shard":      h.shardName,
+		"collection": h.className,
 	}).Info("vector compression complete")
 }

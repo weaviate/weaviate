@@ -409,11 +409,7 @@ func New(cfg Config, uc ent.UserConfig,
 		makeBucketOptions: cfg.MakeBucketOptions,
 		fs:                common.NewOSFS(),
 	}
-	index.logger = cfg.Logger.WithFields(logrus.Fields{
-		"shard":        cfg.ShardName,
-		"class":        cfg.ClassName,
-		"targetVector": index.getTargetVector(),
-	})
+	index.logger = cfg.Logger.WithField("index_id", index.id)
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
