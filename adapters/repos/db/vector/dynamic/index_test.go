@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -223,7 +224,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 			AllocChecker:          memwatch.NewDummyMonitor(),
 			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
-			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			ID:                    helpers.VectorIndexIDForTarget("target_" + strconv.Itoa(i)),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -981,7 +982,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		dynamic, err := New(Config{
 			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
-			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			ID:                    helpers.VectorIndexIDForTarget("target_" + strconv.Itoa(i)),
 			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
@@ -1053,7 +1054,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		dynamic, err := New(Config{
 			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
-			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			ID:                    helpers.VectorIndexIDForTarget("target_" + strconv.Itoa(i)),
 			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
@@ -1118,7 +1119,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		dynamic, err := New(Config{
 			TargetVector:          "target_" + strconv.Itoa(i),
 			RootPath:              rootPath,
-			ID:                    "nil-vector-test_" + strconv.Itoa(i),
+			ID:                    helpers.VectorIndexIDForTarget("target_" + strconv.Itoa(i)),
 			AllocChecker:          memwatch.NewDummyMonitor(),
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
