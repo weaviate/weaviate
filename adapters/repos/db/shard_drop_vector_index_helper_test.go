@@ -393,14 +393,14 @@ func TestOtherTargetVectors_ProtectsTheLegacyVector(t *testing.T) {
 }
 
 // TestOtherTargetVectors_ArtifactsForEndToEnd drives otherTargetVectors
-// straight into helpers.VectorIndexArtifactsFor, the way the live drop and
+// straight into VectorIndexArtifactsFor, the way the live drop and
 // the file sweep both do, to prove the legacy vector's on-disk artifacts
 // actually survive dropping a colliding named vector.
 func TestOtherTargetVectors_ArtifactsForEndToEnd(t *testing.T) {
 	t.Run("mixed class: dropping named vector \"compressed\" must not take the legacy vector's quantized bucket", func(t *testing.T) {
 		class := classWithCompressedSibling(true, false)
 
-		artifacts := helpers.VectorIndexArtifactsFor("compressed", otherTargetVectors(class, "compressed"))
+		artifacts := VectorIndexArtifactsFor("compressed", otherTargetVectors(class, "compressed"))
 
 		assert.NotContains(t, artifacts.LSMBuckets, "vectors_compressed",
 			"vectors_compressed is the legacy vector's quantized bucket and must survive dropping the named vector \"compressed\"")
@@ -409,7 +409,7 @@ func TestOtherTargetVectors_ArtifactsForEndToEnd(t *testing.T) {
 	t.Run("named vectors only: no legacy sibling exists, so the named vector's own bucket is listed", func(t *testing.T) {
 		class := classWithCompressedSibling(false, false)
 
-		artifacts := helpers.VectorIndexArtifactsFor("compressed", otherTargetVectors(class, "compressed"))
+		artifacts := VectorIndexArtifactsFor("compressed", otherTargetVectors(class, "compressed"))
 
 		assert.Contains(t, artifacts.LSMBuckets, "vectors_compressed",
 			"vectors_compressed is the named vector's own raw bucket and there is no legacy sibling to protect")

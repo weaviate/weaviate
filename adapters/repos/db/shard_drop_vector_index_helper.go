@@ -16,7 +16,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -50,7 +49,7 @@ func (h *vectorDropIndexHelper) ensureFilesAreRemovedForDroppedVectorIndexes(
 }
 
 // removeVectorIndexFiles removes every on-disk artifact of a named vector index
-// (see helpers.VectorIndexArtifactsFor for the set and why it is centralised).
+// (see VectorIndexArtifactsFor for the set and why it is centralised).
 // otherTargetVectors are the collection's remaining vector names, needed so a
 // sibling whose own bucket collides with one of this target's artifact names is
 // not deleted along with it.
@@ -60,7 +59,7 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	lsmDir := filepath.Join(indexPath, shardName, "lsm")
 	shardDir := filepath.Join(indexPath, shardName)
 
-	artifacts := helpers.VectorIndexArtifactsFor(targetVector, otherTargetVectors)
+	artifacts := VectorIndexArtifactsFor(targetVector, otherTargetVectors)
 
 	var dirs []string
 	for _, bucket := range artifacts.LSMBuckets {

@@ -481,11 +481,11 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 
 	// Remove every on-disk artifact this vector owns — the raw and compressed
 	// buckets, the multivector ones (muvera OR mv_mappings), and hfresh's
-	// directory and buckets. The set lives in helpers so the live drop, the
+	// directory and buckets. The set lives here so the live drop, the
 	// file sweep and the tests cannot drift apart; passing the collection's
 	// other vector names is what stops a sibling being deleted when its own
 	// bucket collides with one of this target's artifact names.
-	artifacts := helpers.VectorIndexArtifactsFor(targetVector,
+	artifacts := VectorIndexArtifactsFor(targetVector,
 		otherTargetVectors(s.class, targetVector))
 	for _, bucket := range artifacts.LSMBuckets {
 		if err := s.removeBucket(ctx, bucket); err != nil {

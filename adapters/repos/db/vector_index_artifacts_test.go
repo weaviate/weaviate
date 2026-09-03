@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package helpers
+package db
 
 import (
 	"regexp"
