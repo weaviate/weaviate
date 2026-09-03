@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	bbolt "go.etcd.io/bbolt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 )
 
@@ -36,7 +37,7 @@ func writeVerdicts(t *testing.T, rootPath string, targets ...string) {
 			return err
 		}
 		for _, target := range targets {
-			if err := b.Put(dbKey(target), []byte{1}); err != nil {
+			if err := b.Put(dbKeyForID(helpers.VectorIndexIDForTarget(target)), []byte{1}); err != nil {
 				return err
 			}
 		}
@@ -46,7 +47,7 @@ func writeVerdicts(t *testing.T, rootPath string, targets ...string) {
 
 func hasVerdict(t *testing.T, rootPath, target string) bool {
 	t.Helper()
-	upgraded, err := UpgradedOnDisk(rootPath, "vectors_"+target, target)
+	upgraded, err := UpgradedOnDisk(rootPath, helpers.VectorIndexIDForTarget(target))
 	require.NoError(t, err)
 	return upgraded
 }

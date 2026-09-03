@@ -279,18 +279,21 @@ func (dynamic *dynamic) Type() common.IndexType {
 }
 
 func (dynamic *dynamic) dbKey() []byte {
-	return dbKey(dynamic.targetVector)
+	return dbKeyForID(dynamic.id)
 }
 
-func dbKey(targetVector string) []byte {
-	if targetVector == "" {
+// dbKeyForID derives the upgrade-verdict key from a physical index ID: the
+// bare key for the legacy "main" index, "<key>_<suffix>" for "vectors_<suffix>".
+func dbKeyForID(physicalID string) []byte {
+	suffix := helpers.PhysicalIDSuffix(physicalID)
+	if suffix == "" {
 		return []byte(composerUpgradedKey)
 	}
 
-	key := make([]byte, 0, len(composerUpgradedKey)+len(targetVector)+1)
+	key := make([]byte, 0, len(composerUpgradedKey)+len(suffix)+1)
 	key = append(key, composerUpgradedKey...)
 	key = append(key, '_')
-	key = append(key, targetVector...)
+	key = append(key, suffix...)
 	return key
 }
 
@@ -305,7 +308,8 @@ func dbKey(targetVector string) []byte {
 // loaded shard owns the key and deletes it through its own handle (both
 // baked into shardmeta.DeleteOffline).
 func RemoveStateKey(rootPath, targetVector string) error {
-	if err := shardmeta.DeleteOffline(rootPath, StateNamespace, dbKey(targetVector)); err != nil {
+	key := dbKeyForID(helpers.VectorIndexIDForTarget(targetVector))
+	if err := shardmeta.DeleteOffline(rootPath, StateNamespace, key); err != nil {
 		return fmt.Errorf("delete dynamic state for %q: %w", targetVector, err)
 	}
 	return nil
@@ -319,14 +323,14 @@ func RemoveStateKey(rootPath, targetVector string) error {
 //
 // State that could not be read returns false along with the error, so a
 // caller can tell that answer apart from a shard positively known to be flat.
-func UpgradedOnDisk(rootPath, id, targetVector string) (bool, error) {
+func UpgradedOnDisk(rootPath, id string) (bool, error) {
 	upgradedWithoutStateKey := false
-	if targetVector != "" {
+	if helpers.PhysicalIDSuffix(id) != "" {
 		_, err := os.Stat(hnswCommitLogDirectory(rootPath, id))
 		upgradedWithoutStateKey = err == nil
 	}
 
-	v, ok, err := shardmeta.GetOffline(rootPath, StateNamespace, dbKey(targetVector))
+	v, ok, err := shardmeta.GetOffline(rootPath, StateNamespace, dbKeyForID(id))
 	if err != nil {
 		return false, fmt.Errorf("read dynamic state: %w", err)
 	}
@@ -341,11 +345,7 @@ func UpgradedOnDisk(rootPath, id, targetVector string) (bool, error) {
 }
 
 func (dynamic *dynamic) getBucketName() string {
-	if dynamic.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, dynamic.targetVector)
-	}
-
-	return helpers.VectorsBucketLSM
+	return helpers.VectorsBucketNameForID(dynamic.id)
 }
 
 func (dynamic *dynamic) init(cfg *Config) (bool, error) {
@@ -367,10 +367,10 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		// a stored empty value reads back non-nil, so length is what says
 		// whether a state was recorded
 		upgraded = v[0] != 0
-	case cfg.TargetVector != "":
-		// a bug in earlier versions caused target vectors to all use the same
+	case helpers.PhysicalIDSuffix(cfg.ID) != "":
+		// a bug in earlier versions caused named vectors to all use the same
 		// key. this is a mitigation to preserve existing upgraded state and
-		// migrate to target-vector-specific keys going forward: no recorded
+		// migrate to per-vector keys going forward: no recorded
 		// state means the verdict is inferred from the existence of the HNSW
 		// dir and recorded under this vector's own key.
 		verdict := []byte{0}
@@ -399,7 +399,7 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 }
 
 func (dynamic *dynamic) getCompressedBucketName() string {
-	return helpers.GetCompressedBucketName(dynamic.targetVector)
+	return helpers.CompressedBucketNameForID(dynamic.id)
 }
 
 func (dynamic *dynamic) Compressed() bool {
