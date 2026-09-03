@@ -2784,6 +2784,55 @@ func TestHeapCountDueMatchesNaiveScan(t *testing.T) {
 	}
 }
 
+// Pins countDue equivalence on heap shapes built by interleaved ops (production surgery), not just heap.Init.
+func TestHeapCountDueInterleavedOps(t *testing.T) {
+	now := time.Now()
+	rng := rand.New(rand.NewPCG(21, 42))
+	var h asyncSchedulerHeap
+	var seq uint64
+
+	randOffset := func() time.Duration {
+		switch rng.IntN(5) {
+		case 0:
+			return 0
+		case 1, 2:
+			return -time.Duration(rng.Int64N(int64(time.Second)))
+		default:
+			return time.Duration(rng.Int64N(int64(time.Second)))
+		}
+	}
+	push := func() {
+		heap.Push(&h, &asyncSchedulerEntry{nextRunAt: now.Add(randOffset()), seq: seq})
+		seq++
+	}
+
+	for i := range 5000 {
+		switch op := rng.IntN(10); {
+		case len(h) == 0 || op < 4:
+			push()
+		case op < 6:
+			heap.Pop(&h)
+		case op < 8:
+			heap.Remove(&h, rng.IntN(len(h)))
+		default:
+			e := heap.Pop(&h).(*asyncSchedulerEntry)
+			e.nextRunAt = now.Add(randOffset())
+			e.seq = seq
+			seq++
+			heap.Push(&h, e)
+		}
+		naive := 0
+		for _, e := range h {
+			if !e.nextRunAt.After(now) {
+				naive++
+			}
+		}
+		for _, limit := range []int{1, 3, 128} {
+			require.Equal(t, min(naive, limit), h.countDue(now, limit), "iter=%d len=%d limit=%d", i, len(h), limit)
+		}
+	}
+}
+
 func TestCoalesceElapsedLocked(t *testing.T) {
 	now := time.Now()
 	ms := time.Millisecond
