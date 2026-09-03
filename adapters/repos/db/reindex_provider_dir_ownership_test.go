@@ -12,9 +12,12 @@
 package db
 
 import (
+	"encoding/json"
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -51,6 +54,21 @@ func dirOwnershipCases() []dirOwnershipCase {
 			tokenization: "field", strategy: "MapCollection",
 		},
 	}
+}
+
+// recoverableDirOwnershipCases drops rebuild-searchable, the one migration
+// type [buildRecoveryTasks] has no arm for. That gap is older than the
+// generation question these tests are about, and it is not this file's to
+// pin.
+func recoverableDirOwnershipCases() []dirOwnershipCase {
+	var out []dirOwnershipCase
+	for _, c := range dirOwnershipCases() {
+		if c.migration == ReindexTypeRebuildSearchable {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 func (c dirOwnershipCase) payload() *ReindexTaskPayload {
@@ -177,6 +195,131 @@ func TestCreateReindexTasksRejectsUnusableGeneration(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, tasks, 1)
 			require.Equal(t, tc.wantDir, tasks[0].strategy.MigrationDirName())
+		})
+	}
+}
+
+// seedInFlightMigration lays out the on-disk state one shard carries while a
+// migration submitted at dirGen is past its iteration and waiting for the
+// swap, and returns the tracker directory names it wrote.
+//
+// recordedVersion is what payload.mig says the submission's task version was.
+// A node that started the migration on a build numbering directories per node
+// carries a recordedVersion unrelated to dirGen, which is what makes the two
+// separable here.
+func seedInFlightMigration(t *testing.T, p *ReindexProvider, lsmPath string,
+	c dirOwnershipCase, dirGen, recordedVersion uint64,
+) []string {
+	t.Helper()
+	tasks, err := p.createReindexTasks(taskDescAt(dirGen), c.payload(), lsmPath, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, tasks)
+
+	encoded, err := json.Marshal(reindexRecoveryRecord{
+		TaskID:      taskDescAt(recordedVersion).ID,
+		TaskVersion: recordedVersion,
+		UnitID:      "unit-1",
+		Payload:     *c.payload(),
+	})
+	require.NoError(t, err)
+
+	var dirs []string
+	for _, task := range tasks {
+		dir := task.migrationPath(lsmPath)
+		require.NoError(t, os.MkdirAll(dir, 0o777))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), encoded, 0o666))
+		// started and reindexed without tidied is the window recovery exists
+		// for: the iteration is over, the swap has not run.
+		for _, sentinel := range []string{"started.mig", "reindexed.mig"} {
+			require.NoError(t, os.WriteFile(filepath.Join(dir, sentinel), nil, 0o666))
+		}
+		dirs = append(dirs, task.strategy.MigrationDirName())
+	}
+	sort.Strings(dirs)
+	return dirs
+}
+
+// recoveredMigrationDirs is every tracker directory the recovered strategy
+// instances name, deduplicated: a semantic migration rebuilds both of its
+// tasks from each of its directories.
+func recoveredMigrationDirs(recovered []RecoveredReindex) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, r := range recovered {
+		for _, task := range r.Tasks {
+			name := task.strategy.MigrationDirName()
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// A migration's generation is a property of the directory it lives in, and
+// every other reader takes it from that directory's name: finalize names the
+// sidecar buckets it promotes from it, the end-of-swap trim decides what is
+// obsolete from it, the orphan audit names what it deletes from it. Startup
+// recovery reopens those same sidecar buckets, so it has to read the
+// generation the same way.
+//
+// payload.mig cannot answer the question. One record is written per task and
+// copied into each of that task's tracker directories, so it says nothing
+// about which of them is being read, and on a node upgraded mid-migration the
+// version it recorded is not the number in any of their names.
+func TestRecoveryNamesTheDirectoriesItRecoveredFrom(t *testing.T) {
+	for _, tc := range recoverableDirOwnershipCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			p, _ := newTestProvider(t)
+			root := t.TempDir()
+			lsm := filepath.Join(root, "books", "shard-1", "lsm")
+			require.NoError(t, os.MkdirAll(lsm, 0o777))
+
+			onDisk := seedInFlightMigration(t, p, lsm, tc, 3, 41)
+
+			recovered, err := DiscoverInFlightReindexTasks(root, p.logger, nil)
+			require.NoError(t, err)
+			require.NotEmpty(t, recovered, "an unswapped migration is in flight on this shard")
+
+			require.Equal(t, onDisk, recoveredMigrationDirs(recovered),
+				"recovery must rebuild the strategies that name the directories on disk")
+
+			for _, r := range recovered {
+				require.Equal(t, uint64(41), r.Descriptor.Version,
+					"the descriptor still carries the version the cluster knows the task by")
+			}
+		})
+	}
+}
+
+// A tracker directory whose name carries no generation is one no writer on
+// this branch produces, and one every other reader skips. Recovery must skip
+// it too: the alternative is inventing a generation, which names sidecar
+// buckets that do not exist and leaves the directory on disk to be reported
+// in flight again on the next restart.
+func TestRecoverySkipsATrackerDirectoryThatNamesNoGeneration(t *testing.T) {
+	for _, tc := range recoverableDirOwnershipCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			p, _ := newTestProvider(t)
+			root := t.TempDir()
+			lsm := filepath.Join(root, "books", "shard-1", "lsm")
+			require.NoError(t, os.MkdirAll(lsm, 0o777))
+
+			for _, dir := range seedInFlightMigration(t, p, lsm, tc, 3, 41) {
+				base := strings.TrimSuffix(dir, genSuffix(3))
+				require.NotEqual(t, dir, base)
+				require.NoError(t, os.Rename(
+					filepath.Join(lsm, migrationsDir, dir),
+					filepath.Join(lsm, migrationsDir, base)))
+			}
+
+			recovered, err := DiscoverInFlightReindexTasks(root, p.logger, nil)
+			require.NoError(t, err)
+			require.Empty(t, recoveredMigrationDirs(recovered),
+				"a directory name with no generation gives recovery nothing to rebuild from")
 		})
 	}
 }

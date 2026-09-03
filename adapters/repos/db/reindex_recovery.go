@@ -118,10 +118,19 @@ func DiscoverInFlightReindexTasks(
 					continue
 				}
 
-				// The generation is the submission's task version, which the
-				// record carries, so the strategy instances rebuilt here name
-				// the same sidecar dirs the in-flight migration wrote.
-				tasks, err := buildRecoveryTasks(rec, shardName, int(rec.TaskVersion), logger, schemaManager)
+				// The generation belongs to this directory, so it comes from
+				// this directory's name, the way every other reader of the
+				// state takes it. One payload.mig is copied into each of its
+				// task's directories, so it cannot say which of them is being
+				// read.
+				_, generation, hasGeneration := parseMigrationDirName(migEntry.Name())
+				if !hasGeneration {
+					logger.WithField("migrationDir", migDir).
+						Warn("reindex recovery: migration dir name carries no generation; skipping")
+					continue
+				}
+
+				tasks, err := buildRecoveryTasks(rec, shardName, generation, logger, schemaManager)
 				if err != nil {
 					logger.WithField("migrationDir", migDir).
 						Warnf("reindex recovery: skipping migration; cannot build tasks: %v", err)
