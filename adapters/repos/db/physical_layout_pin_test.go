@@ -89,6 +89,24 @@ func TestPhysicalLayoutPin(t *testing.T) {
 		require.Nil(t, idx.drop())
 	})
 
+	t.Run("flat legacy", func(t *testing.T) {
+		fuc := flatent.UserConfig{}
+		fuc.SetDefaults()
+		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinFlatLegacy"}, fuc, false, true, true)
+		s := shd.(*Shard)
+		defer removeRootPath(t, idx)
+
+		putLegacyBatch(t, ctx, shd, "PinFlatLegacy", 5, 4)
+
+		// legacy asymmetry: the index id is "main" but the raw bucket is the
+		// bare "vectors", and the metadata file has no suffix
+		assertDirExists(t, filepath.Join(s.pathLSM(), "vectors"))
+		assertDirExists(t, filepath.Join(s.path(), "main.queue.d"))
+		assertFileExists(t, filepath.Join(s.path(), "meta.db"))
+
+		require.Nil(t, idx.drop())
+	})
+
 	t.Run("flat named", func(t *testing.T) {
 		fuc := flatent.UserConfig{}
 		fuc.SetDefaults()
@@ -105,6 +123,21 @@ func TestPhysicalLayoutPin(t *testing.T) {
 		assertDirExists(t, filepath.Join(s.pathLSM(), "vectors_title"))
 		assertDirExists(t, filepath.Join(s.path(), "vectors_title.queue.d"))
 		assertFileExists(t, filepath.Join(s.path(), "meta_title.db"))
+
+		require.Nil(t, idx.drop())
+	})
+
+	t.Run("dynamic legacy", func(t *testing.T) {
+		duc := dynamicent.UserConfig{}
+		duc.SetDefaults()
+		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinDynamicLegacy"}, duc, false, true, true)
+		s := shd.(*Shard)
+		defer removeRootPath(t, idx)
+
+		putLegacyBatch(t, ctx, shd, "PinDynamicLegacy", 5, 4)
+
+		assertDirExists(t, filepath.Join(s.pathLSM(), "vectors"))
+		assertDirExists(t, filepath.Join(s.path(), "main.queue.d"))
 
 		require.Nil(t, idx.drop())
 	})
@@ -126,6 +159,22 @@ func TestPhysicalLayoutPin(t *testing.T) {
 		// the raw bucket it owns is the same one flat owns.
 		assertDirExists(t, filepath.Join(s.pathLSM(), "vectors_title"))
 		assertDirExists(t, filepath.Join(s.path(), "vectors_title.queue.d"))
+
+		require.Nil(t, idx.drop())
+	})
+
+	t.Run("hfresh legacy", func(t *testing.T) {
+		huc := hfreshent.UserConfig{}
+		huc.SetDefaults()
+		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinHFreshLegacy"}, huc, false, true, true)
+		s := shd.(*Shard)
+		defer removeRootPath(t, idx)
+
+		putLegacyBatch(t, ctx, shd, "PinHFreshLegacy", 5, 4)
+
+		assertDirExists(t, filepath.Join(s.path(), "main.hfresh.d"))
+		assertDirExists(t, filepath.Join(s.pathLSM(), "hfresh_postings_main"))
+		assertDirExists(t, filepath.Join(s.pathLSM(), "hfresh_shared_main"))
 
 		require.Nil(t, idx.drop())
 	})
