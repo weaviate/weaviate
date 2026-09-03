@@ -1481,8 +1481,6 @@ func TestDynamicUpgradeStatePersistFailureCleansPartialCommitLog(t *testing.T) {
 // unless the vector is positively marked as upgraded — otherwise the partial
 // state gets replayed into the rebuilt index.
 func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
-	const id = "stale-commitlog-test"
-
 	tests := []struct {
 		name         string
 		targetVector string
@@ -1532,6 +1530,7 @@ func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rootPath := t.TempDir()
+			id := helpers.VectorIndexIDForTarget(tt.targetVector)
 
 			meta, err := shardmeta.Open(t.TempDir(), time.Second)
 			require.NoError(t, err)
@@ -1565,6 +1564,61 @@ func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
 			} else {
 				require.True(t, os.IsNotExist(err), "stale commit log dir should have been removed")
 			}
+		})
+	}
+}
+
+// TestStorageNamesDeriveFromID pins that the buckets and the state key
+// derive from the physical ID, never from the logical target vector. The
+// mismatched case is the regression: canonical pairs would pass even if a
+// name silently reverted to deriving from the target vector.
+func TestStorageNamesDeriveFromID(t *testing.T) {
+	tests := []struct {
+		name           string
+		id             string
+		targetVector   string
+		wantBucket     string
+		wantCompressed string
+		wantStateKey   string
+	}{
+		{
+			name:           "legacy",
+			id:             "main",
+			wantBucket:     "vectors",
+			wantCompressed: "vectors_compressed",
+			wantStateKey:   "upgraded",
+		},
+		{
+			name:           "named canonical",
+			id:             "vectors_title",
+			targetVector:   "title",
+			wantBucket:     "vectors_title",
+			wantCompressed: "vectors_compressed_title",
+			wantStateKey:   "upgraded_title",
+		},
+		{
+			name:           "id and target vector differ",
+			id:             "vectors_physical",
+			targetVector:   "logical",
+			wantBucket:     "vectors_physical",
+			wantCompressed: "vectors_compressed_physical",
+			wantStateKey:   "upgraded_physical",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meta, err := shardmeta.Open(t.TempDir(), time.Second)
+			require.NoError(t, err)
+			t.Cleanup(func() { meta.Close() })
+
+			vectors, _ := testinghelpers.RandomVecs(10, 0, 4)
+			idx := newUpgradeTestDynamic(t, t.TempDir(), tt.id, tt.targetVector, meta, vectors, hnsw.MakeNoopCommitLogger)
+			t.Cleanup(func() { idx.Shutdown(context.Background()) })
+
+			assert.Equal(t, tt.wantBucket, idx.getBucketName())
+			assert.Equal(t, tt.wantCompressed, idx.getCompressedBucketName())
+			assert.Equal(t, []byte(tt.wantStateKey), idx.dbKey())
+			assert.Equal(t, []byte(tt.wantStateKey), dbKeyForID(tt.id))
 		})
 	}
 }
