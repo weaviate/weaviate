@@ -219,8 +219,12 @@ func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResu
 		slice *common.VectorSlice
 	)
 	if !h.muvera.Load() {
-		view = h.objectsBucketView()
-		defer view.ReleaseView()
+		objectsView, releaseView, err := h.objectsBucketView()
+		if err != nil {
+			return nil, err
+		}
+		defer releaseView()
+		view = objectsView
 
 		slice = h.tempVectors.Get(int(dims))
 		defer h.tempVectors.Put(slice)

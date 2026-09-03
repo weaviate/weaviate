@@ -808,7 +808,12 @@ type BucketConsistentView struct {
 	Bucket   *Bucket
 }
 
+// ReleaseView is a no-op on the zero view, which the query paths hand out
+// when the store no longer holds the bucket.
 func (cv BucketConsistentView) ReleaseView() {
+	if cv.release == nil {
+		return
+	}
 	cv.release()
 }
 

@@ -115,6 +115,30 @@ func (s *Store) AcquireBucketForRead(name string) (*Bucket, func()) {
 	return b, b.lifetimeLock.RUnlock
 }
 
+// AcquireBucketConsistentViewForRead returns a consistent view of the named
+// bucket with the bucket itself pinned for the view's whole lifetime:
+// [BucketConsistentView.ReleaseView] drops the segment references and the
+// lifetime pin together, so a concurrent [Bucket.Shutdown] cannot unmap the
+// segments the view still points at.
+//
+// A name the store no longer holds yields the zero view. Its Bucket field is
+// nil — callers that need to report the miss check it — and releasing it is a
+// no-op.
+func (s *Store) AcquireBucketConsistentViewForRead(name string) BucketConsistentView {
+	bucket, release := s.AcquireBucketForRead(name)
+	if bucket == nil {
+		return BucketConsistentView{}
+	}
+
+	view := bucket.GetConsistentView()
+	releaseSegments := view.release
+	view.release = func() {
+		releaseSegments()
+		release()
+	}
+	return view
+}
+
 func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
