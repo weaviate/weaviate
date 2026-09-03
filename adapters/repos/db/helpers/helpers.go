@@ -46,8 +46,8 @@ func GetVectorsBucketName(targetVector string) string {
 
 // VectorIndexIDForTarget derives the canonical physical index ID for a
 // target vector: "main" for the legacy unnamed vector, "vectors_<tv>"
-// otherwise. This is the same rule as the shard's private vectorIndexID;
-// it lives here so packages below the shard can derive it too.
+// otherwise. The shard derives its IDs through it, and so can packages
+// below the shard.
 func VectorIndexIDForTarget(targetVector string) string {
 	if targetVector != "" {
 		return fmt.Sprintf("%s_%s", VectorsBucketLSM, targetVector)
