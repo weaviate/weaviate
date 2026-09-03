@@ -488,6 +488,70 @@ func buildRecoveryTasks(
 	return raw, nil
 }
 
+// rebuildNeverStartedHalves reconstructs the task of each tracker directory
+// this unit created whose half never wrote a migration record. The payload the
+// unit persisted before either half started carries everything a fresh start
+// needs, so a restart that landed between a unit's halves resumes it instead
+// of failing it. Only the newest generation of each half that names this unit
+// is rebuilt: a retried unit's older tracker names the same half as the
+// running one.
+func rebuildNeverStartedHalves(lsmPath, shardName string, desc distributedtask.TaskDescriptor,
+	unitID string, missing []string, logger logrus.FieldLogger, schemaManager *schema.Manager,
+) ([]*ShardReindexTaskGeneric, error) {
+	wanted := make(map[string]struct{}, len(missing))
+	for _, base := range missing {
+		wanted[base] = struct{}{}
+	}
+	entries, err := os.ReadDir(filepath.Join(lsmPath, migrationsDir))
+	if err != nil {
+		return nil, fmt.Errorf("list migration trackers: %w", err)
+	}
+
+	type neverStartedHalf struct {
+		rec        reindexRecoveryRecord
+		generation int
+	}
+	newest := map[string]neverStartedHalf{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		base, generation, ok := parseMigrationDirName(entry.Name())
+		if !ok {
+			continue
+		}
+		if _, want := wanted[base]; !want {
+			continue
+		}
+		rec, fault, _ := readRecoveryPayload(filepath.Join(lsmPath, migrationsDir, entry.Name()))
+		if fault != recoveryPayloadOK {
+			continue
+		}
+		if rec.TaskID != desc.ID || rec.TaskVersion != desc.Version || rec.UnitID != unitID {
+			continue
+		}
+		if have, there := newest[base]; there && have.generation >= generation {
+			continue
+		}
+		newest[base] = neverStartedHalf{rec: rec, generation: generation}
+	}
+	if len(newest) != len(wanted) {
+		return nil, fmt.Errorf("rebuilt %d of %d missing half(s); the rest have no readable payload claiming this unit",
+			len(newest), len(wanted))
+	}
+
+	var out []*ShardReindexTaskGeneric
+	for _, base := range slices.Sorted(maps.Keys(newest)) {
+		half := newest[base]
+		tasks, err := buildRecoveryTasks(half.rec, shardName, base, half.generation, logger, schemaManager)
+		if err != nil {
+			return nil, fmt.Errorf("tracker %q: %w", base, err)
+		}
+		out = append(out, tasks...)
+	}
+	return out, nil
+}
+
 // NewShardReindexerV3FromRecovered wires recovered tasks into a
 // recovery-only [ShardReindexerV3] that only fires [OnAfterLsmInit];
 // the DTM's OnGroupCompleted owns the swap step, keeping recovery's

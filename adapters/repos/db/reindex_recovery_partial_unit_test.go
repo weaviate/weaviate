@@ -22,6 +22,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -92,6 +93,14 @@ func TestRecoveryReportsTheHalvesItCouldNotSeed(t *testing.T) {
 				subject.TrackerDir = tracker
 				subject.MigrationType = ReindexTypeChangeTokenization
 				subject.TargetTokenization = models.PropertyTokenizationField
+				// Each half writes into its own directories, the way the two
+				// production tasks do; the loader refuses two records that
+				// claim one directory.
+				subject.Props[propName] = MigrationPropertyDirs{
+					Staged:    "property_" + propName + "__" + tracker + "_ingest",
+					Canonical: subject.Props[propName].Canonical,
+					Sidecar:   "property_" + propName + "__" + tracker + "_reindex",
+				}
 				require.NoError(t, store.Put(NewMigrationRecordIterated(subject)))
 			}
 
@@ -127,9 +136,10 @@ func TestAnotherUnitsTrackerIsNotAMissingHalf(t *testing.T) {
 		distributedtask.TaskDescriptor{ID: "t", Version: 42}, "shard-1__node-0", nil))
 }
 
-// The unit is refused rather than run, because running it reports a finished
-// unit and the schema flips for both halves.
-func TestAPartiallySeededUnitIsRefused(t *testing.T) {
+// Running only the seeded half reports a finished unit and the schema flips
+// for both halves, so the never-started half is rebuilt from its payload and
+// the unit runs whole.
+func TestAPartiallySeededUnitRebuildsItsNeverStartedHalf(t *testing.T) {
 	ctx := testCtx()
 	className := "PartialSeed" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"title"})
@@ -142,7 +152,7 @@ func TestAPartiallySeededUnitIsRefused(t *testing.T) {
 
 	payload := &ReindexTaskPayload{
 		Collection: className, MigrationType: ReindexTypeChangeTokenization,
-		Properties: []string{"title"}, TargetTokenization: "field", BucketStrategy: "MapCollection",
+		Properties: []string{"title"}, TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
 		UnitToShard: map[string]string{"u1": hot.Name()},
 		UnitToNode:  map[string]string{"u1": "node1"},
 	}
@@ -162,7 +172,7 @@ func TestAPartiallySeededUnitIsRefused(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile),
 			[]byte(`{"taskID":"T_partial","taskVersion":1,"unitID":"u1","payload":`+
 				`{"migrationType":"change-tokenization","collection":"`+className+`",`+
-				`"properties":["title"],"targetTokenization":"field","bucketStrategy":"MapCollection"}}`),
+				`"properties":["title"],"targetTokenization":"field","bucketStrategy":"`+lsmkv.StrategyMapCollection+`"}}`),
 			0o600))
 	}
 
@@ -179,7 +189,9 @@ func TestAPartiallySeededUnitIsRefused(t *testing.T) {
 		Status: distributedtask.TaskStatusStarted, Payload: raw,
 	}, payload, idx, "u1", rec)
 
-	require.Contains(t, rec.failed, "u1")
-	require.Contains(t, rec.failed["u1"], "never started")
-	require.Empty(t, rec.completed)
+	require.Empty(t, rec.failed,
+		"a never-started half rebuilds from its payload instead of failing the unit")
+	require.Contains(t, rec.completed, "u1")
+	require.Len(t, p.cachedReindexTasks(desc, "u1"), 2,
+		"the cache holds both halves, so the swap phase covers them both")
 }
