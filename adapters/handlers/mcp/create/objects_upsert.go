@@ -36,9 +36,11 @@ func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequ
 	// MCP_SERVER_WRITE_ACCESS_ENABLED runtime override. When disabled,
 	// reject the call even though the tool is still registered.
 	if !c.IsWriteAccessEnabled() {
-		return nil, fmt.Errorf("%w: to enable, either set MCP_SERVER_WRITE_ACCESS_ENABLED=true "+
-			"(requires restart) or set mcp_server_write_access_enabled: true in the runtime "+
-			"overrides YAML (no restart needed)", mcpmetrics.ErrWriteDisabled)
+		return nil, fmt.Errorf("%w. Enable it in your cluster configuration: set "+
+			"MCP_SERVER_WRITE_ACCESS_ENABLED=true, set the mcp_server_write_access_enabled "+
+			"runtime override, or turn off the Enable MCP Read-Only switch in the Weaviate "+
+			"Cloud console. See https://docs.weaviate.io/weaviate/configuration/mcp-server",
+			mcpmetrics.ErrWriteDisabled)
 	}
 
 	// Authorize MCP-level CREATE and UPDATE permissions (upsert requires both).

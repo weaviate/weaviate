@@ -69,10 +69,7 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 		server: server.NewMCPServer(
 			"Weaviate MCP Server",
 			"0.1.0",
-			server.WithToolCapabilities(true),
-			server.WithResourceCapabilities(false, false),
-			server.WithRecovery(),
-			server.WithHooks(listMetricsHooks(m, writeAccessEnabled)),
+			serverOptions(m, writeAccessEnabled)...,
 		),
 		creator:        create.NewWeaviateCreator(authHandler, state.BatchManager, logger, writeAccessEnabled),
 		searcher:       search.NewWeaviateSearcher(authHandler, state.Traverser, state.SchemaManager, state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled, logger),
@@ -85,6 +82,19 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 	s.registerTools()
 	s.registerToolFilter()
 	return s
+}
+
+// serverOptions is the option set the production MCP server is built with.
+// Kept as a function so tests can pin the exact production wiring — notably
+// that tool arguments are validated against the advertised input schemas.
+func serverOptions(m *metrics.MCPMetrics, writeAccessEnabled func() bool) []server.ServerOption {
+	return []server.ServerOption{
+		server.WithToolCapabilities(true),
+		server.WithResourceCapabilities(false, false),
+		server.WithRecovery(),
+		server.WithInputSchemaValidation(),
+		server.WithHooks(listMetricsHooks(m, writeAccessEnabled)),
+	}
 }
 
 func (s *MCPServer) Handler() http.Handler {
