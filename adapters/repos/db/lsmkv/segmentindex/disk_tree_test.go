@@ -326,6 +326,19 @@ func FuzzDiskTreeRead(f *testing.F) {
 		// none visited twice.
 		assert.NoError(t, rangedErr, "range walk rejected a blob AllKeys accepted")
 		assert.Equal(t, allKeys, ranged, "ForEachNodeInRange disagrees with AllKeys")
+
+		// the bounded constructor runs a check the unbounded one skips, and it
+		// takes its bounds from a header no less corruptible than the nodes
+		bounded := NewDiskTreeWithValueBounds(data, 0, uint64(len(data)))
+		requireTerminates(t, func() {
+			_, _, boundedErr := bounded.GetOffsets(query)
+			if errors.Is(getErr, lsmkv.NotFound) {
+				assert.ErrorIs(t, boundedErr, lsmkv.NotFound,
+					"bounds cannot turn an absent key into anything else")
+			}
+			_, _, _ = bounded.SeekOffsets(query)
+			_, _ = bounded.Next(query)
+		})
 	})
 }
 
@@ -363,6 +376,25 @@ func requireTerminates(t *testing.T, fn func()) {
 		}
 	case <-timer.C:
 		t.Fatalf("read did not terminate within %s", fuzzReadDeadline)
+	}
+}
+
+type diskTreeRead struct {
+	name string
+	read func() error
+}
+
+// corruptReadPaths is every read a DiskTree serves by descending its index. Next
+// answers only above the probe, so it takes nextProbe, which callers set just
+// below probe when the node under test has to be the one it lands on.
+func corruptReadPaths(tree *DiskTree, probe, nextProbe []byte) []diskTreeRead {
+	return []diskTreeRead{
+		{"Get", func() error { _, err := tree.Get(probe); return err }},
+		{"GetOffsets", func() error { _, _, err := tree.GetOffsets(probe); return err }},
+		{"Contains", func() error { _, err := tree.Contains(probe); return err }},
+		{"Seek", func() error { _, err := tree.Seek(probe); return err }},
+		{"SeekOffsets", func() error { _, _, err := tree.SeekOffsets(probe); return err }},
+		{"Next", func() error { _, err := tree.Next(nextProbe); return err }},
 	}
 }
 
@@ -414,23 +446,14 @@ func TestDiskTreeCorruptChildPointerErrors(t *testing.T) {
 			binary.LittleEndian.PutUint64(corrupt[branch.offset:], branch.child)
 			tree := NewDiskTree(corrupt)
 
-			reads := []struct {
-				name string
-				read func() error
-			}{
-				{"Get", func() error { _, err := tree.Get(branch.probe); return err }},
-				{"GetOffsets", func() error { _, _, err := tree.GetOffsets(branch.probe); return err }},
-				{"Contains", func() error { _, err := tree.Contains(branch.probe); return err }},
-				{"Seek", func() error { _, err := tree.Seek(branch.probe); return err }},
-				{"SeekOffsets", func() error { _, _, err := tree.SeekOffsets(branch.probe); return err }},
-				{"Next", func() error { _, err := tree.Next(branch.probe); return err }},
-			}
-			for _, read := range reads {
+			for _, read := range corruptReadPaths(tree, branch.probe, branch.probe) {
 				t.Run(read.name, func(t *testing.T) {
 					err := read.read()
 					require.Error(t, err)
 					require.NotErrorIs(t, err, lsmkv.NotFound,
 						"a corrupt index must not read as an absent key")
+					require.ErrorIs(t, err, lsmkv.ErrCorruptIndex,
+						"callers scope their handling on this sentinel")
 					if branch.wantErr != "" {
 						require.ErrorContains(t, err, branch.wantErr)
 					}
@@ -444,26 +467,17 @@ func TestDiskTreeCorruptChildPointerErrors(t *testing.T) {
 // errors rather than reporting NotFound, which a caller reads as "no such key".
 // Only an entirely empty buffer is an empty tree.
 func TestDiskTreeShortBufferErrors(t *testing.T) {
-	reads := []struct {
-		name string
-		read func(t *DiskTree) error
-	}{
-		{"Get", func(t *DiskTree) error { _, err := t.Get([]byte("aaa")); return err }},
-		{"GetOffsets", func(t *DiskTree) error { _, _, err := t.GetOffsets([]byte("aaa")); return err }},
-		{"Contains", func(t *DiskTree) error { _, err := t.Contains([]byte("aaa")); return err }},
-		{"Seek", func(t *DiskTree) error { _, err := t.Seek([]byte("aaa")); return err }},
-		{"SeekOffsets", func(t *DiskTree) error { _, _, err := t.SeekOffsets([]byte("aaa")); return err }},
-		{"Next", func(t *DiskTree) error { _, err := t.Next([]byte("aaa")); return err }},
-	}
+	probe := []byte("aaa")
 
 	for _, size := range []int{1, 2, 3} {
 		t.Run(fmt.Sprintf("size=%d", size), func(t *testing.T) {
 			tree := NewDiskTree(make([]byte, size))
-			for _, read := range reads {
+			for _, read := range corruptReadPaths(tree, probe, probe) {
 				t.Run(read.name, func(t *testing.T) {
-					err := read.read(tree)
+					err := read.read()
 					require.Error(t, err)
 					require.NotErrorIs(t, err, lsmkv.NotFound)
+					require.ErrorIs(t, err, lsmkv.ErrCorruptIndex)
 				})
 			}
 		})
@@ -471,12 +485,12 @@ func TestDiskTreeShortBufferErrors(t *testing.T) {
 
 	t.Run("empty buffer is an empty tree", func(t *testing.T) {
 		tree := NewDiskTree(nil)
-		for _, read := range reads {
+		for _, read := range corruptReadPaths(tree, probe, probe) {
 			if read.name == "Contains" {
 				continue // folds an absent key into (false, nil) by contract
 			}
 			t.Run(read.name, func(t *testing.T) {
-				require.ErrorIs(t, read.read(tree), lsmkv.NotFound)
+				require.ErrorIs(t, read.read(), lsmkv.NotFound)
 			})
 		}
 
@@ -508,24 +522,14 @@ func TestDiskTreeReversedPayloadRangeErrors(t *testing.T) {
 	// Next never answers with the probe itself, so it needs one just below
 	below := []byte("foobaq")
 
-	reads := []struct {
-		name string
-		read func() error
-	}{
-		{"Get", func() error { _, err := tree.Get(probe); return err }},
-		{"GetOffsets", func() error { _, _, err := tree.GetOffsets(probe); return err }},
-		{"Seek", func() error { _, err := tree.Seek(probe); return err }},
-		{"SeekOffsets", func() error { _, _, err := tree.SeekOffsets(probe); return err }},
-		{"Next", func() error { _, err := tree.Next(below); return err }},
-		// a caller that skips a lower segment's row on this answer would drop a
-		// row no read path will serve
-		{"Contains", func() error { _, err := tree.Contains(probe); return err }},
-	}
-	for _, read := range reads {
+	// Contains is in the set because a caller that skips a lower segment's row on
+	// its answer would drop a row no read path will serve
+	for _, read := range corruptReadPaths(tree, probe, below) {
 		t.Run(read.name, func(t *testing.T) {
 			err := read.read()
 			require.Error(t, err)
 			require.NotErrorIs(t, err, lsmkv.NotFound)
+			require.ErrorIs(t, err, lsmkv.ErrCorruptIndex)
 		})
 	}
 }
@@ -546,12 +550,20 @@ func TestDiskTreeErrorsReportTheirBounds(t *testing.T) {
 		contains   []string
 	}{
 		{
-			// truncated so the root's trailer is short of a right child
+			// truncated so the last node's trailer is short of a right child
 			name:       "child field short of its 32 bytes",
 			blob:       func() []byte { return valid[:len(valid)-1] },
 			probe:      "zzzzz",
 			boundsPair: true,
 			contains:   []string{"out of range", "bytes available", "need 32"},
+		},
+		{
+			// a node the writer never emits whole says nothing trustworthy
+			name:       "matched node short of its trailer",
+			blob:       func() []byte { return valid[:30] },
+			probe:      "foobar",
+			boundsPair: true,
+			contains:   []string{"node value at", "bytes available", "need 32"},
 		},
 		{
 			name: "key length past the buffer",
@@ -575,6 +587,19 @@ func TestDiskTreeErrorsReportTheirBounds(t *testing.T) {
 			contains: []string{"cyclic child pointers", "past", "nodes at offset", "buffer"},
 		},
 		{
+			// the root sits at offset 0, and its value fields ten bytes in, so a
+			// message anchored on those fields sends a reader inside the node
+			name: "a payload range that runs backwards",
+			blob: func() []byte {
+				corrupt := bytes.Clone(valid)
+				binary.LittleEndian.PutUint64(corrupt[rootChildOffset(corrupt)-16:], 100)
+				binary.LittleEndian.PutUint64(corrupt[rootChildOffset(corrupt)-8:], 50)
+				return corrupt
+			},
+			probe:    "foobar",
+			contains: []string{"node at 0: value ends at 50, before its start 100"},
+		},
+		{
 			// the root sits at offset 0, so a message naming anything else has
 			// measured from somewhere other than the node it is reporting on
 			name: "a child pointer that is neither valid nor the leaf sentinel",
@@ -595,8 +620,15 @@ func TestDiskTreeErrorsReportTheirBounds(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			blob := test.blob()
-			_, err := NewDiskTree(blob).Get([]byte(test.probe))
+			// a cyclic row spins forever without the descent's step bound, which
+			// would take the package binary down instead of failing this test
+			var err error
+			requireTerminates(t, func() {
+				_, err = NewDiskTree(blob).Get([]byte(test.probe))
+			})
 			require.Error(t, err)
+			require.ErrorIs(t, err, lsmkv.ErrCorruptIndex,
+				"a site reporting without the sentinel opts out of every consumer policy")
 			for _, want := range test.contains {
 				require.Contains(t, err.Error(), want)
 			}
@@ -705,47 +737,72 @@ func TestDiskTreeSeekReturnsCopy(t *testing.T) {
 
 // TestDiskTreeSeekAllocatesOnlyTheKey pins the descent as allocation-free — a
 // per-level key copy costs correctness nothing, so it could return unnoticed.
+// Both key widths are covered: 8-byte keys compare as one word, everything else
+// through bytes.Compare.
 func TestDiskTreeSeekAllocatesOnlyTheKey(t *testing.T) {
-	keys := docIDKeys(4096)
-	tree := NewDiskTree(marshalTree(t, keys))
-	probe := keys[len(keys)/3].Key
-
-	for _, seek := range []struct {
+	fixtures := []struct {
 		name string
-		fn   func(key []byte) (Node, error)
+		keys []Key
 	}{
-		{"Seek", tree.Seek},
-		{"Next", tree.Next},
-	} {
-		t.Run(seek.name, func(t *testing.T) {
-			_, err := seek.fn(probe)
-			require.NoError(t, err)
+		{name: "8-byte docID keys", keys: docIDKeys(4096)},
+		{name: "16-byte UUID keys", keys: uuidKeys(4096)},
+	}
 
-			allocs := testing.AllocsPerRun(100, func() {
-				_, _ = seek.fn(probe)
-			})
-			require.LessOrEqual(t, allocs, 1.0)
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			tree := NewDiskTree(marshalTree(t, fixture.keys))
+			probe := fixture.keys[len(fixture.keys)/3].Key
+
+			for _, seek := range []struct {
+				name string
+				fn   func(key []byte) (Node, error)
+			}{
+				{"Seek", tree.Seek},
+				{"Next", tree.Next},
+			} {
+				t.Run(seek.name, func(t *testing.T) {
+					_, err := seek.fn(probe)
+					require.NoError(t, err)
+
+					allocs := testing.AllocsPerRun(100, func() {
+						_, _ = seek.fn(probe)
+					})
+					require.LessOrEqual(t, allocs, 1.0)
+				})
+			}
+
+			offsets := []struct {
+				name string
+				fn   func(key []byte) (uint64, uint64, error)
+			}{
+				{"GetOffsets", tree.GetOffsets},
+				{"SeekOffsets", tree.SeekOffsets},
+			}
+			for _, read := range offsets {
+				t.Run(read.name, func(t *testing.T) {
+					_, _, err := read.fn(probe)
+					require.NoError(t, err)
+
+					allocs := testing.AllocsPerRun(100, func() {
+						_, _, _ = read.fn(probe)
+					})
+					require.Zero(t, allocs, "%s materializes nothing", read.name)
+				})
+			}
 		})
 	}
+}
 
-	offsets := []struct {
-		name string
-		fn   func(key []byte) (uint64, uint64, error)
-	}{
-		{"GetOffsets", tree.GetOffsets},
-		{"SeekOffsets", tree.SeekOffsets},
+// uuidKeys builds n sorted 16-byte keys, the width a UUID-keyed segment stores
+// and the one the single-word compare cannot serve.
+func uuidKeys(n int) []Key {
+	keys := make([]Key, n)
+	for i := 0; i < n; i++ {
+		key := make([]byte, 16)
+		binary.BigEndian.PutUint64(key[8:], uint64(i))
+		keys[i] = Key{Key: key, ValueStart: i, ValueEnd: i + 1}
 	}
-	for _, read := range offsets {
-		t.Run(read.name, func(t *testing.T) {
-			_, _, err := read.fn(probe)
-			require.NoError(t, err)
-
-			allocs := testing.AllocsPerRun(100, func() {
-				_, _, _ = read.fn(probe)
-			})
-			require.Zero(t, allocs, "%s materializes nothing", read.name)
-		})
-	}
+	return keys
 }
 
 func assertSeek(t *testing.T, tree *DiskTree, keys []Key, probe []byte) {
@@ -865,7 +922,8 @@ func contiguousKeys(raw [][]byte) []Key {
 }
 
 // treeLayouts serializes the same keys with both writers, whose node placement
-// differs, so a descent is exercised against both on-disk orders.
+// differs, so a descent is exercised against both on-disk orders. Up to eight
+// keys the two emit identical bytes, so a smaller fixture runs one order twice.
 func treeLayouts(t testing.TB, keys []Key) []struct {
 	name string
 	data []byte
@@ -898,13 +956,17 @@ func randomProbes(keys []Key, count, seed int) [][]byte {
 	return probes
 }
 
-func benchmarkReads(b *testing.B, probes [][]byte, read func(key []byte) error) {
+// tolerateNotFound is for Seek and Next, whose probes may sit above the highest
+// key. Get's probes are all present, so NotFound there is a regression.
+func benchmarkReads(b *testing.B, probes [][]byte, tolerateNotFound bool, read func(key []byte) error) {
 	b.Helper()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		if err := read(probes[i&(len(probes)-1)]); err != nil {
-			b.Fatal(err)
+		err := read(probes[i&(len(probes)-1)])
+		if err == nil || (tolerateNotFound && errors.Is(err, lsmkv.NotFound)) {
+			continue
 		}
+		b.Fatal(err)
 	}
 }
 
@@ -938,7 +1000,7 @@ func BenchmarkDiskTreeGet(b *testing.B) {
 			for _, l := range treeLayouts(b, keys) {
 				tree := NewDiskTree(l.data)
 				b.Run(l.name, func(b *testing.B) {
-					benchmarkReads(b, probes, func(key []byte) error {
+					benchmarkReads(b, probes, false, func(key []byte) error {
 						_, err := tree.Get(key)
 						return err
 					})
@@ -973,16 +1035,103 @@ func BenchmarkDiskTreeSeek(b *testing.B) {
 			for _, set := range probeSets {
 				probes := set.probes
 				b.Run("Seek/"+set.name, func(b *testing.B) {
-					benchmarkReads(b, probes, func(key []byte) error {
+					benchmarkReads(b, probes, true, func(key []byte) error {
 						_, err := tree.Seek(key)
 						return err
 					})
 				})
 				b.Run("Next/"+set.name, func(b *testing.B) {
-					benchmarkReads(b, probes, func(key []byte) error {
+					benchmarkReads(b, probes, true, func(key []byte) error {
 						_, err := tree.Next(key)
 						return err
 					})
+				})
+			}
+		})
+	}
+}
+
+// A node's Start and End address bytes the index does not hold, so only the
+// region they should fall in can tell a corrupt offset from a live one. Every
+// reader handing them out must refuse one outside it.
+func TestDiskTreeRejectsValuesOutsideItsBounds(t *testing.T) {
+	keys := fiveSortedKeys()
+	blob := marshalTree(t, keys)
+
+	// the fixture's own values span [0,102); "zzzz" is the one reaching the top
+	const (
+		wholeRange = 102
+		shortRange = 50
+	)
+	probe := []byte("zzzz")
+	// one below it, for the Next that must land on the same node
+	below := []byte("zzzy")
+
+	trees := []struct {
+		name    string
+		tree    *DiskTree
+		wantErr bool
+	}{
+		{name: "unbounded", tree: NewDiskTree(blob)},
+		{name: "bounds hold every value", tree: NewDiskTreeWithValueBounds(blob, 0, wholeRange)},
+		{
+			name: "bounds end before the value", wantErr: true,
+			tree: NewDiskTreeWithValueBounds(blob, 0, shortRange),
+		},
+		{
+			name: "bounds begin after the value", wantErr: true,
+			tree: NewDiskTreeWithValueBounds(blob, wholeRange, wholeRange+1),
+		},
+	}
+
+	for _, tree := range trees {
+		t.Run(tree.name, func(t *testing.T) {
+			for _, read := range corruptReadPaths(tree.tree, probe, below) {
+				t.Run(read.name, func(t *testing.T) {
+					err := read.read()
+					if !tree.wantErr {
+						require.NoError(t, err)
+						return
+					}
+					require.ErrorIs(t, err, lsmkv.ErrCorruptIndex)
+					require.NotErrorIs(t, err, lsmkv.NotFound,
+						"a value outside the bounds must not read as an absent key")
+				})
+			}
+		})
+	}
+}
+
+// TestDiskTreeReadsAgreeOnATruncatedTrailer pins that every read refuses a node
+// short of the 32-byte trailer the writer always emits. Judged per arm, an exact
+// match needed 16 where Next needed 32, so the two disagreed about one node.
+func TestDiskTreeReadsAgreeOnATruncatedTrailer(t *testing.T) {
+	keys := fiveSortedKeys()
+	blob := marshalTree(t, keys)
+
+	// the writer emits zzzz last, so trimming the tail shortens its trailer
+	for cut := 1; cut <= 8; cut++ {
+		t.Run(fmt.Sprintf("cut=%d", cut), func(t *testing.T) {
+			tree := NewDiskTree(blob[:len(blob)-cut])
+
+			reads := []struct {
+				name string
+				read func() error
+			}{
+				{"Get", func() error { _, err := tree.Get([]byte("zzzz")); return err }},
+				{"Seek", func() error { _, err := tree.Seek([]byte("zzz0")); return err }},
+				{"Next", func() error { _, err := tree.Next([]byte("zzz0")); return err }},
+				// judged per arm, Get answered this key on 16 bytes while Next,
+				// continuing past the match, needed 32 — the one probe where the
+				// two disagreed
+				{"Next past the match", func() error { _, err := tree.Next([]byte("zzzz")); return err }},
+			}
+			for _, read := range reads {
+				t.Run(read.name, func(t *testing.T) {
+					err := read.read()
+					require.ErrorIs(t, err, lsmkv.ErrCorruptIndex,
+						"one truncated node, one answer for every read")
+					require.NotErrorIs(t, err, lsmkv.NotFound)
 				})
 			}
 		})
