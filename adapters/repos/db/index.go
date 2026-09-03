@@ -742,6 +742,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				i.logger.
 					WithField("action", "load_shard").
 					WithField("shard_name", shardName).
+					WithFields(enterrors.DocsLinkFields(err)).
 					Errorf("failed to load shard, loading the rest anyway: %v", err)
 				// A failure says nothing about the shards behind this one: memory
 				// pressure is node-wide and transient, anything else is specific

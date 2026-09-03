@@ -142,6 +142,7 @@ func setupGraphQLHandlers(
 			operationName, variables)
 
 		// Marshal the JSON
+		addDocsLinks(result)
 		resultJSON, jsonErr := json.Marshal(result)
 		if jsonErr != nil {
 			metricRequestsTotal.logUserError()
@@ -282,6 +283,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 		result := graphQL.Resolve(ctx, query, operationName, variables)
 
 		// Marshal the JSON
+		addDocsLinks(result)
 		resultJSON, jsonErr := json.Marshal(result)
 
 		// Return an unprocessable error if marshalling the result to JSON failed
@@ -484,4 +486,34 @@ func (e *graphqlRequestsTotal) getClassNameAndQueryType(data interface{}) (class
 		}
 	}
 	return className, queryType
+}
+
+// addDocsLinks appends the documenting page to a documented resolver error,
+// which a GraphQL response reports by message alone.
+func addDocsLinks(result *tailorincgraphql.Result) {
+	if result == nil {
+		return
+	}
+	for i := range result.Errors {
+		result.Errors[i].Message = enterrors.AppendDocsLink(result.Errors[i].Message, resolverError(result.Errors[i]))
+	}
+}
+
+// resolverError digs the resolver's own error out of a formatted one. The
+// executor nests it in FormattedError and *gqlerrors.Error layers, neither of
+// which has an Unwrap, so errors.Is cannot see through them by itself.
+func resolverError(formatted gqlerrors.FormattedError) error {
+	var err error = formatted
+	for {
+		var fe gqlerrors.FormattedError
+		var ge *gqlerrors.Error
+		switch {
+		case errors.As(err, &fe) && fe.OriginalError() != nil:
+			err = fe.OriginalError()
+		case errors.As(err, &ge) && ge.OriginalError != nil:
+			err = ge.OriginalError
+		default:
+			return err
+		}
+	}
 }

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -47,6 +48,7 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 		if lazy, ok := s.(*LazyLoadShard); ok {
 			if err := lazy.Load(ctx); err != nil {
 				db.logger.WithField("collection", collection).WithField("shard", name).
+					WithFields(enterrors.DocsLinkFields(err)).
 					Warnf("drop-vector: load lazy shard: %v", err)
 				continue // absent from result; the unit fails instead of panicking
 			}
