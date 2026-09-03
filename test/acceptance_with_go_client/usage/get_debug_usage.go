@@ -12,9 +12,10 @@
 package usage
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"errors"
 	"fmt"
+
+	"acceptance_tests_with_client/internal/wvhost"
 
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/test/helper"

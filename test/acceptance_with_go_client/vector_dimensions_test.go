@@ -12,12 +12,13 @@
 package acceptance_with_go_client
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"math/rand"
 	"testing"
 	"time"
+
+	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

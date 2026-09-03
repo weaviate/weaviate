@@ -12,11 +12,12 @@
 package acceptance_with_go_client
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
+
+	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"

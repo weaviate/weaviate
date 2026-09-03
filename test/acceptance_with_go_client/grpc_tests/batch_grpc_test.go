@@ -12,11 +12,12 @@
 package grpc_tests
 
 import (
-	"acceptance_tests_with_client/fixtures"
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 	"time"
+
+	"acceptance_tests_with_client/fixtures"
+	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
