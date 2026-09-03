@@ -18,7 +18,6 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -529,11 +528,14 @@ func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
 	tests := []struct {
 		name string
 		vic  schemaConfig.VectorIndexConfig
+		// every index-tagged line must carry one of these ids; each must be seen
+		wantIDs []string
 	}{
-		{"hnsw", hnswUC},
-		{"flat", flatUC},
-		{"dynamic", dynamicUC},
-		{"hfresh", hfreshUC},
+		{"hnsw", hnswUC, []string{"vectors_title"}},
+		{"flat", flatUC, []string{"vectors_title"}},
+		{"dynamic", dynamicUC, []string{"vectors_title"}},
+		// hfresh's centroid graph is its own index and must log its own id
+		{"hfresh", hfreshUC, []string{"vectors_title", "vectors_title_centroids"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -574,6 +576,7 @@ func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
 			require.NoError(t, s.initTargetVector(ctx, "title", tc.vic, false))
 
 			var indexLines, queueLines int
+			seenIDs := map[string]bool{}
 			for _, entry := range hook.AllEntries() {
 				indexID, ok := entry.Data["index_id"].(string)
 				if entry.Data["component"] == "vector_index_queue" {
@@ -584,13 +587,16 @@ func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
 					continue // not a line under a vector index
 				}
 				indexLines++
-				// hfresh's centroid graph logs its own id under the parent's name
-				require.Truef(t, strings.HasPrefix(indexID, "vectors_title"), "line %q: index_id=%q", entry.Message, indexID)
+				require.Containsf(t, tc.wantIDs, indexID, "line %q: index_id=%q", entry.Message, indexID)
+				seenIDs[indexID] = true
 				require.Equalf(t, "title", entry.Data["target_vector"], "line %q", entry.Message)
 				require.Equalf(t, className, entry.Data["class"], "line %q", entry.Message)
 				require.Equalf(t, s.name, entry.Data["shard"], "line %q", entry.Message)
 			}
 			require.NotZero(t, indexLines, "no log line under the recreated index carried index_id")
+			for _, id := range tc.wantIDs {
+				require.Truef(t, seenIDs[id], "no log line carried index_id=%q", id)
+			}
 			require.NotZero(t, queueLines, "the vector index queue logged no identified line")
 		})
 	}
