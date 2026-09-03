@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -54,6 +55,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 		defer removeRootPath(t, idx)
 
 		putLegacyBatch(t, ctx, shd, "PinHNSWLegacy", 5, 4)
+		drainQueue(t, shd, "")
 
 		// shard-level dirs
 		assertDirExists(t, filepath.Join(s.path(), "main.hnsw.commitlog.d"))
@@ -81,6 +83,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 		defer removeRootPath(t, idx)
 
 		putNamedBatch(t, ctx, shd, "PinHNSWNamed", "title", 5, 4)
+		drainQueue(t, shd, "title")
 
 		assertDirExists(t, filepath.Join(s.path(), "vectors_title.hnsw.commitlog.d"))
 		assertDirExists(t, filepath.Join(s.path(), "vectors_title.queue.d"))
@@ -97,6 +100,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 		defer removeRootPath(t, idx)
 
 		putLegacyBatch(t, ctx, shd, "PinFlatLegacy", 5, 4)
+		drainQueue(t, shd, "")
 
 		// legacy asymmetry: the index id is "main" but the raw bucket is the
 		// bare "vectors", and the metadata file has no suffix
@@ -119,6 +123,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 		defer removeRootPath(t, idx)
 
 		putNamedBatch(t, ctx, shd, "PinFlatNamed", "title", 5, 4)
+		drainQueue(t, shd, "title")
 
 		assertDirExists(t, filepath.Join(s.pathLSM(), "vectors_title"))
 		assertDirExists(t, filepath.Join(s.path(), "vectors_title.queue.d"))
@@ -135,9 +140,11 @@ func TestPhysicalLayoutPin(t *testing.T) {
 		defer removeRootPath(t, idx)
 
 		putLegacyBatch(t, ctx, shd, "PinDynamicLegacy", 5, 4)
+		drainQueue(t, shd, "")
 
 		assertDirExists(t, filepath.Join(s.pathLSM(), "vectors"))
 		assertDirExists(t, filepath.Join(s.path(), "main.queue.d"))
+		assertFileExists(t, filepath.Join(s.path(), "meta.db"))
 
 		require.Nil(t, idx.drop())
 	})
@@ -154,11 +161,14 @@ func TestPhysicalLayoutPin(t *testing.T) {
 		defer removeRootPath(t, idx)
 
 		putNamedBatch(t, ctx, shd, "PinDynamicNamed", "title", 5, 4)
+		drainQueue(t, shd, "title")
 
 		// dynamic starts out backed by flat until the upgrade threshold, so
 		// the raw bucket it owns is the same one flat owns.
 		assertDirExists(t, filepath.Join(s.pathLSM(), "vectors_title"))
 		assertDirExists(t, filepath.Join(s.path(), "vectors_title.queue.d"))
+		// the delegated flat stage's metadata file is dynamic's too
+		assertFileExists(t, filepath.Join(s.path(), "meta_title.db"))
 
 		require.Nil(t, idx.drop())
 	})
@@ -171,8 +181,11 @@ func TestPhysicalLayoutPin(t *testing.T) {
 		defer removeRootPath(t, idx)
 
 		putLegacyBatch(t, ctx, shd, "PinHFreshLegacy", 5, 4)
+		drainQueue(t, shd, "")
 
 		assertDirExists(t, filepath.Join(s.path(), "main.hfresh.d"))
+		// the centroid graph is a nested hnsw with its own physical id
+		assertDirExists(t, filepath.Join(s.path(), "main.hfresh.d", "main_centroids.hnsw.commitlog.d"))
 		assertDirExists(t, filepath.Join(s.pathLSM(), "hfresh_postings_main"))
 		assertDirExists(t, filepath.Join(s.pathLSM(), "hfresh_shared_main"))
 
@@ -191,8 +204,13 @@ func TestPhysicalLayoutPin(t *testing.T) {
 		defer removeRootPath(t, idx)
 
 		putNamedBatch(t, ctx, shd, "PinHFreshNamed", "title", 5, 4)
+		drainQueue(t, shd, "title")
 
 		assertDirExists(t, filepath.Join(s.path(), "vectors_title.hfresh.d"))
+		assertDirExists(t, filepath.Join(s.path(), "vectors_title.hfresh.d", "vectors_title_centroids.hnsw.commitlog.d"))
+		// the centroid graph's RQ bucket lives in the shard's lsm dir under
+		// the centroid id's suffix; it only exists once vectors reached hfresh
+		assertDirExists(t, filepath.Join(s.pathLSM(), "vectors_compressed_title_centroids"))
 		assertDirExists(t, filepath.Join(s.pathLSM(), "hfresh_postings_vectors_title"))
 		assertDirExists(t, filepath.Join(s.pathLSM(), "hfresh_shared_vectors_title"))
 
@@ -232,6 +250,16 @@ func putNamedBatch(t *testing.T, ctx context.Context, shd ShardLike, className, 
 	for _, err := range errs {
 		require.Nil(t, err)
 	}
+}
+
+// drainQueue waits for the async vector index queue of targetVector to hand
+// every queued vector to its index: the write-triggered artifacts below only
+// exist once the index has actually seen the vectors.
+func drainQueue(t *testing.T, shd ShardLike, targetVector string) {
+	t.Helper()
+	q, ok := shd.GetVectorIndexQueue(targetVector)
+	require.True(t, ok, "no queue for target vector %q", targetVector)
+	require.Eventually(t, func() bool { return q.Size() == 0 }, 30*time.Second, 50*time.Millisecond)
 }
 
 func assertDirExists(t *testing.T, path string) {
