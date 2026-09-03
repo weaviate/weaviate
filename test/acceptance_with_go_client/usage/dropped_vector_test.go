@@ -12,12 +12,13 @@
 package usage
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"net/http"
 	"testing"
 	"time"
+
+	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
