@@ -151,7 +151,6 @@ func (s *status) TryUpgrading() bool {
 type dynamic struct {
 	sync.RWMutex
 	id                           string
-	targetVector                 string
 	store                        *lsmkv.Store
 	logger                       logrus.FieldLogger
 	rootPath                     string
@@ -205,7 +204,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 	index := &dynamic{
 		id:                           cfg.ID,
-		targetVector:                 cfg.TargetVector,
 		logger:                       cfg.Logger,
 		rootPath:                     cfg.RootPath,
 		shardName:                    cfg.ShardName,
@@ -488,7 +486,7 @@ func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 
 	if !keepFiles {
 		if err := dynamic.state.Delete(dynamic.dbKey()); err != nil && !shardmeta.IsClosed(err) {
-			return fmt.Errorf("delete dynamic state for %q: %w", dynamic.targetVector, err)
+			return fmt.Errorf("delete dynamic state for %q: %w", dynamic.id, err)
 		}
 	}
 
@@ -516,7 +514,7 @@ func (dynamic *dynamic) DropTargetVector(ctx context.Context) error {
 	defer dynamic.Unlock()
 
 	if err := dynamic.state.Delete(dynamic.dbKey()); err != nil {
-		return fmt.Errorf("delete dynamic state for %q: %w", dynamic.targetVector, err)
+		return fmt.Errorf("delete dynamic state for %q: %w", dynamic.id, err)
 	}
 
 	// keepFiles=false: the underlying index's own files go, but the SHARED

@@ -202,7 +202,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 
 		vi, err := dynamic.New(dynamic.Config{
 			ID:                           vecIdxID,
-			TargetVector:                 targetVector,
 			Logger:                       logger,
 			DistanceProvider:             distProv,
 			RootPath:                     s.path(),
