@@ -330,6 +330,11 @@ func (sg *SegmentGroup) watchAbort(ctx context.Context,
 // shouldAbort turning true, aborts the in-flight merge (sampled every
 // compactor.AbortCheckEveryN keys). Its shouldAbort bridge is built only once
 // there is a pair to merge, so an idle cycle needs no context, goroutine or ticker.
+// No compaction path records the transformer duration, on any strategy.
+// A compaction runs the same transformer, but findCompactionCandidates picked
+// the merge for its own reasons and without consulting the edit ops — the work
+// would have happened regardless. Timing it under the op's label would bill
+// unrelated merges to the drop, including merges with nothing to strip.
 func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
 	shouldAbort cyclemanager.ShouldAbortCallback,
 ) (compacted bool, err error) {
@@ -601,6 +606,11 @@ func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
 		if err := sg.recordCompactionEditOps(segmentID(leftPath), segmentID(rightPath), builtOps); err != nil {
 			return false, err
 		}
+		// A compaction retires the pending rows of both inputs, so without this
+		// the gauges read high until the next cleanup pass happens to refresh
+		// them — and on a bucket whose rows compaction drained entirely, that is
+		// only the force-cleanup interval away.
+		sg.refreshEditOpsMetrics()
 	}
 
 	sg.metrics.DecSegmentTotalByStrategy(sg.strategy)

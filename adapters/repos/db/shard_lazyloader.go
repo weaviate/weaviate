@@ -542,6 +542,20 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 
 		metrics.DeleteShardLabels(className, shardName)
 
+		// The edit-op gauges live on the lsmkv component, not the global metrics
+		// struct, so DeleteShardLabels does not reach them. There is no Store to
+		// reap through here — the shard is unloaded — but it may still be
+		// publishing: an unload KEEPS the series of a shard that owes work, so a
+		// drop stalled on a deactivated tenant stays visible until the tenant is
+		// deleted, which is here.
+		// Logged, never returned: this is observability cleanup, and refusing to
+		// delete a tenant because a gauge could not be retired would trade a
+		// data operation for a stale series — and leave the drop half-done.
+		if err := lsmkv.ReapEditOpsShardSeries(l.shardOpts.promMetrics, className, shardName); err != nil {
+			idx.logger.WithField("action", "drop_shard").WithField("shard", shardName).
+				Warnf("could not reap edit-op metrics for deleted shard; series linger until restart: %v", err)
+		}
+
 		// cleanup dimensions: not deleted in s.metrics.DeleteShardLabels
 		clearDimensionMetrics(idx.Config, l.shardOpts.promMetrics, className, shardName)
 

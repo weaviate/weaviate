@@ -66,6 +66,12 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
+	// The edit-op gauges are not reaped by DeleteShardLabels: they are
+	// registered on the lsmkv component rather than the global metrics struct.
+	// This is the delete-path reap they need — an unload deliberately keeps
+	// them, so that a drop stalled on a deactivated tenant stays visible (see
+	// SegmentGroup.shutdown). Latched, so the teardown below cannot republish.
+	s.store.ReapEditOpsMetrics()
 	s.replicationMap.clear()
 
 	s.index.logger.WithFields(logrus.Fields{

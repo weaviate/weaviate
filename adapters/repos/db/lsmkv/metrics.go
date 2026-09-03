@@ -123,6 +123,9 @@ type Metrics struct {
 
 	groupClasses        bool
 	criticalBucketsOnly bool
+
+	// editOps holds the segment-edit-op series (drop-vector cleanup). nil-safe.
+	editOps *monitoring.SegmentEditOpsMetrics
 }
 
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
@@ -627,10 +630,16 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		"path":       "n/a",
 	})
 
+	editOpsMetrics, err := monitoring.NewSegmentEditOpsMetrics(register, className, shardName, promMetrics.Group)
+	if err != nil {
+		return nil, fmt.Errorf("register segment edit ops metrics: %w", err)
+	}
+
 	return &Metrics{
 		register:            register,
 		groupClasses:        promMetrics.Group,
 		criticalBucketsOnly: promMetrics.LSMCriticalBucketsOnly,
+		editOps:             editOpsMetrics,
 
 		// bucket metrics
 		bucketInitCountByStrategy:        bucketInitCountByStrategy,
@@ -1109,4 +1118,76 @@ func (m *Metrics) ObjectCount(count int) {
 	}
 
 	m.objectCount.Set(float64(count))
+}
+
+// segment edit-op metrics (drop-vector cleanup). All delegate to the nil-safe
+// monitoring helper, so a nil *Metrics or disabled monitoring is a no-op.
+
+func (m *Metrics) SetEditOpsActive(opType string, n int) {
+	if m == nil {
+		return
+	}
+	m.editOps.SetActive(opType, n)
+}
+
+func (m *Metrics) SetEditOpsPendingSegments(opID string, n int) {
+	if m == nil {
+		return
+	}
+	m.editOps.SetPendingSegments(opID, n)
+}
+
+func (m *Metrics) SetEditOpsSegmentsOwed(opID string, n int) {
+	if m == nil {
+		return
+	}
+	m.editOps.SetSegmentsOwed(opID, n)
+}
+
+func (m *Metrics) ObserveEditOpsTransformerDuration(opType string, seconds float64) {
+	if m == nil {
+		return
+	}
+	m.editOps.ObserveTransformerDuration(opType, seconds)
+}
+
+func (m *Metrics) editOpsEnabled() bool {
+	return m != nil && m.editOps != nil && m.editOps.PerShardGaugesEnabled()
+}
+
+// ReapEditOpsShardSeries drops the edit-op series of a shard with no live
+// Store to reap through — an UNLOADED shard being deleted. A loaded one goes
+// via Store.ReapEditOpsMetrics; both exist because an unload deliberately
+// keeps a stalled shard's gauges (see SegmentGroup.shutdown), so a delete has
+// to retire them explicitly whichever state the shard is in. No-op when
+// monitoring is off.
+func ReapEditOpsShardSeries(promMetrics *monitoring.PrometheusMetrics, className, shardName string) error {
+	if promMetrics == nil {
+		return nil
+	}
+	if promMetrics.Group {
+		className, shardName = "n/a", "n/a"
+	}
+	editOps, err := monitoring.NewSegmentEditOpsMetrics(
+		promMetrics.Registerer, className, shardName, promMetrics.Group)
+	if err != nil {
+		return fmt.Errorf("edit-op metrics for shard reap: %w", err)
+	}
+	editOps.DeleteOwnShard()
+	return nil
+}
+
+// DeleteEditOpsShardSeries drops every edit-op series this shard owns.
+func (m *Metrics) DeleteEditOpsShardSeries() {
+	if m == nil {
+		return
+	}
+	m.editOps.DeleteOwnShard()
+}
+
+func (m *Metrics) ForgetEditOp(opID string) {
+	if m == nil {
+		return
+	}
+	m.editOps.ForgetOp(opID)
 }
