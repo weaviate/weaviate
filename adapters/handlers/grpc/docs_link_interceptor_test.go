@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -65,6 +66,23 @@ func TestWithDocsLink(t *testing.T) {
 			assert.Equal(t, tt.wantMsg, st.Message())
 		})
 	}
+}
+
+// A documented error wrapping a status that carries protobuf details keeps
+// them: only the message changes.
+func TestWithDocsLinkKeepsStatusDetails(t *testing.T) {
+	st, err := status.New(codes.ResourceExhausted, "over the line").WithDetails(&errdetails.ErrorInfo{Reason: "LIMIT"})
+	require.NoError(t, err)
+	wrapped := fmt.Errorf("load shard: %w: %w", st.Err(), enterrors.ErrNotEnoughMappings)
+
+	got, ok := status.FromError(withDocsLink(wrapped))
+	require.True(t, ok)
+	assert.Equal(t, codes.ResourceExhausted, got.Code())
+	assert.Contains(t, got.Message(), "(see https://docs.weaviate.io/e/core-mem001)")
+	require.Len(t, got.Details(), 1)
+	info, isInfo := got.Details()[0].(*errdetails.ErrorInfo)
+	require.True(t, isInfo)
+	assert.Equal(t, "LIMIT", info.Reason)
 }
 
 func TestDocsLinkInterceptorsWrapHandlerErrors(t *testing.T) {

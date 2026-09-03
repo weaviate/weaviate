@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -380,12 +381,15 @@ func withDocsLink(err error) error {
 	if _, ok := enterrors.Documented(err); !ok {
 		return err
 	}
-	// A plain error becomes codes.Unknown, which is what grpc does with it anyway.
-	code := codes.Unknown
 	if st, isStatus := status.FromError(err); isStatus {
-		code = st.Code()
+		// Clone and replace only the message, so the status keeps its code
+		// and its protobuf details.
+		p := proto.Clone(st.Proto()).(*spb.Status)
+		p.Message = enterrors.MessageWithDocsLink(err)
+		return status.ErrorProto(p)
 	}
-	return status.Error(code, enterrors.MessageWithDocsLink(err))
+	// A plain error becomes codes.Unknown, which is what grpc does with it anyway.
+	return status.Error(codes.Unknown, enterrors.MessageWithDocsLink(err))
 }
 
 func makeMaintenanceModeStreamInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.StreamServerInterceptor {
