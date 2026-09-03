@@ -41,7 +41,7 @@ type switchReplicationClient struct {
 	useGRPC    func() bool
 }
 
-var _ (replica.Client) = (*switchReplicationClient)(nil)
+var _ replica.Client = (*switchReplicationClient)(nil)
 
 // NewSwitchReplicationClient creates a client that routes all calls to gRPC
 // when useGRPC returns true, or REST when false.
@@ -208,6 +208,15 @@ func (s *switchReplicationClient) CompareHashTreeRoots(ctx context.Context, host
 		return s.grpcClient.CompareHashTreeRoots(ctx, host, index, roots)
 	}
 	return s.restClient.CompareHashTreeRoots(ctx, host, index, roots)
+}
+
+func (s *switchReplicationClient) CompareHashTreeRootsMulti(ctx context.Context, host string,
+	classes map[string]map[string]hashtree.Digest,
+) (*replica.CompareHashTreeRootsMultiResp, error) {
+	if s.useGRPC() {
+		return s.grpcClient.CompareHashTreeRootsMulti(ctx, host, classes)
+	}
+	return s.restClient.CompareHashTreeRootsMulti(ctx, host, classes)
 }
 
 func (s *switchReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {

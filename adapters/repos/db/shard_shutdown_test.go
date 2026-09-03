@@ -307,7 +307,7 @@ func TestShutdownOrRestoreShard_ConcurrentCompletionIsNotAFailure(t *testing.T) 
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 
-	err = shutdownOrRestoreShard(ctx, &index.shards, shardName, shard, index.logger)
+	err = shutdownOrRestoreShard(ctx, index, shardName, shard)
 	require.ErrorIs(t, err, errAlreadyShutdown,
 		"a concurrently-completed shutdown is the requested outcome, not a failure")
 	require.Nil(t, index.shards.Load(shardName), "a cleanly shut shard is not restored")
@@ -376,7 +376,58 @@ func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
 			// shut but still holds the handles a failed teardown left open.
 			name: "torn shard stays a failure",
 			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
-				tearShard(t, index.shards.Load(shardName))
+				tearShard(t, index.shards.Load(shardName), errors.New("bucket close failed"))
+				return shardName, context.Background()
+			},
+			wantErr:        errTeardownFailed,
+			wantStillInMap: true,
+		},
+		{
+			// The close is already requested when the unload starts, so the
+			// first refused attempt ends the retry and the unload returns
+			// errIndexShutdown instead of burning 2s to return errShardStillInUse.
+			name: "close request aborts a refused unload",
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				_, release, err := index.GetShard(context.Background(), shardName)
+				require.NoError(t, err)
+				t.Cleanup(release)
+				index.signalCloseRequested(errIndexShutdown)
+				return shardName, context.Background()
+			},
+			wantErr:        errIndexShutdown,
+			wantStillInMap: true,
+		},
+		{
+			// A close request ends the retry wait, never a teardown already past
+			// s.shut: every step after that consumes ctx, so giving it up there
+			// would leave buckets unflushed on a shard that reads as shut.
+			name: "close request does not interrupt an idle shard's teardown",
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				index.signalCloseRequested(errIndexShutdown)
+				return shardName, context.Background()
+			},
+		},
+		{
+			// A pending close must not relabel a shutdown that failed on its
+			// own: the torn shard is the one state a caller has to act on.
+			name: "close request leaves a torn shard its own error",
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				tearShard(t, index.shards.Load(shardName), errors.New("bucket close failed"))
+				index.signalCloseRequested(errIndexShutdown)
+				return shardName, context.Background()
+			},
+			wantErr:        errTeardownFailed,
+			wantStillInMap: true,
+		},
+		{
+			// The cause UnloadLocalShard joins must not hide a tear whose own
+			// failure carries a cancellation: matching on the cancellation alone
+			// reports the shard as stopped and hides the handles it still holds.
+			name: "close request keeps a cancelled tear matchable",
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				tearShard(t, index.shards.Load(shardName),
+					fmt.Errorf("stop lsmkv store: %w", context.Canceled))
+				index.signalCloseRequested(errIndexShutdown)
 				return shardName, context.Background()
 			},
 			wantErr:        errTeardownFailed,
@@ -425,8 +476,8 @@ func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
 
 // tearShard puts a loaded shard into the state a shutdown that failed
 // mid-teardown leaves behind: marked shut, but still holding the handles the
-// failure never released.
-func tearShard(t *testing.T, s ShardLike) {
+// failure never released. cause is the failure it stopped on.
+func tearShard(t *testing.T, s ShardLike, cause error) {
 	t.Helper()
 
 	var inner *Shard
@@ -441,5 +492,5 @@ func tearShard(t *testing.T, s ShardLike) {
 	}
 
 	inner.shut.Store(true)
-	inner.teardownErr = errors.New("bucket close failed")
+	inner.teardownErr = cause
 }

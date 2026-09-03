@@ -248,7 +248,7 @@ func TestLazyLoadedShards(t *testing.T) {
 		schema: fakeSchema, shardState: shardState,
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
-	index, err := NewIndex(ctx, IndexConfig{
+	index, err := NewIndex(ctx, nil, IndexConfig{
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(className),
 		ReplicationFactor:    1,

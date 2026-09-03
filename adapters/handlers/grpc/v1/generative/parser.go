@@ -24,8 +24,10 @@ import (
 	contextualaiParams "github.com/weaviate/weaviate/modules/generative-contextualai/parameters"
 	databricksParams "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
 	deepseekParams "github.com/weaviate/weaviate/modules/generative-deepseek/parameters"
+	digitaloceanParams "github.com/weaviate/weaviate/modules/generative-digitalocean/parameters"
 	friendliaiParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
+	metaParams "github.com/weaviate/weaviate/modules/generative-meta/parameters"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
 	nvidiaParams "github.com/weaviate/weaviate/modules/generative-nvidia/parameters"
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
@@ -177,6 +179,16 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 	case *pb.GenerativeProvider_Deepseek:
 		generative.Options = p.deepseek(query.GetDeepseek())
 		p.providerName = deepseekParams.Name
+	case *pb.GenerativeProvider_Digitalocean:
+		generative.Options = p.digitalocean(query.GetDigitalocean())
+		p.providerName = digitaloceanParams.Name
+	case *pb.GenerativeProvider_Meta:
+		opts := query.GetMeta()
+		if opts.GetImageProperties() != nil {
+			generative.Properties = append(generative.Properties, opts.GetImageProperties().Values...)
+		}
+		generative.Options = p.meta(opts)
+		p.providerName = metaParams.Name
 	default:
 		// do nothing
 	}
@@ -505,6 +517,49 @@ func (p *Parser) deepseek(in *pb.GenerativeDeepseek) map[string]any {
 			PresencePenalty:  in.PresencePenalty,
 			TopP:             in.TopP,
 			Stop:             in.Stop.GetValues(),
+		},
+	}
+}
+
+func (p *Parser) digitalocean(in *pb.GenerativeDigitalOcean) map[string]any {
+	if in == nil {
+		return nil
+	}
+	return map[string]any{
+		digitaloceanParams.Name: digitaloceanParams.Params{
+			BaseURL:          in.GetBaseUrl(),
+			Model:            in.GetModel(),
+			Temperature:      in.Temperature,
+			TopP:             in.TopP,
+			MaxTokens:        p.int64ToInt(in.MaxTokens),
+			FrequencyPenalty: in.FrequencyPenalty,
+			PresencePenalty:  in.PresencePenalty,
+			Stop:             in.Stop.GetValues(),
+		},
+	}
+}
+
+func (p *Parser) meta(in *pb.GenerativeMeta) map[string]any {
+	if in == nil {
+		return nil
+	}
+	var reasoningEffort *string
+	if in.GetReasoningEffort() != pb.GenerativeMeta_REASONING_EFFORT_UNSPECIFIED {
+		enumValue := strings.ToLower(strings.TrimPrefix(in.GetReasoningEffort().String(), "REASONING_EFFORT_"))
+		reasoningEffort = &enumValue
+	}
+	return map[string]any{
+		metaParams.Name: metaParams.Params{
+			BaseURL:          in.GetBaseUrl(),
+			Model:            in.GetModel(),
+			Temperature:      in.Temperature,
+			TopP:             in.TopP,
+			MaxTokens:        p.int64ToInt(in.MaxTokens),
+			FrequencyPenalty: in.FrequencyPenalty,
+			PresencePenalty:  in.PresencePenalty,
+			ReasoningEffort:  reasoningEffort,
+			Images:           p.getStringPtrs(in.Images),
+			ImageProperties:  in.ImageProperties.GetValues(),
 		},
 	}
 }

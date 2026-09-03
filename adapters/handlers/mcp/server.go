@@ -87,7 +87,9 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 }
 
 func (s *MCPServer) Handler() http.Handler {
-	return server.NewStreamableHTTPServer(s.server)
+	// Every request is authenticated on its own and nothing is kept per session,
+	// so session ids are neither issued nor required.
+	return server.NewStreamableHTTPServer(s.server, server.WithStateLess(true))
 }
 
 // registerToolFilter hides write tools from tools/list when write access is

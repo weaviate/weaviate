@@ -457,7 +457,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	// If the caller provided a list of target node overrides, filter the replicas to only include
 	// the relevant overrides so that we only "push" updates to the specified nodes.
 	localNodeName := f.LocalNodeName()
-	targetNodesToUse := routingPlan.NodeNames()
+	var targetNodesToUse []string
 	if len(targetNodeOverrides) > 0 {
 		targetNodesToUse = make([]string, 0, len(targetNodeOverrides))
 		for _, override := range targetNodeOverrides {
@@ -465,10 +465,12 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 				targetNodesToUse = append(targetNodesToUse, override.TargetNode)
 			}
 		}
+	} else {
+		targetNodesToUse = routingPlan.NodeNames()
 	}
 
-	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas()))
-	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
+	replicaNodeNames := make([]string, 0, len(targetNodesToUse))
+	replicasHostAddrs := make([]string, 0, len(targetNodesToUse))
 	for _, replica := range targetNodesToUse {
 		replicaHostAddr, ok := f.nodeResolver.NodeHostname(replica)
 		if ok {
@@ -560,18 +562,24 @@ func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
 		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
 	}
 
-	var hosts []string
-	for _, node := range routingPlan.NodeNames() {
-		if node == localNodeName {
+	replicas := routingPlan.Replicas()
+	hosts := make([]string, 0, len(replicas))
+	for _, replica := range replicas {
+		if replica.NodeName == localNodeName {
 			continue
 		}
-		addr, ok := f.nodeResolver.NodeHostname(node)
+		addr, ok := f.nodeResolver.NodeHostname(replica.NodeName)
 		if !ok || addr == localHostAddr {
 			continue
 		}
 		hosts = append(hosts, addr)
 	}
 	return hosts, nil
+}
+
+// TargetHostAddrsForShard exposes per-shard replica host resolution for the scheduler's cross-class pre-filter.
+func (f *Finder) TargetHostAddrsForShard(shardName string) ([]string, error) {
+	return f.targetHostAddrsForShard(shardName)
 }
 
 // prefilterMaxShardsPerRPC caps shards per CompareHashTreeRoots request to bound
@@ -613,7 +621,7 @@ func (f *Finder) PrefilterShardRoots(ctx context.Context,
 	}
 
 	var stats PrefilterStats
-	chunk := make(map[string]hashtree.Digest, prefilterMaxShardsPerRPC)
+	chunk := make(map[string]hashtree.Digest, min(len(roots), prefilterMaxShardsPerRPC))
 	flush := func(host string) {
 		if len(chunk) == 0 {
 			return
@@ -662,12 +670,15 @@ func (f *Finder) LocalNodeName() string {
 	return f.nodeName
 }
 
-// CountObjects returns an aggregated object count from all replicas the shard exists on.
-func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.ConsistencyLevel) (int, error) {
+// CountObjects returns a shard's object count, reconciled over the replicas in
+// plan that its consistency level reaches. At ONE that is one replica's answer
+// verbatim. plan must come from the router, which validates the tenant.
+func (f *Finder) CountObjects(ctx context.Context, plan types.ReadRoutingPlan) (int, error) {
+	shard := plan.Shard
 	c := NewReadCoordinator[int](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 
 	// NOTE(dyma): Why do we need to pass both the context and the timeout?
-	results, _, err := c.Pull(ctx, cl, func(ctx context.Context, host string, _ bool) (int, error) {
+	results, _ := c.pull(ctx, plan, func(ctx context.Context, host string, _ bool) (int, error) {
 		count, err := f.client.cl.CountObjects(ctx, host, f.class, shard)
 		if err != nil {
 			f.logger.WithFields(logrus.Fields{
@@ -677,10 +688,7 @@ func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.Consis
 			return 0, err
 		}
 		return count, nil
-	}, "", time.Minute)
-	if err != nil {
-		return 0, nil
-	}
+	}, time.Minute)
 
 	// Fan in results from all concurrent Pull requests. Results with
 	// errors (e.g. shard not yet loaded on a follower) are excluded

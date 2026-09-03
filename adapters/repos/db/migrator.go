@@ -151,7 +151,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	}
 
 	var lazyLoadShardEnabled bool
-	idx, err = NewIndex(ctx,
+	idx, err = NewIndex(ctx, m.db,
 		IndexConfig{
 			ClassName:                      schema.ClassName(class.Class),
 			RootPath:                       m.db.config.RootPath,
@@ -197,6 +197,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				)
 				return lazyLoadShardEnabled
 			}(),
+			LazyLoadShardWarmupMinObjects:       m.db.config.LazyLoadShardWarmupMinObjects,
 			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
 			HaltForTransferTimeout:              m.db.config.HaltForTransferTimeout,
@@ -228,7 +229,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			QueryBatchedContainsEnabled:  m.db.config.QueryBatchedContainsEnabled,
 			LazyPropertyLengthsEnabled:   m.db.config.LazyPropertyLengthsEnabled,
 			MaintenanceModeEnabled:       m.db.config.MaintenanceModeEnabled,
-			HFreshEnabled:                m.db.config.HFreshEnabled,
 			AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 		},
 		// no backward-compatibility check required, since newly added classes will
@@ -244,11 +244,16 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	}
 
 	idx.usageLimits = m.db.usageLimits
-	idx.db = m.db
 	idx.SetReplicationFSMReader(m.db.replicationFSM)
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
+
+	// Shards built inside NewIndex read the read-only flag as they come up, but
+	// a transition landing after that read reaches them through neither path -
+	// the sweep cannot see an index that is not in db.indices yet. Settle them
+	// against the flag now that it can.
+	m.db.reconcileIndexResourcePressure(idx)
 
 	// NewIndex loaded shards reading the live AsyncReplicationDisabled flag, but
 	// the index was not yet in db.indices, so a concurrent runtime flag toggle's
@@ -277,6 +282,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		"action":                  "lazy_shard_auto_detection",
 		"class":                   class.Class,
 		"enable_lazy_load_shards": lazyLoadShardEnabled,
+		"background_warmup":       idx.Config.backgroundWarmupEnabled(),
+		"warmup_min_objects":      m.db.config.LazyLoadShardWarmupMinObjects,
 		"local_shard_count":       localActiveShardsCount,
 		"total_shard_size_bytes":  totalShardSizeBytes,
 		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,
@@ -360,7 +367,7 @@ func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error
 	if !ok {
 		return fmt.Errorf("could not find shard %s", shard)
 	}
-	if err := shutdownOrRestoreShard(ctx, &idx.shards, shard, shardLike, idx.logger); err != nil {
+	if err := shutdownOrRestoreShard(ctx, idx, shard, shardLike); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
 			return errors.Wrapf(err, "shutdown shard %q", shard)
 		}
@@ -738,7 +745,7 @@ func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updat
 
 				m.logger.WithField("shard", name).Debug("starting shutdown")
 
-				if err := shutdownOrRestoreShard(ctx, &idx.shards, name, shard, idx.logger); err != nil {
+				if err := shutdownOrRestoreShard(ctx, idx, name, shard); err != nil {
 					if errors.Is(err, errAlreadyShutdown) {
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {
@@ -885,9 +892,6 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
 	case vectorindex.VectorIndexTypeHFresh:
-		if !m.db.config.HFreshEnabled {
-			return errors.New("hfresh index is available only in experimental mode")
-		}
 		return hfresh.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("invalid index type: %s", old.IndexType())

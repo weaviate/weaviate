@@ -191,6 +191,10 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 	}
 
 	db.startupComplete.Store(true)
+	// Only once init has returned: unlike AddClass, it does not settle the
+	// indices it builds against the read-only flag, so a transition landing
+	// while one is still being assembled would reach its shards through neither
+	// path.
 	db.scanResourceUsage()
 
 	return nil
@@ -308,11 +312,14 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	// resume any .deleteme cleanup that didn't finish before the last shutdown
 	scanAndAsyncDeletePending(config.RootPath, logger)
 
+	// Fakes without the cross-class RPC leave the comparer nil → per-class pre-filter fallback.
+	crossClassComparer, _ := replicaClient.(crossClassRootComparer)
 	asyncReplicationScheduler, err := NewAsyncReplicationScheduler(
 		context.Background(),
 		config.Replication,
 		promMetrics,
 		logger,
+		crossClassComparer,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create async replication scheduler: %w", err)
@@ -413,6 +420,7 @@ type Config struct {
 	EnableLazyLoadShards                *bool
 	LazyLoadShardCountThreshold         int
 	LazyLoadShardSizeThresholdGB        float64
+	LazyLoadShardWarmupMinObjects       int64
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
@@ -453,7 +461,6 @@ type Config struct {
 	MaintenanceModeEnabled      func() bool
 	AsyncIndexingEnabled        bool
 
-	HFreshEnabled   bool
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]

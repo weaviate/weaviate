@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -25,6 +26,7 @@ import (
 	"regexp"
 	goruntime "runtime"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -96,9 +98,11 @@ import (
 	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
 	modgenerativedatabricks "github.com/weaviate/weaviate/modules/generative-databricks"
 	modgenerativedeepseek "github.com/weaviate/weaviate/modules/generative-deepseek"
+	modgenerativedigitalocean "github.com/weaviate/weaviate/modules/generative-digitalocean"
 	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
+	modgenerativemeta "github.com/weaviate/weaviate/modules/generative-meta"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
 	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
@@ -347,10 +351,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// serialize on the same per-(collection, property) mutex. See
 	// the field godoc on state.State for the race this closes.
 	appState.ReindexSubmitLocks = state.NewReindexSubmitLocks()
-	// ReindexDeleteMarkers lets GET /indexes suppress the post-DELETE
-	// finalize-window bleed; recorded by the DELETE handler, read by the
-	// GET-indexes handler. See the field godoc on state.State.
-	appState.ReindexDeleteMarkers = state.NewReindexDeleteMarkers()
 
 	var vectorRepo vectorRepo
 	// var vectorMigrator schema.Migrator
@@ -478,6 +478,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		EnableLazyLoadShards:                appState.ServerConfig.Config.EnableLazyLoadShards,
 		LazyLoadShardCountThreshold:         appState.ServerConfig.Config.LazyLoadShardCountThreshold,
 		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
+		LazyLoadShardWarmupMinObjects:       appState.ServerConfig.Config.LazyLoadShardWarmupMinObjects,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
 		HaltForTransferTimeout:              appState.ServerConfig.Config.HaltForTransferTimeout,
@@ -532,7 +533,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LazyPropertyLengthsEnabled:   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
 		MaintenanceModeEnabled:       appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		AsyncIndexingEnabled:         appState.ServerConfig.Config.AsyncIndexingEnabled,
-		HFreshEnabled:                appState.ServerConfig.Config.HFreshEnabled,
 		OperationalMode:              appState.ServerConfig.Config.OperationalMode,
 		DisableDimensionMetrics:      appState.ServerConfig.Config.DisableDimensionMetrics,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil, appState.NamespacesController) // TODO client
@@ -1453,7 +1453,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
 	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer)
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ReindexDeleteMarkers, appState.ServerConfig.Config.Namespaces.Enabled)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ServerConfig.Config.Namespaces.Enabled)
 	setupIndexesHandlers(api, appState)
 	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
@@ -1673,6 +1673,8 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
+		appState.ClusterService.Raft,
+		appState.NamespacesController,
 		appState.Logger)
 	return backupScheduler
 }
@@ -1888,8 +1890,10 @@ func registerModules(appState *state.State) error {
 		modgenerativecohere.Name,
 		modgenerativecontextualai.Name,
 		modgenerativedatabricks.Name,
+		modgenerativedigitalocean.Name,
 		modgenerativefriendliai.Name,
 		modgenerativegoogle.Name,
+		modgenerativemeta.Name,
 		modgenerativemistral.Name,
 		modgenerativenvidia.Name,
 		modgenerativeoctoai.Name,
@@ -2234,6 +2238,22 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativedeepseek.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativedigitalocean.Name]; ok {
+		appState.Modules.Register(modgenerativedigitalocean.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativedigitalocean.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativemeta.Name]; ok {
+		appState.Modules.Register(modgenerativemeta.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativemeta.Name).
 			Debug("enabled module")
 	}
 
@@ -2671,6 +2691,14 @@ func limitResources(appState *state.State) {
 		appState.Logger.Info("No resource limits set, weaviate will use all available memory and CPU. " +
 			"To limit resources, set LIMIT_RESOURCES=true")
 	}
+
+	// The runtime reports math.MaxInt64 when no soft memory limit is set. Every
+	// memory check in the process then compares against a limit it can never reach.
+	if debug.SetMemoryLimit(-1) == math.MaxInt64 {
+		appState.Logger.Warn("GOMEMLIMIT is not set: the soft memory limit is unlimited, " +
+			"so every memory-pressure check in this process (batch admission, compaction, " +
+			"vector index growth) is inert. Set GOMEMLIMIT, or LIMIT_RESOURCES=true to derive it from cgroups.")
+	}
 }
 
 func telemetryEnabled(state *state.State) bool {
@@ -2721,6 +2749,82 @@ func initRuntimeOverrides(appState *state.State, registerer prometheus.Registere
 	return nil
 }
 
+// mergeRuntimeHooks adds src into dst, refusing the whole merge on a key that
+// is empty, that dst already holds, or that prefixes no runtime config field.
+// Hooks fire by prefix-matching a changed field's Go name, so a key matching
+// nothing disables that knob's hot reload and a key already taken replaces a
+// live hook, both without an error anywhere.
+func mergeRuntimeHooks(dst, src map[string]func() error) error {
+	// Sorted so two bad keys always name the same one in the boot error.
+	for _, key := range slices.Sorted(maps.Keys(src)) {
+		if key == "" {
+			return fmt.Errorf("runtime config hook has an empty key, which prefixes every field")
+		}
+		if _, taken := dst[key]; taken {
+			return fmt.Errorf("runtime config hook %q is already registered", key)
+		}
+		if !config.HookKeyMatchesAnyField(key) {
+			return fmt.Errorf("runtime config hook %q prefixes no runtime config field", key)
+		}
+	}
+	maps.Copy(dst, src)
+
+	return nil
+}
+
+// runtimeConfigHooks builds every hook the runtime config manager fires. The
+// cron jobs' hooks merge in last, so the guard in mergeRuntimeHooks sees every
+// key registered by hand ahead of them.
+func runtimeConfigHooks(appState *state.State, serverShutdownCtx context.Context) (map[string]func() error, error) {
+	hooks := make(map[string]func() error)
+	if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
+		hooks["OIDC"] = appState.OIDC.Init
+	}
+	// Reconcile loaded shards when the async-replication kill-switch is
+	// toggled at runtime. Run in the background: ReconcileAsyncReplication
+	// does per-shard hashtree disk I/O, which must not block the runtime-
+	// config reload loop. serverShutdownCtx makes it cancellable on shutdown;
+	// errors are logged here and surfaced via the reconcileFailures metric.
+	hooks["AsyncReplicationDisabled"] = func() error {
+		restcompat.SetAsyncReplicationGloballyDisabled(appState.ServerConfig.Config.Replication.AsyncReplicationDisabled.Get())
+		enterrors.GoWrapper(func() {
+			if err := appState.DB.ReconcileAsyncReplication(serverShutdownCtx); err != nil {
+				appState.Logger.WithField("action", "reconcile_async_replication").Error(err)
+			}
+		}, appState.Logger)
+		return nil
+	}
+	// GraphQL is loaded lazily on toggle: makeUpdateSchemaCall skips the build
+	// while disabled, so on enable rebuild from the current schema, and on
+	// disable drop the graph (it's no longer served).
+	hooks["DisableGraphQL"] = func() error {
+		if appState.ServerConfig.Config.DisableGraphQL.Get() {
+			appState.SetGraphQL(nil)
+		} else {
+			rebuildGraphQLOnEnable(appState)
+		}
+		return nil
+	}
+
+	// Re-run cross-field restriction validation on runtime YAML pushes
+	// (per-value runs at SetValue time). Keys are exact struct-field
+	// names — matchUpdatedFields uses HasPrefix, so "Default" would
+	// also match DefaultShardingCount and friends.
+	restrictionHook := func() error {
+		return appState.ServerConfig.Config.ValidateRestrictionsRuntime(appState.Logger)
+	}
+	hooks["AllowedVectorIndexTypes"] = restrictionHook
+	hooks["AllowedCompressionTypes"] = restrictionHook
+	hooks["DefaultVectorIndexType"] = restrictionHook
+	hooks["DefaultQuantization"] = restrictionHook
+
+	if err := mergeRuntimeHooks(hooks, appState.Crons.RuntimeConfigHooks()); err != nil {
+		return nil, err
+	}
+
+	return hooks, nil
+}
+
 // postInitRuntimeOverrides registers hooks and starts runtime config background process
 func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.Context, cm *configRuntime.ConfigManager[config.WeaviateRuntimeConfig]) {
 	if appState.ServerConfig.Config.RuntimeOverrides.Enabled && cm != nil {
@@ -2740,49 +2844,11 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 				registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 			})
 		}
-		// register hooks
-		hooks := make(map[string]func() error)
-		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
-			hooks["OIDC"] = appState.OIDC.Init
+		hooks, err := runtimeConfigHooks(appState, serverShutdownCtx)
+		if err != nil {
+			appState.Logger.WithField("action", "startup").
+				Fatalf("cannot register cron runtime config hooks: %v", err)
 		}
-		// Reconcile loaded shards when the async-replication kill-switch is
-		// toggled at runtime. Run in the background: ReconcileAsyncReplication
-		// does per-shard hashtree disk I/O, which must not block the runtime-
-		// config reload loop. serverShutdownCtx makes it cancellable on shutdown;
-		// errors are logged here and surfaced via the reconcileFailures metric.
-		hooks["AsyncReplicationDisabled"] = func() error {
-			restcompat.SetAsyncReplicationGloballyDisabled(appState.ServerConfig.Config.Replication.AsyncReplicationDisabled.Get())
-			enterrors.GoWrapper(func() {
-				if err := appState.DB.ReconcileAsyncReplication(serverShutdownCtx); err != nil {
-					appState.Logger.WithField("action", "reconcile_async_replication").Error(err)
-				}
-			}, appState.Logger)
-			return nil
-		}
-		// GraphQL is loaded lazily on toggle: makeUpdateSchemaCall skips the build
-		// while disabled, so on enable rebuild from the current schema, and on
-		// disable drop the graph (it's no longer served).
-		hooks["DisableGraphQL"] = func() error {
-			if appState.ServerConfig.Config.DisableGraphQL.Get() {
-				appState.SetGraphQL(nil)
-			} else {
-				rebuildGraphQLOnEnable(appState)
-			}
-			return nil
-		}
-		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())
-
-		// Re-run cross-field restriction validation on runtime YAML pushes
-		// (per-value runs at SetValue time). Keys are exact struct-field
-		// names — matchUpdatedFields uses HasPrefix, so "Default" would
-		// also match DefaultShardingCount and friends.
-		restrictionHook := func() error {
-			return appState.ServerConfig.Config.ValidateRestrictionsRuntime(appState.Logger)
-		}
-		hooks["AllowedVectorIndexTypes"] = restrictionHook
-		hooks["AllowedCompressionTypes"] = restrictionHook
-		hooks["DefaultVectorIndexType"] = restrictionHook
-		hooks["DefaultQuantization"] = restrictionHook
 
 		appState.Logger.Log(logrus.InfoLevel, "registering runtime overrides hooks")
 		cm.RegisterHooks(hooks)

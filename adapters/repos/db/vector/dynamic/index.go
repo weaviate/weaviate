@@ -17,17 +17,15 @@ import (
 	simpleErrors "errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
@@ -45,15 +43,17 @@ import (
 const (
 	composerUpgradedKey = "upgraded"
 	batchSize           = 500
-	StateDBFileName     = "index.db"
-
-	// stateDBOpenTimeout bounds the wait for the state DB's file lock. Only a
-	// loaded shard holds it, and [UpgradedOnDisk] reads unloaded ones, so waiting
-	// is a sign the caller raced a load rather than something to sit out.
-	stateDBOpenTimeout = time.Second
 )
 
-var dynamicBucket = []byte("dynamic")
+// StateNamespace is the metadata-DB namespace holding the dynamic index's
+// per-target-vector flat-to-hnsw state. The shard scopes the bounded
+// operations it hands to Config.State to this namespace.
+const StateNamespace = "dynamic"
+
+// dynamicBucket is referenced only by test files that seed or assert the
+// on-disk format through raw bolt; production code goes through
+// StateNamespace-scoped state ops.
+var dynamicBucket = []byte(StateNamespace)
 
 type Index interface {
 	// UnderlyingIndex returns the underlying index type (flat or hnsw)
@@ -168,7 +168,7 @@ type dynamic struct {
 	status                       status
 	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
 	uc                           ent.UserConfig
-	db                           *bbolt.DB
+	state                        StateOps
 	ctx                          context.Context
 	cancel                       context.CancelFunc
 	hnswWaitForCachePrefill      bool
@@ -221,7 +221,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		threshold:                    uc.Threshold,
 		tombstoneCallbacks:           cfg.TombstoneCallbacks,
 		uc:                           uc,
-		db:                           cfg.SharedDB,
+		state:                        cfg.State,
 		ctx:                          ctx,
 		cancel:                       cancel,
 		hnswWaitForCachePrefill:      cfg.HNSWWaitForCachePrefill,
@@ -295,14 +295,31 @@ func dbKey(targetVector string) []byte {
 	return key
 }
 
-// UpgradedOnDisk reports whether the dynamic index of an unloaded shard already
-// switched to hnsw, reading the same state the shard's own load reads: the
-// shared state DB, falling back for a named vector to the hnsw commit log
-// directory. An unnamed vector gets no such fallback, because its load reads a
-// missing key as not upgraded and then deletes that directory.
+// RemoveStateKey deletes targetVector's flat-to-hnsw verdict from the shard's
+// metadata DB. No artifact list can carry it — index.db belongs to the shard,
+// not to any one vector — so the sweeps that never load a shard clear it
+// here. A verdict left behind is inherited by the next vector of the same
+// name, which boots straight into an empty hnsw and never serves its flat
+// stage.
 //
-// State that could not be read returns false along with the error, so a caller
-// can tell that answer apart from a shard positively known to be flat.
+// A missing or locked metadata DB is success: nothing was upgraded, or a
+// loaded shard owns the key and deletes it through its own handle (both
+// baked into shardmeta.DeleteOffline).
+func RemoveStateKey(rootPath, targetVector string) error {
+	if err := shardmeta.DeleteOffline(rootPath, StateNamespace, dbKey(targetVector)); err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", targetVector, err)
+	}
+	return nil
+}
+
+// UpgradedOnDisk reports whether the dynamic index of an unloaded shard
+// already switched to hnsw, reading the same state the shard's own load
+// reads: the shard metadata DB, falling back for a named vector to the hnsw
+// commit log directory. An unnamed vector gets no such fallback, because its
+// load reads a missing key as not upgraded and then deletes that directory.
+//
+// State that could not be read returns false along with the error, so a
+// caller can tell that answer apart from a shard positively known to be flat.
 func UpgradedOnDisk(rootPath, id, targetVector string) (bool, error) {
 	upgradedWithoutStateKey := false
 	if targetVector != "" {
@@ -310,32 +327,18 @@ func UpgradedOnDisk(rootPath, id, targetVector string) (bool, error) {
 		upgradedWithoutStateKey = err == nil
 	}
 
-	db, err := bbolt.Open(filepath.Join(rootPath, StateDBFileName), 0o600,
-		&bbolt.Options{ReadOnly: true, Timeout: stateDBOpenTimeout})
+	v, ok, err := shardmeta.GetOffline(rootPath, StateNamespace, dbKey(targetVector))
 	if err != nil {
-		// only a shard that never wrote state may fall back to the directory; a
-		// locked or damaged DB is state we failed to read
-		if os.IsNotExist(err) {
-			return upgradedWithoutStateKey, nil
-		}
-		return false, fmt.Errorf("open dynamic state db: %w", err)
+		return false, fmt.Errorf("read dynamic state: %w", err)
 	}
-	defer db.Close()
-
-	upgraded := upgradedWithoutStateKey
-	if err := db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(dynamicBucket)
-		if b == nil {
-			return nil
-		}
-		if v := b.Get(dbKey(targetVector)); len(v) > 0 {
-			upgraded = v[0] != 0
-		}
-		return nil
-	}); err != nil {
-		return false, fmt.Errorf("read dynamic state db: %w", err)
+	if !ok {
+		// only a shard that never wrote state may fall back to the directory
+		return upgradedWithoutStateKey, nil
 	}
-	return upgraded, nil
+	if len(v) > 0 {
+		return v[0] != 0, nil
+	}
+	return upgradedWithoutStateKey, nil
 }
 
 func (dynamic *dynamic) getBucketName() string {
@@ -355,54 +358,30 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		hnswDirExists = true
 	}
 
-	dbKey := dynamic.dbKey()
-	err = cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
-		if err != nil {
-			return err
-		}
-
-		if cfg.TargetVector == "" {
-			// a stored empty value reads back non-nil, so length is what says
-			// whether a state was recorded
-			v := b.Get(dbKey)
-			if len(v) == 0 {
-				return nil
-			}
-
-			upgraded = v[0] != 0
-			return nil
-		}
-
-		// a bug in earlier versions caused target vectors to all use the same key.
-		// this is a mitigation to preserve existing upgraded state and migrate to
-		// target-vector-specific keys going forward.
-
-		// first, check if there's an entry for this specific target vector
-		v := b.Get(dbKey)
-		if len(v) > 0 {
-			upgraded = v[0] != 0
-			return nil
-		}
-
-		// if not, let's create one by default
-		// and infer the upgraded state from the existence of the HNSW dir
-		if hnswDirExists {
-			err = b.Put(dbKey, []byte{1})
-		} else {
-			err = b.Put(dbKey, []byte{0})
-		}
-		if err != nil {
-			return errors.Wrap(err, "migrate dynamic state for target vector")
-		}
-
-		// if the HNSW dir exists, we assume it was upgraded
-		upgraded = hnswDirExists
-
-		return nil
-	})
+	v, err := dynamic.state.Get(dynamic.dbKey())
 	if err != nil {
 		return false, errors.Wrap(err, "get dynamic state")
+	}
+
+	switch {
+	case len(v) > 0:
+		// a stored empty value reads back non-nil, so length is what says
+		// whether a state was recorded
+		upgraded = v[0] != 0
+	case cfg.TargetVector != "":
+		// a bug in earlier versions caused target vectors to all use the same
+		// key. this is a mitigation to preserve existing upgraded state and
+		// migrate to target-vector-specific keys going forward: no recorded
+		// state means the verdict is inferred from the existence of the HNSW
+		// dir and recorded under this vector's own key.
+		verdict := []byte{0}
+		if hnswDirExists {
+			verdict = []byte{1}
+		}
+		if err := dynamic.state.Put(dynamic.dbKey(), verdict); err != nil {
+			return false, errors.Wrap(err, "migrate dynamic state for target vector")
+		}
+		upgraded = hnswDirExists
 	}
 
 	// If not yet upgraded, remove any stale HNSW commit log left by an
@@ -484,6 +463,17 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 	return dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
 }
 
+// Drop tears down this dynamic index. The shard-level metadata DB is NOT
+// closed or removed here — it is shard-owned, shared by every dynamic vector
+// on the shard and by the shard's shutdown, drop and backup paths. Closing
+// it here (as this method once did) broke every sibling and made
+// DebugResetVectorIndex fail on re-init, which reuses the shard's handle.
+//
+// With keepFiles=false this index's own state key goes, so a re-created
+// vector of the same name starts from its flat stage instead of inheriting a
+// stale "already upgraded" verdict. A metadata DB that is already closed is
+// tolerated: that only happens when the shard was shut down first, and then
+// the whole shard directory — key included — is removed right after.
 func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 	if dynamic.ctx.Err() != nil {
 		// already dropped
@@ -496,14 +486,43 @@ func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 
 	dynamic.Lock()
 	defer dynamic.Unlock()
-	if err := dynamic.db.Close(); err != nil {
-		return err
-	}
+
 	if !keepFiles {
-		os.Remove(filepath.Join(dynamic.rootPath, StateDBFileName))
+		if err := dynamic.state.Delete(dynamic.dbKey()); err != nil && !shardmeta.IsClosed(err) {
+			return fmt.Errorf("delete dynamic state for %q: %w", dynamic.targetVector, err)
+		}
 	}
 
 	return dynamic.index.Drop(ctx, keepFiles)
+}
+
+// DropTargetVector removes ONE named vector's dynamic index, leaving the shard
+// intact. Drop is unusable here: the state DB is shared by every dynamic vector
+// on the shard (one handle, one key per vector), so its Close()+Remove would
+// take every sibling's state with it. This deletes only this vector's key,
+// which is also what stops a re-created vector of the same name inheriting a
+// stale "already upgraded" verdict.
+//
+// Loaded-shard route only: the files-only sweeps never open the state DB, so a
+// drop on a cold shard leaves the key behind.
+func (dynamic *dynamic) DropTargetVector(ctx context.Context) error {
+	if dynamic.ctx.Err() != nil {
+		// already dropped
+		return nil
+	}
+
+	dynamic.cancel()
+
+	dynamic.Lock()
+	defer dynamic.Unlock()
+
+	if err := dynamic.state.Delete(dynamic.dbKey()); err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", dynamic.targetVector, err)
+	}
+
+	// keepFiles=false: the underlying index's own files go, but the SHARED
+	// state DB above is untouched by this path.
+	return dynamic.index.Drop(ctx, false)
 }
 
 func (dynamic *dynamic) Flush() error {
@@ -546,44 +565,16 @@ func (dynamic *dynamic) ListFiles(ctx context.Context, basePath string) ([]strin
 	return dynamic.index.ListFiles(ctx, basePath)
 }
 
-// SnapshotMutableFiles delegates to the underlying index. The shared, shard-level
-// StateDBFileName (index.db) is NOT snapshotted here — it is snapshotted once per
-// shard via SnapshotSharedStateDB rather than through this per-index method, which
-// the shard's ForEachVectorIndex would otherwise invoke once per named vector and
-// thus duplicate the copy and its sd.Files entry.
+// SnapshotMutableFiles delegates to the underlying index. The shard-level
+// metadata DB (index.db) is NOT snapshotted here — the shard snapshots it
+// once per shard itself (Shard.CreateBackupSnapshot via shardmeta.DB.Snapshot)
+// rather than through this per-index method, which the shard's
+// ForEachVectorIndex would otherwise invoke once per named vector and thus
+// duplicate the copy and its sd.Files entry.
 func (dynamic *dynamic) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.SnapshotMutableFiles(ctx, basePath, stagingDir)
-}
-
-// SnapshotSharedStateDB writes a consistent point-in-time copy of the shard-level
-// dynamic-index state DB (StateDBFileName) into stagingDir and returns its
-// backup-relative path. The state DB is shard-owned and shared by every target-vector
-// dynamic index, so Shard.CreateBackupSnapshot calls this ONCE per shard — NOT via the
-// per-index SnapshotMutableFiles, which ForEachVectorIndex would invoke once per named
-// vector and thus duplicate the snapshot.
-//
-// rootPath is the directory holding the live state DB (the shard path); basePath is the
-// backup root the returned relpath is relative to. The copy is taken inside a bbolt read
-// transaction (tx.CopyFile) so an in-place write during the long upload window cannot tear
-// the staged copy.
-func SnapshotSharedStateDB(db *bbolt.DB, rootPath, basePath, stagingDir string) (string, error) {
-	src := filepath.Join(rootPath, StateDBFileName)
-	relPath, err := filepath.Rel(basePath, src)
-	if err != nil {
-		return "", fmt.Errorf("index.db relative path: %w", err)
-	}
-	dst := filepath.Join(stagingDir, relPath)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return "", fmt.Errorf("create staging subdir for %s: %w", relPath, err)
-	}
-	if err := db.View(func(tx *bbolt.Tx) error {
-		return tx.CopyFile(dst, 0o600)
-	}); err != nil {
-		return "", fmt.Errorf("snapshot index.db to staging: %w", err)
-	}
-	return relPath, nil
 }
 
 func (dynamic *dynamic) ValidateBeforeInsert(vector []float32) error {
@@ -613,7 +604,7 @@ func (dynamic *dynamic) Preload(id uint64, vector []float32) {
 func (dynamic *dynamic) AlreadyIndexed() uint64 {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return (dynamic.index).(upgradableIndexer).AlreadyIndexed()
+	return dynamic.index.(upgradableIndexer).AlreadyIndexed()
 }
 
 func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
@@ -628,7 +619,7 @@ func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
 	}
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return (dynamic.index).(upgradableIndexer).ShouldUpgrade()
+	return dynamic.index.(upgradableIndexer).ShouldUpgrade()
 }
 
 func (dynamic *dynamic) Upgraded() bool {
@@ -691,7 +682,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 		err := dynamic.upgradeFn()
 		if err != nil {
-			dynamic.logger.WithError(err).Error("failed to upgrade index")
+			dynamic.logger.Errorf("failed to upgrade index: %v", err)
 			return
 		}
 		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
@@ -760,10 +751,7 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "index was closed while upgrading")
 	}
 
-	err = dynamic.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(dynamicBucket)
-		return b.Put(dynamic.dbKey(), []byte{1})
-	})
+	err = dynamic.state.Put(dynamic.dbKey(), []byte{1})
 	if err != nil {
 		// the new index is never installed, so tear it down like any other
 		// aborted upgrade
@@ -821,13 +809,13 @@ func (dynamic *dynamic) doUpgrade() error {
 func (dynamic *dynamic) cleanupAbortedUpgrade(index VectorIndex) {
 	if err := index.Drop(context.Background(), false); err != nil {
 		dynamic.logger.WithField("action", "dynamic_upgrade_abort").
-			Error(errors.Wrap(err, "drop partially-built hnsw index"))
+			Errorf("drop partially-built hnsw index: %v", err)
 	}
 	// Drop removes the commit log directory, but remove it explicitly in case
 	// Drop failed partway through.
 	if err := os.RemoveAll(hnswCommitLogDirectory(dynamic.rootPath, dynamic.id)); err != nil {
 		dynamic.logger.WithField("action", "dynamic_upgrade_abort").
-			Error(errors.Wrap(err, "remove partial hnsw commit log"))
+			Errorf("remove partial hnsw commit log: %v", err)
 	}
 }
 

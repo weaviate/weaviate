@@ -17,11 +17,11 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"go.etcd.io/bbolt"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
@@ -192,7 +192,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		// here we label the main vector index as such.
 		vecIdxID := s.vectorIndexID(targetVector)
 
-		sharedDB, err := s.getOrInitDynamicVectorIndexDB()
+		metaDB, err := s.getOrInitMetadataDB()
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
 		}
@@ -221,7 +221,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				)
 			},
 			TombstoneCallbacks:   s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			SharedDB:             sharedDB,
+			State:                metaDB.Namespace(dynamic.StateNamespace),
 			AllocChecker:         s.index.allocChecker,
 			MakeBucketOptions:    makeBucketOptions,
 			AsyncIndexingEnabled: s.index.AsyncIndexingEnabled,
@@ -231,9 +231,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		}
 		vectorIndex = vi
 	case vectorindex.VectorIndexTypeHFresh:
-		if !s.index.HFreshEnabled {
-			return nil, errors.New("hfresh index is available only in experimental mode")
-		}
 		userConfig, ok := vectorIndexUserConfig.(hfreshent.UserConfig)
 		if !ok {
 			return nil, errors.Errorf("hfresh vector index: config is not hfresh.UserConfig: %T",
@@ -311,21 +308,18 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 	return vectorIndex, nil
 }
 
-func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
-	if s.dynamicVectorIndexDB == nil {
-		path := filepath.Join(s.path(), dynamic.StateDBFileName)
-
-		// Timeout: a leaked handle from a failed shard teardown holds the flock;
-		// without it this open retries forever and wedges the loading goroutine.
-		db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: entlsmkv.BoltFlockTimeout})
+func (s *Shard) getOrInitMetadataDB() (*shardmeta.DB, error) {
+	if s.metadataDB == nil {
+		// Timeout: a leaked handle from a failed shard teardown holds the
+		// flock; without it this open retries forever and wedges the loading
+		// goroutine.
+		db, err := shardmeta.Open(s.path(), entlsmkv.BoltFlockTimeout)
 		if err != nil {
-			return nil, errors.Wrapf(err, "open %q", path)
+			return nil, err
 		}
-
-		s.dynamicVectorIndexDB = db
+		s.metadataDB = db
 	}
-
-	return s.dynamicVectorIndexDB, nil
+	return s.metadataDB, nil
 }
 
 // initTargetVectors builds the named target-vector indexes. legacy and configs
@@ -419,6 +413,26 @@ func (s *Shard) setVectorIndex(targetVector string, index VectorIndex) {
 	}
 }
 
+// perVectorDropper is implemented by index types whose Drop() would reach
+// beyond the one vector being dropped. Only dynamic needs it today: its state
+// DB is shared across the shard, so Drop's Close()+Remove would take every
+// sibling's state with it.
+type perVectorDropper interface {
+	DropTargetVector(ctx context.Context) error
+}
+
+// dropOneVectorIndex tears down a single named vector's index. Index types that
+// own nothing shard-wide fall through to Drop(keepFiles=false), which is the
+// same thing for them; the interface exists so a type that DOES own shared
+// state has somewhere to say so, rather than the caller having to know which
+// types are special.
+func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
+	if d, ok := index.(perVectorDropper); ok {
+		return d.DropTargetVector(ctx)
+	}
+	return index.Drop(ctx, false)
+}
+
 // DropVectorIndex shuts down and removes the named vector index and its queue
 // from this shard, deleting associated files from disk. It also removes the
 // LSM buckets that store the raw and compressed vector data.
@@ -434,49 +448,29 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	}
 
 	if index, ok := s.vectorIndexes[targetVector]; ok && index != nil {
-		if err := index.Drop(ctx, false); err != nil {
+		if err := dropOneVectorIndex(ctx, index); err != nil {
 			return fmt.Errorf("drop vector index %q: %w", targetVector, err)
 		}
 		delete(s.vectorIndexes, targetVector)
 	}
 
-	// Drop LSM buckets that hold the vector data on disk.
-	vectorsBucket := helpers.GetVectorsBucketName(targetVector)
-	if err := s.removeBucket(ctx, vectorsBucket); err != nil {
-		return fmt.Errorf("drop vectors bucket for %q: %w", targetVector, err)
+	// Remove every on-disk artifact this vector owns — the raw and compressed
+	// buckets, the multivector ones (muvera OR mv_mappings), and hfresh's
+	// directory and buckets. The set lives in helpers so the live drop, the
+	// file sweep and the tests cannot drift apart; passing the collection's
+	// other vector names is what stops a sibling being deleted when its own
+	// bucket collides with one of this target's artifact names.
+	artifacts := helpers.VectorIndexArtifactsFor(targetVector,
+		otherTargetVectors(s.class, targetVector))
+	for _, bucket := range artifacts.LSMBuckets {
+		if err := s.removeBucket(ctx, bucket); err != nil {
+			return fmt.Errorf("drop bucket %q for vector %q: %w", bucket, targetVector, err)
+		}
 	}
-
-	compressedBucket := helpers.GetCompressedBucketName(targetVector)
-	if err := s.removeBucket(ctx, compressedBucket); err != nil {
-		return fmt.Errorf("drop compressed vectors bucket for %q: %w", targetVector, err)
-	}
-
-	// A muvera-encoded multi-vector index keeps its encoded vectors in a bucket
-	// of its own, which neither of the two above covers and hnsw.Drop does not
-	// touch. Unconditional: reading the config back to decide would miss an
-	// index whose muvera setting changed, and removeBucket is a no-op when the
-	// bucket does not exist.
-	muveraBucket := helpers.GetMuveraBucketName(targetVector)
-	if err := s.removeBucket(ctx, muveraBucket); err != nil {
-		return fmt.Errorf("drop muvera vectors bucket for %q: %w", targetVector, err)
-	}
-
-	// An hfresh index keeps its state outside the two buckets above: a
-	// directory of its own under the shard, plus two dedicated LSM buckets. Its
-	// own Drop() removes none of them ("Shard::drop will take care of handling
-	// store buckets" holds when the whole shard goes, not when one named vector
-	// is dropped out from under a shard that stays), so they are named here.
-	// Unconditional: reading the type back to decide would miss an index that
-	// failed to load, and both removals are no-ops when the target is absent.
-	indexID := s.vectorIndexID(targetVector)
-	if err := s.removeBucket(ctx, helpers.HFreshPostingsBucketName(indexID)); err != nil {
-		return fmt.Errorf("drop hfresh postings bucket for %q: %w", targetVector, err)
-	}
-	if err := s.removeBucket(ctx, helpers.HFreshSharedBucketName(indexID)); err != nil {
-		return fmt.Errorf("drop hfresh shared bucket for %q: %w", targetVector, err)
-	}
-	if err := s.removeDirIfExists(s.path(), helpers.HFreshDirName(indexID)); err != nil {
-		return fmt.Errorf("drop hfresh directory for %q: %w", targetVector, err)
+	for _, dir := range artifacts.ShardDirs {
+		if err := s.removeDirIfExists(s.path(), dir); err != nil {
+			return fmt.Errorf("drop directory %q for vector %q: %w", dir, targetVector, err)
+		}
 	}
 
 	// Remove the index checkpoint entry for this vector.

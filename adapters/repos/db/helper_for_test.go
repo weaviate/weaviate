@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"log"
 	"math/rand"
 	"os"
@@ -515,7 +516,6 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
 		bitmapBufPool:          roaringset.NewBitmapBufPoolNoop(),
-		HFreshEnabled:          true,
 		replicator:             replicator,
 		router:                 mockRouter,
 		db:                     repo,
@@ -649,4 +649,14 @@ func newTestIndex(t *testing.T, logger logrus.FieldLogger, className string,
 		idx.shards.Store(name, shard)
 	}
 	return idx
+}
+
+// shutdownIndexOnCleanup stops the index's cycle goroutines before t.TempDir's RemoveAll; tolerates a mid-test shutdown.
+func shutdownIndexOnCleanup(t *testing.T, index *Index) {
+	t.Helper()
+	t.Cleanup(func() {
+		if err := index.Shutdown(context.Background()); err != nil && !errors.Is(err, errAlreadyShutdown) {
+			t.Errorf("shutdown index: %v", err)
+		}
+	})
 }

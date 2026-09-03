@@ -140,6 +140,53 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	require.NoError(tb, uuidBucket.RoaringSetAddList(sharedUUID[:], containsFamilySharedDocIDs))
 	require.NoError(tb, uuidBucket.FlushAndSwitch())
 
+	numberBucketName := helpers.BucketFromPropNameLSM(benchNumberPropName)
+	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), numberBucketName,
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(bufPool),
+	))
+	numberBucket := store.Bucket(numberBucketName)
+	for i := 0; i < containsFamilyDocs; i++ {
+		key := make([]byte, 8)
+		entinverted.PutLexicographicallySortableFloat64(key, benchNumberValue(i))
+		require.NoError(tb, numberBucket.RoaringSetAddList(key, []uint64{uint64(i)}))
+	}
+	sharedNumberKey := make([]byte, 8)
+	entinverted.PutLexicographicallySortableFloat64(sharedNumberKey, containsSharedNumber)
+	require.NoError(tb, numberBucket.RoaringSetAddList(sharedNumberKey, containsFamilySharedDocIDs))
+	require.NoError(tb, numberBucket.FlushAndSwitch())
+
+	dateBucketName := helpers.BucketFromPropNameLSM(benchDatePropName)
+	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), dateBucketName,
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(bufPool),
+	))
+	dateBucket := store.Bucket(dateBucketName)
+	for i := 0; i < containsFamilyDocs; i++ {
+		key := make([]byte, 8)
+		entinverted.PutLexicographicallySortableInt64(key, benchDateTime(i).UnixNano())
+		require.NoError(tb, dateBucket.RoaringSetAddList(key, []uint64{uint64(i)}))
+	}
+	sharedDateKey := make([]byte, 8)
+	entinverted.PutLexicographicallySortableInt64(sharedDateKey, containsSharedDateTime().UnixNano())
+	require.NoError(tb, dateBucket.RoaringSetAddList(sharedDateKey, containsFamilySharedDocIDs))
+	require.NoError(tb, dateBucket.FlushAndSwitch())
+
+	// Booleans have only two distinct keys, the family most likely to hold
+	// duplicates in a batch; even docs are false and odd ones true, so
+	// ContainsAll over true and false is non-empty via the shared docs.
+	boolBucketName := helpers.BucketFromPropNameLSM(benchBoolPropName)
+	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), boolBucketName,
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(bufPool),
+	))
+	boolBucket := store.Bucket(boolBucketName)
+	for i := 0; i < containsFamilyDocs; i++ {
+		require.NoError(tb, boolBucket.RoaringSetAddList([]byte{byte(i % 2)}, []uint64{uint64(i)}))
+	}
+	require.NoError(tb, boolBucket.RoaringSetAddList([]byte{0}, containsFamilySharedDocIDs))
+	require.NoError(tb, boolBucket.FlushAndSwitch())
+
 	maxDocID := uint64(numDocs + 1)
 	bitmapFactory := roaringset.NewBitmapFactory(bufPool, newFakeMaxIDGetter(maxDocID))
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
@@ -163,12 +210,16 @@ const (
 	containsPaddedDocID = uint64(23)
 )
 
-// int and uuid corpora for the family end-to-end rows.
+// Per-family corpora for the end-to-end rows.
 const (
-	benchIntPropName   = "inverted-without-frequency-roaringset"
-	benchUUIDPropName  = "inverted-uuid-roaringset"
-	containsFamilyDocs = 50
-	containsSharedInt  = 1000
+	benchIntPropName     = "inverted-without-frequency-roaringset"
+	benchUUIDPropName    = "inverted-uuid-roaringset"
+	benchNumberPropName  = "inverted-number-roaringset"
+	benchBoolPropName    = "inverted-bool-roaringset"
+	benchDatePropName    = "inverted-date-roaringset"
+	containsFamilyDocs   = 50
+	containsSharedInt    = 1000
+	containsSharedNumber = 1000.5
 )
 
 var (
@@ -179,6 +230,20 @@ var (
 func benchUUIDValue(i int) string {
 	return fmt.Sprintf("00000000-0000-0000-0000-%012d", i)
 }
+
+// benchNumberValue keeps a fraction so the keys exercise the sign-and-mantissa
+// flip the float encoding does rather than reading as small integers.
+func benchNumberValue(i int) float64 { return float64(i) + 0.5 }
+
+func benchDateTime(i int) time.Time {
+	return time.Date(2021, time.January, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, i)
+}
+
+func benchDateValue(i int) string { return benchDateTime(i).Format(time.RFC3339) }
+
+func containsSharedDateTime() time.Time { return benchDateTime(9_999) }
+
+func containsSharedDateValue() string { return containsSharedDateTime().Format(time.RFC3339) }
 
 // sampleValues picks `size` values spread evenly across the corpus (strided),
 // so the selection touches the whole keyspace. Deterministic and identical
@@ -403,6 +468,189 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 		}
 	}
 
+	// The corpus rows above are small or uniform-width, reaching only three of
+	// the sort's branches. These two are sized to reach the two-word radix and
+	// the variable-width radix with its collision repair — covered by unit
+	// tests but never exercised through a real bucket. Each list mixes present
+	// values with absent ones so the two paths are compared on a non-empty
+	// result.
+	t.Run("large batches reach the radix branches", func(t *testing.T) {
+		// 250 uuids with no shared prefix, past the two-word cutoff.
+		uuids := make([]interface{}, 0, 250)
+		for i := 0; i < containsFamilyDocs; i++ {
+			uuids = append(uuids, benchUUIDValue(i))
+		}
+		for i := 0; len(uuids) < 250; i++ {
+			uuids = append(uuids, fmt.Sprintf("%08x-0000-0000-0000-%012d", uint32(i)*2654435761, i))
+		}
+
+		// 100 text values of differing lengths sharing a prefix longer than the
+		// packed word, so the first pass cannot separate them and the repair
+		// has to run.
+		texts := make([]interface{}, 0, 100)
+		for i := 0; i < 20; i++ {
+			texts = append(texts, benchValue(i))
+		}
+		for i := 0; len(texts) < 100; i++ {
+			group := "user_profile_settings_"
+			if i%2 == 1 {
+				group = "user_profile_avatars_"
+			}
+			texts = append(texts, fmt.Sprintf("%s%d", group, i*7919))
+		}
+
+		for _, tc := range []struct {
+			name   string
+			prop   string
+			dt     schema.DataType
+			values []interface{}
+		}{
+			{"uuid, two-word radix", benchUUIDPropName, schema.DataTypeText, uuids},
+			{"text, variable radix with collision repair", benchPropName, schema.DataTypeText, texts},
+		} {
+			for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
+				t.Run(tc.name+"/"+op.Name(), func(t *testing.T) {
+					batched := f.resolveDocIDs(t, ctx, containsFilterOn(op, tc.prop, tc.dt, tc.values))
+					desugared := f.resolveDocIDs(t, ctx, equalCompoundFilterOn(op, tc.prop, tc.dt, tc.values))
+					require.Equal(t, desugared, batched,
+						"batched Contains must resolve the same doc IDs as the desugared Equal compound")
+					if op == filters.ContainsAny {
+						require.NotEmpty(t, batched,
+							"the present values must keep the comparison non-vacuous")
+					}
+				})
+			}
+		}
+	})
+
+	// Every case above runs against a fully flushed corpus, where the batch
+	// reader skips the active memtable entirely. This leaves a write unflushed
+	// so the batch reader must probe the memtable per key like the desugared
+	// path does, the one shape where the two could otherwise diverge.
+	t.Run("unflushed write in the active memtable", func(t *testing.T) {
+		g := newContainsFixture(t, 200)
+		bucket := g.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+		require.NotNil(t, bucket)
+
+		// The doc ID must be inside the universe or ContainsNone's complement is
+		// the same whether the write is seen or not, and it must land on both
+		// values or ContainsAll's intersection excludes it either way — either
+		// slip leaves two of the three operators asserting nothing.
+		const unflushedDocID = 7
+		for _, v := range []string{benchValue(3), benchValue(4)} {
+			require.NoError(t, bucket.RoaringSetAddList([]byte(v), []uint64{unflushedDocID}))
+		}
+
+		values := []string{benchValue(3), benchValue(4)}
+		for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
+			t.Run(op.Name(), func(t *testing.T) {
+				batched := g.resolveDocIDs(t, ctx, containsFilter(op, values))
+				desugared := g.resolveDocIDs(t, ctx, equalCompoundFilter(op, values))
+				require.Equal(t, desugared, batched,
+					"batched Contains must read the active memtable like the desugared path")
+			})
+		}
+
+		// Without these the case is vacuous: if both paths skipped the active
+		// memtable they would agree on results that are missing the write.
+		require.Contains(t, g.resolveDocIDs(t, ctx, containsFilter(filters.ContainsAny, values)),
+			uint64(unflushedDocID), "ContainsAny must see the unflushed write")
+		require.Contains(t, g.resolveDocIDs(t, ctx, containsFilter(filters.ContainsAll, values)),
+			uint64(unflushedDocID), "ContainsAll must see it on both values")
+		require.NotContains(t, g.resolveDocIDs(t, ctx, containsFilter(filters.ContainsNone, values)),
+			uint64(unflushedDocID), "ContainsNone must exclude it")
+	})
+
+	// The case above reaches a memtable inside a single window. This one makes
+	// the batch wider than one window as well, which is the combination the
+	// batching exists for and which nothing else reaches through filter
+	// parsing — the windowing itself is proven a level down, against readers
+	// those tests assemble themselves.
+	t.Run("a batch spanning windows over a live memtable", func(t *testing.T) {
+		g := newContainsFixture(t, 5_000)
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+
+		// Written after the fixture's flush, so these keys exist only in the
+		// active memtable.
+		const liveValues = 64
+		bucket := g.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+		values := make([]string, 0, 2048+liveValues)
+		wantIDs := map[uint64]struct{}{}
+		for i := 0; i < liveValues; i++ {
+			value := fmt.Sprintf("live_%04d", i)
+			require.NoError(t, bucket.RoaringSetAddList([]byte(value), []uint64{uint64(i)}))
+			values = append(values, value)
+			wantIDs[uint64(i)] = struct{}{}
+		}
+
+		// Wide enough that one window cannot hold the batch. The assertion on
+		// window_fills below is what states that, rather than this number.
+		flushed, flushedIDs := g.sampleValues(2048)
+		values = append(values, flushed...)
+		for _, id := range flushedIDs {
+			wantIDs[id] = struct{}{}
+		}
+
+		batched := g.resolveDocIDs(t, ctx, containsFilter(filters.ContainsAny, values))
+		desugared := g.resolveDocIDs(t, context.Background(),
+			equalCompoundFilter(filters.ContainsAny, values))
+		require.Equal(t, desugared, batched,
+			"a batch spanning windows over a live memtable must resolve what the desugared compound does")
+
+		want := make([]uint64, 0, len(wantIDs))
+		for id := range wantIDs {
+			want = append(want, id)
+		}
+		sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+		require.Equal(t, want, batched)
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+		fills, ok := entries[0]["window_fills"].(int)
+		require.True(t, ok)
+		require.Greater(t, fills, 1, "the batch must refill, or this covers only the single-window case")
+		reads, ok := entries[0]["memtable_reads"].(int)
+		require.True(t, ok)
+		require.Positive(t, reads, "the keys written after the flush are only reachable through a memtable")
+	})
+
+	// ContainsAll is the one fold that stops before the end of its batch, and
+	// every ContainsAll elsewhere in this package either keeps a non-empty
+	// intersection or runs against a corpus with no live memtable at all. Here
+	// the first two keys hold disjoint documents, so the intersection empties
+	// on the second and the last two are never asked for — the shape the Fills
+	// godoc names, where a whole window is charged and part of it never served.
+	t.Run("ContainsAll whose intersection empties over a live memtable", func(t *testing.T) {
+		g := newContainsFixture(t, 200)
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+
+		bucket := g.store.Bucket(helpers.BucketFromPropNameLSM(benchPropName))
+		values := []string{"live_a", "live_b", "live_c", "live_d"}
+		// live_a and live_b share no document, so the fold empties at live_b.
+		for value, docID := range map[string]uint64{
+			"live_a": 1, "live_b": 2, "live_c": 1, "live_d": 1,
+		} {
+			require.NoError(t, bucket.RoaringSetAddList([]byte(value), []uint64{docID}))
+		}
+
+		batched := g.resolveDocIDs(t, ctx, containsFilter(filters.ContainsAll, values))
+		desugared := g.resolveDocIDs(t, context.Background(),
+			equalCompoundFilter(filters.ContainsAll, values))
+		require.Equal(t, desugared, batched,
+			"a ContainsAll that empties early over a memtable must resolve what the desugared compound does")
+		require.Empty(t, batched, "live_a and live_b share no document")
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+		require.Equal(t, 2, entries[0]["batch_keys_served"],
+			"the fold must stop at the key that empties the intersection, not walk the batch")
+		reads, ok := entries[0]["memtable_reads"].(int)
+		require.True(t, ok)
+		require.Positive(t, reads, "these keys are only reachable through a memtable")
+	})
+
 	t.Run("[]interface{} values from the API layer", func(t *testing.T) {
 		values := []string{containsSharedValues[0], containsSharedValues[1], benchValue(11)}
 		iface := make([]interface{}, len(values))
@@ -514,7 +762,11 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 	// exact-docs assertions matter here: both query paths share one encoder
 	// per family, so differential equality alone would survive an encoding
 	// bug that breaks lookups on both sides.
-	t.Run("int and uuid families end-to-end", func(t *testing.T) {
+	//
+	// Every family that classifies as batchable appears, because each reaches a
+	// different sorting arm — one word for int, number and date, two for uuid,
+	// a counting pass for bool.
+	t.Run("every family end-to-end", func(t *testing.T) {
 		ints := func(vs ...int) []interface{} {
 			out := make([]interface{}, len(vs))
 			for i, v := range vs {
@@ -575,6 +827,82 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 				filterValue: []interface{}{benchUUIDValue(1), containsSharedUUIDValue},
 				leafValues:  []interface{}{benchUUIDValue(1), containsSharedUUIDValue},
 				contains:    []uint64{2, 3}, notContains: []uint64{1, 7, 9},
+			},
+			{
+				name: "number ContainsAny", prop: benchNumberPropName, dt: schema.DataTypeNumber,
+				op:          filters.ContainsAny,
+				filterValue: []float64{benchNumberValue(1), benchNumberValue(2), containsSharedNumber},
+				leafValues: []interface{}{
+					benchNumberValue(1), benchNumberValue(2), containsSharedNumber,
+				},
+				exact: []uint64{1, 2, 7, 9},
+			},
+			{
+				name: "number ContainsAll", prop: benchNumberPropName, dt: schema.DataTypeNumber,
+				op:          filters.ContainsAll,
+				filterValue: []float64{containsSharedNumber, benchNumberValue(7)},
+				leafValues:  []interface{}{containsSharedNumber, benchNumberValue(7)},
+				exact:       []uint64{7},
+			},
+			{
+				name: "number ContainsNone", prop: benchNumberPropName, dt: schema.DataTypeNumber,
+				op:          filters.ContainsNone,
+				filterValue: []float64{benchNumberValue(1), containsSharedNumber},
+				leafValues:  []interface{}{benchNumberValue(1), containsSharedNumber},
+				contains:    []uint64{2, 3}, notContains: []uint64{1, 7, 9},
+			},
+			{
+				name: "date ContainsAny", prop: benchDatePropName, dt: schema.DataTypeDate,
+				op:          filters.ContainsAny,
+				filterValue: []string{benchDateValue(1), benchDateValue(2), containsSharedDateValue()},
+				leafValues: []interface{}{
+					benchDateValue(1), benchDateValue(2), containsSharedDateValue(),
+				},
+				exact: []uint64{1, 2, 7, 9},
+			},
+			{
+				name: "date ContainsAll", prop: benchDatePropName, dt: schema.DataTypeDate,
+				op:          filters.ContainsAll,
+				filterValue: []string{containsSharedDateValue(), benchDateValue(7)},
+				leafValues:  []interface{}{containsSharedDateValue(), benchDateValue(7)},
+				exact:       []uint64{7},
+			},
+			{
+				name: "date ContainsNone", prop: benchDatePropName, dt: schema.DataTypeDate,
+				op:          filters.ContainsNone,
+				filterValue: []string{benchDateValue(1), containsSharedDateValue()},
+				leafValues:  []interface{}{benchDateValue(1), containsSharedDateValue()},
+				contains:    []uint64{2, 3}, notContains: []uint64{1, 7, 9},
+			},
+			// Booleans collapse the most: at most two keys survive however many
+			// values a filter names, and the rows below name more than two.
+			{
+				name: "bool ContainsAny, duplicate values", prop: benchBoolPropName, dt: schema.DataTypeBoolean,
+				op:          filters.ContainsAny,
+				filterValue: []bool{true, false, true, false},
+				leafValues:  []interface{}{true, false, true, false},
+				contains:    []uint64{0, 1, 2, 7, 9},
+			},
+			{
+				name: "bool ContainsAny, one value repeated", prop: benchBoolPropName, dt: schema.DataTypeBoolean,
+				op:          filters.ContainsAny,
+				filterValue: []bool{true, true, true},
+				leafValues:  []interface{}{true, true, true},
+				contains:    []uint64{1, 3, 7, 9}, notContains: []uint64{0, 2, 4},
+			},
+			{
+				name: "bool ContainsAll", prop: benchBoolPropName, dt: schema.DataTypeBoolean,
+				op:          filters.ContainsAll,
+				filterValue: []bool{true, false, true},
+				leafValues:  []interface{}{true, false, true},
+				exact:       []uint64{7, 9},
+			},
+			{
+				name: "bool ContainsNone", prop: benchBoolPropName, dt: schema.DataTypeBoolean,
+				op:          filters.ContainsNone,
+				filterValue: []bool{true, true},
+				leafValues:  []interface{}{true, true},
+				contains:    []uint64{0, 2, 4}, notContains: []uint64{1, 3, 7, 9},
 			},
 		}
 

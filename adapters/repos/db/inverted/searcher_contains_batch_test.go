@@ -12,8 +12,13 @@
 package inverted
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"slices"
 	"testing"
+
+	entsInverted "github.com/weaviate/weaviate/entities/inverted"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -147,6 +152,20 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 		require.NoError(t, err)
 		return want
 	}
+	// Value lists that repeat, so wantKey is asked for every value the filter
+	// named and the expectation has to be compacted like the builders do.
+	boolDupValues := []bool{true, false, true, false}
+	boolDupKey := func(t *testing.T, i int) []byte {
+		want, err := s.extractBoolValue(boolDupValues[i])
+		require.NoError(t, err)
+		return want
+	}
+	intDupValues := []int{2, 2, 2}
+	intDupKey := func(t *testing.T, i int) []byte {
+		want, err := s.extractIntValue(intDupValues[i])
+		require.NoError(t, err)
+		return want
+	}
 	dateValues := []string{"2021-01-01T00:00:00Z", "2022-02-02T00:00:00Z", "2023-03-03T00:00:00Z"}
 	dateKey := func(t *testing.T, i int) []byte {
 		want, err := s.extractDateValue(dateValues[i])
@@ -161,8 +180,11 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 		operator filters.Operator
 		// value is what the filter layer hands over: typed slices from
 		// internal callers, []interface{} from the GraphQL/gRPC layer
-		value   interface{}
-		numVals int
+		value interface{}
+		// numKeys is how many values wantKey can be asked for; the distinct
+		// count is derived from the keys it returns, since the builders drop
+		// duplicates.
+		numKeys int
 		wantKey func(t *testing.T, i int) []byte
 	}{
 		{"uuid", "prop-uuid", schema.DataTypeText, filters.ContainsAny, uuidValues, 3, uuidKey},
@@ -180,6 +202,11 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 		{"bool []interface{}", "prop-bool", schema.DataTypeBoolean, filters.ContainsAny, []interface{}{true, false}, 2, boolKey},
 		{"date", "prop-date", schema.DataTypeDate, filters.ContainsAny, dateValues, 3, dateKey},
 		{"date []interface{}", "prop-date", schema.DataTypeDate, filters.ContainsAny, []interface{}{dateValues[0], dateValues[1], dateValues[2]}, 3, dateKey},
+		// Four values, two distinct keys. Every other row has one key per
+		// value, so without this the gate's >= 2 values and the leaf's >= 1 key
+		// are never seen to disagree.
+		{"bool, values repeated", "prop-bool", schema.DataTypeBoolean, filters.ContainsAny, boolDupValues, len(boolDupValues), boolDupKey},
+		{"int, values repeated", "prop-int", schema.DataTypeInt, filters.ContainsAny, intDupValues, len(intDupValues), intDupKey},
 	}
 
 	for _, tt := range tests {
@@ -195,10 +222,19 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 			require.Equal(t, tt.operator, pv.operator)
 			require.Equal(t, tt.prop, pv.prop)
 			require.True(t, pv.hasFilterableIndex)
-			require.Len(t, pv.containsValues, tt.numVals)
-			for i := 0; i < tt.numVals; i++ {
-				require.Equal(t, tt.wantKey(t, i), pv.containsValues[i], "key %d", i)
+			// The keys come back ascending, not in the order the filter listed
+			// them, and duplicates are gone — so the expectation is built from
+			// every value and then ordered and compacted the same way. The bool
+			// rows are where the two orders differ.
+			want := make([][]byte, tt.numKeys)
+			for i := range want {
+				want[i] = tt.wantKey(t, i)
 			}
+			slices.SortFunc(want, bytes.Compare)
+			want = slices.CompactFunc(want, bytes.Equal)
+			require.Equal(t, len(want), pv.containsKeys.Len(),
+				"one key per distinct value")
+			require.Equal(t, want, collectKeys(pv.containsKeys))
 		})
 	}
 }
@@ -212,7 +248,7 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 	// its decline reason in the slow-query details. Rows with wantErr expect
 	// the desugared continuation to fail on its own terms (which also proves
 	// the gate declined: a wrongly-accepted shape would have succeeded with
-	// containsValues instead of erroring); the annotation is written before
+	// containsKeys instead of erroring); the annotation is written before
 	// the failure, so the reason is asserted on those rows too.
 	tests := []struct {
 		name       string
@@ -369,7 +405,7 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.NotNil(t, pv)
-			require.Nil(t, pv.containsValues, "shape must not resolve through the batched path")
+			require.Zero(t, pv.containsKeys.Len(), "shape must not resolve through the batched path")
 		})
 	}
 }
@@ -404,14 +440,14 @@ func TestExtractContainsBatch_EncodingErrorIsEligibleButFails(t *testing.T) {
 	pv, err := s.extractContains(ctx, containsPath("prop-uuid"),
 		schema.DataTypeText, values, filters.ContainsAny, f.class)
 	require.Error(t, err)
-	require.ErrorContains(t, err, "extract contains values",
+	require.ErrorContains(t, err, "parse uuid filter value",
 		"the matched shape must fail in the gate, not fall through to desugar")
 	require.Nil(t, pv)
 }
 
 // TestExtractContains_FallsThroughToPerValuePath proves that once the gate
 // declines a shape, extractContains's existing per-value dispatch still
-// runs unchanged, producing children (not containsValues).
+// runs unchanged, producing children (not containsKeys).
 func TestExtractContains_FallsThroughToPerValuePath(t *testing.T) {
 	f := newContainsBatchGateFixture(t)
 	s := f.searcher
@@ -421,7 +457,7 @@ func TestExtractContains_FallsThroughToPerValuePath(t *testing.T) {
 	pv, err := s.extractContains(ctx, path, schema.DataTypeText, []string{"hello world", "goodbye"},
 		filters.ContainsAny, f.class)
 	require.NoError(t, err)
-	require.Nil(t, pv.containsValues)
+	require.Zero(t, pv.containsKeys.Len())
 	require.NotEmpty(t, pv.children)
 }
 
@@ -438,7 +474,36 @@ func TestExtractContains_UsesBatchedPathWhenEligible(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, pv)
 	require.Nil(t, pv.children)
-	require.Len(t, pv.containsValues, 3)
+	require.Equal(t, 3, pv.containsKeys.Len())
+}
+
+// TestNewBatchedContainsPair_RejectsNoKeys pins the invariant resolveDocIDs
+// routes on: a key count, not a presence test, since a key list's zero value
+// is itself an empty list. A leaf built with none would route as if it were
+// not batched at all, reaching the children dispatch with none to resolve.
+//
+// One key is accepted: dedup can legitimately shrink a filter — a repeated
+// value, or any boolean filter — down to one distinct key.
+func TestNewBatchedContainsPair_RejectsNoKeys(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	prop := &models.Property{Name: "prop-int"}
+
+	_, err := newBatchedContainsPair(prop, filters.ContainsAny, f.class, entsInverted.SortedKeys{})
+	require.ErrorContains(t, err, "no keys")
+
+	for _, tc := range []struct {
+		name string
+		keys entsInverted.SortedKeys
+	}{
+		{name: "one key", keys: keysFrom(t, []byte("a"))},
+		{name: "two keys", keys: keysFrom(t, []byte("a"), []byte("b"))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pv, err := newBatchedContainsPair(prop, filters.ContainsAny, f.class, tc.keys)
+			require.NoError(t, err)
+			require.Equal(t, tc.keys.Len(), pv.containsKeys.Len())
+		})
+	}
 }
 
 // TestExtractContainsBatch_OptInGate pins that the batched resolution is
@@ -460,7 +525,7 @@ func TestExtractContainsBatch_OptInGate(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(context.Background())
 		pv, err := extract(ctx)
 		require.NoError(t, err)
-		require.Nil(t, pv.containsValues)
+		require.Zero(t, pv.containsKeys.Len())
 		require.NotEmpty(t, pv.children, "with the gate unwired, Contains must desugar per value")
 		require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
 	})
@@ -472,20 +537,371 @@ func TestExtractContainsBatch_OptInGate(t *testing.T) {
 		ctx := helpers.InitSlowQueryDetails(context.Background())
 		pv, err := extract(ctx)
 		require.NoError(t, err)
-		require.Nil(t, pv.containsValues)
+		require.Zero(t, pv.containsKeys.Len())
 		require.NotEmpty(t, pv.children, "with the gate off, Contains must desugar per value")
 		require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
 
 		require.NoError(t, gate.SetValue(true))
 		pv, err = extract(context.Background())
 		require.NoError(t, err)
-		require.Len(t, pv.containsValues, 3, "gate flipped on at runtime must batch")
+		require.Equal(t, 3, pv.containsKeys.Len(), "gate flipped on at runtime must batch")
 
 		require.NoError(t, gate.SetValue(false))
 		ctx = helpers.InitSlowQueryDetails(context.Background())
 		pv, err = extract(ctx)
 		require.NoError(t, err)
-		require.Nil(t, pv.containsValues, "gate flipped off at runtime must desugar again")
+		require.Zero(t, pv.containsKeys.Len(), "gate flipped off at runtime must desugar again")
 		require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
 	})
+}
+
+// TestFetchContainsBatch_EmptyKeySet pins that a batch with no keys is rejected
+// rather than answered. Extraction never produces one — it batches only at two
+// or more values, and every path errors rather than dropping a value — so an
+// empty batch is a caller bug, and inventing a result for it would mean picking
+// semantics per operator with nothing to validate them against.
+func TestFetchContainsBatch_EmptyKeySet(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	ctx := context.Background()
+
+	for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
+		t.Run(op.Name(), func(t *testing.T) {
+			pv := &propValuePair{
+				prop:               "prop-int",
+				operator:           op,
+				containsKeys:       keysFrom(t),
+				hasFilterableIndex: true,
+				Class:              f.class,
+			}
+
+			dbm, err := pv.fetchContainsBatch(ctx, f.searcher)
+			require.ErrorContains(t, err, "carries no keys")
+			require.ErrorContains(t, err, `"prop-int"`, "the error must name the property")
+			require.Nil(t, dbm)
+		})
+	}
+}
+
+// TestFetchContainsBatch_BucketErrors pins the two failure paths that precede
+// any read: a property with no bucket at all, and one whose bucket is not a
+// roaringset (so no batch reader can be opened for it).
+func TestFetchContainsBatch_BucketErrors(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		prop    string
+		wantErr string
+	}{
+		{"no bucket", "prop-no-bucket", "not found"},
+		{"non-roaringset bucket", "prop-nonroaringset", "expected, got"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pv := &propValuePair{
+				prop:               tc.prop,
+				operator:           filters.ContainsAny,
+				containsKeys:       keysFrom(t, []byte("a")),
+				hasFilterableIndex: true,
+				Class:              f.class,
+			}
+
+			dbm, err := pv.fetchContainsBatch(ctx, f.searcher)
+			require.ErrorContains(t, err, tc.wantErr)
+			require.Nil(t, dbm)
+		})
+	}
+}
+
+// writeContainsRows writes rows into propName's roaringset bucket and flushes
+// them to a segment, so the batch reader below reads real disk layers.
+func writeContainsRows(t *testing.T, f *containsBatchGateFixture, propName string, rows map[string][]uint64) {
+	t.Helper()
+	writeContainsRowsUnflushed(t, f, propName, rows)
+	b := f.searcher.store.Bucket(helpers.BucketFromPropNameLSM(propName))
+	require.NoError(t, b.FlushAndSwitch())
+}
+
+// writeContainsRowsUnflushed leaves the rows in the active memtable, which is
+// the only state in which the reader's window read runs at all: a flushed bucket
+// has an empty active memtable and the reader drops it from the view.
+func writeContainsRowsUnflushed(t *testing.T, f *containsBatchGateFixture, propName string, rows map[string][]uint64) {
+	t.Helper()
+	b := f.searcher.store.Bucket(helpers.BucketFromPropNameLSM(propName))
+	require.NotNil(t, b)
+	for key, docIDs := range rows {
+		require.NoError(t, b.RoaringSetAddList([]byte(key), docIDs))
+	}
+}
+
+// TestFetchContainsBatch_ReadsRows pins the wiring between key extraction and
+// the fold: the bucket getBucketName resolves, the reader opened on it, and the
+// folded result handed back. Fold semantics — which keys are read, absent keys,
+// intersection versus union, multi-segment layouts — are pinned at the fold
+// level, where the spy can observe the reads, so this covers only what the two
+// layers exchange.
+func TestFetchContainsBatch_ReadsRows(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	ctx := context.Background()
+	writeContainsRows(t, f, "prop-int", map[string][]uint64{
+		"a": {1, 2, 3},
+		"b": {3, 4},
+	})
+
+	tests := []struct {
+		name         string
+		operator     filters.Operator
+		keys         entsInverted.SortedKeys
+		wantDocIDs   []uint64
+		wantDenyList bool
+	}{
+		{"ContainsAny reaches the rows", filters.ContainsAny, keysFrom(t, []byte("a"), []byte("b")), []uint64{1, 2, 3, 4}, false},
+		// ContainsNone additionally proves the fold's deny flag reaches the caller
+		{"ContainsNone denies", filters.ContainsNone, keysFrom(t, []byte("a"), []byte("b")), []uint64{1, 2, 3, 4}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pv := &propValuePair{
+				prop:               "prop-int",
+				operator:           tc.operator,
+				containsKeys:       tc.keys,
+				hasFilterableIndex: true,
+				Class:              f.class,
+			}
+
+			dbm, err := pv.fetchContainsBatch(ctx, f.searcher)
+			require.NoError(t, err)
+			defer dbm.release()
+
+			require.Equal(t, tc.wantDocIDs, dbm.docIDs.ToArray())
+			require.Equal(t, tc.wantDenyList, dbm.IsDenyList())
+		})
+	}
+}
+
+// readerAnnotationFields are the slow-query fields only a reader can fill,
+// named once so both halves of the present/absent guard below use the same set.
+var readerAnnotationFields = []string{
+	"window_fills", "window_narrowed_fills", "batch_keys_served",
+	"window_bytes_peak", "window_bytes_copied", "memtable_reads", "memtables",
+}
+
+// TestFetchContainsBatch_AnnotatesSlowQueryLog pins the slow-query annotation
+// for a batched read — that it fires and carries the fields an operator reads —
+// and that an empty key set, which does no work, logs nothing. Where the timing
+// window starts is not observable from here. The view's release is, but only as
+// a consequence: a leaked view keeps a segment referenced and this test's bucket
+// then hangs on Shutdown.
+func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	writeContainsRows(t, f, "prop-int", map[string][]uint64{"a": {1, 2}, "b": {2, 3}})
+
+	newPV := func(keys entsInverted.SortedKeys) *propValuePair {
+		return &propValuePair{
+			prop:               "prop-int",
+			operator:           filters.ContainsAny,
+			containsKeys:       keys,
+			hasFilterableIndex: true,
+			Class:              f.class,
+		}
+	}
+
+	t.Run("a batched read is annotated", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		dbm, err := newPV(keysFrom(t, []byte("a"), []byte("b"))).fetchContainsBatch(ctx, f.searcher)
+		require.NoError(t, err)
+		defer dbm.release()
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok, "batched contains must annotate the slow query log")
+		require.Len(t, entries, 1)
+
+		require.Equal(t, "prop-int", entries[0]["prop"])
+		require.Equal(t, filters.ContainsAny.Name(), entries[0]["operator"])
+		require.Equal(t, 3, entries[0]["count"])
+		require.Equal(t, false, entries[0]["failed"])
+		require.Equal(t, 2, entries[0]["batched_keys"])
+		require.Contains(t, entries[0], "took")
+		require.Contains(t, entries[0], "took_string")
+	})
+
+	// Own fixture, unflushed: the shared one flushes, and a reader over a
+	// flushed bucket drops the active memtable, reading all memtable fields as zero.
+	t.Run("the annotation carries the reader's work", func(t *testing.T) {
+		g := newContainsBatchGateFixture(t)
+		writeContainsRowsUnflushed(t, g, "prop-int", map[string][]uint64{"a": {1, 2}, "b": {2, 3}})
+
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		pv := &propValuePair{
+			prop:               "prop-int",
+			operator:           filters.ContainsAny,
+			containsKeys:       keysFrom(t, []byte("a"), []byte("b")),
+			hasFilterableIndex: true,
+			Class:              g.class,
+		}
+		dbm, err := pv.fetchContainsBatch(ctx, g.searcher)
+		require.NoError(t, err)
+		defer dbm.release()
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+
+		require.Equal(t, 1, entries[0]["memtable_reads"], "one fill of the one active memtable")
+		require.Equal(t, 2, entries[0]["batch_keys_served"], "both keys were folded")
+		// Just wired through, not pinned to a value; window-fill counting is
+		// TestBatchReaderStatsReportTheWork's job.
+		require.GreaterOrEqual(t, entries[0]["window_fills"], 1)
+		require.Greater(t, entries[0]["window_bytes_peak"], 0)
+		require.Greater(t, entries[0]["window_bytes_copied"], 0)
+		// Nothing here reaches the byte budget, so the only right answer is zero
+		// — and every other stat is non-zero, so this also catches the field
+		// being wired to one of them.
+		require.Equal(t, 0, entries[0]["window_narrowed_fills"], "no window ended on the budget")
+	})
+
+	// Wide enough to take several fills, so a wiring that reported one
+	// acquisition per batch shows up. window_fills and memtable_reads cannot
+	// diverge here: that takes a second memtable, which this package cannot
+	// reach.
+	t.Run("the annotation counts memtable acquisitions", func(t *testing.T) {
+		g := newContainsBatchGateFixture(t)
+
+		const n = 2*1024 + 50
+		rows := make(map[string][]uint64, n)
+		names := make([][]byte, n)
+		for i := range names {
+			names[i] = []byte(fmt.Sprintf("k%06d", i))
+			rows[string(names[i])] = []uint64{uint64(i)}
+		}
+		writeContainsRowsUnflushed(t, g, "prop-int", rows)
+
+		// A batch this wide takes the Accumulator fold, which the gate fixture's
+		// searcher has no factory for.
+		g.searcher.bitmapFactory = roaringset.NewBitmapFactory(
+			roaringset.NewBitmapBufPoolTrackingForTests(), func() uint64 { return 300_000 })
+
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		pv := &propValuePair{
+			prop:               "prop-int",
+			operator:           filters.ContainsAny,
+			containsKeys:       keysFrom(t, names...),
+			hasFilterableIndex: true,
+			Class:              g.class,
+		}
+		dbm, err := pv.fetchContainsBatch(ctx, g.searcher)
+		require.NoError(t, err)
+		defer dbm.release()
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+
+		fills, ok := entries[0]["window_fills"].(int)
+		require.True(t, ok)
+		require.Greater(t, fills, 1, "the batch must span windows, or this proves nothing")
+		require.Equal(t, fills, entries[0]["memtable_reads"],
+			"the one memtable is read once per fill, not once per batch")
+		// Asserted here rather than beside a single-fill batch, where it would
+		// equal the fill count and could not be told from it.
+		require.Equal(t, 1, entries[0]["memtables"], "one memtable, and nothing flushing behind it")
+	})
+
+	// The annotation counts keys, not the values the filter named, and the two
+	// stop agreeing the moment a filter repeats a value. Asserted on a shape
+	// where they differ, since a fixture with distinct values reports the same
+	// number either way and would not notice the field changing meaning.
+	t.Run("the annotation counts distinct keys, not values", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		keys, err := encodeBoolKeys([]bool{true, false, true, false})
+		require.NoError(t, err)
+		require.Equal(t, 2, keys.Len(), "four values, two distinct boolean keys")
+
+		pv := newPV(keys)
+		pv.prop = "prop-bool"
+		writeContainsRows(t, f, "prop-bool", map[string][]uint64{"\x00": {1}, "\x01": {2}})
+		dbm, err := pv.fetchContainsBatch(ctx, f.searcher)
+		require.NoError(t, err)
+		defer dbm.release()
+
+		entries := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.Equal(t, 2, entries[0]["batched_keys"], "four values must report two keys")
+	})
+
+	t.Run("a bucket rejected at open is still annotated", func(t *testing.T) {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		pv := &propValuePair{
+			prop:               "prop-nonroaringset",
+			operator:           filters.ContainsAny,
+			containsKeys:       keysFrom(t, []byte("a"), []byte("b")),
+			hasFilterableIndex: true,
+			Class:              f.class,
+		}
+
+		_, err := pv.fetchContainsBatch(ctx, f.searcher)
+		require.Error(t, err)
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok, "a filter rejected while opening the reader must still be timed")
+		require.Len(t, entries, 1)
+		require.Equal(t, "prop-nonroaringset", entries[0]["prop"])
+		require.Equal(t, 0, entries[0]["count"])
+		require.Equal(t, true, entries[0]["failed"],
+			"a zero count means nothing without this: an empty result looks identical")
+		// No reader was built, so these fields must be absent, not present-and-zero.
+		for _, k := range readerAnnotationFields {
+			require.NotContains(t, entries[0], k,
+				"a filter that never opened a reader must not report the reader's work")
+		}
+	})
+
+	t.Run("a fold that fails after the reader opened is still annotated", func(t *testing.T) {
+		// distinct from the case above: there the strategy check rejects the
+		// bucket before a view is ever taken, so nothing has been timed yet
+		ctx, cancel := context.WithCancel(helpers.InitSlowQueryDetails(context.Background()))
+		cancel()
+
+		_, err := newPV(keysFrom(t, []byte("a"), []byte("b"))).fetchContainsBatch(ctx, f.searcher)
+		require.ErrorIs(t, err, context.Canceled)
+
+		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		require.True(t, ok, "a filter that opens the reader and then fails must still be timed")
+		require.Len(t, entries, 1)
+		require.Equal(t, "prop-int", entries[0]["prop"])
+		require.Equal(t, 0, entries[0]["count"])
+		require.Equal(t, true, entries[0]["failed"])
+		// The reader was opened, so these fields must be present (values
+		// unasserted; this fixture flushes, so what the reader found doesn't matter).
+		for _, k := range readerAnnotationFields {
+			require.Contains(t, entries[0], k,
+				"a fold that opened a reader must report its work even when it failed")
+		}
+	})
+
+	// Both returns that precede the timer: nothing has been done, so there is no
+	// duration worth logging.
+	for _, tc := range []struct {
+		name string
+		prop string
+		keys entsInverted.SortedKeys
+	}{
+		{name: "an empty key set is not annotated", prop: "prop-int"},
+		{name: "a missing bucket is not annotated", prop: "prop-no-bucket", keys: keysFrom(t, []byte("a"))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := helpers.InitSlowQueryDetails(context.Background())
+			pv := &propValuePair{
+				prop:               tc.prop,
+				operator:           filters.ContainsAny,
+				containsKeys:       tc.keys,
+				hasFilterableIndex: true,
+				Class:              f.class,
+			}
+
+			_, err := pv.fetchContainsBatch(ctx, f.searcher)
+			require.Error(t, err)
+			require.NotContains(t, helpers.ExtractSlowQueryDetails(ctx), "build_allow_list_doc_bitmap")
+		})
+	}
 }

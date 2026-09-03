@@ -128,7 +128,7 @@ func (db *DB) init(ctx context.Context) error {
 			).Build()
 			shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaGetter)
 			var lazyLoadShardEnabled bool
-			idx, err := NewIndex(ctx, IndexConfig{
+			idx, err := NewIndex(ctx, db, IndexConfig{
 				ClassName:                      schema.ClassName(class.Class),
 				RootPath:                       db.config.RootPath,
 				ResourceUsage:                  db.config.ResourceUsage,
@@ -173,6 +173,7 @@ func (db *DB) init(ctx context.Context) error {
 					)
 					return lazyLoadShardEnabled
 				}(),
+				LazyLoadShardWarmupMinObjects:       db.config.LazyLoadShardWarmupMinObjects,
 				ForceFullReplicasSearch:             db.config.ForceFullReplicasSearch,
 				TransferInactivityTimeout:           db.config.TransferInactivityTimeout,
 				HaltForTransferTimeout:              db.config.HaltForTransferTimeout,
@@ -205,7 +206,6 @@ func (db *DB) init(ctx context.Context) error {
 				QueryBatchedContainsEnabled:  db.config.QueryBatchedContainsEnabled,
 				LazyPropertyLengthsEnabled:   db.config.LazyPropertyLengthsEnabled,
 				MaintenanceModeEnabled:       db.config.MaintenanceModeEnabled,
-				HFreshEnabled:                db.config.HFreshEnabled,
 				AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 				DisableDimensionMetrics:      db.config.DisableDimensionMetrics,
 			},
@@ -220,7 +220,6 @@ func (db *DB) init(ctx context.Context) error {
 			}
 
 			idx.usageLimits = db.usageLimits
-			idx.db = db
 			idx.SetReplicationFSMReader(db.replicationFSM)
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
@@ -229,6 +228,8 @@ func (db *DB) init(ctx context.Context) error {
 				"action":                  "lazy_shard_auto_detection",
 				"class":                   class.Class,
 				"enable_lazy_load_shards": lazyLoadShardEnabled,
+				"background_warmup":       idx.Config.backgroundWarmupEnabled(),
+				"warmup_min_objects":      db.config.LazyLoadShardWarmupMinObjects,
 				"local_shard_count":       localActiveShardsCount,
 				"total_shard_size_bytes":  totalShardSizeBytes,
 				"count_threshold":         db.config.LazyLoadShardCountThreshold,

@@ -14,7 +14,6 @@ package dynamic
 import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	bolt "go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -43,11 +42,21 @@ type Config struct {
 	DistanceProvider             distancer.Provider
 	MakeCommitLoggerThunk        hnsw.MakeCommitLogger
 	TombstoneCallbacks           cyclemanager.CycleCallbackGroup
-	SharedDB                     *bolt.DB
+	State                        StateOps
 	HNSWWaitForCachePrefill      bool
 	AllocChecker                 memwatch.AllocChecker
 	MakeBucketOptions            lsmkv.MakeBucketOptions
 	AsyncIndexingEnabled         bool
+}
+
+// StateOps is the bounded access the shard's metadata layer grants the
+// dynamic index to its state namespace (implemented by *shardmeta.Namespace).
+// The dynamic index never opens, closes, snapshots, lists, or deletes the
+// underlying file — the shard owns all of that.
+type StateOps interface {
+	Get(key []byte) ([]byte, error)
+	Put(key, value []byte) error
+	Delete(key []byte) error
 }
 
 func (c Config) Validate() error {
@@ -63,6 +72,10 @@ func (c Config) Validate() error {
 
 	if !c.AsyncIndexingEnabled {
 		ec.Addf("the dynamic index can only be created when async indexing is enabled")
+	}
+
+	if c.State == nil {
+		ec.Addf("state ops cannot be nil")
 	}
 
 	return ec.ToError()

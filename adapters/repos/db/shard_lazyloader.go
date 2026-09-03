@@ -57,9 +57,13 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts        *deferredShardOpts
-	shard            *Shard
-	loaded           bool
+	shardOpts *deferredShardOpts
+	shard     *Shard
+	loaded    bool
+	// unloadedCount caches the object count read off disk while the shard is
+	// cold, which a cold shard cannot change without loading first. nil means
+	// not read yet; Load clears it.
+	unloadedCount    *int64
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter *loadlimiter.LoadLimiter
@@ -117,19 +121,27 @@ func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) {
 }
 
 func (l *LazyLoadShard) Load(ctx context.Context) error {
+	_, err := l.loadIfCold(ctx)
+	return err
+}
+
+// loadIfCold builds the shard unless it is loaded already, and reports whether
+// this call is the one that built it. The startup sweep counts only the loads it
+// performed, and a request can take the shard first.
+func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
 	if l.loaded {
-		return nil
+		return false, nil
 	}
 
 	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
-		return errors.Wrap(err, "memory pressure: cannot load shard")
+		return false, errors.Wrap(err, "memory pressure: cannot load shard")
 	}
 
 	if err := l.shardLoadLimiter.Acquire(ctx); err != nil {
-		return fmt.Errorf("acquiring permit to load shard: %w", err)
+		return false, fmt.Errorf("acquiring permit to load shard: %w", err)
 	}
 	defer l.shardLoadLimiter.Release()
 
@@ -142,15 +154,20 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		class = l.shardOpts.class
 	}
 
+	// NewShard writes the segment sidecars a cold count reads and recovers the
+	// write-ahead log into segments, so the cached cold count is stale from here
+	// on — including when the load fails partway and leaves the shard cold.
+	l.unloadedCount = nil
+
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
 		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
-		l.shardOpts.bitmapBufPool)
+		l.shardOpts.bitmapBufPool, monitoring.ShardRegistrationLazy)
 	if err != nil {
 		l.shardOpts.promMetrics.FailLoadingShard()
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
-		return errors.New(msg)
+		return false, errors.New(msg)
 	}
 
 	l.shardOpts.promMetrics.FinishLoadingShard()
@@ -159,7 +176,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.shard = shard
 	l.loaded = true
 
-	return nil
+	return true, nil
 }
 
 func (l *LazyLoadShard) Index() *Index {
@@ -213,6 +230,19 @@ func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
 	return l.shard.UpdateStatus(status, reason)
 }
 
+// UpdateStatusIf leaves an unloaded shard alone instead of loading it: the
+// status lives in the loaded shard, and loading one to record a status would
+// resurrect a shard that was deliberately unloaded.
+func (l *LazyLoadShard) UpdateStatusIf(cond func(ShardStatus) bool, status, reason string) error {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if !l.loaded {
+		return nil
+	}
+	return l.shard.UpdateStatusIf(cond, status, reason)
+}
+
 func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
 	l.mustLoad()
 	return l.shard.SetStatusReadonly(reason)
@@ -237,17 +267,30 @@ func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
 
 func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
 	if l.loaded {
-		l.mutex.Unlock()
 		return l.shard.ObjectCountAsync(ctx)
 	}
-	l.mutex.Unlock()
+	if l.unloadedCount != nil {
+		return *l.unloadedCount, nil
+	}
+
+	// The disk read stays under the lock: a load writes segment sidecars and
+	// recovers the write-ahead log, so a read overlapping one can sum a mix of
+	// old and new segments and then cache the result. Everything else on this
+	// shard waits for one directory listing. A failed read caches nothing, so a
+	// shard whose sidecars stay unreadable repeats that listing on every call.
 	idx := l.shardOpts.index
 	objectUsage, err := shardusage.CalculateUnloadedObjectsMetrics(idx.logger, idx.path(), l.shardOpts.name, true)
 	if err != nil {
 		return 0, fmt.Errorf("error while getting object count for shard %s: %w", l.shardOpts.name, err)
 	}
-	return objectUsage.Count, nil
+
+	count := objectUsage.Count
+	l.unloadedCount = &count
+
+	return count, nil
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
@@ -483,6 +526,10 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 	defer l.mutex.Unlock()
 
 	if !l.loaded {
+		// The shard is out of the shard map before drop runs, so it stops being
+		// counted even when the cleanup below fails partway.
+		defer l.shardOpts.promMetrics.DeleteUnloadedShard(monitoring.ShardRegistrationLazy)
+
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
@@ -522,9 +569,6 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 				spawnAsyncDelete(deleted, idx.logger)
 			}
 		}
-
-		// decrement unloaded shard count since this shard is being deleted
-		l.shardOpts.promMetrics.DeleteUnloadedShard()
 
 		return nil
 	}
@@ -591,7 +635,15 @@ func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string
 func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 	// Shard is not loaded — remove files directly from disk. Delegate to the
 	// shared helper so file path logic is defined in one place.
-	if err := newVectorDropIndexHelper().removeVectorIndexFiles(l.shardOpts.index.path(), l.shardOpts.name, targetVector); err != nil {
+	// The collection's other vector names guard against removing a sibling whose
+	// own bucket collides with one of this target's artifact names.
+	class := l.shardOpts.index.getClass()
+	if class == nil {
+		class = l.shardOpts.class
+	}
+	if err := newVectorDropIndexHelper().removeVectorIndexFiles(
+		l.shardOpts.index.path(), l.shardOpts.name, targetVector,
+		otherTargetVectors(class, targetVector)); err != nil {
 		return err
 	}
 

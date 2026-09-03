@@ -17,12 +17,13 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -68,7 +69,7 @@ func TestRestoreUpgradedLegacyDynamic(t *testing.T) {
 
 	rootPath := t.TempDir()
 	indexID := "legacy-restore-test"
-	makeConfig := func(root string, sharedDB *bbolt.DB) Config {
+	makeConfig := func(root string, meta *shardmeta.DB) Config {
 		return Config{
 			AllocChecker:     memwatch.NewDummyMonitor(),
 			RootPath:         root,
@@ -89,7 +90,7 @@ func TestRestoreUpgradedLegacyDynamic(t *testing.T) {
 			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           noopCallback,
-			SharedDB:                     sharedDB,
+			State:                        meta.Namespace(StateNamespace),
 			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			AsyncIndexingEnabled:         true,
 		}
@@ -99,11 +100,10 @@ func TestRestoreUpgradedLegacyDynamic(t *testing.T) {
 
 	// Build a legacy dynamic index, populate it, and upgrade to HNSW: this writes
 	// upgraded=true into index.db and creates the HNSW commitlog dir.
-	srcDBPath := filepath.Join(rootPath, "index.db")
-	srcDB, err := bbolt.Open(srcDBPath, 0o666, nil)
+	srcMeta, err := shardmeta.Open(rootPath, time.Second)
 	require.NoError(t, err)
 
-	idx, err := New(makeConfig(rootPath, srcDB), uc, store)
+	idx, err := New(makeConfig(rootPath, srcMeta), uc, store)
 	require.NoError(t, err)
 	idx.PostStartup(ctx)
 
@@ -117,23 +117,24 @@ func TestRestoreUpgradedLegacyDynamic(t *testing.T) {
 	wg.Wait()
 	require.Equal(t, common.IndexType(common.IndexTypeHNSW), idx.UnderlyingIndex(), "precondition: upgraded to HNSW")
 
-	// Snapshot index.db the way Shard.CreateBackupSnapshot does, then close the live index.
+	// Snapshot index.db the way Shard.CreateBackupSnapshot does
+	// (shardmeta.DB.Snapshot), then close the live index.
 	backupDir := t.TempDir()
-	backupDBPath := filepath.Join(backupDir, "index.db")
-	require.NoError(t, srcDB.View(func(tx *bbolt.Tx) error {
-		return tx.CopyFile(backupDBPath, 0o600)
-	}))
+	relPath, err := srcMeta.Snapshot(rootPath, backupDir)
+	require.NoError(t, err)
+	require.Equal(t, "index.db", relPath)
+	backupDBPath := filepath.Join(backupDir, relPath)
 	require.NoError(t, idx.Shutdown(ctx))
-	require.NoError(t, srcDB.Close())
+	require.NoError(t, srcMeta.Close())
 
 	t.Run("with restored index.db: loads as HNSW (fix)", func(t *testing.T) {
 		restoreRoot := t.TempDir()
 		require.NoError(t, copyFile(filepath.Join(restoreRoot, "index.db"), backupDBPath))
-		db, err := bbolt.Open(filepath.Join(restoreRoot, "index.db"), 0o666, nil)
+		meta, err := shardmeta.Open(restoreRoot, time.Second)
 		require.NoError(t, err)
-		t.Cleanup(func() { db.Close() })
+		t.Cleanup(func() { meta.Close() })
 
-		restored, err := New(makeConfig(restoreRoot, db), uc, testinghelpers.NewDummyStore(t))
+		restored, err := New(makeConfig(restoreRoot, meta), uc, testinghelpers.NewDummyStore(t))
 		require.NoError(t, err)
 		t.Cleanup(func() { restored.Shutdown(ctx) })
 		require.Equal(t, common.IndexType(common.IndexTypeHNSW), restored.UnderlyingIndex(),
@@ -143,11 +144,11 @@ func TestRestoreUpgradedLegacyDynamic(t *testing.T) {
 	t.Run("without index.db: silently reverts to flat (the bug the fix closes)", func(t *testing.T) {
 		bugRoot := t.TempDir()
 		// fresh, empty index.db — as restore created before the gap was closed.
-		db, err := bbolt.Open(filepath.Join(bugRoot, "index.db"), 0o666, nil)
+		meta, err := shardmeta.Open(bugRoot, time.Second)
 		require.NoError(t, err)
-		t.Cleanup(func() { db.Close() })
+		t.Cleanup(func() { meta.Close() })
 
-		reverted, err := New(makeConfig(bugRoot, db), uc, testinghelpers.NewDummyStore(t))
+		reverted, err := New(makeConfig(bugRoot, meta), uc, testinghelpers.NewDummyStore(t))
 		require.NoError(t, err)
 		t.Cleanup(func() { reverted.Shutdown(ctx) })
 		require.Equal(t, common.IndexType(common.IndexTypeFlat), reverted.UnderlyingIndex(),

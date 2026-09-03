@@ -173,6 +173,32 @@ func FromEnv(config *Config) error {
 		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
 	}
 
+	// Written only when the variable is set, so a value from the config file
+	// survives.
+	if v := os.Getenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS"); v != "" {
+		asInt, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS as int: %w", err)
+		}
+		config.LazyLoadShardWarmupMinObjects = asInt
+	}
+	// Eager loading ignores the knob entirely, so warning there would describe a
+	// state no collection on this node is in. Auto-detection is resolved per
+	// collection later, so a nil setting still warns.
+	if minObjects := config.LazyLoadShardWarmupMinObjects; minObjects != 0 &&
+		(config.EnableLazyLoadShards == nil || *config.EnableLazyLoadShards) {
+		left := fmt.Sprintf("only shards holding more than %d objects are warmed up", minObjects)
+		if minObjects < 0 {
+			left = "no shard is warmed up"
+		}
+		logrus.Warnf("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS is %d, so on a collection using lazy loading %s. "+
+			"A HOT tenant left out stays unloaded until first access. "+
+			"While it is unloaded the TTL sweep keeps its expired objects, async replication leaves a "+
+			"stale replica unrepaired, and MAXIMUM_ALLOWED_OBJECTS_COUNT stops counting it, so this "+
+			"node admits writes past its cap.",
+			minObjects, left)
+	}
+
 	// Lazy load shard size threshold for auto-detection (in GB)
 	// Determines at what total shard size auto-detection enables lazy loading
 	if v := os.Getenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB"); v != "" {
@@ -631,8 +657,6 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
 
-	config.HFreshEnabled = true
-
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
 	}
@@ -1045,7 +1069,7 @@ func FromEnv(config *Config) error {
 
 	if err := parser.ParseDynamicDurationWithValidation("NAMESPACE_CLEANUP_INTERVAL",
 		DefaultNamespaceCleanupInterval,
-		parser.ValidateDurationGreaterThanEqual0,
+		parser.ValidateCronInterval,
 		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
 		return err
 	}
@@ -2359,9 +2383,9 @@ func (c *Config) parseBackupGCSConfig() error {
 	switch t := strings.TrimSpace(strings.ToLower(os.Getenv(gcsModuleTransportEnv))); t {
 	case "": // keep the config file value
 	case gcsModuleTransportHTTP:
-		c.BackupGCS.UseGRPC = false
+		c.BackupGCS.UseGRPC = new(false)
 	case gcsModuleTransportGRPC:
-		c.BackupGCS.UseGRPC = true
+		c.BackupGCS.UseGRPC = new(true)
 	default:
 		return fmt.Errorf("%s must be %q or %q. Got: %v",
 			gcsModuleTransportEnv, gcsModuleTransportHTTP, gcsModuleTransportGRPC, t)

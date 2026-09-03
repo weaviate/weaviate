@@ -2550,6 +2550,106 @@ func init() {
         ]
       }
     },
+    "/experimental/export-db-users": {
+      "post": {
+        "description": "Experimental: this endpoint may change or be removed without notice. Export every database (` + "`" + `db` + "`" + ` user type) user's API-key credential for migration to another cluster. Strong-key users carry their argon2id key hash; imported/weak and revoked users are reported with a null hash and a status naming why they cannot be migrated. Root users only.",
+        "tags": [
+          "experimental"
+        ],
+        "summary": "Export all database-user credentials",
+        "operationId": "exportUsers",
+        "responses": {
+          "200": {
+            "description": "The exported user credentials.",
+            "schema": {
+              "$ref": "#/definitions/UserExportResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.experimental.export-db-users"
+        ]
+      }
+    },
+    "/experimental/import-db-users": {
+      "post": {
+        "description": "Experimental: this endpoint may change or be removed without notice. Recreate exported database (` + "`" + `db` + "`" + ` user type) user credentials on this cluster under a target namespace. Each user is created with its original key hash so the source key keeps working. Returns a per-user result. Only strong-key records are importable. Root users only.",
+        "tags": [
+          "experimental"
+        ],
+        "summary": "Import database-user credentials",
+        "operationId": "importUsers",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UserImportRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The per-user import results.",
+            "schema": {
+              "$ref": "#/definitions/UserImportResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.experimental.import-db-users"
+        ]
+      }
+    },
     "/export/{backend}": {
       "post": {
         "description": "Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.",
@@ -2873,23 +2973,8 @@ func init() {
       }
     },
     "/mcp": {
-      "get": {
-        "description": "Opens an SSE stream for receiving MCP server-sent events.",
-        "produces": [
-          "text/event-stream"
-        ],
-        "tags": [
-          "mcp"
-        ],
-        "operationId": "mcp.get",
-        "responses": {
-          "200": {
-            "description": "SSE event stream"
-          }
-        }
-      },
       "post": {
-        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation. Every request is authenticated on its own; no Mcp-Session-Id is issued or required.",
         "consumes": [
           "application/json"
         ],
@@ -2904,18 +2989,40 @@ func init() {
         "responses": {
           "200": {
             "description": "JSON-RPC response or SSE stream"
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
       "delete": {
-        "description": "Terminates an MCP session.",
+        "description": "Accepted so clients that end their session explicitly keep working. The server keeps no session state, so there is nothing to terminate.",
         "tags": [
           "mcp"
         ],
         "operationId": "mcp.delete",
         "responses": {
           "200": {
-            "description": "Session terminated"
+            "description": "Accepted; there is no session state to terminate"
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
@@ -5815,7 +5922,7 @@ func init() {
     },
     "/schema/{className}/indexes": {
       "get": {
-        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
+        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status. The response reflects the state of the node that answered, which may briefly omit the entry for a just-submitted migration or still report its pre-migration state.",
         "tags": [
           "schema"
         ],
@@ -7091,13 +7198,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "502": {
-            "description": "The embedding provider failed to vectorize the query for the vector part of the search; the search cannot run.",
+            "description": "An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query for the vector part of the search. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7271,13 +7372,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "502": {
-            "description": "The embedding provider failed to vectorize the query; the search cannot run.",
+            "description": "An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8887,6 +8982,57 @@ func init() {
         }
       }
     },
+    "DBUserCredential": {
+      "description": "A single database user's exportable API-key credential. Carries the argon2id key hash for strong-key users; for users whose key cannot be migrated (imported/weak, revoked, or missing a hash) secureHash is null and status names the reason.",
+      "type": "object",
+      "required": [
+        "userId"
+      ],
+      "properties": {
+        "active": {
+          "description": "Whether the user is active. A deactivated (not revoked) user is carried with active=false and reproduced on import.",
+          "type": "boolean"
+        },
+        "apiKeyFirstLetters": {
+          "description": "First 3 letters of the associated API key.",
+          "type": "string",
+          "maxLength": 3
+        },
+        "createdAt": {
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "namespace": {
+          "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
+          "type": "string"
+        },
+        "secureHash": {
+          "description": "The argon2id PHC hash of the user's API key. Null when the key cannot be migrated (see status).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "Export classification. Only 'exported' carries a usable secureHash; the others report why the user was not carried.",
+          "type": "string",
+          "enum": [
+            "exported",
+            "imported_key",
+            "revoked"
+          ]
+        },
+        "userId": {
+          "description": "The name (ID) of the user, without any namespace prefix.",
+          "type": "string"
+        },
+        "userIdentifier": {
+          "description": "The random identifier embedded in the user's API key, used to resolve the key hash. Exactly 16 characters for an importable record; empty when the export reports a user whose key is not carried.",
+          "type": "string"
+        }
+      }
+    },
     "DBUserInfo": {
       "type": "object",
       "required": [
@@ -9015,9 +9161,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the task was finished.",
+          "description": "The time when the task reached a terminal status. Absent while the task is still running.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "finishedNodes": {
           "description": "The nodes that finished the task.",
@@ -9067,9 +9214,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the unit finished.",
+          "description": "The time when the unit reached a terminal status. Absent while the unit is still running.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "id": {
           "description": "The ID of the unit.",
@@ -9089,9 +9237,10 @@ func init() {
           "type": "string"
         },
         "updatedAt": {
-          "description": "The time when the unit was last updated.",
+          "description": "The time when the unit was last updated, including its transition to a terminal status. Absent for a unit that has not started yet.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         }
       }
     },
@@ -9401,7 +9550,7 @@ func init() {
           "type": "string"
         },
         "taskId": {
-          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, and the finalize-window override); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
           "type": "string"
         },
         "tokenization": {
@@ -11214,10 +11363,17 @@ func init() {
           }
         },
         "returnProperties": {
-          "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
+          "description": "The non-reference properties to return. Omitted returns all non-reference, non-blob properties; an empty array returns no properties. References are selected with ` + "`" + `returnReferences` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "returnReferences": {
+          "description": "The cross-references to return under each result's ` + "`" + `references` + "`" + ` key. Each entry selects one reference property and what to return from the referenced objects. Omitted or empty returns no references.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchReferenceSelector"
           }
         },
         "singlePrompt": {
@@ -11362,6 +11518,49 @@ func init() {
         }
       ]
     },
+    "SearchReferenceSelector": {
+      "description": "Selects one cross-reference to return, and what to return from each referenced object.",
+      "type": "object",
+      "required": [
+        "linkOn"
+      ],
+      "properties": {
+        "linkOn": {
+          "description": "The reference property to follow.",
+          "type": "string"
+        },
+        "returnMetadata": {
+          "description": "The metadata to return under each referenced object's ` + "`" + `metadata` + "`" + ` key. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "id",
+              "creationTime",
+              "lastUpdateTime"
+            ]
+          }
+        },
+        "returnProperties": {
+          "description": "The non-reference properties to return from each referenced object. Omitted returns all non-reference, non-blob properties of the referenced collection; an empty array returns no properties.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "returnReferences": {
+          "description": "The cross-references to return from each referenced object. Nesting deeper than ` + "`" + `QUERY_CROSS_REFERENCE_DEPTH_LIMIT` + "`" + ` is rejected.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchReferenceSelector"
+          }
+        },
+        "targetCollection": {
+          "description": "The referenced collection to select. Required when ` + "`" + `linkOn` + "`" + ` is a multi-target reference.",
+          "type": "string"
+        }
+      }
+    },
     "SearchRerank": {
       "description": "Reserved for reranking. Returns 422 (not yet supported).",
       "type": "object",
@@ -11470,14 +11669,73 @@ func init() {
           "x-omitempty": false
         },
         "references": {
-          "description": "The selected cross-references: reference name to the array of referenced objects, each carrying the selected one-hop properties. Omitted when the request selects no references.",
+          "description": "The selected cross-references: reference property name to the array of referenced objects. Omitted when the request selects no references, or when the hit has no entry for any of the selected references.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
             "items": {
-              "$ref": "#/definitions/JsonObject"
+              "$ref": "#/definitions/SearchResultReference"
             }
           }
+        }
+      }
+    },
+    "SearchResultReference": {
+      "description": "One referenced object: the selected non-reference properties under ` + "`" + `properties` + "`" + `, deeper cross-references under ` + "`" + `references` + "`" + `, and the requested metadata under ` + "`" + `metadata` + "`" + `.",
+      "type": "object",
+      "required": [
+        "properties"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The collection the referenced object belongs to. Returned for multi-target references.",
+          "type": "string"
+        },
+        "metadata": {
+          "x-nullable": true,
+          "$ref": "#/definitions/SearchResultReferenceMetadata"
+        },
+        "properties": {
+          "description": "The selected non-reference properties of the referenced object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — ` + "`" + `{}` + "`" + ` when the selector selects no properties.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonObject"
+          },
+          "x-omitempty": false
+        },
+        "references": {
+          "description": "The cross-references selected one hop deeper. Omitted when the selector selects none, or when the referenced object has no entry for any of them.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/SearchResultReference"
+            }
+          }
+        }
+      }
+    },
+    "SearchResultReferenceMetadata": {
+      "description": "The metadata of a referenced object, populated according to the selector's ` + "`" + `returnMetadata` + "`" + `. Every field is optional and only present when it was requested.",
+      "type": "object",
+      "properties": {
+        "creationTime": {
+          "description": "The referenced object's creation time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "id": {
+          "description": "The referenced object's UUID.",
+          "type": "string",
+          "format": "uuid",
+          "x-nullable": true
+        },
+        "lastUpdateTime": {
+          "description": "The referenced object's last-update time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
         }
       }
     },
@@ -11847,6 +12105,84 @@ func init() {
       "properties": {
         "apikey": {
           "description": "The API key associated with the user.",
+          "type": "string"
+        }
+      }
+    },
+    "UserExportResponse": {
+      "description": "The full set of database-user credential records on the source, one per user.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "users": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DBUserCredential"
+          }
+        }
+      }
+    },
+    "UserImportRequest": {
+      "description": "A batch of database-user credentials to recreate on the target, bound to a single target namespace.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "namespace": {
+          "description": "The target namespace every user in this request is created under. Required on namespace-enabled clusters.",
+          "type": "string"
+        },
+        "users": {
+          "description": "The credential records to import. Only records with a strong (argon2id) secureHash are importable.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DBUserCredential"
+          }
+        }
+      }
+    },
+    "UserImportResponse": {
+      "description": "The per-user outcome of an import batch.",
+      "type": "object",
+      "required": [
+        "results"
+      ],
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UserImportResult"
+          }
+        }
+      }
+    },
+    "UserImportResult": {
+      "description": "The outcome of importing a single database-user credential.",
+      "type": "object",
+      "required": [
+        "userId",
+        "status"
+      ],
+      "properties": {
+        "error": {
+          "description": "The reason, present only when status is 'error'.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The outcome for this user.",
+          "type": "string",
+          "enum": [
+            "created",
+            "reconciled",
+            "skipped_exists",
+            "error"
+          ]
+        },
+        "userId": {
+          "description": "The name (ID) of the user, without any namespace prefix.",
           "type": "string"
         }
       }
@@ -14765,6 +15101,106 @@ func init() {
         ]
       }
     },
+    "/experimental/export-db-users": {
+      "post": {
+        "description": "Experimental: this endpoint may change or be removed without notice. Export every database (` + "`" + `db` + "`" + ` user type) user's API-key credential for migration to another cluster. Strong-key users carry their argon2id key hash; imported/weak and revoked users are reported with a null hash and a status naming why they cannot be migrated. Root users only.",
+        "tags": [
+          "experimental"
+        ],
+        "summary": "Export all database-user credentials",
+        "operationId": "exportUsers",
+        "responses": {
+          "200": {
+            "description": "The exported user credentials.",
+            "schema": {
+              "$ref": "#/definitions/UserExportResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.experimental.export-db-users"
+        ]
+      }
+    },
+    "/experimental/import-db-users": {
+      "post": {
+        "description": "Experimental: this endpoint may change or be removed without notice. Recreate exported database (` + "`" + `db` + "`" + ` user type) user credentials on this cluster under a target namespace. Each user is created with its original key hash so the source key keeps working. Returns a per-user result. Only strong-key records are importable. Root users only.",
+        "tags": [
+          "experimental"
+        ],
+        "summary": "Import database-user credentials",
+        "operationId": "importUsers",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/UserImportRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The per-user import results.",
+            "schema": {
+              "$ref": "#/definitions/UserImportResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.experimental.import-db-users"
+        ]
+      }
+    },
     "/export/{backend}": {
       "post": {
         "description": "Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.",
@@ -15088,23 +15524,8 @@ func init() {
       }
     },
     "/mcp": {
-      "get": {
-        "description": "Opens an SSE stream for receiving MCP server-sent events.",
-        "produces": [
-          "text/event-stream"
-        ],
-        "tags": [
-          "mcp"
-        ],
-        "operationId": "mcp.get",
-        "responses": {
-          "200": {
-            "description": "SSE event stream"
-          }
-        }
-      },
       "post": {
-        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation. Every request is authenticated on its own; no Mcp-Session-Id is issued or required.",
         "consumes": [
           "application/json"
         ],
@@ -15119,18 +15540,40 @@ func init() {
         "responses": {
           "200": {
             "description": "JSON-RPC response or SSE stream"
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
       "delete": {
-        "description": "Terminates an MCP session.",
+        "description": "Accepted so clients that end their session explicitly keep working. The server keeps no session state, so there is nothing to terminate.",
         "tags": [
           "mcp"
         ],
         "operationId": "mcp.delete",
         "responses": {
           "200": {
-            "description": "Session terminated"
+            "description": "Accepted; there is no session state to terminate"
+          },
+          "503": {
+            "description": "MCP server is disabled",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
@@ -18140,7 +18583,7 @@ func init() {
     },
     "/schema/{className}/indexes": {
       "get": {
-        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
+        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status. The response reflects the state of the node that answered, which may briefly omit the entry for a just-submitted migration or still report its pre-migration state.",
         "tags": [
           "schema"
         ],
@@ -19416,13 +19859,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "502": {
-            "description": "The embedding provider failed to vectorize the query for the vector part of the search; the search cannot run.",
+            "description": "An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query for the vector part of the search. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19596,13 +20033,7 @@ func init() {
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "502": {
-            "description": "The embedding provider failed to vectorize the query; the search cannot run.",
+            "description": "An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -21361,6 +21792,57 @@ func init() {
         }
       }
     },
+    "DBUserCredential": {
+      "description": "A single database user's exportable API-key credential. Carries the argon2id key hash for strong-key users; for users whose key cannot be migrated (imported/weak, revoked, or missing a hash) secureHash is null and status names the reason.",
+      "type": "object",
+      "required": [
+        "userId"
+      ],
+      "properties": {
+        "active": {
+          "description": "Whether the user is active. A deactivated (not revoked) user is carried with active=false and reproduced on import.",
+          "type": "boolean"
+        },
+        "apiKeyFirstLetters": {
+          "description": "First 3 letters of the associated API key.",
+          "type": "string",
+          "maxLength": 3
+        },
+        "createdAt": {
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "namespace": {
+          "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
+          "type": "string"
+        },
+        "secureHash": {
+          "description": "The argon2id PHC hash of the user's API key. Null when the key cannot be migrated (see status).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "Export classification. Only 'exported' carries a usable secureHash; the others report why the user was not carried.",
+          "type": "string",
+          "enum": [
+            "exported",
+            "imported_key",
+            "revoked"
+          ]
+        },
+        "userId": {
+          "description": "The name (ID) of the user, without any namespace prefix.",
+          "type": "string"
+        },
+        "userIdentifier": {
+          "description": "The random identifier embedded in the user's API key, used to resolve the key hash. Exactly 16 characters for an importable record; empty when the export reports a user whose key is not carried.",
+          "type": "string"
+        }
+      }
+    },
     "DBUserInfo": {
       "type": "object",
       "required": [
@@ -21489,9 +21971,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the task was finished.",
+          "description": "The time when the task reached a terminal status. Absent while the task is still running.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "finishedNodes": {
           "description": "The nodes that finished the task.",
@@ -21541,9 +22024,10 @@ func init() {
           "x-omitempty": true
         },
         "finishedAt": {
-          "description": "The time when the unit finished.",
+          "description": "The time when the unit reached a terminal status. Absent while the unit is still running.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "id": {
           "description": "The ID of the unit.",
@@ -21563,9 +22047,10 @@ func init() {
           "type": "string"
         },
         "updatedAt": {
-          "description": "The time when the unit was last updated.",
+          "description": "The time when the unit was last updated, including its transition to a terminal status. Absent for a unit that has not started yet.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         }
       }
     },
@@ -21911,7 +22396,7 @@ func init() {
           "type": "string"
         },
         "taskId": {
-          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, and the finalize-window override); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
           "type": "string"
         },
         "tokenization": {
@@ -23914,10 +24399,17 @@ func init() {
           }
         },
         "returnProperties": {
-          "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
+          "description": "The non-reference properties to return. Omitted returns all non-reference, non-blob properties; an empty array returns no properties. References are selected with ` + "`" + `returnReferences` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "returnReferences": {
+          "description": "The cross-references to return under each result's ` + "`" + `references` + "`" + ` key. Each entry selects one reference property and what to return from the referenced objects. Omitted or empty returns no references.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchReferenceSelector"
           }
         },
         "singlePrompt": {
@@ -24062,6 +24554,49 @@ func init() {
         }
       ]
     },
+    "SearchReferenceSelector": {
+      "description": "Selects one cross-reference to return, and what to return from each referenced object.",
+      "type": "object",
+      "required": [
+        "linkOn"
+      ],
+      "properties": {
+        "linkOn": {
+          "description": "The reference property to follow.",
+          "type": "string"
+        },
+        "returnMetadata": {
+          "description": "The metadata to return under each referenced object's ` + "`" + `metadata` + "`" + ` key. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "id",
+              "creationTime",
+              "lastUpdateTime"
+            ]
+          }
+        },
+        "returnProperties": {
+          "description": "The non-reference properties to return from each referenced object. Omitted returns all non-reference, non-blob properties of the referenced collection; an empty array returns no properties.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "returnReferences": {
+          "description": "The cross-references to return from each referenced object. Nesting deeper than ` + "`" + `QUERY_CROSS_REFERENCE_DEPTH_LIMIT` + "`" + ` is rejected.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchReferenceSelector"
+          }
+        },
+        "targetCollection": {
+          "description": "The referenced collection to select. Required when ` + "`" + `linkOn` + "`" + ` is a multi-target reference.",
+          "type": "string"
+        }
+      }
+    },
     "SearchRerank": {
       "description": "Reserved for reranking. Returns 422 (not yet supported).",
       "type": "object",
@@ -24170,14 +24705,73 @@ func init() {
           "x-omitempty": false
         },
         "references": {
-          "description": "The selected cross-references: reference name to the array of referenced objects, each carrying the selected one-hop properties. Omitted when the request selects no references.",
+          "description": "The selected cross-references: reference property name to the array of referenced objects. Omitted when the request selects no references, or when the hit has no entry for any of the selected references.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
             "items": {
-              "$ref": "#/definitions/JsonObject"
+              "$ref": "#/definitions/SearchResultReference"
             }
           }
+        }
+      }
+    },
+    "SearchResultReference": {
+      "description": "One referenced object: the selected non-reference properties under ` + "`" + `properties` + "`" + `, deeper cross-references under ` + "`" + `references` + "`" + `, and the requested metadata under ` + "`" + `metadata` + "`" + `.",
+      "type": "object",
+      "required": [
+        "properties"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The collection the referenced object belongs to. Returned for multi-target references.",
+          "type": "string"
+        },
+        "metadata": {
+          "x-nullable": true,
+          "$ref": "#/definitions/SearchResultReferenceMetadata"
+        },
+        "properties": {
+          "description": "The selected non-reference properties of the referenced object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — ` + "`" + `{}` + "`" + ` when the selector selects no properties.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonObject"
+          },
+          "x-omitempty": false
+        },
+        "references": {
+          "description": "The cross-references selected one hop deeper. Omitted when the selector selects none, or when the referenced object has no entry for any of them.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/SearchResultReference"
+            }
+          }
+        }
+      }
+    },
+    "SearchResultReferenceMetadata": {
+      "description": "The metadata of a referenced object, populated according to the selector's ` + "`" + `returnMetadata` + "`" + `. Every field is optional and only present when it was requested.",
+      "type": "object",
+      "properties": {
+        "creationTime": {
+          "description": "The referenced object's creation time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "id": {
+          "description": "The referenced object's UUID.",
+          "type": "string",
+          "format": "uuid",
+          "x-nullable": true
+        },
+        "lastUpdateTime": {
+          "description": "The referenced object's last-update time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
         }
       }
     },
@@ -24550,6 +25144,84 @@ func init() {
       "properties": {
         "apikey": {
           "description": "The API key associated with the user.",
+          "type": "string"
+        }
+      }
+    },
+    "UserExportResponse": {
+      "description": "The full set of database-user credential records on the source, one per user.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "users": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DBUserCredential"
+          }
+        }
+      }
+    },
+    "UserImportRequest": {
+      "description": "A batch of database-user credentials to recreate on the target, bound to a single target namespace.",
+      "type": "object",
+      "required": [
+        "users"
+      ],
+      "properties": {
+        "namespace": {
+          "description": "The target namespace every user in this request is created under. Required on namespace-enabled clusters.",
+          "type": "string"
+        },
+        "users": {
+          "description": "The credential records to import. Only records with a strong (argon2id) secureHash are importable.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DBUserCredential"
+          }
+        }
+      }
+    },
+    "UserImportResponse": {
+      "description": "The per-user outcome of an import batch.",
+      "type": "object",
+      "required": [
+        "results"
+      ],
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UserImportResult"
+          }
+        }
+      }
+    },
+    "UserImportResult": {
+      "description": "The outcome of importing a single database-user credential.",
+      "type": "object",
+      "required": [
+        "userId",
+        "status"
+      ],
+      "properties": {
+        "error": {
+          "description": "The reason, present only when status is 'error'.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The outcome for this user.",
+          "type": "string",
+          "enum": [
+            "created",
+            "reconciled",
+            "skipped_exists",
+            "error"
+          ]
+        },
+        "userId": {
+          "description": "The name (ID) of the user, without any namespace prefix.",
           "type": "string"
         }
       }

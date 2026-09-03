@@ -43,7 +43,7 @@ type grpcReplicationClient struct {
 	connManager *grpcconn.ConnManager
 }
 
-var _ (replica.Client) = (*grpcReplicationClient)(nil)
+var _ replica.Client = (*grpcReplicationClient)(nil)
 
 // NewGRPCReplicationClient creates a new gRPC-based replication client.
 func NewGRPCReplicationClient(connManager *grpcconn.ConnManager) *grpcReplicationClient {
@@ -495,6 +495,50 @@ func (c *grpcReplicationClient) CompareHashTreeRoots(ctx context.Context, host, 
 		return nil, fmt.Errorf("gRPC CompareHashTreeRoots: %w", err)
 	}
 	return resp.GetDivergingShards(), nil
+}
+
+func (c *grpcReplicationClient) CompareHashTreeRootsMulti(ctx context.Context, host string,
+	classes map[string]map[string]hashtree.Digest,
+) (*replica.CompareHashTreeRootsMultiResp, error) {
+	client, err := c.getClient(host)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &protocol.CompareHashTreeRootsMultiRequest{
+		Classes: make([]*protocol.ClassShardRootDigests, 0, len(classes)),
+	}
+	for class, roots := range classes {
+		shards := make([]*protocol.ShardRootDigest, 0, len(roots))
+		for shard, root := range roots {
+			shards = append(shards, &protocol.ShardRootDigest{
+				Shard:        shard,
+				RootHashHigh: root[0],
+				RootHashLow:  root[1],
+			})
+		}
+		req.Classes = append(req.Classes, &protocol.ClassShardRootDigests{Index: class, ShardRootDigests: shards})
+	}
+
+	grpcResp, err := client.CompareHashTreeRootsMulti(ctx, req)
+	if err != nil {
+		// Older peers don't serve this RPC; sentinel lets the caller fall back.
+		if status.Code(err) == codes.Unimplemented {
+			return nil, replica.ErrCompareHashTreeRootsUnsupported
+		}
+		return nil, fmt.Errorf("gRPC CompareHashTreeRootsMulti: %w", err)
+	}
+
+	resp := &replica.CompareHashTreeRootsMultiResp{
+		Classes: make(map[string]replica.CompareHashTreeRootsMultiClassResp, len(grpcResp.GetClasses())),
+	}
+	for _, cls := range grpcResp.GetClasses() {
+		resp.Classes[cls.GetIndex()] = replica.CompareHashTreeRootsMultiClassResp{
+			DivergingShards: cls.GetDivergingShards(),
+			Error:           cls.GetError(),
+		}
+	}
+	return resp, nil
 }
 
 func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, index, shard string,

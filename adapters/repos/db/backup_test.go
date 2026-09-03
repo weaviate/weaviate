@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -206,69 +208,137 @@ func TestListInactiveLSMFiles(t *testing.T) {
 }
 
 func TestListInactiveShardFiles(t *testing.T) {
-	// Create a minimal Index-like setup with a temp dir structure mimicking a shard.
-	rootDir := t.TempDir()
 	indexID := "myclass"
 	shardName := "tenant1"
-	indexDir := filepath.Join(rootDir, indexID)
-	shardDir := filepath.Join(indexDir, shardName)
 
-	// Create shard directory structure
-	require.NoError(t, os.MkdirAll(shardDir, 0o755))
-
-	// Metadata files
-	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), []byte("42"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "proplengths"), []byte(`{"len":1}`), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "version"), []byte("2"), 0o644))
-
-	// LSM bucket with segment and WAL
-	bucketDir := filepath.Join(shardDir, "lsm", "objects")
-	require.NoError(t, os.MkdirAll(bucketDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "segment-0001.db"), []byte("seg"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "active.wal"), []byte("wal"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "compaction.tmp"), []byte("tmp"), 0o644))
-
-	// Vector index directory
-	vecDir := filepath.Join(shardDir, "vectors_default")
-	require.NoError(t, os.MkdirAll(vecDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(vecDir, "commitlog.0001"), []byte("cl"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(vecDir, "main.hnsw"), []byte("idx"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(vecDir, "scratch.tmp"), []byte("tmp"), 0o644))
-
-	// Build a minimal Index to call listInactiveShardFiles.
-	// fakeSchemaGetter is defined in fakes_for_tests.go with NodeName() returning "node1".
-	idx := &Index{
-		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
-		getSchema: &fakeSchemaGetter{},
-		db:        stubDBWithNoLiveReindex(),
+	// rootFiles are written as regular files at the shard root, where the vector
+	// indexes keep their state. extraDirs maps a shard subdirectory to the files
+	// created inside it.
+	tests := []struct {
+		name          string
+		rootFiles     []string
+		extraDirs     map[string][]string
+		extraExpected []string
+	}{
+		{
+			name: "no vector index state",
+		},
+		{
+			name:          "dynamic index state db",
+			rootFiles:     []string{shardmeta.FileName},
+			extraExpected: []string{filepath.Join(indexID, shardName, shardmeta.FileName)},
+		},
+		{
+			name:          "flat index metadata of the unnamed vector",
+			rootFiles:     []string{"meta.db"},
+			extraExpected: []string{filepath.Join(indexID, shardName, "meta.db")},
+		},
+		{
+			name:      "flat index metadata of every named vector",
+			rootFiles: []string{"meta_first.db", "meta_second.db"},
+			extraExpected: []string{
+				filepath.Join(indexID, shardName, "meta_first.db"),
+				filepath.Join(indexID, shardName, "meta_second.db"),
+			},
+		},
+		{
+			name:      "dynamic and flat state side by side",
+			rootFiles: []string{shardmeta.FileName, "meta.db", "meta_first.db"},
+			extraExpected: []string{
+				filepath.Join(indexID, shardName, shardmeta.FileName),
+				filepath.Join(indexID, shardName, "meta.db"),
+				filepath.Join(indexID, shardName, "meta_first.db"),
+			},
+		},
+		{
+			name:      "unrelated root files are left out",
+			rootFiles: []string{"metadata.db", "usage.json.tmp"},
+		},
+		{
+			name: "hashtree and change-capture logs are left out",
+			extraDirs: map[string][]string{
+				hashTreeDirName:  {"hashtree-1a2b3c.ht"},
+				changelogDirName: {"op-1.log"},
+			},
+		},
 	}
 
-	var sd backup.ShardDescriptor
-	files, err := idx.listInactiveShardFiles(shardName, &sd)
-	require.NoError(t, err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Create a minimal Index-like setup with a temp dir structure mimicking a shard.
+			rootDir := t.TempDir()
+			indexDir := filepath.Join(rootDir, indexID)
+			shardDir := filepath.Join(indexDir, shardName)
 
-	// Verify metadata
-	assert.Equal(t, shardName, sd.Name)
-	assert.Equal(t, "node1", sd.Node)
-	assert.Equal(t, []byte("42"), sd.DocIDCounter)
-	assert.Equal(t, []byte(`{"len":1}`), sd.PropLengthTracker)
-	assert.Equal(t, []byte("2"), sd.Version)
+			// Create shard directory structure
+			require.NoError(t, os.MkdirAll(shardDir, 0o755))
 
-	// Verify relative paths for metadata
-	assert.Equal(t, filepath.Join(indexID, shardName, "indexcount"), sd.DocIDCounterPath)
-	assert.Equal(t, filepath.Join(indexID, shardName, "proplengths"), sd.PropLengthTrackerPath)
-	assert.Equal(t, filepath.Join(indexID, shardName, "version"), sd.ShardVersionPath)
+			// Metadata files
+			require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), []byte("42"), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(shardDir, "proplengths"), []byte(`{"len":1}`), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(shardDir, "version"), []byte("2"), 0o644))
 
-	// Verify file list: should include .wal, exclude .tmp
-	sort.Strings(files)
-	expected := []string{
-		filepath.Join(indexID, shardName, "lsm", "objects", "active.wal"),
-		filepath.Join(indexID, shardName, "lsm", "objects", "segment-0001.db"),
-		filepath.Join(indexID, shardName, "vectors_default", "commitlog.0001"),
-		filepath.Join(indexID, shardName, "vectors_default", "main.hnsw"),
+			for _, name := range test.rootFiles {
+				require.NoError(t, os.WriteFile(filepath.Join(shardDir, name), []byte("bolt"), 0o644))
+			}
+
+			for dir, names := range test.extraDirs {
+				require.NoError(t, os.MkdirAll(filepath.Join(shardDir, dir), 0o755))
+				for _, name := range names {
+					require.NoError(t, os.WriteFile(filepath.Join(shardDir, dir, name), []byte("data"), 0o644))
+				}
+			}
+
+			// LSM bucket with segment and WAL
+			bucketDir := filepath.Join(shardDir, "lsm", "objects")
+			require.NoError(t, os.MkdirAll(bucketDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "segment-0001.db"), []byte("seg"), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "active.wal"), []byte("wal"), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "compaction.tmp"), []byte("tmp"), 0o644))
+
+			// Vector index directory
+			vecDir := filepath.Join(shardDir, "vectors_default")
+			require.NoError(t, os.MkdirAll(vecDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(vecDir, "commitlog.0001"), []byte("cl"), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(vecDir, "main.hnsw"), []byte("idx"), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(vecDir, "scratch.tmp"), []byte("tmp"), 0o644))
+
+			// Build a minimal Index to call listInactiveShardFiles.
+			// fakeSchemaGetter is defined in fakes_for_tests.go with NodeName() returning "node1".
+			idx := &Index{
+				Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
+				getSchema: &fakeSchemaGetter{},
+				db:        stubDBWithNoLiveReindex(),
+			}
+
+			var sd backup.ShardDescriptor
+			files, err := idx.listInactiveShardFiles(shardName, &sd)
+			require.NoError(t, err)
+
+			// Verify metadata
+			assert.Equal(t, shardName, sd.Name)
+			assert.Equal(t, "node1", sd.Node)
+			assert.Equal(t, []byte("42"), sd.DocIDCounter)
+			assert.Equal(t, []byte(`{"len":1}`), sd.PropLengthTracker)
+			assert.Equal(t, []byte("2"), sd.Version)
+
+			// Verify relative paths for metadata
+			assert.Equal(t, filepath.Join(indexID, shardName, "indexcount"), sd.DocIDCounterPath)
+			assert.Equal(t, filepath.Join(indexID, shardName, "proplengths"), sd.PropLengthTrackerPath)
+			assert.Equal(t, filepath.Join(indexID, shardName, "version"), sd.ShardVersionPath)
+
+			// Verify file list: should include .wal, exclude .tmp
+			sort.Strings(files)
+			expected := append([]string{
+				filepath.Join(indexID, shardName, "lsm", "objects", "active.wal"),
+				filepath.Join(indexID, shardName, "lsm", "objects", "segment-0001.db"),
+				filepath.Join(indexID, shardName, "vectors_default", "commitlog.0001"),
+				filepath.Join(indexID, shardName, "vectors_default", "main.hnsw"),
+			}, test.extraExpected...)
+			sort.Strings(expected)
+			assert.Equal(t, expected, files)
+		})
 	}
-	sort.Strings(expected)
-	assert.Equal(t, expected, files)
 }
 
 func TestIsImmutableFile(t *testing.T) {
@@ -388,10 +458,11 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	walContent := []byte("original-wal-data")
 	require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "segment-123.wal"), walContent, 0o644))
 
-	// Flat vector index metadata (mutable).
-	vecDir := filepath.Join(shardDir, "main")
-	require.NoError(t, os.MkdirAll(vecDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(vecDir, "meta.db"), []byte("boltdb-data"), 0o644))
+	// Dynamic index state DB at the shard root (mutable).
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, shardmeta.FileName), []byte("bolt-data"), 0o644))
+
+	// Flat vector index metadata (mutable), at the shard root where flat.New writes it.
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "meta.db"), []byte("boltdb-data"), 0o644))
 
 	// HNSW commitlog directory with condensed (immutable) and non-condensed (mutable).
 	clDir := filepath.Join(shardDir, "main.hnsw.commitlog.d")
@@ -426,13 +497,17 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	walDst := filepath.Join(stagingRoot, indexID, shardName, "lsm", "objects", "segment-123.wal")
 	assert.NotEqual(t, getIno(walSrc), getIno(walDst), "WAL should be copied, not hard-linked")
 
-	metaSrc := filepath.Join(vecDir, "meta.db")
-	metaDst := filepath.Join(stagingRoot, indexID, shardName, "main", "meta.db")
+	metaSrc := filepath.Join(shardDir, "meta.db")
+	metaDst := filepath.Join(stagingRoot, indexID, shardName, "meta.db")
 	assert.NotEqual(t, getIno(metaSrc), getIno(metaDst), "meta.db should be copied, not hard-linked")
 
 	clSrc := filepath.Join(clDir, "1709203456")
 	clDst := filepath.Join(stagingRoot, indexID, shardName, "main.hnsw.commitlog.d", "1709203456")
 	assert.NotEqual(t, getIno(clSrc), getIno(clDst), "non-condensed commitlog should be copied, not hard-linked")
+
+	stateDBSrc := filepath.Join(shardDir, shardmeta.FileName)
+	stateDBDst := filepath.Join(stagingRoot, indexID, shardName, shardmeta.FileName)
+	assert.NotEqual(t, getIno(stateDBSrc), getIno(stateDBDst), "index.db should be copied, not hard-linked")
 
 	// Immutable files: same inodes (hard-linked).
 	segSrc := filepath.Join(bucketDir, "segment-0001.db")
@@ -1085,4 +1160,67 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 	require.True(t, idx.shardCreateLocks.TryRLock(shardName),
 		"shardCreateLocks must be released after preventShutdown failure")
 	idx.shardCreateLocks.RUnlock(shardName)
+}
+
+// TestBackupDescriptorsClosesChannelWhenCancelled pins that the producer closes
+// the descriptor channel on the early return a cancelled context takes. The
+// caller drains that channel to close before it releases any index, so a producer
+// that returns without closing leaves the backup waiting on a channel with no sender.
+func TestBackupDescriptorsClosesChannelWhenCancelled(t *testing.T) {
+	logger, _ := tlog.NewNullLogger()
+	db := &DB{logger: logger, indices: map[string]*Index{}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ch := db.BackupDescriptors(ctx, "backup-1", []string{"Class-A", "Class-B"}, nil)
+
+	var got []backup.ClassDescriptor
+	for {
+		select {
+		case d, ok := <-ch:
+			if !ok {
+				require.Len(t, got, 1, "the cancelled class is the last descriptor sent")
+				assert.Equal(t, "Class-A", got[0].Name)
+				require.Error(t, got[0].Error)
+				assert.ErrorIs(t, got[0].Error, context.Canceled)
+				return
+			}
+			got = append(got, d)
+		case <-time.After(5 * time.Second):
+			t.Fatal("BackupDescriptors never closed the descriptor channel")
+		}
+	}
+}
+
+// TestBackupDescriptorsClosesChannelOnPanic pins the exit that defer close(ds)
+// exists for. GoWrapper recovers a panic and lets the goroutine end, so a close
+// that is not deferred leaves the caller draining a channel with no sender.
+func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
+	// The integration suite exports this, which turns GoWrapper's recover off.
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+	logger, hook := tlog.NewNullLogger()
+	// A zero-value Index panics inside descriptor on its nil logger.
+	db := &DB{logger: logger, indices: map[string]*Index{indexID("Class-A"): {}}}
+
+	ch := db.BackupDescriptors(context.Background(), "backup-1", []string{"Class-A"}, nil)
+
+	select {
+	case d, ok := <-ch:
+		require.False(t, ok, "descriptor %q was sent, so the producer returned instead of panicking", d.Name)
+	case <-time.After(5 * time.Second):
+		t.Fatal("BackupDescriptors never closed the descriptor channel after the producer panicked")
+	}
+
+	// GoWrapper logs the recovery after the deferred close ran. Returning at close
+	// would let t.Setenv restore the flag while the recover is still reading it.
+	require.Eventually(t, func() bool {
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "Recovered from panic") {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "the producer goroutine never recovered a panic")
 }

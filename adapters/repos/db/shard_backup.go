@@ -20,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -317,8 +316,8 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		return nil, err
 	}
 
-	if s.dynamicVectorIndexDB != nil {
-		relPath, err := dynamic.SnapshotSharedStateDB(s.dynamicVectorIndexDB, s.path(), s.index.Config.RootPath, stagingRoot)
+	if s.metadataDB != nil {
+		relPath, err := s.metadataDB.Snapshot(s.index.Config.RootPath, stagingRoot)
 		if err != nil {
 			return nil, err
 		}
