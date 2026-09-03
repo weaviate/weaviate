@@ -38,7 +38,6 @@ const clusterIDPoll = time.Second
 type Repeater struct {
 	logger    logrus.FieldLogger
 	clusterID func() string
-	restURL   string
 	interval  time.Duration
 	fetch     Fetcher
 	content   atomic.Pointer[Content]
@@ -47,7 +46,7 @@ type Repeater struct {
 // NewRepeater builds a repeater. clusterID returns "" until raft has committed
 // an id; a non-positive interval means the default of 24h, and a nil fetcher
 // means Fetch against the website's art file.
-func NewRepeater(logger logrus.FieldLogger, clusterID func() string, restURL string, interval time.Duration, fetch Fetcher) *Repeater {
+func NewRepeater(logger logrus.FieldLogger, clusterID func() string, interval time.Duration, fetch Fetcher) *Repeater {
 	if interval <= 0 {
 		interval = defaultInterval
 	}
@@ -55,7 +54,7 @@ func NewRepeater(logger logrus.FieldLogger, clusterID func() string, restURL str
 		client := newClient()
 		fetch = func(ctx context.Context) (*Content, error) { return Fetch(ctx, client, artURL) }
 	}
-	return &Repeater{logger: logger, clusterID: clusterID, restURL: restURL, interval: interval, fetch: fetch}
+	return &Repeater{logger: logger, clusterID: clusterID, interval: interval, fetch: fetch}
 }
 
 // Run waits for the cluster id, logs the banner, and logs it again every
@@ -126,5 +125,5 @@ func (r *Repeater) emit() {
 	r.logger.WithFields(logrus.Fields{
 		"action":                Action,
 		enterrors.DocsLinkField: docsURL,
-	}).Info(render(content.Art, content.Message, r.restURL, docsURL))
+	}).Info(render(content.Art, content.Message, docsURL))
 }

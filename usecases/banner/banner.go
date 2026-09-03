@@ -51,9 +51,9 @@ var embeddedArt = []string{
 }
 
 // render builds the banner message: a frame holding the art, the version,
-// and the docs, cluster, and news entries. Newlines stay in the message; the
-// JSON formatter escapes them and log viewers render them back.
-func render(art, message []string, restURL, docsURL string) string {
+// and the docs and news entries. Newlines stay in the message; the JSON
+// formatter escapes them and log viewers render them back.
+func render(art, message []string, docsURL string) string {
 	lines := []string{""}
 	for _, line := range art {
 		lines = append(lines, "    "+line)
@@ -62,7 +62,6 @@ func render(art, message []string, restURL, docsURL string) string {
 		"",
 		"        ⇒ Version: "+build.Version,
 		"        ⇒ Docs:    "+printable(docsURL),
-		"        ⇒ Cluster: "+printable(restURL)+"/v1/meta",
 	)
 	for i, line := range message {
 		if i == 0 {

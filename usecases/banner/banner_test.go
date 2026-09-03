@@ -39,13 +39,12 @@ func TestEmbeddedArtGlyphs(t *testing.T) {
 }
 
 func TestRender(t *testing.T) {
-	got := render([]string{"  ██", "  ▁▁"}, nil, "http://localhost:8080", landingURL()+"?clusterid=abc")
+	got := render([]string{"  ██", "  ▁▁"}, nil, landingURL()+"?clusterid=abc")
 
 	assert.True(t, strings.HasPrefix(got, "\n╔══"), "top border first: %q", got)
 	assert.Contains(t, got, "║░░      ██\n║░░      ▁▁\n", "art inside the frame")
 	assert.Contains(t, got, "║░░        ⇒ Version: ")
 	assert.Contains(t, got, "║░░        ⇒ Docs:    "+landingURL()+"?clusterid=abc\n")
-	assert.Contains(t, got, "║░░        ⇒ Cluster: http://localhost:8080/v1/meta\n")
 	assert.NotContains(t, got, "News", "no news line without a message")
 
 	// One frame: the borders and the two fill rows all span the widest line.
@@ -59,19 +58,19 @@ func TestRender(t *testing.T) {
 
 func TestRenderNews(t *testing.T) {
 	news := "Weaviate 1.39 is out: https://weaviate.io/blog/weaviate-1-39-release"
-	got := render(nil, []string{news}, "http://localhost:8080", landingURL())
+	got := render(nil, []string{news}, landingURL())
 	assert.Contains(t, got, "║░░        ⇒ News:    "+news+"\n", "got %q", got)
 
 	// A second line starts in the column the first line's text starts in.
-	got = render(nil, []string{"first", "second"}, "http://localhost:8080", landingURL())
+	got = render(nil, []string{"first", "second"}, landingURL())
 	indent := strings.Repeat(" ", len([]rune("        ⇒ News:    ")))
 	assert.Contains(t, got, "⇒ News:    first\n║░░"+indent+"second\n", "got %q", got)
 }
 
 func TestRenderDropsControlCharacters(t *testing.T) {
-	got := render(nil, []string{"new\nlevel=error msg=forged"}, "http://h:1\nlevel=error msg=forged\r\x1b[31m", landingURL())
+	got := render(nil, []string{"new\nlevel=error msg=forged"}, "https://d\nlevel=error msg=forged\r\x1b[31m")
 
-	assert.Contains(t, got, "⇒ Cluster: http://h:1level=error msg=forged[31m/v1/meta\n")
+	assert.Contains(t, got, "⇒ Docs:    https://dlevel=error msg=forged[31m\n")
 	assert.Contains(t, got, "⇒ News:    newlevel=error msg=forged\n")
 	assert.NotContains(t, got, "\nlevel=error")
 }
@@ -216,7 +215,7 @@ func TestRepeater(t *testing.T) {
 		return fetched, nil
 	}
 
-	r := NewRepeater(logger, clusterID, "http://localhost:8080", 5*time.Millisecond, fetch)
+	r := NewRepeater(logger, clusterID, 5*time.Millisecond, fetch)
 	assert.Equal(t, &Content{Art: embeddedArt}, r.Content(), "nothing fetched yet")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -270,7 +269,7 @@ func TestRepeater(t *testing.T) {
 
 func TestRepeaterStopsWhileWaitingForClusterID(t *testing.T) {
 	logger, hook := test.NewNullLogger()
-	r := NewRepeater(logger, func() string { return "" }, "http://localhost:8080", time.Millisecond, nil)
+	r := NewRepeater(logger, func() string { return "" }, time.Millisecond, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -285,7 +284,7 @@ func TestRepeaterStopsWhileWaitingForClusterID(t *testing.T) {
 }
 
 func TestNewRepeaterDefaults(t *testing.T) {
-	r := NewRepeater(logrus.New(), func() string { return "" }, "http://localhost:8080", 0, nil)
+	r := NewRepeater(logrus.New(), func() string { return "" }, 0, nil)
 	assert.Equal(t, defaultInterval, r.interval)
 	assert.NotNil(t, r.fetch)
 }

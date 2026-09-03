@@ -1530,7 +1530,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// weaviate.io, so it only runs when telemetry is enabled.
 		if !bannerDisabled() {
 			repeater := banner.NewRepeater(appState.Logger, appState.ClusterService.ClusterID,
-				restURLFromArgs(os.Args[1:]), appState.ServerConfig.Config.BannerInterval, nil)
+				appState.ServerConfig.Config.BannerInterval, nil)
 			enterrors.GoWrapper(func() { repeater.Run(serverShutdownCtx) }, appState.Logger)
 		}
 	}
