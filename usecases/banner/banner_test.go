@@ -88,6 +88,8 @@ func TestSanitize(t *testing.T) {
 		{name: "control characters dropped", in: []string{"██\n\x1b[31m▁\r"}, want: []string{"██[31m▁"}},
 		// U+009B is a one-byte CSI some terminals honor like ESC [.
 		{name: "C1 controls dropped", in: []string{"██\u009b[31m▁\u0085"}, want: []string{"██[31m▁"}},
+		// U+202E reverses display order; zero-width characters hide in text.
+		{name: "format characters dropped", in: []string{"\u202evil\u200b"}, want: []string{"vil"}},
 		{name: "lines cut to the column limit", in: []string{wide}, want: []string{strings.Repeat("█", maxArtColumns)}},
 		{
 			name: "line count capped",

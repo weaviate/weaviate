@@ -94,12 +94,13 @@ func render(art, message []string, docsURL string) string {
 // newsIndent aligns the later news lines under the first one's text.
 const newsIndent = "                   "
 
-// printable drops control characters, C0 and C1 alike: the text formatter
-// writes the banner verbatim, so a control character in a flag value or the
-// fetched art could forge a log line or steer the terminal.
+// printable drops control and format characters: the text formatter writes
+// the banner verbatim, so a control character could forge a log line or
+// steer the terminal, and a bidi override or zero-width character could
+// disguise what the fetched text reads as.
 func printable(s string) string {
 	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			return -1
 		}
 		return r
