@@ -85,9 +85,9 @@ func newVectorIndexQueueWithID(
 	}
 	viq.vectorIndex = index
 
-	logger := shard.index.logger.WithField("component", "vector_index_queue").
-		WithField("shard_id", shard.ID()).
-		WithField("target_vector", logLabel)
+	logger := shard.vectorIndexLogger(logLabel, indexID).
+		WithField("component", "vector_index_queue").
+		WithField("shard_id", shard.ID())
 
 	staleTimeout, _ := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
 	batchSize, _ := strconv.Atoi(os.Getenv("ASYNC_INDEXING_BATCH_SIZE"))
