@@ -149,7 +149,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 					}, opts...)
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
-						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+						logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 						allOpts...,
 					)
 				},
@@ -220,7 +220,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 				}, opts...)
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
-					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+					logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 					allOpts...,
 				)
 			},
@@ -285,7 +285,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 						}, opts...)
 						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
-							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+							logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							allOpts...,
 						)
 					},
