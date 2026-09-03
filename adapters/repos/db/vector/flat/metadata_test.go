@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmihailenco/msgpack/v5"
 	bolt "go.etcd.io/bbolt"
@@ -541,4 +542,64 @@ func TestSnapshotMutableFiles(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, relPaths)
 	})
+}
+
+// Test_FlatStorageNamesDeriveFromID pins that every storage name keys off the
+// physical ID, never the logical target vector. The mismatched case is the
+// regression: canonical pairs would pass even if a name silently reverted to
+// deriving from the target vector.
+func Test_FlatStorageNamesDeriveFromID(t *testing.T) {
+	tests := []struct {
+		name           string
+		id             string
+		targetVector   string
+		wantBucket     string
+		wantCompressed string
+		wantMetadata   string
+	}{
+		{
+			name:           "legacy",
+			id:             "main",
+			wantBucket:     "vectors",
+			wantCompressed: "vectors_compressed",
+			wantMetadata:   "meta.db",
+		},
+		{
+			name:           "named canonical",
+			id:             "vectors_title",
+			targetVector:   "title",
+			wantBucket:     "vectors_title",
+			wantCompressed: "vectors_compressed_title",
+			wantMetadata:   "meta_title.db",
+		},
+		{
+			name:           "id and target vector differ",
+			id:             "vectors_physical",
+			targetVector:   "logical",
+			wantBucket:     "vectors_physical",
+			wantCompressed: "vectors_compressed_physical",
+			wantMetadata:   "meta_physical.db",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := testinghelpers.NewDummyStore(t)
+			t.Cleanup(func() { store.Shutdown(context.Background()) })
+			uc := flatent.UserConfig{}
+			uc.SetDefaults()
+			index, err := New(Config{
+				ID:                tt.id,
+				RootPath:          t.TempDir(),
+				TargetVector:      tt.targetVector,
+				DistanceProvider:  distancer.NewCosineDistanceProvider(),
+				MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+			}, uc, store)
+			require.NoError(t, err)
+			t.Cleanup(func() { index.Shutdown(context.Background()) })
+
+			assert.Equal(t, tt.wantBucket, index.getBucketName())
+			assert.Equal(t, tt.wantCompressed, index.getCompressedBucketName())
+			assert.Equal(t, tt.wantMetadata, index.getMetadataFile())
+		})
+	}
 }
