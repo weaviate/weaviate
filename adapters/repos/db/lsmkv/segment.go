@@ -348,6 +348,14 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 
+	// PrimaryIndex slices contents on IndexStart, panicking into a recover that
+	// reports no sentinel. Checksum validation would have caught it, but it is
+	// opt-in and version-gated.
+	if header.IndexStart > uint64(len(contents)) {
+		return nil, fmt.Errorf("%w: index starts at %d, past the segment (%d bytes)",
+			lsmkv.ErrCorruptIndex, header.IndexStart, len(contents))
+	}
+
 	primaryIndex, err := header.PrimaryIndex(contents)
 	if err != nil {
 		return nil, fmt.Errorf("extract primary index position: %w", err)
@@ -359,8 +367,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && header.SecondaryIndices == 0 {
 		primaryIndex = primaryIndex[:len(primaryIndex)-segmentindex.ChecksumSize]
 	}
-
-	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
 	dataStartPos := uint64(segmentindex.HeaderSize)
 	dataEndPos := header.IndexStart
@@ -374,6 +380,18 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		dataStartPos = invertedHeader.KeysOffset
 		dataEndPos = invertedHeader.TombstoneOffset
 	}
+
+	// LoadHeaderInverted has no error path, so an inverted segment's key region is
+	// whatever its header says — and past IndexStart it is the index blob.
+	if dataEndPos < dataStartPos || dataEndPos > header.IndexStart {
+		return nil, fmt.Errorf("%w: data section [%d,%d) is not inside [%d,%d)",
+			lsmkv.ErrCorruptIndex, dataStartPos, dataEndPos,
+			segmentindex.HeaderSize, header.IndexStart)
+	}
+
+	// built after the inverted header moves them: those nodes address
+	// [KeysOffset, TombstoneOffset), not the whole data section
+	primaryDiskIndex := segmentindex.NewDiskTreeWithValueBounds(primaryIndex, dataStartPos, dataEndPos)
 
 	stratLabel := header.Strategy.String()
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
@@ -435,7 +453,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && i == int(seg.secondaryIndexCount-1) {
 				secondary = secondary[:len(secondary)-segmentindex.ChecksumSize]
 			}
-			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
+			seg.secondaryIndices[i] = segmentindex.NewDiskTreeWithValueBounds(secondary, seg.dataStartPos, seg.dataEndPos)
 		}
 	}
 

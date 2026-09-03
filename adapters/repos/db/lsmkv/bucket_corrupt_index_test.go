@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -28,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // A corrupt index must report an error, never lsmkv.NotFound: read as absence,
@@ -421,6 +423,280 @@ func corruptSegmentRootChildPointers(t *testing.T, path string) {
 		binary.LittleEndian.PutUint64(contents[childBase+8:], past)
 	}
 
+	require.NoError(t, os.WriteFile(path, contents, 0o644))
+}
+
+// Only the segment's own bounds tell a corrupt offset from a live one. Without
+// them a read sizes its buffer from the damaged number: 1<<40 asks a terabyte.
+func TestBucketGetOnCorruptPayloadRangeErrors(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	tests := []struct {
+		name string
+		end  uint64
+	}{
+		{name: "one byte past the data section", end: 0},
+		{name: "a terabyte", end: 1 << 40},
+		{name: "large enough to fail the allocation outright", end: 1 << 62},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			newBucket := func() *Bucket {
+				return openCorruptTestBucket(t, ctx, dir, logger, WithStrategy(StrategyReplace))
+			}
+
+			keys := make([][]byte, 16)
+			b := newBucket()
+			for i := range keys {
+				keys[i] = []byte(fmt.Sprintf("key-%03d", i))
+				require.NoError(t, b.Put(keys[i], []byte(fmt.Sprintf("value-%03d", i))))
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			require.NoError(t, b.Shutdown(ctx))
+
+			rootKey := corruptRootPayloadEnd(t, dir, tc.end)
+
+			b = newBucket()
+			t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+			_, err := b.Get(rootKey)
+			require.Error(t, err)
+			require.ErrorIs(t, err, lsmkv.ErrCorruptIndex,
+				"a payload range outside the segment must be refused, not sized into a read")
+			require.NotErrorIs(t, err, lsmkv.NotFound)
+		})
+	}
+}
+
+// corruptRootPayloadEnd rewrites the root's payload end and returns the key that
+// resolves to it. Zero means one byte past the data section.
+func corruptRootPayloadEnd(t *testing.T, dir string, end uint64) []byte {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(dir, "*.db"))
+	require.NoError(t, err)
+	require.Len(t, matches, 1, "expected exactly one flushed segment")
+
+	contents, err := os.ReadFile(matches[0])
+	require.NoError(t, err)
+	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
+	require.NoError(t, err)
+
+	// node layout: [keyLen:4][key:keyLen][start:8][end:8][left:8][right:8]
+	start := header.IndexStart
+	keyLen := binary.LittleEndian.Uint32(contents[start:])
+	keyAt := start + 4
+	endAt := keyAt + uint64(keyLen) + 8
+	require.Less(t, endAt+8, uint64(len(contents)), "root node past the file")
+
+	if end == 0 {
+		end = header.IndexStart + 1 // the data section ends where the index begins
+	}
+	binary.LittleEndian.PutUint64(contents[endAt:], end)
+	require.NoError(t, os.WriteFile(matches[0], contents, 0o644))
+
+	return bytes.Clone(contents[keyAt : keyAt+uint64(keyLen)])
+}
+
+// An inverted index is bounded by its key region, not the whole data section:
+// a node in the header gap must be refused, not read as no posting.
+func TestInvertedSegmentIndexIsBoundedByItsKeyRegion(t *testing.T) {
+	ctx := context.Background()
+	logger, hook := test.NewNullLogger()
+	dir := t.TempDir()
+
+	newBucket := func() *Bucket {
+		return openCorruptTestBucket(t, ctx, dir, logger, WithStrategy(StrategyInverted))
+	}
+
+	b := newBucket()
+	for i := 0; i < 16; i++ {
+		require.NoError(t, b.MapSet([]byte(fmt.Sprintf("term-%03d", i)),
+			NewMapPairFromDocIdAndTf(uint64(i), 1, 1, false)))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Shutdown(ctx))
+
+	rootKey, keysOffset := corruptRootValueStartIntoHeaderGap(t, dir)
+	require.Greater(t, keysOffset, uint64(segmentindex.HeaderSize),
+		"the fixture needs a gap between the segment header and the key region")
+
+	b = newBucket()
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+	_, _, _, err := b.createDiskTermFromCV(ctx, view, 16, nil,
+		[]string{rootKey}, "", 1, []int{1}, schema.BM25Config{K1: 1.2, B: 0.75})
+	require.NoError(t, err, "the BM25 path reports no posting rather than failing")
+
+	var warned int
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["action"] == "lsmkv_corrupt_index" {
+			warned++
+		}
+	}
+	require.NotZero(t, warned,
+		"a node addressing the header area must be refused, and the segment named")
+}
+
+// LoadHeaderInverted validates nothing, so a key region running into the index
+// blob must fail to open rather than serve index bytes as payload.
+func TestInvertedSegmentWithKeyRegionInsideItsIndexFailsToOpen(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	dir := t.TempDir()
+
+	newBucket := func() (*Bucket, error) {
+		return tryOpenCorruptTestBucket(ctx, dir, logger, WithStrategy(StrategyInverted))
+	}
+
+	b, err := newBucket()
+	require.NoError(t, err)
+	for i := 0; i < 16; i++ {
+		require.NoError(t, b.MapSet([]byte(fmt.Sprintf("term-%03d", i)),
+			NewMapPairFromDocIdAndTf(uint64(i), 1, 1, false)))
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Shutdown(ctx))
+
+	indexStart := pushTombstoneOffsetPastIndexStart(t, dir)
+
+	_, err = newBucket()
+	require.Error(t, err, "a key region running into the index must not open")
+	require.ErrorIs(t, err, lsmkv.ErrCorruptIndex)
+	require.ErrorContains(t, err, fmt.Sprintf("%d)", indexStart),
+		"the message has to name the bound the region broke")
+}
+
+// pushTombstoneOffsetPastIndexStart overlaps the key region with the index blob,
+// and returns the index start it broke.
+func pushTombstoneOffsetPastIndexStart(t *testing.T, dir string) uint64 {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(dir, "*.db"))
+	require.NoError(t, err)
+	require.Len(t, matches, 1, "expected exactly one flushed segment")
+
+	contents, err := os.ReadFile(matches[0])
+	require.NoError(t, err)
+	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
+	require.NoError(t, err)
+
+	// inverted header layout: [keysOffset:8][tombstoneOffset:8][propertyLengthsOffset:8]
+	tombstoneAt := uint64(segmentindex.HeaderSize) + 8
+	before := binary.LittleEndian.Uint64(contents[tombstoneAt:])
+	require.Less(t, before, header.IndexStart, "fixture must start inside the data section")
+
+	binary.LittleEndian.PutUint64(contents[tombstoneAt:], header.IndexStart+8)
+	require.NoError(t, os.WriteFile(matches[0], contents, 0o644))
+
+	return header.IndexStart
+}
+
+// corruptRootValueStartIntoHeaderGap points the root's value between the header
+// and the key region — inside the data section, so only the inverted header's
+// bounds reject it. Returns that node's key and the key region's start.
+func corruptRootValueStartIntoHeaderGap(t *testing.T, dir string) (string, uint64) {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(dir, "*.db"))
+	require.NoError(t, err)
+	require.Len(t, matches, 1, "expected exactly one flushed segment")
+
+	contents, err := os.ReadFile(matches[0])
+	require.NoError(t, err)
+	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
+	require.NoError(t, err)
+	inverted, err := segmentindex.LoadHeaderInverted(
+		contents[segmentindex.HeaderSize : segmentindex.HeaderSize+segmentindex.HeaderInvertedSize])
+	require.NoError(t, err)
+
+	// node layout: [keyLen:4][key:keyLen][start:8][end:8][left:8][right:8]
+	start := header.IndexStart
+	keyLen := binary.LittleEndian.Uint32(contents[start:])
+	valueAt := start + 4 + uint64(keyLen)
+	require.Less(t, valueAt+16, uint64(len(contents)), "root node past the file")
+
+	gap := uint64(segmentindex.HeaderSize) + 1
+	binary.LittleEndian.PutUint64(contents[valueAt:], gap)
+	binary.LittleEndian.PutUint64(contents[valueAt+8:], gap+8)
+	require.NoError(t, os.WriteFile(matches[0], contents, 0o644))
+
+	return string(contents[start+4 : start+4+uint64(keyLen)]), inverted.KeysOffset
+}
+
+// Checksum validation is opt-in and off here, so nothing else stops a cursor
+// slicing on a header whose offsets do not fit the file.
+func TestSegmentWithHeaderOutsideItsFileFailsToOpen(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	// each row reaches a different arm: an index start past the file is the one
+	// PrimaryIndex slices on, and a zero start is the one that puts the data
+	// section's end before its beginning
+	corruptions := []struct {
+		name    string
+		corrupt func(t *testing.T, path string)
+	}{
+		{name: "index start past the file", corrupt: setHeaderIndexStartPastFile},
+		{name: "index start before the header", corrupt: zeroHeaderIndexStart},
+	}
+
+	for _, corruption := range corruptions {
+		t.Run(corruption.name, func(t *testing.T) {
+			dir := t.TempDir()
+			newBucket := func() (*Bucket, error) {
+				return tryOpenCorruptTestBucket(ctx, dir, logger, WithStrategy(StrategyRoaringSet),
+					WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+			}
+
+			b, err := newBucket()
+			require.NoError(t, err)
+			for i := 0; i < 8; i++ {
+				require.NoError(t, b.RoaringSetAddList([]byte(fmt.Sprintf("key-%03d", i)), []uint64{uint64(i)}))
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			require.NoError(t, b.Shutdown(ctx))
+
+			matches, err := filepath.Glob(filepath.Join(dir, "*.db"))
+			require.NoError(t, err)
+			require.Len(t, matches, 1, "expected exactly one flushed segment")
+			corruption.corrupt(t, matches[0])
+
+			_, err = newBucket()
+			require.Error(t, err, "a segment whose header does not fit its file must not open")
+			require.ErrorIs(t, err, lsmkv.ErrCorruptIndex)
+		})
+	}
+}
+
+// zeroHeaderIndexStart puts the data section's end before its beginning.
+func zeroHeaderIndexStart(t *testing.T, path string) {
+	t.Helper()
+	setHeaderIndexStart(t, path, 0)
+}
+
+// setHeaderIndexStartPastFile points the index start one byte beyond the file,
+// which is what PrimaryIndex slices on.
+func setHeaderIndexStartPastFile(t *testing.T, path string) {
+	t.Helper()
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	setHeaderIndexStart(t, path, uint64(info.Size())+1)
+}
+
+func setHeaderIndexStart(t *testing.T, path string, start uint64) {
+	t.Helper()
+
+	contents, err := os.ReadFile(path)
+	require.NoError(t, err)
+	// header layout: [level:2][version:2][secondaryIndices:2][strategy:2][indexStart:8]
+	binary.LittleEndian.PutUint64(contents[8:16], start)
 	require.NoError(t, os.WriteFile(path, contents, 0o644))
 }
 
