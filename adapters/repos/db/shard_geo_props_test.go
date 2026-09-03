@@ -18,8 +18,10 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -36,6 +38,9 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -499,49 +504,90 @@ func removeRootPath(t *testing.T, idx *Index) {
 
 // TestVectorIndexLoggerCarriesIdentity pins the contract that lets storage-layer
 // entities (compressors, commit loggers, queues) log without ever being told
-// the logical target-vector name: the shard bakes both identities - the
-// logical name for operators and the physical id for storage - into the
-// logger it hands to initVectorIndex, once, and every implementation
-// (hnsw/flat/dynamic/hfresh) and everything it constructs inherits that
-// logger unchanged.
+// the logical target-vector name: the shard bakes both identities — the
+// logical name for operators and the physical id for storage — into one
+// logger, and every implementation, its queue, and everything they construct
+// inherit it. Lines under an index are recognised by their index_id; every one
+// of them must also carry target_vector, class and shard.
 func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
-	ctx := context.Background()
+	hnswUC := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
+	hnswUC.SetDefaults()
+	// flat (and dynamic below its threshold, which is flat-backed) logs nothing
+	// at construction; a cached BQ quantizer makes its startup preload log a
+	// line synchronously, so there is something to observe
+	flatUC := flatent.UserConfig{Distance: common.DefaultDistanceMetric}
+	flatUC.SetDefaults()
+	flatUC.BQ.Enabled, flatUC.BQ.Cache = true, true
+	dynamicUC := dynamicent.UserConfig{Distance: common.DefaultDistanceMetric}
+	dynamicUC.SetDefaults()
+	dynamicUC.FlatUC.BQ.Enabled, dynamicUC.FlatUC.BQ.Cache = true, true
+	hfreshUC := hfreshent.UserConfig{Distance: common.DefaultDistanceMetric}
+	hfreshUC.SetDefaults()
 
-	vic := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
-	vic.SetDefaults()
-	shd, idx := testShardWithNamedVector(t, ctx, "LoggerIdentityNamed", vic)
-	s := shd.(*Shard)
-	defer removeRootPath(t, idx)
-	defer func() { require.NoError(t, idx.drop()) }()
-
-	// hooking the shard's own logger rather than replacing it: the field is read
-	// unsynchronized from background goroutines the shard already started
-	logger, ok := s.index.logger.(*logrus.Logger)
-	require.True(t, ok, "the test shard no longer carries a hookable logger")
-	hook := test.NewLocal(logger)
-	logger.SetLevel(logrus.DebugLevel)
-
-	// Force a fresh construction of the named vector's index while the hook is
-	// attached. hnsw.New unconditionally logs a line ("restored data from
-	// disk") as part of its startup, through the identified logger baked in
-	// at construction time - a deterministic way to observe the identity
-	// without depending on cache-prefill timing or async goroutines.
-	require.NoError(t, s.DropVectorIndex(ctx, "title"))
-	require.NoError(t, s.initTargetVector(ctx, "title", vic, false))
-
-	var sawIdentifiedLine bool
-	for _, entry := range hook.AllEntries() {
-		targetVector, ok := entry.Data["target_vector"]
-		if !ok {
-			continue
-		}
-		sawIdentifiedLine = true
-		require.Equalf(t, "title", targetVector, "line %q", entry.Message)
-		require.Equalf(t, "vectors_title", entry.Data["index_id"], "line %q", entry.Message)
-		require.Equalf(t, "LoggerIdentityNamed", entry.Data["class"], "line %q", entry.Message)
-		require.Equalf(t, s.name, entry.Data["shard"], "line %q", entry.Message)
+	tests := []struct {
+		name string
+		vic  schemaConfig.VectorIndexConfig
+	}{
+		{"hnsw", hnswUC},
+		{"flat", flatUC},
+		{"dynamic", dynamicUC},
+		{"hfresh", hfreshUC},
 	}
-	require.True(t, sawIdentifiedLine, "no log line under the recreated index carried target_vector")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			className := "LoggerIdentity" + tc.name
+			shd, idx := testShardWithNamedVector(t, ctx, className, tc.vic)
+			s := shd.(*Shard)
+			defer removeRootPath(t, idx)
+			defer func() { require.NoError(t, idx.drop()) }()
+
+			// hook the shard's own logger rather than replacing it: the field is
+			// read unsynchronized from background goroutines already running
+			logger, ok := s.index.logger.(*logrus.Logger)
+			require.True(t, ok, "the test shard no longer carries a hookable logger")
+			hook := test.NewLocal(logger)
+			logger.SetLevel(logrus.DebugLevel)
+
+			// a few vectors first, so that the recreated index has something to
+			// preload (an empty flat index constructs silently); wait for the
+			// async queue to hand them to the index before recreating it
+			var objs []*storobj.Object
+			for i := 0; i < 8; i++ {
+				objs = append(objs, &storobj.Object{
+					MarshallerVersion: 1,
+					Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: className},
+					Vectors:           map[string][]float32{"title": {float32(i), 1, 0, 1}},
+				})
+			}
+			for _, err := range shd.PutObjectBatch(ctx, objs) {
+				require.NoError(t, err)
+			}
+			q, ok := shd.GetVectorIndexQueue("title")
+			require.True(t, ok)
+			require.Eventually(t, func() bool { return q.Size() == 0 }, 30*time.Second, 50*time.Millisecond)
+
+			// recreate the named vector's index and queue while the hook is
+			// attached, so their construction and preload lines are captured
+			require.NoError(t, s.DropVectorIndex(ctx, "title"))
+			require.NoError(t, s.initTargetVector(ctx, "title", tc.vic, false))
+
+			var indexLines int
+			for _, entry := range hook.AllEntries() {
+				indexID, ok := entry.Data["index_id"].(string)
+				if !ok {
+					continue // not a line under a vector index
+				}
+				indexLines++
+				// hfresh's centroid graph logs its own id under the parent's name
+				require.Truef(t, strings.HasPrefix(indexID, "vectors_title"), "line %q: index_id=%q", entry.Message, indexID)
+				require.Equalf(t, "title", entry.Data["target_vector"], "line %q", entry.Message)
+				require.Equalf(t, className, entry.Data["class"], "line %q", entry.Message)
+				require.Equalf(t, s.name, entry.Data["shard"], "line %q", entry.Message)
+			}
+			require.NotZero(t, indexLines, "no log line under the recreated index carried index_id")
+		})
+	}
 }
 
 // TestInitGeoPropQueueFailureIsRetryable pins that a failed queue build leaves
