@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -246,7 +247,10 @@ type Store struct {
 	applyTimeout time.Duration
 
 	// fsmCaughtUpTerm is the leader term a barrier has confirmed; see
-	// [Store.waitLeaderFSMCaughtUp].
+	// [Store.waitLeaderFSMCaughtUp]. Written under fsmCatchUpMu, which is what
+	// keeps the check, the barrier and the stamp one unit; atomic so a future
+	// lock-free reader can peek it.
+	fsmCatchUpMu    sync.Mutex
 	fsmCaughtUpTerm atomic.Uint64
 
 	// raft snapshot store
@@ -1055,6 +1059,9 @@ func (st *Store) waitLeaderFSMCaughtUp() error {
 	if st.raft == nil {
 		return nil
 	}
+
+	st.fsmCatchUpMu.Lock()
+	defer st.fsmCatchUpMu.Unlock()
 
 	term := st.raft.CurrentTerm()
 	if st.fsmCaughtUpForTerm(term) {

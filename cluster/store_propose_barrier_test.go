@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -168,4 +169,31 @@ func TestProposeBarrier_TermZeroDoesNotShortCircuit(t *testing.T) {
 	st.fsmCaughtUpTerm.Store(7)
 	require.True(t, st.fsmCaughtUpForTerm(7))
 	require.False(t, st.fsmCaughtUpForTerm(8), "a later term must re-barrier")
+}
+
+// Concurrent first-of-term proposes must share one barrier. Each is a
+// replicated log entry, and they land on the hottest failover path.
+func TestProposeBarrier_ConcurrentCallersShareOneBarrier(t *testing.T) {
+	srv, _ := newBarrierTestStore(t)
+	st := srv.store
+
+	const callers = 50
+	before := barrierCount(t, st)
+	st.fsmCaughtUpTerm.Store(0)
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			require.NoError(t, st.waitLeaderFSMCaughtUp())
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	require.Equal(t, float64(1), barrierCount(t, st)-before,
+		"%d concurrent first-of-term callers appended one barrier each", callers)
 }
