@@ -1528,7 +1528,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// The banner waits for the cluster id and fetches its art from
 		// weaviate.io, so it only runs when telemetry is enabled.
-		if !bannerDisabled() {
+		if !entconfig.Enabled(os.Getenv("DISABLE_STARTUP_BANNER")) {
 			repeater := banner.NewRepeater(appState.Logger, appState.ClusterService.ClusterID,
 				appState.ServerConfig.Config.BannerInterval, nil)
 			enterrors.GoWrapper(func() { repeater.Run(serverShutdownCtx) }, appState.Logger)
