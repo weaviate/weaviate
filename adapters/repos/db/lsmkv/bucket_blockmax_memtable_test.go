@@ -82,10 +82,9 @@ func TestBlockMaxWandMemtableTermNotPruned(t *testing.T) {
 		"memtable rare term's document was pruned from the top-%d; got result ids %v", limit, got)
 }
 
-// TestInvertedMapCursorSeekOnDiskSegment drives the seek path of the inverted
-// segment cursor, which positions itself from the disk index and then takes the
-// key and values from the record it parses. Nothing else reaches it: the
-// compactors that use this cursor only walk it with first and next.
+// TestInvertedMapCursorSeekOnDiskSegment exercises the inverted cursor's Seek
+// path: the merge compactor only walks with first/next, so MapCursor is the
+// only production caller.
 func TestInvertedMapCursorSeekOnDiskSegment(t *testing.T) {
 	ctx := context.Background()
 	logger := logrus.New()

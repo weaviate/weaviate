@@ -920,10 +920,10 @@ func TestBatchReaderLeavesNoSegmentRefBehind(t *testing.T) {
 	}
 }
 
-// TestRoaringSetCursorSeekOnDiskSegment seeks over a real flushed segment,
-// which is the only thing that exercises the seeker's rebase onto the payload
-// slice. An origin wrong by HeaderSize aborts in the bitmap read rather than
-// returning a neighbouring key.
+// TestRoaringSetCursorSeekOnDiskSegment seeks a real flushed segment, the only
+// thing that exercises SeekPayloadStart's rebase onto the payload slice; an
+// offset wrong by HeaderSize would abort in the bitmap read, not silently
+// return a neighbour's key.
 func TestRoaringSetCursorSeekOnDiskSegment(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()

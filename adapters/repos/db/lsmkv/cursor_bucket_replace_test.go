@@ -210,10 +210,9 @@ func TestCursorInMemWithTombstones(t *testing.T) {
 	require.Equal(t, map[string]bool{"aaa": true, "bbb": true, "ccc": true}, seen)
 }
 
-// TestCursorWithSecondaryIndexOnDiskSegment smoke-tests the one cursor that
-// walks a segment by its secondary index, and the only reader of
-// diskIndex.Next: secondary keys do not follow payload order, so it cannot scan
-// the data section sequentially and takes a fresh index descent per row.
+// TestCursorWithSecondaryIndexOnDiskSegment covers the one cursor that walks by
+// secondary index (and diskIndex.Next's only caller): secondary keys don't
+// follow payload order, so each step re-descends the index.
 func TestCursorWithSecondaryIndexOnDiskSegment(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
