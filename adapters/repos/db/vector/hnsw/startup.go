@@ -376,7 +376,7 @@ func (h *hnsw) restoreDocMappings() error {
 	buf := make([]byte, 8)
 
 	// Get the mappings bucket - handle case where it might be nil
-	bucket := h.store.Bucket(helpers.MVMappingsBucketName(h.id))
+	bucket := h.store.Bucket(MVMappingsBucketName(h.id))
 	if bucket == nil {
 		err := errors.New("multivector mappings bucket not found")
 		h.logger.WithField("action", "restore_doc_mappings").

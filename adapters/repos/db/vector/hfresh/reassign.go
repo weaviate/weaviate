@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 )
 
 type reassignOperation struct {
@@ -46,7 +46,7 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 
 	var q []float32
 	if h.muvera.Load() {
-		q, err = h.muveraEncoder.GetMuveraVectorForID(op.VectorID, helpers.MuveraBucketName(h.id))
+		q, err = h.muveraEncoder.GetMuveraVectorForID(op.VectorID, hnsw.MuveraBucketName(h.id))
 	} else {
 		q, err = h.config.VectorForIDThunk(ctx, op.VectorID)
 	}

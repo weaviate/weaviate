@@ -87,28 +87,6 @@ func FlatMetadataFileNameForID(physicalID string) string {
 	return FlatMetadataFileName(PhysicalIDSuffix(physicalID))
 }
 
-// A multivector index keeps one bucket of its own, named off the index ID:
-// muvera encodings when muvera is on, node-to-doc mappings when it is off. The
-// two are mutually exclusive.
-//
-// These live here rather than being concatenated at the point of use so the
-// code that CREATES the bucket and the drop that removes it share one
-// definition. Concatenated inline, a rename on the hnsw side compiles cleanly
-// while the cleanup keeps deleting the old name: removeBucket no-ops and the
-// leak returns silently.
-
-// MuveraBucketName is the bucket a muvera-encoded multivector index stores its
-// encoded vectors in. indexID is the vector index's ID.
-func MuveraBucketName(indexID string) string {
-	return fmt.Sprintf("%s_muvera_vectors", indexID)
-}
-
-// MVMappingsBucketName is the bucket a multivector index WITHOUT muvera stores
-// its node-to-doc mappings in. indexID is the vector index's ID.
-func MVMappingsBucketName(indexID string) string {
-	return fmt.Sprintf("%s_mv_mappings", indexID)
-}
-
 // HFresh keeps more on-disk state than the other index types: a directory of
 // its own under the shard, plus two dedicated LSM buckets. All three are keyed
 // on the index ID (vectorIndexID, i.e. "vectors_<target>" for a named vector),
@@ -147,20 +125,6 @@ func CentroidsID(physicalID string) string {
 // Delegating keeps that sanitization intact for both callers.
 func FlatMetadataFileName(targetVector string) string {
 	return flatent.MetadataFileName(targetVector)
-}
-
-func GetHNSWCommitLogDirName(targetVector string) string {
-	if targetVector != "" {
-		return fmt.Sprintf("%s.hnsw.commitlog.d", GetVectorsBucketName(targetVector))
-	}
-	return "main.hnsw.commitlog.d"
-}
-
-func GetHNSWSnapshotDirName(targetVector string) string {
-	if targetVector != "" {
-		return fmt.Sprintf("%s.hnsw.snapshot.d", GetVectorsBucketName(targetVector))
-	}
-	return "main.hnsw.snapshot.d"
 }
 
 // MetaCountProp helps create an internally used propName for meta props that

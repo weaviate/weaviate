@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 )
@@ -69,8 +70,8 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		lsm := filepath.Join(indexPath, shardName, "lsm")
 		vectorsBucket := filepath.Join(lsm, helpers.GetVectorsBucketName(target))
 		compressedBucket := filepath.Join(lsm, helpers.GetCompressedBucketName(target))
-		muveraBucket := filepath.Join(lsm, helpers.MuveraBucketName(helpers.GetVectorsBucketName(target)))
-		commitLog := filepath.Join(indexPath, shardName, helpers.GetHNSWCommitLogDirName(target))
+		muveraBucket := filepath.Join(lsm, hnsw.MuveraBucketName(helpers.GetVectorsBucketName(target)))
+		commitLog := filepath.Join(indexPath, shardName, hnsw.CommitLogDirName(helpers.GetVectorsBucketName(target)))
 
 		for _, dir := range []string{vectorsBucket, compressedBucket, muveraBucket, commitLog} {
 			require.NoError(t, os.MkdirAll(dir, 0o755))
@@ -307,7 +308,7 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 			sibling = "foo_muvera_vectors"
 		)
 		require.Equal(t, helpers.GetVectorsBucketName(sibling),
-			helpers.MuveraBucketName(helpers.GetVectorsBucketName(dropped)),
+			hnsw.MuveraBucketName(helpers.GetVectorsBucketName(dropped)),
 			"precondition: the sibling's own bucket must be one of the dropped vector's artifact names")
 
 		createLSMBucket(t, indexPath, shardName, helpers.GetVectorsBucketName(dropped))

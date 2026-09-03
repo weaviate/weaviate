@@ -11,7 +11,10 @@
 
 package db
 
-import "github.com/weaviate/weaviate/adapters/repos/db/helpers"
+import (
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+)
 
 // VectorIndexArtifacts is everything a named vector's index owns on disk:
 // LSMBuckets are directories under <shard>/lsm; ShardDirs are entries under
@@ -41,8 +44,8 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 		LSMBuckets: []string{
 			helpers.VectorsBucketNameForID(indexID),    // raw vectors
 			helpers.CompressedBucketNameForID(indexID), // BQ/PQ/SQ/RQ
-			helpers.MuveraBucketName(indexID),          // multivector + muvera
-			helpers.MVMappingsBucketName(indexID),      // multivector without muvera
+			hnsw.MuveraBucketName(indexID),             // multivector + muvera
+			hnsw.MVMappingsBucketName(indexID),         // multivector without muvera
 			helpers.HFreshPostingsBucketName(indexID),  // hfresh
 			helpers.HFreshSharedBucketName(indexID),    // hfresh
 			// hfresh runs a nested centroids HNSW whose physical id is
@@ -54,8 +57,8 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 			helpers.CompressedBucketNameForID(helpers.CentroidsID(indexID)),
 		},
 		ShardDirs: []string{
-			helpers.GetHNSWCommitLogDirName(targetVector),
-			helpers.GetHNSWSnapshotDirName(targetVector),
+			hnsw.CommitLogDirName(indexID),
+			hnsw.SnapshotDirName(indexID),
 			helpers.HFreshDirName(indexID),
 			// The async-indexing queue. The live drop closes it via queue.Drop,
 			// but every files-only path (cold lazy shard, inactive tenant, crash

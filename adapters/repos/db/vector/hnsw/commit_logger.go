@@ -132,7 +132,7 @@ func commitLogFileName(rootPath, indexName, fileName string) string {
 }
 
 func commitLogDirectory(rootPath, name string) string {
-	return rootPath + "/" + name + ".hnsw.commitlog.d"
+	return rootPath + "/" + CommitLogDirName(name)
 }
 
 // createNewCommitFile always starts a fresh raw commit log file, regardless

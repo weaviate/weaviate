@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -245,7 +246,7 @@ func nearVectorTenantHits(
 // whole data root: two collections carrying a vector of the same name would
 // otherwise answer for each other.
 func hnswCommitLogDirs(allDirs []string, className, targetVector string) []string {
-	want := helpers.GetHNSWCommitLogDirName(targetVector)
+	want := hnsw.CommitLogDirName(helpers.VectorIndexIDForTarget(targetVector))
 	// <root>/<lowercased class>/<shard>/<dir>
 	collection := "/" + strings.ToLower(className) + "/"
 	var out []string

@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -312,7 +312,7 @@ func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32
 
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, docID)
-	if err := h.store.Bucket(helpers.MuveraBucketName(h.id)).Put(idBytes, multivector.MuveraBytesFromFloat32(encoded)); err != nil {
+	if err := h.store.Bucket(hnsw.MuveraBucketName(h.id)).Put(idBytes, multivector.MuveraBytesFromFloat32(encoded)); err != nil {
 		return errors.Wrap(err, "put muvera vector into bucket")
 	}
 

@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -649,7 +650,7 @@ func (h *HFresh) searchByFDE(
 // changes (a code bucket read plus an RQ distancer instead of the float
 // bucket plus the fold); the pipeline shape stays as is.
 func (h *HFresh) rescoreFDECandidates(queryFDE []float32, candidates *ResultSet, rerankBudget int) ([]uint64, error) {
-	bucket := h.store.Bucket(helpers.MuveraBucketName(h.id))
+	bucket := h.store.Bucket(hnsw.MuveraBucketName(h.id))
 	if bucket == nil {
 		return nil, errors.New("intermediate rescore: muvera vectors bucket not found")
 	}

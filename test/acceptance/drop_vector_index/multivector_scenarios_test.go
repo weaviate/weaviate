@@ -27,7 +27,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -230,7 +230,7 @@ func dirsOwnedBy(allDirs []string, targetVector string) []string {
 	// list here is how "_mv_mappings" came to be missing from this filter while
 	// the bucket leaked in the container and the test still reported clean.
 	names := map[string]struct{}{}
-	for _, n := range helpers.VectorIndexArtifactsFor(targetVector, nil).All() {
+	for _, n := range db.VectorIndexArtifactsFor(targetVector, nil).All() {
 		names[n] = struct{}{}
 	}
 	var out []string
@@ -246,7 +246,7 @@ func dirsOwnedBy(allDirs []string, targetVector string) []string {
 // dirsNamedAfter returns every observed directory whose name is derived from
 // targetVector, WITHOUT going through the artifact list. dirsOwnedBy filters
 // the walk down to the names the cleanup already knows about, so an artifact
-// the index creates that nobody added to helpers.VectorIndexArtifactsFor is
+// the index creates that nobody added to db.VectorIndexArtifactsFor is
 // discarded before the leak assertion sees it — exactly how "_mv_mappings"
 // leaked while this test reported clean. This is the unfiltered net.
 //
