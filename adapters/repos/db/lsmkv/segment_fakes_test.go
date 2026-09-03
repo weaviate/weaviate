@@ -455,7 +455,8 @@ func (s *fakeSegment) newInvertedCursorReusable() *segmentCursorInvertedReusable
 }
 
 func (s *fakeSegment) indexContainsKey(key []byte) (bool, error) {
-	panic("not implemented")
+	_, ok := s.replaceStore[string(key)]
+	return ok, nil
 }
 
 func (s *fakeSegment) exists(key []byte) error {
