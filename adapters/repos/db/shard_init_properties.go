@@ -543,7 +543,7 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 // the numeric generation tail is off. Keep in lockstep with the strategies'
 // ReindexSuffix / IngestSuffix / BackupSuffix; [TestEverySidecarSuffixIsASidecar]
 // pins that a new strategy either reuses one of these or extends the list.
-var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
+var sidecarRoleWords = schema.SidecarRoleWords
 
 // isSidecarDirOf reports whether name is a per-property sidecar of
 // mainBucketName. "__" alone isn't enough: property names may contain "__"
@@ -573,21 +573,10 @@ func isSidecarDirOf(name, mainBucketName string) bool {
 }
 
 // sidecarRoleWord returns a sidecar suffix's trailing word, ignoring the
-// "_<gen>" tail [genSuffix] appends.
-//
-// Only an all-digit tail is dropped: a non-numeric tail is part of the
-// property's own name, not a generation. This also covers generation 0,
-// which a buggy writer could leave even though [parseMigrationDirName] only
-// accepts generations >= 1.
+// "_<gen>" tail [genSuffix] appends. Shared with the property-name check that
+// refuses a name of this shape at creation time.
 func sidecarRoleWord(suffix string) string {
-	if i := strings.LastIndexByte(suffix, '_'); i >= 0 && isAllDigits(suffix[i+1:]) {
-		suffix = suffix[:i]
-	}
-	return suffix[strings.LastIndexByte(suffix, '_')+1:]
-}
-
-func isAllDigits(s string) bool {
-	return s != "" && strings.TrimLeft(s, "0123456789") == ""
+	return schema.SidecarRoleWord(suffix)
 }
 
 func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
@@ -668,7 +657,13 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			return err
 		}
 
-		if actualStrategy := s.store.Bucket(bucketName).Strategy(); actualStrategy == lsmkv.StrategyInverted {
+		bucket, release := s.store.AcquireBucketForRead(bucketName)
+		if bucket == nil {
+			return fmt.Errorf("searchable bucket %q of shard %q: %w", bucketName, s.name, lsmkv.ErrBucketNotFound)
+		}
+		actualStrategy := bucket.Strategy()
+		release()
+		if actualStrategy == lsmkv.StrategyInverted {
 			s.markSearchableBlockmaxProperties(prop.Name)
 		}
 	}

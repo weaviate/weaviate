@@ -657,8 +657,6 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
 
-	config.HFreshEnabled = true
-
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
 	}

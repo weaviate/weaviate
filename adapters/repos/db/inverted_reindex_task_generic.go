@@ -1114,6 +1114,20 @@ func (t *ShardReindexTaskGeneric) newReindexTrackerGuarded(shard ShardLike) (rei
 	return rt, nil
 }
 
+// flushReindexBuckets makes buffered reindex writes durable, so a checkpoint
+// written after it can never certify rows a crash would discard.
+func (t *ShardReindexTaskGeneric) flushReindexBuckets(buckets map[string]*lsmkv.Bucket, action string) error {
+	for propName, bucket := range buckets {
+		if bucket == nil {
+			continue
+		}
+		if err := bucket.FlushAndSwitch(); err != nil {
+			return fmt.Errorf("flushing reindex bucket for prop %q before %s: %w", propName, action, err)
+		}
+	}
+	return nil
+}
+
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
 ) (rerunAt time.Time, reloadShard bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
@@ -1233,21 +1247,43 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		}
 	}
 
+	store := shard.Store()
+	propExtraction := storobj.NewPropExtraction()
+	bucketsByPropName := map[string]*lsmkv.Bucket{}
+	// Every reindex bucket stays pinned while this chunk writes to it: the
+	// writes run long after the lookup, and an unpinned pointer can be shut
+	// down in between. The pins are dropped explicitly once the last write is
+	// durable — runtimePrepare below shuts these very buckets down, and
+	// Bucket.Shutdown waits on exactly these pins — with the defer as the
+	// backstop for the error paths in between.
+	var releaseBuckets []func()
+	releaseReindexBuckets := sync.OnceFunc(func() {
+		for _, release := range releaseBuckets {
+			release()
+		}
+	})
+	defer releaseReindexBuckets()
+	for _, prop := range props {
+		propExtraction.Add(prop)
+		bucketName := t.reindexBucketName(prop)
+		bucket, release := store.AcquireBucketForRead(bucketName)
+		releaseBuckets = append(releaseBuckets, release)
+		if bucket == nil {
+			return time.Time{}, false, fmt.Errorf("reindex bucket %q: %w", bucketName, lsmkv.ErrBucketNotFound)
+		}
+		bucketsByPropName[prop] = bucket
+	}
+
 	defer func() {
 		if err != nil && !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
+			if ferr := t.flushReindexBuckets(bucketsByPropName, "checkpointing on error"); ferr != nil {
+				logger.Warnf("skipping reindex progress checkpoint: buckets not durable: %v", ferr)
+				return
+			}
 			logger.WithField("last_processed_key", lastProcessedKey).Debug("marking progress on error")
 			rt.markProgress(lastProcessedKey, processedCount, indexedCount)
 		}
 	}()
-
-	store := shard.Store()
-	propExtraction := storobj.NewPropExtraction()
-	bucketsByPropName := map[string]*lsmkv.Bucket{}
-	for _, prop := range props {
-		propExtraction.Add(prop)
-		bucketName := t.reindexBucketName(prop)
-		bucketsByPropName[prop] = store.Bucket(bucketName)
-	}
 
 	breakCh := make(chan bool, 1)
 	breakCh <- false
@@ -1264,9 +1300,11 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	// the segment-only Cursor() the iteration uses, producing a
 	// per-replica `path = N/M` divergence on rows that were in flight
 	// at iteration start.
-	objectsBucket := store.Bucket(helpers.ObjectsBucketLSM)
+	objectsBucket, releaseObjectsBucket := store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
 	if objectsBucket != nil {
-		if err = objectsBucket.FlushAndSwitch(); err != nil {
+		err = objectsBucket.FlushAndSwitch()
+		releaseObjectsBucket()
+		if err != nil {
 			err = fmt.Errorf("flushing objects bucket before reindex: %w", err)
 			return zerotime, false, err
 		}
@@ -1335,6 +1373,9 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		}
 	}
 	if !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
+		if err = t.flushReindexBuckets(bucketsByPropName, "marking progress"); err != nil {
+			return zerotime, false, err
+		}
 		if err := rt.markProgress(lastProcessedKey, processedCount, indexedCount); err != nil {
 			err = fmt.Errorf("marking reindex progress: %w", err)
 			return zerotime, false, err
@@ -1380,6 +1421,8 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 				return zerotime, false, err
 			}
 		}
+		releaseReindexBuckets()
+
 		if err = rt.markReindexed(); err != nil {
 			err = fmt.Errorf("marking reindexed: %w", err)
 			return zerotime, false, err
@@ -2367,7 +2410,20 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 		// where data is parked in `b.flushing` invisible to the
 		// segment cursor — the original race that the
 		// flushAndSwitchMu lock was added to close.
-		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk()
+		// pinned for the cursor's whole life: the segments it reads are
+		// mmap'd, and a teardown between this lookup and the last Next would
+		// unmap them underneath the scan
+		bucket, release := shard.Store().AcquireBucketForRead(helpers.ObjectsBucketLSM)
+		defer release()
+		if bucket == nil {
+			startedCh <- time.Now()
+			mdCh <- &migrationData{err: fmt.Errorf("objects bucket of shard %q: %w",
+				shard.Name(), lsmkv.ErrBucketNotFound)}
+			close(mdCh)
+			return
+		}
+
+		cursor := bucket.CursorOnDisk()
 		defer cursor.Close()
 
 		startedCh <- time.Now() // after cursor created (necessary locks acquired)

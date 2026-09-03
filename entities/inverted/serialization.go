@@ -12,12 +12,9 @@
 package inverted
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
-
-	"github.com/pkg/errors"
 )
 
 // LexicographicallySortableFloat64 transforms a conversion to a
@@ -25,7 +22,20 @@ import (
 // sorting big endian notatino is required. Additionally  the sign needs to be
 // flipped in any case, but additionally each remaining byte also needs to be
 // flipped if the number is negative
+//
+// NaN is unsupported: it does not reliably round-trip (math.NaN() decodes to a
+// finite value) and has no meaningful sort position. Callers must not pass NaN;
+// its equality and range semantics through this encoding are undefined.
 func LexicographicallySortableFloat64(in float64) ([]byte, error) {
+	out := make([]byte, 8)
+	PutLexicographicallySortableFloat64(out, in)
+	return out, nil
+}
+
+// PutLexicographicallySortableFloat64 is the allocation-free variant of
+// [LexicographicallySortableFloat64], writing the 8-byte key into dst. dst
+// must be at least 8 bytes; it panics otherwise.
+func PutLexicographicallySortableFloat64(dst []byte, in float64) {
 	// Normalize negative zero (-0.0) to positive zero (0.0). IEEE 754 defines
 	// -0.0 == 0.0, but their bit representations differ. Without this
 	// normalization -0.0 would encode to a byte sequence that sorts before all
@@ -34,28 +44,16 @@ func LexicographicallySortableFloat64(in float64) ([]byte, error) {
 		in = 0
 	}
 
-	buf := bytes.NewBuffer(nil)
-
-	err := binary.Write(buf, binary.BigEndian, in)
-	if err != nil {
-		return nil, errors.Wrap(err, "serialize float64 value as big endian")
-	}
-
-	var out []byte
+	bits := math.Float64bits(in)
 	if in >= 0 {
 		// on positive numbers only flip the sign
-		out = buf.Bytes()
-		firstByte := out[0] ^ 0x80
-		out = append([]byte{firstByte}, out[1:]...)
+		bits ^= 1 << 63
 	} else {
 		// on negative numbers flip every bit
-		out = make([]byte, 8)
-		for i, b := range buf.Bytes() {
-			out[i] = b ^ 0xFF
-		}
+		bits = ^bits
 	}
 
-	return out, nil
+	binary.BigEndian.PutUint64(dst, bits)
 }
 
 // ParseLexicographicallySortableFloat64 reverses the changes in
@@ -65,51 +63,35 @@ func ParseLexicographicallySortableFloat64(in []byte) (float64, error) {
 		return 0, fmt.Errorf("float64 must be 8 bytes long, got: %d", len(in))
 	}
 
-	flipped := make([]byte, 8)
+	bits := binary.BigEndian.Uint64(in)
 	if in[0]&0x80 == 0x80 {
 		// encoded as negative means it was originally positive, so we only need to
 		// flip the sign
-		flipped[0] = in[0] ^ 0x80
-
-		// the remainder can be copied
-		for i := 1; i < 8; i++ {
-			flipped[i] = in[i]
-		}
+		bits ^= 1 << 63
 	} else {
 		// encoded as positive means it was originally negative, so we need to flip
 		// everything
-		for i := 0; i < 8; i++ {
-			flipped[i] = in[i] ^ 0xFF
-		}
+		bits = ^bits
 	}
 
-	r := bytes.NewReader(flipped)
-	var value float64
-
-	err := binary.Read(r, binary.BigEndian, &value)
-	if err != nil {
-		return 0, errors.Wrap(err, "deserialize float64 value as big endian")
-	}
-
-	return value, nil
+	return math.Float64frombits(bits), nil
 }
 
 // LexicographicallySortableInt64 performs a conversion to a lexicographically
 // sortable byte slice. For this, big endian notation is required and the sign
 // must be flipped
 func LexicographicallySortableInt64(in int64) ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
-	asInt64 := int64(in)
+	out := make([]byte, 8)
+	PutLexicographicallySortableInt64(out, in)
+	return out, nil
+}
 
+// PutLexicographicallySortableInt64 is the allocation-free variant of
+// [LexicographicallySortableInt64], writing the 8-byte key into dst. dst must
+// be at least 8 bytes; it panics otherwise.
+func PutLexicographicallySortableInt64(dst []byte, in int64) {
 	// flip the sign
-	asInt64 = asInt64 ^ math.MinInt64
-
-	err := binary.Write(buf, binary.BigEndian, asInt64)
-	if err != nil {
-		return nil, errors.Wrap(err, "serialize int value as big endian")
-	}
-
-	return buf.Bytes(), nil
+	binary.BigEndian.PutUint64(dst, uint64(in)^(1<<63))
 }
 
 // ParseLexicographicallySortableInt64 reverses the changes in
@@ -119,29 +101,17 @@ func ParseLexicographicallySortableInt64(in []byte) (int64, error) {
 		return 0, fmt.Errorf("int64 must be 8 bytes long, got: %d", len(in))
 	}
 
-	r := bytes.NewReader(in)
-	var value int64
-
-	err := binary.Read(r, binary.BigEndian, &value)
-	if err != nil {
-		return 0, errors.Wrap(err, "deserialize int64 value as big endian")
-	}
-
-	return value ^ math.MinInt64, nil
+	// flip the sign back
+	return int64(binary.BigEndian.Uint64(in) ^ (1 << 63)), nil
 }
 
 // LexicographicallySortableUint64 performs a conversion to a lexicographically
 // sortable byte slice. For this, big endian notation is required.
 func LexicographicallySortableUint64(in uint64) ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
-
 	// no signs to flip as this is a uint
-	err := binary.Write(buf, binary.BigEndian, in)
-	if err != nil {
-		return nil, errors.Wrap(err, "serialize int value as big endian")
-	}
-
-	return buf.Bytes(), nil
+	out := make([]byte, 8)
+	binary.BigEndian.PutUint64(out, in)
+	return out, nil
 }
 
 // ParseLexicographicallySortableUint64 reverses the changes in
@@ -151,13 +121,5 @@ func ParseLexicographicallySortableUint64(in []byte) (uint64, error) {
 		return 0, fmt.Errorf("uint64 must be 8 bytes long, got: %d", len(in))
 	}
 
-	r := bytes.NewReader(in)
-	var value uint64
-
-	err := binary.Read(r, binary.BigEndian, &value)
-	if err != nil {
-		return 0, errors.Wrap(err, "deserialize uint64 value as big endian")
-	}
-
-	return value, nil
+	return binary.BigEndian.Uint64(in), nil
 }

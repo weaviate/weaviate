@@ -461,7 +461,6 @@ type Config struct {
 	MaintenanceModeEnabled      func() bool
 	AsyncIndexingEnabled        bool
 
-	HFreshEnabled   bool
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]

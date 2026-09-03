@@ -206,7 +206,6 @@ func (db *DB) init(ctx context.Context) error {
 				QueryBatchedContainsEnabled:  db.config.QueryBatchedContainsEnabled,
 				LazyPropertyLengthsEnabled:   db.config.LazyPropertyLengthsEnabled,
 				MaintenanceModeEnabled:       db.config.MaintenanceModeEnabled,
-				HFreshEnabled:                db.config.HFreshEnabled,
 				AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 				DisableDimensionMetrics:      db.config.DisableDimensionMetrics,
 			},

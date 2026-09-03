@@ -14,6 +14,7 @@ package schema
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -286,8 +287,10 @@ func ValidateReservedPropertyName(name string) error {
 	return nil
 }
 
-// ValidateReservedPropertyNameSuffix rejects property names whose suffix would
-// collide with internal bucket/directory names derived from other properties.
+// ValidateReservedPropertyNameSuffix rejects property names that would collide
+// with an internal bucket or directory name derived from another property: a
+// reserved suffix, or the shape a migration gives its own working directories
+// ([PropertyNameIsSidecarShaped]).
 // Only applied on creation paths — existing schemas (backup restore, startup)
 // must continue to load even if they contain legacy names matching these suffixes.
 func ValidateReservedPropertyNameSuffix(name string) error {
@@ -296,7 +299,41 @@ func ValidateReservedPropertyNameSuffix(name string) error {
 			return fmt.Errorf("'%s' is not a valid property name: suffix '%s' is reserved for internal indices", name, suffix)
 		}
 	}
+	if PropertyNameIsSidecarShaped(name) {
+		return fmt.Errorf("'%s' is not a valid property name: it reads as a working directory a migration derives from another property's name", name)
+	}
 	return nil
+}
+
+// SidecarRoleWords are the words every migration sidecar suffix ends in, once
+// the numeric generation tail is off. Kept here so this name check and
+// adapters/repos/db, which builds and sweeps those directories, read one list.
+var SidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
+
+// PropertyNameIsSidecarShaped reports whether a property called name would own
+// a bucket ("property_<name>") that reads as a working directory some other
+// property's migration derives, e.g. "title__enable_filterable_ingest_3" is
+// where a migration on "title" works.
+func PropertyNameIsSidecarShaped(name string) bool {
+	i := strings.Index(name, "__")
+	if i < 0 {
+		return false
+	}
+	return slices.Contains(SidecarRoleWords, SidecarRoleWord(name[i+2:]))
+}
+
+// SidecarRoleWord returns a sidecar suffix's trailing word, ignoring the
+// "_<gen>" generation tail. Only an all-digit tail is dropped: a non-numeric
+// tail is part of the property's own name, not a generation.
+func SidecarRoleWord(suffix string) string {
+	if i := strings.LastIndexByte(suffix, '_'); i >= 0 && isAllDigits(suffix[i+1:]) {
+		suffix = suffix[:i]
+	}
+	return suffix[strings.LastIndexByte(suffix, '_')+1:]
+}
+
+func isAllDigits(s string) bool {
+	return s != "" && strings.TrimLeft(s, "0123456789") == ""
 }
 
 // AssertValidClassName assert that this string is a valid class name or
