@@ -66,7 +66,7 @@ func (s *segmentCursorMap) decode(parsed segmentCollectionNode) ([]MapPair, erro
 func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 	start, end, err := s.segment.index.SeekOffsets(key)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, s.segment.reportIndexErr(err)
 	}
 
 	var parsed segmentCollectionNode

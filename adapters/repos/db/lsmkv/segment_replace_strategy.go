@@ -33,9 +33,8 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
 			return nil, lsmkv.NotFound
-		} else {
-			return nil, err
 		}
+		return nil, s.reportIndexErr(err)
 	}
 
 	// We need to copy the data we read from the segment exactly once in this
@@ -77,7 +76,9 @@ func (s *segment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []
 
 	start, end, err := s.secondaryIndices[pos].GetOffsets(key)
 	if err != nil {
-		return nil, nil, nil, err
+		// a segment holds one primary index plus one per secondary, each separately
+		// corruptible, and the path alone does not say which
+		return nil, nil, nil, s.reportIndexErr(fmt.Errorf("secondary index %d: %w", pos, err))
 	}
 
 	// We need to copy the data we read from the segment exactly once in this
@@ -154,7 +155,11 @@ func (s *segment) indexContainsKey(key []byte) (bool, error) {
 		return false, nil
 	}
 
-	return s.index.Contains(key)
+	contains, err := s.index.Contains(key)
+	if err != nil {
+		return false, s.reportIndexErr(err)
+	}
+	return contains, nil
 }
 
 // exists checks if a key exists and is not deleted, without reading the full value.
@@ -182,7 +187,7 @@ func (s *segment) exists(key []byte) error {
 		if errors.Is(err, lsmkv.NotFound) {
 			return lsmkv.NotFound
 		}
-		return err
+		return s.reportIndexErr(err)
 	}
 
 	// Read only the tombstone header instead of the full payload.

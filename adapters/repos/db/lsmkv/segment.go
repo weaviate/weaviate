@@ -148,18 +148,22 @@ type segment struct {
 
 	deleteMarkerSuffix string
 
+	// corruptIndexReportOnce keeps one unreadable segment to one log line, spent by
+	// whichever of its indexes fails first.
+	corruptIndexReportOnce sync.Once
+
 	// set when the .db was overwritten in place by a newer segment, so drop must
 	// not look for a ".deleteme" copy of it. See markForDeletionExceptSegment.
 	segmentFileSuperseded bool
 }
 
-// Get, GetOffsets, Seek, SeekOffsets and Next report an absent key as
-// lsmkv.NotFound; Contains reports one as (false, nil). Any other error means
-// the index could not be read, and taking it for absence drops keys the segment
-// still holds.
+// diskIndex is the segment's view of its on-disk search tree. Its lookups report
+// an absent key as lsmkv.NotFound and Contains as (false, nil); any other error
+// means the index could not be read, and taking it for absence drops keys the
+// segment still holds.
 //
-// Next serves the secondary-index cursor, which only a test reaches. Seek has
-// no caller at all.
+// Seek and Next answer with a Node where offsets alone will not do, and are kept
+// for that shape whether or not this repository reaches for them.
 type diskIndex interface {
 	// Get return lsmkv.NotFound in case no node can be found
 	Get(key []byte) (segmentindex.Node, error)
@@ -670,6 +674,22 @@ func (s *segment) getSecondaryIndexCount() uint16 {
 
 func (s *segment) getCountNetAdditions() int {
 	return s.countNetAdditions
+}
+
+// reportIndexErr returns an index lookup's error unchanged, naming an
+// unreadable segment on the way past. Reads that go on to swallow the error
+// route through it too, which is the only place they become visible.
+func (s *segment) reportIndexErr(err error) error {
+	if errors.Is(err, lsmkv.ErrCorruptIndex) {
+		// the path is what an operator has to repair, and the index cannot name
+		// it: it holds no path
+		s.corruptIndexReportOnce.Do(func() {
+			s.logger.WithField("action", "lsmkv_corrupt_index").
+				WithField("path", s.path).
+				Errorf("segment index cannot be read: %v", err)
+		})
+	}
+	return err
 }
 
 func (s *segment) getLevel() uint16 {

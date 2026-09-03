@@ -56,7 +56,7 @@ func (s *segment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
 func (s *segmentCursorInvertedReusable) seek(key []byte) ([]byte, []MapPair, error) {
 	start, end, err := s.segment.index.SeekOffsets(key)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, s.segment.reportIndexErr(err)
 	}
 
 	err = s.parseInvertedNodeInto(nodeOffset{start, end})

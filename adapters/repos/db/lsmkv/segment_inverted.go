@@ -589,6 +589,7 @@ func (s *segment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uin
 	// TODO aliszka:bm25-corruption-swallow: an unreadable index reads as "no
 	// posting" here, dropping this segment's postings and skewing the term's IDF.
 	if err != nil {
+		_ = s.reportIndexErr(err)
 		return segmentindex.Node{}, 0, false
 	}
 

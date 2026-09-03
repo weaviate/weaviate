@@ -151,7 +151,7 @@ func (s *segment) recalculateBloomFilters() ([]byte, [][]byte, error) {
 func (s *segment) recalculatePrimaryBloomFilter() ([]byte, error) {
 	keys, err := s.index.AllKeys()
 	if err != nil {
-		return nil, err
+		return nil, s.reportIndexErr(err)
 	}
 
 	s.bloomFilter = bloom.NewWithEstimates(uint(len(keys)), 0.001)
@@ -180,7 +180,7 @@ func (s *segment) recalculateSecondaryBloomFilter() ([][]byte, error) {
 	for i := range s.secondaryBloomFilters {
 		keys, err := s.secondaryIndices[i].AllKeys()
 		if err != nil {
-			return nil, err
+			return nil, s.reportIndexErr(err)
 		}
 
 		s.secondaryBloomFilters[i] = bloom.NewWithEstimates(uint(len(keys)), 0.001)

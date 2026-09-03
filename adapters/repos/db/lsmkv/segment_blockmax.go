@@ -222,8 +222,10 @@ func (s *segment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryT
 	if node == nil {
 		n, err := s.index.Get(key)
 		// TODO aliszka:bm25-corruption-swallow: an unreadable index reads as "no
-		// posting" here, dropping this segment's postings.
+		// posting" here, dropping this segment's postings. Reported, not returned:
+		// what a query should do with one is a separate decision.
 		if err != nil {
+			_ = s.reportIndexErr(err)
 			return nil
 		}
 		node = &n
@@ -233,8 +235,10 @@ func (s *segment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryT
 
 func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	node, err := s.index.Get(key)
-	// TODO aliszka:bm25-corruption-swallow: same swallow as in newSegmentBlockMax.
+	// TODO aliszka:bm25-corruption-swallow: an unreadable index reads as "no
+	// posting" here too, dropping this segment's postings.
 	if err != nil {
+		_ = s.reportIndexErr(err)
 		return nil
 	}
 	return newSegmentBlockMaxFromNode(s, node, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)

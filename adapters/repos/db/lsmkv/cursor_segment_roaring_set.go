@@ -16,8 +16,7 @@ import (
 )
 
 func (s *segment) newRoaringSetCursor() roaringset.SegmentCursor {
-	return roaringset.NewSegmentCursor(s.contents[s.dataStartPos:s.dataEndPos],
-		&roaringSetSeeker{index: s.index, payloadStart: s.dataStartPos})
+	return roaringset.NewSegmentCursor(s.contents[s.dataStartPos:s.dataEndPos], s)
 }
 
 func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()) {
@@ -32,18 +31,14 @@ func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()
 	return out, release
 }
 
-// roaringSetSeeker rebases the disk index's segment-absolute start offset onto
-// the payload slice a roaring-set SegmentCursor is given, which begins at the
-// segment's dataStartPos.
-type roaringSetSeeker struct {
-	index        diskIndex
-	payloadStart uint64
-}
-
-func (s *roaringSetSeeker) SeekPayloadStart(key []byte) (uint64, error) {
+// SeekPayloadStart rebases the index's segment-absolute start offset onto the
+// payload slice newRoaringSetCursor hands out, which begins at dataStartPos. The
+// index bounds every offset against that same region, so the subtraction cannot
+// wrap.
+func (s *segment) SeekPayloadStart(key []byte) (uint64, error) {
 	start, _, err := s.index.SeekOffsets(key)
 	if err != nil {
-		return 0, err
+		return 0, s.reportIndexErr(err)
 	}
-	return start - s.payloadStart, nil
+	return start - s.dataStartPos, nil
 }

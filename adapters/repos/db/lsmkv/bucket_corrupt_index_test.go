@@ -18,134 +18,29 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// TestBucketReadsOnCorruptSegmentIndexError pins what a segment whose index is
-// corrupt does to a read. The descent reports corruption as an error rather
-// than lsmkv.NotFound, and SegmentGroup must pass that on: reading it as
-// absence would let the scan fall through to an older segment and answer with a
-// stale version of the object, or report a key that exists as missing.
+// A corrupt index must report an error, never lsmkv.NotFound: read as absence,
+// a scan falls through to an older segment and answers with a stale value.
 func TestBucketReadsOnCorruptSegmentIndexError(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 
-	// every read that resolves through the disk index, and what it takes to
-	// reach it. Each returns the error the bucket API gives its caller.
-	reads := []struct {
-		name      string
-		strategy  string
-		secondary bool
-		write     func(t *testing.T, b *Bucket, key []byte, i int)
-		read      func(t *testing.T, b *Bucket, key []byte, i int) error
-	}{
-		{
-			name: "Get", strategy: StrategyReplace,
-			write: func(t *testing.T, b *Bucket, key []byte, i int) {
-				require.NoError(t, b.Put(key, []byte(fmt.Sprintf("value-%03d", i))))
-			},
-			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
-				value, err := b.Get(key)
-				if err == nil {
-					require.Equal(t, fmt.Sprintf("value-%03d", i), string(value))
-				}
-				return err
-			},
-		},
-		{
-			name: "Exists", strategy: StrategyReplace,
-			write: func(t *testing.T, b *Bucket, key []byte, i int) {
-				require.NoError(t, b.Put(key, []byte(fmt.Sprintf("value-%03d", i))))
-			},
-			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
-				exists, err := b.Exists(key)
-				if err == nil {
-					require.True(t, exists, "a key the segment holds must exist")
-				}
-				return err
-			},
-		},
-		{
-			name: "GetBySecondary", strategy: StrategyReplace, secondary: true,
-			write: func(t *testing.T, b *Bucket, key []byte, i int) {
-				require.NoError(t, b.Put(key, []byte(fmt.Sprintf("value-%03d", i)),
-					WithSecondaryKey(0, key)))
-			},
-			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
-				value, err := b.GetBySecondary(context.Background(), 0, key)
-				if err == nil {
-					require.Equal(t, fmt.Sprintf("value-%03d", i), string(value))
-				}
-				return err
-			},
-		},
-		{
-			name: "SetList", strategy: StrategySetCollection,
-			write: func(t *testing.T, b *Bucket, key []byte, i int) {
-				require.NoError(t, b.SetAdd(key, [][]byte{[]byte(fmt.Sprintf("v-%03d", i))}))
-			},
-			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
-				values, err := b.SetList(key)
-				if err == nil {
-					require.Equal(t, [][]byte{[]byte(fmt.Sprintf("v-%03d", i))}, values)
-				}
-				return err
-			},
-		},
-		{
-			name: "SetRawList", strategy: StrategySetCollection,
-			write: func(t *testing.T, b *Bucket, key []byte, i int) {
-				require.NoError(t, b.SetAdd(key, [][]byte{[]byte(fmt.Sprintf("v-%03d", i))}))
-			},
-			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
-				values, err := b.SetRawList(key)
-				if err == nil {
-					require.Equal(t, [][]byte{[]byte(fmt.Sprintf("v-%03d", i))}, values)
-				}
-				return err
-			},
-		},
-		{
-			name: "MapList", strategy: StrategyMapCollection,
-			write: func(t *testing.T, b *Bucket, key []byte, i int) {
-				require.NoError(t, b.MapSet(key, MapPair{
-					Key: []byte("k"), Value: []byte(fmt.Sprintf("v-%03d", i)),
-				}))
-			},
-			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
-				pairs, err := b.MapList(context.Background(), key)
-				if err == nil {
-					require.Len(t, pairs, 1)
-					require.Equal(t, fmt.Sprintf("v-%03d", i), string(pairs[0].Value))
-				}
-				return err
-			},
-		},
-	}
-
-	for _, read := range reads {
+	for _, read := range corruptIndexReads() {
 		t.Run(read.name, func(t *testing.T) {
 			dir := t.TempDir()
-			opts := []BucketOption{WithStrategy(read.strategy)}
-			if read.secondary {
-				opts = append(opts, WithSecondaryIndices(1))
-			}
 			newBucket := func() *Bucket {
-				b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-					opts...)
-				require.NoError(t, err)
-				return b
+				return openCorruptTestBucket(t, ctx, dir, logger, read.opts...)
 			}
 
 			keys := make([][]byte, 16)
@@ -180,22 +75,15 @@ func TestBucketReadsOnCorruptSegmentIndexError(t *testing.T) {
 	}
 }
 
-// TestBucketGetOnCorruptNewerSegmentDoesNotServeStaleValue pins the journey the
-// descent's error exists for. A key rewritten into a second segment resolves
-// there; if the newer index is corrupt and the read reports absence, the scan
-// continues into the older segment and answers with the value that key used to
-// have — a stale read presented as current.
+// The journey the error exists for: a corrupt newer segment must not let Get
+// answer from the older one.
 func TestBucketGetOnCorruptNewerSegmentDoesNotServeStaleValue(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	dir := t.TempDir()
 
 	newBucket := func() *Bucket {
-		b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
-		require.NoError(t, err)
-		return b
+		return openCorruptTestBucket(t, ctx, dir, logger, WithStrategy(StrategyReplace))
 	}
 
 	keys := make([][]byte, 16)
@@ -235,10 +123,8 @@ func TestBucketGetOnCorruptNewerSegmentDoesNotServeStaleValue(t *testing.T) {
 	require.NotZero(t, errs, "no probe reached the corrupt pointer")
 }
 
-// A collection read concatenates every segment's entries for a key, so it walks
-// them all with no early exit. One unreadable segment therefore fails the whole
-// read rather than returning the entries the intact segments hold: a short set
-// cannot be told apart from a complete one by its caller.
+// A collection read walks every segment, so one unreadable segment fails it: a
+// short set is indistinguishable from a complete one.
 func TestBucketCollectionReadOverTwoSegmentsFailsOnCorruptOne(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
@@ -255,11 +141,7 @@ func TestBucketCollectionReadOverTwoSegmentsFailsOnCorruptOne(t *testing.T) {
 		t.Run(read.name, func(t *testing.T) {
 			dir := t.TempDir()
 			newBucket := func() *Bucket {
-				b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-					WithStrategy(StrategySetCollection))
-				require.NoError(t, err)
-				return b
+				return openCorruptTestBucket(t, ctx, dir, logger, WithStrategy(StrategySetCollection))
 			}
 
 			keys := make([][]byte, 16)
@@ -302,150 +184,198 @@ func TestBucketCollectionReadOverTwoSegmentsFailsOnCorruptOne(t *testing.T) {
 	}
 }
 
-// A flush counts, for each key it holds, whether a lower segment already had
-// it. That count is a metric sidecar, and the flushed segment is renamed into
-// place and its commit log deleted before the count runs — so failing the flush
-// when a lower segment cannot be read leaves those writes in a file no bucket
-// registers, with no log to replay them from.
-func TestBucketFlushOverCorruptLowerSegmentKeepsTheWrites(t *testing.T) {
+// Every read of a corrupt segment meets the same error, so it names itself once
+// rather than once per read. An operator still needs the file.
+func TestBucketReadOnCorruptSegmentNamesTheSegmentOnce(t *testing.T) {
 	ctx := context.Background()
-	logger, hook := test.NewNullLogger()
-	dir := t.TempDir()
 
-	keys := make([][]byte, 16)
-	b := countingBucket(t, ctx, dir, logger)
-	for i := range keys {
-		keys[i] = []byte(fmt.Sprintf("key-%03d", i))
-		require.NoError(t, b.Put(keys[i], []byte(fmt.Sprintf("v1-%03d", i))))
-	}
-	require.NoError(t, b.FlushAndSwitch())
-	require.NoError(t, b.Shutdown(ctx))
+	for _, read := range corruptIndexReads() {
+		t.Run(read.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			dir := t.TempDir()
+			newBucket := func() *Bucket {
+				return openCorruptTestBucket(t, ctx, dir, logger, read.opts...)
+			}
 
-	corruptRootChildPointers(t, dir)
+			keys := make([][]byte, 16)
+			b := newBucket()
+			for i := range keys {
+				keys[i] = []byte(fmt.Sprintf("key-%03d", i))
+				read.write(t, b, keys[i], i)
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			require.NoError(t, b.Shutdown(ctx))
 
-	b = countingBucket(t, ctx, dir, logger)
-	t.Cleanup(func() {
-		// a flush left half-finished never clears b.flushing, and Shutdown polls
-		// for that until its context ends — so this bound is what keeps a
-		// regression here reporting in seconds rather than stalling the package
-		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		require.NoError(t, b.Shutdown(shutdownCtx))
-	})
+			corruptRootChildPointers(t, dir)
 
-	// the same keys, so the count has to consult the corrupt segment for each
-	// one rather than being answered by the bloom filter
-	for i, key := range keys {
-		require.NoError(t, b.Put(key, []byte(fmt.Sprintf("v2-%03d", i))))
-	}
-	require.NoError(t, b.FlushAndSwitch(),
-		"a flush must not fail because a lower segment's index is unreadable")
+			b = newBucket()
+			t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
 
-	for i, key := range keys {
-		value, err := b.Get(key)
-		require.NoError(t, err)
-		require.Equal(t, fmt.Sprintf("v2-%03d", i), string(value))
-	}
+			var failed int
+			for i, key := range keys {
+				if err := read.read(t, b, key, i); err != nil {
+					failed++
+					require.ErrorIs(t, err, lsmkv.ErrCorruptIndex)
+				}
+			}
+			require.Greater(t, failed, 1, "several reads must meet the same corrupt segment")
 
-	// A key the count could not resolve is left out rather than assumed new, so
-	// the total may undercount — it must never exceed the keys that exist.
-	count, err := b.Count(ctx)
-	require.NoError(t, err)
-	require.LessOrEqual(t, count, len(keys),
-		"a key whose lower segment could not be read must not be counted as an addition")
-
-	// and the log is the only thing that tells an operator the number is short
-	var approximate int
-	for _, entry := range hook.AllEntries() {
-		if strings.Contains(entry.Message, "object count omits") {
-			approximate++
-			require.Equal(t, logrus.ErrorLevel, entry.Level)
-		}
-	}
-	require.NotZero(t, approximate, "an incomplete count must say so")
-
-	// and it must not reach disk at all. A sidecar that parses is loaded rather
-	// than recomputed, and compaction folds it into the merged segment, so an
-	// approximate one would outlive the segment that caused it.
-	segments, err := filepath.Glob(filepath.Join(dir, "*.db"))
-	require.NoError(t, err)
-	require.Len(t, segments, 2, "expected the corrupt segment and the one flushed over it")
-	sort.Strings(segments)
-	newest := strings.TrimSuffix(segments[len(segments)-1], ".db")
-
-	for _, suffix := range []string{".cna", ".metadata"} {
-		_, statErr := os.Stat(newest + suffix)
-		require.ErrorIs(t, statErr, os.ErrNotExist,
-			"%s persists a count that no later load recomputes", filepath.Base(newest+suffix))
+			var warned int
+			for _, entry := range hook.AllEntries() {
+				if entry.Data["action"] != "lsmkv_corrupt_index" {
+					continue
+				}
+				warned++
+				require.Equal(t, logrus.ErrorLevel, entry.Level)
+				require.Contains(t, entry.Data, "path", "the operator needs the file to repair")
+			}
+			require.NotZero(t, warned, "an unreadable segment must be reported at all")
+			require.Equal(t, 1, warned, "one unreadable segment is one log line, not one per read")
+		})
 	}
 }
 
-// A tombstone the count cannot resolve has to subtract rather than be skipped:
-// the key it deletes may well be held below, and leaving it at zero would keep
-// an object in the count after it was deleted.
-func TestBucketFlushOverCorruptLowerSegmentDoesNotOvercount(t *testing.T) {
+// A cursor cannot fold the error into its state, so it panics rather than
+// iterating a partial segment.
+func TestBucketCursorOnCorruptSegmentPanics(t *testing.T) {
 	ctx := context.Background()
-	logger, _ := test.NewNullLogger()
-	dir := t.TempDir()
 
-	keys := make([][]byte, 16)
-	b := countingBucket(t, ctx, dir, logger)
-	for i := range keys {
-		keys[i] = []byte(fmt.Sprintf("key-%03d", i))
-		require.NoError(t, b.Put(keys[i], []byte(fmt.Sprintf("v1-%03d", i))))
+	replaceOpts := []BucketOption{WithStrategy(StrategyReplace), WithSecondaryIndices(1)}
+	writeReplace := func(t *testing.T, b *Bucket, key []byte, i int) {
+		require.NoError(t, b.Put(key, []byte(fmt.Sprintf("v-%03d", i)),
+			WithSecondaryKey(0, key)))
 	}
-	require.NoError(t, b.FlushAndSwitch())
-	require.NoError(t, b.Shutdown(ctx))
 
-	// the segment holding every key, so the count has to consult it for each
-	// tombstone below and cannot answer any of them
-	corruptRootChildPointers(t, dir)
-
-	b = countingBucket(t, ctx, dir, logger)
-	t.Cleanup(func() {
-		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		require.NoError(t, b.Shutdown(shutdownCtx))
-	})
-
-	for _, key := range keys {
-		require.NoError(t, b.Delete(key))
+	cursors := []struct {
+		name  string
+		opts  []BucketOption
+		write func(t *testing.T, b *Bucket, key []byte, i int)
+		walk  func(t *testing.T, b *Bucket, probe []byte)
+	}{
+		{
+			// First/Next walk the payload in order; only Seek descends the index
+			name: "Cursor/Seek", opts: replaceOpts, write: writeReplace,
+			walk: func(t *testing.T, b *Bucket, probe []byte) {
+				c := b.Cursor()
+				defer c.Close()
+				c.Seek(probe)
+			},
+		},
+		{
+			name: "CursorReplaceReusable/Seek", opts: replaceOpts, write: writeReplace,
+			walk: func(t *testing.T, b *Bucket, probe []byte) {
+				c := b.CursorReplaceReusable()
+				defer c.Close()
+				c.Seek(probe)
+			},
+		},
+		{
+			// a secondary index has no sequential order, so every call descends it
+			name: "CursorWithSecondaryIndex/First", opts: replaceOpts, write: writeReplace,
+			walk: func(t *testing.T, b *Bucket, probe []byte) {
+				c := b.CursorWithSecondaryIndex(0)
+				defer c.Close()
+				c.First()
+			},
+		},
+		{
+			// the only index read the roaring-set cursor makes, via SeekPayloadStart
+			name: "CursorRoaringSet/Seek",
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+			},
+			write: func(t *testing.T, b *Bucket, key []byte, i int) {
+				require.NoError(t, b.RoaringSetAddList(key, []uint64{uint64(i)}))
+			},
+			walk: func(t *testing.T, b *Bucket, probe []byte) {
+				c := b.CursorRoaringSet()
+				defer c.Close()
+				c.Seek(probe)
+			},
+		},
 	}
-	require.NoError(t, b.FlushAndSwitch())
 
-	count, err := b.Count(ctx)
-	require.NoError(t, err)
-	require.Zero(t, count,
-		"every key was deleted, so no object may be left in the count")
+	for _, cursor := range cursors {
+		t.Run(cursor.name, func(t *testing.T) {
+			// one bucket per row, so each segment's corruptIndexReportOnce is unspent
+			dir := t.TempDir()
+			logger, hook := test.NewNullLogger()
+			newBucket := func() *Bucket {
+				return openCorruptTestBucket(t, ctx, dir, logger, cursor.opts...)
+			}
+
+			keys := make([][]byte, 16)
+			b := newBucket()
+			for i := range keys {
+				keys[i] = []byte(fmt.Sprintf("key-%03d", i))
+				cursor.write(t, b, keys[i], i)
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			require.NoError(t, b.Shutdown(ctx))
+
+			corruptRootChildPointers(t, dir)
+
+			b = newBucket()
+			t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+			require.Panics(t, func() { cursor.walk(t, b, keys[8]) },
+				"a cursor must not iterate past a segment it cannot read")
+
+			var named int
+			for _, entry := range hook.AllEntries() {
+				if entry.Data["action"] == "lsmkv_corrupt_index" {
+					named++
+					require.Contains(t, entry.Data, "path",
+						"the panic names a node offset; only the log names the file")
+				}
+			}
+			require.Equal(t, 1, named,
+				"a cursor that dies on a corrupt segment must name it first")
+		})
+	}
 }
 
-// countingBucket opens a replace bucket that keeps the net-additions count.
-// Without it a flush consults the lower segments for nothing.
-func countingBucket(t *testing.T, ctx context.Context, dir string, logger logrus.FieldLogger) *Bucket {
+func openCorruptTestBucket(t *testing.T, ctx context.Context, dir string,
+	logger logrus.FieldLogger, opts ...BucketOption,
+) *Bucket {
 	t.Helper()
 
-	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace), WithCalcCountNetAdditions(true))
+	b, err := tryOpenCorruptTestBucket(ctx, dir, logger, opts...)
 	require.NoError(t, err)
 	return b
 }
 
-// corruptRootChildPointers points both children of the root node past the end
-// of the index, the shape a torn write leaves behind.
-func corruptRootChildPointers(t *testing.T, dir string) {
+// tryOpenCorruptTestBucket is openCorruptTestBucket without the assertion, for a
+// segment that must not open at all.
+func tryOpenCorruptTestBucket(ctx context.Context, dir string,
+	logger logrus.FieldLogger, opts ...BucketOption,
+) (*Bucket, error) {
+	return NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		opts...)
+}
+
+// corruptRootChildPointers points every index root's children past the end of
+// the file, the shape a torn write leaves. The repair restores the bytes.
+func corruptRootChildPointers(t *testing.T, dir string) (repair func()) {
 	t.Helper()
 
 	matches, err := filepath.Glob(filepath.Join(dir, "*.db"))
 	require.NoError(t, err)
 	require.Len(t, matches, 1, "expected exactly one flushed segment")
 
+	before, err := os.ReadFile(matches[0])
+	require.NoError(t, err)
 	corruptSegmentRootChildPointers(t, matches[0])
+
+	return func() {
+		require.NoError(t, os.WriteFile(matches[0], before, 0o644))
+	}
 }
 
-// corruptSegmentByAge damages one of several flushed segments, leaving the
-// others able to answer for every key. Segment names carry the flush timestamp,
-// so they sort oldest-first.
+// corruptSegmentByAge damages one of several segments. Names carry the flush
+// timestamp, so they sort oldest-first.
 func corruptSegmentByAge(t *testing.T, dir string, oldest bool) {
 	t.Helper()
 
@@ -492,4 +422,123 @@ func corruptSegmentRootChildPointers(t *testing.T, path string) {
 	}
 
 	require.NoError(t, os.WriteFile(path, contents, 0o644))
+}
+
+// corruptIndexReads is one read per bucket API that resolves through the disk
+// index, and what it takes to reach it. Each returns the error the bucket API
+// gives its caller.
+func corruptIndexReads() []struct {
+	name  string
+	opts  []BucketOption
+	write func(t *testing.T, b *Bucket, key []byte, i int)
+	read  func(t *testing.T, b *Bucket, key []byte, i int) error
+} {
+	return []struct {
+		name  string
+		opts  []BucketOption
+		write func(t *testing.T, b *Bucket, key []byte, i int)
+		read  func(t *testing.T, b *Bucket, key []byte, i int) error
+	}{
+		{
+			name: "Get", opts: []BucketOption{WithStrategy(StrategyReplace)},
+			write: func(t *testing.T, b *Bucket, key []byte, i int) {
+				require.NoError(t, b.Put(key, []byte(fmt.Sprintf("value-%03d", i))))
+			},
+			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
+				value, err := b.Get(key)
+				if err == nil {
+					require.Equal(t, fmt.Sprintf("value-%03d", i), string(value))
+				}
+				return err
+			},
+		},
+		{
+			name: "Exists", opts: []BucketOption{WithStrategy(StrategyReplace)},
+			write: func(t *testing.T, b *Bucket, key []byte, i int) {
+				require.NoError(t, b.Put(key, []byte(fmt.Sprintf("value-%03d", i))))
+			},
+			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
+				exists, err := b.Exists(key)
+				if err == nil {
+					require.True(t, exists, "a key the segment holds must exist")
+				}
+				return err
+			},
+		},
+		{
+			name: "GetBySecondary",
+			opts: []BucketOption{WithStrategy(StrategyReplace), WithSecondaryIndices(1)},
+			write: func(t *testing.T, b *Bucket, key []byte, i int) {
+				require.NoError(t, b.Put(key, []byte(fmt.Sprintf("value-%03d", i)),
+					WithSecondaryKey(0, key)))
+			},
+			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
+				value, err := b.GetBySecondary(context.Background(), 0, key)
+				if err == nil {
+					require.Equal(t, fmt.Sprintf("value-%03d", i), string(value))
+				}
+				return err
+			},
+		},
+		{
+			name: "SetList", opts: []BucketOption{WithStrategy(StrategySetCollection)},
+			write: func(t *testing.T, b *Bucket, key []byte, i int) {
+				require.NoError(t, b.SetAdd(key, [][]byte{[]byte(fmt.Sprintf("v-%03d", i))}))
+			},
+			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
+				values, err := b.SetList(key)
+				if err == nil {
+					require.Equal(t, [][]byte{[]byte(fmt.Sprintf("v-%03d", i))}, values)
+				}
+				return err
+			},
+		},
+		{
+			name: "SetRawList", opts: []BucketOption{WithStrategy(StrategySetCollection)},
+			write: func(t *testing.T, b *Bucket, key []byte, i int) {
+				require.NoError(t, b.SetAdd(key, [][]byte{[]byte(fmt.Sprintf("v-%03d", i))}))
+			},
+			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
+				values, err := b.SetRawList(key)
+				if err == nil {
+					require.Equal(t, [][]byte{[]byte(fmt.Sprintf("v-%03d", i))}, values)
+				}
+				return err
+			},
+		},
+		{
+			name: "RoaringSetGet",
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+			},
+			write: func(t *testing.T, b *Bucket, key []byte, i int) {
+				require.NoError(t, b.RoaringSetAddList(key, []uint64{uint64(i)}))
+			},
+			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
+				bm, release, err := b.RoaringSetGet(context.Background(), key)
+				if err == nil {
+					defer release()
+					require.True(t, bm.Contains(uint64(i)))
+				}
+				return err
+			},
+		},
+		{
+			name: "MapList", opts: []BucketOption{WithStrategy(StrategyMapCollection)},
+			write: func(t *testing.T, b *Bucket, key []byte, i int) {
+				require.NoError(t, b.MapSet(key, MapPair{
+					Key: []byte("k"), Value: []byte(fmt.Sprintf("v-%03d", i)),
+				}))
+			},
+			read: func(t *testing.T, b *Bucket, key []byte, i int) error {
+				pairs, err := b.MapList(context.Background(), key)
+				if err == nil {
+					require.Len(t, pairs, 1)
+					require.Equal(t, fmt.Sprintf("v-%03d", i), string(pairs[0].Value))
+				}
+				return err
+			},
+		},
+	}
 }

@@ -108,7 +108,7 @@ func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 			index := s.secondaryIndices[pos]
 			start, _, err := index.SeekOffsets(nil)
 			if err != nil {
-				return 0, err
+				return 0, s.reportIndexErr(err)
 			}
 			return start, nil
 		},
@@ -116,7 +116,7 @@ func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 			index := s.secondaryIndices[pos]
 			next, err := index.Next(n.secondaryKeys[pos])
 			if err != nil {
-				return 0, err
+				return 0, s.reportIndexErr(err)
 			}
 			return next.Start, nil
 		},
@@ -155,7 +155,7 @@ func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorRepl
 func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 	start, end, err := s.index.SeekOffsets(key)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, s.segment.reportIndexErr(err)
 	}
 
 	s.currOffset = start
@@ -394,7 +394,7 @@ func (s *segmentCursorReplaceReusable) next() (*segmentReplaceNode, error) {
 func (s *segmentCursorReplaceReusable) seek(key []byte) (*segmentReplaceNode, error) {
 	start, _, err := s.segment.index.SeekOffsets(key)
 	if err != nil {
-		return nil, err
+		return nil, s.segment.reportIndexErr(err)
 	}
 	s.currOffset = start
 	return s.parseInto()

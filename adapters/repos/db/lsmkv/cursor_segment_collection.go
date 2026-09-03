@@ -41,7 +41,7 @@ func (sg *SegmentGroup) newCollectionCursors() ([]innerCursorCollection, func())
 func (s *segmentCursorCollection) seek(key []byte) ([]byte, []value, error) {
 	start, end, err := s.segment.index.SeekOffsets(key)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, s.segment.reportIndexErr(err)
 	}
 
 	parsed, err := s.parseCollectionNode(nodeOffset{start, end})

@@ -33,7 +33,7 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 
 	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
-		return nil, err
+		return nil, s.reportIndexErr(err)
 	}
 
 	// We need to copy the data we read from the segment exactly once in this
@@ -72,7 +72,7 @@ func (s *segment) getCollectionBytes(key []byte) ([][]byte, error) {
 
 	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
-		return nil, err
+		return nil, s.reportIndexErr(err)
 	}
 
 	// We need to copy the data we read from the segment exactly once in this
