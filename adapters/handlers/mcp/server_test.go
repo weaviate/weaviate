@@ -56,18 +56,91 @@ func TestToolFilter_WriteDisabled(t *testing.T) {
 	})
 	s.registerToolFilter()
 
-	handle := func(t *testing.T, body string) string {
-		t.Helper()
-		raw, err := json.Marshal(s.server.HandleMessage(context.Background(), []byte(body)))
-		require.NoError(t, err)
-		return string(raw)
-	}
-
 	t.Run("tools/call reaches the handler", func(t *testing.T) {
-		called := handle(t, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"weaviate-objects-upsert","arguments":{"collection_name":"Things","objects":[{"properties":{}}]}}}`)
+		called := handleMessage(t, s, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"weaviate-objects-upsert","arguments":{"collection_name":"Things","objects":[{"properties":{}}]}}}`)
 		require.Contains(t, called, "write access is disabled")
 		require.NotContains(t, called, "not found")
 	})
+}
+
+// handleMessage runs one raw JSON-RPC message through the server and returns
+// the marshaled response.
+func handleMessage(t *testing.T, s *MCPServer, body string) string {
+	t.Helper()
+	raw, err := json.Marshal(s.server.HandleMessage(context.Background(), []byte(body)))
+	require.NoError(t, err)
+	return string(raw)
+}
+
+// TestInputSchemaValidation pins that tool calls are checked against the
+// advertised input schema before the handler runs: unknown keys and missing
+// required arguments are rejected, valid calls still reach the handler.
+func TestInputSchemaValidation(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	composer := func(string, []string) (*models.Principal, error) { return &models.Principal{}, nil }
+	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
+	// Write access stays off so a call that passes validation answers with the
+	// deterministic write-disabled hint instead of reaching the nil manager.
+	writeDisabled := func() bool { return false }
+	creator := create.NewWeaviateCreator(authHandler, nil, logger, writeDisabled)
+
+	s := &MCPServer{server: server.NewMCPServer("test", "0", serverOptions(nil, writeDisabled)...)}
+	s.server.AddTools(create.Tools(creator, nil, nil)...)
+	s.server.AddTools(search.Tools(nil, nil, nil)...)
+
+	call := func(name, args string) string {
+		return `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + name + `","arguments":` + args + `}}`
+	}
+	const validationFailed = "input schema validation failed"
+
+	tests := []struct {
+		name    string
+		body    string
+		want    []string
+		notWant []string
+	}{
+		{
+			name: "unknown key on upsert is rejected, not silently dropped",
+			body: call("weaviate-objects-upsert", `{"collection_name":"Things","objects":[{"properties":{}}],"vector":[0.1]}`),
+			want: []string{validationFailed, "vector"},
+			// must fail before the handler, which would answer write-disabled
+			notWant: []string{"write access is disabled"},
+		},
+		{
+			// the original incident: "vector" instead of "vectors" was silently
+			// dropped and the object re-vectorized
+			name: "unknown key inside an object is rejected too",
+			body: call("weaviate-objects-upsert", `{"collection_name":"Things","objects":[{"properties":{},"vector":[0.1]}]}`),
+			want: []string{validationFailed, "/objects/0", "vector"},
+		},
+		{
+			name: "missing required arguments are a schema error",
+			body: call("weaviate-objects-upsert", `{}`),
+			want: []string{validationFailed, "collection_name"},
+		},
+		{
+			name:    "valid upsert call reaches the handler",
+			body:    call("weaviate-objects-upsert", `{"collection_name":"Things","objects":[{"properties":{}}]}`),
+			want:    []string{"write access is disabled"},
+			notWant: []string{validationFailed},
+		},
+		{
+			name: "unknown key on hybrid is rejected even with filters present",
+			body: call("weaviate-query-hybrid", `{"query":"q","collection_name":"Things","filters":{"operator":"Equal","path":["title"],"valueText":"x"},"vectorz":true}`),
+			want: []string{validationFailed, "vectorz"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := handleMessage(t, s, tt.body)
+			for _, want := range tt.want {
+				require.Contains(t, got, want)
+			}
+			for _, notWant := range tt.notWant {
+				require.NotContains(t, got, notWant)
+			}
+		})
+	}
 }
 
 // TestToolsListedMetric pins that the tools-listed counter tracks tools/list

@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/create"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/read"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/search"
+	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
@@ -531,5 +532,21 @@ func TestMCPTenantsListAuthZ(t *testing.T) {
 			read.GetTenantsArgs{CollectionName: className}, &resp)
 		require.NoError(t, err)
 		require.Empty(t, resp.Tenants)
+	})
+
+	// The wildcard-tenant read_tenants grant covers ".../shards/*". Pre-fix,
+	// the schema list-filter's same-parent shortcut wildcarded the collection
+	// resource ".../shards/#" into that shape and leaked the whole schema
+	// whenever it held a single class.
+	t.Run("read_tenants alone reveals no schema", func(t *testing.T) {
+		resp, err := helper.Client(t).Schema.SchemaDump(clschema.NewSchemaDumpParams(), helper.CreateAuth(tenantReadKey))
+		require.NoError(t, err)
+		require.Empty(t, resp.Payload.Classes, "read_tenants must not reveal collection metadata")
+
+		var cfg read.GetCollectionConfigResp
+		err = callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-collections-get-config", tenantReadKey,
+			read.GetCollectionConfigArgs{CollectionName: className}, &cfg)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not found")
 	})
 }

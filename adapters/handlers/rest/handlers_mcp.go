@@ -59,7 +59,7 @@ func setupMCPHandlers(api *operations.WeaviateAPI, appState *state.State, object
 	)
 }
 
-const mcpDisabledBody = `{"error":"MCP server is not enabled. To enable it, either set MCP_SERVER_ENABLED=true (requires restart) or set mcp_server_enabled: true in the runtime overrides YAML (no restart needed). See https://docs.weaviate.io/weaviate/mcp/mcp-server"}`
+const mcpDisabledBody = `{"error":"MCP server is disabled. Enable it in your cluster configuration: set MCP_SERVER_ENABLED=true or set the mcp_server_enabled runtime override. See https://docs.weaviate.io/weaviate/configuration/mcp-server"}`
 
 // mcpGate answers 503 while MCP is disabled at runtime, 400 for a protocol
 // version this server does not speak, and otherwise hands the request to the
