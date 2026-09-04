@@ -29,10 +29,15 @@ GO_LDFLAGS         := -X $(VPREFIX).Branch=$(GIT_BRANCH) \
                       -X $(VPREFIX).Revision=$(GIT_REVISION) \
                       -X $(VPREFIX).BuildUser=$(shell whoami)@$(shell hostname) \
                       -X $(VPREFIX).BuildDate=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-GO_FLAGS           := -ldflags "-extldflags \"-static\" -s -w $(GO_LDFLAGS)" -tags netgo
-DYN_GO_FLAGS       := -ldflags "-s -w $(GO_LDFLAGS)" -tags netgo
+# -trimpath replaces absolute source paths with module-relative ones. The image
+# build already does this. Matching it here means two checkouts of the same
+# commit at different paths (worktrees) produce identical build-cache entries
+# instead of two full copies. See "Build cache hygiene" in CLAUDE.md.
+GO_FLAGS           := -trimpath -ldflags "-extldflags \"-static\" -s -w $(GO_LDFLAGS)" -tags netgo
+DYN_GO_FLAGS       := -trimpath -ldflags "-s -w $(GO_LDFLAGS)" -tags netgo
 
-# Debug build flags
+# Debug build flags. Deliberately no -trimpath: delve needs the real source
+# paths to map frames back to files.
 DEBUG_GO_FLAGS     := -gcflags "all=-N -l" -ldflags "-extldflags \"-static\" $(GO_LDFLAGS)" -tags netgo
 DEBUG_DYN_GO_FLAGS := -gcflags "all=-N -l" -ldflags "$(GO_LDFLAGS)" -tags netgo
 
@@ -113,3 +118,39 @@ grpc:
 
 deps:
 	@echo "Sync go deps in Weaviate, e2e with Go client and benchmark_bm25" && go mod tidy && go mod vendor && cd test/acceptance_with_go_client/ && go mod tidy && go mod vendor && cd ../benchmark_bm25/ && go mod tidy && go mod vendor && cd ../.. && echo "Success" || echo "Failed"
+
+# Build cache hygiene
+#
+# The Go build cache is content-addressed but NOT path-independent: without
+# -trimpath the absolute source path is part of a package's cache key, so each
+# worktree gets its own full copy of the compiled dependency graph. Measured on
+# this repo, a second worktree at the same commit adds ~672 MB for a plain
+# `go build ./...` and ~6 MB once -trimpath is set. Test binaries and -race
+# variants multiply that further. Roughly 20 worktrees running builds and test
+# sweeps is enough to reach hundreds of GB.
+#
+# `make weaviate` already passes -trimpath. Bare `go test` / `go build` do not,
+# so set it for the whole toolchain if you work across many worktrees.
+
+.PHONY: cache-report
+cache-report: ## Show Go build/module cache sizes and whether -trimpath is on
+	@echo "GOCACHE     $$(go env GOCACHE)"
+	@du -sh "$$(go env GOCACHE)" 2>/dev/null || true
+	@echo "GOMODCACHE  $$(go env GOMODCACHE)"
+	@du -sh "$$(go env GOMODCACHE)" 2>/dev/null || true
+	@echo "GOFLAGS     '$$(go env GOFLAGS)'"
+	@case "$$(go env GOFLAGS)" in \
+	  *-trimpath*) echo "  -trimpath is set: worktrees share cache entries." ;; \
+	  *) echo "  -trimpath is NOT set. Every worktree keeps its own copy of the" ; \
+	     echo "  compiled dependency graph. To share them:" ; \
+	     echo "    go env -w GOFLAGS=-trimpath" ;; \
+	esac
+
+.PHONY: clean-caches
+clean-caches: ## Delete the Go build cache (frees disk, next build is cold)
+	@echo "About to delete $$(go env GOCACHE)"
+	@du -sh "$$(go env GOCACHE)" 2>/dev/null || true
+	@echo "The next build in every worktree will be cold. Ctrl-C within 5s to abort."
+	@sleep 5
+	go clean -cache
+	@echo "Done. Module cache left intact; use 'go clean -modcache' to drop that too."

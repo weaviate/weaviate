@@ -43,6 +43,40 @@ make grpc
 make mocks
 ```
 
+### Build cache hygiene
+
+The Go build cache can grow into the hundreds of GB on a machine running many
+worktrees. It has filled a 926 GB disk once, which took Docker's image store
+down with it. Two things drive the growth:
+
+**The cache key includes the absolute source path.** Without `-trimpath`, the
+same commit checked out at two different paths compiles to two different cache
+entries, so every worktree keeps its own full copy of the compiled dependency
+graph. Measured on this repo, a second worktree at the same commit adds ~672 MB
+for `go build ./...`, versus ~6 MB with `-trimpath` set. `go test` adds test
+binaries on top, and `-race` doubles the whole set again.
+
+If you work across several worktrees, set it once for the toolchain:
+
+```bash
+go env -w GOFLAGS=-trimpath
+```
+
+Trade-off: `-trimpath` rewrites source paths in the binary to module-relative
+ones, so panic traces and profiles show `github.com/weaviate/weaviate/...`
+instead of `/Users/you/...`, and your editor will not jump straight to them.
+Delve needs the real paths, so drop the flag when debugging (`make
+weaviate-debug` never sets it). The image build has always used `-trimpath`, so
+this does not change what ships.
+
+**Nothing trims the cache in practice.** Go only evicts entries untouched for
+five days, and an active machine keeps touching them. Check and reclaim with:
+
+```bash
+make cache-report   # sizes, and whether -trimpath is on
+make clean-caches   # go clean -cache; the next build in every worktree is cold
+```
+
 ## Testing
 
 When creating tests prefer table-driven tests.
