@@ -47,7 +47,7 @@ func NewClient(t *testing.T) *weaviate.Client {
 	rest, err := strconv.Atoi(port("WV_TEST_REST_PORT", "8080"))
 	require.NoError(t, err, "rest port")
 
-	grpc, err := strconv.Atoi(port("WV_TEST_GRPC_PORT", "8080"))
+	grpc, err := strconv.Atoi(port("WV_TEST_GRPC_PORT", "50051"))
 	require.NoError(t, err, "grpc port")
 
 	c, err := weaviate.NewLocal(

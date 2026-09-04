@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
+	"github.com/weaviate/weaviate-go-client/v6/data"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
@@ -49,10 +50,10 @@ func TestAutoschemaCasingClass(t *testing.T) {
 			_ = c.Collections.Delete(ctx, tt.className2)
 
 			_, err = c.Collections.Use(tt.className1).Data.Insert(ctx, nil)
-			require.NoError(t, err, "insert to ", tt.className1)
+			require.NoError(t, err, "insert into %s", tt.className1)
 
 			_, err = c.Collections.Use(tt.className2).Data.Insert(ctx, nil)
-			require.NoError(t, err, "insert to ", tt.className2)
+			require.NoError(t, err, "insert into %s", tt.className2)
 
 			// Regardless of whether a class exists or not, the delete operation will always return a success
 			require.NoError(t, c.Collections.Delete(ctx, upperClassName))
@@ -62,9 +63,8 @@ func TestAutoschemaCasingClass(t *testing.T) {
 }
 
 func TestAutoschemaCasingProps(t *testing.T) {
-	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	ctx := t.Context()
+	c := wvhost.NewClient(t)
 
 	className := "RandomGreenBike"
 
@@ -81,29 +81,38 @@ func TestAutoschemaCasingProps(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.prop1+" "+tt.prop2, func(t *testing.T) {
-			c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-			creator := c.Data().Creator()
-			_, err := creator.WithClassName(className).Do(ctx)
-			require.Nil(t, err)
+			c.Collections.Delete(ctx, className)
 
-			creator1 := c.Data().Creator()
-			_, err = creator1.WithClassName(className).WithProperties(map[string]string{tt.prop1: "something"}).Do(ctx)
-			require.Nil(t, err)
+			col := c.Collections.Use(className)
+			require.NotNil(t, col, "collection handle")
 
-			creator2 := c.Data().Creator()
-			_, err = creator2.WithClassName(className).WithProperties(map[string]string{tt.prop2: "other value"}).Do(ctx)
-			require.Nil(t, err)
+			{
+				r, err := col.Data.Insert(ctx, nil)
+				require.NoError(t, err, "insert first object")
+				require.Empty(t, r.Errors, "insert first object")
+			}
 
-			// three objects should have been added
-			result, err := c.GraphQL().Aggregate().WithClassName(className).WithFields(graphql.Field{
-				Name: "meta", Fields: []graphql.Field{
-					{Name: "count"},
-				},
-			}).Do(ctx)
-			require.Nil(t, err)
-			require.Equal(t, result.Data["Aggregate"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"], 3.)
+			{
+				r, err := col.Data.Insert(ctx, &data.Object{
+					Properties: map[string]any{tt.prop1: "something"},
+				})
+				require.NoError(t, err, "insert second object")
+				require.Empty(t, r.Errors, "insert second object")
+			}
 
-			require.Nil(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
+			{
+				r, err := col.Data.Insert(ctx, &data.Object{
+					Properties: map[string]any{tt.prop2: "other value"},
+				})
+				require.NoError(t, err, "insert third object")
+				require.Empty(t, r.Errors, "insert third object")
+			}
+
+			count, err := col.Count(ctx)
+			require.NoError(t, err)
+			require.Equal(t, count, 3)
+
+			require.NoError(t, c.Collections.Delete(ctx, className))
 		})
 	}
 }
