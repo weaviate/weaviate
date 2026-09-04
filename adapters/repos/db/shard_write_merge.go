@@ -190,6 +190,14 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 			return nil
 		}
 
+		// docID change: retire the old docID crash-safely BEFORE the row
+		// write below — same reasoning as putObjectLSM.
+		if status.docIDChanged {
+			if err := s.retireOldDocIDLocked(ctx, prevObj, status.oldDocID); err != nil {
+				return err
+			}
+		}
+
 		objBytes, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
 		if err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())

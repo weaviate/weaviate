@@ -26,7 +26,13 @@ import (
 )
 
 func (m *Memtable) flushWAL() error {
-	if err := m.commitlog.close(); err != nil {
+	// under the memtable lock: Bucket.SyncWAL may concurrently sync this
+	// memtable's commit log (it also syncs the flushing memtable, see
+	// SyncWAL), and close() swaps the log into its closed state
+	m.Lock()
+	err := m.commitlog.close()
+	m.Unlock()
+	if err != nil {
 		return err
 	}
 
@@ -41,8 +47,7 @@ func (m *Memtable) flushWAL() error {
 	}
 
 	// fsync parent directory
-	err := diskio.Fsync(filepath.Dir(m.path))
-	if err != nil {
+	if err := diskio.Fsync(filepath.Dir(m.path)); err != nil {
 		return err
 	}
 
@@ -72,7 +77,13 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	// (indicated by a successful close of the flush file - which indicates a
 	// successful fsync)
 
-	if err := m.commitlog.close(); err != nil {
+	// under the memtable lock: Bucket.SyncWAL may concurrently sync this
+	// (flushing) memtable's commit log, and close() must not race its
+	// flushBuffers/sync calls
+	m.Lock()
+	err := m.commitlog.close()
+	m.Unlock()
+	if err != nil {
 		return "", errors.Wrap(err, "close commit log file")
 	}
 

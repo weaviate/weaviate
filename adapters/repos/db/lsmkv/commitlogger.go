@@ -396,6 +396,12 @@ func (cl *commitLogger) size() int64 {
 }
 
 func (cl *commitLogger) sync() error {
+	// a closed log was already flushed and fsynced by close(); syncing again
+	// would fail on the closed file while the durability it asks for is
+	// already guaranteed. Callers serialize with close() via the memtable lock.
+	if cl.closed {
+		return nil
+	}
 	return cl.file.Sync()
 }
 
@@ -439,6 +445,10 @@ func (cl *commitLogger) delete() error {
 }
 
 func (cl *commitLogger) flushBuffers() error {
+	// see sync(): close() already flushed everything a closed log buffered
+	if cl.closed {
+		return nil
+	}
 	err := cl.writer.Flush()
 	if err != nil {
 		return fmt.Errorf("flushing WAL %q: %w", cl.path, err)

@@ -353,6 +353,17 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) (*to
 		return nil, fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
+	return s.cleanupInvertedIndexForRetiredDocID(previousObject, docID)
+}
+
+// cleanupInvertedIndexForRetiredDocID is cleanupInvertedIndexOnDelete's core
+// for callers that already hold the unmarshaled previous object: the delete
+// path reaches it from the row bytes, the update path (docID change) directly
+// with the previous object version it fetched. In both cases docID is being
+// RETIRED — no row will reference it afterwards — so every posting removal
+// below must be made durable (invertedDeleteBarrier over the returned
+// touched set) before the retiring row write may become durable.
+func (s *Shard) cleanupInvertedIndexForRetiredDocID(previousObject *storobj.Object, docID uint64) (*touchedBuckets, error) {
 	previousProps, previousNilProps, previousNestedProps, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return nil, fmt.Errorf("analyze previous object: %w", err)

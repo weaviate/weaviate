@@ -2427,15 +2427,29 @@ func (b *Bucket) WriteWAL() error {
 	return b.active.writeWAL()
 }
 
-// SyncWAL is WriteWAL's durable sibling: it flushes the active memtable's
-// commit-log buffers AND fsyncs the WAL file, so every write acknowledged
-// before the call survives a crash. Writes that already rotated into the
-// flushing memtable are made durable by the flush cycle itself (its commit
-// log is flushed+fsynced via close() at the start of the memtable flush);
-// like WriteWAL, this only touches the currently active memtable.
+// SyncWAL is WriteWAL's durable sibling: it flushes the commit-log buffers
+// AND fsyncs the WAL file, so every write acknowledged before the call
+// survives a crash.
+//
+// It must cover the FLUSHING memtable as well as the active one: a write can
+// rotate into b.flushing (atomicallySwitchMemtable) at any point before this
+// call, and the flush cycle only fsyncs that memtable's commit log later, at
+// commitlog.close() inside Memtable.flush — after waitForZeroWriters, i.e.
+// potentially hundreds of milliseconds after the switch. Syncing only the
+// active memtable in that window would report durability the rotated writes
+// don't have. Writers can even still be appending to the rotated memtable
+// (they hold only a writer count, not flushLock, during the append), which
+// the per-memtable lock inside syncWAL serializes against. If the flush
+// cycle already closed the commit log, syncWAL is a no-op — close() fsyncs.
 func (b *Bucket) SyncWAL() error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+
+	if b.flushing != nil {
+		if err := b.flushing.syncWAL(); err != nil {
+			return err
+		}
+	}
 
 	return b.active.syncWAL()
 }

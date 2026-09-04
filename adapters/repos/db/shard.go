@@ -381,6 +381,11 @@ type Shard struct {
 	// intermediate state; production code never sets it.
 	testDeletePhaseHook func(phase string)
 
+	// testPutPhaseHook is testDeletePhaseHook's sibling for the crash-safe
+	// docID-retiring phases of an UPDATE that changes the docID (see
+	// retireOldDocIDLocked). Test-only; production code never sets it.
+	testPutPhaseHook func(phase string)
+
 	// Indicates whether searchable buckets should be used
 	// when filterable buckets are missing for text/text[] properties
 	// This can happen for db created before v1.19, where
