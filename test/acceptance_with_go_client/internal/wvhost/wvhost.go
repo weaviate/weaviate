@@ -17,6 +17,10 @@ package wvhost
 
 import (
 	"os"
+<<<<<<< HEAD
+=======
+	"strconv"
+>>>>>>> 42c23cd288 (refactor: use v6 in TestAutoschemaCasingClass)
 	"testing"
 
 	"github.com/stretchr/testify/require"
