@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand/v2"
 	"sync"
 	"testing"
 	"time"
@@ -2716,6 +2717,189 @@ func TestDispatchDueCoalescing(t *testing.T) {
 		}
 	})
 }
+
+func TestHeapCountDue(t *testing.T) {
+	now := time.Now()
+	ms := time.Millisecond
+	mkHeap := func(offsets ...time.Duration) asyncSchedulerHeap {
+		h := make(asyncSchedulerHeap, 0, len(offsets))
+		for i, off := range offsets {
+			h = append(h, &asyncSchedulerEntry{nextRunAt: now.Add(off), seq: uint64(i)})
+		}
+		heap.Init(&h)
+		return h
+	}
+
+	tests := []struct {
+		name  string
+		h     asyncSchedulerHeap
+		limit int
+		want  int
+	}{
+		{"empty heap", mkHeap(), 4, 0},
+		{"single due", mkHeap(-ms), 4, 1},
+		{"single future", mkHeap(ms), 4, 0},
+		{"due at exactly now", mkHeap(0), 4, 1},
+		{"due below limit", mkHeap(-3*ms, -2*ms, ms, 2*ms), 4, 2},
+		{"due exactly at limit", mkHeap(-3*ms, -2*ms, -ms, ms), 3, 3},
+		{"due above limit caps at limit", mkHeap(-5*ms, -4*ms, -3*ms, -2*ms, -ms), 2, 2},
+		{"all due under limit", mkHeap(-4*ms, -3*ms, -2*ms, -ms), 10, 4},
+		{"limit zero", mkHeap(-ms), 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.h.countDue(now, tt.limit))
+		})
+	}
+}
+
+func TestHeapCountDueMatchesNaiveScan(t *testing.T) {
+	now := time.Now()
+	rng := rand.New(rand.NewPCG(7, 13))
+	for _, size := range []int{1, 2, 7, 100, 5000} {
+		for _, density := range []float64{0, 0.002, 0.05, 0.5, 1} {
+			for _, limit := range []int{1, 2, 128} {
+				h := make(asyncSchedulerHeap, 0, size)
+				for i := range size {
+					off := time.Duration(rng.Int64N(int64(time.Second))) + time.Millisecond
+					if rng.Float64() < density {
+						off = -time.Duration(rng.Int64N(int64(time.Second)))
+						if rng.IntN(10) == 0 {
+							off = 0
+						}
+					}
+					h = append(h, &asyncSchedulerEntry{nextRunAt: now.Add(off), seq: uint64(i)})
+				}
+				heap.Init(&h)
+				naive := 0
+				for _, e := range h {
+					if !e.nextRunAt.After(now) {
+						naive++
+					}
+				}
+				assert.Equal(t, min(naive, limit), h.countDue(now, limit),
+					"size=%d density=%v limit=%d", size, density, limit)
+			}
+		}
+	}
+}
+
+// Pins countDue equivalence on heap shapes built by interleaved ops (production surgery), not just heap.Init.
+func TestHeapCountDueInterleavedOps(t *testing.T) {
+	now := time.Now()
+	rng := rand.New(rand.NewPCG(21, 42))
+	var h asyncSchedulerHeap
+	var seq uint64
+
+	randOffset := func() time.Duration {
+		switch rng.IntN(5) {
+		case 0:
+			return 0
+		case 1, 2:
+			return -time.Duration(rng.Int64N(int64(time.Second)))
+		default:
+			return time.Duration(rng.Int64N(int64(time.Second)))
+		}
+	}
+	push := func() {
+		heap.Push(&h, &asyncSchedulerEntry{nextRunAt: now.Add(randOffset()), seq: seq})
+		seq++
+	}
+
+	for i := range 5000 {
+		switch op := rng.IntN(10); {
+		case len(h) == 0 || op < 4:
+			push()
+		case op < 6:
+			heap.Pop(&h)
+		case op < 8:
+			heap.Remove(&h, rng.IntN(len(h)))
+		default:
+			e := heap.Pop(&h).(*asyncSchedulerEntry)
+			e.nextRunAt = now.Add(randOffset())
+			e.seq = seq
+			seq++
+			heap.Push(&h, e)
+		}
+		naive := 0
+		for _, e := range h {
+			if !e.nextRunAt.After(now) {
+				naive++
+			}
+		}
+		for _, limit := range []int{1, 3, 128} {
+			require.Equal(t, min(naive, limit), h.countDue(now, limit), "iter=%d len=%d limit=%d", i, len(h), limit)
+		}
+	}
+}
+
+func TestCoalesceElapsedLocked(t *testing.T) {
+	now := time.Now()
+	ms := time.Millisecond
+	tests := []struct {
+		name       string
+		batch      int
+		offsets    []time.Duration
+		directHead bool
+		want       bool
+	}{
+		{"empty heap", 4, nil, false, true},
+		{"head not yet due", 4, []time.Duration{time.Minute}, false, true},
+		{"batch size 1 dispatches immediately", 1, []time.Duration{-ms}, false, true},
+		{"fewer than batch due within window", 4, []time.Duration{-2 * ms, -ms, time.Minute}, false, false},
+		{"batch count due fires", 2, []time.Duration{-2 * ms, -ms, time.Minute}, false, true},
+		{"head past window fires", 4, []time.Duration{-2 * prefilterCoalesceWindow}, false, true},
+		{"diverging head fires", 4, []time.Duration{-ms}, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sched := newBareScheduler(tt.batch, 1)
+			for i, off := range tt.offsets {
+				sched.h = append(sched.h, &asyncSchedulerEntry{nextRunAt: now.Add(off), seq: uint64(i)})
+			}
+			heap.Init(&sched.h)
+			if tt.directHead {
+				sched.h[0].descendDirect = true
+			}
+			assert.Equal(t, tt.want, sched.coalesceElapsedLocked(now))
+		})
+	}
+}
+
+func BenchmarkCoalesceElapsed(b *testing.B) {
+	now := time.Now()
+	const total, due = 50_000, 50
+	sched := newBareScheduler(128, 1)
+	for i := range total {
+		off := time.Duration(i+1) * time.Second
+		if i < due {
+			off = -time.Duration(i+1) * time.Microsecond
+		}
+		sched.h = append(sched.h, &asyncSchedulerEntry{nextRunAt: now.Add(off), seq: uint64(i)})
+	}
+	heap.Init(&sched.h)
+
+	b.Run("pruned", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			sched.coalesceElapsedLocked(now)
+		}
+	})
+	b.Run("naiveScan", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			n := 0
+			for _, e := range sched.h {
+				if !e.nextRunAt.After(now) {
+					n++
+				}
+			}
+			benchCoalesceSink += n
+		}
+	})
+}
+
+var benchCoalesceSink int
 
 // TestDeferDescentReDispatchesSingletons: a coalesced batch of diverging shards is
 // deferred and re-dispatched as singletons so descent spreads across the pool.
