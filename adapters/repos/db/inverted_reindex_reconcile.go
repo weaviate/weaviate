@@ -27,10 +27,9 @@ import (
 )
 
 // Must run before the directory is removed, or mmaps and compactions leak.
-// Takes directories rather than a record, so the caller closes only what it has
-// already decided it may remove: a shutdown deregisters the bucket and nothing
-// reopens it before the next shard load, so closing a directory the caller then
-// leaves in place stops that data serving with no record left to answer for it.
+// Takes directories, not a record, so the caller closes only what it has
+// already decided to remove — closing one it means to keep would stop that
+// data serving with no record left to account for it.
 type migrationStagedBucketCloser interface {
 	ShutdownStagedBucketsAt(ctx context.Context, dirs []string) error
 }
@@ -467,7 +466,7 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	}
 
 	// Dormant here: every flip this build writes displaces the canonical name
-	// itself, and the cutover PR is what writes a different one.
+	// itself, and the cutover is what writes a different one.
 	if displaced != "" && displaced != canonical {
 		if cleared, err := r.clearForPromotion(displaced, "the displaced directory"); err != nil || !cleared {
 			return rec, false, err

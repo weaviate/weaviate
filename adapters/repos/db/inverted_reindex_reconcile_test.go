@@ -279,12 +279,10 @@ func (f *reconcileFixture) trackerDirExists(subject MigrationSubject) bool {
 	return err == nil && info.IsDir()
 }
 
-// A tracker directory on disk means its record is live: the startup finalize
-// path acts on tracker directories by name, so one with no record is an
-// ownerless instruction handed to another subsystem. The other direction is
-// weaker on purpose. Removal takes the directories, then the tracker, then the
-// record, so a record can outlive its tracker, and only once nothing it named
-// is left for it to remove.
+// A tracker directory implies a live record: the finalize path acts on
+// trackers by name, so an orphaned one hands another subsystem a stale
+// instruction. The reverse isn't required — removal order is directories,
+// then tracker, then record, so a record may briefly outlive its tracker.
 func (f *reconcileFixture) requireMigrationDirsTrackRecords() {
 	f.t.Helper()
 	surviving := f.store.Records()

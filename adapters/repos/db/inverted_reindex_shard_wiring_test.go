@@ -172,12 +172,9 @@ func TestLazyLoadShardMigrationRecordStoreLocksAgainstTheLoader(t *testing.T) {
 		"a loaded shard reconciles its records at init, so the accessor has to see a store")
 }
 
-// The whole safety argument for this PR is that a shard load decides nothing.
-// The record pass runs on every load, but it is wired with no task source, so
-// the only disposition it can reach is to leave the record standing. A load
-// has to hand back the record, and every directory it names, as it found them
-// — even when the schema already shows the migration's effect, which is the
-// one reading that would otherwise license a commit.
+// A shard load must decide nothing: with no task source wired, it can only
+// leave the record standing exactly as found, even when the schema already
+// shows the migration's effect.
 func TestAShardLoadLeavesAnUndecidedRecordExactlyAsItFoundIt(t *testing.T) {
 	ctx := testCtx()
 	className := "WiringInertLoad_" + uuid.NewString()[:8]
@@ -260,11 +257,9 @@ func TestAShardLoadCountsWedgedAndUnreadableRecordsInTheirOwnCounters(t *testing
 		"and the two files it could not read belong in the other")
 }
 
-// The store sets aside every record whose unit is not this shard's own, so the
-// shard has to arrive at the exact ID the submit path assigns. Both sides are
-// stated here rather than read back out of migrationUnit(), which is what every
-// other fixture does: a divergence would set aside every record on every shard,
-// and that reads as a node that quietly stopped reconciling, not as a fault.
+// Pins the unit ID format independently of migrationUnit(): the store sets
+// aside every record whose unit isn't this shard's own, so a divergence there
+// would silently set aside every record on every shard.
 func TestAShardNamesItsOwnUnitTheWayTheSubmitPathDoes(t *testing.T) {
 	require.Equal(t, "shard-1__node-0", MigrationUnitID("shard-1", "node-0"),
 		"the unit ID is the shard name, two underscores, then the node name")

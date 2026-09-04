@@ -416,11 +416,10 @@ func (s *MigrationRecordStore) Put(rec MigrationRecord) error {
 	return nil
 }
 
-// [diskio.RenameAndSync] renames before it syncs, so a failed write can follow a
-// rename that already published the record under its final name. Nothing
-// re-reads the store in-process, so memory has to be settled against the file
-// here, or it answers with the older record for the life of the process while
-// the next load answers with the newer one.
+// [diskio.RenameAndSync] renames before it syncs, so a failed write can follow
+// a rename that already published the record. Nothing else re-reads the
+// store, so memory must be settled against the file here or it serves the
+// older record for the life of the process.
 func (s *MigrationRecordStore) adoptIfPublished(rec MigrationRecord, data []byte) {
 	published, err := os.ReadFile(s.path(rec.Subject().Key))
 	if err != nil || !bytes.Equal(published, data) {

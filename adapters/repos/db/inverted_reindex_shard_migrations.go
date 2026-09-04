@@ -18,14 +18,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// shardMigrations is one shard's side of migration-record reconciliation. A
-// shard detached from its index answers with each dependency's own safe
-// default rather than failing: no readable local task list, and a seal nobody
-// is contending.
-//
-// Shard.migrationReconciler wires neither node-level answer in this PR: it
-// leaves LocalTasks nil and grants every seal, so every cluster verdict
-// leaves records standing until the cutover wires them.
+// shardMigrations is one shard's side of migration-record reconciliation.
+// Detached from its index, or before the cutover installs real answers, it
+// falls back to safe defaults: no local task list, and every seal granted.
 type shardMigrations struct {
 	shard *Shard
 }

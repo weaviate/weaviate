@@ -1516,11 +1516,8 @@ func TestARecordCarryingTheRetiredCheckpointCountersStillLoads(t *testing.T) {
 		"and the one field still read survives the two that are gone")
 }
 
-// The write publishes the record by renaming and only then syncs the directory
-// holding the new name, so a failed write may or may not have published. Same
-// file name either way, and only its contents tell the two apart. Nothing
-// re-reads the store in-process, so memory has to be settled against the file,
-// or the store answers with a record no later load agrees with.
+// A failed Put must adopt exactly the record the file holds after a
+// rename-then-sync race, not stale in-memory state.
 func TestAFailedPutAdoptsOnlyTheRecordTheFileHolds(t *testing.T) {
 	tests := []struct {
 		name        string

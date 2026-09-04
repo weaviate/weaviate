@@ -18,8 +18,8 @@ import (
 )
 
 // migrationUnitSeals holds the seal every teardown takes before it removes a
-// migration's directories. This PR installs no builder, so SealUnit grants
-// every seal until the cutover installs one.
+// migration's directories. With no builder installed, SealUnit grants every
+// seal until the cutover installs one.
 type migrationUnitSeals struct {
 	mu      sync.RWMutex
 	builder ReindexUnitSealBuilder
@@ -52,7 +52,7 @@ func (s *migrationUnitSeals) SealUnit(desc distributedtask.TaskDescriptor, unitI
 }
 
 // SetReindexUnitSeal installs the seal a teardown takes before it removes a
-// migration's directories. This PR ships the installer, not a call to it.
+// migration's directories.
 func (db *DB) SetReindexUnitSeal(builder ReindexUnitSealBuilder) {
 	db.migrationSeals.Install(builder)
 }

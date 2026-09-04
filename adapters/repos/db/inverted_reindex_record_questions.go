@@ -20,8 +20,8 @@ type migrationRecordQuestions interface {
 	// acknowledged writes the old copy never received.
 	PointerSwapped() bool
 
-	// Both read by the cutover PR: the first before it hands a shard's writes
-	// to the staged copy, the second before it opens a bucket at a directory a
+	// Both read by the cutover: the first before it hands a shard's writes to
+	// the staged copy, the second before it opens a bucket at a directory a
 	// record may be about to rename or remove.
 	IterationComplete() bool
 	OwnsBucket(dir string) bool

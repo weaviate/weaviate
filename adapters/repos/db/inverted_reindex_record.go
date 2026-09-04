@@ -249,7 +249,7 @@ func NewMigrationRecordPromoted(subject MigrationSubject, flipped []string, disp
 	return MigrationRecordPromoted{migrationRecordBase{subject}, migrationFlipBlock{flipped, displacedDirs}}
 }
 
-// Read by the cutover PR, which resumes an interrupted rebuild from it.
+// Read by the cutover to resume an interrupted rebuild.
 func (r MigrationRecordIterating) Checkpoint() MigrationCheckpoint { return r.checkpoint }
 
 func (r MigrationRecordIterating) State() MigrationState { return MigrationStateIterating }
@@ -363,11 +363,9 @@ func validateMigrationEnvelope(e migrationRecordEnvelope) error {
 	return validateCanonicalNamesOwnBucket(e)
 }
 
-// Promotion renames over every property the record names, and before the flip
-// a property's canonical bucket is its complete primary copy. A flip that
-// covers fewer properties than the record names would take one of those, and
-// one that displaces a directory for a property outside the list claims a
-// directory no reader here would ever reclaim or hand back.
+// A flip must cover every property the record names and rename only their
+// canonical buckets: covering fewer would drop one, and displacing a
+// directory for a property outside the list would orphan it beyond reclaim.
 func validateFlipCoversEveryProperty(e migrationRecordEnvelope) error {
 	if e.Flip == nil {
 		return nil

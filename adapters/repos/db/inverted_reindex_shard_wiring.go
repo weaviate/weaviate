@@ -20,11 +20,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// Every step of a shard load that renames or removes a migration directory, in
-// the order they run. Both must stay ahead of bucket loading, or a bucket opens
-// at a name one of them is about to move. They read ownership from different
-// evidence, the tracker tree and the record store, so keeping them together is
-// what makes their agreement reviewable.
+// Every step of a shard load that renames or removes a migration directory,
+// in the order they run: both must stay ahead of bucket loading, or a bucket
+// opens at a name one of them is about to move.
 func (s *Shard) settleMigrationDirectories(ctx context.Context, class *models.Class) {
 	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
 	s.reconcileMigrationRecords(ctx, class)
@@ -59,7 +57,7 @@ func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconc
 			Class:   class,
 			Buckets: s,
 			// A grant nobody contends: no task writes a record on this
-			// build. The cutover PR wires the real worker registry here.
+			// build. The cutover wires the real worker registry here.
 			SealUnit: func(distributedtask.TaskDescriptor, string) (func(), bool) {
 				return func() {}, true
 			},
@@ -68,8 +66,8 @@ func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconc
 
 // Resolves the record's own copy of the property and closes that. The
 // reconciler names directories instead, because it has to decide before it
-// closes; both land on ShutdownStagedBucketsAt. Called by the cutover PR,
-// where a worker closes the copy it is done writing.
+// closes; both land on ShutdownStagedBucketsAt. Called by the cutover, where
+// a worker closes the copy it is done writing.
 func (s *Shard) ShutdownStagedBuckets(ctx context.Context, key MigrationRecordKey, prop string) error {
 	if s.migrationRecords == nil {
 		return nil

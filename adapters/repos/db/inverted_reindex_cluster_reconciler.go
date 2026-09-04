@@ -63,8 +63,7 @@ func (r *migrationClusterReconciler) samplers() (unresolved, shuttingDown *logru
 }
 
 // SetTaskSources and the periodic pass run on different goroutines, so the
-// sources are guarded. The pass starts on the first call and only the first;
-// this PR makes none, as the cutover that installs the sources starts it.
+// sources are guarded; periodicOnce starts the pass on the first call only.
 func (r *migrationClusterReconciler) SetTaskSources(ctx context.Context, source MigrationLocalTaskSource,
 	cluster MigrationClusterTaskSource,
 ) {
@@ -117,11 +116,10 @@ func (r *migrationClusterReconciler) ReconcileLoaded(ctx context.Context) {
 	}
 }
 
-// Names, not shards: ForEachLoadedShard's loaded check is advisory, and
-// resolving a shard it already handed over calls Load, which has no shutdown
-// flag to refuse and would rebuild a deactivated tenant outside the shard map,
-// where nothing can ever shut it down. getLoadedShard holds the locks every
-// teardown takes across both the map read and the reference it takes, so a
+// Names, not shards: resolving a shard the walk already handed over would
+// call Load, which has no shutdown flag to refuse and would rebuild a
+// deactivated tenant outside the shard map, where nothing can ever shut it
+// down again. getLoadedShard takes the same locks every teardown does, so a
 // shard torn down since its name was collected reads as absent instead.
 func (r *migrationClusterReconciler) reconcileShard(ctx context.Context, idx *Index, name string,
 	tasks []*distributedtask.Task, unresolved, shuttingDown *logrusext.Sampler,
