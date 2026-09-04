@@ -508,8 +508,8 @@ func (brq *BinaryRotationalQuantizer) NewQuantizerDistancer(vec []float32) quant
 func (brq *BinaryRotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[uint64]) {
 }
 
-func (brq *BinaryRotationalQuantizer) PersistCompression(logger CommitLogger) {
-	logger.AddBRQCompression(compression.BRQData{
+func (brq *BinaryRotationalQuantizer) PersistCompression(logger CommitLogger) error {
+	return logger.AddBRQCompression(compression.BRQData{
 		InputDim: brq.inputDim,
 		Rotation: *brq.rotation,
 		Rounding: brq.rounding,

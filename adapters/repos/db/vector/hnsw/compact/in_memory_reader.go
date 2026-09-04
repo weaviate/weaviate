@@ -142,8 +142,16 @@ func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkRep
 			// Reset compression state - ResetIndex clears everything
 			out.Compression = nil
 		case *AddPQCommit:
-			out.SetCompressionPQData(commit.Data)
-			out.SetCompressed(true)
+			// Only enable compression from a complete codebook
+			if verr := commit.Data.Valid(); verr != nil {
+				r.logger.WithFields(logrus.Fields{
+					"action": "hnsw_skip_incomplete_pq_codebook",
+					"commit": "AddPQ",
+				}).Warnf("skipping incomplete PQ codebook, compression will be retried: %v", verr)
+			} else {
+				out.SetCompressionPQData(commit.Data)
+				out.SetCompressed(true)
+			}
 		case *AddSQCommit:
 			out.SetCompressionSQData(commit.Data)
 			out.SetCompressed(true)

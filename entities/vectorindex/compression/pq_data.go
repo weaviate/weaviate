@@ -11,6 +11,8 @@
 
 package compression
 
+import "fmt"
+
 // Encoder constants for PQ encoder types.
 const (
 	PQEncoderTypeTile              = "tile"
@@ -35,6 +37,7 @@ type PQSegmentEncoder interface {
 	Add(x []float32)
 	Fit(data [][]float32) error
 	ExposeDataForRestore() []byte
+	Valid(ks, subDim int) error
 }
 
 // PQData holds the serialization data for Product Quantization compression.
@@ -47,4 +50,35 @@ type PQData struct {
 	Encoders            []PQSegmentEncoder
 	UseBitsEncoding     bool
 	TrainingLimit       int
+}
+
+func (pq *PQData) Valid() error {
+	if pq == nil {
+		return fmt.Errorf("pq data is nil")
+	}
+	if pq.M == 0 {
+		return fmt.Errorf("pq data has 0 segments (M)")
+	}
+	if pq.Ks == 0 {
+		return fmt.Errorf("pq data has 0 centroids per segment (Ks)")
+	}
+	if pq.Dimensions == 0 {
+		return fmt.Errorf("pq data has 0 dimensions")
+	}
+	if pq.Dimensions%pq.M != 0 {
+		return fmt.Errorf("pq data dimensions %d is not divisible by segments %d", pq.Dimensions, pq.M)
+	}
+	if len(pq.Encoders) != int(pq.M) {
+		return fmt.Errorf("pq data has %d segment encoders, expected %d (M)", len(pq.Encoders), pq.M)
+	}
+	subDim := int(pq.Dimensions / pq.M)
+	for i, enc := range pq.Encoders {
+		if enc == nil {
+			return fmt.Errorf("pq data segment encoder %d is nil", i)
+		}
+		if err := enc.Valid(int(pq.Ks), subDim); err != nil {
+			return fmt.Errorf("pq data segment encoder %d: %w", i, err)
+		}
+	}
+	return nil
 }

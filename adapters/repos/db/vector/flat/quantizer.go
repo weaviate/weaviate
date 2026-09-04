@@ -61,7 +61,7 @@ type Quantizer interface {
 	DistanceBetweenUint64Vectors(x, y []uint64) (float32, error)
 	DistanceBetweenByteVectors(x, y []byte) (float32, error)
 
-	PersistCompression(logger compressionhelpers.CommitLogger)
+	PersistCompression(logger compressionhelpers.CommitLogger) error
 	Stats() compressionhelpers.CompressionStats
 	Type() QuantizerType
 

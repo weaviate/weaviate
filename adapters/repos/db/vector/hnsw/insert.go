@@ -155,7 +155,7 @@ func (h *hnsw) checkAndCompress() error {
 					h.cache.Drop()
 				}
 				h.cache = nil
-				h.compressor.PersistCompression(h.commitLog)
+				err = h.compressor.PersistCompression(h.commitLog)
 			}
 		})
 	}
