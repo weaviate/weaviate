@@ -74,7 +74,7 @@ func TestNodeReadersDoNotRaceAliveUpdates(t *testing.T) {
 			s1.Hostnames()
 			s1.AllOtherClusterMembers(1234)
 			_, _ = s1.NodeGRPCPort("race-n2")
-			s1.LocalAddr()
+			s2.LocalAddr()
 		}
 	}()
 
