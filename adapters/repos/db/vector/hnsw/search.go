@@ -327,9 +327,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		candidateLocked := true
 		var lockedNeighbor *vertex
 		func() {
-			// ensure we unlock whichever node we hold even if we panic while
-			// accessing its connections. Restored connection data can advertise
-			// more entries than it stores, so the decode itself can panic.
+			// a restored layer can advertise more entries than it stores, so
+			// the decode below panics on corrupt data while a vertex is held
 			defer func() {
 				if err := recover(); err != nil {
 					if lockedNeighbor != nil {
@@ -374,10 +373,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
 				pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
 
-				// The expansion below reads other vertices, each under its own
-				// mutex. Release this one first: two searches that expand each
-				// other's vertices would deadlock if either held a second
-				// vertex mutex.
+				// Release before the expansion, which locks each neighbor on
+				// its own: two searches expanding each other's vertices would
+				// deadlock if either held a second vertex mutex.
 				candidateNode.Unlock()
 				candidateLocked = false
 
@@ -920,8 +918,8 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			var connectionCount int
 			func() {
 				entryPointNode.Lock()
-				// the decode below panics on restored connection data that
-				// advertises more entries than it stores
+				// deferred because the decode below panics on a restored layer
+				// that advertises more entries than it stores
 				defer entryPointNode.Unlock()
 
 				hasLayers = entryPointNode.connections.Layers() >= 1

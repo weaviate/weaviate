@@ -28,9 +28,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// newSeededIndex builds an index holding the first seed vectors. AcornFilterRatio
-// is the server default, so an allow list well under 40% of the vectors keeps the
-// searches in these tests on the ACORN path.
+// AcornFilterRatio is the server default, so an allow list well under 40% of
+// the seeded vectors keeps these searches on the ACORN path.
 func newSeededIndex(t *testing.T, id string, vectors [][]float32, seed int, filterStrategy string) *hnsw {
 	t.Helper()
 
@@ -67,18 +66,9 @@ func newSeededIndex(t *testing.T, id string, vectors [][]float32, seed int, filt
 	return index
 }
 
-// https://github.com/weaviate/weaviate/issues/12935
-//
-// The ACORN branch expands the neighbors of a candidate's neighbors. It used to
-// read those second-hop vertices without holding their mutex, so a write
-// running at the same time could update a vertex's connection count and its
-// encoded connection bytes between the two loads the reader performs. The
-// decode then indexed past the end of the data. Run with -race.
-//
-// Both writers that mutate a vertex's connections are exercised: inserts append
-// through InsertAtLayer, and tombstone cleanup reassigns through ReplaceLayer.
-// The reported panic was "index out of range [0] with length 0", which is the
-// nil-data state ReplaceLayer leaves behind when a layer is emptied.
+// Pins the unsynchronized neighbor read of
+// https://github.com/weaviate/weaviate/issues/12935. Needs -race: a torn read
+// only sometimes panics on its own.
 func TestSearchConcurrentWithConnectionUpdates(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -99,8 +89,8 @@ func TestSearchConcurrentWithConnectionUpdates(t *testing.T) {
 	ctx := context.Background()
 	vectors, queries := testinghelpers.RandomVecs(seeded+inserts, 1, 8)
 
-	// every tenth seeded id, so the allow list stays well below AcornFilterRatio
-	// and the search picks ACORN over RRE
+	// every tenth id, keeping the allow list under AcornFilterRatio so the
+	// search picks ACORN over RRE
 	allowed := make([]uint64, 0, seeded/10)
 	for id := uint64(0); id < seeded; id += 10 {
 		allowed = append(allowed, id)
@@ -127,9 +117,10 @@ func TestSearchConcurrentWithConnectionUpdates(t *testing.T) {
 				}(w)
 			}
 
-			// Tombstone cleanup reassigns connections, which is what empties a
-			// layer through ReplaceLayer. The deleted ids are outside the allow
-			// list so the searches keep returning results.
+			// Inserts alone only exercise InsertAtLayer. Tombstone cleanup
+			// reassigns through ReplaceLayer, the writer that empties a layer
+			// and produced the reported panic. Deleted ids stay outside the
+			// allow list so the searches keep returning results.
 			writersWg.Add(1)
 			go func() {
 				defer writersWg.Done()
@@ -179,30 +170,23 @@ func TestSearchConcurrentWithConnectionUpdates(t *testing.T) {
 	}
 }
 
-// A search locks two vertices while decoding their connections: the entrypoint,
-// to count how many of its connections pass the filter, and each second-hop
-// neighbor the ACORN expansion copies. Decoding a layer panics when its header
-// claims more entries than its bytes hold, which is what a corrupted snapshot
-// restores: NewWithData only checks that a layer's declared length fits inside
-// the blob, never that the length matches the entry count. Neither panic may
-// carry the mutex away with it, or every later search and write on that vertex
-// blocks forever.
+// A search decodes connections while holding a vertex: the entrypoint, and each
+// second-hop neighbor the ACORN expansion copies. That decode panics on a layer
+// whose header claims more entries than its bytes hold — NewWithData accepts one,
+// since it only checks that a layer's declared length fits inside the blob. The
+// mutex has to survive the panic, or the vertex is locked for good.
 func TestSearchUnlocksVertexWhenConnectionDecodePanics(t *testing.T) {
 	const size = 200
 
 	tests := []struct {
-		name string
-		// corrupt installs the malformed layer and returns the vertex whose
-		// mutex the search must give back
-		corrupt func(index *hnsw) uint64
+		name    string
+		corrupt func(index *hnsw) (lockedVertex uint64)
 	}{
 		{
 			name: "second-hop neighbor",
 			corrupt: func(index *hnsw) uint64 {
-				// The entrypoint points only at the corrupt vertex, and the
-				// allow list holds only the entrypoint, so the expansion has to
-				// decode the corrupt vertex instead of accepting it straight off
-				// the allow list.
+				// a vertex on the allow list is taken without decoding, so the
+				// corrupt one is kept off it and reached through the entrypoint
 				neighbor := uint64(0)
 				if index.entryPointID == neighbor {
 					neighbor = 1
@@ -228,8 +212,8 @@ func TestSearchUnlocksVertexWhenConnectionDecodePanics(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			index := newSeededIndex(t, "acorn-decode-panic", vectors, size, ent.FilterStrategyAcorn)
 
-			// stay on layer 0, so the first decode of the entrypoint's
-			// connections is the one that picks ACORN over RRE
+			// stay on layer 0, so the ACORN-vs-RRE count is the first decode
+			// of the entrypoint's connections
 			index.currentMaximumLayer = 0
 			locked := test.corrupt(index)
 
@@ -245,32 +229,26 @@ func TestSearchUnlocksVertexWhenConnectionDecodePanics(t *testing.T) {
 	}
 }
 
-// layerClaimingMoreEntriesThanItStores builds the blob NewWithData parses: a
-// layer count, then per layer a packed scheme+count, a data length, and the
-// data. This one declares ten 3-byte entries and stores three bytes.
+// The blob layout NewWithData parses: a layer count, then per layer a packed
+// scheme+count, a data length, and the data.
 func layerClaimingMoreEntriesThanItStores() []byte {
 	const (
 		scheme = 1  // SCHEME_3BYTE
-		count  = 10 // stored in the upper 12 bits
+		count  = 10 // ten entries, three bytes each
 	)
 	packed := uint16(scheme) | uint16(count)<<4
 
-	blob := []byte{1} // one layer
+	blob := []byte{1} // layer count
 	blob = append(blob, byte(packed), byte(packed>>8))
-	blob = append(blob, 3, 0, 0, 0) // data length
+	blob = append(blob, 3, 0, 0, 0) // data length: 3 bytes where the count claims 30
 	blob = append(blob, 0xFF, 0xFF, 0xFF)
 	return blob
 }
 
-// https://github.com/weaviate/weaviate/issues/12935
-//
-// knnSearchByVector locks the entrypoint vertex to measure how many of its
-// connections pass the filter. When the entrypoint has no layers there is
-// nothing to count, and that branch used to return without unlocking. The
-// search then blocked on the same vertex as soon as it became a candidate.
-//
-// A vertex restored from a commit log that holds no connections has zero
-// layers, which is what NewWithData(nil) produces here.
+// Pins the entrypoint mutex leak of
+// https://github.com/weaviate/weaviate/issues/12935. A commit log holding no
+// connections restores a vertex with zero layers, which NewWithData(nil)
+// reproduces; the search then blocks on it as soon as it becomes a candidate.
 func TestSearchReleasesEntrypointLockWhenEntrypointHasNoLayers(t *testing.T) {
 	const size = 200
 
@@ -301,8 +279,8 @@ func TestSearchReleasesEntrypointLockWhenEntrypointHasNoLayers(t *testing.T) {
 	select {
 	case res := <-done:
 		require.NoError(t, res.err)
-		// the entrypoint has no connections, so everything found comes from the
-		// allow list members ACORN seeds the search with
+		// with no entrypoint connections, hits can only be the allow list
+		// members ACORN seeds the search with
 		require.NotEmpty(t, res.ids)
 		for _, id := range res.ids {
 			require.Contains(t, allowed, id)
