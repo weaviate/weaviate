@@ -29,18 +29,19 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-const contextCheckInterval = 50 // check context every 50 iterations, every iteration adds too much overhead
+func scanConcurrency() int { return 2 * runtime.GOMAXPROCS(0) }
 
-// ObjectScanFn is called once per object, if false or an error is returned,
-// the scanning will stop
-type ObjectScanFn func(prop *models.PropertySchema, docID uint64) error
+// ObjectScanFn is called once per object with the context the scan runs under,
+// which is cancelled whenever the caller's is. If an error is returned, the
+// scanning will stop.
+type ObjectScanFn func(ctx context.Context, prop *models.PropertySchema, docID uint64) error
 
 // ScanObjectsLSM calls the provided scanFn on each object for the
 // specified pointer. If a pointer does not resolve to an object-id, the item
 // will be skipped. The number of times scanFn is called can therefore be
 // smaller than the input length of pointers.
-func ScanObjectsLSM(store *lsmkv.Store, pointers []uint64, scan ObjectScanFn, properties []string, logger logrus.FieldLogger) error {
-	return newObjectScannerLSM(store, pointers, scan, properties, logger).Do()
+func ScanObjectsLSM(ctx context.Context, store *lsmkv.Store, pointers []uint64, scan ObjectScanFn, properties []string, logger logrus.FieldLogger) error {
+	return newObjectScannerLSM(store, pointers, scan, properties, logger).Do(ctx)
 }
 
 type objectScannerLSM struct {
@@ -64,12 +65,12 @@ func newObjectScannerLSM(store *lsmkv.Store, pointers []uint64,
 	}
 }
 
-func (os *objectScannerLSM) Do() error {
+func (os *objectScannerLSM) Do(ctx context.Context) error {
 	if err := os.init(); err != nil {
 		return errors.Wrap(err, "init object scanner")
 	}
 
-	if err := os.scan(); err != nil {
+	if err := os.scan(ctx); err != nil {
 		return errors.Wrap(err, "scan")
 	}
 
@@ -86,7 +87,11 @@ func (os *objectScannerLSM) init() error {
 	return nil
 }
 
-func (os *objectScannerLSM) scan() error {
+func (os *objectScannerLSM) scan(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Preallocate property paths needed for json unmarshalling
 	propertyPaths := make([][]string, len(os.properties))
 	for i := range os.properties {
@@ -94,9 +99,8 @@ func (os *objectScannerLSM) scan() error {
 	}
 
 	lock := sync.Mutex{}
-	// the context of the user request is checked in the scanFn function
-	eg, newContext := enterrors.NewErrorGroupWithContextWrapper(os.logger, context.Background())
-	concurrency := 2 * runtime.GOMAXPROCS(0)
+	eg, groupCtx := enterrors.NewErrorGroupWithContextWrapper(os.logger, ctx)
+	concurrency := scanConcurrency()
 	stride := int(math.Ceil(max(float64(len(os.pointers))/float64(concurrency), 1)))
 	for i := 0; i < concurrency; i++ {
 		start := i * stride
@@ -111,12 +115,17 @@ func (os *objectScannerLSM) scan() error {
 			// The typed properties are needed for extraction from json
 			var properties models.PropertySchema
 
-			for j, id := range os.pointers[start:end] {
-				if j%contextCheckInterval == 0 && newContext.Err() != nil {
-					return newContext.Err()
+			// checked per doc ID rather than every nth: a worker's range is only
+			// len(pointers)/concurrency long, so an interval skips short ranges
+			// outright. BenchmarkScanObjectsLSM sweeps what the check costs.
+			for _, id := range os.pointers[start:end] {
+				if err := groupCtx.Err(); err != nil {
+					return err
 				}
 				binary.LittleEndian.PutUint64(docIDBytes, id)
-				res, err := os.objectsBucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: Context!
+				// GetBySecondary reads ctx for slow-query annotation only, so a worker
+				// already inside this read is not interrupted by a cancellation.
+				res, err := os.objectsBucket.GetBySecondary(groupCtx, 0, docIDBytes)
 				if err != nil {
 					return err
 				}
@@ -136,14 +145,14 @@ func (os *objectScannerLSM) scan() error {
 
 				// majority of time is spend reading the objects => do the analyses sequentially to not cause races
 				// when analysing the results
-				if func() error {
+				if err := func() error {
 					lock.Lock()
 					defer lock.Unlock()
-					if err := os.scanFn(&properties, id); err != nil {
-						return errors.Wrapf(err, "scan")
+					if err := os.scanFn(groupCtx, &properties, id); err != nil {
+						return errors.Wrapf(err, "scan object %d", id)
 					}
 					return nil
-				}() != nil {
+				}(); err != nil {
 					return err
 				}
 			}

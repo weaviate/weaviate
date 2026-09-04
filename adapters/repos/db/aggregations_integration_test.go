@@ -109,6 +109,9 @@ func Test_Aggregations(t *testing.T) {
 	t.Run("date aggregations with filters",
 		testDateAggregationsWithFilters(repo))
 
+	t.Run("filtered aggregation reports a failing object",
+		testFilteredAggregationSurfacesScanError(repo, schemaGetter))
+
 	t.Run("clean up",
 		cleanupCompanyTestSchemaAndData(repo, migrator))
 }
@@ -2344,4 +2347,59 @@ func mustStringToTime(s string) time.Time {
 		panic(fmt.Sprintf("failed to parse time: %s, %s", s, err))
 	}
 	return asTime
+}
+
+// The scan's callback fails on an object whose stored type no longer matches
+// the declared one, which a schema change can leave behind. That failure is
+// where a swallowed error left a plausible partial result: aggregates over
+// every other object and nothing to say one was skipped.
+func testFilteredAggregationSurfacesScanError(repo *DB,
+	schemaGetter *fakeSchemaGetter,
+) func(t *testing.T) {
+	return func(t *testing.T) {
+		drifted := *companyClass
+		drifted.Properties = make([]*models.Property, len(companyClass.Properties))
+		for i, p := range companyClass.Properties {
+			if p.Name == "listedInIndex" {
+				redeclared := *p
+				redeclared.DataType = []string{"number"}
+				drifted.Properties[i] = &redeclared
+				continue
+			}
+			drifted.Properties[i] = p
+		}
+
+		classes := schemaGetter.schema.Objects.Classes
+		for i, c := range classes {
+			if c.Class == companyClass.Class {
+				classes[i] = &drifted
+				t.Cleanup(func() { classes[i] = companyClass })
+				break
+			}
+		}
+
+		params := aggregation.Params{
+			ClassName: schema.ClassName(companyClass.Class),
+			Filters: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorGreaterThan,
+					Value: &filters.Value{
+						Type:  schema.DataTypeInt,
+						Value: -5, // price is positive everywhere, so every object matches
+					},
+					On: &filters.Path{Property: "price"},
+				},
+			},
+			Properties: []aggregation.ParamProperty{
+				{
+					Name:        schema.PropertyName("listedInIndex"),
+					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
+				},
+			},
+		}
+
+		res, err := repo.Aggregate(context.Background(), params, nil)
+		require.Error(t, err, "an object the scan could not analyse must fail the aggregation")
+		require.Nil(t, res, "a partial result is worse than an error: it looks complete")
+	}
 }
