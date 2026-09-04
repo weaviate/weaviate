@@ -182,6 +182,21 @@ func (h *asyncSchedulerHeap) Pop() any {
 	return e
 }
 
+// countDue counts entries due at now, capped at limit; heap order (parent <= child) prunes non-due subtrees.
+func (h asyncSchedulerHeap) countDue(now time.Time, limit int) int {
+	return h.countDueFrom(0, now, limit)
+}
+
+func (h asyncSchedulerHeap) countDueFrom(i int, now time.Time, limit int) int {
+	if limit <= 0 || i >= len(h) || h[i].nextRunAt.After(now) {
+		return 0
+	}
+	n := 1
+	n += h.countDueFrom(2*i+1, now, limit-n)
+	n += h.countDueFrom(2*i+2, now, limit-n)
+	return n
+}
+
 // asyncSchedulerResult carries the outcome of a single runHashbeatCycle call
 // back to the dispatcher goroutine.
 type asyncSchedulerResult struct {
@@ -1177,15 +1192,7 @@ func (sched *AsyncReplicationScheduler) coalesceElapsedLocked(now time.Time) boo
 	if !head.nextRunAt.After(now.Add(-prefilterCoalesceWindow)) {
 		return true
 	}
-	due := 0
-	for _, e := range sched.h {
-		if !e.nextRunAt.After(now) {
-			if due++; due >= batch {
-				return true
-			}
-		}
-	}
-	return false
+	return sched.h.countDue(now, batch) >= batch
 }
 
 // onResultLocked re-enqueues a shard after a cycle completes (or discards

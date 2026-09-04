@@ -158,10 +158,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
-	// Finalize any completed migrations whose directory renames were deferred
-	// from a runtime swap. This must run before bucket loading (initNonVector)
-	// so that buckets are found at their canonical directory names.
-	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+	s.settleMigrationDirectories(ctx, class)
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
 	// migration's target property as "not locally ready" on this shard.
@@ -328,27 +325,29 @@ const unboundedRecoveryPayload = 0
 // parsed, so a refusal is not counted as a read: it cost a stat.
 var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse bound")
 
-// readRecoveryPropertyNames extracts the `Properties` slice from a
-// migration tracker dir's payload.mig sentinel file (see
-// ShardReindexTaskGeneric.SaveRecoveryPayload). The error keeps a missing
-// payload (os.IsNotExist) distinguishable from an unreadable or unparseable
-// one: [migrationDirScope.inScopeFailingOpen] treats only the former as "the task recorded
-// nothing", while the latter makes the unloaded-shard gate and the recovery
-// probe ([hasUntidiedTracker]) fail open.
-//
-// maxBytes refuses a larger payload before opening it;
-// [unboundedRecoveryPayload] reads any size.
+func refuseOversizedRecoveryPayload(path string, bound int64) error {
+	if bound <= unboundedRecoveryPayload {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Size() > bound {
+		return fmt.Errorf("%w: %s holds %d bytes, bound is %d",
+			errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), bound)
+	}
+	return nil
+}
+
+// readRecoveryPropertyNames reads the property list a task saved in its
+// payload.mig. A missing payload (os.IsNotExist) must stay distinguishable
+// from an unreadable one: readTaskProps reads only the former as "the task
+// recorded nothing", and fails the unloaded-shard gate open on the latter.
 func readRecoveryPropertyNames(migDir string, maxBytes int64) ([]string, error) {
 	path := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	if maxBytes > unboundedRecoveryPayload {
-		info, err := os.Stat(path)
-		if err != nil {
-			return nil, err
-		}
-		if info.Size() > maxBytes {
-			return nil, fmt.Errorf("%w: %s holds %d bytes, bound is %d",
-				errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), maxBytes)
-		}
+	if err := refuseOversizedRecoveryPayload(path, maxBytes); err != nil {
+		return nil, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -4789,6 +4789,53 @@ func (_c *MockShardLike_isReadOnly_Call) RunAndReturn(run func() error) *MockSha
 	return _c
 }
 
+// migrationRecordStore provides a mock function with no fields
+func (_m *MockShardLike) migrationRecordStore() *MigrationRecordStore {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for migrationRecordStore")
+	}
+
+	var r0 *MigrationRecordStore
+	if rf, ok := ret.Get(0).(func() *MigrationRecordStore); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*MigrationRecordStore)
+		}
+	}
+
+	return r0
+}
+
+// MockShardLike_migrationRecordStore_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'migrationRecordStore'
+type MockShardLike_migrationRecordStore_Call struct {
+	*mock.Call
+}
+
+// migrationRecordStore is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) migrationRecordStore() *MockShardLike_migrationRecordStore_Call {
+	return &MockShardLike_migrationRecordStore_Call{Call: _e.mock.On("migrationRecordStore")}
+}
+
+func (_c *MockShardLike_migrationRecordStore_Call) Run(run func()) *MockShardLike_migrationRecordStore_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_migrationRecordStore_Call) Return(_a0 *MigrationRecordStore) *MockShardLike_migrationRecordStore_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_migrationRecordStore_Call) RunAndReturn(run func() *MigrationRecordStore) *MockShardLike_migrationRecordStore_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // mutableMergeObjectLSM provides a mock function with given fields: ctx, merge, idBytes
 func (_m *MockShardLike) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
 	ret := _m.Called(ctx, merge, idBytes)
@@ -5797,7 +5844,8 @@ func (_c *MockShardLike_updateVectorIndexesIgnoreDelete_Call) RunAndReturn(run f
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockShardLike {
+},
+) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 
