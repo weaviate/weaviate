@@ -74,7 +74,7 @@ func (e *recExecutor) withProps(props []*models.NestedProperty) *recExecutor {
 // responsible for stripping to docIDs via bitmapOps.MaskRootLeaf when needed
 // and must invoke the returned release.
 func (e *recExecutor) execute(ctx context.Context, plan recPlanNode) (*sroar.Bitmap, func(), error) {
-	if err := ctxExpired(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
 	if plan == nil {
@@ -231,7 +231,7 @@ func (e *recExecutor) collectFlatSubtree(g *recGroupNode) (*flatSubtree, bool) {
 // condition lands on a leaf shared with all the others, which by the
 // analyzer's DFS encoding means they belong to the same physical element.
 func (e *recExecutor) evalFlatRawAndAll(ctx context.Context, flat *flatSubtree, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
-	if err := ctxExpired(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
 	bitmaps := make([]*sroar.Bitmap, 0, len(flat.leaves)+1)
@@ -383,7 +383,7 @@ func (e *recExecutor) runIdxLoopRecursive(ctx context.Context, g *recGroupNode, 
 	if e.metaBucket == nil {
 		return nil, nil, fmt.Errorf("runIdxLoopRecursive: meta bucket is nil for %q", g.lca)
 	}
-	if err := ctxExpired(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
 
@@ -410,7 +410,7 @@ func (e *recExecutor) runIdxLoopRecursive(ctx context.Context, g *recGroupNode, 
 	defer c.Close()
 
 	for k, elemBitmap := c.Seek(invnested.IdxKey(g.lca, 0)); k != nil; k, elemBitmap = c.Next() {
-		if err := ctxExpired(ctx); err != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
 		if !bytes.HasPrefix(k, idxPrefix) {
@@ -532,7 +532,7 @@ func (e *recExecutor) evalSplit(ctx context.Context, n *recSplitNode, parentScop
 	}()
 
 	for _, br := range n.branches {
-		if err := ctxExpired(ctx); err != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
 		bm, rel, err := e.evalSplitBranch(ctx, n.lca, br, parentScope)
@@ -632,7 +632,7 @@ func (e *recExecutor) intersectScope(scope, parentScope *sroar.Bitmap) (*sroar.B
 // parentScope is passed through to each child's evalNode unchanged. Children's
 // own evaluation logic applies the scope; the OR doesn't need to re-apply.
 func (e *recExecutor) evalOr(ctx context.Context, n *recOrNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
-	if err := ctxExpired(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
 	if len(n.children) == 0 {
@@ -680,7 +680,7 @@ func (e *recExecutor) evalOr(ctx context.Context, n *recOrNode, parentScope *sro
 // the MaskLeaf step in evalNot can be dropped then, and the universe stays
 // raw end-to-end).
 func (e *recExecutor) evalNot(ctx context.Context, n *recNotNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
-	if err := ctxExpired(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
 	if e.metaBucket == nil {
