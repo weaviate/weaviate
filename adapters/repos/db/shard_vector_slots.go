@@ -80,18 +80,26 @@ func (v *vectorIndexSlots) Publish(name string, index VectorIndex, queue *Vector
 }
 
 // Acquire hands out a lease on a slot: the caller may use the index and
-// queue until it calls release, and a removal waits for it. ok is false
-// when no slot has that name or its removal has already started.
-func (v *vectorIndexSlots) Acquire(name string) (slot *vectorIndexSlot, release func(), ok bool) {
+// queue until it calls the slot's release, and a removal waits for it. ok
+// is false when no slot has that name or its removal has already started.
+// No closure is built here, so the hot paths that take a lease per object
+// do not allocate for it.
+func (v *vectorIndexSlots) Acquire(name string) (slot *vectorIndexSlot, ok bool) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
 	slot, ok = v.slots[v.resolve(name)]
 	if !ok || slot.closing {
-		return nil, nil, false
+		return nil, false
 	}
 	slot.users.Incr()
-	return slot, func() { slot.users.Decr() }, true
+	return slot, true
+}
+
+// release gives a lease back. Calling it twice panics, since a double
+// release would let a removal proceed under a live user.
+func (s *vectorIndexSlot) release() {
+	s.users.Decr()
 }
 
 // get looks a slot up without a lease. Only the shard's own accessors use
