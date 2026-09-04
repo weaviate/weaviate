@@ -243,6 +243,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
 		hfreshConfigID := vecIdxID
+		centroidsID := helpers.CentroidsID(hfreshConfigID)
 		rootPath := filepath.Join(s.path(), helpers.HFreshDirName(hfreshConfigID))
 
 		hfreshConfig := &hfresh.Config{
@@ -251,7 +252,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			DistanceProvider:  distProv,
 			RootPath:          rootPath,
 			ID:                hfreshConfigID,
-			TargetVector:      targetVector,
 			ShardName:         s.name,
 			ClassName:         s.index.Config.ClassName.String(),
 			PrometheusMetrics: s.promMetrics,
@@ -266,7 +266,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				HNSWConfig: &hnsw.Config{
 					Logger:                            logger,
 					RootPath:                          rootPath,
-					ID:                                hfreshConfigID + "_centroids",
+					ID:                                centroidsID,
 					ShardName:                         s.name,
 					ClassName:                         s.index.Config.ClassName.String(),
 					PrometheusMetrics:                 s.promMetrics,
@@ -282,8 +282,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 							// consistent with previous logic where the individual limit is 1/5 of the combined limit
 							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 						}, opts...)
-						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
-							logger.WithField("index_id", hfreshConfigID+"_centroids"), s.cycleCallbacks.vectorCommitLoggerCallbacks,
+						return hnsw.NewCommitLogger(rootPath, centroidsID,
+							logger.WithField("index_id", centroidsID), s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							allOpts...,
 						)
 					},
