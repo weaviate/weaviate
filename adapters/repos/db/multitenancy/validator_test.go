@@ -39,12 +39,14 @@ type fakeSchemaReader struct {
 	tenantShards    map[string]string
 	tenantsShardErr error
 	classExists     bool
+	tenantQueries   [][]string
 }
 
 // TenantsShards returns tenant status for requested tenants or the configured error.
 // Only returns status for tenants that exist in the tenantShards map.
 // Tenants not in the map are omitted from the result (simulating non-existent tenants).
 func (f *fakeSchemaReader) TenantsShards(_ context.Context, _ string, tenants ...string) (map[string]string, error) {
+	f.tenantQueries = append(f.tenantQueries, append([]string(nil), tenants...))
 	if f.tenantsShardErr != nil {
 		return nil, f.tenantsShardErr
 	}
@@ -236,6 +238,29 @@ func Test_MultiTenantValidator(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_MultiTenantValidator_ValidateTenantsIndividually(t *testing.T) {
+	// GIVEN
+	schemaReader := &fakeSchemaReader{
+		tenantShards: map[string]string{
+			"hot":  models.TenantActivityStatusHOT,
+			"cold": models.TenantActivityStatusCOLD,
+		},
+		classExists: true,
+	}
+	validator := multitenancy.NewTenantValidator("TestClass", true, schemaReader)
+
+	// WHEN
+	failures := validator.ValidateTenantsIndividually(context.Background(), "hot", "missing", "cold", "", "hot")
+
+	// THEN
+	require.Len(t, schemaReader.tenantQueries, 1)
+	require.ElementsMatch(t, []string{"hot", "missing", "cold"}, schemaReader.tenantQueries[0])
+	require.NotContains(t, failures, "hot")
+	require.ErrorContains(t, failures["missing"], "tenant not found")
+	require.ErrorContains(t, failures["cold"], "tenant not active")
+	require.ErrorContains(t, failures[""], "without tenant")
 }
 
 func Test_MultiTenantValidator_SchemaErrors(t *testing.T) {

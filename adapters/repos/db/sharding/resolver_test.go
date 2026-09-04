@@ -43,6 +43,7 @@ type fakeSchemaReader struct {
 	shards          []string
 	tenantShards    map[string]string
 	tenantsShardErr error
+	tenantQueries   [][]string
 }
 
 // ShardFromUUID assigns a shard by hashing the first byte of the UUID and
@@ -59,7 +60,8 @@ func (f *fakeSchemaReader) ShardFromUUID(_ string, uuidBytes []byte) string {
 }
 
 // TenantsShards returns a copy of tenantShards or the configured error.
-func (f *fakeSchemaReader) TenantsShards(_ context.Context, _ string, _ ...string) (map[string]string, error) {
+func (f *fakeSchemaReader) TenantsShards(_ context.Context, _ string, tenants ...string) (map[string]string, error) {
+	f.tenantQueries = append(f.tenantQueries, append([]string(nil), tenants...))
 	if f.tenantsShardErr != nil {
 		return nil, f.tenantsShardErr
 	}
@@ -601,6 +603,66 @@ func Test_ShardResolution_MultiTenant_MixedValidInvalid(t *testing.T) {
 	// THEN
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "tenant not found")
+}
+
+func Test_ShardResolution_MultiTenant_WithErrors(t *testing.T) {
+	// GIVEN
+	schemaReader := &fakeSchemaReader{tenantShards: map[string]string{
+		"hot":  models.TenantActivityStatusHOT,
+		"cold": models.TenantActivityStatusCOLD,
+	}}
+	r := resolver.NewShardResolver("TestClass", true, schemaReader)
+	objects := []*storobj.Object{
+		newTestObject(strfmt.UUID(uuid.NewString()), "hot"),
+		newTestObject(strfmt.UUID(uuid.NewString()), "missing"),
+		newTestObject(strfmt.UUID(uuid.NewString()), "cold"),
+		newTestObject(strfmt.UUID(uuid.NewString()), ""),
+		newTestObject(strfmt.UUID(uuid.NewString()), "hot"),
+	}
+
+	// WHEN
+	targets, errs := r.ResolveShardsWithErrors(context.Background(), objects)
+
+	// THEN
+	require.Len(t, schemaReader.tenantQueries, 1)
+	require.ElementsMatch(t, []string{"hot", "missing", "cold"}, schemaReader.tenantQueries[0])
+	require.Len(t, targets, len(objects))
+	require.Len(t, errs, len(objects))
+	require.Equal(t, "hot", targets[0].Shard)
+	require.Same(t, objects[0], targets[0].Object)
+	require.ErrorContains(t, errs[1], "tenant not found")
+	require.Nil(t, targets[1])
+	require.ErrorContains(t, errs[2], "tenant not active")
+	require.Nil(t, targets[2])
+	require.ErrorContains(t, errs[3], "without tenant")
+	require.Nil(t, targets[3])
+	require.Equal(t, "hot", targets[4].Shard)
+	require.Same(t, objects[4], targets[4].Object)
+	require.NoError(t, errs[0])
+	require.NoError(t, errs[4])
+}
+
+func Test_ShardResolution_MultiTenant_WithErrors_SchemaReaderError(t *testing.T) {
+	// GIVEN
+	schemaReader := &fakeSchemaReader{tenantsShardErr: fmt.Errorf("schema reader error")}
+	r := resolver.NewShardResolver("TestClass", true, schemaReader)
+	objects := []*storobj.Object{
+		newTestObject(strfmt.UUID(uuid.NewString()), "tenantA"),
+		newTestObject(strfmt.UUID(uuid.NewString()), "tenantB"),
+	}
+
+	// WHEN
+	targets, errs := r.ResolveShardsWithErrors(context.Background(), objects)
+
+	// THEN
+	require.Len(t, schemaReader.tenantQueries, 1)
+	require.Len(t, targets, len(objects))
+	require.Len(t, errs, len(objects))
+	for pos := range objects {
+		require.Nil(t, targets[pos])
+		require.ErrorContains(t, errs[pos], "fetch tenant status")
+		require.ErrorContains(t, errs[pos], "schema reader error")
+	}
 }
 
 func Test_ShardResolution_MultiTenant_DuplicateTenants(t *testing.T) {
