@@ -118,3 +118,53 @@ func TestVectorIndexArtifactsFor_UnrelatedSiblingsChangeNothing(t *testing.T) {
 	assert.Equal(t, plain.LSMBuckets, withSiblings.LSMBuckets)
 	assert.Equal(t, plain.ShardDirs, withSiblings.ShardDirs)
 }
+
+// The legacy vector's list is only ever used for protection (it cannot be
+// dropped), so it has to name what the legacy index really writes: its ID is
+// "main", not its raw bucket name "vectors".
+func TestVectorIndexArtifactsFor_LegacyVectorNamesWhatItOwns(t *testing.T) {
+	got := VectorIndexArtifactsFor("", nil)
+
+	assert.Subset(t, got.LSMBuckets, []string{
+		"vectors",              // raw vectors
+		"vectors_compressed",   // BQ/PQ/SQ/RQ, and the centroid HNSW of a legacy hfresh
+		"main_muvera_vectors",  // multivector + muvera
+		"main_mv_mappings",     // multivector without muvera
+		"hfresh_postings_main", // hfresh postings
+		"hfresh_shared_main",   // hfresh shared metadata
+	})
+	assert.ElementsMatch(t, []string{
+		"main.hnsw.commitlog.d",
+		"main.hnsw.snapshot.d",
+		"main.hfresh.d",
+		"main.queue.d",
+		"meta.db",
+	}, got.ShardDirs)
+
+	for _, never := range []string{
+		"vectors_muvera_vectors", "vectors_mv_mappings", "hfresh_postings_vectors",
+		"hfresh_shared_vectors", "vectors_compressed__centroids",
+		"vectors.hfresh.d", "vectors.queue.d",
+	} {
+		assert.NotContains(t, got.All(), never, "no legacy index ever writes %q", never)
+	}
+}
+
+func TestVectorIndexArtifactsFor_NeverTakesTheLegacyVectorsArtifact(t *testing.T) {
+	// A named vector called "compressed" owns raw bucket "vectors_compressed",
+	// byte-identical to the legacy vector's quantized bucket.
+	got := VectorIndexArtifactsFor("compressed", []string{""})
+	assert.NotContains(t, got.LSMBuckets, "vectors_compressed",
+		"the legacy vector's quantized bucket must survive dropping a named vector called compressed")
+	assert.Contains(t, got.LSMBuckets, "vectors_compressed_compressed",
+		"the dropped vector's own quantized bucket still goes")
+
+	// Names that only collided with the misnamed legacy list keep their own
+	// raw bucket: leaking it would hand a re-created vector of the same name
+	// stale data.
+	for _, name := range []string{"muvera_vectors", "mv_mappings", "compressed_centroids"} {
+		got := VectorIndexArtifactsFor(name, []string{""})
+		assert.Contains(t, got.LSMBuckets, "vectors_"+name,
+			"dropping %q next to the legacy vector must still remove its own raw bucket", name)
+	}
+}

@@ -158,23 +158,27 @@ func (a VectorIndexArtifacts) All() []string {
 // vectorIndexArtifactNames is the raw, unfiltered artifact set for a target
 // vector. Split out from VectorIndexArtifactsFor so the sibling-collision guard
 // can compute what OTHER vectors own without recursing through the filter.
+//
+// Names the indexes key on their physical ID use VectorIndexIDForTarget, which
+// is the raw bucket name for a named vector but "main" for the legacy one:
+// keyed on the bucket name instead, the legacy vector's list named buckets and
+// directories that never exist ("vectors_muvera_vectors", "vectors.hfresh.d")
+// and so protected nothing of what it really owns.
 func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
-	indexID := GetVectorsBucketName(targetVector)
+	indexID := VectorIndexIDForTarget(targetVector)
 	return VectorIndexArtifacts{
 		LSMBuckets: []string{
-			indexID,                               // raw vectors
+			GetVectorsBucketName(targetVector),    // raw vectors
 			GetCompressedBucketName(targetVector), // BQ/PQ/SQ/RQ
 			MuveraBucketName(indexID),             // multivector + muvera
 			MVMappingsBucketName(indexID),         // multivector without muvera
 			HFreshPostingsBucketName(indexID),     // hfresh
 			HFreshSharedBucketName(indexID),       // hfresh
-			// hfresh runs a nested centroids HNSW whose id is
-			// "<indexID>_centroids"; hnsw derives its compressed bucket from
-			// that id with the "vectors_" prefix stripped, so it lands in the
-			// shard's lsm dir under this name. Its commitlog and snapshot dirs
-			// do NOT need listing — they live inside the .hfresh.d directory
-			// below, which goes wholesale.
-			GetCompressedBucketName(targetVector + "_centroids"),
+			// hfresh runs a nested centroids HNSW with the ID "<indexID>_centroids"
+			// whose compressed bucket lands in the shard's lsm dir under the name
+			// that ID yields. Its commitlog and snapshot dirs do NOT need listing —
+			// they live inside the .hfresh.d directory below, which goes wholesale.
+			CompressedBucketNameForID(indexID + "_centroids"),
 		},
 		ShardDirs: []string{
 			GetHNSWCommitLogDirName(targetVector),
