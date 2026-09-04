@@ -140,7 +140,21 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	// Step 1: leave a cancelled enable-rangeable behind on every tenant. The
 	// planting below does not depend on what this leaves on disk, but the
 	// journey does: this is where a customer's stale state comes from.
-	cancelEnableRangeableInFlight(t, restURI)
+	terminal := cancelEnableRangeableInFlight(t, restURI)
+
+	// A cancelled or failed run leaves the schema as it found it.
+	// IndexRangeFilters is collection-wide and flips once, after every shard
+	// is done, so an early exit that still flipped it leaves the collection
+	// claiming a range index most of its tenants never built. The task can
+	// also beat the cancel, so follow the state it actually reached.
+	if terminal == "FINISHED" {
+		require.Eventually(t, func() bool { return rangeableOn(t) }, 30*time.Second, time.Second,
+			"the enable-rangeable finished, so %q must end up rangeable", coldCancelProp)
+	} else {
+		require.False(t, rangeableOn(t),
+			"the enable-rangeable ended %s, so %q must still carry the false flag it started with",
+			terminal, coldCancelProp)
+	}
 
 	// Step 2: deactivate. A COLD tenant leaves the index's shard map, which is
 	// what puts it out of every later sweep's reach.
@@ -176,6 +190,10 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	// get a task unit and fail on a shard the index map no longer has. The
 	// sweep itself is collection-wide regardless: it walks the shard map, not
 	// the tenant filter.
+	//
+	// A filterable rebuild, not enable-rangeable: enable-rangeable is now
+	// semantic and can't be tenant-scoped, though the (score, filterable)
+	// cleanup still owns the planted filterable_to_rangeable tracker prefix.
 	hotNames := tenantNames(tenants, func(tn sweepTenant) bool { return !tn.cold })
 	logMark := len(containerLogs(ctx, t, container))
 
@@ -183,12 +201,12 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	// so the shards loaded across this call are the ones it decided to hydrate.
 	probeStart := time.Now()
 	loadedBefore := loadedShardsOfClass(ctx, t, container, coldCancelClass)
-	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, coldCancelClass, coldCancelProp,
-		"rangeable", `{}`, reindexhelpers.WithTenants(hotNames))
+	taskID := reindexhelpers.RebuildIndex(t, restURI, coldCancelClass, coldCancelProp,
+		"filterable", reindexhelpers.WithTenants(hotNames))
 	loadedAfter := loadedShardsOfClass(ctx, t, container, coldCancelClass)
 	probeWindow := time.Since(probeStart)
 
-	t.Logf("post-restart enable-rangeable task: %s", taskID)
+	t.Logf("post-restart filterable rebuild task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	sweepLog := containerLogs(ctx, t, container)[logMark:]
@@ -255,7 +273,10 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 			tn.name, dirs)
 	}
 
-	// (e) The migration itself still landed, on every tenant it named.
+	// (e) The rebuild landed on every tenant it named: a tenant answering
+	// short here has a filterable bucket the rebuild reported success on but
+	// never finished filling. The query reads that bucket whatever the
+	// rangeable flag says, so step 1 owns the schema claim, not this.
 	for _, name := range hotNames {
 		hits := rangeHits(t, name, 50)
 		assert.Len(t, hits, coldCancelObjectsPerTenant/2,
@@ -307,8 +328,9 @@ func importColdCancelCorpus(t *testing.T, tenants []sweepTenant) {
 // cancelEnableRangeableInFlight submits an enable-rangeable across every
 // tenant and cancels it at an unsynchronized moment, so the response can be
 // 202 CANCELLED, 409 (already past cancellable), or 202 NO_OP (already
-// terminal). Every arm waits for a terminal state before returning.
-func cancelEnableRangeableInFlight(t *testing.T, restURI string) {
+// terminal). Every arm waits for a terminal state before returning, and
+// returns the state the task actually reached.
+func cancelEnableRangeableInFlight(t *testing.T, restURI string) string {
 	t.Helper()
 
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, coldCancelClass, coldCancelProp,
@@ -325,8 +347,7 @@ func cancelEnableRangeableInFlight(t *testing.T, restURI string) {
 				live = true
 			case "FINISHED", "FAILED", "CANCELLED":
 				t.Logf("task %s reached %s before the cancel could be issued", taskID, task.Status)
-				awaitTerminalTask(t, restURI, taskID)
-				return
+				return awaitTerminalTask(t, restURI, taskID)
 			}
 		}
 		if live {
@@ -347,7 +368,7 @@ func cancelEnableRangeableInFlight(t *testing.T, restURI string) {
 	default:
 		t.Fatalf("unexpected status %d cancelling task %s: %s", resp.StatusCode, taskID, resp.Body)
 	}
-	awaitTerminalTask(t, restURI, taskID)
+	return awaitTerminalTask(t, restURI, taskID)
 }
 
 func fetchTask(restURI, taskID string) (models.DistributedTask, bool) {
@@ -363,15 +384,33 @@ func fetchTask(restURI, taskID string) (models.DistributedTask, bool) {
 	return models.DistributedTask{}, false
 }
 
-func awaitTerminalTask(t *testing.T, restURI, taskID string) {
+// awaitTerminalTask waits for the task to settle and returns the terminal
+// state it settled in.
+func awaitTerminalTask(t *testing.T, restURI, taskID string) string {
 	t.Helper()
+	var terminal string
 	require.Eventually(t, func() bool {
 		task, ok := fetchTask(restURI, taskID)
 		if !ok {
 			return false
 		}
-		return task.Status == "FINISHED" || task.Status == "FAILED" || task.Status == "CANCELLED"
+		terminal = task.Status
+		return terminal == "FINISHED" || terminal == "FAILED" || terminal == "CANCELLED"
 	}, 120*time.Second, 100*time.Millisecond, "task %s should reach a terminal state", taskID)
+	return terminal
+}
+
+// rangeableOn reports whether the live schema carries the rangeable index on
+// coldCancelProp. An unset flag reads as false.
+func rangeableOn(t *testing.T) bool {
+	t.Helper()
+	for _, prop := range helper.GetClass(t, coldCancelClass).Properties {
+		if prop.Name == coldCancelProp {
+			return prop.IndexRangeFilters != nil && *prop.IndexRangeFilters
+		}
+	}
+	assert.Failf(t, "property missing", "class %q has no property %q", coldCancelClass, coldCancelProp)
+	return false
 }
 
 func setTenantStatus(t *testing.T, names []string, status string) {
