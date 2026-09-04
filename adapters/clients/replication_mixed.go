@@ -210,15 +210,6 @@ func (s *switchReplicationClient) CompareHashTreeRoots(ctx context.Context, host
 	return s.restClient.CompareHashTreeRoots(ctx, host, index, roots)
 }
 
-func (s *switchReplicationClient) CompareHashTreeRootsMulti(ctx context.Context, host string,
-	classes map[string]map[string]hashtree.Digest,
-) (*replica.CompareHashTreeRootsMultiResp, error) {
-	if s.useGRPC() {
-		return s.grpcClient.CompareHashTreeRootsMulti(ctx, host, classes)
-	}
-	return s.restClient.CompareHashTreeRootsMulti(ctx, host, classes)
-}
-
 var _ replica.CompareRootsSessionFactory = (*switchReplicationClient)(nil)
 
 func (s *switchReplicationClient) NewCompareRootsSession() replica.CompareRootsSession {

@@ -497,12 +497,6 @@ func (c *grpcReplicationClient) CompareHashTreeRoots(ctx context.Context, host, 
 	return resp.GetDivergingShards(), nil
 }
 
-func (c *grpcReplicationClient) CompareHashTreeRootsMulti(ctx context.Context, host string,
-	classes map[string]map[string]hashtree.Digest,
-) (*replica.CompareHashTreeRootsMultiResp, error) {
-	return (&grpcCompareRootsSession{c: c}).CompareHashTreeRootsMulti(ctx, host, classes)
-}
-
 var _ replica.CompareRootsSessionFactory = (*grpcReplicationClient)(nil)
 
 func (c *grpcReplicationClient) NewCompareRootsSession() replica.CompareRootsSession {

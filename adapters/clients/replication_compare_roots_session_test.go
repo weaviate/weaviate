@@ -129,14 +129,6 @@ func TestGRPCCompareHashTreeRootsMulti(t *testing.T) {
 		require.NoError(t, err)
 		assertReqMatches(t, fake.lastCompareRootsMultiReq.Load(), in)
 	})
-
-	t.Run("plain client method matches session behavior", func(t *testing.T) {
-		in := rootsInput(2, 2)
-		resp, err := client.CompareHashTreeRootsMulti(ctx, "passthrough:bufnet", in)
-		require.NoError(t, err)
-		assert.Empty(t, resp.Classes)
-		assertReqMatches(t, fake.lastCompareRootsMultiReq.Load(), in)
-	})
 }
 
 func TestGRPCCompareRootsSessionReuse(t *testing.T) {

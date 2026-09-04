@@ -86,11 +86,6 @@ var asyncRepTargetHostsSeam func(*Shard) ([]string, error)
 // asyncRepPerClassFallbackSeam replaces the per-class fallback pre-filter in tests; nil outside tests.
 var asyncRepPerClassFallbackSeam func(context.Context, map[string]hashtree.Digest) (map[string]struct{}, replica.PrefilterStats)
 
-// crossClassRootComparer is the narrow client surface for the node-level root compare.
-type crossClassRootComparer interface {
-	NewCompareRootsSession() replica.CompareRootsSession
-}
-
 func init() {
 	asyncRepRebuildBaseBackoff.Store(int64(30 * time.Second))
 }
@@ -607,7 +602,7 @@ type AsyncReplicationScheduler struct {
 	dispatchPending []*asyncSchedulerEntry
 
 	// crossClassComparer is the node-level root-compare client; nil falls back to the per-class pre-filter.
-	crossClassComparer crossClassRootComparer
+	crossClassComparer replica.CompareRootsSessionFactory
 
 	metrics asyncReplicationSchedulerMetrics
 	logger  logrus.FieldLogger
@@ -637,9 +632,9 @@ func NewAsyncReplicationScheduler(
 	replicationCfg replication.GlobalConfig,
 	prom *monitoring.PrometheusMetrics,
 	logger logrus.FieldLogger,
-	crossClassComparer ...crossClassRootComparer,
+	crossClassComparer ...replica.CompareRootsSessionFactory,
 ) (*AsyncReplicationScheduler, error) {
-	var comparer crossClassRootComparer
+	var comparer replica.CompareRootsSessionFactory
 	if len(crossClassComparer) > 0 {
 		comparer = crossClassComparer[0]
 	}
