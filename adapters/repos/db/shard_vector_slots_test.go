@@ -132,3 +132,44 @@ func TestVectorIndexSlots_RemoveTakesTheSlotOut(t *testing.T) {
 	_, _, ok = v.remove("title")
 	assert.False(t, ok, "removing twice reports the slot as already gone")
 }
+
+func TestVectorIndexSlots_AcquireCountsLeases(t *testing.T) {
+	var v vectorIndexSlots
+	index := &MockVectorIndex{}
+	require.NoError(t, v.Publish("title", index, nil))
+
+	slot, release, ok := v.Acquire("title")
+	require.True(t, ok)
+	assert.Same(t, index, slot.index)
+	assert.Equal(t, int64(1), slot.users.Count())
+
+	_, release2, ok := v.Acquire("title")
+	require.True(t, ok)
+	assert.Equal(t, int64(2), slot.users.Count())
+
+	release()
+	release2()
+	assert.Equal(t, int64(0), slot.users.Count())
+
+	_, _, ok = v.Acquire("missing")
+	assert.False(t, ok)
+}
+
+func TestVectorIndexSlots_AcquireResolvesTheLegacyAlias(t *testing.T) {
+	var v vectorIndexSlots
+	require.NoError(t, v.Publish("", &MockVectorIndex{}, nil))
+
+	slot, release, ok := v.Acquire(modelsext.DefaultNamedVectorName)
+	require.True(t, ok)
+	defer release()
+	assert.Equal(t, "", slot.name)
+}
+
+func TestVectorIndexSlots_ReleaseTwicePanics(t *testing.T) {
+	var v vectorIndexSlots
+	require.NoError(t, v.Publish("title", &MockVectorIndex{}, nil))
+	_, release, ok := v.Acquire("title")
+	require.True(t, ok)
+	release()
+	assert.Panics(t, release, "a double release would let a drop proceed under a live user")
+}

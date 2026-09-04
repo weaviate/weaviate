@@ -15,6 +15,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
 
@@ -29,11 +30,14 @@ type vectorIndexSlots struct {
 }
 
 // vectorIndexSlot is one logical vector's index and queue. They are
-// published and removed together.
+// published and removed together. users counts the leases held on the
+// pair; closing stops new leases once a removal has started.
 type vectorIndexSlot struct {
-	name  string
-	index VectorIndex
-	queue *VectorIndexQueue
+	name    string
+	index   VectorIndex
+	queue   *VectorIndexQueue
+	users   *common.SharedGauge
+	closing bool // guarded by vectorIndexSlots.mu
 }
 
 // resolve maps the legacy vector's two names onto its slot key: "" always,
@@ -61,8 +65,23 @@ func (v *vectorIndexSlots) Publish(name string, index VectorIndex, queue *Vector
 	if _, exists := v.slots[name]; exists {
 		return errVectorIndexSlotExists
 	}
-	v.slots[name] = &vectorIndexSlot{name: name, index: index, queue: queue}
+	v.slots[name] = &vectorIndexSlot{name: name, index: index, queue: queue, users: common.NewSharedGauge()}
 	return nil
+}
+
+// Acquire hands out a lease on a slot: the caller may use the index and
+// queue until it calls release, and a removal waits for it. ok is false
+// when no slot has that name or its removal has already started.
+func (v *vectorIndexSlots) Acquire(name string) (slot *vectorIndexSlot, release func(), ok bool) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	slot, ok = v.slots[v.resolve(name)]
+	if !ok || slot.closing {
+		return nil, nil, false
+	}
+	slot.users.Incr()
+	return slot, func() { slot.users.Decr() }, true
 }
 
 // get looks a slot up without a lease. Only the shard's own accessors use
