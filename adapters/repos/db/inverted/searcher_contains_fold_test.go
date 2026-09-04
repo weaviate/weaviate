@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -2085,7 +2086,7 @@ func TestPlanContainsFoldGateUnchangedAtOneWorker(t *testing.T) {
 		// gets, but still inside the budget — so the memory giveaway in
 		// planUnion does not fire and the gate is what decides the strategy.
 		// TestPlanContainsFoldMemoryClamp covers the giveaway itself.
-		{name: "large shard the clamp cuts to one worker", docIDCount: 150_000_000},
+		{name: "large shard the clamp cuts to one worker", docIDCount: 100_000_000},
 	}
 
 	for _, shard := range shards {
@@ -2267,23 +2268,57 @@ func TestContainsFoldRunUnsupportedStrategy(t *testing.T) {
 	require.Nil(t, release)
 }
 
+// TestPerWorkerFootprintPricesEveryMemtable pins the pricing to the view it
+// prices, since nothing else connects them: a memtable added to
+// BucketConsistentView must show up as one more row a window can hold, and no
+// compiler error would say otherwise.
+func TestPerWorkerFootprintPricesEveryMemtable(t *testing.T) {
+	view := reflect.TypeOf(lsmkv.BucketConsistentView{})
+	memtables := int64(0)
+	for i := 0; i < view.NumField(); i++ {
+		if view.Field(i).Type.Name() == "memtable" {
+			memtables++
+		}
+	}
+	require.Positive(t, memtables, "no memtable field found, so this pins nothing")
+
+	// a row this size exhausts the whole window budget by itself, so every
+	// memtable is priced for a first row rather than for its share
+	row := int64(lsmkv.BatchReaderWindowBytes)
+	// the partial and the row merged into it, plus one first row per memtable
+	want := (2 + memtables) * row
+	require.Equal(t, want, perWorkerFootprintFor(row),
+		"BucketConsistentView carries %d memtables and perWorkerFootprintFor prices a "+
+			"window for a different count, so the clamp misjudges what a worker holds",
+		memtables)
+}
+
 // TestPerWorkerFootprintOverflowBoundary walks the guard that stops a row near
-// the ceiling doubling into a negative. One unit either side: a guard with the
-// wrong constant still saturates at MaxInt64, which is the only row the sibling
-// test reaches.
+// the ceiling summing into a negative, and the share where the window stops
+// being the larger term. One unit either side of each: a guard with the wrong
+// constant still saturates at MaxInt64, which is the only row the sibling test
+// reaches.
 func TestPerWorkerFootprintOverflowBoundary(t *testing.T) {
-	boundary := (int64(math.MaxInt64) - lsmkv.BatchReaderWindowBytes) / 2
+	// two rows live in the merge, and above the share one first row per memtable
+	boundary := int64(math.MaxInt64) / 4
+	// the largest row that still fits the window share one memtable is given
+	share := int64(lsmkv.BatchReaderWindowBytes) / 2
 
 	tests := []struct {
 		name string
 		row  int64
 		want int64
 	}{
-		{"one below the boundary fits", boundary - 1, 2*(boundary-1) + lsmkv.BatchReaderWindowBytes},
-		{"the boundary itself fits", boundary, 2*boundary + lsmkv.BatchReaderWindowBytes},
+		{"one below the boundary fits", boundary - 1, 4 * (boundary - 1)},
+		{"the boundary itself fits", boundary, 4 * boundary},
 		{"one above saturates", boundary + 1, math.MaxInt64},
 		{"a saturated row saturates", math.MaxInt64, math.MaxInt64},
 		{"an ordinary row is two rows and a window", 1_200_000, 2*1_200_000 + lsmkv.BatchReaderWindowBytes},
+		{"a row filling its share still prices the whole window", share, 2*share + lsmkv.BatchReaderWindowBytes},
+		{
+			"a row above its share prices what the memtables take instead",
+			share + 1, 4 * (share + 1),
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2376,7 +2411,7 @@ func TestClampWorkers(t *testing.T) {
 		},
 		{
 			name:    "the row term bites on a large shard",
-			planned: 64, docIDCount: 100_000_000, want: 2,
+			planned: 64, docIDCount: 60_000_000, want: 2,
 		},
 		{
 			name:    "one worker is all a very large shard affords",
@@ -2412,15 +2447,15 @@ var clampBoundaries = []struct {
 	{workers: 6, lastFits: 11_141_120},
 	{workers: 5, lastFits: 20_054_016},
 	{workers: 4, lastFits: 33_488_896},
-	{workers: 3, lastFits: 55_836_672},
-	{workers: 2, lastFits: 100_532_224},
+	{workers: 3, lastFits: 44_695_552},
+	{workers: 2, lastFits: 67_043_328},
 }
 
 // TestClampWorkersBoundaries walks the crossover table one doc ID at a time
 // across every step in it. Checkpoints inside a step only show that the clamp
 // is in the right region; the boundaries are what pin the table itself, and
 // they are what the memory argument is actually stated in terms of — a shard of
-// 111.7M doc IDs still affording three concurrent windows, and one doc past it
+// 44.7M doc IDs still affording three concurrent windows, and one doc past it
 // affording two.
 // TestMaxContainsFoldWorkersBoundsEveryClamp pins that no shard size clamps
 // above the constant the reader list is sized against. The widest plan is the
@@ -2468,14 +2503,14 @@ func TestPlanContainsFoldMemoryClamp(t *testing.T) {
 	manyKeys := 8 * containsAccumulatorMinKeysPerWorker
 
 	t.Run("an intersection sheds workers but keeps its strategy", func(t *testing.T) {
-		plan, err := containsFoldPlanner{docIDCount: 100_000_000}.plan(workerBudget, filters.ContainsAll, manyKeys)
+		plan, err := containsFoldPlanner{docIDCount: 60_000_000}.plan(workerBudget, filters.ContainsAll, manyKeys)
 		require.NoError(t, err)
 		require.Equal(t, foldStrategyIntersection, plan.strategy)
 		require.Equal(t, 2, plan.workers)
 	})
 
 	t.Run("an accumulator sheds workers but keeps its strategy", func(t *testing.T) {
-		plan, err := containsFoldPlanner{docIDCount: 100_000_000}.plan(workerBudget, filters.ContainsAny, manyKeys)
+		plan, err := containsFoldPlanner{docIDCount: 60_000_000}.plan(workerBudget, filters.ContainsAny, manyKeys)
 		require.NoError(t, err)
 		require.Equal(t, foldStrategyUnionAccumulator, plan.strategy)
 		require.Equal(t, 2, plan.workers)
