@@ -59,6 +59,12 @@ func NewClient(t *testing.T) *weaviate.Client {
 	require.NoError(t, err)
 	require.NotNil(t, c)
 
+	t.Cleanup(func() {
+		err := c.Close()
+		if err != nil {
+			t.Logf("WARN: close weaviate client: %v", err)
+		}
+	})
 	return c
 }
 
