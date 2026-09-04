@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -1337,4 +1338,66 @@ func TestQueueForceSwitch(t *testing.T) {
 	files, err = q.ListFiles(ctx, tmpDir)
 	require.NoError(t, err)
 	require.Len(t, files, 9)
+}
+
+// TestChunkWriterCreateSameMicrosecond ensures that chunk files, which are
+// named after their creation time in microseconds, are created exclusively.
+// Without O_EXCL, a second Create in the same microsecond silently reopens the
+// existing chunk file and later header writes clobber it.
+func TestChunkWriterCreateSameMicrosecond(t *testing.T) {
+	stubChunkTime := func(t *testing.T, ts int64) {
+		t.Helper()
+		prev := chunkTimeNow
+		chunkTimeNow = func() int64 { return ts }
+		t.Cleanup(func() { chunkTimeNow = prev })
+	}
+
+	t.Run("two creates in the same microsecond get distinct files", func(t *testing.T) {
+		dir := t.TempDir()
+		stubChunkTime(t, 12345)
+
+		w1 := &chunkWriter{dir: dir, logger: newTestLogger(), maxSize: defaultChunkSize}
+		require.NoError(t, w1.Create())
+
+		w2 := &chunkWriter{dir: dir, logger: newTestLogger(), maxSize: defaultChunkSize}
+		require.NoError(t, w2.Create())
+
+		require.NotEqual(t, w1.f.Name(), w2.f.Name(),
+			"second Create reused the first writer's chunk file")
+
+		require.NoError(t, w1.Close())
+		require.NoError(t, w2.Close())
+
+		// both chunk files must coexist, each with an intact header
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		require.Len(t, entries, 2)
+
+		for _, e := range entries {
+			f, err := os.Open(filepath.Join(dir, e.Name()))
+			require.NoError(t, err)
+			_, err = readChunkHeader(f)
+			require.NoError(t, err, "chunk %s has a corrupt header", e.Name())
+			require.NoError(t, f.Close())
+		}
+	})
+
+	t.Run("existing file at the target name is never reused", func(t *testing.T) {
+		dir := t.TempDir()
+		stubChunkTime(t, 12345)
+
+		existing := filepath.Join(dir, fmt.Sprintf(chunkFileFmt, int64(12345)))
+		content := []byte("pre-existing chunk data that must not be clobbered")
+		require.NoError(t, os.WriteFile(existing, content, 0o644))
+
+		w := &chunkWriter{dir: dir, logger: newTestLogger(), maxSize: defaultChunkSize}
+		require.NoError(t, w.Create())
+		require.NotEqual(t, existing, w.f.Name(),
+			"Create reused an existing chunk file")
+		require.NoError(t, w.Close())
+
+		got, err := os.ReadFile(existing)
+		require.NoError(t, err)
+		require.Equal(t, content, got, "existing chunk file was clobbered")
+	})
 }
