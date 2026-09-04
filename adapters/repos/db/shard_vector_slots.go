@@ -12,8 +12,12 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"sync"
+	"time"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -21,12 +25,18 @@ import (
 
 var errVectorIndexSlotExists = errors.New("vector index slot already exists")
 
+// slotDrainTimeout bounds how long a removal waits for leases, the bound
+// the shard's own drop drain (drainRefsForDrop) uses.
+const slotDrainTimeout = 30 * time.Second
+
 // vectorIndexSlots owns a shard's vector indexes and their queues, one slot
 // per logical vector. The legacy vector is the slot named "". The zero value
 // is ready to use, like the maps it replaces.
 type vectorIndexSlots struct {
 	mu    sync.RWMutex
 	slots map[string]*vectorIndexSlot
+	// drainTimeout overrides slotDrainTimeout when set; tests shorten it
+	drainTimeout time.Duration
 }
 
 // vectorIndexSlot is one logical vector's index and queue. They are
@@ -131,18 +141,40 @@ func (v *vectorIndexSlots) Replace(name string, index VectorIndex) bool {
 	return true
 }
 
-// remove takes a slot out of the map and hands its index and queue to the
-// caller for teardown. No alias: a drop names the vector exactly. The
-// draining Remove replaces this once leases exist.
-func (v *vectorIndexSlots) remove(name string) (VectorIndex, *VectorIndexQueue, bool) {
+// Remove takes a slot out of service: no new lease is handed out, the ones
+// in flight get up to the drain timeout to finish, and then the index and
+// queue go to the caller for teardown. Past the deadline the removal
+// proceeds and logs the leases it left behind, as the shard-level drop
+// does; a user still running then sees a torn index, which is what it saw
+// with no wait at all. No alias: a drop names the vector exactly.
+func (v *vectorIndexSlots) Remove(ctx context.Context, name string, logger logrus.FieldLogger) (VectorIndex, *VectorIndexQueue, bool) {
 	v.mu.Lock()
-	defer v.mu.Unlock()
-
 	slot, ok := v.slots[name]
 	if !ok {
+		v.mu.Unlock()
 		return nil, nil, false
 	}
+	slot.closing = true
+	v.mu.Unlock()
+
+	timeout := v.drainTimeout
+	if timeout == 0 {
+		timeout = slotDrainTimeout
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	err := slot.users.Wait(waitCtx)
+	if err != nil {
+		logger.WithFields(logrus.Fields{
+			"action":        "drop_vector_index",
+			"target_vector": name,
+			"in_use":        slot.users.Count(),
+		}).Warnf("removing the vector index with leases still held: %v", err)
+	}
+
+	v.mu.Lock()
 	delete(v.slots, name)
+	v.mu.Unlock()
 	return slot.index, slot.queue, true
 }
 
