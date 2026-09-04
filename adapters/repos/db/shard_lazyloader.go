@@ -780,14 +780,24 @@ func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDoc
 	return l.shard.MergeObject(ctx, object)
 }
 
-func (l *LazyLoadShard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
+func (l *LazyLoadShard) WithVectorIndex(targetVector string, f func(index VectorIndex) error) (bool, error) {
 	l.mustLoad()
-	return l.shard.GetVectorIndexQueue(targetVector)
+	return l.shard.WithVectorIndex(targetVector, f)
 }
 
-func (l *LazyLoadShard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
+func (l *LazyLoadShard) WithVectorIndexQueue(targetVector string, f func(queue *VectorIndexQueue) error) (bool, error) {
 	l.mustLoad()
-	return l.shard.GetVectorIndex(targetVector)
+	return l.shard.WithVectorIndexQueue(targetVector, f)
+}
+
+func (l *LazyLoadShard) AcquireVectorIndex(targetVector string) (VectorIndex, func(), bool) {
+	l.mustLoad()
+	return l.shard.AcquireVectorIndex(targetVector)
+}
+
+func (l *LazyLoadShard) AcquireVectorIndexQueue(targetVector string) (*VectorIndexQueue, func(), bool) {
+	l.mustLoad()
+	return l.shard.AcquireVectorIndexQueue(targetVector)
 }
 
 func (l *LazyLoadShard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {

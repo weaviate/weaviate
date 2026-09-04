@@ -21,108 +21,76 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
-	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // ForEachVectorIndex iterates through each vector index initialized in the shard (named and legacy).
-// Iteration stops at the first return of non-nil error.
+// Iteration stops at the first return of non-nil error. The callback runs under the read lock.
 func (s *Shard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
-	// As we expect the mutex to be write-locked very rarely, we allow the callback
-	// to be invoked under the lock. If we find contention here, we should make a copy of the indexes
-	// before iterating over them.
-	s.vectorIndexMu.RLock()
-	defer s.vectorIndexMu.RUnlock()
-
-	for targetVector, idx := range s.vectorIndexes {
-		if idx == nil {
-			continue
-		}
-
-		if err := f(targetVector, idx); err != nil {
-			return err
-		}
-	}
-	if s.vectorIndex != nil {
-		if err := f("", s.vectorIndex); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.vectors.ForEach(func(targetVector string, index VectorIndex, _ *VectorIndexQueue) error {
+		return f(targetVector, index)
+	})
 }
 
 // ForEachVectorQueue iterates through each vector index queue initialized in the shard (named and legacy).
-// Iteration stops at the first return of non-nil error.
+// Iteration stops at the first return of non-nil error. The callback runs under the read lock.
 func (s *Shard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
-	// As we expect the mutex to be write-locked very rarely, we allow the callback
-	// to be invoked under the lock. If we find contention here, we should make a copy of the queues
-	// before iterating over them.
-	s.vectorIndexMu.RLock()
-	defer s.vectorIndexMu.RUnlock()
-
-	for targetVector, q := range s.queues {
-		if q == nil {
-			continue
-		}
-
-		if err := f(targetVector, q); err != nil {
-			return err
-		}
-	}
-	if s.queue != nil {
-		if err := f("", s.queue); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.vectors.ForEach(func(targetVector string, _ VectorIndex, queue *VectorIndexQueue) error {
+		return f(targetVector, queue)
+	})
 }
 
-// GetVectorIndexQueue retrieves a vector index queue associated with the targetVector.
-// Empty targetVector is treated as a request to access a queue for the legacy vector index.
-func (s *Shard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
-	s.vectorIndexMu.RLock()
-	defer s.vectorIndexMu.RUnlock()
-
-	if s.isTargetVectorLegacyWithLock(targetVector) {
-		return s.queue, s.queue != nil
+// WithVectorIndex runs f on the targetVector's index under a lease: a drop
+// of that vector waits until f returns. found is false, and f is not
+// called, when the shard has no such index. Empty targetVector is the
+// legacy vector index.
+func (s *Shard) WithVectorIndex(targetVector string, f func(index VectorIndex) error) (found bool, err error) {
+	slot, ok := s.vectors.Acquire(targetVector)
+	if !ok {
+		return false, nil
 	}
-
-	queue, ok := s.queues[targetVector]
-	return queue, ok
+	defer slot.release()
+	return true, f(slot.index)
 }
 
-// GetVectorIndex retrieves a vector index queue associated with the targetVector.
-// Empty targetVector is treated as a request to access a queue for the legacy vector index.
-func (s *Shard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
-	s.vectorIndexMu.RLock()
-	defer s.vectorIndexMu.RUnlock()
-
-	if s.isTargetVectorLegacyWithLock(targetVector) {
-		return s.vectorIndex, s.vectorIndex != nil
+// WithVectorIndexQueue is WithVectorIndex for the vector's queue.
+func (s *Shard) WithVectorIndexQueue(targetVector string, f func(queue *VectorIndexQueue) error) (found bool, err error) {
+	slot, ok := s.vectors.Acquire(targetVector)
+	if !ok {
+		return false, nil
 	}
-
-	index, ok := s.vectorIndexes[targetVector]
-	return index, ok
+	defer slot.release()
+	return true, f(slot.queue)
 }
 
-func (s *Shard) isTargetVectorLegacyWithLock(targetVector string) bool {
-	if targetVector == "" {
-		return true
+// AcquireVectorIndex hands out the targetVector's index under a lease the
+// caller owns: it must call release when done, on every path, or a drop of
+// that vector waits for the drain timeout. For a hold that spans a loop;
+// a single call uses WithVectorIndex.
+func (s *Shard) AcquireVectorIndex(targetVector string) (index VectorIndex, release func(), ok bool) {
+	slot, ok := s.vectors.Acquire(targetVector)
+	if !ok {
+		return nil, nil, false
 	}
+	return slot.index, slot.release, true
+}
 
-	return s.vectorIndex != nil && targetVector == modelsext.DefaultNamedVectorName
+// AcquireVectorIndexQueue is AcquireVectorIndex for the vector's queue.
+func (s *Shard) AcquireVectorIndexQueue(targetVector string) (queue *VectorIndexQueue, release func(), ok bool) {
+	slot, ok := s.vectors.Acquire(targetVector)
+	if !ok {
+		return nil, nil, false
+	}
+	return slot.queue, slot.release, true
 }
 
 func (s *Shard) hasLegacyVectorIndex() bool {
-	_, ok := s.GetVectorIndex("")
+	_, ok := s.vectors.get("")
 	return ok
 }
 
 func (s *Shard) hasAnyVectorIndex() bool {
-	s.vectorIndexMu.RLock()
-	defer s.vectorIndexMu.RUnlock()
-
-	return len(s.vectorIndexes) > 0 || s.vectorIndex != nil
+	return s.vectors.Len() > 0
 }
 
 func (s *Shard) Versioner() *shardVersioner {

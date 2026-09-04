@@ -566,7 +566,9 @@ func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
 			for _, err := range shd.PutObjectBatch(ctx, objs) {
 				require.NoError(t, err)
 			}
-			q, ok := shd.GetVectorIndexQueue("title")
+			q, release, ok := shd.AcquireVectorIndexQueue("title")
+			require.True(t, ok)
+			defer release()
 			require.True(t, ok)
 			require.Eventually(t, func() bool { return q.Size() == 0 }, 30*time.Second, 50*time.Millisecond)
 
