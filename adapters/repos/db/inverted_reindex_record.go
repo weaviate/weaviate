@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
 type MigrationState string
@@ -112,6 +113,10 @@ type MigrationSubject struct {
 	MigrationType        ReindexMigrationType `json:"migrationType"`
 	TargetTokenization   string               `json:"targetTokenization,omitempty"`
 	OriginalTokenization string               `json:"originalTokenization,omitempty"`
+
+	// A task is rebuilt from the record alone, never from schema state that moved.
+	Collection     string `json:"collection,omitempty"`
+	BucketStrategy string `json:"bucketStrategy,omitempty"`
 
 	// Fixed at first write, never re-derived from a moved clock.
 	IterationCutoff time.Time `json:"iterationCutoff"`
@@ -319,10 +324,13 @@ func encodeMigrationRecord(rec MigrationRecord) ([]byte, error) {
 	if err := validateMigrationEnvelope(env); err != nil {
 		return nil, err
 	}
-	// Writer-side only: nothing acts on such a record, so refusing it at decode
-	// would freeze a shard over a record that can do nothing.
+	// Writer-side only. Refusing either at decode would freeze the shard over a
+	// record the reconciler still reads and settles correctly.
 	if len(env.Subject.Props) == 0 {
 		return nil, fmt.Errorf("record %q names no properties, so nothing could ever act on it", env.Subject.Key)
+	}
+	if env.Subject.Collection == "" {
+		return nil, fmt.Errorf("record %q has no collection", env.Subject.Key)
 	}
 	data, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
@@ -347,6 +355,9 @@ func validateMigrationEnvelope(e migrationRecordEnvelope) error {
 	}
 	if !migrationTypeKnown(e.Subject.MigrationType) {
 		return fmt.Errorf("record %q names unknown migration type %q", e.Subject.Key, e.Subject.MigrationType)
+	}
+	if s := e.Subject.BucketStrategy; s != "" && !lsmkv.IsExpectedStrategy(s) {
+		return fmt.Errorf("record %q names unknown bucket strategy %q", e.Subject.Key, s)
 	}
 	if err := validateMigrationHandles(e); err != nil {
 		return err

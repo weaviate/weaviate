@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -40,6 +41,8 @@ func testMigrationSubject(version uint64, code MigrationStrategyCode, props ...s
 		MigrationType:        ReindexTypeChangeTokenization,
 		TargetTokenization:   models.PropertyTokenizationLowercase,
 		OriginalTokenization: models.PropertyTokenizationWord,
+		Collection:           "Books",
+		BucketStrategy:       lsmkv.StrategyInverted,
 		TrackerDir:           fmt.Sprintf("m_%d_tracker", version),
 		IterationCutoff:      time.Date(2026, 8, 21, 9, 0, 0, 0, time.UTC),
 	}
@@ -76,6 +79,8 @@ func TestMigrationRecordRoundTrip(t *testing.T) {
 	displaced := map[string]string{"title": "property_title"}
 	nilDirMaps := testMigrationSubject(7, StrategyCodeSearchableMapToBlockmax, "title")
 	nilDirMaps.Props = map[string]MigrationPropertyDirs{"title": {}}
+	noBucketStrategy := testMigrationSubject(42, StrategyCodeFilterableToRangeable, "title")
+	noBucketStrategy.BucketStrategy = ""
 
 	tests := []struct {
 		name      string
@@ -116,6 +121,11 @@ func TestMigrationRecordRoundTrip(t *testing.T) {
 		{
 			name:      "a record naming no directories keeps its nil maps nil",
 			record:    NewMigrationRecordMerged(nilDirMaps),
+			wantState: MigrationStateMerged,
+		},
+		{
+			name:      "a migration that reads no bucket strategy still carries its collection",
+			record:    NewMigrationRecordMerged(noBucketStrategy),
 			wantState: MigrationStateMerged,
 		},
 		{
@@ -166,8 +176,8 @@ func TestTheRecordsWireNamesAreTheCompatibilityContract(t *testing.T) {
 	require.Equal(t, []string{"flip", "formatVersion", "state", "subject"},
 		keysOf(t, swapped))
 	require.Equal(t, []string{
-		"iterationCutoff", "key", "migrationType", "originalTokenization",
-		"props", "targetTokenization", "taskID", "trackerDir",
+		"bucketStrategy", "collection", "iterationCutoff", "key", "migrationType",
+		"originalTokenization", "props", "targetTokenization", "taskID", "trackerDir",
 	}, keysOf(t, swapped, "subject"))
 	require.Equal(t, []string{"canonical", "sidecar", "staged"},
 		keysOf(t, swapped, "subject", "props", "title"))
@@ -1079,6 +1089,12 @@ func TestTheWriterRefusesWhatTheLoaderWouldReject(t *testing.T) {
 			because: "the loader refuses a file over the bound, so the writer must not build one",
 			wantErr: "bound is",
 		},
+		{
+			name:    "a bucket strategy no store implements",
+			mangle:  func(s *MigrationSubject) { s.BucketStrategy = "blockmax" },
+			because: "a rebuild on it would write the property in a format no reader can open",
+			wantErr: `names unknown bucket strategy "blockmax"`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1158,22 +1174,47 @@ func TestTheLargestRecordTheWriterCanBuildFitsTheLoadersBound(t *testing.T) {
 	}
 }
 
-func TestARecordNamingNoPropertiesIsRefusedByTheWriterAndToleratedByTheLoader(t *testing.T) {
-	subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize)
-	rec := NewMigrationRecordMerged(subject)
+func TestARefusalOnlyTheWriterMakesIsToleratedByTheLoader(t *testing.T) {
+	tests := []struct {
+		name    string
+		props   []string
+		mangle  func(*MigrationSubject)
+		wantErr string
+	}{
+		{
+			name:    "a record naming no properties",
+			wantErr: "names no properties",
+		},
+		{
+			name:    "a record naming no collection",
+			props:   []string{"title"},
+			mangle:  func(s *MigrationSubject) { s.Collection = "" },
+			wantErr: "has no collection",
+		},
+	}
 
-	_, err := encodeMigrationRecord(rec)
-	require.ErrorContains(t, err, "names no properties")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, tt.props...)
+			if tt.mangle != nil {
+				tt.mangle(&subject)
+			}
+			rec := NewMigrationRecordMerged(subject)
 
-	logger, _ := test.NewNullLogger()
-	store := NewMigrationRecordStore(t.TempDir(), logger)
-	require.Error(t, store.Put(rec), "and Put refuses it for the same reason")
+			_, err := encodeMigrationRecord(rec)
+			require.ErrorContains(t, err, tt.wantErr)
 
-	writeRawMigrationRecord(t, store, rec.toEnvelope())
+			logger, _ := test.NewNullLogger()
+			store := NewMigrationRecordStore(t.TempDir(), logger)
+			require.Error(t, store.Put(rec), "and Put refuses it for the same reason")
 
-	require.NoError(t, store.Load())
-	require.Len(t, store.Records(), 1, "the loader reads it")
-	require.Empty(t, store.Unreadable(), "and withholds nothing on its account")
+			writeRawMigrationRecord(t, store, rec.toEnvelope())
+
+			require.NoError(t, store.Load())
+			require.Len(t, store.Records(), 1, "the loader reads it")
+			require.Empty(t, store.Unreadable(), "and withholds nothing on its account")
+		})
+	}
 }
 
 func storeLinesAt(hook *test.Hook, level logrus.Level) []string {
