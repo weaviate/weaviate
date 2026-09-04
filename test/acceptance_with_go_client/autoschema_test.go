@@ -26,7 +26,7 @@ import (
 )
 
 func TestAutoschemaCasingClass(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	c := wvhost.NewClient(t)
 
 	upperClassName := "RandomBlueTree"
