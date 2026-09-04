@@ -14,77 +14,50 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-func newTestObjectsStore(t *testing.T) *lsmkv.Store {
-	t.Helper()
-	dir := t.TempDir()
-	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(dir, dir, logger, nil, nil,
-		cyclemanager.NewCallbackGroup("objects", logger, 1),
-		cyclemanager.NewCallbackGroup("nonObjects", logger, 1),
-		cyclemanager.NewCallbackGroupNoop())
-	require.NoError(t, err)
-	t.Cleanup(func() { store.Shutdown(context.Background()) })
+var (
+	newTestObjectsStore    = testinghelpers.NewTestObjectsStore
+	newTestObjectsBucket   = testinghelpers.NewTestObjectsBucket
+	putTestObject          = testinghelpers.PutTestObject
+	putTestObjectWithProps = testinghelpers.PutTestObjectWithProps
+	keyForDocID            = testinghelpers.KeyForDocID
+)
 
-	require.NoError(t, store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM,
-		lsmkv.WithStrategy(lsmkv.StrategyReplace)))
-	return store
-}
-
-func newTestObjectsBucket(t *testing.T) *lsmkv.Bucket {
-	t.Helper()
-	return newTestObjectsStore(t).Bucket(helpers.ObjectsBucketLSM)
-}
-
-// putTestObject stores an object marshalled exactly as the write path does, so the
-// scan reads real on-disk data rather than a hand-rolled encoding.
-func putTestObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64, legacyVec []float32, named map[string][]float32) {
-	t.Helper()
-	putTestObjectWithProps(t, bucket, docID, legacyVec, named, nil)
-}
-
-// putTestObjectWithProps also stores properties, for an index whose cached vector
-// is derived from one rather than stored verbatim.
-func putTestObjectWithProps(t *testing.T, bucket *lsmkv.Bucket, docID uint64,
-	legacyVec []float32, named map[string][]float32, props map[string]interface{},
-) {
-	t.Helper()
-	id := strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", docID))
-	obj := storobj.New(docID)
-	obj.Object = models.Object{ID: id, Class: "Test", Properties: props}
-	obj.Vector = legacyVec
-	if named != nil {
-		obj.Vectors = named
+// testVectorFromObject is what the shard binds for an index on targetVector:
+// the vector read straight out of an object's bytes, nil when the object has
+// none. hnsw itself no longer derives this from a name.
+func testVectorFromObject(targetVector string) VectorFromObject {
+	return func(objectBytes []byte) ([]float32, error) {
+		vec, err := storobj.VectorFromBinary(objectBytes, nil, targetVector)
+		if err != nil {
+			var notFound storobj.ErrTargetVectorNotFound
+			if errors.As(err, &notFound) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		return vec, nil
 	}
-	data, err := obj.MarshalBinary()
-	require.NoError(t, err)
-
-	require.NoError(t, bucket.Put(keyForDocID(docID), data))
-}
-
-// keyForDocID builds a unique, sortable bucket key. The scan reads docID + vector from
-// the value, not the key, so a 16-byte big-endian docID stands in for the real UUID key.
-func keyForDocID(docID uint64) []byte {
-	key := make([]byte, 16)
-	binary.BigEndian.PutUint64(key[8:], docID)
-	return key
 }
 
 func collectScan(t *testing.T, bucket *lsmkv.Bucket, target string) map[uint64][]float32 {
@@ -92,7 +65,7 @@ func collectScan(t *testing.T, bucket *lsmkv.Bucket, target string) map[uint64][
 	logger, _ := test.NewNullLogger()
 	var mu sync.Mutex
 	got := map[uint64][]float32{}
-	err := scanObjectVectorsParallel(context.Background(), bucket, targetVectorFromObject(target),
+	err := scanObjectVectorsParallel(context.Background(), bucket, testVectorFromObject(target),
 		func(id uint64, vec []float32) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -179,7 +152,7 @@ func TestScanObjectVectorsParallel(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		logger, _ := test.NewNullLogger()
-		err := scanObjectVectorsParallel(ctx, bucket, targetVectorFromObject(""), func(uint64, []float32) {}, logger)
+		err := scanObjectVectorsParallel(ctx, bucket, testVectorFromObject(""), func(uint64, []float32) {}, logger)
 		require.ErrorIs(t, err, context.Canceled)
 	})
 }
@@ -246,7 +219,8 @@ func prefillParallelIntoCache(t *testing.T, vecs map[uint64][]float32, preGrown 
 		store:             store,
 		cache:             c,
 		nodes:             make([]*vertex, preGrown),
-		id:                "main", // no "vectors_" prefix => legacy default target vector
+		id:                "main",
+		vectorFromObject:  testVectorFromObject(""), // the legacy vector, as the shard binds it
 		logger:            logger,
 		distancerProvider: dp,
 	}
@@ -465,6 +439,7 @@ func TestPrefillCacheParallelNormalizesForCosine(t *testing.T) {
 		cache:             c,
 		nodes:             make([]*vertex, n),
 		id:                "main",
+		vectorFromObject:  testVectorFromObject(""),
 		logger:            logger,
 		distancerProvider: distancer.NewCosineDistanceProvider(),
 	}
@@ -477,4 +452,56 @@ func TestPrefillCacheParallelNormalizesForCosine(t *testing.T) {
 		require.Equalf(t, distancer.Normalize(raw[i]), got,
 			"cosine-dot cache must hold normalized vectors for doc %d", i)
 	}
+}
+
+// TestPrefillWithoutVectorFromObjectNeverScansObjectStorage pins the gate that
+// replaced hnsw deriving a target vector from its own ID: an index built with
+// no VectorFromObject, the shape of hfresh's centroid graph, never reads the
+// objects bucket during startup prefill, whatever it holds. The index is
+// reopened with node state on disk, since a brand-new empty index skips the
+// prefill altogether, and the serial path it takes instead is starved on
+// purpose (the thunk returns nothing), so any object read would show up as
+// cached vectors.
+func TestPrefillWithoutVectorFromObjectNeverScansObjectStorage(t *testing.T) {
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	putTestObject(t, bucket, 1, []float32{0.1, 0.2, 0.3}, nil)
+	putTestObject(t, bucket, 2, []float32{0.4, 0.5, 0.6}, nil)
+
+	rootPath := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	const id = "main_centroids"
+	newConfig := func() Config {
+		return Config{
+			RootPath:            rootPath,
+			ID:                  id,
+			Logger:              logger,
+			DistanceProvider:    distancer.NewCosineDistanceProvider(),
+			WaitForCachePrefill: true,
+			VectorForIDThunk:    func(ctx context.Context, id uint64) ([]float32, error) { return nil, nil },
+			GetViewThunk:        func() common.BucketView { return &noopBucketView{} },
+			MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+				return NewCommitLogger(rootPath, id, logger, cyclemanager.NewCallbackGroupNoop(), opts...)
+			},
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+			AllocChecker:      memwatch.NewDummyMonitor(),
+		}
+	}
+	uc := enthnsw.NewDefaultUserConfig()
+	uc.VectorCacheMaxObjects = 1e12
+
+	// leave node state behind so the reopened index runs its prefill
+	seed, err := New(newConfig(), uc, cyclemanager.NewCallbackGroupNoop(), store)
+	require.NoError(t, err)
+	require.NoError(t, seed.Add(context.Background(), 999, []float32{1, 0, 0}))
+	require.NoError(t, seed.Flush())
+	require.NoError(t, seed.Shutdown(context.Background()))
+
+	idx, err := New(newConfig(), uc, cyclemanager.NewCallbackGroupNoop(), store)
+	require.NoError(t, err)
+	t.Cleanup(func() { idx.Shutdown(context.Background()) })
+	idx.PostStartup(context.Background())
+
+	assert.Equal(t, int64(0), idx.cache.CountVectors(),
+		"an index without VectorFromObject must never scan the objects bucket during prefill")
 }

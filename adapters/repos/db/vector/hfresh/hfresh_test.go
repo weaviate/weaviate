@@ -29,8 +29,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -40,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -269,4 +272,66 @@ func TestHFreshRecall(t *testing.T) {
 		recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 		require.Greater(t, recall, float32(0.7))
 	})
+}
+
+// seedUncompressedCentroidState writes hnsw node state, but no compression
+// record, into the commit log the centroid graph at (rootPath, centroidID)
+// reads back on its next construction. It bypasses hfresh's Insert on
+// purpose: hfresh forces RQ on for the centroid graph, and RQ initializes
+// inside the first insert, which would persist a compression record and hide
+// the "nodes on disk, no compression record" shape a torn commit-log tail or
+// a failed RQ initialization leaves behind. That shape is the one in which
+// the centroid graph used to prefill from object storage.
+func seedUncompressedCentroidState(t *testing.T, rootPath, centroidID string, store *lsmkv.Store, vec []float32) {
+	t.Helper()
+	logger := logrus.New()
+	idx, err := hnsw.New(hnsw.Config{
+		RootPath:         rootPath,
+		ID:               centroidID,
+		Logger:           logger,
+		DistanceProvider: distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) { return nil, nil },
+		GetViewThunk:     getViewThunk,
+		MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+			return hnsw.NewCommitLogger(rootPath, centroidID, logger, cyclemanager.NewCallbackGroupNoop(), opts...)
+		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		AllocChecker:      memwatch.NewDummyMonitor(),
+	}, hnswent.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), store)
+	require.NoError(t, err)
+
+	require.NoError(t, idx.Add(context.Background(), 999, vec))
+	require.NoError(t, idx.Flush())
+	require.NoError(t, idx.Shutdown(context.Background()))
+}
+
+// TestCentroidPrefillNeverReadsObjectStorage builds a real hfresh index over
+// a store whose objects bucket holds legacy vectors, with the centroid graph
+// pre-seeded to the "nodes but no compression record" shape, and checks the
+// centroid cache stays empty of them: the centroid graph carries no
+// VectorFromObject, so hnsw's startup prefill never scans the objects bucket
+// for it. Before that gate, hnsw derived the legacy vector from the centroid
+// graph's ID and loaded real object vectors into the centroid cache.
+func TestCentroidPrefillNeverReadsObjectStorage(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	createObjectsBucket(t, store)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	testinghelpers.PutTestObject(t, bucket, 1, []float32{0.1, 0.2, 0.3}, nil)
+	testinghelpers.PutTestObject(t, bucket, 2, []float32{0.4, 0.5, 0.6}, nil)
+
+	cfg, uc := makeHFreshConfig(t)
+	seedUncompressedCentroidState(t, cfg.Centroids.HNSWConfig.RootPath, cfg.Centroids.HNSWConfig.ID,
+		store, []float32{1, 0, 0})
+
+	index, err := New(cfg, uc, store)
+	require.NoError(t, err)
+	index.PostStartup(t.Context())
+	t.Cleanup(func() { index.Shutdown(t.Context()) })
+
+	for _, docID := range []uint64{1, 2} {
+		centroid, err := index.Centroids.Get(docID)
+		require.NoError(t, err)
+		assert.Emptyf(t, centroid.Uncompressed,
+			"centroid graph must never prefill from object storage, but doc id %d was found in its cache", docID)
+	}
 }
