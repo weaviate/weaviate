@@ -124,8 +124,6 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 			weights[i] = float64(targetCombination.Weights[i])
 		}
 
-		scoresToRemove := make(map[uint64]struct{})
-
 		fusionInput := make([][]*search.Result, len(results))
 		for i := range results {
 			localIDs := make(map[uint64]struct{}, len(allIDs))
@@ -144,26 +142,8 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 			if err := getScoresOfMissingResults(ctx, shard, logger, missingIDs, &resultContainer, targetCombination.Weights); err != nil {
 				return nil, nil, err
 			}
-			for key := range resultContainer.IDsToRemove {
-				scoresToRemove[key] = struct{}{}
-			}
 			fusionInput[i] = resultContainer.ResultsIn
 			clear(missingIDs) // each target vector is handled separately for hybrid
-		}
-
-		// remove objects that have missing target vectors
-		if len(scoresToRemove) > 0 {
-			for i := range fusionInput {
-				for j := len(fusionInput[i]) - 1; j >= 0; j-- {
-					if _, ok := scoresToRemove[*fusionInput[i][j].DocID]; ok {
-						if j < len(fusionInput[i])-1 {
-							fusionInput[i] = append(fusionInput[i][:j], fusionInput[i][j+1:]...)
-						} else {
-							fusionInput[i] = fusionInput[i][:j]
-						}
-					}
-				}
-			}
 		}
 
 		joined := hybrid.FusionRelativeScore(weights, fusionInput, targetVectors, false)
@@ -291,8 +271,12 @@ func getScoresOfMissingResults(ctx context.Context, shard DistanceForVector, log
 			mutex.Lock()
 			defer mutex.Unlock()
 			if err != nil {
-				// when we cannot look up missing distances for an object, it will be removed from the result list
-				combinedResults.RemoveIdFromResult(id)
+				// Missing named vectors (or other per-object distance lookup
+				// failures) must not drop an object that already qualified in
+				// another selected target space. Keep the partial score and
+				// skip only the unavailable component.
+				logger.WithError(err).WithField("id", id).
+					Debug("skipping unavailable target vector distance in multi-target join")
 			} else {
 				combinedResults.AddScores(id, targets.target, distances, targets.weights)
 			}
