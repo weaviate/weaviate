@@ -325,11 +325,16 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		}
 
 		candidateLocked := true
+		var lockedNeighbor *vertex
 		func() {
-			// ensure we unlock the node even if we panic while
-			// accessing its connections
+			// ensure we unlock whichever node we hold even if we panic while
+			// accessing its connections. Restored connection data can advertise
+			// more entries than it stores, so the decode itself can panic.
 			defer func() {
 				if err := recover(); err != nil {
+					if lockedNeighbor != nil {
+						lockedNeighbor.Unlock()
+					}
 					if candidateLocked {
 						candidateNode.Unlock()
 					}
@@ -427,7 +432,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 							continue
 						}
 						node.Lock()
+						lockedNeighbor = node
 						neighborConnections = node.connections.CopyLayer(neighborConnections[:0], uint8(level))
+						lockedNeighbor = nil
 						node.Unlock()
 						for _, expId := range neighborConnections {
 							if visitedExp.CheckAndVisit(expId) {
@@ -909,10 +916,20 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			strategy = RRE
 		} else {
 			counter := float32(0)
-			entryPointNode.Lock()
-			hasLayers := entryPointNode.connections.Layers() >= 1
-			connectionCount := entryPointNode.connections.LenAtLayer(0)
-			if hasLayers {
+			var hasLayers bool
+			var connectionCount int
+			func() {
+				entryPointNode.Lock()
+				// the decode below panics on restored connection data that
+				// advertises more entries than it stores
+				defer entryPointNode.Unlock()
+
+				hasLayers = entryPointNode.connections.Layers() >= 1
+				connectionCount = entryPointNode.connections.LenAtLayer(0)
+				if !hasLayers {
+					return
+				}
+
 				iterator := entryPointNode.connections.ElementIterator(0)
 				for iterator.Next() {
 					_, value := iterator.Current()
@@ -927,8 +944,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 						counter++
 					}
 				}
-			}
-			entryPointNode.Unlock()
+			}()
 
 			if hasLayers && counter/float32(connectionCount) > float32(h.acornFilterRatio) {
 				strategy = RRE

@@ -167,6 +167,85 @@ func TestSearchConcurrentWithConnectionUpdates(t *testing.T) {
 	}
 }
 
+// The ACORN expansion holds a neighbor's mutex while it copies that neighbor's
+// layer. Decoding a layer panics when its header claims more entries than its
+// bytes hold, which is what a corrupted snapshot restores: NewWithData only
+// checks that a layer's declared length fits inside the blob, never that the
+// length matches the entry count. The panic must not carry the mutex away with
+// it, or every later search and write on that vertex blocks forever.
+func TestSearchUnlocksNeighborWhenConnectionDecodePanics(t *testing.T) {
+	const size = 200
+
+	ctx := context.Background()
+	vectors, queries := testinghelpers.RandomVecs(size, 1, 8)
+
+	store := testinghelpers.NewDummyStore(t)
+	t.Cleanup(func() { store.Shutdown(ctx) })
+
+	index, err := New(Config{
+		RootPath:              t.TempDir(),
+		ID:                    "acorn-neighbor-decode-panic",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		AcornFilterRatio:             0.4,
+	}, ent.UserConfig{
+		MaxConnections:        16,
+		EFConstruction:        16,
+		VectorCacheMaxObjects: 100000,
+		FilterStrategy:        ent.FilterStrategyAcorn,
+	}, cyclemanager.NewCallbackGroupNoop(), store)
+	require.Nil(t, err)
+	t.Cleanup(func() { index.Shutdown(ctx) })
+
+	for id := uint64(0); id < size; id++ {
+		require.Nil(t, index.Add(ctx, id, vectors[id]))
+	}
+
+	entryPoint := index.entryPointID
+	corrupt := uint64(0)
+	if entryPoint == corrupt {
+		corrupt = 1
+	}
+
+	// The entrypoint points only at the corrupt vertex, and the allow list holds
+	// only the entrypoint, so the expansion has to decode the corrupt vertex
+	// instead of accepting it straight off the allow list.
+	index.currentMaximumLayer = 0
+	index.nodes[entryPoint].connections.ReplaceLayer(0, []uint64{corrupt})
+	index.nodes[corrupt].connections = packedconn.NewWithData(layerClaimingMoreEntriesThanItStores())
+
+	require.Panics(t, func() {
+		index.SearchByVector(ctx, queries[0], 10, helpers.NewAllowList(entryPoint))
+	})
+
+	require.True(t, index.nodes[corrupt].TryLock(),
+		"the panic left the neighbor vertex locked")
+	index.nodes[corrupt].Unlock()
+}
+
+// layerClaimingMoreEntriesThanItStores builds the blob NewWithData parses: a
+// layer count, then per layer a packed scheme+count, a data length, and the
+// data. This one declares ten 3-byte entries and stores three bytes.
+func layerClaimingMoreEntriesThanItStores() []byte {
+	const (
+		scheme = 1  // SCHEME_3BYTE
+		count  = 10 // stored in the upper 12 bits
+	)
+	packed := uint16(scheme) | uint16(count)<<4
+
+	blob := []byte{1} // one layer
+	blob = append(blob, byte(packed), byte(packed>>8))
+	blob = append(blob, 3, 0, 0, 0) // data length
+	blob = append(blob, 0xFF, 0xFF, 0xFF)
+	return blob
+}
+
 // https://github.com/weaviate/weaviate/issues/12935
 //
 // knnSearchByVector locks the entrypoint vertex to measure how many of its
