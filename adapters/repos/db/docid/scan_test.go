@@ -22,6 +22,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -56,29 +57,47 @@ func TestScanObjectsLSM(t *testing.T) {
 		{name: "the last scan call fails", objectCount: manyObjects, failOnCall: manyObjects},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			logger, _ := test.NewNullLogger()
-			store, pointers := storeWithObjects(t, tt.objectCount, logger, false)
+	// the memtable and the segment are separate reads: only the segment fills the
+	// caller's buffer, so every failure position runs against both
+	storages := []struct {
+		name     string
+		segments int
+	}{
+		{name: "memtable", segments: 0},
+		{name: "segment", segments: 1},
+	}
 
-			var calls atomic.Int64
-			scan := func(_ context.Context, _ *models.PropertySchema, _ uint64) error {
-				if int(calls.Add(1)) == tt.failOnCall {
-					return errScanFn
-				}
-				return nil
+	for _, storage := range storages {
+		t.Run(storage.name, func(t *testing.T) {
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					runScanObjectsLSMCase(t, tt.objectCount, tt.failOnCall, storage.segments)
+				})
 			}
-
-			err := ScanObjectsLSM(context.Background(), store, pointers, scan, []string{"name"}, logger)
-
-			if tt.failOnCall == 0 {
-				require.NoError(t, err)
-				require.Equal(t, int64(tt.objectCount), calls.Load())
-				return
-			}
-			require.ErrorIs(t, err, errScanFn)
 		})
 	}
+}
+
+func runScanObjectsLSMCase(t *testing.T, objectCount, failOnCall, segments int) {
+	logger, _ := test.NewNullLogger()
+	store, pointers := storeWithObjects(t, objectCount, logger, segments)
+
+	var calls atomic.Int64
+	scan := func(_ context.Context, _ *models.PropertySchema, _ uint64) error {
+		if int(calls.Add(1)) == failOnCall {
+			return errScanFn
+		}
+		return nil
+	}
+
+	err := ScanObjectsLSM(context.Background(), store, pointers, scan, []string{"name"}, logger)
+
+	if failOnCall == 0 {
+		require.NoError(t, err)
+		require.Equal(t, int64(objectCount), calls.Load())
+		return
+	}
+	require.ErrorIs(t, err, errScanFn)
 }
 
 func TestScanObjectsLSMCancellation(t *testing.T) {
@@ -138,7 +157,7 @@ func TestScanObjectsLSMCancellation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
-			store, pointers := storeWithObjects(t, tt.storedObjects, logger, false)
+			store, pointers := storeWithObjects(t, tt.storedObjects, logger, 0)
 			for i := len(pointers); i < tt.pointerCount; i++ {
 				pointers = append(pointers, uint64(i))
 			}
@@ -211,7 +230,7 @@ func TestScanObjectsLSMPropertyValues(t *testing.T) {
 			}
 
 			logger, _ := test.NewNullLogger()
-			store, stored := storeWithProperties(t, logger, true, props)
+			store, stored := storeWithProperties(t, logger, 1, props)
 
 			pointers := stored
 			if tt.missingEvery > 0 {
@@ -263,24 +282,30 @@ func objectProperties(i, padding int) map[string]interface{} {
 	}
 }
 
-// Sweeps what the per-doc-ID context poll and the reused payload buffer cost,
-// on the two shapes the loop takes: every doc ID resolving to an object, and
-// none of them resolving.
+// Sweeps what the per-doc-ID context poll, the reused payload buffer and the
+// consistent view cost. A read references every segment it may consult, so the
+// several-segments row is the one that shows what one view per scan saves over
+// one per doc ID.
 func BenchmarkScanObjectsLSM(b *testing.B) {
-	const docIDCount = 50000
+	const (
+		docIDCount   = 50000
+		manySegments = 8
+	)
 
 	benchmarks := []struct {
 		name          string
 		storedObjects int
+		segments      int
 	}{
-		{name: "every doc ID resolves", storedObjects: docIDCount},
-		{name: "no doc ID resolves", storedObjects: 0},
+		{name: "every doc ID resolves, one segment", storedObjects: docIDCount, segments: 1},
+		{name: "every doc ID resolves, several segments", storedObjects: docIDCount, segments: manySegments},
+		{name: "no doc ID resolves", storedObjects: 0, segments: 0},
 	}
 
 	for _, bm := range benchmarks {
 		b.Run(bm.name, func(b *testing.B) {
 			logger, _ := test.NewNullLogger()
-			store, pointers := storeWithObjects(b, bm.storedObjects, logger, true)
+			store, pointers := storeWithObjects(b, bm.storedObjects, logger, bm.segments)
 			for i := len(pointers); i < docIDCount; i++ {
 				pointers = append(pointers, uint64(i))
 			}
@@ -301,18 +326,19 @@ func BenchmarkScanObjectsLSM(b *testing.B) {
 // storeWithObjects returns a store holding count objects keyed by their UUID,
 // with the docID secondary index ScanObjectsLSM resolves pointers through, and
 // the docIDs of those objects.
-func storeWithObjects(tb testing.TB, count int, logger logrus.FieldLogger, flush bool) (*lsmkv.Store, []uint64) {
+func storeWithObjects(tb testing.TB, count int, logger logrus.FieldLogger, segments int) (*lsmkv.Store, []uint64) {
 	props := make([]map[string]interface{}, count)
 	for i := range props {
 		props[i] = map[string]interface{}{"name": fmt.Sprintf("object-%d", i)}
 	}
-	return storeWithProperties(tb, logger, flush, props)
+	return storeWithProperties(tb, logger, segments, props)
 }
 
 // storeWithProperties returns a store holding one object per entry in props and
-// the docIDs of those objects. flush is what puts them in a disk segment, the
-// only path on which GetBySecondaryWithBuffer fills the caller's buffer.
-func storeWithProperties(tb testing.TB, logger logrus.FieldLogger, flush bool,
+// the docIDs of those objects. segments is how many disk segments to spread them
+// over, 0 leaving them in the memtable; only a disk segment fills a read's buffer
+// and carries a reference count.
+func storeWithProperties(tb testing.TB, logger logrus.FieldLogger, segments int,
 	props []map[string]interface{},
 ) (*lsmkv.Store, []uint64) {
 	ctx := context.Background()
@@ -323,11 +349,21 @@ func storeWithProperties(tb testing.TB, logger logrus.FieldLogger, flush bool,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
 	require.NoError(tb, err)
-	tb.Cleanup(func() { require.NoError(tb, store.Shutdown(ctx)) })
+	tb.Cleanup(func() { requireShutdownCompletes(tb, store) })
 
 	require.NoError(tb, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
 		lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1)))
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+
+	// the last index of each segment's run of objects, so every flush below has a
+	// non-empty memtable and lands one segment on disk
+	flushAfter := map[int]bool{}
+	if segments > 0 && len(props) > 0 {
+		require.LessOrEqual(tb, segments, len(props), "each segment needs at least one object")
+		for s := 1; s <= segments; s++ {
+			flushAfter[s*len(props)/segments-1] = true
+		}
+	}
 
 	pointers := make([]uint64, len(props))
 	for i := range pointers {
@@ -349,25 +385,51 @@ func storeWithProperties(tb testing.TB, logger logrus.FieldLogger, flush bool,
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
 		require.NoError(tb, bucket.Put(idBytes, objBytes,
 			lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)))
+
+		if flushAfter[i] {
+			require.NoError(tb, bucket.FlushMemtable())
+		}
 	}
 
-	if flush && len(props) > 0 {
-		require.NoError(tb, bucket.FlushMemtable())
-		requireSegmentOnDisk(tb, bucket.GetDir())
+	if len(flushAfter) > 0 {
+		requireSegmentsOnDisk(tb, bucket.GetDir(), segments)
 	}
 
 	return store, pointers
 }
 
-// requireSegmentOnDisk fails unless the bucket wrote a segment; without one a
-// scan answers from the memtable and never reuses the buffer.
-func requireSegmentOnDisk(tb testing.TB, dir string) {
+// how long a store gets to shut down. Closing this fixture's segments is orders of
+// magnitude faster, so reaching the bound means shutdown is waiting on a segment
+// reference that was never dropped rather than doing work.
+const shutdownBound = 5 * time.Second
+
+// requireShutdownCompletes shuts the store down, failing the test rather than
+// blocking its binary when the wait for every segment's reference count to reach
+// zero does not finish.
+func requireShutdownCompletes(tb testing.TB, store *lsmkv.Store) {
+	done := make(chan error, 1)
+	// a bare goroutine keeps a panic in Shutdown visible; GoWrapper recovers it
+	go func() { done <- store.Shutdown(context.Background()) }()
+
+	select {
+	case err := <-done:
+		require.NoError(tb, err)
+	case <-time.After(shutdownBound):
+		require.FailNow(tb, "store shutdown blocked", "a consistent view was never released")
+	}
+}
+
+// requireSegmentsOnDisk fails unless the bucket wrote want segments. With none a
+// scan answers from the memtable and never reuses its buffer; the count is how
+// many references one consistent view takes.
+func requireSegmentsOnDisk(tb testing.TB, dir string, want int) {
 	entries, err := os.ReadDir(dir)
 	require.NoError(tb, err)
+	got := 0
 	for _, e := range entries {
 		if filepath.Ext(e.Name()) == ".db" {
-			return
+			got++
 		}
 	}
-	require.Fail(tb, "no segment file in "+dir)
+	require.Equal(tb, want, got, "segment files in %s", dir)
 }
