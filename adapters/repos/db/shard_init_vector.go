@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"path/filepath"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -38,6 +40,24 @@ import (
 	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+// vectorFromObjectForTarget reads targetVector's vector straight out of an
+// object's stored bytes, for the startup prefill's parallel scan of the
+// objects bucket. An object without that vector is skipped. The shard binds
+// this like every other object read, so the index never learns its name.
+func vectorFromObjectForTarget(targetVector string) hnsw.VectorFromObject {
+	return func(objectBytes []byte) ([]float32, error) {
+		vec, err := storobj.VectorFromBinary(objectBytes, nil, targetVector)
+		if err != nil {
+			var notFound storobj.ErrTargetVectorNotFound
+			if stderrors.As(err, &notFound) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		return vec, nil
+	}
+}
 
 func (s *Shard) initShardVectors(ctx context.Context) error {
 	// Snapshot under the index config lock: updateVectorIndexConfig(s) mutate
@@ -57,6 +77,18 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// vectorIndexLogger identifies every log line under one vector index: the
+// logical name for operators, the physical id for storage. The index, its
+// queue and everything they construct inherit it.
+func (s *Shard) vectorIndexLogger(targetVector, indexID string) logrus.FieldLogger {
+	return s.index.logger.WithFields(logrus.Fields{
+		"class":         s.index.Config.ClassName.String(),
+		"shard":         s.name,
+		"target_vector": targetVector,
+		"index_id":      indexID,
+	})
 }
 
 func (s *Shard) initVectorIndex(ctx context.Context,
@@ -88,6 +120,19 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		makeBucketOptions = s.overwrittenMakeDefaultBucketOptions(lsmkv.WithLazySegmentLoading(lazyLoadSegments))
 	}
 
+	// a shard can actually have multiple vector indexes:
+	// - the main index, which is used for all normal object vectors
+	// - a geo property index for each geo prop in the schema
+	//
+	// here we label the main vector index as such.
+	vecIdxID := s.vectorIndexID(targetVector)
+
+	// Every log line under this index carries both identities: the logical
+	// name for operators ("which vector?") and the physical id for storage
+	// ("which files?"). Implementations and the entities they own (compressors,
+	// commit loggers, queues) inherit it and add nothing of their own.
+	logger := s.vectorIndexLogger(targetVector, vecIdxID)
+
 	switch vectorIndexUserConfig.IndexType() {
 	case vectorindex.VectorIndexTypeHNSW:
 		hnswUserConfig, ok := vectorIndexUserConfig.(hnswent.UserConfig)
@@ -103,21 +148,15 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 			s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
-			// a shard can actually have multiple vector indexes:
-			// - the main index, which is used for all normal object vectors
-			// - a geo property index for each geo prop in the schema
-			//
-			// here we label the main vector index as such.
-			vecIdxID := s.vectorIndexID(targetVector)
-
 			vi, err := hnsw.New(hnsw.Config{
-				Logger:                            s.index.logger,
+				Logger:                            logger,
 				RootPath:                          s.path(),
 				ID:                                vecIdxID,
 				ShardName:                         s.name,
 				ClassName:                         s.index.Config.ClassName.String(),
 				PrometheusMetrics:                 s.promMetrics,
 				VectorForIDThunk:                  hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+				VectorFromObject:                  vectorFromObjectForTarget(targetVector),
 				MultiVectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.multiVectorByIndexID),
 				TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
 				GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
@@ -131,7 +170,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 					}, opts...)
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
-						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+						logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 						allOpts...,
 					)
 				},
@@ -156,18 +195,10 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		}
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 
-		// a shard can actually have multiple vector indexes:
-		// - the main index, which is used for all normal object vectors
-		// - a geo property index for each geo prop in the schema
-		//
-		// here we label the main vector index as such.
-		vecIdxID := s.vectorIndexID(targetVector)
-
 		vi, err := flat.New(flat.Config{
 			ID:                vecIdxID,
-			TargetVector:      targetVector,
 			RootPath:          s.path(),
-			Logger:            s.index.logger,
+			Logger:            logger,
 			DistanceProvider:  distProv,
 			AllocChecker:      s.index.allocChecker,
 			MakeBucketOptions: makeBucketOptions,
@@ -185,13 +216,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
-		// a shard can actually have multiple vector indexes:
-		// - the main index, which is used for all normal object vectors
-		// - a geo property index for each geo prop in the schema
-		//
-		// here we label the main vector index as such.
-		vecIdxID := s.vectorIndexID(targetVector)
-
 		metaDB, err := s.getOrInitMetadataDB()
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
@@ -199,14 +223,14 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 
 		vi, err := dynamic.New(dynamic.Config{
 			ID:                           vecIdxID,
-			TargetVector:                 targetVector,
-			Logger:                       s.index.logger,
+			Logger:                       logger,
 			DistanceProvider:             distProv,
 			RootPath:                     s.path(),
 			ShardName:                    s.name,
 			ClassName:                    s.index.Config.ClassName.String(),
 			PrometheusMetrics:            s.promMetrics,
 			VectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+			VectorFromObject:             vectorFromObjectForTarget(targetVector),
 			GetViewThunk:                 func() vcommon.BucketView { return s.GetObjectsBucketView() },
 			TempVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
 			MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
@@ -216,7 +240,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 				}, opts...)
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
-					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+					logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 					allOpts...,
 				)
 			},
@@ -240,16 +264,16 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
-		hfreshConfigID := s.vectorIndexID(targetVector)
+		hfreshConfigID := vecIdxID
+		centroidsID := helpers.CentroidsID(hfreshConfigID)
 		rootPath := filepath.Join(s.path(), helpers.HFreshDirName(hfreshConfigID))
 
 		hfreshConfig := &hfresh.Config{
-			Logger:            s.index.logger,
+			Logger:            logger,
 			Scheduler:         s.index.scheduler,
 			DistanceProvider:  distProv,
 			RootPath:          rootPath,
 			ID:                hfreshConfigID,
-			TargetVector:      targetVector,
 			ShardName:         s.name,
 			ClassName:         s.index.Config.ClassName.String(),
 			PrometheusMetrics: s.promMetrics,
@@ -262,9 +286,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			TombstoneCallbacks:           s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			Centroids: hfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
-					Logger:                            s.index.logger,
+					Logger:                            logger,
 					RootPath:                          rootPath,
-					ID:                                hfreshConfigID + "_centroids",
+					ID:                                centroidsID,
 					ShardName:                         s.name,
 					ClassName:                         s.index.Config.ClassName.String(),
 					PrometheusMetrics:                 s.promMetrics,
@@ -280,8 +304,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 							// consistent with previous logic where the individual limit is 1/5 of the combined limit
 							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 						}, opts...)
-						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
-							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+						return hnsw.NewCommitLogger(rootPath, centroidsID,
+							logger.WithField("index_id", centroidsID), s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							allOpts...,
 						)
 					},

@@ -299,7 +299,9 @@ func New(cfg Config, uc ent.UserConfig,
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
+	// index_id before anything is built from cfg.Logger (cache, compressors):
+	// a centroid graph or geo index inherits its owner's id and must override it
+	cfg.Logger = common.LoggerOrDiscard(cfg.Logger).WithField("index_id", cfg.ID)
 
 	if cfg.AllocChecker == nil {
 		// Insert paths call CheckAlloc unconditionally; a caller that does not
@@ -409,11 +411,6 @@ func New(cfg Config, uc ent.UserConfig,
 		makeBucketOptions: cfg.MakeBucketOptions,
 		fs:                common.NewOSFS(),
 	}
-	index.logger = cfg.Logger.WithFields(logrus.Fields{
-		"shard":        cfg.ShardName,
-		"class":        cfg.ClassName,
-		"targetVector": index.getTargetVector(),
-	})
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
@@ -424,11 +421,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraEnabled() {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.compressedBucketName(), index.vectorForID)
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.compressedBucketName(), index.vectorForID)
 		}
 		if err != nil {
 			return nil, err
@@ -473,12 +470,10 @@ func New(cfg Config, uc ent.UserConfig,
 	return index, nil
 }
 
-func (h *hnsw) getTargetVector() string {
-	if name, found := strings.CutPrefix(h.id, fmt.Sprintf("%s_", helpers.VectorsBucketLSM)); found {
-		return name
-	}
-	// legacy vector index
-	return ""
+// compressedBucketName names the quantized-vectors bucket from the physical
+// ID, the same way flat, dynamic and hfresh name their storage.
+func (h *hnsw) compressedBucketName() string {
+	return helpers.CompressedBucketNameForID(h.id)
 }
 
 // TODO: use this for incoming replication
@@ -1156,6 +1151,48 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 	stats.CompressionType = stats.CompressorStats.CompressionType()
 
 	return &stats, nil
+}
+
+// getBucket returns the named bucket pinned for the caller's operation, or an
+// error if the store no longer holds it. A shard teardown deregisters every
+// bucket up front and drains in-flight requests afterwards, so an operation
+// that is already running finds no bucket under the name it resolved.
+//
+// The release closure is always non-nil and must be called exactly once. It
+// holds off the bucket's Shutdown for the operation's duration, so a teardown
+// racing a lookup that already succeeded cannot unmap the segments underneath
+// it. Prefer [hnsw.putInBucket] / [hnsw.deleteFromBucket], which pair the pin
+// with its release for a single operation.
+func (h *hnsw) getBucket(name string) (*lsmkv.Bucket, func(), error) {
+	bucket, release := h.store.AcquireBucketForRead(name)
+	if bucket == nil {
+		return nil, release, fmt.Errorf("hnsw index %q: bucket %q: %w", h.id, name, lsmkv.ErrBucketNotFound)
+	}
+	return bucket, release, nil
+}
+
+// putInBucket writes one entry to the named bucket under a lifetime pin held
+// for exactly that write. Callers write inside per-vector loops, where a
+// deferred release would pile pins up until the whole batch is done.
+func (h *hnsw) putInBucket(name string, key, value []byte) error {
+	bucket, release, err := h.getBucket(name)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Put(key, value)
+}
+
+// deleteFromBucket is [hnsw.putInBucket]'s counterpart for removals.
+func (h *hnsw) deleteFromBucket(name string, key []byte) error {
+	bucket, release, err := h.getBucket(name)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Delete(key)
 }
 
 func (h *hnsw) Type() common.IndexType {

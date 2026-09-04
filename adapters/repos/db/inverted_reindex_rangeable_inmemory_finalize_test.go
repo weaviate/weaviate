@@ -87,23 +87,11 @@ func putRangeableTestObjects(t *testing.T, ctx context.Context, shard *Shard, cl
 	}
 }
 
-// runReindexToCompletionOrError drives OnAfterLsmInit + OnAfterLsmInitAsync
-// to convergence, returning the first error encountered (nil if the
-// migration converged cleanly).
+// runReindexToCompletionOrError drives the full lifecycle, returning the
+// first error encountered (nil if the migration converged cleanly).
 func runReindexToCompletionOrError(t *testing.T, ctx context.Context, task *ShardReindexTaskGeneric, shard *Shard) error {
 	t.Helper()
-	if err := task.OnAfterLsmInit(ctx, shard); err != nil {
-		return err
-	}
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		if err != nil {
-			return err
-		}
-		if rerunAt.IsZero() {
-			return nil
-		}
-	}
+	return task.RunOnShard(ctx, shard)
 }
 
 // setupRangeableFinalizeDegradeFixture builds a shard, injects a

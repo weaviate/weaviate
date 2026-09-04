@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -33,8 +34,12 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -475,6 +480,125 @@ func TestInitGeoPropNamesItsShard(t *testing.T) {
 	for _, prop := range props {
 		require.NotZerof(t, namedPerProp[geoPropID(prop)],
 			"prop %q logged no line naming its class and shard", prop)
+	}
+}
+
+// testShardWithNamedVector builds a shard whose only vector index is the named
+// vector "title" with the given config (async indexing on, as dynamic needs).
+func testShardWithNamedVector(t *testing.T, ctx context.Context, className string,
+	vic schemaConfig.VectorIndexConfig,
+) (ShardLike, *Index) {
+	t.Helper()
+	return testShardWithSettings(t, ctx, &models.Class{Class: className}, nil, false, true, true,
+		func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": vic}
+		},
+	)
+}
+
+func removeRootPath(t *testing.T, idx *Index) {
+	t.Helper()
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+// TestVectorIndexLoggerCarriesIdentity pins the contract that lets storage-layer
+// entities (compressors, commit loggers, queues) log without ever being told
+// the logical target-vector name: the shard bakes both identities — the
+// logical name for operators and the physical id for storage — into one
+// logger, and every implementation, its queue, and everything they construct
+// inherit it.
+//
+// Observed lines: the queue's own lines while it indexes the inserted vectors
+// (every index type), and the construction lines of the implementations that
+// emit them (hnsw "restored data from disk", hfresh's posting-size line). flat
+// and dynamic construct silently on an empty index, so for them the queue lines
+// are what proves the inheritance. Every line carrying index_id must also carry
+// target_vector, class and shard; queue lines are additionally required to be
+// present, so losing the queue's identity fails the test on its own.
+func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
+	hnswUC := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
+	hnswUC.SetDefaults()
+	flatUC := flatent.UserConfig{Distance: common.DefaultDistanceMetric}
+	flatUC.SetDefaults()
+	dynamicUC := dynamicent.UserConfig{Distance: common.DefaultDistanceMetric}
+	dynamicUC.SetDefaults()
+	hfreshUC := hfreshent.UserConfig{Distance: common.DefaultDistanceMetric}
+	hfreshUC.SetDefaults()
+
+	tests := []struct {
+		name string
+		vic  schemaConfig.VectorIndexConfig
+		// every index-tagged line must carry one of these ids; each must be seen
+		wantIDs []string
+	}{
+		{"hnsw", hnswUC, []string{"vectors_title"}},
+		{"flat", flatUC, []string{"vectors_title"}},
+		{"dynamic", dynamicUC, []string{"vectors_title"}},
+		// hfresh's centroid graph is its own index and must log its own id
+		{"hfresh", hfreshUC, []string{"vectors_title", "vectors_title_centroids"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			className := "LoggerIdentity" + tc.name
+			shd, idx := testShardWithNamedVector(t, ctx, className, tc.vic)
+			s := shd.(*Shard)
+			defer removeRootPath(t, idx)
+			defer func() { require.NoError(t, idx.drop()) }()
+
+			// hook the shard's own logger rather than replacing it: the field is
+			// read unsynchronized from background goroutines already running
+			logger, ok := s.index.logger.(*logrus.Logger)
+			require.True(t, ok, "the test shard no longer carries a hookable logger")
+			hook := test.NewLocal(logger)
+			logger.SetLevel(logrus.DebugLevel)
+
+			// a few vectors, so the queue produces lines under this index while
+			// indexing them; wait for it to drain before recreating the index
+			var objs []*storobj.Object
+			for i := 0; i < 8; i++ {
+				objs = append(objs, &storobj.Object{
+					MarshallerVersion: 1,
+					Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: className},
+					Vectors:           map[string][]float32{"title": {float32(i), 1, 0, 1}},
+				})
+			}
+			for _, err := range shd.PutObjectBatch(ctx, objs) {
+				require.NoError(t, err)
+			}
+			q, ok := shd.GetVectorIndexQueue("title")
+			require.True(t, ok)
+			require.Eventually(t, func() bool { return q.Size() == 0 }, 30*time.Second, 50*time.Millisecond)
+
+			// recreate the named vector's index and queue while the hook is
+			// attached, so their construction and preload lines are captured
+			require.NoError(t, s.DropVectorIndex(ctx, "title"))
+			require.NoError(t, s.initTargetVector(ctx, "title", tc.vic, false))
+
+			var indexLines, queueLines int
+			seenIDs := map[string]bool{}
+			for _, entry := range hook.AllEntries() {
+				indexID, ok := entry.Data["index_id"].(string)
+				if entry.Data["component"] == "vector_index_queue" {
+					require.Truef(t, ok, "queue line %q lost its index_id", entry.Message)
+					queueLines++
+				}
+				if !ok {
+					continue // not a line under a vector index
+				}
+				indexLines++
+				require.Containsf(t, tc.wantIDs, indexID, "line %q: index_id=%q", entry.Message, indexID)
+				seenIDs[indexID] = true
+				require.Equalf(t, "title", entry.Data["target_vector"], "line %q", entry.Message)
+				require.Equalf(t, className, entry.Data["class"], "line %q", entry.Message)
+				require.Equalf(t, s.name, entry.Data["shard"], "line %q", entry.Message)
+			}
+			require.NotZero(t, indexLines, "no log line under the recreated index carried index_id")
+			for _, id := range tc.wantIDs {
+				require.Truef(t, seenIDs[id], "no log line carried index_id=%q", id)
+			}
+			require.NotZero(t, queueLines, "the vector index queue logged no identified line")
+		})
 	}
 }
 

@@ -39,7 +39,6 @@ type Config struct {
 	DistanceProvider             distancer.Provider
 	RootPath                     string
 	ID                           string
-	TargetVector                 string
 	ShardName                    string
 	ClassName                    string
 	PrometheusMetrics            *monitoring.PrometheusMetrics

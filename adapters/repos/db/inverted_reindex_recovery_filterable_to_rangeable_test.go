@@ -254,14 +254,7 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 		"pre-migration rangeable bucket must NOT exist (IndexRangeFilters defaults to false)")
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted,
 		"OnMigrationComplete must fire post-migration")
 
@@ -290,4 +283,30 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 	require.True(t, rt.IsMerged())
 	require.True(t, rt.IsSwapped())
 	require.True(t, rt.IsTidied())
+}
+
+// FromEachState pins the same recovery invariant as the RebuildSearchable
+// matrix, for the rangeable family (enable-/repair-rangeable): from any
+// on-disk state a restart can interrupt at, one relaunch must converge to
+// a clean-run baseline.
+func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
+	const numObjects = 25
+	propName := filterableToRangeablePropName
+
+	recoveryConvergenceMatrix[uint64]{
+		namePrefix: "FilterableToRangeable",
+		buildClass: newFilterableToRangeableTestClass,
+		seedObjects: func(t *testing.T, ctx context.Context, shard *Shard, className string) {
+			for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+		},
+		buildTask: func(t *testing.T, idx *Index, className string) (*ShardReindexTaskGeneric, func() bool) {
+			task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
+			return task, func() bool { return wrapped.migrationCompleted }
+		},
+		bucketName:   helpers.BucketRangeableFromPropNameLSM(propName),
+		wantStrategy: lsmkv.StrategyRoaringSetRange,
+		fingerprint:  filterableToRangeableFingerprint,
+	}.run(t)
 }
