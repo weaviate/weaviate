@@ -167,10 +167,10 @@ func TestRoaringSetRangeReaderConsistentViewInMemo(t *testing.T) {
 			segments:                       []Segment{},
 			roaringSetRangeSegmentInMemory: segInMemo,
 		},
-		strategy:             StrategyRoaringSetRange,
-		keepSegmentsInMemory: true,
-		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
-		logger:               nullLogger(),
+		strategy:                   StrategyRoaringSetRange,
+		keepMergedSegmentsInMemory: true,
+		bitmapBufPool:              roaringset.NewBitmapBufPoolNoop(),
+		logger:                     nullLogger(),
 	}
 
 	// Open the reader that should see key1..key3 only and stay stable

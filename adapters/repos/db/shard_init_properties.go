@@ -165,10 +165,15 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			return s.initGeoProp(prop)
 		}
 
+		var inMemory []lsmkv.BucketOption
+		if s.index.Config.IndexRoaringSetInMemory.Has(string(s.index.Config.ClassName) + "." + prop.Name) {
+			inMemory = append(inMemory, lsmkv.WithKeepMergedSegmentsInMemory(true))
+		}
+
 		if schema.IsRefDataType(prop.DataType) {
 			if err := s.store.CreateOrLoadBucket(ctx,
 				helpers.BucketFromPropNameMetaCountLSM(prop.Name),
-				makeBucketOptions(lsmkv.StrategyRoaringSet)...,
+				makeBucketOptions(lsmkv.StrategyRoaringSet, inMemory...)...,
 			); err != nil {
 				return err
 			}
@@ -176,7 +181,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSet)...,
+			makeBucketOptions(lsmkv.StrategyRoaringSet, inMemory...)...,
 		); err != nil {
 			return err
 		}

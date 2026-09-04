@@ -18,10 +18,12 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -178,4 +180,95 @@ func TestTotalShardSizeBytes_PrefersMetaFileWhenPresent(t *testing.T) {
 
 	got := db.totalShardSizeBytes(className, []string{shardName}, 0)
 	require.Equal(t, fullShardBytes, got)
+}
+
+// TestWarnUnmatchedRoaringSetInMemoryEntries pins the one-time startup warning
+// for INDEX_ROARINGSET_IN_MEMORY entries that match no live
+// <Collection>.<property>: a well-formed but unmatched entry (typo, wrong
+// case) must be loud, a matched one silent.
+func TestWarnUnmatchedRoaringSetInMemoryEntries(t *testing.T) {
+	mkSchema := func() schema.Schema {
+		return schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+			Class: "Article",
+			Properties: []*models.Property{
+				{Name: "title", DataType: schema.DataTypeText.PropString()},
+			},
+		}}}}
+	}
+
+	warnMessages := func(hook *logrustest.Hook) []string {
+		var msgs []string
+		for _, entry := range hook.AllEntries() {
+			msgs = append(msgs, entry.Message)
+		}
+		return msgs
+	}
+
+	t.Run("unmatched entries warn", func(t *testing.T) {
+		logger, hook := logrustest.NewNullLogger()
+		warnUnmatchedRoaringSetInMemoryEntries(logger, mkSchema(), entcfg.StringSet{
+			"Missing.title":   {}, // no such collection
+			"Article.summary": {}, // no such property
+		})
+
+		msgs := warnMessages(hook)
+		require.Len(t, msgs, 2)
+		require.Contains(t, msgs, `INDEX_ROARINGSET_IN_MEMORY entry "Missing.title" matches no collection`)
+		require.Contains(t, msgs, `INDEX_ROARINGSET_IN_MEMORY entry "Article.summary" matches no property on collection "Article"`)
+	})
+
+	t.Run("matched entry stays silent", func(t *testing.T) {
+		logger, hook := logrustest.NewNullLogger()
+		warnUnmatchedRoaringSetInMemoryEntries(logger, mkSchema(), entcfg.StringSet{"Article.title": {}})
+		require.Empty(t, hook.AllEntries())
+	})
+
+	t.Run("entry warns when schema is empty", func(t *testing.T) {
+		logger, hook := logrustest.NewNullLogger()
+		warnUnmatchedRoaringSetInMemoryEntries(logger, schema.Schema{}, entcfg.StringSet{"Article.title": {}})
+		require.Len(t, warnMessages(hook), 1)
+	})
+}
+
+// TestWarnUnmatchedRoaringSetInMemoryEntries_Timing pins the startup ordering
+// the warn depends on: db.init runs before the RAFT schema restore, so it must
+// stay silent there; the check runs afterwards, once the same schema getter
+// serves the restored schema. Before the fix, init warned for every entry.
+func TestWarnUnmatchedRoaringSetInMemoryEntries_Timing(t *testing.T) {
+	rootPath := t.TempDir()
+	// skip the fs hierarchy migration, which needs a schema reader the bare DB
+	// literal does not have
+	require.NoError(t, os.WriteFile(path.Join(rootPath, "migration1.22.fs.hierarchy"), nil, 0o644))
+
+	getter := &fakeSchemaGetter{} // empty schema, like the RAFT-backed getter before the restore
+	logger, hook := logrustest.NewNullLogger()
+	db := &DB{
+		logger:       logger,
+		schemaGetter: getter,
+		config: Config{
+			RootPath: rootPath,
+			IndexRoaringSetInMemory: entcfg.StringSet{
+				"Article.title": {},
+				"Article.bogus": {},
+			},
+		},
+	}
+
+	require.NoError(t, db.init(context.Background()))
+	require.Empty(t, hook.AllEntries(), "init runs before the schema restore and must not warn")
+
+	// the restore populates the same getter; the one-time check runs after it
+	getter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+		Class:      "Article",
+		Properties: []*models.Property{{Name: "title", DataType: schema.DataTypeText.PropString()}},
+	}}}}
+	db.WarnUnmatchedRoaringSetInMemoryEntries()
+
+	var msgs []string
+	for _, entry := range hook.AllEntries() {
+		msgs = append(msgs, entry.Message)
+	}
+	require.Equal(t, []string{
+		`INDEX_ROARINGSET_IN_MEMORY entry "Article.bogus" matches no property on collection "Article"`,
+	}, msgs)
 }
