@@ -293,8 +293,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					ClassName:         s.index.Config.ClassName.String(),
 					PrometheusMetrics: s.promMetrics,
 					HFreshMode:        true,
-					// no VectorFromObject: the centroid graph has no vector on any
-					// object, so its startup prefill must never scan the objects bucket
 					TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
 					GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
 					TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
