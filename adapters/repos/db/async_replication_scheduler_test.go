@@ -20,6 +20,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -3376,10 +3377,22 @@ func TestRecordRootPrefilterNoDiffCancelRaceLeavesStatsEmpty(t *testing.T) {
 
 type fakeCrossClassComparer func(ctx context.Context, host string, classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error)
 
+func (f fakeCrossClassComparer) NewCompareRootsSession() replica.CompareRootsSession { return f }
+
 func (f fakeCrossClassComparer) CompareHashTreeRootsMulti(ctx context.Context, host string,
 	classes map[string]map[string]hashtree.Digest,
 ) (*replica.CompareHashTreeRootsMultiResp, error) {
 	return f(ctx, host, classes)
+}
+
+type countingSessionFactory struct {
+	inner    fakeCrossClassComparer
+	sessions atomic.Int32
+}
+
+func (c *countingSessionFactory) NewCompareRootsSession() replica.CompareRootsSession {
+	c.sessions.Add(1)
+	return c.inner
 }
 
 func newPrefilterShard(t *testing.T, class, name string) *asyncSchedulerEntry {
@@ -3389,6 +3402,31 @@ func newPrefilterShard(t *testing.T, class, name string) *asyncSchedulerEntry {
 	s.hashtree = ht
 	s.hashtreeFullyInitialized = true
 	return &asyncSchedulerEntry{shard: s}
+}
+
+func TestClassifyCrossClassSessionPerScratch(t *testing.T) {
+	asyncRepTargetHostsSeam = func(*Shard) ([]string, error) { return []string{"h1"}, nil }
+	t.Cleanup(func() { asyncRepTargetHostsSeam = nil })
+
+	comparer := &countingSessionFactory{inner: func(_ context.Context, _ string, classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+		resp := &replica.CompareHashTreeRootsMultiResp{Classes: map[string]replica.CompareHashTreeRootsMultiClassResp{}}
+		for cls := range classes {
+			resp.Classes[cls] = replica.CompareHashTreeRootsMultiClassResp{}
+		}
+		return resp, nil
+	}}
+	sched := newBareScheduler(512, 1)
+	sched.ctx = context.Background()
+	sched.crossClassComparer = comparer
+
+	scratch := newBatchScratch()
+	for i := 0; i < 3; i++ {
+		scratch.reset()
+		entry := newPrefilterShard(t, "A", fmt.Sprintf("s%d", i))
+		sched.classifyBatch([]*asyncSchedulerEntry{entry}, scratch)
+		assert.True(t, scratch.skip[entry], i)
+	}
+	assert.Equal(t, int32(1), comparer.sessions.Load())
 }
 
 // TestClassifyCrossClass covers skip/descend outcomes across hosts, classes, and fallback paths.
