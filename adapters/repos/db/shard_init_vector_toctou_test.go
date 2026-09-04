@@ -42,12 +42,14 @@ func TestInitTargetVector_Idempotent_DoesNotOrphanQueue(t *testing.T) {
 	cfg := enthnsw.UserConfig{Skip: true}
 
 	require.NoError(t, shard.initTargetVector(ctx, "v1", cfg, false))
-	q1, _ := shard.GetVectorIndexQueue("v1")
+	q1, releaseQ1, _ := shard.AcquireVectorIndexQueue("v1")
+	defer releaseQ1()
 	require.NotNil(t, q1)
 
 	require.NoError(t, shard.initTargetVector(ctx, "v1", cfg, false))
 
-	q2, _ := shard.GetVectorIndexQueue("v1")
+	q2, releaseQ2, _ := shard.AcquireVectorIndexQueue("v1")
+	defer releaseQ2()
 
 	assert.Same(t, q1, q2,
 		"re-initialising an existing target vector must not silently replace and "+

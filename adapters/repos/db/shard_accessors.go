@@ -40,26 +40,6 @@ func (s *Shard) ForEachVectorQueue(f func(targetVector string, queue *VectorInde
 	})
 }
 
-// GetVectorIndexQueue retrieves a vector index queue associated with the targetVector.
-// Empty targetVector is treated as a request to access a queue for the legacy vector index.
-func (s *Shard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
-	slot, ok := s.vectors.get(targetVector)
-	if !ok {
-		return nil, false
-	}
-	return slot.queue, true
-}
-
-// GetVectorIndex retrieves a vector index associated with the targetVector.
-// Empty targetVector is treated as a request to access the legacy vector index.
-func (s *Shard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
-	slot, ok := s.vectors.get(targetVector)
-	if !ok {
-		return nil, false
-	}
-	return slot.index, true
-}
-
 // WithVectorIndex runs f on the targetVector's index under a lease: a drop
 // of that vector waits until f returns. found is false, and f is not
 // called, when the shard has no such index. Empty targetVector is the

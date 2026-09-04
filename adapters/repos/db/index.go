@@ -4622,13 +4622,17 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 	}
 
 	// Get the vector index
-	vidx, ok := shard.GetVectorIndex(targetVector)
-	if !ok {
+	found, err := shard.WithVectorIndex(targetVector, func(vidx VectorIndex) error {
+		if !hnsw.IsHNSWIndex(vidx) {
+			return errors.New("vector index is not hnsw")
+		}
+		return nil
+	})
+	if !found {
 		return errors.New("vector index not found")
 	}
-
-	if !hnsw.IsHNSWIndex(vidx) {
-		return errors.New("vector index is not hnsw")
+	if err != nil {
+		return err
 	}
 
 	// Reset the vector index
