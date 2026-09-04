@@ -40,9 +40,9 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 		reconciler.WedgedCount(), len(s.migrationRecords.Unreadable()))
 }
 
-// Empty where the node name is not wired: reading every record as local is what
-// this store did before it could tell them apart, and a shard that cannot name
-// its own unit must not set its own records aside.
+// Empty where the index or schema getter is missing: reading every record as
+// local is what this store did before it could tell them apart. An unwired
+// node name is not caught and reaches MigrationUnitID.
 func (s *Shard) migrationUnit() string {
 	if s.index == nil || s.index.getSchema == nil {
 		return ""

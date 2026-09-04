@@ -172,10 +172,10 @@ func (r *migrationReconciler) Reconcile(ctx context.Context) error {
 			return nil
 		}
 		if err := r.reconcileOne(ctx, rec, someRecordsUnreadable); err != nil {
-			// One migration must not be able to keep a shard from loading. Not
-			// marked on the store: a refused reclaim, a directory that would not
-			// go and a cancelled activation all arrive here, and the record is
-			// kept precisely so a later pass retries them.
+			// One migration must not keep a shard from loading. Not marked on the
+			// store: a refused reclaim, a directory that would not go and a
+			// cancelled activation keep the record for a later pass; a failure
+			// past its unlink leaves nothing to retry.
 			r.countWedged(rec.Subject().Key)
 			r.logger.WithField("record", rec.Subject().Key.String()).Errorf("reconcile migration record: %v", err)
 		}
@@ -430,6 +430,9 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		r.logger.WithField("record", subject.Key.String()).
 			WithField("property_count", len(subject.Props)).
 			Errorf("promote the properties of a migration: %v", err)
+		// Returned as well as logged: the caller counts the record as wedged, so
+		// the shard does not read as settled over a promotion that did not run.
+		return err
 	}
 
 	// A Promoted record is read as "this rename happened". A pass that renamed

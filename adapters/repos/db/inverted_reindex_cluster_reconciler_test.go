@@ -154,7 +154,7 @@ func TestTheClusterPassWalksARealLoadedShard(t *testing.T) {
 	rec, ok := shard.migrationRecords.Get(subject.Key)
 	require.True(t, ok)
 	require.Equal(t, MigrationStateMerged, rec.State(),
-		"this build decides nothing: the cutover PR is what makes this record move")
+		"this build decides nothing: the cutover is what makes this record move")
 	hook.Reset()
 
 	// A shard whose shutdown began is skipped and sampled.
@@ -240,4 +240,13 @@ func TestAWedgedRecordStopsCountingAsUndecided(t *testing.T) {
 	require.NoError(t, store.Load())
 	require.True(t, store.HasUndecided(),
 		"a load re-derives the wedge, so the pass that follows it decides the record again")
+}
+
+func loadedShardNames(idx *Index) []string {
+	var names []string
+	idx.ForEachLoadedShard(func(name string, _ ShardLike) error {
+		names = append(names, name)
+		return nil
+	})
+	return names
 }

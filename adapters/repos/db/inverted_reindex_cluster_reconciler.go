@@ -148,15 +148,6 @@ func (r *migrationClusterReconciler) reconcileShard(ctx context.Context, idx *In
 	concrete.migrations().ReconcileWithClusterTasks(ctx, tasks)
 }
 
-func loadedShardNames(idx *Index) []string {
-	var names []string
-	idx.ForEachLoadedShard(func(name string, _ ShardLike) error {
-		names = append(names, name)
-		return nil
-	})
-	return names
-}
-
 func (r *migrationClusterReconciler) snapshotIndices() []*Index {
 	r.db.indexLock.RLock()
 	defer r.db.indexLock.RUnlock()

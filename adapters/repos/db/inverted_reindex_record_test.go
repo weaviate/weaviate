@@ -1479,7 +1479,8 @@ func TestTheRecordsDirectoryIsOnDiskBeforeARecordLandsInIt(t *testing.T) {
 
 	synced = nil
 	require.NoError(t, store.mkdirSynced(record))
-	require.Empty(t, synced, "a directory that was already there was not created, so nothing was published")
+	require.Equal(t, []string{lsmPath, filepath.Join(lsmPath, migrationsDir)}, synced,
+		"a directory an earlier process left unsynced is published again, not assumed durable")
 
 	fresh := NewMigrationRecordStore(t.TempDir(), logger)
 	require.Equal(t, assert.AnError, fresh.mkdirSynced(func(string) error { return assert.AnError }),

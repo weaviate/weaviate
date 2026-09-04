@@ -117,16 +117,13 @@ func (s *MigrationRecordStore) mkdir() error {
 // record is written into it.
 func (s *MigrationRecordStore) mkdirSynced(sync func(string) error) error {
 	for _, dir := range []string{filepath.Dir(s.dir), s.dir} {
-		if err := os.Mkdir(dir, 0o777); err != nil {
-			if os.IsExist(err) {
-				continue
-			}
+		if err := os.Mkdir(dir, 0o777); err != nil && !os.IsExist(err) {
 			return err
 		}
-		// The record's own fsync does not publish the directory entry holding
-		// it. Without this a crash leaves the record synced into a directory
-		// that is gone, and Load then reports no records at all rather than an
-		// unreadable one, which is the reading the freeze cannot see.
+		// The record's own fsync does not publish the directory entry holding it: a
+		// crash without this leaves the record synced into a directory that is gone.
+		// Unconditional, because whoever created an already-present directory may
+		// have died before syncing it.
 		if err := sync(filepath.Dir(dir)); err != nil {
 			return err
 		}
@@ -312,10 +309,8 @@ func migrationExclusiveClaims(subject MigrationSubject) []string {
 	return claims
 }
 
-// A directory name a migration mints carries its own task version, so only a
-// hand-edited or restore-landed file can claim a directory another record
-// claims. Both claimants leave the live set: nothing here can tell which one
-// the data belongs to, and either answer would delete the other's only copy.
+// Both claimants leave the live set: nothing here can tell which one the data
+// belongs to, and either answer would delete the other's only copy.
 func refuseRecordsOfDuplicateClaims(records map[MigrationRecordKey]MigrationRecord) []MigrationRecordUnreadable {
 	keys := slices.SortedFunc(maps.Keys(records), func(a, b MigrationRecordKey) int {
 		return cmp.Compare(a.fileName(), b.fileName())
