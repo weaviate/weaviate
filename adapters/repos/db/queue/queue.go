@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1503,7 +1504,11 @@ func (r *chunkReader) RequeueChunk(c *chunk) {
 	// drop any cached open file so the next read reopens the chunk from its
 	// path: the cached handle was already closed and consumed by DequeueBatch
 	delete(r.chunks, c.path)
-	r.chunkList = append(r.chunkList, c.path)
+	// insert at the cursor, not the tail: the chunks behind the cursor hold
+	// ops newer than this one, and replaying an old chunk after them would
+	// re-apply stale ops on top of newer ones for the same key. Replay is
+	// idempotent under re-application, not under re-ordering.
+	r.chunkList = slices.Insert(r.chunkList, r.cursor, c.path)
 }
 
 func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
