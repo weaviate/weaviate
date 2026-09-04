@@ -301,8 +301,10 @@ func (d *delegate) updater(period, minPeriod time.Duration, du func(path string)
 // notifications about members joining and leaving. The methods in this
 // delegate may be called by multiple goroutines, but never concurrently.
 // This allows you to reason about ordering.
+// Callbacks run under memberlist's node lock — the one place Node fields are safe to copy into view.
 type events struct {
-	d *delegate
+	d    *delegate
+	view *memberView
 }
 
 // NotifyJoin is invoked when a node is detected to have joined.
@@ -311,6 +313,7 @@ func (e events) NotifyJoin(node *memberlist.Node) {
 	if node == nil {
 		return
 	}
+	e.view.record(node)
 	e.d.log.WithFields(logrus.Fields{
 		"action":    "memberlist_event",
 		"event":     "join",
@@ -325,6 +328,7 @@ func (e events) NotifyLeave(node *memberlist.Node) {
 	if node == nil {
 		return
 	}
+	e.view.remove(node.Name)
 	e.d.log.WithFields(logrus.Fields{
 		"action":    "memberlist_event",
 		"event":     "leave",
@@ -341,6 +345,7 @@ func (e events) NotifyUpdate(node *memberlist.Node) {
 	if node == nil {
 		return
 	}
+	e.view.record(node)
 	e.d.log.WithFields(logrus.Fields{
 		"action":    "memberlist_event",
 		"event":     "update",

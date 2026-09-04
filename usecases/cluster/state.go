@@ -83,7 +83,66 @@ type State struct {
 	list                 *memberlist.Memberlist
 	nonStorageNodes      map[string]struct{}
 	delegate             delegate
+	members              memberView
 	maintenanceNodesLock sync.RWMutex
+}
+
+// memberInfo is one member's connection fields, copied inside an event callback.
+type memberInfo struct {
+	addr       string
+	gossipPort uint16
+	meta       NodeMetadata
+	metaOK     bool
+}
+
+// memberView mirrors the live member set: Members() Node fields race in-place alive updates.
+type memberView struct {
+	sync.RWMutex
+	byName map[string]memberInfo
+}
+
+func (v *memberView) record(node *memberlist.Node) {
+	info := memberInfo{addr: node.Addr.String(), gossipPort: node.Port}
+	if len(node.Meta) > 0 && json.Unmarshal(node.Meta, &info.meta) == nil {
+		info.metaOK = true
+	}
+	v.Lock()
+	defer v.Unlock()
+	if v.byName == nil {
+		v.byName = make(map[string]memberInfo)
+	}
+	v.byName[node.Name] = info
+}
+
+func (v *memberView) remove(name string) {
+	v.Lock()
+	defer v.Unlock()
+	delete(v.byName, name)
+}
+
+func (v *memberView) get(name string) (memberInfo, bool) {
+	v.RLock()
+	defer v.RUnlock()
+	info, ok := v.byName[name]
+	return info, ok
+}
+
+func (v *memberView) snapshot() map[string]memberInfo {
+	v.RLock()
+	defer v.RUnlock()
+	out := make(map[string]memberInfo, len(v.byName))
+	for name, info := range v.byName {
+		out[name] = info
+	}
+	return out
+}
+
+// dataPort falls back to gossip+1 when a member published no parseable metadata.
+func (info memberInfo) dataPort() int {
+	if info.metaOK {
+		return info.meta.RestPort
+	}
+	return int(info.gossipPort) + 1
 }
 
 type Config struct {
@@ -178,7 +237,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 
 	// Set delegate and events
 	cfg.Delegate = &state.delegate
-	cfg.Events = events{&state.delegate}
+	cfg.Events = events{d: &state.delegate, view: &state.members}
 
 	// Log configuration details
 	logger.WithFields(logrus.Fields{
@@ -271,47 +330,15 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 // Hostnames for all live members, except self. Use AllHostnames to include
 // self, prefixes the data port.
 func (s *State) Hostnames() []string {
-	mem := s.list.Members()
-	out := make([]string, len(mem))
-
-	i := 0
-	for _, m := range mem {
-		if m.Name == s.list.LocalNode().Name {
+	view := s.members.snapshot()
+	out := make([]string, 0, len(view))
+	for name, info := range view {
+		if name == s.LocalName() {
 			continue
 		}
-
-		out[i] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", s.dataPort(m)))
-		i++
+		out = append(out, net.JoinHostPort(info.addr, fmt.Sprintf("%d", info.dataPort())))
 	}
-
-	return out[:i]
-}
-
-func nodeMetadata(m *memberlist.Node) (NodeMetadata, error) {
-	if len(m.Meta) == 0 {
-		return NodeMetadata{}, errors.New("no metadata available")
-	}
-
-	var meta NodeMetadata
-	if err := json.Unmarshal(m.Meta, &meta); err != nil {
-		return NodeMetadata{}, errors.Wrap(err, "unmarshal node metadata")
-	}
-
-	return meta, nil
-}
-
-func (s *State) dataPort(m *memberlist.Node) int {
-	meta, err := nodeMetadata(m)
-	if err != nil {
-		s.delegate.log.WithFields(logrus.Fields{
-			"action": "data_port_fallback",
-			"node":   m.Name,
-		}).WithError(err).Debug("unable to get node metadata, falling back to default data port")
-
-		return int(m.Port) + 1 // the convention that it's 1 higher than the gossip port
-	}
-
-	return meta.RestPort
+	return out
 }
 
 // AllHostnames for live members, including self.
@@ -320,13 +347,11 @@ func (s *State) AllHostnames() []string {
 		return []string{}
 	}
 
-	mem := s.list.Members()
-	out := make([]string, len(mem))
-
-	for i, m := range mem {
-		out[i] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", s.dataPort(m)))
+	view := s.members.snapshot()
+	out := make([]string, 0, len(view))
+	for _, info := range view {
+		out = append(out, net.JoinHostPort(info.addr, fmt.Sprintf("%d", info.dataPort())))
 	}
-
 	return out
 }
 
@@ -400,11 +425,13 @@ func (s *State) LocalName() string {
 
 // LocalAddr() returns local address
 func (s *State) LocalAddr() string {
-	if s.config.AdvertiseAddr == "" {
-		return s.list.LocalNode().Addr.String()
+	if s.config.AdvertiseAddr != "" {
+		return s.config.AdvertiseAddr
 	}
-
-	return s.config.AdvertiseAddr
+	if info, ok := s.members.get(s.LocalName()); ok {
+		return info.addr
+	}
+	return s.list.LocalNode().Addr.String()
 }
 
 func (s *State) LocalBindAddr() string {
@@ -419,13 +446,11 @@ func (s *State) ClusterHealthScore() int {
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
-	for _, mem := range s.list.Members() {
-		if mem.Name == nodeName {
-			return net.JoinHostPort(mem.Addr.String(), fmt.Sprintf("%d", s.dataPort(mem))), true
-		}
+	info, ok := s.members.get(nodeName)
+	if !ok {
+		return "", false
 	}
-
-	return "", false
+	return net.JoinHostPort(info.addr, fmt.Sprintf("%d", info.dataPort())), true
 }
 
 // extractHost extracts the host portion from an address string,
@@ -456,17 +481,14 @@ func (s *State) AllOtherClusterMembers(port int) map[string]string {
 		return map[string]string{}
 	}
 
-	members := s.list.Members()
-	result := make(map[string]string, len(members))
-
-	for _, m := range members {
-		if m.Name == s.list.LocalNode().Name {
-			// skip self
+	view := s.members.snapshot()
+	result := make(map[string]string, len(view))
+	for name, info := range view {
+		if name == s.LocalName() {
 			continue
 		}
-		result[m.Name] = net.JoinHostPort(m.Addr.String(), fmt.Sprintf("%d", port))
+		result[name] = net.JoinHostPort(info.addr, fmt.Sprintf("%d", port))
 	}
-
 	return result
 }
 
@@ -496,12 +518,11 @@ func (s *State) Shutdown() error {
 }
 
 func (s *State) NodeGRPCPort(nodeID string) (int, error) {
-	for _, mem := range s.list.Members() {
-		if mem.Name == nodeID {
-			return s.dataPort(mem), nil
-		}
+	info, ok := s.members.get(nodeID)
+	if !ok {
+		return 0, fmt.Errorf("node not found: %s", nodeID)
 	}
-	return 0, fmt.Errorf("node not found: %s", nodeID)
+	return info.dataPort(), nil
 }
 
 func (s *State) SchemaSyncIgnored() bool {
