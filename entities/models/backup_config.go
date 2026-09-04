@@ -51,6 +51,14 @@ type BackupConfig struct {
 
 	// Path or key within the bucket.
 	Path string `json:"Path,omitempty"`
+
+	// How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.
+	// Maximum: 600
+	// Minimum: 1
+	DedupeConvergenceTimeoutSeconds int64 `json:"dedupeConvergenceTimeoutSeconds,omitempty"`
+
+	// If true, shards of replicated collections that are provably in sync (via async-replication checkpoints) are archived by a single replica instead of every replica, and a restore copies them back to all replicas. Shards that cannot be proven in sync fall back to being archived by every replica. The proof is the one async replication itself uses (matching object UUIDs and update timestamps at a checkpoint), and the archived copy is the designated replica's state at archive time: it provably contains every write acknowledged at or before the per-class checkpoint cutoff taken shortly after the backup starts (persisted as dedupeCutoffsMs in the backup descriptor), while writes concurrent with the backup are included best-effort, as in any backup mode. Requires async replication on replicated collections and a cluster where every node supports this option. A backup where at least one shard was deduplicated can only be restored by versions that support this option, and its restore requires every replica node of the archived sharding state to be resolvable (or mapped via node_mapping); if no shard could be deduplicated, the backup is written in the legacy format and restores like any other backup.
+	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
 }
 
 // Validate validates this backup config
@@ -62,6 +70,10 @@ func (m *BackupConfig) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateCompressionLevel(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateDedupeConvergenceTimeoutSeconds(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -138,6 +150,22 @@ func (m *BackupConfig) validateCompressionLevel(formats strfmt.Registry) error {
 
 	// value enum
 	if err := m.validateCompressionLevelEnum("CompressionLevel", "body", m.CompressionLevel); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *BackupConfig) validateDedupeConvergenceTimeoutSeconds(formats strfmt.Registry) error {
+	if swag.IsZero(m.DedupeConvergenceTimeoutSeconds) { // not required
+		return nil
+	}
+
+	if err := validate.MinimumInt("dedupeConvergenceTimeoutSeconds", "body", m.DedupeConvergenceTimeoutSeconds, 1, false); err != nil {
+		return err
+	}
+
+	if err := validate.MaximumInt("dedupeConvergenceTimeoutSeconds", "body", m.DedupeConvergenceTimeoutSeconds, 600, false); err != nil {
 		return err
 	}
 

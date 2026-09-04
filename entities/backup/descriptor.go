@@ -57,6 +57,13 @@ type DistributedBackupDescriptor struct {
 	BaseBackupID            string                     `json:"baseBackupId"`
 	Users                   []string                   `json:"users,omitempty"`
 	Roles                   []string                   `json:"roles,omitempty"`
+	// DedupeReplicas marks a replica-deduped artifact (Version 3.x): restore must fan shards out to all replicas.
+	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
+	// DedupeDesignatedShards/DedupeFallbackShards record the dedupe planning outcome; both zero on legacy artifacts.
+	DedupeDesignatedShards int `json:"dedupeDesignatedShards,omitempty"`
+	DedupeFallbackShards   int `json:"dedupeFallbackShards,omitempty"`
+	// DedupeCutoffsMs: per-class checkpoint cutoff (epoch ms) for deduped classes; the artifact provably contains every write acked at or before it.
+	DedupeCutoffsMs map[string]int64 `json:"dedupeCutoffsMs,omitempty"`
 }
 
 // Len returns how many nodes exist in d
@@ -509,6 +516,8 @@ type BackupDescriptor struct {
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
 	BaseBackupID            string            `json:"baseBackupId,omitempty"`
+	// DedupeReplicas mirrors the global descriptor's flag into each node's meta.
+	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
 }
 
 func (d *BackupDescriptor) GetCompressionType() CompressionType {

@@ -112,7 +112,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			err := db.Backupable(ctx, classes)
 			assert.Nil(t, err)
 
-			ch := db.BackupDescriptors(ctx, backupID, classes, nil)
+			ch := db.BackupDescriptors(ctx, backupID, classes, nil, nil)
 
 			for d := range ch {
 				assert.Equal(t, className, d.Name)
@@ -193,7 +193,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			timeoutCtx, cancel := context.WithTimeout(context.Background(), 0)
 			defer cancel()
 
-			ch := db.BackupDescriptors(timeoutCtx, backupID, classes, nil)
+			ch := db.BackupDescriptors(timeoutCtx, backupID, classes, nil, nil)
 			for d := range ch {
 				require.NotNil(t, d.Error)
 				assert.Contains(t, d.Error.Error(), "context deadline exceeded")
@@ -564,6 +564,63 @@ func TestDB_Shards(t *testing.T) {
 	})
 }
 
+func TestDB_ShardReplicas(t *testing.T) {
+	ctx := testCtx()
+	logger, _ := test.NewNullLogger()
+
+	newDB := func(t *testing.T, className string, state *sharding.State) *DB {
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+				return readFunc(&models.Class{Class: className}, state)
+			},
+		)
+		return &DB{logger: logger, schemaReader: mockSchemaReader}
+	}
+
+	t.Run("replicated and single-replica shards", func(t *testing.T) {
+		className := "ReplicasClass"
+		db := newDB(t, className, &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"shard1": {Name: "shard1", BelongsToNodes: []string{"node1", "node2", "node3"}},
+				"shard2": {Name: "shard2", BelongsToNodes: []string{"node2"}},
+			},
+		})
+
+		replicas, err := db.ShardReplicas(ctx, className)
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]string{
+			"shard1": {"node1", "node2", "node3"},
+			"shard2": {"node2"},
+		}, replicas)
+	})
+
+	t.Run("empty node names filtered and empty shards omitted", func(t *testing.T) {
+		className := "FilteredClass"
+		db := newDB(t, className, &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"shard1": {Name: "shard1", BelongsToNodes: []string{"", "node1", ""}},
+				"shard2": {Name: "shard2", BelongsToNodes: []string{""}},
+				"shard3": {Name: "shard3", BelongsToNodes: nil},
+			},
+		})
+
+		replicas, err := db.ShardReplicas(ctx, className)
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]string{"shard1": {"node1"}}, replicas)
+	})
+
+	t.Run("nil sharding state", func(t *testing.T) {
+		className := "NilStateClass"
+		db := newDB(t, className, nil)
+
+		replicas, err := db.ShardReplicas(ctx, className)
+		assert.Error(t, err)
+		assert.Nil(t, replicas)
+		assert.Contains(t, err.Error(), "failed to read sharding state")
+	})
+}
+
 // TestBackup_CompressRestoreWithSplitting is an end-to-end integration test that
 // creates a real database with objects, obtains backup descriptors, compresses
 // shards into chunks (with file splitting), restores from those chunks, and
@@ -597,7 +654,7 @@ func TestBackup_CompressRestoreWithSplitting(t *testing.T) {
 	require.Nil(t, db.Backupable(ctx, classes))
 
 	var classDescs []entBackup.ClassDescriptor
-	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
+	ch := db.BackupDescriptors(ctx, backupID, classes, nil, nil)
 	for d := range ch {
 		require.Nil(t, d.Error)
 		classDescs = append(classDescs, d)
@@ -799,7 +856,7 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 	require.Nil(t, db.Backupable(ctx, classes))
 
 	var classDescs []entBackup.ClassDescriptor
-	ch := db.BackupDescriptors(ctx, backupID, classes, nil)
+	ch := db.BackupDescriptors(ctx, backupID, classes, nil, nil)
 	for d := range ch {
 		require.Nil(t, d.Error)
 		classDescs = append(classDescs, d)
@@ -842,7 +899,7 @@ func TestBackup_SplitSizeReducesChunkSize(t *testing.T) {
 	require.Nil(t, db.Backupable(ctx, classes))
 
 	var classDescs2 []entBackup.ClassDescriptor
-	ch2 := db.BackupDescriptors(ctx, backupID+"-2", classes, nil)
+	ch2 := db.BackupDescriptors(ctx, backupID+"-2", classes, nil, nil)
 	for d := range ch2 {
 		require.Nil(t, d.Error)
 		classDescs2 = append(classDescs2, d)

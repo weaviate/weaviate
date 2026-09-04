@@ -727,7 +727,7 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	// FROZEN tenant: no directory at all.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil)
 	require.NoError(t, err)
 
 	// Only COLD should be in desc.Shards — FROZEN is omitted.
@@ -774,7 +774,7 @@ func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203400.condensed"), []byte("condensed"), 0o644))
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, desc.Shards, 1)
 
@@ -826,7 +826,7 @@ func TestDescriptorAllFrozenTenants(t *testing.T) {
 	// No directories, no shards in map.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, desc.Shards, "all-FROZEN collection should have no shard descriptors")
 
@@ -852,7 +852,7 @@ func TestDescriptorConcurrentBackupBlocked(t *testing.T) {
 
 	// Second backup: should fail.
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(context.Background(), "backup-2", &desc, nil)
+	err := idx.descriptor(context.Background(), "backup-2", &desc, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet released")
 }
@@ -872,7 +872,7 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 
 	var desc backup.ClassDescriptor
 	backupID := "test-backup"
-	err := idx.descriptor(ctx, backupID, &desc, nil)
+	err := idx.descriptor(ctx, backupID, &desc, nil, nil)
 	require.NoError(t, err)
 
 	stagingDir := desc.StagingDir
@@ -936,7 +936,7 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 	}
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil)
 	require.NoError(t, err)
 
 	require.Len(t, desc.Shards, len(hotTenants)+len(coldTenants),
@@ -1173,7 +1173,7 @@ func TestBackupDescriptorsClosesChannelWhenCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ch := db.BackupDescriptors(ctx, "backup-1", []string{"Class-A", "Class-B"}, nil)
+	ch := db.BackupDescriptors(ctx, "backup-1", []string{"Class-A", "Class-B"}, nil, nil)
 
 	var got []backup.ClassDescriptor
 	for {
@@ -1204,7 +1204,7 @@ func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
 	// A zero-value Index panics inside descriptor on its nil logger.
 	db := &DB{logger: logger, indices: map[string]*Index{indexID("Class-A"): {}}}
 
-	ch := db.BackupDescriptors(context.Background(), "backup-1", []string{"Class-A"}, nil)
+	ch := db.BackupDescriptors(context.Background(), "backup-1", []string{"Class-A"}, nil, nil)
 
 	select {
 	case d, ok := <-ch:

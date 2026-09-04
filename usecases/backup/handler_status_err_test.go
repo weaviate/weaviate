@@ -58,7 +58,7 @@ func TestHandlerOnStatusServesTheReasonFromTheOperationSlot(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			bp := &backupper{}
-			require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
+			require.Empty(t, bp.lastOp.renew(backupID, "", "bucket/backups/1", "", ""))
 			tc.stamp(&bp.lastOp)
 
 			res := (&Handler{backupper: bp}).OnStatus(context.Background(),
@@ -79,7 +79,7 @@ func TestBackupStatDropsAReasonThatNoLongerApplies(t *testing.T) {
 
 	t.Run("reset drops it", func(t *testing.T) {
 		var s backupStat
-		require.Empty(t, s.renew("1", "bucket/backups/1", "", ""))
+		require.Empty(t, s.renew("1", "", "bucket/backups/1", "", ""))
 		s.setFailed(reason)
 
 		s.reset()
@@ -92,7 +92,7 @@ func TestBackupStatDropsAReasonThatNoLongerApplies(t *testing.T) {
 	// on it.
 	t.Run("a later status drops it", func(t *testing.T) {
 		var s backupStat
-		require.Empty(t, s.renew("1", "bucket/backups/1", "", ""))
+		require.Empty(t, s.renew("1", "", "bucket/backups/1", "", ""))
 		s.setFailed(reason)
 
 		s.set(backup.Cancelled)
@@ -111,7 +111,7 @@ func TestBackupStatRemembersAFailureBeyondTheSlot(t *testing.T) {
 
 	t.Run("a poll after the slot is released still gets the reason", func(t *testing.T) {
 		var s backupStat
-		require.Empty(t, s.renew("1", "bucket/backups/1", "", ""))
+		require.Empty(t, s.renew("1", "", "bucket/backups/1", "", ""))
 		s.setFailed(reason)
 
 		s.reset()
@@ -123,7 +123,7 @@ func TestBackupStatRemembersAFailureBeyondTheSlot(t *testing.T) {
 
 	t.Run("a poll for another backup is not answered with this failure", func(t *testing.T) {
 		var s backupStat
-		require.Empty(t, s.renew("1", "bucket/backups/1", "", ""))
+		require.Empty(t, s.renew("1", "", "bucket/backups/1", "", ""))
 		s.setFailed(reason)
 		s.reset()
 
@@ -133,11 +133,11 @@ func TestBackupStatRemembersAFailureBeyondTheSlot(t *testing.T) {
 
 	t.Run("a retry under the same id drops it", func(t *testing.T) {
 		var s backupStat
-		require.Empty(t, s.renew("1", "bucket/backups/1", "", ""))
+		require.Empty(t, s.renew("1", "", "bucket/backups/1", "", ""))
 		s.setFailed(reason)
 		s.reset()
 
-		require.Empty(t, s.renew("1", "bucket/backups/1", "", ""))
+		require.Empty(t, s.renew("1", "", "bucket/backups/1", "", ""))
 
 		_, ok := s.rememberedFailure("1")
 		require.False(t, ok)
@@ -145,7 +145,7 @@ func TestBackupStatRemembersAFailureBeyondTheSlot(t *testing.T) {
 
 	t.Run("an operation that ended some other way leaves nothing", func(t *testing.T) {
 		var s backupStat
-		require.Empty(t, s.renew("1", "bucket/backups/1", "", ""))
+		require.Empty(t, s.renew("1", "", "bucket/backups/1", "", ""))
 		s.set(backup.Success)
 		s.reset()
 
@@ -195,7 +195,7 @@ func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 			close(descriptors)
 
 			sourcer := &fakeSourcer{}
-			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything, mock.Anything).
 				Return((<-chan backup.ClassDescriptor)(descriptors))
 			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
 
@@ -204,7 +204,7 @@ func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 
 			logger, _ := test.NewNullLogger()
 			bp := &backupper{logger: logger}
-			require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
+			require.Empty(t, bp.lastOp.renew(backupID, "", "bucket/backups/1", "", ""))
 
 			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
 			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, &bp.lastOp, logger)
@@ -261,7 +261,7 @@ func TestUploaderPublishesSuccessOnlyOnceTheDescriptorIsWritten(t *testing.T) {
 			close(descriptors)
 
 			sourcer := &fakeSourcer{}
-			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything, mock.Anything).
 				Return((<-chan backup.ClassDescriptor)(descriptors))
 			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
 
@@ -271,7 +271,7 @@ func TestUploaderPublishesSuccessOnlyOnceTheDescriptorIsWritten(t *testing.T) {
 
 			logger, _ := test.NewNullLogger()
 			bp := &backupper{logger: logger}
-			require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
+			require.Empty(t, bp.lastOp.renew(backupID, "", "bucket/backups/1", "", ""))
 
 			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
 			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, &bp.lastOp, logger)
@@ -307,7 +307,7 @@ func TestUploaderPublishesAnAbortAsCancelled(t *testing.T) {
 	close(descriptors)
 
 	sourcer := &fakeSourcer{}
-	sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+	sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything, mock.Anything).
 		Return((<-chan backup.ClassDescriptor)(descriptors))
 	sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
 
@@ -317,7 +317,7 @@ func TestUploaderPublishesAnAbortAsCancelled(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	bp := &backupper{logger: logger}
-	require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
+	require.Empty(t, bp.lastOp.renew(backupID, "", "bucket/backups/1", "", ""))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -377,7 +377,7 @@ func TestHandlerOnStatusServesTheReasonAfterTheCreateGoroutineExits(t *testing.T
 
 	sourcer := &fakeSourcer{}
 	sourcer.On("Backupable", mock.Anything, []string{class}).Return(nil)
-	sourcer.On("BackupDescriptors", mock.Anything, backupID, mock.Anything, mock.Anything).
+	sourcer.On("BackupDescriptors", mock.Anything, backupID, mock.Anything, mock.Anything, mock.Anything).
 		Return((<-chan backup.ClassDescriptor)(descriptors))
 	sourcer.On("ReleaseBackup", mock.Anything, backupID, mock.Anything).Return(nil)
 
@@ -535,7 +535,7 @@ func TestHandlerOnStatusPrefersTheDescriptorOverARememberedFailure(t *testing.T)
 	backend.On("GetObject", mock.Anything, nodeHome, BackupFile).Return(meta, nil)
 
 	m := createManager(nil, nil, backend, nil)
-	require.Empty(t, m.backupper.lastOp.renew(backupID, path, "", ""))
+	require.Empty(t, m.backupper.lastOp.renew(backupID, "", path, "", ""))
 	m.backupper.lastOp.setFailed("object storage unreachable")
 	m.backupper.lastOp.reset()
 
@@ -587,7 +587,7 @@ func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t 
 				Nodes:       map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"Article"}}},
 			}
 			c.Participants["N1"] = participantStatus{Status: backup.Transferring, LastTime: time.Now()}
-			require.Empty(t, c.lastOp.renew(backupID, "bucket/backups/"+backupID, "", ""))
+			require.Empty(t, c.lastOp.renew(backupID, "", "bucket/backups/"+backupID, "", ""))
 
 			fc.client.On("Commit", mock.Anything, "N1", mock.Anything).Return(nil)
 			fc.client.On("Status", mock.Anything, "N1", mock.Anything).Return(&StatusResponse{

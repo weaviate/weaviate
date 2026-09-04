@@ -190,7 +190,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, nil)
 		sourcer.On("ReleaseBackup", mock.Anything, mock.Anything).Return(nil)
 		var ch <-chan backup.ClassDescriptor
-		sourcer.On("BackupDescriptors", any, any, any, any).Return(ch)
+		sourcer.On("BackupDescriptors", any, any, any, any, any).Return(ch)
 
 		backend := &fakeBackend{}
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
@@ -219,7 +219,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -236,12 +236,61 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
 		assert.Equal(t, got, want)
 
-		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		status, errMsg := backend.getMetaStatus()
 		assert.Equal(t, backup.Success, status)
 		assert.Equal(t, "", errMsg)
+	})
+
+	t.Run("DedupeStampingFollowsEffectiveFlag", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			flag       bool
+			effective  bool
+			wantVer    string
+			wantDedupe bool
+		}{
+			{name: "flag with designations stamps v3", flag: true, effective: true, wantVer: VersionDedupeReplicas, wantDedupe: true},
+			{name: "flag without designations stamps legacy", flag: true, wantVer: Version},
+			{name: "no flag stamps legacy", wantVer: Version},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				var (
+					sourcePath = t.TempDir()
+					sourcer    = &fakeSourcer{}
+					backend    = newFakeBackend()
+				)
+				sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+				ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
+				sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
+				sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+				backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+				backend.On("SourceDataPath").Return(sourcePath)
+				backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+				backend.On("Initialize", ctx, nodeHome).Return(nil)
+				backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
+				backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
+				m := createManager(sourcer, nil, backend, nil)
+
+				req := req
+				req.Duration = time.Hour
+				req.DedupeReplicas = tc.flag
+				req.DedupeEffective = tc.effective
+				resp := m.OnCanCommit(ctx, &req)
+				require.Empty(t, resp.Err)
+				require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""}))
+				m.backupper.waitForCompletion(20, 50)
+
+				status, _ := backend.getMetaStatus()
+				require.Equal(t, backup.Success, status)
+				version, dedupe := backend.getMetaStamp()
+				assert.Equal(t, tc.wantVer, version)
+				assert.Equal(t, tc.wantDedupe, dedupe)
+			})
+		}
 	})
 
 	t.Run("RoleSelectionReachesTheSnapshotter", func(t *testing.T) {
@@ -255,7 +304,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -274,7 +323,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
 		require.Equal(t, want, got)
 
-		require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""}))
+		require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""}))
 		m.backupper.waitForCompletion(20, 50)
 		status, errMsg := backend.getMetaStatus()
 		require.Equal(t, backup.Success, status)
@@ -306,7 +355,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		var gotBaseDescrs []*backup.BackupDescriptor
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
 			gotBaseDescrs = a.Get(3).([]*backup.BackupDescriptor)
 		})
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
@@ -328,7 +377,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
 		assert.Equal(t, got, want)
 
-		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""})
 		assert.NoError(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		status, errMsg := backend.getMetaStatus()
@@ -348,7 +397,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -366,7 +415,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
 		assert.Equal(t, got, want)
 
-		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", ""})
+		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		assert.Contains(t, m.backupper.lastAsyncError.Error(), "abort")
@@ -382,8 +431,8 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch).RunFn = func(a mock.Arguments) {
-			m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", ""})
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch).RunFn = func(a mock.Arguments) {
+			m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", "", ""})
 			// give the abort request time to propagate
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -402,7 +451,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
 		assert.Equal(t, got, want)
 
-		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		status, metaErr := backend.getMetaStatus()
@@ -421,7 +470,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)

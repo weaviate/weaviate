@@ -214,6 +214,8 @@ type uploader struct {
 	roles    []string
 	backend  nodeStore
 	backupID string
+	// class -> shard -> archiving node; nil = every local shard.
+	shardDesignations map[string]map[string]string
 	zipConfig
 	// slot is the node's own operation slot, which is what a status poll reads
 	// until the descriptor is written to the backend.
@@ -255,6 +257,11 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 	return u
 }
 
+func (u *uploader) withShardDesignations(designations map[string]map[string]string) *uploader {
+	u.shardDesignations = designations
+	return u
+}
+
 // all uploads all files in addition to the metadata file
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.slot.set(backup.Transferring)
@@ -262,7 +269,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	// all owns the producer's context so it can be stopped before any index is
 	// released. Without that the wait covers every class the backup never reached.
 	producerCtx, stopProducer := context.WithCancel(ctx)
-	ch := u.sourcer.BackupDescriptors(producerCtx, desc.ID, classes, baseDescr)
+	ch := u.sourcer.BackupDescriptors(producerCtx, desc.ID, classes, baseDescr, u.shardDesignations)
 	// A class the producer snapshots after the release below stays marked in
 	// progress, and the next backup of that class fails. Draining to close is what
 	// proves it stopped. Draining twice costs nothing, so the normal path calls
@@ -872,14 +879,15 @@ func (h *int64MinHeap) Pop() interface{} {
 
 // fileWriter downloads files from object store and writes files to the destination folder destDir
 type fileWriter struct {
-	sourcer    Sourcer
-	backend    nodeStore
-	tempDir    string
-	destDir    string
-	movedFiles []string // files successfully moved to destination folder
-	GoPoolSize int
-	migrator   func(classPath string) error
-	logger     logrus.FieldLogger
+	sourcer        Sourcer
+	backend        nodeStore
+	tempDir        string
+	destDir        string
+	movedFiles     []string // files successfully moved to destination folder
+	GoPoolSize     int
+	migrator       func(classPath string) error
+	stagedRecorder func(string) // notified before a class staging dir is (re)created
+	logger         logrus.FieldLogger
 }
 
 func newFileWriter(sourcer Sourcer, backend nodeStore,
@@ -902,6 +910,11 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 	return fw
 }
 
+func (fw *fileWriter) withStagedRecorder(f func(string)) *fileWriter {
+	fw.stagedRecorder = f
+	return fw
+}
+
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files into the staging directory. materializedName keys the
@@ -914,40 +927,32 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, m
 	}
 	classTempDir := path.Join(fw.tempDir, materializedName)
 
-	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
+	if err := fw.prepare(classTempDir); err != nil {
+		return err
+	}
+	if err := fw.fetch(ctx, classTempDir, desc, fw.backend, overrideBucket, overridePath, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
 	}
-
-	if materializedName != desc.Name {
-		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(desc.Name))
-		newIndexDir := filepath.Join(classTempDir, strings.ToLower(materializedName))
-		if _, err := os.Stat(oldIndexDir); err == nil {
-			if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
-				return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
-			}
-		}
-
-	}
-
-	if fw.migrator != nil {
-		if err := fw.migrator(classTempDir); err != nil {
-			return fmt.Errorf("migrate from pre 1.23: %w", err)
-		}
-	}
-
-	return nil
+	return fw.finalize(classTempDir, desc.Name, materializedName)
 }
 
-// writeTempFiles writes class files into a temporary directory
-// temporary directory path = d.tempDir/className
-// Function makes sure that created files will be removed in case of an error
-func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
+// prepare resets the class staging directory; run once per class, before any fetch pass.
+func (fw *fileWriter) prepare(classTempDir string) error {
+	// Record before mutating disk so a partially-staged dir is still cleaned on failure.
+	if fw.stagedRecorder != nil {
+		fw.stagedRecorder(classTempDir)
+	}
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
 	if err := os.MkdirAll(classTempDir, os.ModePerm); err != nil {
 		return fmt.Errorf("create temp class folder %s: %w", classTempDir, err)
 	}
+	return nil
+}
+
+// fetch downloads desc's chunks from store, whose {backupID}/{node} prefix keys the pass; colliding per-source chunk ids must never share a pass.
+func (fw *fileWriter) fetch(ctx context.Context, classTempDir string, desc *backup.ClassDescriptor, store nodeStore, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -962,7 +967,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		eg.Go(func() error {
 			return fw.readAndUnzipChunk(classTempDir, compressionType, chunk,
 				func(w io.WriteCloser) error {
-					_, err := fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
+					_, err := store.Read(ctx, chunk, overrideBucket, overridePath, w)
 					return err
 				})
 		})
@@ -976,7 +981,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 					eg.Go(func() error {
 						return fw.readAndUnzipChunk(classTempDir, compressionType, chunkId,
 							func(w io.WriteCloser) error {
-								_, err := fw.backend.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
+								_, err := store.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
 								return err
 							})
 					})
@@ -985,6 +990,26 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		}
 	}
 	return eg.Wait()
+}
+
+// finalize applies the namespace-strip rename and pre-1.23 migrator, once per class after every fetch pass.
+func (fw *fileWriter) finalize(classTempDir, descName, materializedName string) error {
+	if materializedName != descName {
+		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(descName))
+		newIndexDir := filepath.Join(classTempDir, strings.ToLower(materializedName))
+		if _, err := os.Stat(oldIndexDir); err == nil {
+			if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
+				return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
+			}
+		}
+	}
+
+	if fw.migrator != nil {
+		if err := fw.migrator(classTempDir); err != nil {
+			return fmt.Errorf("migrate from pre 1.23: %w", err)
+		}
+	}
+	return nil
 }
 
 // readAndUnzipChunk downloads a chunk via readFn and unzips it into classTempDir.

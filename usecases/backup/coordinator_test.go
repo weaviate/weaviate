@@ -49,9 +49,9 @@ func Test_CoordinatedBackup(t *testing.T) {
 			Compression: Compression{Level: GzipDefaultCompression, CPUPercentage: DefaultCPUPercentage},
 		}
 		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
+		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", "", ""}
 		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
-		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", "", ""}
+		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", "", "", ""}
 		nodeResolver = newFakeNodeResolver(nodes)
 	)
 
@@ -92,10 +92,10 @@ func Test_CoordinatedBackup(t *testing.T) {
 			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
 				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
 		})).Return(cresp, nil)
-		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
-		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
-		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.client.On("Commit", any, nodes[0], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Commit", any, nodes[1], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Status", any, nodes[0], matchStatusReq(sReq)).Return(sresp, nil)
+		fc.client.On("Status", any, nodes[1], matchStatusReq(sReq)).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
@@ -176,10 +176,10 @@ func Test_CoordinatedBackup(t *testing.T) {
 			return r.Method == oneClassReq.Method && r.ID == oneClassReq.ID && r.Backend == oneClassReq.Backend &&
 				len(r.Classes) == len(oneClassReq.Classes) && r.Duration == oneClassReq.Duration
 		})).Return(cresp, nil)
-		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
-		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
-		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.client.On("Commit", any, nodes[0], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Commit", any, nodes[1], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Status", any, nodes[0], matchStatusReq(sReq)).Return(sresp, nil)
+		fc.client.On("Status", any, nodes[1], matchStatusReq(sReq)).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
@@ -237,7 +237,8 @@ func Test_CoordinatedBackup(t *testing.T) {
 			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
 				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
 		})).Return(&CanCommitResponse{}, nil)
-		fc.client.On("Abort", any, nodes[0], abortReq).Return(ErrAny)
+		fc.client.On("Abort", any, nodes[0], matchAbortReq(abortReq)).Return(ErrAny)
+		fc.client.On("Abort", any, nodes[1], matchAbortReq(abortReq)).Return(nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 
 		coordinator := *fc.coordinator()
@@ -273,15 +274,15 @@ func Test_CoordinatedBackup(t *testing.T) {
 			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
 				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
 		})).Return(cresp, nil)
-		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
-		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
-		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, ErrAny)
+		fc.client.On("Commit", any, nodes[0], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Commit", any, nodes[1], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Status", any, nodes[0], matchStatusReq(sReq)).Return(sresp, nil)
+		fc.client.On("Status", any, nodes[1], matchStatusReq(sReq)).Return(sresp, ErrAny)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
-		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
-		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
+		fc.client.On("Abort", any, nodes[0], matchAbortReq(abortReq)).Return(nil)
+		fc.client.On("Abort", any, nodes[1], matchAbortReq(abortReq)).Return(nil)
 
 		err := coordinator.Backup(ctx, store, &req)
 		assert.Nil(t, err)
@@ -334,14 +335,14 @@ func Test_CoordinatedBackup(t *testing.T) {
 			return r.Method == creq.Method && r.ID == creq.ID && r.Backend == creq.Backend &&
 				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
 		})).Return(cresp, nil)
-		fc.client.On("Commit", any, nodes[0], sReq).Return(ErrAny)
-		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.client.On("Commit", any, nodes[0], matchStatusReq(sReq)).Return(ErrAny)
+		fc.client.On("Commit", any, nodes[1], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Status", any, nodes[1], matchStatusReq(sReq)).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
-		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
-		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
+		fc.client.On("Abort", any, nodes[0], matchAbortReq(abortReq)).Return(nil)
+		fc.client.On("Abort", any, nodes[1], matchAbortReq(abortReq)).Return(nil)
 
 		req := newReq(classes, backendName, backupID)
 		store := coordStore{objectStore: objectStore{fc.backend, req.ID, "", "", ""}}
@@ -423,9 +424,9 @@ func TestCoordinatedRestore(t *testing.T) {
 			},
 		}
 		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", "", ""}
+		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", "", "", ""}
 		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
-		abortReq = &AbortRequest{OpRestore, backupID, backendName, "", "", ""}
+		abortReq = &AbortRequest{OpRestore, backupID, backendName, "", "", "", ""}
 	)
 
 	t.Run("Success", func(t *testing.T) {
@@ -443,10 +444,10 @@ func TestCoordinatedRestore(t *testing.T) {
 				len(r.Classes) == len(creq.Classes) && r.Duration == creq.Duration
 		})).Return(cresp, nil)
 
-		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
-		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
-		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.client.On("Commit", any, nodes[0], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Commit", any, nodes[1], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Status", any, nodes[0], matchStatusReq(sReq)).Return(sresp, nil)
+		fc.client.On("Status", any, nodes[1], matchStatusReq(sReq)).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		// Mock GetObject for cancellation check (no existing restore in progress)
 		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
@@ -476,7 +477,8 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		// Mock GetObject for cancellation check (no existing restore in progress)
 		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
-		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
+		fc.client.On("Abort", any, nodes[0], matchAbortReq(abortReq)).Return(nil)
+		fc.client.On("Abort", any, nodes[1], matchAbortReq(abortReq)).Return(nil)
 
 		coordinator := *fc.coordinator()
 		store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
@@ -502,8 +504,8 @@ func TestCoordinatedRestore(t *testing.T) {
 		// Mock GetObject for cancellation check (no existing restore in progress)
 		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
 		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(ErrAny).Once()
-		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
-		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
+		fc.client.On("Abort", any, nodes[0], matchAbortReq(abortReq)).Return(nil)
+		fc.client.On("Abort", any, nodes[1], matchAbortReq(abortReq)).Return(nil)
 
 		coordinator := *fc.coordinator()
 		store := coordStore{objectStore{fc.backend, backupID, "", "", ""}}
@@ -561,7 +563,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 			},
 		}
 		cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", ""}
+		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", "", ""}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 
@@ -584,10 +586,10 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 				len(r.NodeMapping) == len(creq.NodeMapping)
 		})).Return(cresp, nil)
 
-		fc.client.On("Commit", any, newNodes[0], sReq).Return(nil)
-		fc.client.On("Commit", any, newNodes[1], sReq).Return(nil)
-		fc.client.On("Status", any, newNodes[0], sReq).Return(sresp, nil)
-		fc.client.On("Status", any, newNodes[1], sReq).Return(sresp, nil)
+		fc.client.On("Commit", any, newNodes[0], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Commit", any, newNodes[1], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Status", any, newNodes[0], matchStatusReq(sReq)).Return(sresp, nil)
+		fc.client.On("Status", any, newNodes[1], matchStatusReq(sReq)).Return(sresp, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		// Mock GetObject for cancellation check (no existing restore in progress)
 		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
@@ -695,7 +697,7 @@ func newFakeNodeResolver(nodes []string) *fakeNodeResolver {
 }
 
 func (fc *fakeCoordinator) coordinator() *coordinator {
-	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver, nil, fc.rolesAndUsers)
+	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver, nil, fc.rolesAndUsers, nil)
 	c.timeoutNextRound = time.Millisecond * 200
 	return c
 }
@@ -740,6 +742,22 @@ func newReq(classes []string, backendName, backupID string) Request {
 			CPUPercentage: DefaultCPUPercentage,
 		},
 	}
+}
+
+func matchStatusReq(want *StatusRequest) interface{} {
+	return mock.MatchedBy(func(got *StatusRequest) bool {
+		w := *want
+		w.AttemptID = got.AttemptID
+		return w == *got
+	})
+}
+
+func matchAbortReq(want *AbortRequest) interface{} {
+	return mock.MatchedBy(func(got *AbortRequest) bool {
+		w := *want
+		w.AttemptID = got.AttemptID
+		return w == *got
+	})
 }
 
 func TestCoordinatorCommitCancellation(t *testing.T) {
@@ -1172,7 +1190,7 @@ func newRestoreRolesAndUsersFixture(t *testing.T, ctx context.Context, blobs rol
 		any     = mock.Anything
 		nodes   = []string{"N1", "N2"}
 		classes = []string{"Class-A"}
-		sReq    = &StatusRequest{OpRestore, backupID, backendName, "", "", ""}
+		sReq    = &StatusRequest{OpRestore, backupID, backendName, "", "", "", ""}
 		cresp   = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
 		sresp   = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
@@ -1181,8 +1199,8 @@ func newRestoreRolesAndUsersFixture(t *testing.T, ctx context.Context, blobs rol
 	fc.rolesAndUsers = &recordingRolesAndUsersRestorer{}
 	for _, node := range nodes {
 		fc.client.On("CanCommit", any, node, any).Return(cresp, nil)
-		fc.client.On("Commit", any, node, sReq).Return(nil)
-		fc.client.On("Status", any, node, sReq).Return(sresp, nil)
+		fc.client.On("Commit", any, node, matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Status", any, node, matchStatusReq(sReq)).Return(sresp, nil)
 	}
 	fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 	fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
@@ -1290,7 +1308,7 @@ func TestRestoreRolesAndUsersGatedOnStagingNotClasses(t *testing.T) {
 		var (
 			any   = mock.Anything
 			nodes = []string{"N1"}
-			sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", ""}
+			sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", "", ""}
 			cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
 		)
 
@@ -1298,8 +1316,8 @@ func TestRestoreRolesAndUsersGatedOnStagingNotClasses(t *testing.T) {
 		rec := &recordingRolesAndUsersRestorer{}
 		fc.rolesAndUsers = rec
 		fc.client.On("CanCommit", any, nodes[0], any).Return(cresp, nil)
-		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
-		fc.client.On("Status", any, nodes[0], sReq).Return(
+		fc.client.On("Commit", any, nodes[0], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Status", any, nodes[0], matchStatusReq(sReq)).Return(
 			&StatusResponse{Status: backup.Failed, ID: backupID, Method: OpRestore, Err: "staging failed"}, nil)
 		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
 		fc.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
@@ -1355,5 +1373,85 @@ func TestRestoreRolesAndUsersGatedOnStagingNotClasses(t *testing.T) {
 		assert.Equal(t, backup.Failed, f.coord.descriptor.Status)
 		assert.Contains(t, f.coord.descriptor.Error, ErrAny.Error())
 		assert.Contains(t, f.coord.descriptor.Error, authErr.Error())
+	})
+}
+
+func TestCanCommitBookingAndAttempt(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName  = "s3"
+		backupID     = "1"
+		ctx          = context.Background()
+		classes      = []string{"Class-A"}
+		nodeResolver = newFakeNodeResolver([]string{"N1", "N2"})
+	)
+
+	tests := []struct {
+		name   string
+		method Op
+		dedupe bool
+		want   time.Duration
+	}{
+		{name: "legacy create booking", method: OpCreate, want: _BookingPeriod},
+		{name: "dedupe create booking", method: OpCreate, dedupe: true, want: _BookingPeriod},
+		{name: "legacy restore booking", method: OpRestore, want: _BookingPeriod},
+		{name: "dedupe restore outlasts the canCommit budget", method: OpRestore, dedupe: true, want: _TimeoutDedupeRestoreCanCommit + _BookingPeriod},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fc := newFakeCoordinator(nodeResolver)
+			gotCh := make(chan *Request, 1)
+			ack := &CanCommitResponse{Method: tc.method, ID: backupID, Timeout: 1, DedupeHonored: true}
+			fc.client.On("CanCommit", mock.Anything, "N1", mock.Anything).
+				Run(func(args mock.Arguments) { gotCh <- args.Get(2).(*Request) }).
+				Return(ack, nil)
+
+			coordinator := *fc.coordinator()
+			coordinator.descriptor = &backup.DistributedBackupDescriptor{
+				ID:    backupID,
+				Nodes: map[string]*backup.NodeDescriptor{"N1": {Classes: classes}},
+			}
+			req := &Request{Method: tc.method, ID: backupID, Backend: backendName, DedupeReplicas: tc.dedupe, AttemptID: "attempt-1"}
+			_, err := coordinator.canCommit(ctx, req, nil)
+			require.NoError(t, err)
+
+			got := <-gotCh
+			assert.Equal(t, tc.want, got.Duration)
+			assert.Equal(t, "attempt-1", got.AttemptID)
+		})
+	}
+
+	t.Run("refusal abort carries the attempt id to every contacted node", func(t *testing.T) {
+		t.Parallel()
+		fc := newFakeCoordinator(nodeResolver)
+		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		fc.client.On("CanCommit", mock.Anything, "N1", mock.Anything).Return(ack, nil).Maybe()
+		fc.client.On("CanCommit", mock.Anything, "N2", mock.Anything).Return(&CanCommitResponse{}, nil)
+		aborts := make(chan *AbortRequest, 2)
+		fc.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).
+			Run(func(args mock.Arguments) { aborts <- args.Get(2).(*AbortRequest) }).
+			Return(nil)
+
+		coordinator := *fc.coordinator()
+		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+			ID: backupID,
+			Nodes: map[string]*backup.NodeDescriptor{
+				"N1": {Classes: classes},
+				"N2": {Classes: classes},
+			},
+		}
+		req := &Request{Method: OpCreate, ID: backupID, Backend: backendName, AttemptID: "attempt-1"}
+		_, err := coordinator.canCommit(ctx, req, nil)
+		require.ErrorIs(t, err, errCannotCommit)
+
+		close(aborts)
+		var n int
+		for abort := range aborts {
+			n++
+			assert.Equal(t, "attempt-1", abort.AttemptID)
+			assert.Equal(t, backupID, abort.ID)
+		}
+		assert.NotZero(t, n)
 	})
 }
