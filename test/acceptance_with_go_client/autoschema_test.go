@@ -12,9 +12,10 @@
 package acceptance_with_go_client
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
+
+	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,8 +27,7 @@ import (
 
 func TestAutoschemaCasingClass(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	c := wvhost.NewClient(t)
 
 	upperClassName := "RandomBlueTree"
 	lowerClassName := "randomBlueTree"
@@ -43,18 +43,20 @@ func TestAutoschemaCasingClass(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.className1+" "+tt.className2, func(t *testing.T) {
-			c.Schema().ClassDeleter().WithClassName(tt.className1).Do(ctx)
-			c.Schema().ClassDeleter().WithClassName(tt.className2).Do(ctx)
-			creator := c.Data().Creator()
-			_, err := creator.WithClassName(tt.className1).Do(ctx)
-			require.Nil(t, err)
+			var err error
 
-			_, err = creator.WithClassName(tt.className2).Do(ctx)
-			require.Nil(t, err)
+			_ = c.Collections.Delete(ctx, tt.className1)
+			_ = c.Collections.Delete(ctx, tt.className2)
+
+			_, err = c.Collections.Use(tt.className1).Data.Insert(ctx, nil)
+			require.NoError(t, err, "insert to ", tt.className1)
+
+			_, err = c.Collections.Use(tt.className2).Data.Insert(ctx, nil)
+			require.NoError(t, err, "insert to ", tt.className2)
 
 			// Regardless of whether a class exists or not, the delete operation will always return a success
-			require.Nil(t, c.Schema().ClassDeleter().WithClassName(upperClassName).Do(ctx))
-			require.Nil(t, c.Schema().ClassDeleter().WithClassName(lowerClassName).Do(ctx))
+			require.NoError(t, c.Collections.Delete(ctx, upperClassName))
+			require.NoError(t, c.Collections.Delete(ctx, lowerClassName))
 		})
 	}
 }
