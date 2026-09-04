@@ -142,7 +142,7 @@ func TestVectorIndexSlots_RemoveWaitsForLeases(t *testing.T) {
 	require.NoError(t, v.Publish("title", &MockVectorIndex{}, nil))
 	logger, _ := test.NewNullLogger()
 
-	_, release, ok := v.Acquire("title")
+	slot, ok := v.Acquire("title")
 	require.True(t, ok)
 
 	removed := make(chan bool, 1)
@@ -157,10 +157,10 @@ func TestVectorIndexSlots_RemoveWaitsForLeases(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	_, _, ok = v.Acquire("title")
+	_, ok = v.Acquire("title")
 	assert.False(t, ok, "no new lease once a removal has started")
 
-	release()
+	slot.release()
 	select {
 	case ok := <-removed:
 		assert.True(t, ok)
@@ -174,9 +174,9 @@ func TestVectorIndexSlots_RemoveProceedsPastTheDeadline(t *testing.T) {
 	require.NoError(t, v.Publish("title", &MockVectorIndex{}, nil))
 	logger, hook := test.NewNullLogger()
 
-	_, release, ok := v.Acquire("title")
+	slot, ok := v.Acquire("title")
 	require.True(t, ok)
-	t.Cleanup(release)
+	t.Cleanup(slot.release)
 
 	start := time.Now()
 	_, _, ok = v.Remove(context.Background(), "title", logger)
@@ -200,9 +200,9 @@ func TestVectorIndexSlots_RemoveOfOneSlotDoesNotWaitForAnother(t *testing.T) {
 	require.NoError(t, v.Publish("b", &MockVectorIndex{}, nil))
 	logger, _ := test.NewNullLogger()
 
-	_, release, ok := v.Acquire("a")
+	slot, ok := v.Acquire("a")
 	require.True(t, ok)
-	defer release()
+	defer slot.release()
 
 	done := make(chan struct{})
 	go func() {
@@ -216,25 +216,60 @@ func TestVectorIndexSlots_RemoveOfOneSlotDoesNotWaitForAnother(t *testing.T) {
 	}
 }
 
+// BenchmarkVectorIndexSlots_Acquire is the cost a write or a search pays per
+// use on top of the old map lookup: the lease's increment and decrement.
+func BenchmarkVectorIndexSlots_Acquire(b *testing.B) {
+	var v vectorIndexSlots
+	if err := v.Publish("title", &MockVectorIndex{}, nil); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			slot, ok := v.Acquire("title")
+			if !ok {
+				b.Fatal("slot missing")
+			}
+			slot.release()
+		}
+	})
+}
+
+// BenchmarkVectorIndexSlots_Get is the old lookup alone, for the comparison.
+func BenchmarkVectorIndexSlots_Get(b *testing.B) {
+	var v vectorIndexSlots
+	if err := v.Publish("title", &MockVectorIndex{}, nil); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			if _, ok := v.get("title"); !ok {
+				b.Fatal("slot missing")
+			}
+		}
+	})
+}
+
 func TestVectorIndexSlots_AcquireCountsLeases(t *testing.T) {
 	var v vectorIndexSlots
 	index := &MockVectorIndex{}
 	require.NoError(t, v.Publish("title", index, nil))
 
-	slot, release, ok := v.Acquire("title")
+	slot, ok := v.Acquire("title")
 	require.True(t, ok)
 	assert.Same(t, index, slot.index)
 	assert.Equal(t, int64(1), slot.users.Count())
 
-	_, release2, ok := v.Acquire("title")
+	_, ok = v.Acquire("title")
 	require.True(t, ok)
 	assert.Equal(t, int64(2), slot.users.Count())
 
-	release()
-	release2()
+	slot.release()
+	slot.release()
 	assert.Equal(t, int64(0), slot.users.Count())
 
-	_, _, ok = v.Acquire("missing")
+	_, ok = v.Acquire("missing")
 	assert.False(t, ok)
 }
 
@@ -242,17 +277,17 @@ func TestVectorIndexSlots_AcquireResolvesTheLegacyAlias(t *testing.T) {
 	var v vectorIndexSlots
 	require.NoError(t, v.Publish("", &MockVectorIndex{}, nil))
 
-	slot, release, ok := v.Acquire(modelsext.DefaultNamedVectorName)
+	slot, ok := v.Acquire(modelsext.DefaultNamedVectorName)
 	require.True(t, ok)
-	defer release()
+	defer slot.release()
 	assert.Equal(t, "", slot.name)
 }
 
 func TestVectorIndexSlots_ReleaseTwicePanics(t *testing.T) {
 	var v vectorIndexSlots
 	require.NoError(t, v.Publish("title", &MockVectorIndex{}, nil))
-	_, release, ok := v.Acquire("title")
+	slot, ok := v.Acquire("title")
 	require.True(t, ok)
-	release()
-	assert.Panics(t, release, "a double release would let a drop proceed under a live user")
+	slot.release()
+	assert.Panics(t, slot.release, "a double release would let a drop proceed under a live user")
 }
