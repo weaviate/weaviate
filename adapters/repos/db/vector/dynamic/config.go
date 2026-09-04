@@ -36,6 +36,7 @@ type Config struct {
 	ClassName                    string
 	PrometheusMetrics            *monitoring.PrometheusMetrics
 	VectorForIDThunk             common.VectorForID[float32]
+	VectorFromObject             hnsw.VectorFromObject // forwarded to the inner hnsw
 	GetViewThunk                 common.GetViewThunk
 	TempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32]
 	DistanceProvider             distancer.Provider

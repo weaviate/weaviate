@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"path/filepath"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -38,6 +40,24 @@ import (
 	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+// vectorFromObjectForTarget reads targetVector's vector straight out of an
+// object's stored bytes, for the startup prefill's parallel scan of the
+// objects bucket. An object without that vector is skipped. The shard binds
+// this like every other object read, so the index never learns its name.
+func vectorFromObjectForTarget(targetVector string) hnsw.VectorFromObject {
+	return func(objectBytes []byte) ([]float32, error) {
+		vec, err := storobj.VectorFromBinary(objectBytes, nil, targetVector)
+		if err != nil {
+			var notFound storobj.ErrTargetVectorNotFound
+			if stderrors.As(err, &notFound) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		return vec, nil
+	}
+}
 
 func (s *Shard) initShardVectors(ctx context.Context) error {
 	// Snapshot under the index config lock: updateVectorIndexConfig(s) mutate
@@ -136,6 +156,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				ClassName:                         s.index.Config.ClassName.String(),
 				PrometheusMetrics:                 s.promMetrics,
 				VectorForIDThunk:                  hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+				VectorFromObject:                  vectorFromObjectForTarget(targetVector),
 				MultiVectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.multiVectorByIndexID),
 				TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
 				GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
@@ -209,6 +230,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			ClassName:                    s.index.Config.ClassName.String(),
 			PrometheusMetrics:            s.promMetrics,
 			VectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+			VectorFromObject:             vectorFromObjectForTarget(targetVector),
 			GetViewThunk:                 func() vcommon.BucketView { return s.GetObjectsBucketView() },
 			TempVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
 			MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {

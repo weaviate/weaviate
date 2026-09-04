@@ -476,14 +476,6 @@ func (h *hnsw) compressedBucketName() string {
 	return helpers.CompressedBucketNameForID(h.id)
 }
 
-func (h *hnsw) getTargetVector() string {
-	if name, found := strings.CutPrefix(h.id, fmt.Sprintf("%s_", helpers.VectorsBucketLSM)); found {
-		return name
-	}
-	// legacy vector index
-	return ""
-}
-
 // TODO: use this for incoming replication
 // func (h *hnsw) insertFromExternal(nodeId, targetLevel int, neighborsAtLevel map[int][]uint32) {
 // 	defer m.addBuildingReplication(time.Now())
