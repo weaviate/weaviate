@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/bits"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -275,15 +276,53 @@ func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (ro
 	return roaringset.BitmapLayer{Additions: gte}, gteRelease
 }
 
-func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*sroar.Bitmap, func()) {
-	result, release := r.bufPool.CloneToBuf(r.bitmaps[0])
-	ANDed := false
+// cascadeStart is where a bit-plane cascade begins. narrowed reports whether the
+// seed is already below plane 0; until it is, OR-ing a plane is a no-op because
+// every plane is a subset of plane 0, so those leading merges are skipped.
+type cascadeStart struct {
+	seed     *sroar.Bitmap
+	nextBit  int
+	narrowed bool
+}
 
-	for bit := 1; bit < len(r.bitmaps); bit++ {
+// cascadeSeed returns where value's cascade starts. Every plane is a subset of
+// plane 0, so seeding from the lowest set bit's plane directly skips the
+// whole-shard AND that would otherwise produce it. Switched off via
+// CascadeSeedEnabledEnv, every cascade starts at plane 0 instead.
+func (r *segmentInMemoryReader) cascadeSeed(value uint64) cascadeStart {
+	if !cascadeSeedEnabled {
+		return cascadeStart{seed: r.bitmaps[0], nextBit: 1}
+	}
+	if value == 0 {
+		// Every doc is >= 0, so plane 0 is the whole answer, and nextBit past
+		// the last plane leaves the merge loop with no iterations. 0 also has
+		// no set bit, so without this return the lookup below would index past
+		// the last plane.
+		return cascadeStart{seed: r.bitmaps[0], nextBit: len(r.bitmaps)}
+	}
+
+	bit := bits.TrailingZeros64(value) + 1
+	assertPlaneIsSubsetOfPlaneZero(&r.bitmaps, bit)
+	return cascadeStart{seed: r.bitmaps[bit], nextBit: bit + 1, narrowed: true}
+}
+
+// cloneSeed floors the buffer at plane 0's size, so a seed smaller than plane 0
+// still leaves later merges the growth headroom they had before seeding.
+func (r *segmentInMemoryReader) cloneSeed(seed *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	buf, release := r.bufPool.Get(max(seed.LenInBytes(), r.bitmaps[0].LenInBytes()))
+	return seed.CloneToBuf(buf), release
+}
+
+func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*sroar.Bitmap, func()) {
+	start := r.cascadeSeed(value)
+	result, release := r.cloneSeed(start.seed)
+	anded := start.narrowed
+
+	for bit := start.nextBit; bit < len(r.bitmaps); bit++ {
 		if value&(1<<(bit-1)) != 0 {
 			result.AndConc(r.bitmaps[bit], conc)
-			ANDed = true
-		} else if ANDed {
+			anded = true
+		} else if anded {
 			result.OrConc(r.bitmaps[bit], conc)
 		}
 	}
@@ -291,27 +330,36 @@ func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*
 }
 
 func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64, conc int) (*sroar.Bitmap, func()) {
-	resultMin, releaseMin := r.bufPool.CloneToBuf(r.bitmaps[0])
-	resultMax, releaseMax := r.bufPool.CloneToBuf(r.bitmaps[0])
-	defer releaseMax()
-	ANDedMin := false
-	ANDedMax := false
+	startMin := r.cascadeSeed(valueMinInc)
+	startMax := r.cascadeSeed(valueMaxExc)
 
-	for bit := 1; bit < len(r.bitmaps); bit++ {
+	resultMin, releaseMin := r.cloneSeed(startMin.seed)
+	resultMax, releaseMax := r.cloneSeed(startMax.seed)
+	defer releaseMax()
+	andedMin := startMin.narrowed
+	andedMax := startMax.narrowed
+
+	// one loop for both cascades: each plane is read once despite the two
+	// starting at different bits
+	for bit := min(startMin.nextBit, startMax.nextBit); bit < len(r.bitmaps); bit++ {
 		var b uint64 = 1 << (bit - 1)
 
-		if valueMinInc&b != 0 {
-			resultMin.AndConc(r.bitmaps[bit], conc)
-			ANDedMin = true
-		} else if ANDedMin {
-			resultMin.OrConc(r.bitmaps[bit], conc)
+		if bit >= startMin.nextBit {
+			if valueMinInc&b != 0 {
+				resultMin.AndConc(r.bitmaps[bit], conc)
+				andedMin = true
+			} else if andedMin {
+				resultMin.OrConc(r.bitmaps[bit], conc)
+			}
 		}
 
-		if valueMaxExc&b != 0 {
-			resultMax.AndConc(r.bitmaps[bit], conc)
-			ANDedMax = true
-		} else if ANDedMax {
-			resultMax.OrConc(r.bitmaps[bit], conc)
+		if bit >= startMax.nextBit {
+			if valueMaxExc&b != 0 {
+				resultMax.AndConc(r.bitmaps[bit], conc)
+				andedMax = true
+			} else if andedMax {
+				resultMax.OrConc(r.bitmaps[bit], conc)
+			}
 		}
 	}
 
