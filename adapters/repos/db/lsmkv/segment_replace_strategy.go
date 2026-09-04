@@ -92,12 +92,15 @@ func (s *segment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []
 	// invalid memory without the copy, thus leading to a SEGFAULT.
 	// Similar approach was used to fix SEGFAULT in collection strategy
 	// https://github.com/weaviate/weaviate/issues/1837
-	var contentsCopy []byte
-	if uint64(cap(buffer)) >= end-start {
-		contentsCopy = buffer[:end-start]
-	} else {
-		contentsCopy = make([]byte, end-start)
+	//
+	// The copy's capacity stops at the node, so a length read out of the payload
+	// cannot slice into what a reused buffer holds of a larger node. buffer is
+	// returned instead, keeping the capacity the caller grew.
+	nodeSize := end - start
+	if uint64(cap(buffer)) < nodeSize {
+		buffer = make([]byte, nodeSize)
 	}
+	contentsCopy := buffer[:nodeSize:nodeSize]
 	if err = s.copyNode(contentsCopy, nodeOffset{start, end}); err != nil {
 		return nil, nil, nil, err
 	}
@@ -107,7 +110,7 @@ func (s *segment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []
 		return nil, nil, nil, err
 	}
 
-	return primaryKey, currContent, contentsCopy, err
+	return primaryKey, currContent, buffer, err
 }
 
 func (s *segment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
