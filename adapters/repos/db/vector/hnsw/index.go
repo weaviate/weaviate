@@ -421,11 +421,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraEnabled() {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.compressedBucketName(), index.vectorForID)
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.compressedBucketName(), index.vectorForID)
 		}
 		if err != nil {
 			return nil, err
@@ -468,6 +468,12 @@ func New(cfg Config, uc ent.UserConfig,
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	return index, nil
+}
+
+// compressedBucketName names the quantized-vectors bucket from the physical
+// ID, the same way flat, dynamic and hfresh name their storage.
+func (h *hnsw) compressedBucketName() string {
+	return helpers.CompressedBucketNameForID(h.id)
 }
 
 func (h *hnsw) getTargetVector() string {
