@@ -35,9 +35,11 @@ func (s *migrationUnitSeals) Install(builder ReindexUnitSealBuilder) {
 // only when a worker still holds the unit; every uninstalled or nil-seal case
 // reports success with a no-op release.
 func (s *migrationUnitSeals) SealUnit(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
-	s.mu.RLock()
-	builder := s.builder
-	s.mu.RUnlock()
+	builder := func() ReindexUnitSealBuilder {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		return s.builder
+	}()
 
 	if builder == nil {
 		return func() {}, true

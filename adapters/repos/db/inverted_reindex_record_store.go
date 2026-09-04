@@ -449,10 +449,12 @@ func (s *MigrationRecordStore) removeSynced(key MigrationRecordKey, sync func(st
 		return fmt.Errorf("remove migration record %q: %w", key, removed)
 	}
 
-	s.mu.Lock()
-	delete(s.records, key)
-	delete(s.wedged, key)
-	s.mu.Unlock()
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		delete(s.records, key)
+		delete(s.wedged, key)
+	}()
 
 	if removed != nil {
 		return nil
@@ -497,12 +499,15 @@ func (s *MigrationRecordStore) Get(key MigrationRecordKey) (MigrationRecord, boo
 // slices.SortFunc is not stable, so the order has to cover the whole key or
 // two passes over one store disagree.
 func (s *MigrationRecordStore) Records() []MigrationRecord {
-	s.mu.RLock()
-	out := make([]MigrationRecord, 0, len(s.records))
-	for _, rec := range s.records {
-		out = append(out, rec)
-	}
-	s.mu.RUnlock()
+	out := func() []MigrationRecord {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		out := make([]MigrationRecord, 0, len(s.records))
+		for _, rec := range s.records {
+			out = append(out, rec)
+		}
+		return out
+	}()
 
 	slices.SortFunc(out, func(a, b MigrationRecord) int {
 		ak, bk := a.Subject().Key, b.Subject().Key
