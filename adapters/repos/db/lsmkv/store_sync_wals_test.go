@@ -90,6 +90,57 @@ func TestStore_SyncWALs(t *testing.T) {
 	})
 }
 
+// TestBucket_SyncWAL_CoversRotatedMemtable pins the rotation window: a write
+// can rotate into the flushing memtable (atomicallySwitchMemtable) at any
+// point before the barrier, and the flush cycle only flushes+fsyncs that
+// memtable's commit log later, at commitlog.close() inside Memtable.flush.
+// SyncWAL called inside that window must cover the rotated memtable's WAL —
+// syncing only the active memtable would report durability the rotated
+// write does not have.
+func TestBucket_SyncWAL_CoversRotatedMemtable(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	defer store.Shutdown(ctx)
+
+	require.NoError(t, store.CreateOrLoadBucket(ctx, "bucket_rot", WithStrategy(StrategyReplace)))
+	b := store.Bucket("bucket_rot")
+	require.NotNil(t, b)
+
+	require.NoError(t, b.Put([]byte("key"), []byte("value")))
+
+	// rotate active -> flushing WITHOUT running the flush cycle, freezing the
+	// window between the switch and the flush's commitlog.close()
+	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
+	require.NoError(t, err)
+	require.True(t, switched)
+	require.NotNil(t, b.flushing)
+
+	walSize := func(mt memtable) int64 {
+		info, err := os.Stat(mt.commitlogWalPath())
+		if os.IsNotExist(err) {
+			return 0
+		}
+		require.NoError(t, err)
+		return info.Size()
+	}
+
+	// precondition: the rotated write still sits in the flushing memtable's
+	// in-memory commit-log buffer, nothing reached its WAL file yet
+	require.Zero(t, walSize(b.flushing),
+		"rotated write expected to still be buffered")
+
+	require.NoError(t, b.SyncWAL())
+
+	require.Positive(t, walSize(b.flushing),
+		"SyncWAL must flush the rotated (flushing) memtable's WAL, not only the active one")
+
+	// drain the leftover flushing memtable through the regular flush cycle:
+	// its commitlog.close() must tolerate the barrier having synced first,
+	// and a SyncWAL after the close must be a no-op, not an error
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.SyncWAL())
+}
+
 // TestStore_SyncWALs_ClosedStore pins the error contract on an already-closed
 // store, matching WriteWALs.
 func TestStore_SyncWALs_ClosedStore(t *testing.T) {
