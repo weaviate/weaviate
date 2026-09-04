@@ -81,9 +81,6 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	userConfig.RQ.Bits = 8
 	userConfig.RQ.RescoreLimit = 0
 	userConfig.FilterStrategy = ent.FilterStrategyAcorn
-	// The centroid graph has no vector on any object, so its config carries
-	// no VectorFromObject and hnsw's startup prefill never scans the objects
-	// bucket for it; its vectors only ever arrive through Insert.
 	cfg.Centroids.HNSWConfig.WaitForCachePrefill = true
 	cfg.Centroids.HNSWConfig.AcornFilterRatio = math.MaxFloat64
 
