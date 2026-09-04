@@ -219,6 +219,34 @@ func (s *switchReplicationClient) CompareHashTreeRootsMulti(ctx context.Context,
 	return s.restClient.CompareHashTreeRootsMulti(ctx, host, classes)
 }
 
+var _ replica.CompareRootsSessionFactory = (*switchReplicationClient)(nil)
+
+func (s *switchReplicationClient) NewCompareRootsSession() replica.CompareRootsSession {
+	return &switchCompareRootsSession{client: s}
+}
+
+// switchCompareRootsSession lazily holds one sub-session per transport, dispatching per call like the client.
+type switchCompareRootsSession struct {
+	client *switchReplicationClient
+	grpc   replica.CompareRootsSession
+	rest   replica.CompareRootsSession
+}
+
+func (s *switchCompareRootsSession) CompareHashTreeRootsMulti(ctx context.Context, host string,
+	classes map[string]map[string]hashtree.Digest,
+) (*replica.CompareHashTreeRootsMultiResp, error) {
+	if s.client.useGRPC() {
+		if s.grpc == nil {
+			s.grpc = s.client.grpcClient.NewCompareRootsSession()
+		}
+		return s.grpc.CompareHashTreeRootsMulti(ctx, host, classes)
+	}
+	if s.rest == nil {
+		s.rest = s.client.restClient.NewCompareRootsSession()
+	}
+	return s.rest.CompareHashTreeRootsMulti(ctx, host, classes)
+}
+
 func (s *switchReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
 	if s.useGRPC() {
 		return s.grpcClient.CountObjects(ctx, host, index, shard)

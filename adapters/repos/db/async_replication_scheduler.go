@@ -88,8 +88,7 @@ var asyncRepPerClassFallbackSeam func(context.Context, map[string]hashtree.Diges
 
 // crossClassRootComparer is the narrow client surface for the node-level root compare.
 type crossClassRootComparer interface {
-	CompareHashTreeRootsMulti(ctx context.Context, host string,
-		classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error)
+	NewCompareRootsSession() replica.CompareRootsSession
 }
 
 func init() {
@@ -1352,6 +1351,8 @@ type batchScratch struct {
 	// byHost: host → class → shard → root; per-host tuples ≤ batch size (≤4096) so one RPC always fits the receiver's cap.
 	byHost map[string]map[string]map[string]hashtree.Digest
 	skip   map[*asyncSchedulerEntry]bool
+	// session reuses the root-compare request assembly across this worker's batches; survives reset.
+	session replica.CompareRootsSession
 }
 
 func newBatchScratch() *batchScratch {
@@ -1717,7 +1718,10 @@ func (sched *AsyncReplicationScheduler) classifyCrossClass(ctx context.Context, 
 			sched.fallbackPerClass(ctx, classes, scratch, &ok, &errored, &unsupported, fallbackDone)
 			continue
 		}
-		resp, err := sched.crossClassComparer.CompareHashTreeRootsMulti(ctx, host, classes)
+		if scratch.session == nil {
+			scratch.session = sched.crossClassComparer.NewCompareRootsSession()
+		}
+		resp, err := scratch.session.CompareHashTreeRootsMulti(ctx, host, classes)
 		switch {
 		case errors.Is(err, replica.ErrCompareHashTreeRootsUnsupported):
 			unsupported++
