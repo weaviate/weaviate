@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func TestSegmentCursor(t *testing.T) {
@@ -140,11 +139,11 @@ type dummySeeker struct {
 	err     error
 }
 
-// Seek returns the hard-coded pos that was set on init time, it ignores the
-// key
-func (s dummySeeker) Seek(key []byte) (segmentindex.Node, error) {
-	return segmentindex.Node{
-		Start: s.offsets[s.pos],
-		End:   s.offsets[s.pos+1],
-	}, s.err
+// SeekPayloadStart ignores the key: it returns the error a test set on the
+// seeker, or else the offset at the position fixed on construction.
+func (s dummySeeker) SeekPayloadStart(key []byte) (uint64, error) {
+	if s.err != nil {
+		return 0, s.err
+	}
+	return s.offsets[s.pos], nil
 }

@@ -29,13 +29,12 @@ func (s *segment) get(key []byte) ([]byte, error) {
 		return nil, lsmkv.NotFound
 	}
 
-	node, err := s.index.Get(key)
+	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
 			return nil, lsmkv.NotFound
-		} else {
-			return nil, err
 		}
+		return nil, s.reportIndexErr(err)
 	}
 
 	// We need to copy the data we read from the segment exactly once in this
@@ -49,8 +48,8 @@ func (s *segment) get(key []byte) ([]byte, error) {
 	// invalid memory without the copy, thus leading to a SEGFAULT.
 	// Similar approach was used to fix SEGFAULT in collection strategy
 	// https://github.com/weaviate/weaviate/issues/1837
-	contentsCopy := make([]byte, node.End-node.Start)
-	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
+	contentsCopy := make([]byte, end-start)
+	if err = s.copyNode(contentsCopy, nodeOffset{start, end}); err != nil {
 		return nil, err
 	}
 
@@ -75,9 +74,11 @@ func (s *segment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []
 		return nil, nil, nil, lsmkv.NotFound
 	}
 
-	node, err := s.secondaryIndices[pos].Get(key)
+	start, end, err := s.secondaryIndices[pos].GetOffsets(key)
 	if err != nil {
-		return nil, nil, nil, err
+		// a segment holds one primary index plus one per secondary, each separately
+		// corruptible, and the path alone does not say which
+		return nil, nil, nil, s.reportIndexErr(fmt.Errorf("secondary index %d: %w", pos, err))
 	}
 
 	// We need to copy the data we read from the segment exactly once in this
@@ -92,12 +93,12 @@ func (s *segment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []
 	// Similar approach was used to fix SEGFAULT in collection strategy
 	// https://github.com/weaviate/weaviate/issues/1837
 	var contentsCopy []byte
-	if uint64(cap(buffer)) >= node.End-node.Start {
-		contentsCopy = buffer[:node.End-node.Start]
+	if uint64(cap(buffer)) >= end-start {
+		contentsCopy = buffer[:end-start]
 	} else {
-		contentsCopy = make([]byte, node.End-node.Start)
+		contentsCopy = make([]byte, end-start)
 	}
-	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
+	if err = s.copyNode(contentsCopy, nodeOffset{start, end}); err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -154,7 +155,11 @@ func (s *segment) indexContainsKey(key []byte) (bool, error) {
 		return false, nil
 	}
 
-	return s.index.Contains(key)
+	contains, err := s.index.Contains(key)
+	if err != nil {
+		return false, s.reportIndexErr(err)
+	}
+	return contains, nil
 }
 
 // exists checks if a key exists and is not deleted, without reading the full value.
@@ -177,12 +182,12 @@ func (s *segment) exists(key []byte) error {
 		return lsmkv.NotFound
 	}
 
-	node, err := s.index.Get(key)
+	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
 			return lsmkv.NotFound
 		}
-		return err
+		return s.reportIndexErr(err)
 	}
 
 	// Read only the tombstone header instead of the full payload.
@@ -194,7 +199,7 @@ func (s *segment) exists(key []byte) error {
 		maxTombstoneValSize = 9 // 1 version + 8 timestamp
 		maxHeaderSize       = tombstoneFlagSize + valueLengthSize + maxTombstoneValSize
 	)
-	nodeSize := node.End - node.Start
+	nodeSize := end - start
 	headerSize := uint64(maxHeaderSize)
 	if nodeSize < headerSize {
 		headerSize = nodeSize
@@ -203,7 +208,7 @@ func (s *segment) exists(key []byte) error {
 	// Use stack-allocated buffer to avoid heap allocation on every call
 	var headerBuf [maxHeaderSize]byte
 	header := headerBuf[:headerSize]
-	if err = s.copyNode(header, nodeOffset{node.Start, node.Start + headerSize}); err != nil {
+	if err = s.copyNode(header, nodeOffset{start, start + headerSize}); err != nil {
 		return err
 	}
 

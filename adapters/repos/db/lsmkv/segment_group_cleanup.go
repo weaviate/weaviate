@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -579,9 +581,17 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(segments []Segment, startId
 
 	return func(key []byte) (bool, error) {
 		for i := range upperSegments {
-			if exists, err := upperSegments[i].indexContainsKey(key); err != nil {
+			exists, err := upperSegments[i].indexContainsKey(key)
+			if errors.Is(err, lsmkv.ErrCorruptIndex) {
+				// answering "superseded" drops the row, so skip a segment that cannot
+				// say: the row survives a cleanup it might not have needed, rather than
+				// the run reclaiming nothing until the segment is repaired
+				continue
+			}
+			if err != nil {
 				return false, err
-			} else if exists {
+			}
+			if exists {
 				return true, nil
 			}
 		}

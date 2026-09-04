@@ -353,14 +353,14 @@ type segmentNodeRange struct {
 // which this deliberately does not read. Callers that cannot tolerate it should
 // run with checksum validation on.
 func (s *segment) scanIndexNodes(from, to int, fn func(n segmentNodeRange) error) error {
-	return s.index.ForEachNodeInRange(from, to, func(key []byte, start, end uint64) error {
+	return s.reportIndexErr(s.index.ForEachNodeInRange(from, to, func(key []byte, start, end uint64) error {
 		// ordered so the subtraction cannot wrap on end < start
 		if end <= start || end-start < 9 || start < s.dataStartPos || end > s.dataEndPos {
 			return fmt.Errorf("targeted scan: node [%d,%d) outside data bounds [%d,%d) or smaller than its header",
 				start, end, s.dataStartPos, s.dataEndPos)
 		}
 		return fn(segmentNodeRange{Key: key, Start: start, End: end})
-	})
+	}))
 }
 
 func (s *segment) indexNodeSplits(parts int) [][2]int {

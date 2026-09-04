@@ -572,37 +572,6 @@ func (s *segment) freePropertyLengths() {
 	s.invertedData.propertyLengthsLoaded = false
 }
 
-func (s *segment) hasKey(key []byte) bool {
-	if s.strategy != segmentindex.StrategyMapCollection && s.strategy != segmentindex.StrategyInverted {
-		return false
-	}
-
-	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		return false
-	}
-
-	_, err := s.index.Get(key)
-	return err == nil
-}
-
-func (s *segment) getDocCount(key []byte) uint64 {
-	if s.strategy != segmentindex.StrategyMapCollection && s.strategy != segmentindex.StrategyInverted {
-		return 0
-	}
-
-	node, err := s.index.Get(key)
-	if err != nil {
-		return 0
-	}
-
-	buffer := make([]byte, 8)
-	if err = s.copyNode(buffer, nodeOffset{node.Start, node.Start + 8}); err != nil {
-		return 0
-	}
-
-	return binary.LittleEndian.Uint64(buffer)
-}
-
 // getInvertedNodeAndDocCount returns a term's index node and posting doc count
 // from a single index descent, letting the caller reuse the node for term
 // construction. The doc count is read from the inverted posting layout, so it
@@ -617,7 +586,10 @@ func (s *segment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uin
 	}
 
 	node, err := s.index.Get(key)
+	// TODO aliszka:bm25-corruption-swallow: an unreadable index reads as "no
+	// posting" here, dropping this segment's postings and skewing the term's IDF.
 	if err != nil {
+		_ = s.reportIndexErr(err)
 		return segmentindex.Node{}, 0, false
 	}
 
