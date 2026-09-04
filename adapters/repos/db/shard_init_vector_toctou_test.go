@@ -42,16 +42,12 @@ func TestInitTargetVector_Idempotent_DoesNotOrphanQueue(t *testing.T) {
 	cfg := enthnsw.UserConfig{Skip: true}
 
 	require.NoError(t, shard.initTargetVector(ctx, "v1", cfg, false))
-	shard.vectorIndexMu.RLock()
-	q1 := shard.queues["v1"]
-	shard.vectorIndexMu.RUnlock()
+	q1, _ := shard.GetVectorIndexQueue("v1")
 	require.NotNil(t, q1)
 
 	require.NoError(t, shard.initTargetVector(ctx, "v1", cfg, false))
 
-	shard.vectorIndexMu.RLock()
-	q2 := shard.queues["v1"]
-	shard.vectorIndexMu.RUnlock()
+	q2, _ := shard.GetVectorIndexQueue("v1")
 
 	assert.Same(t, q1, q2,
 		"re-initialising an existing target vector must not silently replace and "+
@@ -108,9 +104,7 @@ func TestInitTargetVector_ShutsDownIndexWhenQueueCreationFails(t *testing.T) {
 			require.Error(t, err)
 			require.ErrorContains(t, err, "cannot create index queue")
 
-			s.vectorIndexMu.RLock()
-			_, stored := s.vectorIndexes[target]
-			s.vectorIndexMu.RUnlock()
+			_, stored := s.vectors.get(target)
 			require.False(t, stored, "orphaned index must not be stored")
 
 			require.Eventually(t, func() bool { return watchers() <= baseline }, 5*time.Second, 20*time.Millisecond,
