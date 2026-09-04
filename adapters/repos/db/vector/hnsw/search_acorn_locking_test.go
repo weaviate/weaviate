@@ -31,10 +31,15 @@ import (
 // https://github.com/weaviate/weaviate/issues/12935
 //
 // The ACORN branch expands the neighbors of a candidate's neighbors. It used to
-// read those second-hop vertices without holding their mutex, so an insert
+// read those second-hop vertices without holding their mutex, so a write
 // running at the same time could update a vertex's connection count and its
 // encoded connection bytes between the two loads the reader performs. The
 // decode then indexed past the end of the data. Run with -race.
+//
+// Both writers that mutate a vertex's connections are exercised: inserts append
+// through InsertAtLayer, and tombstone cleanup reassigns through ReplaceLayer.
+// The reported panic was "index out of range [0] with length 0", which is the
+// nil-data state ReplaceLayer leaves behind when a layer is emptied.
 func TestSearchConcurrentWithConnectionUpdates(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -49,6 +54,7 @@ func TestSearchConcurrentWithConnectionUpdates(t *testing.T) {
 		inserts = 400
 		readers = 4
 		writers = 4
+		deletes = 40
 	)
 
 	ctx := context.Background()
@@ -92,7 +98,7 @@ func TestSearchConcurrentWithConnectionUpdates(t *testing.T) {
 				require.Nil(t, index.Add(ctx, id, vectors[id]))
 			}
 
-			errs := make(chan error, readers+writers)
+			errs := make(chan error, readers+writers+1)
 			stopReaders := make(chan struct{})
 
 			var writersWg sync.WaitGroup
@@ -108,6 +114,25 @@ func TestSearchConcurrentWithConnectionUpdates(t *testing.T) {
 					}
 				}(w)
 			}
+
+			// Tombstone cleanup reassigns connections, which is what empties a
+			// layer through ReplaceLayer. The deleted ids are outside the allow
+			// list so the searches keep returning results.
+			writersWg.Add(1)
+			go func() {
+				defer writersWg.Done()
+				for i := 0; i < deletes; i++ {
+					id := uint64(i*10 + 1)
+					if err := index.Delete(id); err != nil {
+						errs <- err
+						return
+					}
+					if err := index.CleanUpTombstonedNodes(neverStop); err != nil {
+						errs <- err
+						return
+					}
+				}
+			}()
 
 			var readersWg sync.WaitGroup
 			for r := 0; r < readers; r++ {
@@ -207,6 +232,12 @@ func TestSearchReleasesEntrypointLockWhenEntrypointHasNoLayers(t *testing.T) {
 	select {
 	case res := <-done:
 		require.NoError(t, res.err)
+		// the entrypoint has no connections, so everything found comes from the
+		// allow list members ACORN seeds the search with
+		require.NotEmpty(t, res.ids)
+		for _, id := range res.ids {
+			require.Contains(t, allowed, id)
+		}
 	case <-time.After(15 * time.Second):
 		t.Fatal("search did not return: the entrypoint vertex mutex was never unlocked")
 	}
