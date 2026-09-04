@@ -14,9 +14,8 @@ package docid
 import (
 	"context"
 	"encoding/binary"
-	"math"
-	"runtime"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -27,9 +26,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
-
-func scanConcurrency() int { return 2 * runtime.GOMAXPROCS(0) }
 
 // A worker carries its largest object between reads, so this bounds what one
 // outsized object pins. A normal object with its vectors fits under it.
@@ -107,14 +105,10 @@ func (os *objectScannerLSM) scan(ctx context.Context) error {
 
 	lock := sync.Mutex{}
 	eg, groupCtx := enterrors.NewErrorGroupWithContextWrapper(os.logger, ctx)
-	concurrency := scanConcurrency()
-	stride := int(math.Ceil(max(float64(len(os.pointers))/float64(concurrency), 1)))
-	for i := 0; i < concurrency; i++ {
-		start := i * stride
-		end := min(start+stride, len(os.pointers))
-		if start >= len(os.pointers) {
-			break
-		}
+	// drawn one at a time: sizes vary by orders of magnitude, so an equal count is not equal work
+	var nextIdx atomic.Int64
+	workers := min(concurrency.CurrentGOMAXPROCSx2(), len(os.pointers))
+	for range workers {
 		f := func() error {
 			// each object is scanned one after the other, so we can reuse the same memory allocations for all objects
 			docIDBytes := make([]byte, 8)
@@ -126,10 +120,13 @@ func (os *objectScannerLSM) scan(ctx context.Context) error {
 			// The typed properties are needed for extraction from json
 			var properties models.PropertySchema
 
-			// checked per doc ID rather than every nth: a worker's range is only
-			// len(pointers)/concurrency long, so an interval skips short ranges
-			// outright. BenchmarkScanObjectsLSM sweeps what the check costs.
-			for _, id := range os.pointers[start:end] {
+			for {
+				idx := int(nextIdx.Add(1) - 1)
+				if idx >= len(os.pointers) {
+					return nil
+				}
+				id := os.pointers[idx]
+				// per doc ID: a worker's remaining share is unknown, so an interval bounds nothing
 				if err := groupCtx.Err(); err != nil {
 					return err
 				}
@@ -170,7 +167,6 @@ func (os *objectScannerLSM) scan(ctx context.Context) error {
 					objBuf = nil
 				}
 			}
-			return nil
 		}
 
 		eg.Go(f)
