@@ -26,13 +26,7 @@ import (
 )
 
 func (m *Memtable) flushWAL() error {
-	// under the memtable lock: Bucket.SyncWAL may concurrently sync this
-	// memtable's commit log (it also syncs the flushing memtable, see
-	// SyncWAL), and close() swaps the log into its closed state
-	m.Lock()
-	err := m.commitlog.close()
-	m.Unlock()
-	if err != nil {
+	if err := m.commitlog.close(); err != nil {
 		return err
 	}
 
@@ -77,13 +71,11 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	// (indicated by a successful close of the flush file - which indicates a
 	// successful fsync)
 
-	// under the memtable lock: Bucket.SyncWAL may concurrently sync this
-	// (flushing) memtable's commit log, and close() must not race its
-	// flushBuffers/sync calls
-	m.Lock()
-	err := m.commitlog.close()
-	m.Unlock()
-	if err != nil {
+	// racing a concurrent Bucket.SyncWAL on this (flushing) memtable is
+	// safe: close, sync and flushBuffers serialize on the commit logger's
+	// own mutex, deliberately NOT the memtable lock — holding that across
+	// close()'s fsync would block every reader of this memtable
+	if err := m.commitlog.close(); err != nil {
 		return "", errors.Wrap(err, "close commit log file")
 	}
 
