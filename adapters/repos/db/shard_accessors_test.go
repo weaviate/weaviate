@@ -16,6 +16,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/models"
@@ -26,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func TestShared_GetVectorIndexAndQueue(t *testing.T) {
+func TestShard_LeasedVectorIndexAccessors(t *testing.T) {
 	for _, tt := range []struct {
 		name  string
 		setup func(idx *Index)
@@ -70,37 +71,64 @@ func TestShared_GetVectorIndexAndQueue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnsw.UserConfig{}, false, true, false, tt.setup)
 
-			namedQueue, ok := s.GetVectorIndexQueue("named")
-			require.Equal(t, tt.wantNamedExists, ok)
+			for _, target := range []struct {
+				name string
+				want bool
+			}{
+				{"named", tt.wantNamedExists},
+				{"", tt.wantLegacyExists},
+				{modelsext.DefaultNamedVectorName, tt.wantLegacyExists},
+			} {
+				var called bool
+				found, err := s.WithVectorIndex(target.name, func(index VectorIndex) error {
+					called = true
+					require.NotNil(t, index)
+					return nil
+				})
+				require.NoError(t, err)
+				require.Equal(t, target.want, found, "WithVectorIndex(%q)", target.name)
+				require.Equal(t, target.want, called)
 
-			namedIndex, ok := s.GetVectorIndex("named")
-			require.Equal(t, tt.wantNamedExists, ok)
+				called = false
+				found, err = s.WithVectorIndexQueue(target.name, func(queue *VectorIndexQueue) error {
+					called = true
+					require.NotNil(t, queue)
+					return nil
+				})
+				require.NoError(t, err)
+				require.Equal(t, target.want, found, "WithVectorIndexQueue(%q)", target.name)
+				require.Equal(t, target.want, called)
 
-			if tt.wantNamedExists {
-				require.NotNil(t, namedQueue)
-				require.NotNil(t, namedIndex)
-			}
+				index, release, ok := s.AcquireVectorIndex(target.name)
+				require.Equal(t, target.want, ok, "AcquireVectorIndex(%q)", target.name)
+				if ok {
+					require.NotNil(t, index)
+					release()
+				}
 
-			legacyQueue, ok := s.GetVectorIndexQueue("")
-			require.Equal(t, tt.wantLegacyExists, ok)
-
-			legacyIndex, ok := s.GetVectorIndex("")
-			require.Equal(t, tt.wantLegacyExists, ok)
-
-			defaultQueue, ok := s.GetVectorIndex(modelsext.DefaultNamedVectorName)
-			require.Equal(t, tt.wantLegacyExists, ok)
-
-			defaultIndex, ok := s.GetVectorIndex(modelsext.DefaultNamedVectorName)
-			require.Equal(t, tt.wantLegacyExists, ok)
-
-			if tt.wantLegacyExists {
-				require.NotNil(t, legacyQueue)
-				require.NotNil(t, legacyIndex)
-				require.NotNil(t, defaultQueue)
-				require.NotNil(t, defaultIndex)
+				queue, release, ok := s.AcquireVectorIndexQueue(target.name)
+				require.Equal(t, target.want, ok, "AcquireVectorIndexQueue(%q)", target.name)
+				if ok {
+					require.NotNil(t, queue)
+					release()
+				}
 			}
 		})
 	}
+}
+
+func TestShard_WithVectorIndexReturnsTheCallbackError(t *testing.T) {
+	s, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnsw.UserConfig{}, false, true, false, func(idx *Index) {
+		idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
+	})
+
+	found, err := s.WithVectorIndex("", func(VectorIndex) error { return assert.AnError })
+	require.True(t, found)
+	require.ErrorIs(t, err, assert.AnError)
+
+	found, err = s.WithVectorIndexQueue("", func(*VectorIndexQueue) error { return assert.AnError })
+	require.True(t, found)
+	require.ErrorIs(t, err, assert.AnError)
 }
 
 func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
