@@ -117,3 +117,18 @@ func TestVectorIndexSlots_Replace(t *testing.T) {
 	assert.False(t, v.Replace("missing", replacement), "replacing an absent slot installs nothing")
 	assert.Equal(t, 1, v.Len())
 }
+
+func TestVectorIndexSlots_RemoveTakesTheSlotOut(t *testing.T) {
+	var v vectorIndexSlots
+	index := &MockVectorIndex{}
+	require.NoError(t, v.Publish("title", index, nil))
+
+	gotIndex, _, ok := v.remove("title")
+	require.True(t, ok)
+	assert.Same(t, index, gotIndex)
+	_, ok = v.get("title")
+	assert.False(t, ok)
+
+	_, _, ok = v.remove("title")
+	assert.False(t, ok, "removing twice reports the slot as already gone")
+}

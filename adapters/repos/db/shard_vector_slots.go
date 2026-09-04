@@ -112,6 +112,21 @@ func (v *vectorIndexSlots) Replace(name string, index VectorIndex) bool {
 	return true
 }
 
+// remove takes a slot out of the map and hands its index and queue to the
+// caller for teardown. No alias: a drop names the vector exactly. The
+// draining Remove replaces this once leases exist.
+func (v *vectorIndexSlots) remove(name string) (VectorIndex, *VectorIndexQueue, bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	slot, ok := v.slots[name]
+	if !ok {
+		return nil, nil, false
+	}
+	delete(v.slots, name)
+	return slot.index, slot.queue, true
+}
+
 // Len is the number of published slots.
 func (v *vectorIndexSlots) Len() int {
 	v.mu.RLock()
