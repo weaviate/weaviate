@@ -60,6 +60,50 @@ func (s *Shard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
 	return slot.index, true
 }
 
+// WithVectorIndex runs f on the targetVector's index under a lease: a drop
+// of that vector waits until f returns. found is false, and f is not
+// called, when the shard has no such index. Empty targetVector is the
+// legacy vector index.
+func (s *Shard) WithVectorIndex(targetVector string, f func(index VectorIndex) error) (found bool, err error) {
+	slot, release, ok := s.vectors.Acquire(targetVector)
+	if !ok {
+		return false, nil
+	}
+	defer release()
+	return true, f(slot.index)
+}
+
+// WithVectorIndexQueue is WithVectorIndex for the vector's queue.
+func (s *Shard) WithVectorIndexQueue(targetVector string, f func(queue *VectorIndexQueue) error) (found bool, err error) {
+	slot, release, ok := s.vectors.Acquire(targetVector)
+	if !ok {
+		return false, nil
+	}
+	defer release()
+	return true, f(slot.queue)
+}
+
+// AcquireVectorIndex hands out the targetVector's index under a lease the
+// caller owns: it must call release when done, on every path, or a drop of
+// that vector waits for the drain timeout. For a hold that spans a loop;
+// a single call uses WithVectorIndex.
+func (s *Shard) AcquireVectorIndex(targetVector string) (index VectorIndex, release func(), ok bool) {
+	slot, release, ok := s.vectors.Acquire(targetVector)
+	if !ok {
+		return nil, nil, false
+	}
+	return slot.index, release, true
+}
+
+// AcquireVectorIndexQueue is AcquireVectorIndex for the vector's queue.
+func (s *Shard) AcquireVectorIndexQueue(targetVector string) (queue *VectorIndexQueue, release func(), ok bool) {
+	slot, release, ok := s.vectors.Acquire(targetVector)
+	if !ok {
+		return nil, nil, false
+	}
+	return slot.queue, release, true
+}
+
 func (s *Shard) hasLegacyVectorIndex() bool {
 	_, ok := s.vectors.get("")
 	return ok

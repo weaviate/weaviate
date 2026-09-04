@@ -149,6 +149,10 @@ type ShardLike interface {
 	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) // Check if an object was deleted
 	GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool)
 	GetVectorIndex(targetVector string) (VectorIndex, bool)
+	WithVectorIndex(targetVector string, f func(index VectorIndex) error) (found bool, err error)
+	WithVectorIndexQueue(targetVector string, f func(queue *VectorIndexQueue) error) (found bool, err error)
+	AcquireVectorIndex(targetVector string) (index VectorIndex, release func(), ok bool)
+	AcquireVectorIndexQueue(targetVector string) (queue *VectorIndexQueue, release func(), ok bool)
 	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
 	ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error
