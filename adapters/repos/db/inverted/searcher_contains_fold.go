@@ -259,12 +259,16 @@ func (p containsFoldPlanner) perWorkerFootprintBytes() int64 {
 // deriving it. rowFootprintBytes saturates at its own ceiling before any doc-ID
 // count reaches the boundary below, so this is the only way to walk the guard.
 func perWorkerFootprintFor(row int64) int64 {
-	// Doubling a row near the ceiling wraps negative, and a negative divisor
-	// would floor the clamp at one worker by accident rather than by argument.
-	if row > (math.MaxInt64-lsmkv.BatchReaderWindowBytes)/2 {
+	maxContainsFoldLiveRows := int64(2)  // the running partial and the row merged into it
+	maxContainsFoldMemtables := int64(2) // Active and Flushing, per [lsmkv.BucketConsistentView]
+
+	// A footprint that wrapped negative would floor the clamp at one worker.
+	if row > math.MaxInt64/(maxContainsFoldLiveRows+maxContainsFoldMemtables) {
 		return math.MaxInt64
 	}
-	return 2*row + lsmkv.BatchReaderWindowBytes
+	// The budget caps neither memtable: each takes its first row whatever it costs.
+	window := max(int64(lsmkv.BatchReaderWindowBytes), maxContainsFoldMemtables*row)
+	return maxContainsFoldLiveRows*row + window
 }
 
 // rowFootprintBytes is the worst case for one roaring-encoded structure over

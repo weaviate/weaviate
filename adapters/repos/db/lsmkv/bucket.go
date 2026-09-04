@@ -659,10 +659,11 @@ func (cv BucketConsistentView) ReleaseView() {
 // memtable has been dropped, for a caller opening several readers that must
 // agree on which memtables took part.
 //
-// It holds a [BucketConsistentView] rather than embedding one, so it has no
-// ReleaseView of its own: a narrowed view borrows the original's segments and
-// the original owns their release. Unexported so the replace paths, which read
-// index 0 of the memtables as the active one, cannot be handed a narrowed view.
+// It holds a [BucketConsistentView] in an unexported field rather than
+// embedding one, so it has no ReleaseView of its own — a narrowed view borrows
+// the original's segments and the original owns their release — and the replace
+// paths, which read memtable index 0 as the active one, cannot reach the view
+// inside to be handed it.
 type NarrowedConsistentView struct {
 	// held whole rather than copied field by field, so a field added to
 	// BucketConsistentView arrives here with nothing to remember
