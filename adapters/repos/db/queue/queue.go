@@ -1164,9 +1164,9 @@ func (w *chunkWriter) Close() error {
 // It is a variable so tests can force a timestamp collision.
 var chunkTimeNow = func() int64 { return time.Now().UnixMicro() }
 
-// createChunkMaxAttempts bounds the number of timestamp increments Create
-// tries before giving up. In practice a single retry is already rare: it
-// requires two chunks created within the same microsecond.
+// createChunkMaxAttempts bounds the number of names Create tries before
+// giving up. In practice a single retry is already rare: it requires two
+// chunks created within the same microsecond.
 const createChunkMaxAttempts = 1000
 
 func (w *chunkWriter) Create() error {
@@ -1177,6 +1177,13 @@ func (w *chunkWriter) Create() error {
 	// name. Without O_EXCL the second create would silently reopen the
 	// existing chunk and later header writes would clobber it. Create
 	// exclusively and bump the timestamp until a free name is found.
+	//
+	// The bump preserves per-writer chunk ordering, which is load-bearing:
+	// the filename doubles as the replay ordering key (chunks are reloaded
+	// in name order). It only ever moves the name forward from the current
+	// clock, and a later Create in the same microsecond starts at the same
+	// timestamp and re-collides with every name taken so far, so it always
+	// lands after this one.
 	ts := chunkTimeNow()
 	for i := 0; ; i++ {
 		path := filepath.Join(w.dir, fmt.Sprintf(chunkFileFmt, ts))
@@ -1187,7 +1194,9 @@ func (w *chunkWriter) Create() error {
 		if !os.IsExist(err) {
 			return errors.Wrap(err, "failed to create chunk file")
 		}
-		if i >= createChunkMaxAttempts {
+		// i+1 attempts have failed at this point, so this gives up after
+		// exactly createChunkMaxAttempts tries
+		if i+1 >= createChunkMaxAttempts {
 			return errors.Wrapf(err, "failed to create chunk file after %d attempts", createChunkMaxAttempts)
 		}
 		ts++
