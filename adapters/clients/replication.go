@@ -426,56 +426,16 @@ func (c *replicationClient) CompareHashTreeRoots(ctx context.Context, host, inde
 func (c *replicationClient) CompareHashTreeRootsMulti(ctx context.Context, host string,
 	classes map[string]map[string]hashtree.Digest,
 ) (*replica.CompareHashTreeRootsMultiResp, error) {
-	return c.NewCompareRootsSession().CompareHashTreeRootsMulti(ctx, host, classes)
-}
-
-var _ replica.CompareRootsSessionFactory = (*replicationClient)(nil)
-
-func (c *replicationClient) NewCompareRootsSession() replica.CompareRootsSession {
-	return &restCompareRootsSession{c: c, wire: map[string]map[string][2]uint64{}}
-}
-
-// restCompareRootsSession reuses the wire maps across calls; single-goroutine use only.
-type restCompareRootsSession struct {
-	c     *replicationClient
-	wire  map[string]map[string][2]uint64
-	spare []map[string][2]uint64
-}
-
-// fill rebuilds the reused wire maps with exactly the given classes.
-func (s *restCompareRootsSession) fill(classes map[string]map[string]hashtree.Digest) map[string]map[string][2]uint64 {
-	for _, inner := range s.wire {
-		clear(inner)
-		s.spare = append(s.spare, inner)
-	}
-	clear(s.wire)
+	wire := make(map[string]map[string][2]uint64, len(classes))
 	for class, roots := range classes {
-		var inner map[string][2]uint64
-		if n := len(s.spare); n > 0 {
-			inner = s.spare[n-1]
-			s.spare[n-1] = nil
-			s.spare = s.spare[:n-1]
-		} else {
-			inner = make(map[string][2]uint64, len(roots))
-		}
-		for shard, root := range roots {
-			inner[shard] = [2]uint64(root)
-		}
-		s.wire[class] = inner
+		wire[class] = wireDigests(roots)
 	}
-	return s.wire
-}
-
-func (s *restCompareRootsSession) CompareHashTreeRootsMulti(ctx context.Context, host string,
-	classes map[string]map[string]hashtree.Digest,
-) (*replica.CompareHashTreeRootsMultiResp, error) {
-	// The body must own its bytes: the transport may still read it after Do returns.
-	body, err := json.Marshal(replica.CompareHashTreeRootsMultiReq{Classes: s.fill(classes)})
+	body, err := json.Marshal(replica.CompareHashTreeRootsMultiReq{Classes: wire})
 	if err != nil {
 		return nil, fmt.Errorf("marshal compare hashtree roots multi request: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, s.c.timeoutUnit*20)
+	ctx, cancel := context.WithTimeout(ctx, c.timeoutUnit*20)
 	defer cancel()
 
 	u := url.URL{Scheme: "http", Host: host, Path: clusterapi.CompareHashTreeRootsMultiPath}
@@ -485,7 +445,7 @@ func (s *restCompareRootsSession) CompareHashTreeRootsMulti(ctx context.Context,
 	}
 
 	var resp replica.CompareHashTreeRootsMultiResp
-	if err := s.c.postCompareRoots(req, &resp); err != nil {
+	if err := c.postCompareRoots(req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

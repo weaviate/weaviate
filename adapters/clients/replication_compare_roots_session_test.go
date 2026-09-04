@@ -252,87 +252,6 @@ func TestGRPCCompareRootsSessionZeroAlloc(t *testing.T) {
 	}))
 }
 
-func TestRESTCompareRootsSessionFillReuse(t *testing.T) {
-	t.Parallel()
-	toWire := func(in map[string]map[string]hashtree.Digest) map[string]map[string][2]uint64 {
-		want := make(map[string]map[string][2]uint64, len(in))
-		for cls, roots := range in {
-			want[cls] = wireDigests(roots)
-		}
-		return want
-	}
-	tests := []struct {
-		name  string
-		steps []map[string]map[string]hashtree.Digest
-	}{
-		{"large then small", []map[string]map[string]hashtree.Digest{rootsInput(3, 4), rootsInput(1, 1)}},
-		{"small then large", []map[string]map[string]hashtree.Digest{rootsInput(1, 1), rootsInput(4, 8)}},
-		{"overlapping names changed digests", []map[string]map[string]hashtree.Digest{
-			{"A": {"s1": {1, 1}, "s2": {2, 2}}},
-			{"A": {"s1": {9, 9}}},
-		}},
-		{"zero classes", []map[string]map[string]hashtree.Digest{rootsInput(2, 2), {}}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			s := &restCompareRootsSession{wire: map[string]map[string][2]uint64{}}
-			for _, in := range tc.steps {
-				assert.Equal(t, toWire(in), s.fill(in))
-			}
-		})
-	}
-}
-
-func TestRESTCompareRootsSessionZeroAlloc(t *testing.T) {
-	s := &restCompareRootsSession{wire: map[string]map[string][2]uint64{}}
-	large := rootsInput(16, 256)
-	small := rootsInput(1, 1)
-	s.fill(large)
-
-	assert.Zero(t, testing.AllocsPerRun(100, func() {
-		benchRESTWireSink = s.fill(large)
-	}))
-	assert.Zero(t, testing.AllocsPerRun(100, func() {
-		benchRESTWireSink = s.fill(small)
-	}))
-}
-
-func TestRESTCompareRootsSessionRoundTrip(t *testing.T) {
-	t.Parallel()
-	var lastBody atomic.Pointer[replica.CompareHashTreeRootsMultiReq]
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req replica.CompareHashTreeRootsMultiReq
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
-		lastBody.Store(&req)
-		resp := replica.CompareHashTreeRootsMultiResp{Classes: map[string]replica.CompareHashTreeRootsMultiClassResp{}}
-		for cls := range req.Classes {
-			resp.Classes[cls] = replica.CompareHashTreeRootsMultiClassResp{}
-		}
-		require.NoError(t, json.NewEncoder(w).Encode(resp))
-	}))
-	defer server.Close()
-
-	c := newReplicationClient(t, server.Client())
-	session := c.NewCompareRootsSession()
-	ctx := context.Background()
-
-	large := rootsInput(3, 4)
-	resp, err := session.CompareHashTreeRootsMulti(ctx, server.URL[7:], large)
-	require.NoError(t, err)
-	assert.Len(t, resp.Classes, 3)
-	require.Len(t, lastBody.Load().Classes, 3)
-	for cls, roots := range large {
-		assert.Len(t, lastBody.Load().Classes[cls], len(roots))
-	}
-
-	small := rootsInput(1, 1)
-	resp, err = session.CompareHashTreeRootsMulti(ctx, server.URL[7:], small)
-	require.NoError(t, err)
-	assert.Len(t, resp.Classes, 1)
-	require.Len(t, lastBody.Load().Classes, 1)
-	assert.Equal(t, map[string][2]uint64{"c0_s0": {0, 0}}, lastBody.Load().Classes["C0"])
-}
-
 func TestSwitchCompareRootsSessionDispatch(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -380,11 +299,7 @@ func TestSwitchCompareRootsSessionDispatch(t *testing.T) {
 	assert.Equal(t, int32(1), restCalls.Load())
 }
 
-var (
-	benchGRPCReqSink  *pb.CompareHashTreeRootsMultiRequest
-	benchRESTWireSink map[string]map[string][2]uint64
-	benchRESTBodySink []byte
-)
+var benchGRPCReqSink *pb.CompareHashTreeRootsMultiRequest
 
 func perCallAssembleGRPC(classes map[string]map[string]hashtree.Digest) *pb.CompareHashTreeRootsMultiRequest {
 	req := &pb.CompareHashTreeRootsMultiRequest{
@@ -431,35 +346,4 @@ func BenchmarkCompareRootsMultiAssembly(b *testing.B) {
 			}
 		})
 	}
-}
-
-func BenchmarkCompareRootsMultiRESTAssembly(b *testing.B) {
-	in := rootsInput(1, 128)
-	b.Run("session", func(b *testing.B) {
-		s := &restCompareRootsSession{wire: map[string]map[string][2]uint64{}}
-		s.fill(in)
-		b.ReportAllocs()
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			body, err := json.Marshal(replica.CompareHashTreeRootsMultiReq{Classes: s.fill(in)})
-			if err != nil {
-				b.Fatal(err)
-			}
-			benchRESTBodySink = body
-		}
-	})
-	b.Run("perCall", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			wire := make(map[string]map[string][2]uint64, len(in))
-			for class, roots := range in {
-				wire[class] = wireDigests(roots)
-			}
-			body, err := json.Marshal(replica.CompareHashTreeRootsMultiReq{Classes: wire})
-			if err != nil {
-				b.Fatal(err)
-			}
-			benchRESTBodySink = body
-		}
-	})
 }

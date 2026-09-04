@@ -225,11 +225,10 @@ func (s *switchReplicationClient) NewCompareRootsSession() replica.CompareRootsS
 	return &switchCompareRootsSession{client: s}
 }
 
-// switchCompareRootsSession lazily holds one sub-session per transport, dispatching per call like the client.
+// switchCompareRootsSession lazily holds a gRPC sub-session, dispatching per call like the client.
 type switchCompareRootsSession struct {
 	client *switchReplicationClient
 	grpc   replica.CompareRootsSession
-	rest   replica.CompareRootsSession
 }
 
 func (s *switchCompareRootsSession) CompareHashTreeRootsMulti(ctx context.Context, host string,
@@ -241,10 +240,8 @@ func (s *switchCompareRootsSession) CompareHashTreeRootsMulti(ctx context.Contex
 		}
 		return s.grpc.CompareHashTreeRootsMulti(ctx, host, classes)
 	}
-	if s.rest == nil {
-		s.rest = s.client.restClient.NewCompareRootsSession()
-	}
-	return s.rest.CompareHashTreeRootsMulti(ctx, host, classes)
+	// REST leg stays unpooled: it is being deprecated for async replication.
+	return s.client.restClient.CompareHashTreeRootsMulti(ctx, host, classes)
 }
 
 func (s *switchReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
