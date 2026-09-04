@@ -22,6 +22,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
@@ -138,7 +142,7 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(siblingBucket, "segment.db"), []byte("live"), 0o644))
 			require.NoError(t, os.MkdirAll(ownBucket, 0o755))
 
-			require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, dropped, []string{sibling}))
+			require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, dropped, []helpers.SiblingVector{{Name: sibling}}))
 
 			assert.True(t, pathExists(siblingBucket),
 				"%s is %s's live vectors bucket and must survive dropping %s",
@@ -344,40 +348,74 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 	})
 }
 
-func TestOtherTargetVectors(t *testing.T) {
+func TestSiblingVectors(t *testing.T) {
+	bq := hnswent.UserConfig{BQ: hnswent.BQConfig{Enabled: true}}
 	named := map[string]models.VectorConfig{
-		"a": {VectorIndexType: "hnsw"},
-		"b": {VectorIndexType: "flat"},
+		"a": {VectorIndexType: "hnsw", VectorIndexConfig: hnswent.UserConfig{}},
+		"b": {VectorIndexType: "flat", VectorIndexConfig: flatent.UserConfig{BQ: flatent.CompressionUserConfig{Enabled: true}}},
 	}
 	tests := []struct {
 		name    string
 		class   *models.Class
 		exclude string
-		want    []string
+		want    []helpers.SiblingVector
 	}{
 		{name: "nil class protects nothing", class: nil, exclude: "a", want: nil},
 		{
 			name:    "named vectors only",
 			class:   &models.Class{VectorConfig: named},
 			exclude: "a",
-			want:    []string{"b"},
+			want:    []helpers.SiblingVector{{Name: "b", Quantized: true}},
 		},
 		{
 			name:    "legacy vector next to named vectors is a sibling",
-			class:   &models.Class{VectorIndexType: "hnsw", VectorConfig: named},
+			class:   &models.Class{VectorIndexType: "hnsw", VectorIndexConfig: bq, VectorConfig: named},
 			exclude: "a",
-			want:    []string{"", "b"},
+			want:    []helpers.SiblingVector{{Name: "", Quantized: true}, {Name: "b", Quantized: true}},
 		},
 		{
 			name:    "the legacy vector is never its own sibling",
-			class:   &models.Class{VectorIndexType: "hnsw", VectorConfig: named},
+			class:   &models.Class{VectorIndexType: "hnsw", VectorIndexConfig: bq, VectorConfig: named},
 			exclude: "",
-			want:    []string{"a", "b"},
+			want:    []helpers.SiblingVector{{Name: "a"}, {Name: "b", Quantized: true}},
+		},
+		{
+			name:    "an uncompressed legacy hnsw cannot own a compressed bucket",
+			class:   &models.Class{VectorIndexType: "hnsw", VectorIndexConfig: hnswent.UserConfig{}, VectorConfig: named},
+			exclude: "b",
+			want:    []helpers.SiblingVector{{Name: ""}, {Name: "a"}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.ElementsMatch(t, tt.want, otherTargetVectors(tt.class, tt.exclude))
+			assert.ElementsMatch(t, tt.want, siblingVectors(tt.class, tt.exclude))
+		})
+	}
+}
+
+func TestCanOwnCompressedBucket(t *testing.T) {
+	tests := []struct {
+		name      string
+		indexType string
+		cfg       interface{}
+		want      bool
+	}{
+		{"hnsw without a quantizer", "hnsw", hnswent.UserConfig{}, false},
+		{"hnsw with pq", "hnsw", hnswent.UserConfig{PQ: hnswent.PQConfig{Enabled: true}}, true},
+		{"hnsw with rq", "hnsw", hnswent.UserConfig{RQ: hnswent.RQConfig{Enabled: true}}, true},
+		{"flat without a quantizer", "flat", flatent.UserConfig{}, false},
+		{"flat with rq", "flat", flatent.UserConfig{RQ: flatent.RQUserConfig{Enabled: true}}, true},
+		{"dynamic without a quantizer", "dynamic", dynamicent.UserConfig{}, false},
+		{"dynamic whose hnsw stage has sq", "dynamic", dynamicent.UserConfig{HnswUC: hnswent.UserConfig{SQ: hnswent.SQConfig{Enabled: true}}}, true},
+		{"dynamic whose flat stage has bq", "dynamic", dynamicent.UserConfig{FlatUC: flatent.UserConfig{BQ: flatent.CompressionUserConfig{Enabled: true}}}, true},
+		{"hfresh always runs a quantized centroid graph", "hfresh", hfreshent.UserConfig{}, true},
+		{"unreadable config is treated as quantized", "hnsw", map[string]interface{}{}, true},
+		{"nil config is treated as quantized", "hnsw", nil, true},
+		{"unknown index type is treated as quantized", "none", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, canOwnCompressedBucket(tt.indexType, tt.cfg))
 		})
 	}
 }
@@ -389,15 +427,17 @@ func TestOtherTargetVectors(t *testing.T) {
 func TestVectorDropIndexHelper_SweepSparesTheLegacyVector(t *testing.T) {
 	h := newVectorDropIndexHelper()
 
-	mixedClass := func(dropped string) *models.Class {
+	mixedClass := func(dropped string, legacyConfig hnswent.UserConfig) *models.Class {
 		return &models.Class{
-			Class:           "Mixed",
-			VectorIndexType: "hnsw",
+			Class:             "Mixed",
+			VectorIndexType:   "hnsw",
+			VectorIndexConfig: legacyConfig,
 			VectorConfig: map[string]models.VectorConfig{
 				dropped: {VectorIndexType: vectorindex.VectorIndexTypeNone},
 			},
 		}
 	}
+	bq := hnswent.UserConfig{BQ: hnswent.BQConfig{Enabled: true}}
 	pathExists := func(p string) bool {
 		_, err := os.Stat(p)
 		return err == nil
@@ -417,21 +457,33 @@ func TestVectorDropIndexHelper_SweepSparesTheLegacyVector(t *testing.T) {
 	tests := []struct {
 		name       string
 		dropped    string
+		legacy     hnswent.UserConfig
 		legacyLSM  []string // buckets the legacy index owns that must survive
 		droppedLSM []string // buckets the dropped vector owns that must go
 	}{
 		{
 			// "vectors_compressed" is both the named vector's raw bucket and
-			// the legacy vector's quantized bucket: it stays, the rest goes
-			name:       "named vector called compressed",
+			// the quantized legacy vector's compressed bucket: it stays, the
+			// rest goes
+			name:       "named vector called compressed next to a quantized legacy vector",
 			dropped:    "compressed",
+			legacy:     bq,
 			legacyLSM:  []string{"vectors", "vectors_compressed"},
 			droppedLSM: []string{"vectors_compressed_compressed"},
+		},
+		{
+			// an uncompressed legacy hnsw never wrote "vectors_compressed", so
+			// the bucket is the named vector's alone and has to go with it
+			name:       "named vector called compressed next to an uncompressed legacy vector",
+			dropped:    "compressed",
+			legacyLSM:  []string{"vectors"},
+			droppedLSM: []string{"vectors_compressed", "vectors_compressed_compressed"},
 		},
 		{
 			// no real collision: the legacy muvera bucket is main_muvera_vectors
 			name:       "named vector called muvera_vectors",
 			dropped:    "muvera_vectors",
+			legacy:     bq,
 			legacyLSM:  []string{"vectors", "vectors_compressed", "main_muvera_vectors"},
 			droppedLSM: []string{"vectors_muvera_vectors", "vectors_compressed_muvera_vectors"},
 		},
@@ -446,7 +498,7 @@ func TestVectorDropIndexHelper_SweepSparesTheLegacyVector(t *testing.T) {
 			gone = append(gone, mkdirs(t, filepath.Join(indexPath, shardName),
 				"vectors_"+tt.dropped+".hnsw.commitlog.d", "vectors_"+tt.dropped+".queue.d")...)
 
-			require.NoError(t, h.ensureFilesAreRemovedForDroppedVectorIndexes(indexPath, shardName, mixedClass(tt.dropped)))
+			require.NoError(t, h.ensureFilesAreRemovedForDroppedVectorIndexes(indexPath, shardName, mixedClass(tt.dropped, tt.legacy)))
 
 			for _, p := range legacy {
 				assert.True(t, pathExists(p), "%s belongs to the legacy vector and must survive", p)

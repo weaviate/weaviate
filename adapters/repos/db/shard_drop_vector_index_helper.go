@@ -20,6 +20,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	"github.com/weaviate/weaviate/entities/vectorindex"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type vectorDropIndexHelper struct{}
@@ -41,7 +45,7 @@ func (h *vectorDropIndexHelper) ensureFilesAreRemovedForDroppedVectorIndexes(
 			continue
 		}
 		if err := h.removeVectorIndexFiles(indexPath, shardName, name,
-			otherTargetVectors(class, name)); err != nil {
+			siblingVectors(class, name)); err != nil {
 			return fmt.Errorf("failed to remove dropped vector index %q files for class %s: %w",
 				name, class.Class, err)
 		}
@@ -51,16 +55,16 @@ func (h *vectorDropIndexHelper) ensureFilesAreRemovedForDroppedVectorIndexes(
 
 // removeVectorIndexFiles removes every on-disk artifact of a named vector index
 // (see helpers.VectorIndexArtifactsFor for the set and why it is centralised).
-// otherTargetVectors are the collection's remaining vector names, needed so a
-// sibling whose own bucket collides with one of this target's artifact names is
-// not deleted along with it.
+// siblings are the collection's remaining vectors, needed so a sibling whose
+// own bucket collides with one of this target's artifact names is not deleted
+// along with it.
 func (h *vectorDropIndexHelper) removeVectorIndexFiles(
-	indexPath, shardName, targetVector string, otherTargetVectors []string,
+	indexPath, shardName, targetVector string, siblings []helpers.SiblingVector,
 ) error {
 	lsmDir := filepath.Join(indexPath, shardName, "lsm")
 	shardDir := filepath.Join(indexPath, shardName)
 
-	artifacts := helpers.VectorIndexArtifactsFor(targetVector, otherTargetVectors)
+	artifacts := helpers.VectorIndexArtifactsFor(targetVector, siblings)
 
 	var dirs []string
 	for _, bucket := range artifacts.LSMBuckets {
@@ -91,9 +95,9 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	return nil
 }
 
-// otherTargetVectors lists the collection's vector names except `exclude` —
-// the siblings whose artifacts a drop must not touch. Every artifact a sibling
-// owns is protected, not just its primary bucket.
+// siblingVectors lists the collection's vectors except `exclude` — the
+// siblings whose artifacts a drop must not touch — each marked with whether
+// its index can own a compressed bucket.
 //
 // The legacy vector ("") is a sibling too, although it never appears in
 // VectorConfig: a class that gained named vectors next to its legacy one can
@@ -101,20 +105,57 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 // one called "compressed" owns the raw bucket "vectors_compressed", which is
 // the legacy vector's quantized bucket. Left out, the legacy vector's data
 // went with such a drop.
-func otherTargetVectors(class *models.Class, exclude string) []string {
+func siblingVectors(class *models.Class, exclude string) []helpers.SiblingVector {
 	if class == nil {
 		// Nothing to protect, so the drop runs unfiltered: a name collision
 		// with a live sibling takes that sibling's bucket with it.
 		return nil
 	}
-	others := make([]string, 0, len(class.VectorConfig)+1)
+	siblings := make([]helpers.SiblingVector, 0, len(class.VectorConfig)+1)
 	if exclude != "" && modelsext.ClassHasLegacyVectorIndex(class) {
-		others = append(others, "")
+		siblings = append(siblings, helpers.SiblingVector{
+			Quantized: canOwnCompressedBucket(class.VectorIndexType, class.VectorIndexConfig),
+		})
 	}
-	for name := range class.VectorConfig {
+	for name, cfg := range class.VectorConfig {
 		if name != exclude {
-			others = append(others, name)
+			siblings = append(siblings, helpers.SiblingVector{
+				Name:      name,
+				Quantized: canOwnCompressedBucket(cfg.VectorIndexType, cfg.VectorIndexConfig),
+			})
 		}
 	}
-	return others
+	return siblings
+}
+
+// canOwnCompressedBucket reports whether an index with this configuration can
+// have written a compressed bucket: hnsw, flat and dynamic only with a
+// quantizer enabled (compression cannot be switched off again, so a config
+// without one means the bucket was never written), hfresh always, through its
+// centroid graph. A configuration this cannot read is treated as quantized:
+// leaking beats deleting.
+func canOwnCompressedBucket(indexType string, cfg interface{}) bool {
+	switch indexType {
+	case vectorindex.VectorIndexTypeHNSW:
+		if uc, ok := cfg.(hnswent.UserConfig); ok {
+			return hnswQuantized(uc)
+		}
+	case vectorindex.VectorIndexTypeFLAT:
+		if uc, ok := cfg.(flatent.UserConfig); ok {
+			return flatQuantized(uc)
+		}
+	case vectorindex.VectorIndexTypeDYNAMIC:
+		if uc, ok := cfg.(dynamicent.UserConfig); ok {
+			return flatQuantized(uc.FlatUC) || hnswQuantized(uc.HnswUC)
+		}
+	}
+	return true
+}
+
+func hnswQuantized(uc hnswent.UserConfig) bool {
+	return uc.PQ.Enabled || uc.BQ.Enabled || uc.SQ.Enabled || uc.RQ.Enabled
+}
+
+func flatQuantized(uc flatent.UserConfig) bool {
+	return uc.PQ.Enabled || uc.BQ.Enabled || uc.SQ.Enabled || uc.RQ.Enabled
 }

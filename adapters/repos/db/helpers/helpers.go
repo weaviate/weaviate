@@ -197,6 +197,17 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 	}
 }
 
+// SiblingVector is a live vector whose artifacts a drop must not touch.
+// Quantized says whether its index can own a compressed bucket at all: only
+// an index with a quantizer configured ever writes one, so protecting it for
+// an uncompressed sibling would leak the raw bucket of a vector whose name
+// collides with it, and a re-created vector of that name would then open
+// stale data.
+type SiblingVector struct {
+	Name      string
+	Quantized bool
+}
+
 // VectorIndexArtifactsFor lists what dropping targetVector has to remove. It is
 // the single source of truth for that set: the live drop, the file sweep and
 // the tests all read it, because three hand-maintained copies is exactly how
@@ -207,23 +218,28 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 // back to decide would miss an index that failed to load, or one whose config
 // changed since it was written.
 //
-// otherTargetVectors is not optional. TargetVectorNameRegex permits names like
+// siblings is not optional. TargetVectorNameRegex permits names like
 // "<other>_muvera_vectors" or "<other>_centroids", which make one of THIS
 // target's artifacts byte-identical to a bucket a live sibling owns. Any
-// artifact a sibling claims is therefore dropped from the list: leaking beats
+// artifact a sibling can own is therefore dropped from the list: leaking beats
 // deleting data that is still in use.
-func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) VectorIndexArtifacts {
+func VectorIndexArtifactsFor(targetVector string, siblings []SiblingVector) VectorIndexArtifacts {
 	artifacts := vectorIndexArtifactNames(targetVector)
 
 	// Skipping the target itself is what keeps its OWN artifacts in the list,
 	// for a caller that passes the whole schema rather than filtering first.
 	protected := map[string]struct{}{}
-	for _, other := range otherTargetVectors {
-		if other == targetVector {
+	for _, sibling := range siblings {
+		if sibling.Name == targetVector {
 			continue
 		}
-		for _, name := range vectorIndexArtifactNames(other).All() {
+		for _, name := range vectorIndexArtifactNames(sibling.Name).All() {
 			protected[name] = struct{}{}
+		}
+		if !sibling.Quantized {
+			for _, name := range compressedArtifactNames(sibling.Name) {
+				delete(protected, name)
+			}
 		}
 	}
 	if len(protected) == 0 {
@@ -245,6 +261,16 @@ func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) V
 	}
 	artifacts.LSMBuckets = keptBuckets
 	return artifacts
+}
+
+// compressedArtifactNames is the subset of vectorIndexArtifactNames that only
+// a quantized index writes: its own compressed bucket and, for hfresh, the
+// centroid graph's.
+func compressedArtifactNames(targetVector string) []string {
+	return []string{
+		GetCompressedBucketName(targetVector),
+		CompressedBucketNameForID(VectorIndexIDForTarget(targetVector) + "_centroids"),
+	}
 }
 
 func GetHNSWCommitLogDirName(targetVector string) string {

@@ -463,7 +463,7 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	// other vector names is what stops a sibling being deleted when its own
 	// bucket collides with one of this target's artifact names.
 	artifacts := helpers.VectorIndexArtifactsFor(targetVector,
-		otherTargetVectors(s.class, targetVector))
+		siblingVectors(s.class, targetVector))
 	for _, bucket := range artifacts.LSMBuckets {
 		if err := s.removeBucket(ctx, bucket); err != nil {
 			return fmt.Errorf("drop bucket %q for vector %q: %w", bucket, targetVector, err)

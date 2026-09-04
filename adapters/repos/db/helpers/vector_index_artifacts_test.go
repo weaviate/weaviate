@@ -81,7 +81,7 @@ func TestVectorIndexArtifactsFor_NeverTakesASiblingsArtifact(t *testing.T) {
 			require.Contains(t, unguarded.LSMBuckets, tc.clash,
 				"precondition: dropping foo does target this name when no siblings are declared")
 
-			got := VectorIndexArtifactsFor("foo", []string{tc.sibling})
+			got := VectorIndexArtifactsFor("foo", []SiblingVector{{Name: tc.sibling, Quantized: true}})
 			assert.NotContains(t, got.LSMBuckets, tc.clash,
 				"a live sibling's bucket must never be removed")
 
@@ -97,7 +97,7 @@ func TestVectorIndexArtifactsFor_NeverTakesASiblingsArtifact(t *testing.T) {
 // caller passes the target itself in the sibling list, which is easy to do by
 // looping over the whole schema.
 func TestVectorIndexArtifactsFor_KeepsItsOwnPrimaryBucket(t *testing.T) {
-	got := VectorIndexArtifactsFor("vec", []string{"vec", "other"})
+	got := VectorIndexArtifactsFor("vec", []SiblingVector{{Name: "vec", Quantized: true}, {Name: "other", Quantized: true}})
 	assert.Contains(t, got.LSMBuckets, "vectors_vec",
 		"the dropped vector's own bucket must still be removed")
 	assert.Contains(t, got.LSMBuckets, "vectors_vec_mv_mappings")
@@ -114,7 +114,7 @@ func TestVectorIndexArtifactsFor_UnrelatedSiblingsChangeNothing(t *testing.T) {
 	require.NotEmpty(t, plain.LSMBuckets)
 	require.NotEmpty(t, plain.ShardDirs)
 
-	withSiblings := VectorIndexArtifactsFor("vec", []string{"vec2", "other", "vec_extra"})
+	withSiblings := VectorIndexArtifactsFor("vec", []SiblingVector{{Name: "vec2", Quantized: true}, {Name: "other"}, {Name: "vec_extra", Quantized: true}})
 	assert.Equal(t, plain.LSMBuckets, withSiblings.LSMBuckets)
 	assert.Equal(t, plain.ShardDirs, withSiblings.ShardDirs)
 }
@@ -153,7 +153,7 @@ func TestVectorIndexArtifactsFor_LegacyVectorNamesWhatItOwns(t *testing.T) {
 func TestVectorIndexArtifactsFor_NeverTakesTheLegacyVectorsArtifact(t *testing.T) {
 	// A named vector called "compressed" owns raw bucket "vectors_compressed",
 	// byte-identical to the legacy vector's quantized bucket.
-	got := VectorIndexArtifactsFor("compressed", []string{""})
+	got := VectorIndexArtifactsFor("compressed", []SiblingVector{{Name: "", Quantized: true}})
 	assert.NotContains(t, got.LSMBuckets, "vectors_compressed",
 		"the legacy vector's quantized bucket must survive dropping a named vector called compressed")
 	assert.Contains(t, got.LSMBuckets, "vectors_compressed_compressed",
@@ -163,8 +163,64 @@ func TestVectorIndexArtifactsFor_NeverTakesTheLegacyVectorsArtifact(t *testing.T
 	// raw bucket: leaking it would hand a re-created vector of the same name
 	// stale data.
 	for _, name := range []string{"muvera_vectors", "mv_mappings", "compressed_centroids"} {
-		got := VectorIndexArtifactsFor(name, []string{""})
+		got := VectorIndexArtifactsFor(name, []SiblingVector{{Name: "", Quantized: true}})
 		assert.Contains(t, got.LSMBuckets, "vectors_"+name,
 			"dropping %q next to the legacy vector must still remove its own raw bucket", name)
+	}
+}
+
+// Only a quantized index ever writes a compressed bucket, so an unquantized
+// sibling must not protect one: the raw bucket of a vector whose name
+// collides with it would leak into a re-created vector of that name.
+func TestVectorIndexArtifactsFor_ProtectsOnlyWhatASiblingCanOwn(t *testing.T) {
+	tests := []struct {
+		name      string
+		target    string
+		sibling   SiblingVector
+		bucket    string // the target's artifact that collides with the sibling's
+		protected bool
+	}{
+		{
+			name:    "quantized named sibling keeps its compressed bucket",
+			target:  "compressed_x",
+			sibling: SiblingVector{Name: "x", Quantized: true},
+			bucket:  "vectors_compressed_x", protected: true,
+		},
+		{
+			name:    "unquantized named sibling never wrote a compressed bucket",
+			target:  "compressed_x",
+			sibling: SiblingVector{Name: "x"},
+			bucket:  "vectors_compressed_x", protected: false,
+		},
+		{
+			name:    "quantized legacy sibling keeps its compressed bucket",
+			target:  "compressed",
+			sibling: SiblingVector{Name: "", Quantized: true},
+			bucket:  "vectors_compressed", protected: true,
+		},
+		{
+			name:    "unquantized legacy sibling never wrote a compressed bucket",
+			target:  "compressed",
+			sibling: SiblingVector{Name: ""},
+			bucket:  "vectors_compressed", protected: false,
+		},
+		{
+			name:    "a raw bucket is protected whatever the sibling's compression",
+			target:  "foo",
+			sibling: SiblingVector{Name: "foo_muvera_vectors"},
+			bucket:  "vectors_foo_muvera_vectors", protected: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Contains(t, VectorIndexArtifactsFor(tt.target, nil).LSMBuckets, tt.bucket,
+				"precondition: dropping %s targets %s when nothing is protected", tt.target, tt.bucket)
+			got := VectorIndexArtifactsFor(tt.target, []SiblingVector{tt.sibling})
+			if tt.protected {
+				assert.NotContains(t, got.LSMBuckets, tt.bucket)
+			} else {
+				assert.Contains(t, got.LSMBuckets, tt.bucket)
+			}
+		})
 	}
 }

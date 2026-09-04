@@ -643,7 +643,7 @@ func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 	}
 	if err := newVectorDropIndexHelper().removeVectorIndexFiles(
 		l.shardOpts.index.path(), l.shardOpts.name, targetVector,
-		otherTargetVectors(class, targetVector)); err != nil {
+		siblingVectors(class, targetVector)); err != nil {
 		return err
 	}
 
