@@ -21,66 +21,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// nextMigrationGeneration returns the per-node generation `N` a new
-// migration on (migrationDirPrefix, propNamesSuffix) should use on this
-// shard's LSM directory. The new migration writes to dirs suffixed
-// `_<N>`; older generations (if any) still live alongside the
-// canonical main bucket until [FinalizeCompletedMigrations] runs at
-// next startup.
-//
-// `migrationDirPrefix` is one of the constants in
-// inverted_reindex_strategy_dir_names.go (e.g. `searchable_retokenize`
-// or `searchable_map_to_blockmax`). `propNamesSuffix` is the
-// strategy-specific per-property tail (e.g. `_text` for the per-property
-// retokenize strategies, or the sorted-joined "_p1_p2" for multi-property
-// strategies — pass "" for class-level strategies). The full dir name
-// pattern matched is `<migrationDirPrefix><propNamesSuffix>_<N>`.
-//
-// Returns 1 when no prior generation exists. Returns max(existing)+1
-// otherwise. Non-integer-suffixed dirs (i.e. pre-generation legacy
-// state, which shouldn't exist on this branch but defensive code is
-// cheap) are ignored.
-//
-// Called from [ReindexProvider.processOneUnit] before constructing the
-// strategy instance, once per shard / prop / indexType tuple. Computed
-// per-node — different nodes may pick different generations for the
-// same RAFT task and that's correct: generation is purely a per-node
-// on-disk implementation detail of the deferred-finalize design.
-func nextMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
-	return maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix) + 1
-}
-
-// maxMigrationGeneration returns the highest existing generation on disk
-// for the (prefix, propNamesSuffix) tuple, or 0 if none exists.
-//
-// Used by recovery / rehydrate paths that need to construct a strategy
-// instance matching an existing on-disk migration. The recovery path is
-// the only legitimate caller — fresh task starts should always use
-// [nextMigrationGeneration] to claim a new generation.
-func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
-	migrationsDir := filepath.Join(lsmPath, ".migrations")
-	entries, err := os.ReadDir(migrationsDir)
+// migrationTrackerDirAbsent reports whether a migration's tracker dir is
+// provably missing. A stat error must not be read as absence, or a pending
+// migration gets marked complete without its index ever rebuilt.
+func migrationTrackerDirAbsent(lsmPath, dirName string) bool {
+	info, err := os.Stat(filepath.Join(lsmPath, migrationsDir, dirName))
 	if err != nil {
-		return 0
+		return os.IsNotExist(err)
 	}
-	target := migrationDirPrefix + propNamesSuffix
-	highest := 0
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		prefix, gen, ok := parseMigrationDirName(entry.Name())
-		if !ok {
-			continue
-		}
-		if prefix != target {
-			continue
-		}
-		if gen > highest {
-			highest = gen
-		}
-	}
-	return highest
+	return !info.IsDir()
 }
 
 // completedMigrationGens returns the set of generation numbers whose
@@ -171,8 +120,8 @@ func fileExistsInDir(dirPath, fileName string) bool {
 // completed migrations that still need filesystem cleanup, and runs the
 // deferred ingest→canonical rename for each.
 //
-// Every migration tracker dir on disk carries a per-node generation
-// suffix `_<N>` (see [genSuffix]). For each (prop, indexType) tuple
+// Every migration tracker dir on disk carries a generation suffix `_<N>`
+// (see [genSuffix]). For each (prop, indexType) tuple
 // there may be multiple generations on disk if the prior end-of-swap
 // trim hadn't run yet — for example because the process crashed between
 // `markTidied` and the per-shard trim, or because a follow-up migration

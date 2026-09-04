@@ -17,6 +17,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
 // Structural pin for createReindexTasks' switch: every
@@ -24,6 +25,10 @@ import (
 // at least one ShardReindexTaskGeneric or fail with a documented
 // error. A new constant without a matching case fails the loop below
 // instead of silently producing "unknown migration type" at runtime.
+
+// The dispatch switch is what these cases pin; the descriptor only has to
+// name a version the names can carry.
+var enumerationDesc = distributedtask.TaskDescriptor{ID: "task-1", Version: 1}
 
 // allKnownMigrationTypes is the authoritative enumeration; sorted to
 // match the declaration order in reindex_provider_payload.go.
@@ -197,7 +202,7 @@ func TestCreateReindexTasks_EnumerationExhaustive(t *testing.T) {
 // enumerationCase would fail with the unknown-type error string.
 func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	tmpLsmPath := t.TempDir() // empty dir → all generations resolve to 1
+	tmpLsmPath := t.TempDir()
 
 	// Build a minimal provider literal. createReindexTasks references
 	// p.logger and p.schemaManager only; nil schemaManager is OK
@@ -222,7 +227,7 @@ func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 			// c.mt and we want the payload to match.
 			payload := *c.payload
 			payload.MigrationType = c.mt
-			tasks, err := p.createReindexTasks(&payload, tmpLsmPath, false)
+			tasks, err := p.createReindexTasks(enumerationDesc, &payload, tmpLsmPath, false)
 
 			if c.wantErrSubst != "" {
 				require.Errorf(t, err,
@@ -262,7 +267,7 @@ func TestCreateReindexTasks_UnknownTypeRejected(t *testing.T) {
 	tmpLsmPath := t.TempDir()
 	p := &ReindexProvider{logger: logger}
 
-	tasks, err := p.createReindexTasks(&ReindexTaskPayload{
+	tasks, err := p.createReindexTasks(enumerationDesc, &ReindexTaskPayload{
 		MigrationType: ReindexMigrationType("definitely-not-a-real-type"),
 		Collection:    "MyClass",
 		Properties:    []string{"title"},
@@ -285,7 +290,7 @@ func TestCreateReindexTasks_EmptyPropertiesRejected(t *testing.T) {
 
 	for _, mt := range allKnownMigrationTypes() {
 		t.Run(string(mt), func(t *testing.T) {
-			tasks, err := p.createReindexTasks(&ReindexTaskPayload{
+			tasks, err := p.createReindexTasks(enumerationDesc, &ReindexTaskPayload{
 				MigrationType: mt,
 				Collection:    "MyClass",
 				// Properties: nil — the gate is in createReindexTasks itself.
@@ -314,7 +319,7 @@ func TestCreateReindexTasks_TooManyPropertiesRejected(t *testing.T) {
 		tooMany[i] = "p"
 	}
 
-	tasks, err := p.createReindexTasks(&ReindexTaskPayload{
+	tasks, err := p.createReindexTasks(enumerationDesc, &ReindexTaskPayload{
 		MigrationType: ReindexTypeRepairFilterable, // arbitrary; the gate is migration-agnostic
 		Collection:    "MyClass",
 		Properties:    tooMany,

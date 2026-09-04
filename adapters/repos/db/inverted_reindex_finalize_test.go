@@ -63,17 +63,24 @@ func TestGenSuffix(t *testing.T) {
 	require.Equal(t, "_0", genSuffix(0)) // 0 is reserved (canonical) but genSuffix still emits — callers don't pass 0
 }
 
-// fakeMigrationsDir creates a temp .migrations/ tree with the given dir
-// names and returns the parent lsmPath.
-func fakeMigrationsDir(t *testing.T, dirs []string) string {
-	t.Helper()
+// A stat failure must not read as absence: that would retire an in-flight
+// migration and record it complete without ever rebuilding the index.
+func TestMigrationTrackerDirAbsentDoesNotReadAStatFailureAsAbsence(t *testing.T) {
 	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-	for _, d := range dirs {
-		require.NoError(t, os.MkdirAll(filepath.Join(migsDir, d), 0o755))
-	}
-	return lsmPath
+	require.NoError(t, os.Mkdir(filepath.Join(lsmPath, ".migrations"), 0o755))
+	const dirName = MigrationDirSearchableMapToBlockmax + "_1"
+	dirPath := filepath.Join(lsmPath, ".migrations", dirName)
+
+	require.True(t, migrationTrackerDirAbsent(lsmPath, dirName))
+	require.NoError(t, os.Mkdir(dirPath, 0o755))
+	require.False(t, migrationTrackerDirAbsent(lsmPath, dirName))
+
+	// A symlink loop stands in for the stat failures a unit test cannot
+	// produce (EIO, EACCES, no descriptors left), as in [breakSentinelRead].
+	require.NoError(t, os.Remove(dirPath))
+	require.NoError(t, os.Symlink(dirName, dirPath))
+	require.False(t, migrationTrackerDirAbsent(lsmPath, dirName),
+		"a tracker dir whose stat fails must not read as one that is not there")
 }
 
 // touchSentinel creates an empty file at the given path. Used to
@@ -81,71 +88,6 @@ func fakeMigrationsDir(t *testing.T, dirs []string) string {
 func touchSentinel(t *testing.T, path string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(path, nil, 0o644))
-}
-
-func TestNextMigrationGeneration_EmptyDisk(t *testing.T) {
-	lsmPath := fakeMigrationsDir(t, nil)
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
-	require.Equal(t, 1, got, "fresh disk should pick gen 1")
-}
-
-func TestNextMigrationGeneration_NoMatchingPrefix(t *testing.T) {
-	// Existing dirs for a DIFFERENT prop / strategy don't bump the
-	// counter for ours.
-	lsmPath := fakeMigrationsDir(t, []string{
-		"searchable_retokenize_otherprop_1",
-		"filterable_retokenize_text_2",
-		"enable_filterable_text_5",
-	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
-	require.Equal(t, 1, got, "no matching prefix means fresh gen 1")
-}
-
-func TestNextMigrationGeneration_ContiguousGens(t *testing.T) {
-	lsmPath := fakeMigrationsDir(t, []string{
-		"searchable_retokenize_text_1",
-		"searchable_retokenize_text_2",
-		"searchable_retokenize_text_3",
-	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
-	require.Equal(t, 4, got, "max+1 across contiguous gens")
-}
-
-func TestNextMigrationGeneration_NonContiguousGens(t *testing.T) {
-	// If gens have gaps (e.g. trim removed some but not the highest), we
-	// still pick max+1 — never reuse a gap.
-	lsmPath := fakeMigrationsDir(t, []string{
-		"searchable_retokenize_text_1",
-		"searchable_retokenize_text_5",
-		"searchable_retokenize_text_7",
-	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
-	require.Equal(t, 8, got, "non-contiguous gens still pick max+1")
-}
-
-func TestNextMigrationGeneration_MixedPrefixesScopedCorrectly(t *testing.T) {
-	lsmPath := fakeMigrationsDir(t, []string{
-		"searchable_retokenize_text_3",
-		"searchable_retokenize_other_7", // different prop in same prefix
-		"filterable_retokenize_text_10", // different prefix, same prop
-	})
-	require.Equal(t, 4, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
-	require.Equal(t, 8, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_other"))
-	require.Equal(t, 11, nextMigrationGeneration(lsmPath, MigrationDirPrefixFilterableRetokenize, "_text"))
-	require.Equal(t, 1, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_neverused"))
-}
-
-func TestMaxMigrationGeneration_NoExisting(t *testing.T) {
-	lsmPath := fakeMigrationsDir(t, nil)
-	require.Equal(t, 0, maxMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
-}
-
-func TestMaxMigrationGeneration_Existing(t *testing.T) {
-	lsmPath := fakeMigrationsDir(t, []string{
-		"searchable_retokenize_text_2",
-		"searchable_retokenize_text_5",
-	})
-	require.Equal(t, 5, maxMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
 }
 
 // TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied verifies
