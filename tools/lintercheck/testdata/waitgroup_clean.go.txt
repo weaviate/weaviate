@@ -1,0 +1,14 @@
+package pkg
+
+import "sync"
+
+// Deferred Done() still matches the linter's raw grep pattern, exercising its
+// defer exclusion rather than just the absence of a match.
+func Clean() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+	}()
+	wg.Wait()
+}
