@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -103,9 +104,8 @@ func runScanObjectsLSMCase(t *testing.T, objectCount, failOnCall, segments int) 
 func TestScanObjectsLSMCancellation(t *testing.T) {
 	const someObjects = 100
 
-	// ten doc IDs per worker, so the first worker's range holds the whole of what
-	// the two part-way rows observe and no other worker can reach scanFn
-	tenPerWorker := 10 * scanConcurrency()
+	// ten times as many doc IDs as workers, so stopping early does far less work
+	tenPerWorker := 10 * concurrency.CurrentGOMAXPROCSx2()
 
 	tests := []struct {
 		name string
@@ -139,14 +139,14 @@ func TestScanObjectsLSMCancellation(t *testing.T) {
 			maxScanCalls:     0,
 		},
 		{
-			// only the first worker's range resolves, so it alone reaches scanFn and
-			// the count below is its own behaviour rather than a race between workers
+			// each worker past its check can still land one call before seeing the cancel
 			name:          "cancelled part way through, every doc ID resolves",
-			storedObjects: 10,
+			storedObjects: tenPerWorker,
 			pointerCount:  tenPerWorker,
-			maxScanCalls:  1,
+			maxScanCalls:  concurrency.CurrentGOMAXPROCSx2(),
 		},
 		{
+			// one resolvable doc ID means one possible call whatever the workers do
 			name:          "cancelled part way through, only the first doc ID resolves",
 			storedObjects: 1,
 			pointerCount:  tenPerWorker,
@@ -181,7 +181,14 @@ func TestScanObjectsLSMCancellation(t *testing.T) {
 
 			err := ScanObjectsLSM(ctx, store, pointers, scan, []string{"name"}, logger)
 
-			require.ErrorIs(t, err, context.Canceled)
+			if tt.cancelBeforeScan {
+				require.ErrorIs(t, err, context.Canceled,
+					"a scan handed a cancelled context must report it")
+			} else if err != nil {
+				// cancelling mid-scan races the per-doc-ID check, so success is a
+				// valid outcome; an error that does come back is the cancellation
+				require.ErrorIs(t, err, context.Canceled)
+			}
 			require.LessOrEqual(t, calls.Load(), int64(tt.maxScanCalls))
 			if calls.Load() > 0 {
 				require.True(t, sawCancel.Load(), "scanFn was handed a context the caller cannot cancel")
@@ -242,8 +249,8 @@ func TestScanObjectsLSMPropertyValues(t *testing.T) {
 					pointers = append(pointers, id)
 				}
 			}
-			require.Greater(t, len(pointers), scanConcurrency(),
-				"a worker must read more than one object or its buffer is never reused")
+			require.Greater(t, len(pointers), concurrency.CurrentGOMAXPROCSx2(),
+				"some worker must read more than one object or its buffer is never reused")
 
 			var lock sync.Mutex
 			scanned := map[uint64]interface{}{}
@@ -432,4 +439,60 @@ func requireSegmentsOnDisk(tb testing.TB, dir string, want int) {
 		}
 	}
 	require.Equal(tb, want, got, "segment files in %s", dir)
+}
+
+// BenchmarkScanObjectsLSMSizeSkew moves only where the large objects sit in an
+// ascending allow list, the order the filtered path passes. spread is the
+// control: equal counts already hold equal bytes there, so both rows read alike.
+func BenchmarkScanObjectsLSMSizeSkew(b *testing.B) {
+	const (
+		objectCount = 5000
+		largeCount  = 200
+		smallBytes  = 512
+		largeBytes  = 200 * 1024
+		segments    = 4
+	)
+
+	benchmarks := []struct {
+		name string
+		// large objects in one contiguous run of doc IDs rather than at a stride
+		clustered bool
+	}{
+		{name: "large objects clustered", clustered: true},
+		{name: "large objects spread", clustered: false},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			stride := objectCount / largeCount
+			props := make([]map[string]interface{}, objectCount)
+			large := 0
+			for i := range props {
+				padding := smallBytes
+				isLarge := i < largeCount
+				if !bm.clustered {
+					isLarge = i%stride == 0
+				}
+				if isLarge {
+					padding = largeBytes
+					large++
+				}
+				props[i] = objectProperties(i, padding)
+			}
+			require.Equal(b, largeCount, large, "both rows must hold the same bytes")
+
+			logger, _ := test.NewNullLogger()
+			store, pointers := storeWithProperties(b, logger, segments, props)
+			scan := func(_ context.Context, _ *models.PropertySchema, _ uint64) error { return nil }
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := ScanObjectsLSM(context.Background(), store, pointers, scan,
+					[]string{"name"}, logger); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }
