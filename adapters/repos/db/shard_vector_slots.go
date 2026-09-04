@@ -97,6 +97,21 @@ func (v *vectorIndexSlots) ForEach(f func(name string, index VectorIndex, queue 
 	return nil
 }
 
+// Replace swaps the index of a published slot, for the debug reindex
+// endpoint. The queue stays; the caller re-points it. Reports whether the
+// slot existed.
+func (v *vectorIndexSlots) Replace(name string, index VectorIndex) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	slot, ok := v.slots[v.resolve(name)]
+	if !ok {
+		return false
+	}
+	slot.index = index
+	return true
+}
+
 // Len is the number of published slots.
 func (v *vectorIndexSlots) Len() int {
 	v.mu.RLock()

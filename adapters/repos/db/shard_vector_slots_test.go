@@ -102,3 +102,18 @@ func TestVectorIndexSlots_ZeroValueIsUsable(t *testing.T) {
 	assert.Equal(t, 0, v.Len())
 	require.NoError(t, v.ForEach(func(string, VectorIndex, *VectorIndexQueue) error { return nil }))
 }
+
+func TestVectorIndexSlots_Replace(t *testing.T) {
+	var v vectorIndexSlots
+	old := &MockVectorIndex{}
+	replacement := &MockVectorIndex{}
+	require.NoError(t, v.Publish("title", old, nil))
+
+	assert.True(t, v.Replace("title", replacement))
+	slot, ok := v.get("title")
+	require.True(t, ok)
+	assert.Same(t, replacement, slot.index)
+
+	assert.False(t, v.Replace("missing", replacement), "replacing an absent slot installs nothing")
+	assert.Equal(t, 1, v.Len())
+}
