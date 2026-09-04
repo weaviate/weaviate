@@ -12,8 +12,11 @@
 package db
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -118,19 +121,99 @@ func TestVectorIndexSlots_Replace(t *testing.T) {
 	assert.Equal(t, 1, v.Len())
 }
 
-func TestVectorIndexSlots_RemoveTakesTheSlotOut(t *testing.T) {
+func TestVectorIndexSlots_RemoveWithoutLeasesReturnsAtOnce(t *testing.T) {
 	var v vectorIndexSlots
 	index := &MockVectorIndex{}
 	require.NoError(t, v.Publish("title", index, nil))
+	logger, _ := test.NewNullLogger()
 
-	gotIndex, _, ok := v.remove("title")
+	gotIndex, _, ok := v.Remove(context.Background(), "title", logger)
 	require.True(t, ok)
 	assert.Same(t, index, gotIndex)
 	_, ok = v.get("title")
 	assert.False(t, ok)
 
-	_, _, ok = v.remove("title")
+	_, _, ok = v.Remove(context.Background(), "title", logger)
 	assert.False(t, ok, "removing twice reports the slot as already gone")
+}
+
+func TestVectorIndexSlots_RemoveWaitsForLeases(t *testing.T) {
+	var v vectorIndexSlots
+	require.NoError(t, v.Publish("title", &MockVectorIndex{}, nil))
+	logger, _ := test.NewNullLogger()
+
+	_, release, ok := v.Acquire("title")
+	require.True(t, ok)
+
+	removed := make(chan bool, 1)
+	go func() {
+		_, _, ok := v.Remove(context.Background(), "title", logger)
+		removed <- ok
+	}()
+
+	select {
+	case <-removed:
+		t.Fatal("remove completed while a lease was held")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	_, _, ok = v.Acquire("title")
+	assert.False(t, ok, "no new lease once a removal has started")
+
+	release()
+	select {
+	case ok := <-removed:
+		assert.True(t, ok)
+	case <-time.After(5 * time.Second):
+		t.Fatal("remove did not complete after the lease was released")
+	}
+}
+
+func TestVectorIndexSlots_RemoveProceedsPastTheDeadline(t *testing.T) {
+	v := vectorIndexSlots{drainTimeout: 50 * time.Millisecond}
+	require.NoError(t, v.Publish("title", &MockVectorIndex{}, nil))
+	logger, hook := test.NewNullLogger()
+
+	_, release, ok := v.Acquire("title")
+	require.True(t, ok)
+	t.Cleanup(release)
+
+	start := time.Now()
+	_, _, ok = v.Remove(context.Background(), "title", logger)
+	require.True(t, ok, "past the deadline the slot is removed anyway, as the shard-level drop does")
+	assert.GreaterOrEqual(t, time.Since(start), 50*time.Millisecond)
+	_, ok = v.get("title")
+	assert.False(t, ok)
+
+	var logged bool
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["action"] == "drop_vector_index" && entry.Data["in_use"] == int64(1) {
+			logged = true
+		}
+	}
+	assert.True(t, logged, "the leftover lease count is logged")
+}
+
+func TestVectorIndexSlots_RemoveOfOneSlotDoesNotWaitForAnother(t *testing.T) {
+	var v vectorIndexSlots
+	require.NoError(t, v.Publish("a", &MockVectorIndex{}, nil))
+	require.NoError(t, v.Publish("b", &MockVectorIndex{}, nil))
+	logger, _ := test.NewNullLogger()
+
+	_, release, ok := v.Acquire("a")
+	require.True(t, ok)
+	defer release()
+
+	done := make(chan struct{})
+	go func() {
+		v.Remove(context.Background(), "b", logger)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("removing b waited for a lease on a")
+	}
 }
 
 func TestVectorIndexSlots_AcquireCountsLeases(t *testing.T) {
