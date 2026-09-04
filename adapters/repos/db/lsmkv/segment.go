@@ -809,18 +809,25 @@ func (s *segment) copyNode(b []byte, offset nodeOffset) error {
 		copy(b, s.contents[offset.start:offset.end])
 		return nil
 	}
+	return s.preadInto(b, offset.start, copyNodeOp)
+}
 
+// preadInto fills b from the segment file at off and meters what came off disk.
+// The caller owns the buffer and the range it covers; this is the pread half
+// copyNode and readRange share, and the operation names both the metric label
+// and the error.
+func (s *segment) preadInto(b []byte, off uint64, operation string) error {
 	if s.contentFile == nil {
-		return fmt.Errorf("copyNode: nil contentFile for segment at %s", s.path)
+		return fmt.Errorf("%s: nil contentFile for segment at %s", operation, s.path)
 	}
 
 	readStart := time.Now()
 	// ReadAt errors on a short read; all io.ReadFull adds is io.ErrUnexpectedEOF in place of io.EOF
-	n, err := s.contentFile.ReadAt(b, int64(offset.start))
+	n, err := s.contentFile.ReadAt(b, int64(off))
 	if err != nil {
-		return fmt.Errorf("copyNode: %w", err)
+		return fmt.Errorf("%s: %w", operation, err)
 	}
-	observe := readObserver.GetOrCreate(readMetricName(copyNodeOp), s.metrics)
+	observe := readObserver.GetOrCreate(readMetricName(operation), s.metrics)
 	observe(int64(n), time.Since(readStart).Nanoseconds())
 	return nil
 }
