@@ -41,8 +41,7 @@ func (m *Memtable) flushWAL() error {
 	}
 
 	// fsync parent directory
-	err := diskio.Fsync(filepath.Dir(m.path))
-	if err != nil {
+	if err := diskio.Fsync(filepath.Dir(m.path)); err != nil {
 		return err
 	}
 
@@ -72,6 +71,10 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	// (indicated by a successful close of the flush file - which indicates a
 	// successful fsync)
 
+	// racing a concurrent Bucket.SyncWAL on this (flushing) memtable is
+	// safe: close, sync and flushBuffers serialize on the commit logger's
+	// own mutex, deliberately NOT the memtable lock — holding that across
+	// close()'s fsync would block every reader of this memtable
 	if err := m.commitlog.close(); err != nil {
 		return "", errors.Wrap(err, "close commit log file")
 	}

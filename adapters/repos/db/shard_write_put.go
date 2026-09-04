@@ -235,6 +235,51 @@ func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) 
 	return obj, nil
 }
 
+// Phases of the crash-safe docID retirement inside an update, reported to
+// the test-only put phase hook (mirrors the delete phase constants).
+const (
+	putPhaseRetireCleanedUp = "retire-cleaned-up"
+	putPhaseRetireBarrier   = "retire-barrier"
+	putPhaseRowWritten      = "row-written"
+)
+
+func (s *Shard) firePutPhaseHook(phase string) {
+	if h := s.testPutPhaseHook; h != nil {
+		h(phase)
+	}
+}
+
+// retireOldDocIDLocked is the update-path mirror of the delete path's
+// cleanup+barrier phases (deleteObjectCrashSafeLocked steps 2-3). When an
+// update changes the docID, the row rewrite retires the old docID exactly
+// like a delete retires it: afterwards no row references it, so a crash that
+// loses part of the old docID's inverted cleanup while the rewritten row
+// survives leaves orphan postings for a docID that will later reach the free
+// list. Cleaning up and syncing BEFORE the row write is issued guarantees
+// the cleanup is durable before the rewrite can possibly be.
+//
+// A crash after the barrier but before the row write leaves the old row with
+// its postings already removed — the same convergent state as a delete
+// crashing before its row delete: the object is temporarily invisible to
+// filters and the next put (or delete) of the object re-runs the idempotent
+// cleanup.
+//
+// Caller must hold the object's docIdLock and pass status.docIDChanged.
+func (s *Shard) retireOldDocIDLocked(ctx context.Context, prevObj *storobj.Object, oldDocID uint64) error {
+	touched, err := s.cleanupInvertedIndexForRetiredDocID(prevObj, oldDocID)
+	if err != nil {
+		return fmt.Errorf("cleanup inverted postings of old docID %d: %w", oldDocID, err)
+	}
+	s.firePutPhaseHook(putPhaseRetireCleanedUp)
+
+	if err := s.invertedDeleteBarrier(ctx, touched); err != nil {
+		return fmt.Errorf("inverted delete barrier for old docID %d: %w", oldDocID, err)
+	}
+	s.firePutPhaseHook(putPhaseRetireBarrier)
+
+	return nil
+}
+
 func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes []byte,
 ) (status objectInsertStatus, err error) {
 	before := time.Now()
@@ -321,6 +366,16 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return nil
 		}
 
+		// docID change: retire the old docID crash-safely BEFORE the row
+		// write below — see retireOldDocIDLocked. (docIDChanged implies
+		// prevObj != nil; determineInsertStatus decided the docID above, so
+		// the gate is exact, not conservative.)
+		if status.docIDChanged {
+			if err := s.retireOldDocIDLocked(ctx, prevObj, status.oldDocID); err != nil {
+				return err
+			}
+		}
+
 		var objBinary []byte
 		if obj.PrecomputedDiskBinary != nil {
 			// raw path: persist source bytes verbatim, only patching our docID.
@@ -336,6 +391,7 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		if err := s.upsertObjectDataLSM(bucket, idBytes, objBinary, status.docID); err != nil {
 			return errors.Wrap(err, "upsert object data")
 		}
+		s.firePutPhaseHook(putPhaseRowWritten)
 		s.metrics.PutObjectUpsertObject(before)
 
 		// Tee before hashtree: the bucket is the SSOT for movement catchup.
@@ -544,33 +600,30 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	// One snapshot for the whole write, so the double-write pass below sees
-	// the same {add,del,scope} as the inline suppression above.
+	// the same {add,del,scope} as the inline suppression above. (When the
+	// docID changed, the old docID's cleanup already ran with its own
+	// snapshot in retireOldDocIDLocked — the same two-snapshot split a
+	// delete-then-put would have.)
 	st := s.loadPropValueIndexState()
 
 	var prevProps []inverted.Property
 	var prevNilprops []inverted.NilProperty
 	var prevNestedProps []inverted.NestedProperty
 
-	if prevObject != nil {
+	// Only the docID-PRESERVED update still needs the previous version here,
+	// for the delta cleanup below. The docID-CHANGED update retired the old
+	// docID — full inverted cleanup, prop-length subtraction, bitmap-factory
+	// removal, dimension tracking, migration delete mirror, and a durability
+	// barrier — in retireOldDocIDLocked, BEFORE the new row was written.
+	if prevObject != nil && status.docIDPreserved {
 		prevProps, prevNilprops, prevNestedProps, err = s.AnalyzeObject(prevObject)
 		if err != nil {
 			return fmt.Errorf("analyze previous object: %w", err)
 		}
-	}
-	// if object updated (with or without docID changed)
-	if status.docIDChanged || status.docIDPreserved {
-		if err := s.subtractPropLengths(prevProps); err != nil {
-			s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
-		}
-	}
 
-	// Removing the old docId from the factory solves an issue,
-	// where, if using a NotEquals filter on a property,
-	// there is a possible time period where that docId has been deleted from the inverted index,
-	// but is still present in HNSW or other vector indices.
-	// For any NotEquals filter, we do an Equals filter and invert it's results.
-	if status.docIDChanged {
-		s.bitmapFactory.RemoveIds(status.oldDocID)
+		if err := s.subtractPropLengths(prevProps); err != nil {
+			s.index.logger.WithField("action", "subtractPropLengths").Errorf("could not subtract prop lengths: %v", err)
+		}
 	}
 
 	if err := s.SetPropertyLengths(props); err != nil {
@@ -593,17 +646,18 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		nilpropsToDel = deltaNil.ToDelete
 	} else {
 		propsToAdd = inverted.DedupItems(props)
-		propsToDel = inverted.DedupItems(prevProps)
 		nilpropsToAdd = nilprops
-		nilpropsToDel = prevNilprops
 	}
 
-	if prevObject != nil {
+	if prevObject != nil && status.docIDPreserved {
 		// TODO: metrics
-		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID, st); err != nil {
+		// nil touched-bucket collector: the docID lives on (the row still
+		// references it after the rewrite), so this delta cleanup cannot
+		// orphan a to-be-reused docID and needs no durability barrier
+		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID, st, nil); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
 		}
-		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID); err != nil {
+		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID, nil); err != nil {
 			return fmt.Errorf("delete nested inverted indices: %w", err)
 		}
 		if s.index.Config.TrackVectorDimensions {
@@ -641,8 +695,14 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	// Mirrors this write into the ingest bucket under the TARGET analysis for
-	// scope props suppressed above; no-op absent a migration.
-	if err := s.migrationDoubleWrite(st, object, prevObject, status); err != nil {
+	// scope props suppressed above; no-op absent a migration. When the docID
+	// changed, the previous version's delete mirror already ran (durably) in
+	// retireOldDocIDLocked, so only the add side remains here.
+	prevForMigration := prevObject
+	if status.docIDChanged {
+		prevForMigration = nil
+	}
+	if err := s.migrationDoubleWrite(st, object, prevForMigration, status); err != nil {
 		return fmt.Errorf("migration double-write: %w", err)
 	}
 
