@@ -242,13 +242,28 @@ type segmentConfig struct {
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, cfg segmentConfig,
 ) (_ *segment, rerr error) {
+	// Every failure gives back what it took, from the defer that recovers: it is
+	// the only one that runs once a panic has become rerr. A lazy segment retries
+	// newSegment per read, so a leak here repeats per read.
+	var file *os.File
+	var contents []byte
+	var unMapContents bool
+
 	defer func() {
-		p := recover()
-		if p == nil {
+		if p := recover(); p != nil {
+			entsentry.Recover(p)
+			rerr = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
+		}
+		if rerr == nil {
 			return
 		}
-		entsentry.Recover(p)
-		rerr = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
+		if unMapContents {
+			mapped := mmap.MMap(contents)
+			_ = mapped.Unmap()
+		}
+		if file != nil {
+			file.Close()
+		}
 	}()
 
 	file, err := os.Open(path)
@@ -261,15 +276,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		// Errors are ignored — fadvise is purely advisory.
 		_ = fadviseSequential(file)
 	}
-
-	// The lifetime of the `file` exceeds this constructor as we store the open file for later use in `contentFile`.
-	// invariant: We close **only** if any error happened after successfully opening the file. To avoid leaking open file descriptor.
-	// NOTE: This `defer` works even with `err` being shadowed in the whole function because defer checks for named `rerr` return value.
-	defer func() {
-		if rerr != nil {
-			file.Close()
-		}
-	}()
 
 	var size int64
 	if cfg.fileList != nil {
@@ -288,8 +294,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	// mmap has some overhead, we can read small files directly to memory
-	var contents []byte
-	var unMapContents bool
 	var allocCheckerErr error
 
 	if size <= cfg.MinMMapSize { // check if it is a candidate for full reading
@@ -379,14 +383,18 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 		dataStartPos = invertedHeader.KeysOffset
 		dataEndPos = invertedHeader.TombstoneOffset
+
+		// LoadHeaderInverted checks neither, and these are bytes a cursor parses
+		if dataStartPos < segmentindex.HeaderSize+segmentindex.HeaderInvertedSize {
+			return nil, fmt.Errorf("%w: key region starts at %d, inside the header",
+				lsmkv.ErrCorruptIndex, dataStartPos)
+		}
 	}
 
-	// LoadHeaderInverted has no error path, so an inverted segment's key region is
-	// whatever its header says — and past IndexStart it is the index blob.
+	// a node addresses the data section, and past IndexStart that is the index blob
 	if dataEndPos < dataStartPos || dataEndPos > header.IndexStart {
-		return nil, fmt.Errorf("%w: data section [%d,%d) is not inside [%d,%d)",
-			lsmkv.ErrCorruptIndex, dataStartPos, dataEndPos,
-			segmentindex.HeaderSize, header.IndexStart)
+		return nil, fmt.Errorf("%w: data section [%d,%d) ends outside the index at %d",
+			lsmkv.ErrCorruptIndex, dataStartPos, dataEndPos, header.IndexStart)
 	}
 
 	// built after the inverted header moves them: those nodes address

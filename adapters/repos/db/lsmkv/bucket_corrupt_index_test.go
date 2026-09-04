@@ -745,36 +745,70 @@ func TestInvertedSegmentIndexIsBoundedByItsKeyRegion(t *testing.T) {
 
 // LoadHeaderInverted validates nothing, so a key region running into the index
 // blob must fail to open rather than serve index bytes as payload.
-func TestInvertedSegmentWithKeyRegionInsideItsIndexFailsToOpen(t *testing.T) {
+func TestInvertedSegmentWithKeyRegionOutsideItsDataFailsToOpen(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
-	dir := t.TempDir()
 
-	newBucket := func() (*Bucket, error) {
-		return tryOpenCorruptTestBucket(ctx, dir, logger, WithStrategy(StrategyInverted))
+	corruptions := []struct {
+		name string
+		// what the error must say, so one row cannot pass on the other's
+		corrupt func(t *testing.T, dir string) string
+	}{
+		{name: "keys begin inside the header", corrupt: pullKeysOffsetIntoHeader},
+		{name: "tombstones begin past the index", corrupt: pushTombstoneOffsetPastIndexStart},
 	}
 
-	b, err := newBucket()
-	require.NoError(t, err)
-	for i := 0; i < 16; i++ {
-		require.NoError(t, b.MapSet([]byte(fmt.Sprintf("term-%03d", i)),
-			NewMapPairFromDocIdAndTf(uint64(i), 1, 1, false)))
+	for _, corruption := range corruptions {
+		t.Run(corruption.name, func(t *testing.T) {
+			dir := t.TempDir()
+			newBucket := func() (*Bucket, error) {
+				return tryOpenCorruptTestBucket(ctx, dir, logger, WithStrategy(StrategyInverted))
+			}
+
+			b, err := newBucket()
+			require.NoError(t, err)
+			for i := 0; i < 16; i++ {
+				require.NoError(t, b.MapSet([]byte(fmt.Sprintf("term-%03d", i)),
+					NewMapPairFromDocIdAndTf(uint64(i), 1, 1, false)))
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			require.NoError(t, b.Shutdown(ctx))
+
+			wantMessage := corruption.corrupt(t, dir)
+
+			_, err = newBucket()
+			require.Error(t, err, "a key region outside the data section must not open")
+			require.ErrorIs(t, err, lsmkv.ErrCorruptIndex)
+			require.ErrorContains(t, err, wantMessage)
+		})
 	}
-	require.NoError(t, b.FlushAndSwitch())
-	require.NoError(t, b.Shutdown(ctx))
-
-	indexStart := pushTombstoneOffsetPastIndexStart(t, dir)
-
-	_, err = newBucket()
-	require.Error(t, err, "a key region running into the index must not open")
-	require.ErrorIs(t, err, lsmkv.ErrCorruptIndex)
-	require.ErrorContains(t, err, fmt.Sprintf("%d)", indexStart),
-		"the message has to name the bound the region broke")
 }
 
-// pushTombstoneOffsetPastIndexStart overlaps the key region with the index blob,
-// and returns the index start it broke.
-func pushTombstoneOffsetPastIndexStart(t *testing.T, dir string) uint64 {
+// pullKeysOffsetIntoHeader aims the key region at the segment header.
+func pullKeysOffsetIntoHeader(t *testing.T, dir string) string {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(dir, "*.db"))
+	require.NoError(t, err)
+	require.Len(t, matches, 1, "expected exactly one flushed segment")
+
+	contents, err := os.ReadFile(matches[0])
+	require.NoError(t, err)
+
+	// inverted header layout: [keysOffset:8][tombstoneOffset:8][propertyLengthsOffset:8]
+	keysAt := uint64(segmentindex.HeaderSize)
+	dataStart := uint64(segmentindex.HeaderSize) + segmentindex.HeaderInvertedSize
+	require.Greater(t, binary.LittleEndian.Uint64(contents[keysAt:]), dataStart-1,
+		"fixture must start with a key region inside the data section")
+
+	binary.LittleEndian.PutUint64(contents[keysAt:], 0)
+	require.NoError(t, os.WriteFile(matches[0], contents, 0o644))
+
+	return "key region starts at 0, inside the header"
+}
+
+// pushTombstoneOffsetPastIndexStart overlaps the key region with the index blob.
+func pushTombstoneOffsetPastIndexStart(t *testing.T, dir string) string {
 	t.Helper()
 
 	matches, err := filepath.Glob(filepath.Join(dir, "*.db"))
@@ -794,7 +828,7 @@ func pushTombstoneOffsetPastIndexStart(t *testing.T, dir string) uint64 {
 	binary.LittleEndian.PutUint64(contents[tombstoneAt:], header.IndexStart+8)
 	require.NoError(t, os.WriteFile(matches[0], contents, 0o644))
 
-	return header.IndexStart
+	return fmt.Sprintf("ends outside the index at %d", header.IndexStart)
 }
 
 // corruptRootValueStartIntoHeaderGap points the root's value between the header
