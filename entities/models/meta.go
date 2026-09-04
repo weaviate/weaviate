@@ -34,6 +34,9 @@ type Meta struct {
 	// The url of the host.
 	Hostname string `json:"hostname,omitempty"`
 
+	// License state of this node (status, licenseId, expiresAt, lastCheckedAt, graceEndsAt, enforcing, clusterMismatch).
+	License interface{} `json:"license,omitempty"`
+
 	// Module-specific meta information.
 	Modules interface{} `json:"modules,omitempty"`
 

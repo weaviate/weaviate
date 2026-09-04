@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/license"
 	usagetypes "github.com/weaviate/weaviate/usecases/modulecomponents/usage/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -183,6 +184,7 @@ type Config struct {
 	ModuleHttpClientTimeout          time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
 	AutoSchema                       AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                          cluster.Config           `json:"cluster" yaml:"cluster"`
+	License                          license.Config           `json:"license" yaml:"license"`
 	Replication                      replication.GlobalConfig `json:"replication" yaml:"replication"`
 	Monitoring                       monitoring.Config        `json:"monitoring" yaml:"monitoring"`
 	GRPC                             GRPC                     `json:"grpc" yaml:"grpc"`

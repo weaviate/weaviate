@@ -9697,6 +9697,10 @@ func init() {
           "type": "string",
           "format": "url"
         },
+        "license": {
+          "description": "License state of this node (status, licenseId, expiresAt, lastCheckedAt, graceEndsAt, enforcing, clusterMismatch).",
+          "type": "object"
+        },
         "modules": {
           "description": "Module-specific meta information.",
           "type": "object"
@@ -22542,6 +22546,10 @@ func init() {
           "description": "The url of the host.",
           "type": "string",
           "format": "url"
+        },
+        "license": {
+          "description": "License state of this node (status, licenseId, expiresAt, lastCheckedAt, graceEndsAt, enforcing, clusterMismatch).",
+          "type": "object"
         },
         "modules": {
           "description": "Module-specific meta information.",

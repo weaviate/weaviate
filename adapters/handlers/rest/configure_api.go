@@ -170,6 +170,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	exportusecase "github.com/weaviate/weaviate/usecases/export"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -688,6 +689,21 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
+
+	// License: community mode unless LICENSE_KEY is set. The checker runs
+	// for the life of the server and is stopped through serverShutdownCtx.
+	licenseManager, err := license.New(appState.ServerConfig.Config.License, license.Deps{
+		NodeName:   nodeName,
+		ClusterID:  appState.ClusterService.Raft.ClusterID,
+		Version:    build.Version,
+		Logger:     appState.Logger,
+		Registerer: metricsRegisterer,
+	})
+	if err != nil {
+		appState.Logger.WithField("action", "startup").WithError(err).Fatal("license configuration invalid")
+	}
+	appState.License = licenseManager
+	enterrors.GoWrapper(func() { licenseManager.Run(serverShutdownCtx) }, appState.Logger)
 	appState.ClusterService.SetInflightDrainer(repo.WaitForLocalInflightWrites)
 
 	// Wrap RestoreClassDir so each post-RAFT-apply class-dir move also
@@ -1466,7 +1482,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupGraphQLHandlers(api, appState, appState.SchemaManager, appState.ServerConfig.Config.DisableGraphQL,
 		appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	setupSearchHandlers(api, appState)
-	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
+	setupMiscHandlers(api, appState.ServerConfig, appState.Modules, appState.License,
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)

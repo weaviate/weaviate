@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/license"
 )
 
 const (
@@ -1544,6 +1545,12 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
+
+	licenseCfg, err := license.FromEnv(config.Persistence.DataPath)
+	if err != nil {
+		return err
+	}
+	config.License = licenseCfg
 
 	return nil
 }
