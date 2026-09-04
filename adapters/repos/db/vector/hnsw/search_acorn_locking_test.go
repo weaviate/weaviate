@@ -28,6 +28,45 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+// newSeededIndex builds an index holding the first seed vectors. AcornFilterRatio
+// is the server default, so an allow list well under 40% of the vectors keeps the
+// searches in these tests on the ACORN path.
+func newSeededIndex(t *testing.T, id string, vectors [][]float32, seed int, filterStrategy string) *hnsw {
+	t.Helper()
+
+	ctx := context.Background()
+	store := testinghelpers.NewDummyStore(t)
+	t.Cleanup(func() { store.Shutdown(ctx) })
+
+	index, err := New(Config{
+		RootPath:              t.TempDir(),
+		ID:                    id,
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		AcornFilterRatio:             0.4,
+	}, ent.UserConfig{
+		MaxConnections:        16,
+		EFConstruction:        32,
+		EF:                    32,
+		VectorCacheMaxObjects: 100000,
+		FilterStrategy:        filterStrategy,
+	}, cyclemanager.NewCallbackGroupNoop(), store)
+	require.Nil(t, err)
+	t.Cleanup(func() { index.Shutdown(ctx) })
+
+	for id := uint64(0); id < uint64(seed); id++ {
+		require.Nil(t, index.Add(ctx, id, vectors[id]))
+	}
+
+	return index
+}
+
 // https://github.com/weaviate/weaviate/issues/12935
 //
 // The ACORN branch expands the neighbors of a candidate's neighbors. It used to
@@ -69,34 +108,7 @@ func TestSearchConcurrentWithConnectionUpdates(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			store := testinghelpers.NewDummyStore(t)
-			t.Cleanup(func() { store.Shutdown(ctx) })
-
-			index, err := New(Config{
-				RootPath:              t.TempDir(),
-				ID:                    "acorn-neighbor-locking",
-				MakeCommitLoggerThunk: MakeNoopCommitLogger,
-				DistanceProvider:      distancer.NewCosineDistanceProvider(),
-				AllocChecker:          memwatch.NewDummyMonitor(),
-				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-					return vectors[int(id)], nil
-				},
-				GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
-				TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-				AcornFilterRatio:             0.4,
-			}, ent.UserConfig{
-				MaxConnections:        16,
-				EFConstruction:        32,
-				EF:                    32,
-				VectorCacheMaxObjects: 100000,
-				FilterStrategy:        test.filterStrategy,
-			}, cyclemanager.NewCallbackGroupNoop(), store)
-			require.Nil(t, err)
-			t.Cleanup(func() { index.Shutdown(ctx) })
-
-			for id := uint64(0); id < seeded; id++ {
-				require.Nil(t, index.Add(ctx, id, vectors[id]))
-			}
+			index := newSeededIndex(t, "acorn-neighbor-locking", vectors, seeded, test.filterStrategy)
 
 			errs := make(chan error, readers+writers+1)
 			stopReaders := make(chan struct{})
@@ -167,66 +179,70 @@ func TestSearchConcurrentWithConnectionUpdates(t *testing.T) {
 	}
 }
 
-// The ACORN expansion holds a neighbor's mutex while it copies that neighbor's
-// layer. Decoding a layer panics when its header claims more entries than its
-// bytes hold, which is what a corrupted snapshot restores: NewWithData only
-// checks that a layer's declared length fits inside the blob, never that the
-// length matches the entry count. The panic must not carry the mutex away with
-// it, or every later search and write on that vertex blocks forever.
-func TestSearchUnlocksNeighborWhenConnectionDecodePanics(t *testing.T) {
+// A search locks two vertices while decoding their connections: the entrypoint,
+// to count how many of its connections pass the filter, and each second-hop
+// neighbor the ACORN expansion copies. Decoding a layer panics when its header
+// claims more entries than its bytes hold, which is what a corrupted snapshot
+// restores: NewWithData only checks that a layer's declared length fits inside
+// the blob, never that the length matches the entry count. Neither panic may
+// carry the mutex away with it, or every later search and write on that vertex
+// blocks forever.
+func TestSearchUnlocksVertexWhenConnectionDecodePanics(t *testing.T) {
 	const size = 200
+
+	tests := []struct {
+		name string
+		// corrupt installs the malformed layer and returns the vertex whose
+		// mutex the search must give back
+		corrupt func(index *hnsw) uint64
+	}{
+		{
+			name: "second-hop neighbor",
+			corrupt: func(index *hnsw) uint64 {
+				// The entrypoint points only at the corrupt vertex, and the
+				// allow list holds only the entrypoint, so the expansion has to
+				// decode the corrupt vertex instead of accepting it straight off
+				// the allow list.
+				neighbor := uint64(0)
+				if index.entryPointID == neighbor {
+					neighbor = 1
+				}
+				index.nodes[index.entryPointID].connections.ReplaceLayer(0, []uint64{neighbor})
+				index.nodes[neighbor].connections = packedconn.NewWithData(layerClaimingMoreEntriesThanItStores())
+				return neighbor
+			},
+		},
+		{
+			name: "entrypoint",
+			corrupt: func(index *hnsw) uint64 {
+				index.nodes[index.entryPointID].connections = packedconn.NewWithData(layerClaimingMoreEntriesThanItStores())
+				return index.entryPointID
+			},
+		},
+	}
 
 	ctx := context.Background()
 	vectors, queries := testinghelpers.RandomVecs(size, 1, 8)
 
-	store := testinghelpers.NewDummyStore(t)
-	t.Cleanup(func() { store.Shutdown(ctx) })
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			index := newSeededIndex(t, "acorn-decode-panic", vectors, size, ent.FilterStrategyAcorn)
 
-	index, err := New(Config{
-		RootPath:              t.TempDir(),
-		ID:                    "acorn-neighbor-decode-panic",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			return vectors[int(id)], nil
-		},
-		GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
-		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-		AcornFilterRatio:             0.4,
-	}, ent.UserConfig{
-		MaxConnections:        16,
-		EFConstruction:        16,
-		VectorCacheMaxObjects: 100000,
-		FilterStrategy:        ent.FilterStrategyAcorn,
-	}, cyclemanager.NewCallbackGroupNoop(), store)
-	require.Nil(t, err)
-	t.Cleanup(func() { index.Shutdown(ctx) })
+			// stay on layer 0, so the first decode of the entrypoint's
+			// connections is the one that picks ACORN over RRE
+			index.currentMaximumLayer = 0
+			locked := test.corrupt(index)
 
-	for id := uint64(0); id < size; id++ {
-		require.Nil(t, index.Add(ctx, id, vectors[id]))
+			require.Panics(t, func() {
+				index.SearchByVector(ctx, queries[0], 10,
+					helpers.NewAllowList(index.entryPointID))
+			})
+
+			require.True(t, index.nodes[locked].TryLock(),
+				"the panic left the vertex locked")
+			index.nodes[locked].Unlock()
+		})
 	}
-
-	entryPoint := index.entryPointID
-	corrupt := uint64(0)
-	if entryPoint == corrupt {
-		corrupt = 1
-	}
-
-	// The entrypoint points only at the corrupt vertex, and the allow list holds
-	// only the entrypoint, so the expansion has to decode the corrupt vertex
-	// instead of accepting it straight off the allow list.
-	index.currentMaximumLayer = 0
-	index.nodes[entryPoint].connections.ReplaceLayer(0, []uint64{corrupt})
-	index.nodes[corrupt].connections = packedconn.NewWithData(layerClaimingMoreEntriesThanItStores())
-
-	require.Panics(t, func() {
-		index.SearchByVector(ctx, queries[0], 10, helpers.NewAllowList(entryPoint))
-	})
-
-	require.True(t, index.nodes[corrupt].TryLock(),
-		"the panic left the neighbor vertex locked")
-	index.nodes[corrupt].Unlock()
 }
 
 // layerClaimingMoreEntriesThanItStores builds the blob NewWithData parses: a
@@ -261,33 +277,7 @@ func TestSearchReleasesEntrypointLockWhenEntrypointHasNoLayers(t *testing.T) {
 	ctx := context.Background()
 	vectors, queries := testinghelpers.RandomVecs(size, 1, 8)
 
-	store := testinghelpers.NewDummyStore(t)
-	t.Cleanup(func() { store.Shutdown(ctx) })
-
-	index, err := New(Config{
-		RootPath:              t.TempDir(),
-		ID:                    "acorn-entrypoint-without-layers",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		AllocChecker:          memwatch.NewDummyMonitor(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			return vectors[int(id)], nil
-		},
-		GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
-		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
-		AcornFilterRatio:             0.4,
-	}, ent.UserConfig{
-		MaxConnections:        16,
-		EFConstruction:        16,
-		VectorCacheMaxObjects: 100000,
-		FilterStrategy:        ent.FilterStrategyAcorn,
-	}, cyclemanager.NewCallbackGroupNoop(), store)
-	require.Nil(t, err)
-	t.Cleanup(func() { index.Shutdown(ctx) })
-
-	for id := uint64(0); id < size; id++ {
-		require.Nil(t, index.Add(ctx, id, vectors[id]))
-	}
+	index := newSeededIndex(t, "acorn-entrypoint-without-layers", vectors, size, ent.FilterStrategyAcorn)
 
 	index.currentMaximumLayer = 0
 	index.nodes[index.entryPointID].connections = packedconn.NewWithData(nil)
