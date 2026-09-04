@@ -655,6 +655,50 @@ func (cv BucketConsistentView) ReleaseView() {
 	cv.release()
 }
 
+// NarrowedConsistentView is a [BucketConsistentView] whose empty active
+// memtable has been dropped, for a caller opening several readers that must
+// agree on which memtables took part.
+//
+// It holds a [BucketConsistentView] in an unexported field rather than
+// embedding one, so it has no ReleaseView of its own — a narrowed view borrows
+// the original's segments and the original owns their release — and the replace
+// paths, which read memtable index 0 as the active one, cannot reach the view
+// inside to be handed it.
+type NarrowedConsistentView struct {
+	// held whole rather than copied field by field, so a field added to
+	// BucketConsistentView arrives here with nothing to remember
+	view BucketConsistentView
+}
+
+// WithoutEmptyActiveMemtable returns a view with an active memtable that has
+// taken no writes dropped.
+//
+// Size only ever rises, so a zero read proves the memtable held nothing at that
+// instant, and a racing write is one this view legitimately predates. Callers
+// opening several readers want that decision made once, up front, or readers
+// disagree when a write lands between two of them.
+func (cv BucketConsistentView) WithoutEmptyActiveMemtable() NarrowedConsistentView {
+	if cv.Active != nil && cv.Active.Size() == 0 {
+		cv.Active = nil
+	}
+	return NarrowedConsistentView{view: cv}
+}
+
+// memtablesOldestFirst orders this view's memtables as [viewMemtablesOldestFirst]
+// does, and for the same reason. That function cannot serve a narrowed view: a
+// dropped active memtable leaves a hole its callers read positionally.
+func (nv NarrowedConsistentView) memtablesOldestFirst() ([2]memtable, int) {
+	switch {
+	case nv.view.Active != nil && nv.view.Flushing != nil:
+		return [2]memtable{nv.view.Flushing, nv.view.Active}, 2
+	case nv.view.Active != nil:
+		return [2]memtable{nv.view.Active, nil}, 1
+	case nv.view.Flushing != nil:
+		return [2]memtable{nv.view.Flushing, nil}, 1
+	}
+	return [2]memtable{}, 0
+}
+
 // GetConsistentView returns a consistent view of the bucket that can be used
 // for multiple reads without acquiring locks for each read. The caller must
 // call ReleaseView() on the returned view when done to avoid blocking compactions.
