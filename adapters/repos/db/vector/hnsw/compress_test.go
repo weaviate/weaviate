@@ -1148,3 +1148,49 @@ func TestChildLoggersCarryTheIndexID(t *testing.T) {
 	}
 	require.True(t, seen, "the compressor's recovery line was not logged")
 }
+
+// TestCompressedBucketNameDerivesFromID pins the quantized bucket for every
+// ID shape the shard builds: the legacy asymmetry (ID "main", bucket
+// "vectors_compressed"), a named vector, and hfresh's centroid graph.
+func TestCompressedBucketNameDerivesFromID(t *testing.T) {
+	tests := []struct {
+		id   string
+		want string
+	}{
+		{"main", "vectors_compressed"},
+		{"vectors_title", "vectors_compressed_title"},
+		{"vectors_title_centroids", "vectors_compressed_title_centroids"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			vectors := [][]float32{{1, 0, 0, 0}}
+			uc := ent.UserConfig{}
+			uc.SetDefaults()
+			uc.BQ = ent.BQConfig{Enabled: true}
+
+			store := testinghelpers.NewDummyStore(t)
+			index, err := New(Config{
+				RootPath:         t.TempDir(),
+				ID:               tt.id,
+				DistanceProvider: distancer.NewCosineDistanceProvider(),
+				AllocChecker:     memwatch.NewDummyMonitor(),
+				MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+					return MakeNoopCommitLogger()
+				},
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return vectors[id], nil
+				},
+				GetViewThunk:                 func() common.BucketView { return &noopBucketView{} },
+				TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+				MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			}, uc, cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			defer index.Shutdown(context.Background())
+
+			require.NoError(t, index.Add(context.Background(), 0, vectors[0]))
+
+			assert.Equal(t, tt.want, index.compressedBucketName())
+			assert.NotNil(t, store.Bucket(tt.want), "the compressor must write to %q", tt.want)
+		})
+	}
+}
