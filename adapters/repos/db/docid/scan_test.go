@@ -16,8 +16,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -197,14 +199,16 @@ func TestScanObjectsLSMCancellation(t *testing.T) {
 	}
 }
 
-// A worker's payload buffer is grown to the largest object it has read, so a
-// smaller object is parsed out of a buffer whose spare capacity still holds a
-// larger one. These rows pin the values scanFn is handed under that reuse.
+// A worker reuses its payload buffer and its property map across objects, so
+// each is parsed into a buffer and a map the previous object left behind.
+// These rows pin the values scanFn is handed under that reuse.
 func TestScanObjectsLSMPropertyValues(t *testing.T) {
 	const (
-		objectCount = 200
-		sizeStep    = 64
+		sizeStep = 64
+		// a mean, not a floor: workers draw doc IDs from one shared counter
+		objectsPerWorker = 8
 	)
+	objectCount := max(200, concurrency.CurrentGOMAXPROCSx2()*objectsPerWorker)
 	propertyNames := []string{"name", "count", "flag", "tags", "scores", "meta"}
 
 	tests := []struct {
@@ -215,11 +219,18 @@ func TestScanObjectsLSMPropertyValues(t *testing.T) {
 		missingEvery int
 		// every nth object is padded past maxRetainedBufferBytes; 0 pads none
 		oversizedEvery int
+		// objects carry different property sets, so a stale value shows up
+		varyProperties bool
+		// no property is requested at all, so scanFn is handed a nil schema
+		noProperties bool
 	}{
 		{name: "sizes descending", descending: true},
 		{name: "sizes ascending", descending: false},
 		{name: "sizes descending, doc IDs missing mid-scan", descending: true, missingEvery: 7},
 		{name: "objects past the retained buffer cap", oversizedEvery: 13},
+		{name: "property sets differ", varyProperties: true},
+		{name: "property sets differ, doc IDs missing mid-scan", varyProperties: true, missingEvery: 7},
+		{name: "no property requested", noProperties: true},
 	}
 
 	for _, tt := range tests {
@@ -234,6 +245,15 @@ func TestScanObjectsLSMPropertyValues(t *testing.T) {
 					padding = maxRetainedBufferBytes + sizeStep
 				}
 				props[i] = objectProperties(i, padding)
+				if tt.varyProperties {
+					// bit j of i keeps property j, so objects fewer than
+					// 1<<len(propertyNames) apart carry different sets
+					for j, name := range propertyNames {
+						if i&(1<<j) == 0 {
+							delete(props[i], name)
+						}
+					}
+				}
 			}
 
 			logger, _ := test.NewNullLogger()
@@ -249,23 +269,41 @@ func TestScanObjectsLSMPropertyValues(t *testing.T) {
 					pointers = append(pointers, id)
 				}
 			}
-			require.Greater(t, len(pointers), concurrency.CurrentGOMAXPROCSx2(),
-				"some worker must read more than one object or its buffer is never reused")
-
 			var lock sync.Mutex
-			scanned := map[uint64]interface{}{}
+			scanned := map[uint64]map[string]interface{}{}
+			// map addresses, so the count below pins one map per worker not per object
+			handedOut := map[uintptr]bool{}
 			scan := func(_ context.Context, prop *models.PropertySchema, docID uint64) error {
 				lock.Lock()
 				defer lock.Unlock()
-				scanned[docID] = *prop
+				if *prop == nil {
+					scanned[docID] = nil
+					return nil
+				}
+				typed := (*prop).(map[string]interface{})
+				handedOut[reflect.ValueOf(typed).Pointer()] = true
+				// the worker refills this map for its next object
+				scanned[docID] = maps.Clone(typed)
 				return nil
 			}
 
+			requested := propertyNames
+			if tt.noProperties {
+				requested = nil
+			}
+
 			require.NoError(t, ScanObjectsLSM(context.Background(), store, pointers, scan,
-				propertyNames, logger))
+				requested, logger))
 
 			require.Len(t, scanned, objectCount)
+			if !tt.noProperties {
+				require.LessOrEqual(t, len(handedOut), min(concurrency.CurrentGOMAXPROCSx2(), len(pointers)),
+					"a worker hands the same map to every object it reads")
+			}
 			for i, want := range props {
+				if tt.noProperties {
+					want = nil
+				}
 				require.Equal(t, want, scanned[uint64(i)], "properties of object %d", i)
 			}
 		})
@@ -303,10 +341,13 @@ func BenchmarkScanObjectsLSM(b *testing.B) {
 		name          string
 		storedObjects int
 		segments      int
+		// no property requested, as an IncludeMetaCount-only aggregation does
+		noProperties bool
 	}{
 		{name: "every doc ID resolves, one segment", storedObjects: docIDCount, segments: 1},
 		{name: "every doc ID resolves, several segments", storedObjects: docIDCount, segments: manySegments},
 		{name: "no doc ID resolves", storedObjects: 0, segments: 0},
+		{name: "every doc ID resolves, no property requested", storedObjects: docIDCount, segments: 1, noProperties: true},
 	}
 
 	for _, bm := range benchmarks {
@@ -317,12 +358,16 @@ func BenchmarkScanObjectsLSM(b *testing.B) {
 				pointers = append(pointers, uint64(i))
 			}
 			scan := func(_ context.Context, _ *models.PropertySchema, _ uint64) error { return nil }
+			requested := []string{"name"}
+			if bm.noProperties {
+				requested = nil
+			}
 
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				if err := ScanObjectsLSM(context.Background(), store, pointers, scan,
-					[]string{"name"}, logger); err != nil {
+					requested, logger); err != nil {
 					b.Fatal(err)
 				}
 			}
