@@ -94,13 +94,23 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 // otherTargetVectors lists the collection's vector names except `exclude` —
 // the siblings whose artifacts a drop must not touch. Every artifact a sibling
 // owns is protected, not just its primary bucket.
+//
+// The legacy vector ("") is a sibling too, although it never appears in
+// VectorConfig: a class that gained named vectors next to its legacy one can
+// hold a named vector whose artifacts collide with the legacy vector's, e.g.
+// one called "compressed" owns the raw bucket "vectors_compressed", which is
+// the legacy vector's quantized bucket. Left out, the legacy vector's data
+// went with such a drop.
 func otherTargetVectors(class *models.Class, exclude string) []string {
 	if class == nil {
 		// Nothing to protect, so the drop runs unfiltered: a name collision
 		// with a live sibling takes that sibling's bucket with it.
 		return nil
 	}
-	others := make([]string, 0, len(class.VectorConfig))
+	others := make([]string, 0, len(class.VectorConfig)+1)
+	if exclude != "" && modelsext.ClassHasLegacyVectorIndex(class) {
+		others = append(others, "")
+	}
 	for name := range class.VectorConfig {
 		if name != exclude {
 			others = append(others, name)

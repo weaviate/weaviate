@@ -343,3 +343,117 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 		require.NoError(t, err)
 	})
 }
+
+func TestOtherTargetVectors(t *testing.T) {
+	named := map[string]models.VectorConfig{
+		"a": {VectorIndexType: "hnsw"},
+		"b": {VectorIndexType: "flat"},
+	}
+	tests := []struct {
+		name    string
+		class   *models.Class
+		exclude string
+		want    []string
+	}{
+		{name: "nil class protects nothing", class: nil, exclude: "a", want: nil},
+		{
+			name:    "named vectors only",
+			class:   &models.Class{VectorConfig: named},
+			exclude: "a",
+			want:    []string{"b"},
+		},
+		{
+			name:    "legacy vector next to named vectors is a sibling",
+			class:   &models.Class{VectorIndexType: "hnsw", VectorConfig: named},
+			exclude: "a",
+			want:    []string{"", "b"},
+		},
+		{
+			name:    "the legacy vector is never its own sibling",
+			class:   &models.Class{VectorIndexType: "hnsw", VectorConfig: named},
+			exclude: "",
+			want:    []string{"a", "b"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.ElementsMatch(t, tt.want, otherTargetVectors(tt.class, tt.exclude))
+		})
+	}
+}
+
+// TestVectorDropIndexHelper_SweepSparesTheLegacyVector pins the data-loss
+// journey: a class with a legacy vector gains a named vector whose artifacts
+// collide with the legacy vector's, then drops it. The sweep must take only
+// what the named vector owns.
+func TestVectorDropIndexHelper_SweepSparesTheLegacyVector(t *testing.T) {
+	h := newVectorDropIndexHelper()
+
+	mixedClass := func(dropped string) *models.Class {
+		return &models.Class{
+			Class:           "Mixed",
+			VectorIndexType: "hnsw",
+			VectorConfig: map[string]models.VectorConfig{
+				dropped: {VectorIndexType: vectorindex.VectorIndexTypeNone},
+			},
+		}
+	}
+	pathExists := func(p string) bool {
+		_, err := os.Stat(p)
+		return err == nil
+	}
+	mkdirs := func(t *testing.T, base string, names ...string) []string {
+		t.Helper()
+		paths := make([]string, 0, len(names))
+		for _, name := range names {
+			p := filepath.Join(base, name)
+			require.NoError(t, os.MkdirAll(p, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(p, "segment.db"), []byte("live"), 0o644))
+			paths = append(paths, p)
+		}
+		return paths
+	}
+
+	tests := []struct {
+		name       string
+		dropped    string
+		legacyLSM  []string // buckets the legacy index owns that must survive
+		droppedLSM []string // buckets the dropped vector owns that must go
+	}{
+		{
+			// "vectors_compressed" is both the named vector's raw bucket and
+			// the legacy vector's quantized bucket: it stays, the rest goes
+			name:       "named vector called compressed",
+			dropped:    "compressed",
+			legacyLSM:  []string{"vectors", "vectors_compressed"},
+			droppedLSM: []string{"vectors_compressed_compressed"},
+		},
+		{
+			// no real collision: the legacy muvera bucket is main_muvera_vectors
+			name:       "named vector called muvera_vectors",
+			dropped:    "muvera_vectors",
+			legacyLSM:  []string{"vectors", "vectors_compressed", "main_muvera_vectors"},
+			droppedLSM: []string{"vectors_muvera_vectors", "vectors_compressed_muvera_vectors"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			indexPath, shardName := t.TempDir(), "shard1"
+			lsm := filepath.Join(indexPath, shardName, "lsm")
+			legacy := mkdirs(t, lsm, tt.legacyLSM...)
+			legacy = append(legacy, mkdirs(t, filepath.Join(indexPath, shardName), "main.hnsw.commitlog.d", "main.queue.d")...)
+			gone := mkdirs(t, lsm, tt.droppedLSM...)
+			gone = append(gone, mkdirs(t, filepath.Join(indexPath, shardName),
+				"vectors_"+tt.dropped+".hnsw.commitlog.d", "vectors_"+tt.dropped+".queue.d")...)
+
+			require.NoError(t, h.ensureFilesAreRemovedForDroppedVectorIndexes(indexPath, shardName, mixedClass(tt.dropped)))
+
+			for _, p := range legacy {
+				assert.True(t, pathExists(p), "%s belongs to the legacy vector and must survive", p)
+			}
+			for _, p := range gone {
+				assert.False(t, pathExists(p), "%s belongs to the dropped vector and must go", p)
+			}
+		})
+	}
+}
