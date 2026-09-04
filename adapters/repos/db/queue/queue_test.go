@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 	"os"
@@ -1372,9 +1373,10 @@ func TestDequeueBatchFlushesBeforeChunkRemoval(t *testing.T) {
 		Dir:          dir,
 		TaskDecoder:  discardExecutor(),
 		StaleTimeout: 100 * time.Millisecond,
-		OnBatchProcessed: func() {
+		OnBatchProcessed: func() error {
 			flushCalls++
 			chunksAtFlush = countChunks()
+			return nil
 		},
 	})
 	require.NoError(t, err)
@@ -1400,4 +1402,79 @@ func TestDequeueBatchFlushesBeforeChunkRemoval(t *testing.T) {
 	require.Equal(t, 1, chunksAtFlush, "chunk was removed before OnBatchProcessed ran")
 	// once the batch is done, the chunk is removed
 	require.Equal(t, 0, countChunks())
+}
+
+// TestDequeueBatchKeepsChunkWhenFlushFails ensures that a failed
+// OnBatchProcessed hook (a failed index flush) does not remove the processed
+// chunk: the chunk is the only durable copy of its ops until a flush succeeds,
+// so it must survive and be replayed on a later DequeueBatch. Replay is
+// idempotent, so reprocessing the same tasks is safe.
+func TestDequeueBatchKeepsChunkWhenFlushFails(t *testing.T) {
+	s := makeScheduler(t)
+
+	dir := t.TempDir()
+
+	countChunks := func() int {
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+
+		var n int
+		for _, e := range entries {
+			if chunkFilePattern.MatchString(e.Name()) {
+				n++
+			}
+		}
+		return n
+	}
+
+	var flushCalls int
+	var flushErr error
+
+	q, err := NewDiskQueue(DiskQueueOptions{
+		ID:           "test_queue",
+		Scheduler:    s,
+		Logger:       newTestLogger(),
+		Dir:          dir,
+		TaskDecoder:  discardExecutor(),
+		StaleTimeout: 100 * time.Millisecond,
+		OnBatchProcessed: func() error {
+			flushCalls++
+			return flushErr
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, q.Init())
+
+	pushMany(t, q, 1, 100, 200, 300)
+
+	// let the partial chunk become stale so DequeueBatch schedules it
+	time.Sleep(q.staleTimeout)
+
+	flushErr = errors.New("flush failed")
+
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	require.Len(t, batch.Tasks, 3)
+
+	batch.Done()
+
+	require.Equal(t, 1, flushCalls)
+	// the failed flush must keep the chunk on disk and in the accounting
+	require.Equal(t, 1, countChunks(), "chunk was removed despite the failed flush")
+	require.Equal(t, int64(3), q.Size())
+
+	// the next cycle replays the same chunk; a successful flush removes it
+	flushErr = nil
+
+	batch, err = q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch, "chunk was not rescheduled after the failed flush")
+	require.Len(t, batch.Tasks, 3)
+
+	batch.Done()
+
+	require.Equal(t, 2, flushCalls)
+	require.Equal(t, 0, countChunks())
+	require.Equal(t, int64(0), q.Size())
 }

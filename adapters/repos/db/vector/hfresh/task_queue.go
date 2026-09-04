@@ -297,15 +297,17 @@ func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64) error {
 
 // Flush the vector index after a batch is processed
 // and update pending metrics now that the queue sizes have been decremented.
-func (tq *TaskQueue) OnBatchProcessed() {
-	if err := tq.index.Flush(); err != nil {
-		tq.index.logger.WithError(err).Error("failed to flush vector index")
-	}
+// A non-nil error keeps the processed chunk on disk so the queue replays it
+// on a later cycle; the metrics are updated either way.
+func (tq *TaskQueue) OnBatchProcessed() error {
+	err := tq.index.Flush()
 
 	tq.index.metrics.SetPendingAnalyzeTasks(tq.analyzeQueue.Size())
 	tq.index.metrics.SetPendingSplitTasks(tq.splitQueue.Size())
 	tq.index.metrics.SetPendingMergeTasks(tq.mergeQueue.Size())
 	tq.index.metrics.SetPendingReassignTasks(tq.reassignQueue.Size())
+
+	return err
 }
 
 func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
