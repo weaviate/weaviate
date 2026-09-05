@@ -38,6 +38,10 @@ type MockResolver struct {
 var schemaBuildLock sync.Mutex
 
 func (mr *MockResolver) Resolve(query string) *graphql.Result {
+	return mr.ResolveWithVariables(query, nil)
+}
+
+func (mr *MockResolver) ResolveWithVariables(query string, variables map[string]interface{}) *graphql.Result {
 	fields := graphql.Fields{}
 	fields[mr.RootFieldName] = mr.RootField
 	schemaObject := graphql.ObjectConfig{
@@ -56,20 +60,29 @@ func (mr *MockResolver) Resolve(query string) *graphql.Result {
 		panic(err)
 	}
 
-	result := graphql.Do(graphql.Params{
-		Schema:        schema,
-		RequestString: query,
-		RootObject:    mr.RootObject,
-		Context:       context.Background(),
+	return graphql.Do(graphql.Params{
+		Schema:         schema,
+		RequestString:  query,
+		RootObject:     mr.RootObject,
+		VariableValues: variables,
+		Context:        context.Background(),
 	})
-
-	return result
 }
 
 func (mr *MockResolver) AssertResolve(t *testing.T, query string) *GraphQLResult {
 	result := mr.Resolve(query)
 	if len(result.Errors) > 0 {
 		t.Fatalf("Failed to resolve; %s", spew.Sdump(result.Errors))
+	}
+
+	mr.AssertExpectations(t)
+	return &GraphQLResult{Result: result.Data}
+}
+
+func (mr *MockResolver) AssertResolveWithVariables(t *testing.T, query string, variables map[string]interface{}) *GraphQLResult {
+	result := mr.ResolveWithVariables(query, variables)
+	if len(result.Errors) > 0 {
+		t.Fatalf("Failed to resolve with variables; %s", spew.Sdump(result.Errors))
 	}
 
 	mr.AssertExpectations(t)
