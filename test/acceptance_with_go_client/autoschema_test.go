@@ -12,22 +12,23 @@
 package acceptance_with_go_client
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
+
+	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
+	"github.com/weaviate/weaviate-go-client/v6/data"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
 
 func TestAutoschemaCasingClass(t *testing.T) {
-	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	ctx := t.Context()
+	c := wvhost.NewClient(t)
 
 	upperClassName := "RandomBlueTree"
 	lowerClassName := "randomBlueTree"
@@ -43,26 +44,27 @@ func TestAutoschemaCasingClass(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.className1+" "+tt.className2, func(t *testing.T) {
-			c.Schema().ClassDeleter().WithClassName(tt.className1).Do(ctx)
-			c.Schema().ClassDeleter().WithClassName(tt.className2).Do(ctx)
-			creator := c.Data().Creator()
-			_, err := creator.WithClassName(tt.className1).Do(ctx)
-			require.Nil(t, err)
+			var err error
 
-			_, err = creator.WithClassName(tt.className2).Do(ctx)
-			require.Nil(t, err)
+			_ = c.Collections.Delete(ctx, tt.className1)
+			_ = c.Collections.Delete(ctx, tt.className2)
+
+			_, err = c.Collections.Use(tt.className1).Data.Insert(ctx, nil)
+			require.NoError(t, err, "insert into %s", tt.className1)
+
+			_, err = c.Collections.Use(tt.className2).Data.Insert(ctx, nil)
+			require.NoError(t, err, "insert into %s", tt.className2)
 
 			// Regardless of whether a class exists or not, the delete operation will always return a success
-			require.Nil(t, c.Schema().ClassDeleter().WithClassName(upperClassName).Do(ctx))
-			require.Nil(t, c.Schema().ClassDeleter().WithClassName(lowerClassName).Do(ctx))
+			require.NoError(t, c.Collections.Delete(ctx, upperClassName))
+			require.NoError(t, c.Collections.Delete(ctx, lowerClassName))
 		})
 	}
 }
 
 func TestAutoschemaCasingProps(t *testing.T) {
-	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	ctx := t.Context()
+	c := wvhost.NewClient(t)
 
 	className := "RandomGreenBike"
 
@@ -79,29 +81,38 @@ func TestAutoschemaCasingProps(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.prop1+" "+tt.prop2, func(t *testing.T) {
-			c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-			creator := c.Data().Creator()
-			_, err := creator.WithClassName(className).Do(ctx)
-			require.Nil(t, err)
+			c.Collections.Delete(ctx, className)
 
-			creator1 := c.Data().Creator()
-			_, err = creator1.WithClassName(className).WithProperties(map[string]string{tt.prop1: "something"}).Do(ctx)
-			require.Nil(t, err)
+			col := c.Collections.Use(className)
+			require.NotNil(t, col, "collection handle")
 
-			creator2 := c.Data().Creator()
-			_, err = creator2.WithClassName(className).WithProperties(map[string]string{tt.prop2: "other value"}).Do(ctx)
-			require.Nil(t, err)
+			{
+				r, err := col.Data.Insert(ctx, nil)
+				require.NoError(t, err, "insert first object")
+				require.Empty(t, r.Errors, "insert first object")
+			}
 
-			// three objects should have been added
-			result, err := c.GraphQL().Aggregate().WithClassName(className).WithFields(graphql.Field{
-				Name: "meta", Fields: []graphql.Field{
-					{Name: "count"},
-				},
-			}).Do(ctx)
-			require.Nil(t, err)
-			require.Equal(t, result.Data["Aggregate"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"], 3.)
+			{
+				r, err := col.Data.Insert(ctx, &data.Object{
+					Properties: map[string]any{tt.prop1: "something"},
+				})
+				require.NoError(t, err, "insert second object")
+				require.Empty(t, r.Errors, "insert second object")
+			}
 
-			require.Nil(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
+			{
+				r, err := col.Data.Insert(ctx, &data.Object{
+					Properties: map[string]any{tt.prop2: "other value"},
+				})
+				require.NoError(t, err, "insert third object")
+				require.Empty(t, r.Errors, "insert third object")
+			}
+
+			count, err := col.Count(ctx)
+			require.NoError(t, err)
+			require.EqualValues(t, count, 3)
+
+			require.NoError(t, c.Collections.Delete(ctx, className))
 		})
 	}
 }
@@ -154,21 +165,20 @@ func TestAutoschemaCasingUpdateProps(t *testing.T) {
 }
 
 func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
-	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	c := wvhost.NewClient(t)
+	weather := c.Collections.Use("BeautifulWeather")
 
 	tests := []struct {
 		name               string
-		properties         map[string]interface{}
+		properties         map[string]any
 		containsErrMessage string
 	}{
 		{
 			name: "unrecognized array property type",
-			properties: map[string]interface{}{
-				"panicProperty": []interface{}{
-					[]interface{}{
-						[]interface{}{
+			properties: map[string]any{
+				"panicProperty": []any{
+					[]any{
+						[]any{
 							"panic",
 						},
 					},
@@ -178,10 +188,10 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 		},
 		{
 			name: "unrecognized nil array property type",
-			properties: map[string]interface{}{
-				"panicProperty": []interface{}{
-					[]interface{}{
-						[]interface{}{
+			properties: map[string]any{
+				"panicProperty": []any{
+					[]any{
+						[]any{
 							nil,
 						},
 					},
@@ -191,50 +201,49 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 		},
 		{
 			name: "array property with nil",
-			properties: map[string]interface{}{
-				"nilPropertyArray": []interface{}{nil},
+			properties: map[string]any{
+				"nilPropertyArray": []any{nil},
 			},
 			containsErrMessage: "property 'nilPropertyArray' on class 'BeautifulWeather': element [0]: unrecognized data type of value '<nil>'",
 		},
 		{
 			name: "empty string array property",
-			properties: map[string]interface{}{
+			properties: map[string]any{
 				"emptyPropertyArray": []string{},
 			},
 		},
 		{
 			name: "empty interface array property",
-			properties: map[string]interface{}{
-				"emptyPropertyArray": []interface{}{},
+			properties: map[string]any{
+				"emptyPropertyArray": []any{},
 			},
 		},
 		{
 			name: "empty int array property",
-			properties: map[string]interface{}{
+			properties: map[string]any{
 				"emptyPropertyArray": []int{},
 			},
 		},
 		{
 			name: "array property with empty string",
-			properties: map[string]interface{}{
+			properties: map[string]any{
 				"emptyPropertyArray": []string{""},
 			},
 		},
 		{
 			name: "nil property",
-			properties: map[string]interface{}{
+			properties: map[string]any{
 				"nilProperty": nil,
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := c.Data().
-				Creator().
-				WithClassName("BeautifulWeather").
-				WithProperties(tt.properties).
-				Do(ctx)
+			resp, err := weather.Data.Insert(t.Context(), &data.Object{
+				Properties: tt.properties,
+			})
 
+			// FIXME(dyma): extract error message
 			if tt.containsErrMessage != "" {
 				assert.Nil(t, resp)
 				assert.NotNil(t, err)
@@ -244,8 +253,7 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 				assert.Nil(t, err)
 			}
 
-			err = c.Schema().ClassDeleter().WithClassName("BeautifulWeather").Do(ctx)
-			require.Nil(t, err)
+			require.NoError(t, c.Collections.Delete(t.Context(), weather.CollectionName()))
 		})
 	}
 }
