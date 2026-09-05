@@ -158,10 +158,12 @@ func (h *hnsw) flatMultiSearch(ctx context.Context, queryVector [][]float32, lim
 		eg.Go(func() error {
 			localResults := priorityqueue.NewMax[any](limit)
 			var e storobj.ErrNotFound
+			// per-worker scratch keeps the scoring fast path allocation-free
+			var dots []float32
 			for idPos := workerID; idPos < len(candidates); idPos += h.flatSearchConcurrency {
 				candidate := candidates[idPos]
 
-				dist, err := h.computeScore(queryVector, candidate)
+				dist, err := h.computeScore(queryVector, candidate, &dots)
 
 				if errors.As(err, &e) {
 					h.handleDeletedDocID(candidate, "flatSearch")

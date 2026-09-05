@@ -309,7 +309,10 @@ func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32
 		return initErr
 	}
 
-	encoded := h.muveraEncoder.EncodeDoc(vectors)
+	encoded, err := h.muveraEncoder.EncodeDoc(vectors)
+	if err != nil {
+		return errors.Wrapf(err, "muvera encode for docID %d", docID)
+	}
 
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, docID)

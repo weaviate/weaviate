@@ -216,6 +216,53 @@ func TestHnswIndexValidatePQSegments(t *testing.T) {
 	})
 }
 
+func TestHnswValidateMultiBeforeInsert(t *testing.T) {
+	newIndex := func(t *testing.T, dims int32) *hnsw {
+		cfg := createVectorHnswIndexTestConfig()
+		index, err := New(cfg, ent.UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 60,
+			EF:             36,
+			Multivector:    ent.MultivectorConfig{Enabled: true},
+		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+		index.dims.Store(dims)
+		return index
+	}
+
+	cases := []struct {
+		name    string
+		dims    int32
+		vector  [][]float32
+		wantErr string
+	}{
+		// the empty cases used to panic (fresh index) or silently pass (dims set)
+		{"empty on fresh index", 0, [][]float32{}, "multi vector array is empty"},
+		{"nil on fresh index", 0, nil, "multi vector array is empty"},
+		{"empty with dims set", 3, [][]float32{}, "multi vector array is empty"},
+		{"ragged on fresh index", 0, [][]float32{{1, 2, 3}, {1, 2}}, "varying dimensions"},
+		{"mismatch against index dims", 3, [][]float32{{1, 2, 3, 4}}, "Existing nodes have vectors with length 3"},
+		{"valid on fresh index", 0, [][]float32{{1, 2, 3}, {4, 5, 6}}, ""},
+		{"valid with dims set", 3, [][]float32{{1, 2, 3}}, ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := newIndex(t, tc.dims).ValidateMultiBeforeInsert(tc.vector)
+			if tc.wantErr == "" {
+				require.Nil(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantErr)
+			}
+		})
+	}
+
+	t.Run("empty query multi-vector errors instead of degenerate results", func(t *testing.T) {
+		_, _, err := newIndex(t, 3).SearchByMultiVector(context.Background(), [][]float32{}, 10, nil)
+		require.ErrorContains(t, err, "multi vector array is empty")
+	})
+}
+
 func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[float32]) *hnsw {
 	cfg := createVectorHnswIndexTestConfig()
 	cfg.VectorForIDThunk = vecForIDFn

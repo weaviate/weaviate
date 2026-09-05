@@ -64,7 +64,8 @@ func TestSearchByFDEBudgetSeparation(t *testing.T) {
 		}
 		queryVecs[j] = vec
 	}
-	queryFDE := tf.Index.muveraEncoder.EncodeQuery(queryVecs)
+	queryFDE, err := tf.Index.muveraEncoder.EncodeQuery(queryVecs)
+	require.NoError(t, err)
 
 	t.Run("routingBudget controls centroid selection", func(t *testing.T) {
 		// Test with different routingBudgets, same rerankBudget
@@ -327,7 +328,8 @@ func TestSearchProbeChangesResults(t *testing.T) {
 	}, 60*time.Second, 100*time.Millisecond, "background tasks did not drain")
 
 	probe := randomMultiVector(rng, tokens, dim)
-	queryFDE := tf.Index.muveraEncoder.EncodeQuery(tf.Index.normalizeMultiVec(probe))
+	queryFDE, err := tf.Index.muveraEncoder.EncodeQuery(tf.Index.normalizeMultiVec(probe))
+	require.NoError(t, err)
 
 	// rerank budget above the corpus size so the candidate set reflects
 	// coverage, not the RQ1 top-N cut

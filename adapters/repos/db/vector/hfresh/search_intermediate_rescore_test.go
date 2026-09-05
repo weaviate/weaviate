@@ -105,7 +105,8 @@ func TestIntermediateRescoreCorrectsRQ1(t *testing.T) {
 
 		// the two pipelines disagree: the new one must match the exact-FDE
 		// ground truth (this is precisely a category-C event corrected)
-		queryFDE := tf.Index.muveraEncoder.EncodeQuery(tf.Index.normalizeMultiVec(probe))
+		queryFDE, err := tf.Index.muveraEncoder.EncodeQuery(tf.Index.normalizeMultiVec(probe))
+		require.NoError(t, err)
 		queryFDE = distancer.Normalize(queryFDE)
 		want := exactFDETop1(t, &tf, queryFDE)
 		require.Equal(t, want, newIDs[0],
@@ -134,7 +135,8 @@ func TestIntermediateRescoreOrderingMatchesExactFDE(t *testing.T) {
 	}
 
 	probe := randomMultiVector(rng, tokens, dim)
-	queryFDE := tf.Index.muveraEncoder.EncodeQuery(tf.Index.normalizeMultiVec(probe))
+	queryFDE, err := tf.Index.muveraEncoder.EncodeQuery(tf.Index.normalizeMultiVec(probe))
+	require.NoError(t, err)
 
 	ids, err := tf.Index.searchByFDE(context.Background(), queryFDE, 16, nDocs, nil)
 	require.NoError(t, err)

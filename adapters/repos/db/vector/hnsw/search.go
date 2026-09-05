@@ -98,15 +98,22 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 		return nil, nil, errors.New("multivector search is not enabled")
 	}
 
+	if len(vectors) == 0 {
+		return nil, nil, errors.New("multi vector array is empty")
+	}
+
 	if h.muvera.Load() {
 		// this happens only if hnsw is empty so we need to initialize muvera encoder
 		if err := h.initMuveraEncoder(vectors); err != nil {
 			return nil, nil, err
 		}
 
-		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
+		muveraQuery, err := h.muveraEncoder.EncodeQuery(vectors)
+		if err != nil {
+			return nil, nil, err
+		}
 		overfetch := 2
-		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
+		docIDs, _, err := h.SearchByVector(ctx, muveraQuery, overfetch*k, allowList)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1067,168 +1074,6 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 	return ids, dists, err
 }
 
-func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]float32, k int, candidateSet map[uint64]struct{}) ([]uint64, []float32, error) {
-	// Convert map to slice for stride-based index access across workers.
-	ids := make([]uint64, 0, len(candidateSet))
-	for docID := range candidateSet {
-		ids = append(ids, docID)
-	}
-
-	useCache := !h.compressed.Load() && !h.muvera.Load()
-
-	// Acquire a single consistent view for all disk reads to avoid per-candidate flushLock acquisitions.
-	var view common.BucketView
-	if !useCache {
-		view = h.GetViewThunk()
-		defer view.ReleaseView()
-	}
-
-	resultsQueue := priorityqueue.NewMax[any](k)
-	mu := sync.Mutex{}
-	addResult := func(id uint64, sim float32) {
-		mu.Lock()
-		defer mu.Unlock()
-		resultsQueue.Insert(id, sim)
-		if resultsQueue.Len() > k {
-			resultsQueue.Pop()
-		}
-	}
-
-	// Respect the per-query concurrency budget if the context carries one
-	// (see entities/concurrency): under concurrent load the budget shrinks
-	// the fan-out, without one we fall back to the full rescore concurrency.
-	// The floor of 1 keeps a zero budget from silently skipping rescoring.
-	workers := max(1, min(concurrency.BudgetFromCtx(ctx, h.rescoreConcurrency), h.rescoreConcurrency, len(ids)))
-
-	eg := enterrors.NewErrorGroupWrapper(h.logger)
-	for workerID := 0; workerID < workers; workerID++ {
-		workerID := workerID
-		eg.Go(func() error {
-			var slice *common.VectorSlice
-			if !useCache {
-				slice = h.pools.tempVectors.Get(int(h.dims.Load()))
-				defer h.pools.tempVectors.Put(slice)
-			}
-
-			for idPos := workerID; idPos < len(ids); idPos += workers {
-				if err := ctx.Err(); err != nil {
-					return fmt.Errorf("computeLateInteraction: %w", err)
-				}
-				docID := ids[idPos]
-				var sim float32
-				var err error
-				if useCache {
-					sim, err = h.computeScore(queryVectors, docID)
-				} else {
-					sim, err = h.computeScoreWithView(ctx, queryVectors, docID, slice, view)
-				}
-				if err != nil {
-					h.logger.
-						WithField("action", "computeLateInteraction").
-						WithError(err).
-						Warnf("could not compute score for docID %d", docID)
-					continue
-				}
-				addResult(docID, sim)
-			}
-			return nil
-		}, h.logger)
-	}
-
-	if err := eg.Wait(); err != nil {
-		return nil, nil, err
-	}
-
-	distances := make([]float32, resultsQueue.Len())
-	resultIDs := make([]uint64, resultsQueue.Len())
-	i := len(resultIDs) - 1
-	for resultsQueue.Len() > 0 {
-		el := resultsQueue.Pop()
-		resultIDs[i] = el.ID
-		distances[i] = el.Dist
-		i--
-	}
-	return resultIDs, distances, nil
-}
-
-func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, error) {
-	h.RLock()
-	vecIDs := h.docIDVectors[docID]
-	h.RUnlock()
-	var docVecs [][]float32
-	if h.compressed.Load() {
-		slice := h.pools.tempVectors.Get(int(h.dims.Load()))
-		var err error
-		docVecs, err = h.TempMultiVectorForIDThunk(context.Background(), docID, slice)
-		if err != nil {
-			return 0.0, errors.Wrap(err, "get vector for docID")
-		}
-		h.pools.tempVectors.Put(slice)
-	} else {
-		if !h.muvera.Load() {
-			var errs []error
-			docVecs, errs = h.multiVectorForID(context.Background(), vecIDs)
-			for _, err := range errs {
-				if err != nil {
-					return 0.0, errors.Wrap(err, "get vector for docID")
-				}
-			}
-		} else {
-			var err error
-			docVecs, err = h.cache.GetDoc(context.Background(), docID)
-			if err != nil {
-				return 0.0, errors.Wrap(err, "get muvera vector for docID")
-			}
-		}
-	}
-
-	similarity := float32(0.0)
-
-	var distancer distancer.Distancer
-	for _, searchVec := range searchVecs {
-		maxSim := float32(math.MaxFloat32)
-		distancer = h.multiDistancerProvider.New(searchVec)
-
-		for _, docVec := range docVecs {
-			dist, err := distancer.Distance(docVec)
-			if err != nil {
-				return 0.0, errors.Wrap(err, "calculate distance between candidate and query")
-			}
-			if dist < maxSim {
-				maxSim = dist
-			}
-		}
-
-		similarity += maxSim
-	}
-
-	return similarity, nil
-}
-
-func (h *hnsw) computeScoreWithView(ctx context.Context, searchVecs [][]float32, docID uint64, slice *common.VectorSlice, view common.BucketView) (float32, error) {
-	docVecs, err := h.TempMultiVectorForIDWithViewThunk(ctx, docID, slice, view)
-	if err != nil {
-		return 0, errors.Wrap(err, "get vectors for docID")
-	}
-
-	similarity := float32(0.0)
-	for _, searchVec := range searchVecs {
-		maxSim := float32(math.MaxFloat32)
-		dist := h.multiDistancerProvider.New(searchVec)
-		for _, docVec := range docVecs {
-			d, err := dist.Distance(docVec)
-			if err != nil {
-				return 0, errors.Wrap(err, "calculate distance")
-			}
-			if d < maxSim {
-				maxSim = d
-			}
-		}
-		similarity += maxSim
-	}
-	return similarity, nil
-}
-
 func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	queryVector = h.normalizeVec(queryVector)
 	if h.compressed.Load() {
@@ -1263,7 +1108,7 @@ func (h *hnsw) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVe
 		if !ok {
 			return -1, fmt.Errorf("docID %v is not in the vector index", docID)
 		}
-		return h.computeScore(queryVector, docID)
+		return h.computeScore(queryVector, docID, nil)
 	}
 	return common.QueryVectorDistancer{DistanceFunc: f}
 }

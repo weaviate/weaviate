@@ -14,9 +14,29 @@ package multivector
 import (
 	"testing"
 
+	"github.com/tphakala/simd/f32"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+// simHash computes the SimHash of a vector using random Gaussian projections.
+// It is test-only: production encoding inlines the hashing across all
+// repetitions in encode. gaussiansFlat is one repetition's row-major
+// KSim×Dimensions matrix; dots is a caller-provided scratch of at least KSim
+// entries.
+func (e *MuveraEncoder) simHash(vec []float32, gaussiansFlat []float32, dots []float32) uint64 {
+	dots = dots[:e.config.KSim]
+	f32.DotProductStrided(dots, gaussiansFlat, vec, e.config.KSim, e.config.Dimensions, e.config.Dimensions)
+	var result uint64
+	for i, dot := range dots {
+		// Set bit based on sign of dot product
+		if dot > 0 {
+			result |= 1 << uint(i)
+		}
+	}
+	return result
+}
 
 func TestSimHashTest(t *testing.T) {
 	// Create a default config
@@ -39,10 +59,11 @@ func TestSimHashTest(t *testing.T) {
 		vec3[i] = -1.0 // Opposite direction
 	}
 	zeroVec := make([]float32, encoder.config.Dimensions)
+	dots := make([]float32, encoder.config.KSim)
 
 	for i := 0; i < encoder.config.Repetitions; i++ {
-		hash1 := encoder.simHash(vec1, encoder.gaussians[i])
-		hash2 := encoder.simHash(vec2, encoder.gaussians[i])
+		hash1 := encoder.simHash(vec1, encoder.gaussiansFlat[i], dots)
+		hash2 := encoder.simHash(vec2, encoder.gaussiansFlat[i], dots)
 
 		// Calculate Hamming distance between hashes
 		hammingDist, err := distancer.HammingBitwise([]uint64{hash1}, []uint64{hash2})
@@ -54,7 +75,7 @@ func TestSimHashTest(t *testing.T) {
 		}
 
 		// Test case 2: Orthogonal vectors should produce different hashes
-		hash3 := encoder.simHash(vec3, encoder.gaussians[i])
+		hash3 := encoder.simHash(vec3, encoder.gaussiansFlat[i], dots)
 		hammingDist, err = distancer.HammingBitwise([]uint64{hash1}, []uint64{hash3})
 		if err != nil {
 			t.Errorf("Error calculating Hamming distance: %v", err)
@@ -64,14 +85,14 @@ func TestSimHashTest(t *testing.T) {
 		}
 
 		// Test case 3: Zero vector should produce consistent hash
-		hashZero := encoder.simHash(zeroVec, encoder.gaussians[i])
+		hashZero := encoder.simHash(zeroVec, encoder.gaussiansFlat[i], dots)
 		if hashZero != 0 {
 			t.Errorf("Zero vector produced non-zero hash: %d", hashZero)
 		}
 
 		// Test case 4: Same vector should produce same hash
-		hash1Rep1 := encoder.simHash(vec1, encoder.gaussians[i])
-		hash1Rep2 := encoder.simHash(vec1, encoder.gaussians[i])
+		hash1Rep1 := encoder.simHash(vec1, encoder.gaussiansFlat[i], dots)
+		hash1Rep2 := encoder.simHash(vec1, encoder.gaussiansFlat[i], dots)
 		hammingDist, err = distancer.HammingBitwise([]uint64{hash1Rep1}, []uint64{hash1Rep2})
 		if err != nil {
 			t.Errorf("Error calculating Hamming distance: %v", err)

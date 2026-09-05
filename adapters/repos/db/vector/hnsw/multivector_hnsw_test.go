@@ -590,6 +590,75 @@ func TestMuveraHnsw(t *testing.T) {
 	})
 }
 
+// Ragged and empty multi-vectors must error out of the muvera insert and search paths
+func TestMuveraRejectsRaggedAndEmpty(t *testing.T) {
+	ctx := context.Background()
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "muvera-guards",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewDotProductProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return []float32{0}, errors.New("can not use VectorForIDThunk with multivector")
+		},
+		MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+			return multiVectors[id], nil
+		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		AllocChecker:      memwatch.NewDummyMonitor(),
+		GetViewThunk:      func() common.BucketView { return &multivectorNoopBucketView{} },
+		TempMultiVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([][]float32, error) {
+			return multiVectors[id], nil
+		},
+	}, ent.UserConfig{
+		VectorCacheMaxObjects: 1e12,
+		MaxConnections:        8,
+		EFConstruction:        64,
+		EF:                    64,
+		Multivector: ent.MultivectorConfig{
+			Enabled: true,
+			MuveraConfig: ent.MuveraConfig{
+				Enabled:      true,
+				KSim:         2,
+				DProjections: 3,
+				Repetitions:  5,
+			},
+		},
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+
+	// a valid insert pins the encoder to 3 dimensions
+	require.Nil(t, index.AddMulti(ctx, 0, multiVectors[0]))
+
+	t.Run("ragged doc", func(t *testing.T) {
+		err := index.AddMulti(ctx, 1, [][]float32{{0.1, 0.2, 0.3}, {0.4, 0.5}})
+		require.ErrorContains(t, err, "token 1 has 2 dimensions, expected 3")
+	})
+
+	t.Run("empty doc", func(t *testing.T) {
+		err := index.AddMulti(ctx, 1, [][]float32{})
+		require.ErrorContains(t, err, "empty multi-vector")
+	})
+
+	t.Run("ragged query", func(t *testing.T) {
+		_, _, err := index.SearchByMultiVector(ctx, [][]float32{{0.1, 0.2, 0.3}, {0.4, 0.5}}, 10, nil)
+		require.ErrorContains(t, err, "token 1 has 2 dimensions, expected 3")
+	})
+
+	t.Run("empty query", func(t *testing.T) {
+		_, _, err := index.SearchByMultiVector(ctx, [][]float32{}, 10, nil)
+		require.ErrorContains(t, err, "multi vector array is empty")
+	})
+
+	t.Run("valid insert and search still work", func(t *testing.T) {
+		require.Nil(t, index.AddMulti(ctx, 1, multiVectors[1]))
+		require.Nil(t, index.AddMulti(ctx, 2, multiVectors[2]))
+		ids, _, err := index.SearchByMultiVector(ctx, multiQueries[0], 10, nil)
+		require.Nil(t, err)
+		require.Equal(t, expectedResults[0], ids)
+	})
+}
+
 func TestEmptyMuvera(t *testing.T) {
 	var vectorIndex *hnsw
 	ctx := context.Background()
