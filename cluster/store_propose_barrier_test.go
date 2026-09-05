@@ -1,0 +1,250 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package cluster
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+
+	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/utils"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/sharding"
+)
+
+// Telemetry off so only the test moves the log index.
+func newBarrierTestStore(t *testing.T) (*Raft, *MockStore) {
+	t.Helper()
+
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	m.cfg.TelemetryEnabled = false
+	m.store.cfg.TelemetryEnabled = false
+
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	m.indexer.On("Close", mock.Anything).Return(nil)
+	m.indexer.On("AddClass", mock.Anything).Return(nil)
+	m.indexer.On("UpdateClass", mock.Anything).Return(nil)
+	m.indexer.On("DeleteClass", mock.Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	m.parser.On("ParseClass", mock.Anything).Return(nil)
+	m.replicationFSM.EXPECT().
+		HasActiveReplicationForCollection(mock.Anything).Return(false).Maybe()
+
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	ctx := context.Background()
+	require.Nil(t, srv.Open(ctx, m.indexer))
+	t.Cleanup(func() { srv.Close(ctx) })
+
+	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+	require.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
+	require.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second, make(chan struct{})))
+	require.True(t, tryNTimesWithWait(40, 200*time.Millisecond, srv.store.IsLeader),
+		"node never became leader")
+	return srv, &m
+}
+
+func addClassCmd(t *testing.T, name string) *command.ApplyRequest {
+	t.Helper()
+	sub, err := json.Marshal(&command.AddClassRequest{
+		Class: &models.Class{Class: name}, State: &sharding.State{},
+	})
+	require.NoError(t, err)
+	return &command.ApplyRequest{
+		Type: command.ApplyRequest_TYPE_ADD_CLASS, Class: name, SubCommand: sub,
+	}
+}
+
+// settledLogIndex waits out the configuration entry bootstrap appends around
+// the election, so the delta measured after it belongs to the barrier alone.
+func settledLogIndex(t *testing.T, st *Store) uint64 {
+	t.Helper()
+	last := st.raft.LastIndex()
+	stable := 0
+	for i := 0; i < 100; i++ {
+		time.Sleep(20 * time.Millisecond)
+		if cur := st.raft.LastIndex(); cur != last {
+			last, stable = cur, 0
+			continue
+		}
+		if stable++; stable == 5 {
+			return last
+		}
+	}
+	t.Fatal("raft log index never settled")
+	return 0
+}
+
+func barrierCount(t *testing.T, st *Store) float64 {
+	t.Helper()
+	return testutil.ToFloat64(st.metrics.leaderFSMBarriers)
+}
+
+// Red if the gate becomes any leadership-only check.
+func TestProposeBarrier_WaitsForTheFSMNotJustTheLog(t *testing.T) {
+	srv, m := newBarrierTestStore(t)
+	st := srv.store
+
+	var applied atomic.Bool
+	m.indexer.ExpectedCalls = nil
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	m.indexer.On("Close", mock.Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	m.indexer.On("AddClass", mock.Anything).
+		Run(func(mock.Arguments) {
+			// Hold the FSM so the log runs ahead of the state machine.
+			time.Sleep(300 * time.Millisecond)
+			applied.Store(true)
+		}).Return(nil)
+
+	// Append without waiting, so the entry is in flight.
+	cmdBytes, err := proto.Marshal(addClassCmd(t, "InFlight"))
+	require.NoError(t, err)
+	fut := st.raft.Apply(cmdBytes, st.applyTimeout)
+
+	// A fresh leader has stamped no term yet.
+	st.fsmCaughtUpTerm.Store(0)
+	require.NoError(t, st.waitLeaderFSMCaughtUp())
+
+	require.True(t, applied.Load(),
+		"barrier returned while the FSM was still behind its log")
+	require.NoError(t, fut.Error())
+}
+
+// A barrier is a log entry. Red at 0 if the gate goes, at 3 if the memo goes.
+func TestProposeBarrier_OnePerLeaderTerm(t *testing.T) {
+	srv, _ := newBarrierTestStore(t)
+	st := srv.store
+
+	before := barrierCount(t, st)
+	for i := 0; i < 3; i++ {
+		_, err := st.Execute(addClassCmd(t, fmt.Sprintf("Memoised%d", i)))
+		require.NoError(t, err)
+	}
+	require.Equal(t, float64(1), barrierCount(t, st)-before,
+		"expected exactly one barrier for the term")
+}
+
+// Red if Barrier is swapped for VerifyLeader, which appends nothing.
+func TestProposeBarrier_IsACatchUpBarrierNotALeadershipCheck(t *testing.T) {
+	srv, _ := newBarrierTestStore(t)
+	st := srv.store
+
+	st.fsmCaughtUpTerm.Store(0)
+	before := settledLogIndex(t, st)
+	require.NoError(t, st.waitLeaderFSMCaughtUp())
+	require.Equal(t, uint64(1), st.raft.LastIndex()-before,
+		"a catch-up barrier is a log entry")
+}
+
+// Without the term != 0 guard the two zeros match and the gate reports caught
+// up having never run.
+func TestProposeBarrier_TermZeroDoesNotShortCircuit(t *testing.T) {
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	st := m.store
+
+	require.Equal(t, uint64(0), st.fsmCaughtUpTerm.Load())
+	require.False(t, st.fsmCaughtUpForTerm(0),
+		"term 0 must never read as caught up")
+
+	st.fsmCaughtUpTerm.Store(7)
+	require.True(t, st.fsmCaughtUpForTerm(7))
+	require.False(t, st.fsmCaughtUpForTerm(8), "a later term must re-barrier")
+}
+
+// Concurrent first-of-term proposes must share one barrier. Each is a
+// replicated log entry, and they land on the hottest failover path.
+func TestProposeBarrier_ConcurrentCallersShareOneBarrier(t *testing.T) {
+	srv, _ := newBarrierTestStore(t)
+	st := srv.store
+
+	const callers = 50
+	before := barrierCount(t, st)
+	st.fsmCaughtUpTerm.Store(0)
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			require.NoError(t, st.waitLeaderFSMCaughtUp())
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	require.Equal(t, float64(1), barrierCount(t, st)-before,
+		"%d concurrent first-of-term callers appended one barrier each", callers)
+}
+
+// The tenant lock is held across the apply, so a caller can wait on it long
+// enough for leadership to turn over. A term confirmed before that wait says
+// nothing about the term it wakes up in, so the gate must run after the lock.
+//
+// Red if the gate moves back above the tenant lock: the caller passes it on the
+// memo while the term is still current, and issues no barrier once the
+// confirmation is invalidated under it.
+func TestProposeBarrier_ReconfirmsAfterWaitingOnTheTenantLock(t *testing.T) {
+	srv, m := newBarrierTestStore(t)
+	st := srv.store
+	m.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil).Maybe()
+	st.schemaManager.SetTenantLimit(func() int { return 100 }, nil)
+
+	const class = "Docs"
+	sub, err := proto.Marshal(&command.AddTenantsRequest{
+		ClusterNodes: []string{st.cfg.NodeID},
+		Tenants:      []*command.Tenant{{Name: "t1", Status: "HOT"}},
+	})
+	require.NoError(t, err)
+	addTenants := &command.ApplyRequest{
+		Type: command.ApplyRequest_TYPE_ADD_TENANT, Class: class, SubCommand: sub,
+	}
+
+	// Confirm the term first, so a gate above the lock would find the memo warm
+	// and issue nothing. Without this the two orderings are indistinguishable.
+	require.NoError(t, st.waitLeaderFSMCaughtUp())
+
+	st.tenantAddLocks.Lock(class)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = st.Execute(addTenants)
+	}()
+
+	// Let the caller reach the lock, then invalidate the confirmation it would
+	// have been travelling on — this stands in for the leadership turnover.
+	time.Sleep(300 * time.Millisecond)
+	st.fsmCaughtUpTerm.Store(0)
+	before := barrierCount(t, st)
+
+	st.tenantAddLocks.Unlock(class)
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Execute never returned")
+	}
+
+	require.Equal(t, float64(1), barrierCount(t, st)-before,
+		"a stale confirmation must be re-established after the tenant-lock wait")
+}

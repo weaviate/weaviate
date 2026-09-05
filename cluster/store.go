@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -245,6 +246,13 @@ type Store struct {
 	// applyTimeout timeout limit the amount of time raft waits for a command to be applied
 	applyTimeout time.Duration
 
+	// fsmCaughtUpTerm is the leader term a barrier has confirmed; see
+	// [Store.waitLeaderFSMCaughtUp]. Written under fsmCatchUpMu, which is what
+	// keeps the check, the barrier and the stamp one unit; atomic so a future
+	// lock-free reader can peek it.
+	fsmCatchUpMu    sync.Mutex
+	fsmCaughtUpTerm atomic.Uint64
+
 	// raft snapshot store
 	snapshotStore *raft.FileSnapshotStore
 
@@ -312,6 +320,10 @@ type storeMetrics struct {
 	// fsmStartupAppliedIndex represents previous applied index of the cluster store FSM in local node
 	// that any restart would try to catch up
 	fsmStartupAppliedIndex prometheus.Gauge
+
+	// leaderFSMBarriers counts catch-up barriers. Once per leadership change
+	// when healthy, so a climbing rate reads as leadership churn.
+	leaderFSMBarriers prometheus.Counter
 }
 
 // newStoreMetrics cretes and registers the store related metrics on
@@ -343,6 +355,11 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 		fsmStartupAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
 			Name:        "weaviate_cluster_store_fsm_startup_applied_index",
 			Help:        "Previous applied index of the cluster store FSM in local node that any restart would try to catch up",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		leaderFSMBarriers: r.NewCounter(prometheus.CounterOpts{
+			Name:        "weaviate_cluster_store_leader_fsm_barriers_total",
+			Help:        "Catch-up barriers issued by this node after winning an election",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
 		}),
 	}
@@ -1029,6 +1046,42 @@ func (st *Store) reloadDBFromSchema() {
 	val := max(lastSnapshotIndex(st.snapshotStore), lastLogApplied)
 	st.lastAppliedIndexToDB.Store(val)
 	st.metrics.fsmStartupAppliedIndex.Set(float64(val))
+}
+
+// waitLeaderFSMCaughtUp blocks until this node's FSM has applied what it
+// inherited from the previous term. Memoised per term, so steady state is one
+// atomic load.
+//
+// raft reports Leader as soon as the vote is won: the log holds every committed
+// entry, the state machine may hold none of them. raft.Barrier waits out that
+// difference; VerifyLeader appends nothing, so it waits for nothing.
+func (st *Store) waitLeaderFSMCaughtUp() error {
+	if st.raft == nil {
+		return nil
+	}
+
+	st.fsmCatchUpMu.Lock()
+	defer st.fsmCatchUpMu.Unlock()
+
+	term := st.raft.CurrentTerm()
+	if st.fsmCaughtUpForTerm(term) {
+		return nil
+	}
+
+	st.metrics.leaderFSMBarriers.Inc()
+	if err := st.raft.Barrier(st.applyTimeout).Error(); err != nil {
+		st.log.Warnf("leader FSM catch-up barrier failed on term %d: %v", term, err)
+		return fmt.Errorf("%w: %w", types.ErrFSMNotCaughtUp, err)
+	}
+
+	// Terms only climb, so a stamp staled by a new term costs one extra barrier.
+	st.fsmCaughtUpTerm.Store(term)
+	return nil
+}
+
+// fsmCaughtUpForTerm reports whether a barrier has confirmed term.
+func (st *Store) fsmCaughtUpForTerm(term uint64) bool {
+	return term != 0 && st.fsmCaughtUpTerm.Load() == term
 }
 
 func (st *Store) FSMHasCaughtUp() bool {
