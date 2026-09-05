@@ -312,6 +312,21 @@ type Index struct {
 	// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 	backupProtectedShards sync.Map
 
+	// backupStateMu serializes every write to lastBackup and every mutation of
+	// backupProtectedShards and backupHaltedShards. Reading lastBackup without
+	// this lock is valid (e.g. Index.drop does).
+	// Lock ordering: acquire backupLock or shardCreateLocks before backupStateMu.
+	// backupStateMu is otherwise a leaf lock; the only lock operation made while
+	// holding it is the non-blocking backupLock.Unlock.
+	backupStateMu sync.Mutex
+
+	// backupHaltedShards records shard names halted by the in-progress
+	// no-hardlink backup. ReleaseBackup for the owning backup id removes and
+	// resumes each entry exactly once.
+	//
+	// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
+	backupHaltedShards sync.Map
+
 	// Release uses this to decide whether to resume the shard (halt-for-duration
 	// fallback) or skip resume (snapshot already resumed at create time).
 	replicaSnapshotsMu sync.Mutex
