@@ -179,6 +179,7 @@ type hnsw struct {
 	compressing      atomic.Bool
 	doNotRescore     bool
 	acornSearch      atomic.Bool
+	pathseerSearch   atomic.Bool
 	acornFilterRatio float64
 
 	compressor compressionhelpers.VectorCompressor
@@ -412,6 +413,7 @@ func New(cfg Config, uc ent.UserConfig,
 		fs:                common.NewOSFS(),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
+	index.pathseerSearch.Store(uc.FilterStrategy == ent.FilterStrategyPathseer)
 
 	index.multivector.Store(uc.Multivector.Enabled)
 	index.muvera.Store(uc.Multivector.MuveraEnabled())
