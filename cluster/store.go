@@ -50,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -414,7 +415,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
-		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, cfg.Logger),
+		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, monitoring.GetMetrics(), cfg.Logger),
 		replicationManager:      replicationManager,
 		distributedTasksManager: distributedTasksManager,
 		metrics:                 newStoreMetrics(cfg.NodeID, reg),

@@ -26,6 +26,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type nodeWideMetricsObserver struct {
@@ -168,9 +169,11 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 		totalObjectCount += count
 	}
 
+	// The node total spans every namespace, so it belongs to none.
 	o.db.promMetrics.ObjectCount.With(prometheus.Labels{
-		"class_name": "n/a",
-		"shard_name": "n/a",
+		"class_name":           "n/a",
+		"shard_name":           "n/a",
+		"collection_namespace": "",
 	}).Set(float64(totalObjectCount))
 
 	took := time.Since(start)
@@ -579,7 +582,8 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 
 					// Report metrics per-shard if grouping is disabled.
 					if !o.db.promMetrics.Group {
-						o.sendVectorDimensions(className, shardName, dim)
+						o.sendVectorDimensions(className, shardName,
+							namespacing.NamespaceFromQualified(className), dim)
 					}
 					return nil
 				})
@@ -587,19 +591,20 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 		}()
 	}
 
-	// Report aggregate metrics for the node if grouping is enabled.
+	// Report aggregate metrics for the node if grouping is enabled. The node
+	// total spans every namespace, so it belongs to none.
 	if o.db.promMetrics.Group {
-		o.sendVectorDimensions("n/a", "n/a", total)
+		o.sendVectorDimensions("n/a", "n/a", "", total)
 	}
 }
 
 // Set vector_dimensions=DimensionMetrics.Uncompressed and vector_segments=DimensionMetrics.Compressed gauges.
-func (o *nodeWideMetricsObserver) sendVectorDimensions(className, shardName string, dm DimensionMetrics) {
-	if g, err := o.db.promMetrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName); err == nil {
+func (o *nodeWideMetricsObserver) sendVectorDimensions(className, shardName, namespace string, dm DimensionMetrics) {
+	if g, err := o.db.promMetrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName, namespace); err == nil {
 		g.Set(float64(dm.Uncompressed))
 	}
 
-	if g, err := o.db.promMetrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName); err == nil {
+	if g, err := o.db.promMetrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName, namespace); err == nil {
 		g.Set(float64(dm.Compressed))
 	}
 }

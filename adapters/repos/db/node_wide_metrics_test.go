@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -30,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
@@ -946,4 +949,66 @@ func TestShardActivityLogging(t *testing.T) {
 			require.Equal(t, cycle.want, logged)
 		})
 	}
+}
+
+// newDimensionObserver builds an observer over the process-global vecs with
+// grouping set per case. Group is flipped on a value copy, never on the
+// shared global.
+func newDimensionObserver(group bool) *nodeWideMetricsObserver {
+	promMetrics := *monitoring.GetMetrics()
+	promMetrics.Group = group
+	return &nodeWideMetricsObserver{db: &DB{promMetrics: &promMetrics}}
+}
+
+// dimensionGaugesOf reads both dimension gauges by label name. sendVectorDimensions
+// writes them positionally, so a reordered label set in the vec definition sends
+// the write to a series this read cannot find.
+func dimensionGaugesOf(t *testing.T, className, shardName, namespace string) (dims, segs float64) {
+	t.Helper()
+	labels := prometheus.Labels{
+		"class_name":           className,
+		"shard_name":           shardName,
+		"collection_namespace": namespace,
+	}
+	promMetrics := monitoring.GetMetrics()
+	dim, err := promMetrics.VectorDimensionsSum.GetMetricWith(labels)
+	require.NoError(t, err)
+	seg, err := promMetrics.VectorSegmentsSum.GetMetricWith(labels)
+	require.NoError(t, err)
+	return testutil.ToFloat64(dim), testutil.ToFloat64(seg)
+}
+
+func TestSendVectorDimensions(t *testing.T) {
+	t.Run("ungrouped shard carries class namespace", func(t *testing.T) {
+		o := newDimensionObserver(false)
+
+		o.sendVectorDimensions("ns_a:Send", "shard1", "ns_a", DimensionMetrics{Uncompressed: 20, Compressed: 4})
+
+		dims, segs := dimensionGaugesOf(t, "ns_a:Send", "shard1", "ns_a")
+		assert.Equal(t, 20.0, dims)
+		assert.Equal(t, 4.0, segs)
+
+		dims, segs = dimensionGaugesOf(t, "ns_a:Send", "shard1", "")
+		assert.Zero(t, dims, "the namespace must not also land on the empty label")
+		assert.Zero(t, segs)
+	})
+
+	t.Run("unqualified class carries empty namespace", func(t *testing.T) {
+		o := newDimensionObserver(false)
+
+		o.sendVectorDimensions("SendPlain", "shard1", "", DimensionMetrics{Uncompressed: 12})
+
+		dims, _ := dimensionGaugesOf(t, "SendPlain", "shard1", "")
+		assert.Equal(t, 12.0, dims)
+	})
+
+	t.Run("grouped total carries n/a and empty namespace", func(t *testing.T) {
+		o := newDimensionObserver(true)
+
+		o.sendVectorDimensions("n/a", "n/a", "", DimensionMetrics{Uncompressed: 64, Compressed: 8})
+
+		dims, segs := dimensionGaugesOf(t, "n/a", "n/a", "")
+		assert.Equal(t, 64.0, dims)
+		assert.Equal(t, 8.0, segs)
+	})
 }

@@ -48,14 +48,14 @@ This document is the single source of truth for Prometheus metrics exposed by We
 #### Object Operations
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `object_count` | Number of currently ongoing async operations | `Gauge` | `class_name, shard_name` | ❌ High 
+| `object_count` | Number of objects in a shard (node-wide total when class grouping is enabled) | `Gauge` | `class_name, collection_namespace, shard_name` | ❌ High 
 
 #### Query Operations
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
 | `concurrent_queries_count` | Number of concurrently running query operations | `Gauge` | `class_name, query_type` | ❌ High 
 | `requests_total` | Number of all requests made | `Gauge` | `api, class_name, query_type, status` | ❌ High 
-| `queries_durations_ms` | Duration of queries in milliseconds | `Histogram` | `class_name, query_type` | ❌ High 
+| `queries_durations_ms` | Duration of queries in milliseconds | `Histogram` | `class_name, collection_namespace, query_type` | ❌ High 
 | `queries_filtered_vector_durations_ms` | Duration of queries in milliseconds | `Summary` | `class_name, operation, shard_name` | ❌ High 
 | `query_dimensions_total` | Vector dimensions used by read-queries involving vectors | `Counter` | `class_name, operation, query_type` | ❌ High 
 
@@ -83,8 +83,8 @@ This document is the single source of truth for Prometheus metrics exposed by We
 | `vector_index_tombstone_unexpected_total` | Total number of unexpected tombstones found | `Counter` | `class_name, operation, shard_name` | ❌ High 
 | `vector_index_operations` | Total number of mutating operations on the vector index | `Gauge` | `class_name, operation, shard_name` | ❌ High 
 | `vector_index_size` | The size of the vector index | `Gauge` | `class_name, shard_name` | ❌ High 
-| `vector_segments_sum` | Total segments in a shard if quantization enabled | `Gauge` | `class_name, shard_name` | ❌ High 
-| `vector_dimensions_sum` | Total dimensions in a shard | `Gauge` | `class_name, shard_name` | ❌ High 
+| `vector_segments_sum` | Total segments in a shard if quantization enabled | `Gauge` | `class_name, collection_namespace, shard_name` | ❌ High 
+| `vector_dimensions_sum` | Total dimensions in a shard | `Gauge` | `class_name, collection_namespace, shard_name` | ❌ High 
 | `vector_index_durations_ms` | Duration of typical vector index operations (insert, delete) | `Summary` | `class_name, operation, shard_name, step` | ❌ High 
 
 #### Startup Metrics
@@ -261,7 +261,7 @@ weaviate_shards{state="loaded",registration="lazy"}
 #### Query Operations
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `queries_durations_ms` | Duration of queries in milliseconds | `Histogram` | `class_name, query_type` | ❌ High 
+| `queries_durations_ms` | Duration of queries in milliseconds | `Histogram` | `class_name, collection_namespace, query_type` | ❌ High 
 
 ---
 
@@ -285,12 +285,46 @@ weaviate_shards{state="loaded",registration="lazy"}
 #### Batch Operations
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `batch_size_bytes` | Size of a raw batch request batch in bytes | `Summary` | `api` | - Low 
+| `batch_size_bytes` | Size of a raw batch request batch in bytes | `Summary` | `api, collection_namespace` | - Medium (two per namespace that has batched, plus two) 
 | `batch_size_objects` | Number of objects in a batch | `Summary` | `-` | - Low 
 | `batch_size_tenants` | Number of unique tenants referenced in a batch | `Summary` | `-` | - Low 
 | `batch_delete_durations_ms` | Duration in ms of a single delete batch | `Summary` | `class_name, operation, shard_name` | ❌ High 
 | `batch_objects_processed_total` | Number of objects processed in a batch | `Counter` | `class_name, shard_name` | ❌ High 
 | `batch_objects_processed_bytes` | Number of bytes processed in a batch | `Counter` | `class_name, shard_name` | ❌ High 
+
+##### Notes on `collection_namespace`
+
+`collection_namespace` is carried by `object_count`, `vector_dimensions_sum`, `vector_segments_sum`,
+`queries_durations_ms` and `batch_size_bytes`. It exists so a single figure can be restricted to one
+namespace on a namespaces cluster.
+
+- **Where the value comes from.** For the four class-keyed metrics it is the namespace of the class,
+  parsed from the `<namespace>:<Class>` name. For `batch_size_bytes` it is the namespace of the
+  request principal. A global operator, an anonymous request, or a pre-namespace user yields `""`.
+- **It is `""` on a non-namespaced cluster and in grouped mode.** PromQL treats `label=""` as absent,
+  so `sum(object_count{...})` and every other query written before the label keep returning the same
+  value. Add `collection_namespace="<ns>"` to restrict a query to one namespace.
+  `PROMETHEUS_MONITORING_GROUP_CLASSES` rewrites the class to `n/a` before the namespace is derived,
+  so grouped mode publishes one series with an empty namespace, exactly as it did before.
+- **The label is deliberately not called `namespace`.** A Kubernetes scrape stamps a `namespace`
+  target label of its own, and at the default `honorLabels: false` a scraped `namespace` would be
+  rewritten to `exported_namespace` — breaking every query naming it, silently.
+- **Cardinality.** The four class-keyed metrics gain no series: the label is a function of
+  `class_name`, so one label set still maps to one label set. `batch_size_bytes` is the exception. It
+  exposes `2 × (1 + N)` label sets, `N` being the namespaces that have issued a batch since process
+  start and the `1` being the empty-namespace bucket; the factor two is the `api` label. The value is
+  always `""` or a namespace that existed and was Active when the caller's token was validated.
+- **Lifecycle.** `object_count` and `queries_durations_ms` series are deleted with their shard and
+  class, so deleting a namespace drops them. The two dimension gauges are deliberately kept at 0 for
+  billing, including after the namespace itself is gone. `batch_size_bytes` series for a namespace are
+  deleted on every node when the namespace entity is removed, including on a node that learns of the
+  removal through a RAFT snapshot rather than the log. A batch already in flight across the removal
+  can re-create one series per API; it survives until the next removal of a same-named namespace or
+  until restart. A snapshot taken by a leader whose build carries no namespaces payload skips the
+  reconcile, so on a mixed-version cluster the receiving node keeps stale `batch_size_bytes` label
+  sets until it restarts.
+- **Namespace names are tenant identifiers** served on the unauthenticated monitoring port. Keep that
+  port on a trusted network.
 
 #### LSM Metrics
 | Name | Description | Type | Labels | High Cardinality |

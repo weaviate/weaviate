@@ -25,6 +25,7 @@ import (
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	restsearch "github.com/weaviate/weaviate/adapters/handlers/rest/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
@@ -183,9 +184,18 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 			before := time.Now()
 			method := r.Method
 			path := r.URL.Path
+			isBatch := strings.HasPrefix(path, "/v1/batch/objects") && method == http.MethodPost
+
+			var batchNamespace *restCtx.BatchNamespace
+			if isBatch {
+				var ctx context.Context
+				ctx, batchNamespace = restCtx.WithBatchNamespaceSlot(r.Context())
+				r = r.WithContext(ctx)
+			}
+
 			next.ServeHTTP(w, r)
 
-			if strings.HasPrefix(path, "/v1/batch/objects") && method == http.MethodPost {
+			if isBatch {
 				metrics.BatchTime.With(prometheus.Labels{
 					"operation":  "total_api_level",
 					"class_name": "n/a",
@@ -193,10 +203,33 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 				}).
 					Observe(float64(time.Since(before) / time.Millisecond))
 
-				metrics.BatchSizeBytes.WithLabelValues("rest").Observe(float64(r.ContentLength))
+				size, ok := batchRequestSize(r)
+				if !ok {
+					return
+				}
+				namespace := batchNamespace.Namespace
+				if metrics.Group {
+					namespace = ""
+				}
+				metrics.BatchSizeBytes.WithLabelValues("rest", namespace).Observe(float64(size))
 			}
 		})
 	}
+}
+
+// batchRequestSize reports the body size to record as batch_size_bytes.
+// A chunked request declares a ContentLength of -1. Its size instead comes
+// from the byte counter that monitoring.InstrumentHandler wraps the body in.
+// That handler wraps this one, and it restores the original body only after
+// its own ServeHTTP returns. The counter is therefore still in place here.
+//
+// ok is false when the request is chunked and the counter is absent. The
+// caller must then skip the observation rather than record -1.
+func batchRequestSize(r *http.Request) (int64, bool) {
+	if r.ContentLength >= 0 {
+		return r.ContentLength, true
+	}
+	return monitoring.BytesRead(r)
 }
 
 func addPreflight(next http.Handler, cfg config.CORS) http.Handler {
