@@ -501,7 +501,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}, []string{"operation", "step", "class_name", "shard_name"}),
 		ObjectCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "object_count",
-			Help: "Number of currently ongoing async operations",
+			Help: "Number of objects in the shard",
 		}, []string{"class_name", "shard_name"}),
 
 		QueriesCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
