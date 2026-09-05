@@ -64,6 +64,17 @@ func TestEnsureShardLocallyReady(t *testing.T) {
 			replicationFactor: 1,
 		},
 		{
+			name:              "lazily unloaded shard is rejected so the read retries on a replica",
+			status:            storagestate.StatusLazyLoading,
+			replicationFactor: 3,
+			wantRejected:      true,
+		},
+		{
+			name:              "lazily unloaded shard is used as is when there is no replica to retry on",
+			status:            storagestate.StatusLazyLoading,
+			replicationFactor: 1,
+		},
+		{
 			name:              "ready shard is used, replicated",
 			status:            storagestate.StatusReady,
 			replicationFactor: 3,
