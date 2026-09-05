@@ -68,7 +68,7 @@ func withAsyncSchedulerDispatchDisabled(t *testing.T) func(*Index) {
 }
 
 // firstShard extracts the single shard from an Index created by testShard.
-func firstShard(t *testing.T, idx *Index) *Shard {
+func firstShard(t testing.TB, idx *Index) *Shard {
 	t.Helper()
 	var s *Shard
 	require.NoError(t, idx.ForEachShard(func(_ string, sl ShardLike) error {

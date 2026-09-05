@@ -812,7 +812,9 @@ func (i *indices) postSearchObjects() http.Handler {
 			"action": "Search",
 		}).Debug("searching ...")
 
-		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
+		ctx := helpers.CtxWithQueryDedupeToken(r.Context(), r.Header.Get(helpers.QueryDedupeTokenHeader))
+
+		results, dists, queryProfiles, err := i.shards.Search(ctx, index, shard,
 			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, selection)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)

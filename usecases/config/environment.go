@@ -656,6 +656,9 @@ func FromEnv(config *Config) error {
 	}
 	config.BM25FilterTombMergeGateRatio = bm25GateDV
 
+	config.HybridFilterDedupeDisabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("HYBRID_FILTER_DEDUPE_DISABLED")))
+
 	if err := parseInt(
 		"HNSW_GEO_INDEX_EF",
 		func(val int) { config.HNSWGeoIndexEF = val },

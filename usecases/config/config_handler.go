@@ -220,6 +220,7 @@ type Config struct {
 	HNSWFlatSearchConcurrency           int                            `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
 	HNSWAcornFilterRatio                float64                        `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
 	BM25FilterTombMergeGateRatio        *runtime.DynamicValue[float64] `json:"bm25_filter_tombstone_merge_gate_ratio" yaml:"bm25_filter_tombstone_merge_gate_ratio"`
+	HybridFilterDedupeDisabled          *runtime.DynamicValue[bool]    `json:"hybrid_filter_dedupe_disabled" yaml:"hybrid_filter_dedupe_disabled"`
 	HNSWGeoIndexEF                      int                            `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
 	AsyncIndexingEnabled                bool                           `json:"async_indexing_enabled" yaml:"async_indexing_enabled"`
 	Sentry                              *entsentry.ConfigOpts          `json:"sentry" yaml:"sentry"`

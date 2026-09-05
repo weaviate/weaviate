@@ -392,6 +392,9 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 		return nil, nil, nil, fmt.Errorf("create http request: %w", err)
 	}
 	clusterapi.IndicesPayloads.SearchParams.SetContentTypeHeaderReq(req)
+	if token := helpers.QueryDedupeToken(ctx); token != "" {
+		req.Header.Set(helpers.QueryDedupeTokenHeader, token)
+	}
 
 	// send request
 	resp := &searchShardResp{}

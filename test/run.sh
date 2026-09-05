@@ -30,6 +30,7 @@ function main() {
   run_unit_and_integration_tests=false
   run_unit_tests=false
   unit_shard=""
+  run_race_allow_list_dedupe=false
   run_integration_tests=false
   run_integration_tests_only_vector_package=false
   run_integration_tests_without_vector_package=false
@@ -52,6 +53,7 @@ function main() {
           --unit-only-adapters|-uad) run_all_tests=false; run_unit_tests=true; unit_shard="adapters";;
           --unit-only-non-adapters|-una) run_all_tests=false; run_unit_tests=true; unit_shard="non-adapters";;
           --unit-and-integration-only|-ui) run_all_tests=false; run_unit_and_integration_tests=true;;
+          --race-allow-list-dedupe|-rald) run_all_tests=false; run_race_allow_list_dedupe=true;;
           --integration-only|-i) run_all_tests=false; run_integration_tests=true;;
           --integration-vector-package-only|-ivpo) run_all_tests=false; run_integration_tests=true; run_integration_tests_only_vector_package=true;;
           --integration-without-vector-package|-iwvp) run_all_tests=false; run_integration_tests=true; run_integration_tests_without_vector_package=true;;
@@ -97,6 +99,7 @@ function main() {
               "--unit-only-adapters | -uad"\
               "--unit-only-non-adapters | -una"\
               "--unit-and-integration-only | -ui"\
+              "--race-allow-list-dedupe | -rald"\
               "--integration-only | -i"\
               "--acceptance-only | -a"\
               "--acceptance-only-fast | -aof"\
@@ -144,6 +147,13 @@ function main() {
   # Remove data directory in case of previous runs
   rm -rf data
   echo "Done!"
+
+  if $run_race_allow_list_dedupe || $run_all_tests
+  then
+    echo_green "Run the allow-list dedupe race gate..."
+    run_race_allow_list_dedupe
+    echo_green "Allow-list dedupe race gate successful"
+  fi
 
   if $run_unit_and_integration_tests || $run_unit_tests || $run_all_tests
   then
@@ -271,6 +281,15 @@ function build_mockoidc_docker_image_for_tests() {
   docker build  -t $mockoidc_helper_test_image test/docker/mockoidchelper
   export "TEST_MOCKOIDC_HELPER_IMAGE"=$mockoidc_helper_test_image
   echo_green "MockOIDC Helper image successfully built"
+}
+
+# The allow-list refcount can return one buffer twice, corrupting a later
+# unrelated query instead of failing where it happens; -race -count>1 catches it.
+function run_race_allow_list_dedupe() {
+  go test -race -count 5 -timeout 15m -v \
+    -run 'AllowListDedupe' ./adapters/repos/db/ || return 1
+  go test -race -count 5 -timeout 10m -v \
+    -run 'HybridDedupe|HybridMintsOneDedupeToken|HybridTokensAreUnique' ./usecases/traverser/ || return 1
 }
 
 function run_unit_tests() {
