@@ -615,7 +615,8 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 	// The schema version ensures schema consistency across nodes during replication.
 	// For non-multi-tenant collections, op.Status.SchemaVersion remains at its initial value (typically 0),
 	// which is acceptable as schema version synchronization is not required.
-	if c.schemaReader.MultiTenancy(op.Op.TargetShard.CollectionId).Enabled {
+	// SELF_RECOVERY restores files on an existing replica; it must never (re)activate the tenant.
+	if op.Op.TransferType != api.SELF_RECOVERY && c.schemaReader.MultiTenancy(op.Op.TargetShard.CollectionId).Enabled {
 		schemaVersion, err := c.leaderClient.UpdateTenants(ctx, op.Op.TargetShard.CollectionId, &api.UpdateTenantsRequest{
 			Tenants: []*api.Tenant{
 				{
@@ -675,7 +676,13 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 		}
 	}()
 
-	if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.UUID, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
+	// SELF_RECOVERY stages files in "<shard>.recovering/"; FINALIZING promotes it.
+	if op.Op.TransferType == api.SELF_RECOVERY {
+		if err := c.replicaCopier.CopyReplicaFilesToLocalShard(ctx, op.Op.UUID, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, api.RecoveryFolderName(op.Op.TargetShard.ShardId), op.Status.SchemaVersion); err != nil {
+			logger.Errorf("failure while copying replica shard for self-recovery: %v", err)
+			return api.ShardReplicationState(""), err
+		}
+	} else if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.UUID, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
 		logger.Errorf("failure while copying replica shard: %v", err)
 		return api.ShardReplicationState(""), err
 	}
@@ -704,6 +711,14 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	if err := c.leaderClient.WaitForUpdate(ctx, op.Status.SchemaVersion); err != nil {
 		logger.Errorf("failure while waiting for schema version to be applied to local node: %v", err)
 		return api.ShardReplicationState(""), err
+	}
+
+	// SELF_RECOVERY: promote "<shard>.recovering/" before LoadLocalShard reads it.
+	if op.Op.TransferType == api.SELF_RECOVERY {
+		if err := c.replicaCopier.PromoteRecoveryFolder(op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+			logger.Errorf("failure while promoting recovery folder: %v", err)
+			return api.ShardReplicationState(""), err
+		}
 	}
 
 	// Must precede the cap'd drain: replay writes to the local target shard.

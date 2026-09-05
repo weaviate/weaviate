@@ -74,6 +74,7 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
+	"github.com/weaviate/weaviate/cluster/replication/selfrecovery"
 	"github.com/weaviate/weaviate/cluster/usage"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -645,6 +646,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		MetadataOnlyVoters:          appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
 		EnableOneNodeRecovery:       appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
 		ForceOneNodeRecovery:        appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
+		SelfRecoveryEnabled:         appState.ServerConfig.Config.Replication.SelfRecoveryEnabled,
+		WipedJoinerBarrierTimeout:   appState.ServerConfig.Config.Replication.SelfRecoveryBarrierTimeout,
 		DB:                          nil,
 		Parser:                      schemaParser,
 		NodeNameToPortMap:           server2port,
@@ -716,6 +719,33 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				Info("reindex orphan audit skipped after class-dir restore; deferred for post-install replay")
 		}
 		return nil
+	}
+
+	// Wired after Cluster (Raft dep) and before WaitForStartup so schema-replay shard-init can hand off missing shards.
+	selfRecoveryOrch := selfrecovery.New(selfrecovery.Config{
+		Raft:                   appState.ClusterService.Raft,
+		Schema:                 selfRecoverySchemaReader{r: appState.ClusterService.SchemaReader()},
+		PathResolver:           selfRecoveryDBPathResolver{db: appState.DB, root: dataPath},
+		ClientFactory:          remoteClientFactory,
+		NodeSelector:           nodeSelector,
+		NodeName:               nodeName,
+		Enabled:                appState.ServerConfig.Config.Replication.SelfRecoveryEnabled,
+		Concurrency:            appState.ServerConfig.Config.Replication.SelfRecoveryConcurrency,
+		MaintenanceModeEnabled: appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		OnRecoveryComplete:     appState.DB.LoadLocalShard,
+		Logger:                 appState.Logger,
+	})
+	appState.DB.SetSelfRecoveryOrchestrator(selfRecoveryOrch)
+	// Expose debug endpoints only when the feature is on.
+	if appState.ServerConfig.Config.Replication.SelfRecoveryEnabled {
+		setupSelfRecoveryHandlers(appState, selfRecoveryOrch)
+		setupRaftDebugHandlers(appState, appState.ClusterService.Raft)
+	}
+	// One-shot reclaim of *.recovering/ leftovers from a downgrade.
+	if removed, err := selfRecoveryOrch.CleanupOrphanRecoveryDirs(dataPath); err != nil {
+		appState.Logger.WithError(err).Warn("self-recovery orphan cleanup failed")
+	} else if len(removed) > 0 {
+		appState.Logger.WithField("count", len(removed)).Info("self-recovery: removed orphan recovery dirs")
 	}
 
 	executor := schema.NewExecutor(migrator,
@@ -834,6 +864,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				Fatalf("could not open cloud meta store: %v", err)
 			metaStoreReady.failure(err)
 		} else {
+			// Past initial FSM replay: further AddClass calls are runtime additions, not data-loss candidates.
+			appState.DB.MarkRaftBootstrapComplete()
 			metaStoreReady.success()
 		}
 	}, appState.Logger)

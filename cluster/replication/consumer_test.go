@@ -1817,3 +1817,91 @@ func expectChangeCaptureMocks(m *types.MockReplicaCopier, fsm *types.MockFSMUpda
 	// PerNodeState convergence wait: satisfied immediately by default.
 	fsm.EXPECT().ReplicationAllPeersAtLeast(mock.Anything, mock.Anything).Return(true, nil).Maybe()
 }
+
+// Pins the SELF_RECOVERY tenant-state rule: rehydration must never (re)activate a tenant.
+func TestConsumerSelfRecoveryDoesNotActivateTenant(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	mockFSMUpdater := types.NewMockFSMUpdater(t)
+	mockReplicaCopier := types.NewMockReplicaCopier(t)
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaReader := schemaManager.NewSchemaReader()
+	schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"tenant1": {BelongsToNodes: []string{"node1", "node2"}}},
+			},
+		}), "node1", true, false)
+
+	const opId = uint64(78)
+
+	mockFSMUpdater.EXPECT().
+		ReplicationGetReplicaOpStatus(mock.Anything, opId).
+		Return(api.HYDRATING, nil).
+		Times(1)
+	mockReplicaCopier.EXPECT().
+		CopyReplicaFilesToLocalShard(mock.Anything, mock.Anything, "node1", "TestCollection", "tenant1", mock.Anything, mock.Anything).
+		Return(nil).
+		Times(1)
+	mockFSMUpdater.EXPECT().
+		ReplicationUpdateReplicaOpStatus(mock.Anything, opId, api.FINALIZING).
+		Return(errors.New("stop after hydrating")).
+		Times(1)
+	mockFSMUpdater.EXPECT().
+		ReplicationRegisterError(mock.Anything, opId, mock.Anything).
+		Return(nil).
+		Maybe()
+	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
+
+	var failedWg sync.WaitGroup
+	failedWg.Add(1)
+	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+		WithOpFailedCallback(func(node string) {
+			failedWg.Done()
+		}).Build()
+
+	consumer := replication.NewCopyOpConsumer(
+		logger,
+		mockFSMUpdater,
+		mockReplicaCopier,
+		"node2",
+		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
+		time.Second*10,
+		1,
+		metricsCallbacks,
+		schemaReader,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
+	doneChan := make(chan error, 1)
+	go func() {
+		doneChan <- consumer.Consume(ctx, opsChan)
+	}()
+
+	op := replication.NewShardReplicationOp(opId, "node1", "node2", "TestCollection", "tenant1", api.SELF_RECOVERY)
+	status := replication.NewShardReplicationStatus(api.HYDRATING)
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+
+	waitChan := make(chan struct{})
+	go func() {
+		failedWg.Wait()
+		waitChan <- struct{}{}
+	}()
+	select {
+	case <-waitChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Test timed out waiting for operation failure")
+	}
+
+	close(opsChan)
+	require.NoError(t, <-doneChan)
+	mockFSMUpdater.AssertNotCalled(t, "UpdateTenants", mock.Anything, mock.Anything, mock.Anything)
+	mockFSMUpdater.AssertExpectations(t)
+	mockReplicaCopier.AssertExpectations(t)
+}

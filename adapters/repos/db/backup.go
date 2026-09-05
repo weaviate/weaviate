@@ -383,7 +383,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 	// read files from disk without the LSM store being opened underneath us.
 	// Read paths don't use backupLock.RLock, so backupLock.Lock alone is not
 	// sufficient to prevent concurrent lazy loading.
-	if lazyShard, ok := shard.(*LazyLoadShard); ok {
+	if lazyShard, ok := asLazyLoadShard(shard); ok {
 		releaseBlock := lazyShard.blockLoading()
 		if !lazyShard.loaded {
 			// Shard is in the map but not loaded; read from disk.
@@ -556,7 +556,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 
 		// For unloaded LazyLoadShards, block concurrent loading so we can safely
 		// read files from disk. See backupShardWithHardlinks for details.
-		if lazyShard, ok := shard.(*LazyLoadShard); ok {
+		if lazyShard, ok := asLazyLoadShard(shard); ok {
 			releaseBlock := lazyShard.blockLoading()
 			defer releaseBlock()
 			if !lazyShard.loaded {
