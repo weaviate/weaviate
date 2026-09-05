@@ -4291,6 +4291,22 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 				}
 			}
 
+			if len(perNodeStatus) == 0 {
+				if err := i.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+					if state != nil {
+						if physical, ok := state.Physical[shardName]; ok && physical.Status != "" {
+							for _, nodeName := range replicas {
+								perNodeStatus[nodeName] = physical.Status
+							}
+							oneNodeStatus.Store(physical.Status)
+						}
+					}
+					return nil
+				}); err != nil {
+					return err
+				}
+			}
+
 			mu.Lock()
 			shardsStatus[shardName] = perNodeStatus
 			if s, ok := oneNodeStatus.Load().(string); ok {
@@ -4312,9 +4328,25 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	if err != nil {
 		return "", err
 	}
-	defer release()
+	if release != nil {
+		defer release()
+	}
 
 	if shard == nil {
+		var tenantStatus string
+		if err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
+			if state != nil {
+				if physical, ok := state.Physical[shardName]; ok {
+					tenantStatus = physical.Status
+				}
+			}
+			return nil
+		}); err != nil {
+			return "", err
+		}
+		if tenantStatus != "" {
+			return tenantStatus, nil
+		}
 		return "", fmt.Errorf("local %s shard not found", shardName)
 	}
 
