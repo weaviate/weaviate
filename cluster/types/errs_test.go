@@ -31,10 +31,12 @@ func TestIsNoLeader(t *testing.T) {
 		{name: "ErrLeaderNotFound", err: ErrLeaderNotFound, want: true},
 		{name: "raft.ErrNotLeader", err: raft.ErrNotLeader, want: true},
 		{name: "raft.ErrLeadershipLost", err: raft.ErrLeadershipLost, want: true},
+		{name: "raft.ErrLeadershipTransferInProgress", err: raft.ErrLeadershipTransferInProgress, want: true},
 		// The forwarded path wraps, and leaderErr decorates ErrLeaderNotFound
 		// with the unreachable node names.
 		{name: "wrapped ErrLeaderNotFound", err: fmt.Errorf("apply: %w, can not resolve nodes [n1]", ErrLeaderNotFound), want: true},
 		{name: "wrapped raft.ErrLeadershipLost", err: fmt.Errorf("execute: %w", raft.ErrLeadershipLost), want: true},
+		{name: "joined raft.ErrLeadershipTransferInProgress", err: errors.Join(errors.New("rpc error"), raft.ErrLeadershipTransferInProgress), want: true},
 		{name: "joined ErrNotLeader", err: errors.Join(errors.New("rpc error"), ErrNotLeader), want: true},
 		// Neighbours that must not be mistaken for a leadership problem.
 		{name: "ErrNotOpen", err: ErrNotOpen, want: false},

@@ -284,6 +284,8 @@ func TestFromRPCError_SentinelMessagesMutuallyNonSubstring(t *testing.T) {
 			sentinels: []sentinel{
 				{name: "ErrNotLeader", err: types.ErrNotLeader},
 				{name: "ErrLeaderNotFound", err: types.ErrLeaderNotFound},
+				{name: "raft.ErrLeadershipLost", err: raft.ErrLeadershipLost},
+				{name: "raft.ErrLeadershipTransferInProgress", err: raft.ErrLeadershipTransferInProgress},
 			},
 		},
 		{
@@ -321,6 +323,7 @@ func TestFromRPCError_HashicorpLeadershipSentinelsRoundTrip(t *testing.T) {
 	}{
 		{name: "raft.ErrLeadershipLost", send: raft.ErrLeadershipLost},
 		{name: "raft.ErrNotLeader", send: raft.ErrNotLeader},
+		{name: "raft.ErrLeadershipTransferInProgress", send: raft.ErrLeadershipTransferInProgress},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
