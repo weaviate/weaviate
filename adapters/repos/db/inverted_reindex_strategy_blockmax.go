@@ -94,10 +94,10 @@ func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
 		if !property.HasSearchableIndex {
 			return nil
 		}
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+		bucket, bucketName, err := resolveScopedDoubleWriteBucket(shard, property,
 			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
-		if skip {
-			return nil
+		if bucket == nil {
+			return err
 		}
 		propLen := calcPropLen(property.Items)
 		for _, item := range property.Items {
@@ -117,10 +117,10 @@ func (s *MapToBlockmaxStrategy) MakeDeleteCallback(bucketNamer func(string) stri
 		if !property.HasSearchableIndex {
 			return nil
 		}
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+		bucket, bucketName, err := resolveScopedDoubleWriteBucket(shard, property,
 			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
-		if skip {
-			return nil
+		if bucket == nil {
+			return err
 		}
 		for _, item := range property.Items {
 			if err := shard.deleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {

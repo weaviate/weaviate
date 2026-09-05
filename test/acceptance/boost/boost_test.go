@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,6 +35,17 @@ const className = "Song"
 
 func float32Ptr(f float32) *float32 { return &f }
 func uint32Ptr(u uint32) *uint32    { return &u }
+
+// songID returns a stable UUID for fixture i.
+//
+// Every fixture name is "Song NNN", so BM25 for "Song" scores all 100 objects
+// identically. Hybrid fusion breaks an exact score tie on ascending object ID
+// (usecases/traverser/hybrid/hybrid_fusion.go), which with server-generated
+// random UUIDs made the ranking differ on every run. Seeding the IDs pins that
+// tie-break so ordering assertions below are reproducible.
+func songID(i int) strfmt.UUID {
+	return strfmt.UUID(uuid.NewSHA1(uuid.NameSpaceURL, fmt.Appendf(nil, "weaviate-boost-song-%03d", i)).String())
+}
 
 // deterministicVector returns a unit-ish 4D vector seeded by index.
 func deterministicVector(i int) []float32 {
@@ -68,6 +81,7 @@ func setupTestData(t *testing.T) {
 		published := baseTime.Add(-time.Duration(dayOffset) * 24 * time.Hour)
 
 		objects[i] = &models.Object{
+			ID:     songID(i),
 			Class:  className,
 			Vector: deterministicVector(i),
 			Properties: map[string]any{
@@ -902,6 +916,7 @@ func TestBoost(t *testing.T) {
 			Collection: className,
 			Limit:      10,
 			Metadata:   &pb.MetadataRequest{Uuid: true, Score: true},
+			Properties: &pb.PropertiesRequest{ReturnAllNonrefProperties: true},
 			HybridSearch: &pb.Hybrid{
 				Query:      "Song",
 				Properties: []string{"name"},
@@ -927,6 +942,14 @@ func TestBoost(t *testing.T) {
 		boostIDs := resultIDs(boostResp.Results)
 		assert.NotEqual(t, noBoostIDs, boostIDs,
 			"hybrid + boost should produce different ordering than hybrid alone")
+
+		// The identity check above only proves the page moved. Assert what the
+		// boost is actually for: 49 of the 100 fixtures have likes > 500, enough
+		// to fill a limit-10 page, so every boosted hit must satisfy the filter.
+		for i, r := range boostResp.Results {
+			assert.Greaterf(t, r.Properties.NonRefProps.Fields["likes"].GetNumberValue(), float64(500),
+				"boosted result %d (%s) must satisfy the boosted filter likes > 500", i, boostIDs[i])
+		}
 	})
 
 	t.Run("hybrid boost property_value likes", func(t *testing.T) {
