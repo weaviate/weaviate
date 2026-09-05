@@ -12,10 +12,11 @@
 package usage
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 	"time"
+
+	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -12,9 +12,10 @@
 package filters_tests
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
+
+	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"

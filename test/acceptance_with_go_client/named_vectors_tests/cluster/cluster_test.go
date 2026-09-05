@@ -12,9 +12,10 @@
 package cluster
 
 import (
-	"acceptance_tests_with_client/named_vectors_tests/test_suits"
 	"context"
 	"testing"
+
+	"acceptance_tests_with_client/named_vectors_tests/test_suits"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
