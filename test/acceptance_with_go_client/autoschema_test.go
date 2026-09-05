@@ -110,7 +110,7 @@ func TestAutoschemaCasingProps(t *testing.T) {
 
 			count, err := col.Count(ctx)
 			require.NoError(t, err)
-			require.Equal(t, count, 3)
+			require.EqualValues(t, count, 3)
 
 			require.NoError(t, c.Collections.Delete(ctx, className))
 		})
@@ -165,21 +165,20 @@ func TestAutoschemaCasingUpdateProps(t *testing.T) {
 }
 
 func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
-	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	c := wvhost.NewClient(t)
+	weather := c.Collections.Use("BeautifulWeather")
 
 	tests := []struct {
 		name               string
-		properties         map[string]interface{}
+		properties         map[string]any
 		containsErrMessage string
 	}{
 		{
 			name: "unrecognized array property type",
-			properties: map[string]interface{}{
-				"panicProperty": []interface{}{
-					[]interface{}{
-						[]interface{}{
+			properties: map[string]any{
+				"panicProperty": []any{
+					[]any{
+						[]any{
 							"panic",
 						},
 					},
@@ -189,10 +188,10 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 		},
 		{
 			name: "unrecognized nil array property type",
-			properties: map[string]interface{}{
-				"panicProperty": []interface{}{
-					[]interface{}{
-						[]interface{}{
+			properties: map[string]any{
+				"panicProperty": []any{
+					[]any{
+						[]any{
 							nil,
 						},
 					},
@@ -202,50 +201,49 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 		},
 		{
 			name: "array property with nil",
-			properties: map[string]interface{}{
-				"nilPropertyArray": []interface{}{nil},
+			properties: map[string]any{
+				"nilPropertyArray": []any{nil},
 			},
 			containsErrMessage: "property 'nilPropertyArray' on class 'BeautifulWeather': element [0]: unrecognized data type of value '<nil>'",
 		},
 		{
 			name: "empty string array property",
-			properties: map[string]interface{}{
+			properties: map[string]any{
 				"emptyPropertyArray": []string{},
 			},
 		},
 		{
 			name: "empty interface array property",
-			properties: map[string]interface{}{
-				"emptyPropertyArray": []interface{}{},
+			properties: map[string]any{
+				"emptyPropertyArray": []any{},
 			},
 		},
 		{
 			name: "empty int array property",
-			properties: map[string]interface{}{
+			properties: map[string]any{
 				"emptyPropertyArray": []int{},
 			},
 		},
 		{
 			name: "array property with empty string",
-			properties: map[string]interface{}{
+			properties: map[string]any{
 				"emptyPropertyArray": []string{""},
 			},
 		},
 		{
 			name: "nil property",
-			properties: map[string]interface{}{
+			properties: map[string]any{
 				"nilProperty": nil,
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := c.Data().
-				Creator().
-				WithClassName("BeautifulWeather").
-				WithProperties(tt.properties).
-				Do(ctx)
+			resp, err := weather.Data.Insert(t.Context(), &data.Object{
+				Properties: tt.properties,
+			})
 
+			// FIXME(dyma): extract error message
 			if tt.containsErrMessage != "" {
 				assert.Nil(t, resp)
 				assert.NotNil(t, err)
@@ -255,8 +253,7 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 				assert.Nil(t, err)
 			}
 
-			err = c.Schema().ClassDeleter().WithClassName("BeautifulWeather").Do(ctx)
-			require.Nil(t, err)
+			require.NoError(t, c.Collections.Delete(t.Context(), weather.CollectionName()))
 		})
 	}
 }
