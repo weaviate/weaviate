@@ -19,6 +19,9 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // migrationTrackerDirAbsent reports whether a migration's tracker dir is
@@ -168,13 +171,18 @@ func fileExistsInDir(dirPath, fileName string) bool {
 //   - Generations with `gen > effective` are in-flight (next migration)
 //     and left alone — recovery picks them up via their `payload.mig`.
 //
+// Promotion follows the schema. A generation whose target index the applied
+// class turns off keeps its staged name and its tracker, and is promoted at
+// the first load after the flag lands. Renaming first would put data at a name
+// the next load's sweep deletes — see [schemaAuthorizesPromotion].
+//
 // CRITICAL: This MUST be called BEFORE bucket loading, NEVER on live
 // buckets. Renaming directories while buckets are open would corrupt
 // the store. The deferred-finalize design relies on the in-memory swap
 // (via DTM) marking tidied while the directory renames are deferred to
 // the next startup when no buckets are loaded. See
 // `docs/runtime-reindex.md` for the rationale.
-func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
+func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger logrus.FieldLogger) {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
@@ -276,6 +284,19 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			}
 		}
 
+		effectiveDir := ""
+		for _, g := range gens {
+			if g.gen == effective {
+				effectiveDir = g.dirName
+				break
+			}
+		}
+		if !schemaAuthorizesPromotion(class, lsmPath, effectiveDir) {
+			logger.WithField("migration", effectiveDir).
+				Debug("reindex finalize: deferring promotion until the schema lists the migrated index")
+			continue
+		}
+
 		// Finalize the effective promotion gen, then remove every gen <
 		// effective (their data was superseded by this gen's complete
 		// or recovered ingest dir).
@@ -311,6 +332,56 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			}
 		}
 	}
+}
+
+// schemaAuthorizesPromotion reports whether the applied class still lists every
+// index this migration would rename onto a canonical property directory.
+//
+// The schema flag is the only authority over a canonical name:
+// [propertyDeleteIndexHelper.ensureBucketsAreRemovedForNonExistentPropertyIndexes]
+// deletes a canonical directory it finds under an index the class turns off, and
+// runs before this on every load. The three migrations that turn an index on run
+// with that flag off for their whole duration, so promoting before the flip puts
+// the migrated data exactly where the next load's sweep will delete it.
+//
+// The refusal mirrors the sweep's own predicate, including which properties it
+// can see: a property the class does not hold is a property the sweep never
+// reaches, so nothing about it needs authorizing.
+func schemaAuthorizesPromotion(class *models.Class, lsmPath, migName string) bool {
+	suffixes := migrationSuffixes(migName)
+	if suffixes == nil {
+		return true
+	}
+	props, err := readMigrationProps(filepath.Join(lsmPath, migrationsDir, migName))
+	if err != nil || len(props) == 0 {
+		// finalizeMigrationDir renames nothing without them.
+		return true
+	}
+
+	byName := make(map[string]*models.Property, len(class.Properties))
+	for _, prop := range class.Properties {
+		byName[prop.Name] = prop
+	}
+	sweep := newPropertyDeleteIndexHelper()
+	for _, propName := range props {
+		prop, listed := byName[propName]
+		if !listed {
+			continue
+		}
+		var index *bool
+		switch suffixes.sourceBucketName(propName) {
+		case helpers.BucketFromPropNameLSM(propName):
+			index = prop.IndexFilterable
+		case helpers.BucketSearchableFromPropNameLSM(propName):
+			index = prop.IndexSearchable
+		case helpers.BucketRangeableFromPropNameLSM(propName):
+			index = prop.IndexRangeFilters
+		}
+		if sweep.isPropertyIndexRemoved(index) {
+			return false
+		}
+	}
+	return true
 }
 
 // writeRecoveryTidiedSentinels is the recovery-path equivalent of the
