@@ -722,6 +722,27 @@ func TestValidator_ValuesCasting(t *testing.T) {
 				expectedValue: time.Unix(1704164645, 0).UTC(),
 				expectedErr:   false,
 			},
+			{
+				// RFC 3339 / ISO 8601 requires the year to be in 0001-9999;
+				// year 0000 must be rejected even though Go's time.Parse
+				// accepts the literal digits "0000" as year 0.
+				value:         "0000-01-01T00:00:00Z",
+				expectedValue: time.Time{},
+				expectedErr:   true,
+			},
+			{
+				// The lower boundary of the valid range must still be accepted.
+				value:         "0001-01-01T00:00:00Z",
+				expectedValue: time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC),
+				expectedErr:   false,
+			},
+			{
+				// Pre-1970 dates are syntactically valid RFC 3339 and must
+				// still be accepted (only year 0000 is rejected).
+				value:         "1800-06-15T08:30:00Z",
+				expectedValue: time.Date(1800, time.June, 15, 8, 30, 0, 0, time.UTC),
+				expectedErr:   false,
+			},
 
 			{
 				value:         float64(123),
