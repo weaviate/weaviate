@@ -85,7 +85,6 @@ var sharedCompose *docker.DockerCompose
 
 func TestMain(m *testing.M) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
 
 	// offload-s3 needs AWS creds in the process env before Start so each
 	// node can authenticate against the MinIO sidecar.
@@ -116,6 +115,9 @@ func TestMain(m *testing.M) {
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateClusterWithGRPC().
 		Start(ctx)
+	// Start is this context's only consumer, and a deferred cancel would not run
+	// under the os.Exit below.
+	cancel()
 	if err != nil {
 		panic(errors.Wrap(err, "failed to start shared compose"))
 	}
@@ -125,8 +127,25 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	if err := sharedCompose.Terminate(ctx); err != nil {
-		panic(errors.Wrap(err, "failed to terminate shared compose"))
+	// On failure, dump every node's logs so the leader side is visible. Without
+	// this the only record of a server-side 500 is the client's rendering of
+	// models.ErrorResponse, which prints the message slice as pointers.
+	// A fresh context, because the suite may have used up the one above and an
+	// expired context turns the dump into "logs unavailable" on every node.
+	if code != 0 {
+		dumpCtx, cancelDump := context.WithTimeout(context.Background(), time.Minute)
+		sharedCompose.DumpWeaviateLogs(dumpCtx, os.Stderr, 300)
+		cancelDump()
+	}
+
+	// Teardown gets its own context for the same reason. Terminate passes it to
+	// docker; on an expired one it fails and the panic below replaces the test
+	// failure the run was about.
+	termCtx, cancelTerm := context.WithTimeout(context.Background(), 10*time.Minute)
+	termErr := sharedCompose.Terminate(termCtx)
+	cancelTerm()
+	if termErr != nil {
+		panic(errors.Wrap(termErr, "failed to terminate shared compose"))
 	}
 	os.Exit(code)
 }
