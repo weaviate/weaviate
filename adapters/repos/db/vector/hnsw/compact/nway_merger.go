@@ -408,7 +408,12 @@ func (m *commitMerger) result() *NodeCommits {
 		}
 	}
 
-	// Safe to collapse: RemoveTombstone is terminal (emitted only with DeleteNode; docIDs immutable), so both-set never describes a live node.
+	// Safe to collapse: RemoveTombstone is emitted only while cleaning up a
+	// deleted node, and with docID reuse the deserializer clears all per-id
+	// delete/tombstone state when it observes a re-add (InMemoryReader.readNode).
+	// A condensed input therefore never carries an old life's RemoveTombstone
+	// alongside a live node, so both-set still never describes a live node —
+	// guaranteed by re-add reconciliation rather than by docID immutability.
 	if m.addTombstone && !m.removeTombstone {
 		commits = append(commits, &AddTombstoneCommit{ID: m.nodeID})
 	}

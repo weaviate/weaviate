@@ -229,6 +229,32 @@ func (r *InMemoryReader) readNode(c *AddNodeCommit, res *ent.DeserializationResu
 		res.Graph.Nodes = newNodes
 	}
 
+	// docID reuse: an AddNode for an id with recorded delete state is a re-add
+	// (the WAL guarantees DeleteNode precedes any re-add of the same id). The
+	// new life must not inherit the old life's delete/tombstone bookkeeping,
+	// otherwise downstream consumers (SortedWriter, NWayMerger) would classify
+	// the live node as deleted and drop it. Clearing is gated on NodesDeleted
+	// on purpose: the sorted format writes tombstone ops BEFORE AddNode for a
+	// live node, so an ungated clear would destroy live tombstones when
+	// re-reading .sorted/.condensed files. Note that links-only materialization
+	// (readLink & co.) deliberately does NOT count as a re-add — only AddNode
+	// carries the level and marks the beginning of a new life.
+	//
+	// SCOPE: this reconciliation only covers a delete and re-add seen by the
+	// SAME reader, i.e. within one commit-log file. The CROSS-FILE case —
+	// delete in file N, re-add in file N+1 — is NOT covered: the NWayMerger
+	// iterates newest file first, so the old file's DeleteNodeCommit arrives
+	// after the new file's AddNodeCommit and still resets the merge state
+	// (commitMerger.addCommit sets deleted=true and drops addNode), killing
+	// the re-added node. Compaction is therefore NOT reuse-safe end to end
+	// yet; that gap is its own upcoming PR (between PR-S3 and the free list)
+	// and blocks enabling the reuse flag until it lands.
+	if _, deleted := res.Graph.NodesDeleted[c.ID]; deleted {
+		delete(res.Graph.NodesDeleted, c.ID)
+		delete(res.Graph.Tombstones, c.ID)
+		delete(res.Graph.TombstonesDeleted, c.ID)
+	}
+
 	if res.Graph.Nodes[c.ID] == nil {
 		conns, err := packedconn.NewWithMaxLayer(uint8(c.Level))
 		if err != nil {

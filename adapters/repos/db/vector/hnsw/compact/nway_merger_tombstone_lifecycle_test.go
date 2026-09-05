@@ -12,6 +12,7 @@
 package compact
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -22,12 +23,14 @@ import (
 // no-op (emits neither), regardless of precedence or in-file order. These tests
 // prove that is correct for every reachable input:
 //
-//	RemoveTombstone is terminal. It is emitted only while cleaning up a tombstoned
-//	node, always immediately after DeleteNode (delete.go), and docIDs are immutable
-//	(a deleted id is never reissued). So once RemoveTombstone appears for an id,
-//	nothing newer can exist for it and the node is gone. Whenever both tombstone
-//	flags are set, DeleteNode is present too, so result() emits [DeleteNode] — the
-//	correct final state. No live tombstone is ever dropped.
+//	RemoveTombstone is terminal within a node's life. It is emitted only while
+//	cleaning up a tombstoned node, always immediately after DeleteNode
+//	(delete.go). With docID reuse a deleted id CAN be reissued, but the
+//	deserializer (InMemoryReader.readNode) clears all per-id delete/tombstone
+//	state when it observes the re-add, so a condensed input never carries an
+//	old life's RemoveTombstone alongside a live node. Whenever both tombstone
+//	flags are set, DeleteNode is present too, so result() emits [DeleteNode] —
+//	the correct final state. No live tombstone is ever dropped.
 
 const tombNode = uint64(5)
 
@@ -185,17 +188,76 @@ func TestNWayMerger_TombstoneLifecycle_NoDataLoss(t *testing.T) {
 	}
 }
 
-// TestNWayMerger_TombstoneCollapse_SafeOnlyWithImmutableDocIDs documents the
-// load-bearing invariant. The collapse would drop a live tombstone only if a
-// RemoveTombstone'd id could be re-added with a newer AddTombstone (docID reuse).
-// Immutable docIDs make that input unreachable; this pins the boundary so a future
-// change that breaks the invariant is caught here.
-func TestNWayMerger_TombstoneCollapse_SafeOnlyWithImmutableDocIDs(t *testing.T) {
-	// Non-realizable input: same id re-added/re-deleted after a RemoveTombstone.
-	s := mergedStateForNode(t,
-		[]Commit{&RemoveTombstoneCommit{ID: tombNode}},
-		[]Commit{&AddNodeCommit{ID: tombNode, Level: 0}, &AddTombstoneCommit{ID: tombNode}},
-	)
-	require.True(t, s.hasAddNode)
-	require.False(t, s.emitsAddTomb)
+// TestNWayMerger_DocIDReuse_ReAddedNodeSurvivesPipeline replaces the former
+// "safe only with immutable docIDs" boundary test. With docID reuse, the
+// commit-log sequence AddNode(X) … DeleteNode(X) … AddNode(X) is a VALID
+// input. The load-bearing invariant moved upstream: the deserializer clears
+// per-id delete/tombstone state on re-add, so by the time a reuse log has been
+// materialized into the sorted format, it describes only the id's newest life.
+// This test drives the reuse sequence through the real pipeline
+// (reader -> sorted writer -> iterator -> merger) and asserts X comes out
+// alive, untombstoned, and with its new life's level and links.
+func TestNWayMerger_DocIDReuse_ReAddedNodeSurvivesPipeline(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+
+	// Older log: an unrelated node, to make this a genuine n-way merge.
+	var rawOld bytes.Buffer
+	wOld := NewWALWriter(&rawOld)
+	require.NoError(t, wOld.WriteAddNode(1, 0))
+
+	// Newer log: the full docID-reuse lifecycle for tombNode.
+	var rawNew bytes.Buffer
+	wNew := NewWALWriter(&rawNew)
+	require.NoError(t, wNew.WriteAddNode(tombNode, 2)) // old life
+	require.NoError(t, wNew.WriteReplaceLinksAtLevel(tombNode, 0, []uint64{1}))
+	require.NoError(t, wNew.WriteAddTombstone(tombNode))
+	require.NoError(t, wNew.WriteDeleteNode(tombNode))
+	require.NoError(t, wNew.WriteRemoveTombstone(tombNode))
+	require.NoError(t, wNew.WriteAddNode(tombNode, 1)) // new life (docID reuse)
+	require.NoError(t, wNew.WriteReplaceLinksAtLevel(tombNode, 0, []uint64{1}))
+
+	// Condense both raw logs into the sorted format (reader -> sorted writer),
+	// exactly like the compactor's convertFileToSorted does.
+	iterators := make([]IteratorLike, 0, 2)
+	for i, raw := range []*bytes.Buffer{&rawOld, &rawNew} {
+		res, err := NewInMemoryReader(NewWALCommitReader(raw, logger), logger).Do(nil, true)
+		require.NoError(t, err)
+
+		var sorted bytes.Buffer
+		require.NoError(t, NewSortedWriter(&sorted, logger).WriteAll(res))
+
+		it, err := NewIterator(NewWALCommitReader(&sorted, logger), i, logger)
+		require.NoError(t, err)
+		iterators = append(iterators, it)
+	}
+
+	merger, err := NewNWayMerger(iterators, logger)
+	require.NoError(t, err)
+
+	var s mergedTombState
+	var addNode *AddNodeCommit
+	for {
+		nc, err := merger.Next()
+		require.NoError(t, err)
+		if nc == nil {
+			break
+		}
+		if nc.NodeID != tombNode {
+			continue
+		}
+		s = classifyTombState(nc.Commits)
+		for _, c := range nc.Commits {
+			if an, ok := c.(*AddNodeCommit); ok {
+				addNode = an
+			}
+		}
+	}
+
+	require.True(t, s.hasAddNode, "re-added node must be alive after the full pipeline")
+	require.False(t, s.hasDeleteNode, "old life's DeleteNode must not survive the re-add")
+	require.False(t, s.emitsAddTomb, "old life's tombstone must not survive the re-add")
+	require.False(t, s.emitsRmTomb, "old life's RemoveTombstone must not survive the re-add")
+	require.NotNil(t, addNode)
+	require.Equal(t, uint16(1), addNode.Level, "AddNode must carry the new life's level")
 }
