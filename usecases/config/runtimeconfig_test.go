@@ -1077,3 +1077,14 @@ func TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup(t *testing
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupInterval, registered.ReplicaMovementCleanupInterval)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupIncludeCancelled, registered.ReplicaMovementCleanupIncludeCancelled)
 }
+
+// Same guard for the Weaviate License switch: without the registration line the
+// runtime override is parsed, accepted and then dropped on the floor.
+func TestBuildRegisteredRuntimeConfig_RegistersWeaviateLicense(t *testing.T) {
+	cfg := &Config{}
+	cfg.WeaviateLicense = runtime.NewDynamicValue(true)
+
+	registered := BuildRegisteredRuntimeConfig(cfg)
+
+	require.Same(t, cfg.WeaviateLicense, registered.WeaviateLicense)
+}

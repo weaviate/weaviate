@@ -536,6 +536,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		HFreshEnabled:                appState.ServerConfig.Config.HFreshEnabled,
 		OperationalMode:              appState.ServerConfig.Config.OperationalMode,
 		DisableDimensionMetrics:      appState.ServerConfig.Config.DisableDimensionMetrics,
+		WeaviateLicense:              appState.ServerConfig.Config.WeaviateLicense,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil, appState.NamespacesController) // TODO client
 	if err != nil {
 		appState.Logger.

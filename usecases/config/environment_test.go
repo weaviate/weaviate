@@ -1177,6 +1177,36 @@ func TestEnvironmentExperimentalRESTSearchEnabled(t *testing.T) {
 	}
 }
 
+func TestEnvironmentWeaviateLicense(t *testing.T) {
+	factors := []struct {
+		name     string
+		value    []string
+		expected bool
+	}{
+		{"Valid: true", []string{"true"}, true},
+		{"Valid: on", []string{"on"}, true},
+		{"Valid: enabled", []string{"enabled"}, true},
+		{"Valid: 1", []string{"1"}, true},
+		{"Valid: false", []string{"false"}, false},
+		{"Valid: off", []string{"off"}, false},
+		{"Valid: 0", []string{"0"}, false},
+		{"Unrecognized value counts as off", []string{"yes"}, false},
+		{"Empty value counts as off", []string{""}, false},
+		{"not given", []string{}, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("WEAVIATE_LICENSE", tt.value[0])
+			}
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+
+			require.Equal(t, tt.expected, conf.WeaviateLicense.Get())
+		})
+	}
+}
+
 func TestEnvironmentCORS_Headers(t *testing.T) {
 	factors := []struct {
 		name        string

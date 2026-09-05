@@ -81,6 +81,7 @@ type WeaviateRuntimeConfig struct {
 	GRPCWebEnabled                            *runtime.DynamicValue[bool]          `json:"grpc_web_enabled" yaml:"grpc_web_enabled"`
 	DisableGraphQL                            *runtime.DynamicValue[bool]          `json:"disable_graphql" yaml:"disable_graphql"`
 	ExperimentalRESTSearchEnabled             *runtime.DynamicValue[bool]          `json:"rest_search_enabled" yaml:"rest_search_enabled"`
+	WeaviateLicense                           *runtime.DynamicValue[bool]          `json:"weaviate_license" yaml:"weaviate_license"`
 
 	NamespaceCleanupInterval *runtime.DynamicValue[time.Duration] `json:"namespace_cleanup_interval" yaml:"namespace_cleanup_interval"`
 
@@ -480,6 +481,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.GRPCWebEnabled = cfg.GRPC.GrpcWebEnabled
 	registered.DisableGraphQL = cfg.DisableGraphQL
 	registered.ExperimentalRESTSearchEnabled = cfg.ExperimentalRESTSearchEnabled
+	registered.WeaviateLicense = cfg.WeaviateLicense
 
 	if cfg.Authentication.OIDC.Enabled {
 		registered.OIDCIssuer = cfg.Authentication.OIDC.Issuer
