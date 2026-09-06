@@ -218,12 +218,22 @@ func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
 	return true
 }
 
+func (h *hnsw) pathseerEnabled(allowList helpers.AllowList) bool {
+	return allowList != nil && h.pathseerSearch.Load()
+}
+
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
 ) (*priorityqueue.Queue[any], error,
 ) {
+	// keep strategy selection consistent with knnSearchByVector: callers of
+	// this helper (KnnSearchByVectorMaxDist) previously fell back to
+	// sweeping silently when filterStrategy was pathseer
+	if h.pathseerEnabled(allowList) {
+		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, PATHSEER)
+	}
 	if h.acornEnabled(allowList) {
 		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, ACORN)
 	}
@@ -1041,7 +1051,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	entryPointNode := h.nodes[entryPointID]
 	h.shardedNodeLocks.RUnlock(entryPointID)
 	useAcorn := h.acornEnabled(allowList)
-	usePathseer := allowList != nil && h.pathseerSearch.Load()
+	usePathseer := h.pathseerEnabled(allowList)
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	if usePathseer {
 		strategy = PATHSEER
