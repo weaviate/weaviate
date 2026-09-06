@@ -291,12 +291,19 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	if allowList == nil {
 		strategy = SWEEPING
 	}
+	var sliceSecondOrder *common.VectorUint64Slice
 	if strategy == ACORN {
 		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(8 * h.maximumConnectionsLayerZero)
 		slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 		slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 	} else {
 		connectionsReusable = make([]uint64, h.maximumConnectionsLayerZero)
+		if strategy == PATHSEER && level == 0 {
+			// borrowed once per search and reused across every two-hop
+			// expansion; allocating it per popped candidate showed up as
+			// GC pressure on the filtered hot path
+			sliceSecondOrder = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+		}
 	}
 
 	for candidates.Len() > 0 {
@@ -489,7 +496,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		extStart := len(connectionsReusable)
 		maxSecondOrder := h.maximumConnectionsLayerZero
 		if results.Len() < ef && strategy == PATHSEER && level == 0 {
-			secondOrderBuf := make([]uint64, 0, h.maximumConnectionsLayerZero)
+			secondOrderBuf := sliceSecondOrder.Slice[:0]
 			secondOrderCount := 0
 			for _, firstOrderID := range connectionsReusable {
 				if secondOrderCount >= maxSecondOrder {
@@ -528,6 +535,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					connectionsReusable = append(connectionsReusable, secID)
 				}
 			}
+			// CopyLayer may have grown the buffer; keep the grown backing
+			// array so the pool hands it back next time
+			sliceSecondOrder.Slice = secondOrderBuf
 		}
 
 		unvisited := connectionsReusable[:0]
@@ -649,6 +659,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
 		h.pools.tempVectorsUint64.Put(slicePendingNextRound)
 		h.pools.tempVectorsUint64.Put(slicePendingThisRound)
+	}
+	if sliceSecondOrder != nil {
+		h.pools.tempVectorsUint64.Put(sliceSecondOrder)
 	}
 
 	h.pools.pqCandidates.Put(candidates)
