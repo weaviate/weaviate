@@ -205,7 +205,7 @@ func (h *hnsw) cacheSize() int64 {
 }
 
 func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
-	if allowList == nil || !h.acornSearch.Load() {
+	if allowList == nil || FilterStrategy(h.configuredFilterStrategy.Load()) != ACORN {
 		return false
 	}
 
@@ -219,7 +219,7 @@ func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
 }
 
 func (h *hnsw) pathseerEnabled(allowList helpers.AllowList) bool {
-	return allowList != nil && h.pathseerSearch.Load()
+	return allowList != nil && FilterStrategy(h.configuredFilterStrategy.Load()) == PATHSEER
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
