@@ -532,10 +532,16 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 		unvisited := connectionsReusable[:0]
 		for idx, neighborID := range connectionsReusable {
-			if visited.CheckAndVisit(neighborID) {
-				continue
-			}
 			if strategy == PATHSEER && level == 0 && !candidatePasses && idx < extStart && results.Len() >= ef {
+				// The prefilter must run before the neighbor is marked
+				// visited: a neighbor skipped here from a non-matching
+				// candidate has had no distance computed, so it must stay
+				// reachable from a later matching candidate. Marking it
+				// visited first would make recall depend on which parent
+				// happens to reach the node first.
+				if visited.Visited(neighborID) {
+					continue
+				}
 				if isMultivec {
 					var docID uint64
 					if compressed {
@@ -549,6 +555,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				} else if !allowList.Contains(neighborID) {
 					continue
 				}
+				visited.Visit(neighborID)
+				unvisited = append(unvisited, neighborID)
+				continue
+			}
+			if visited.CheckAndVisit(neighborID) {
+				continue
 			}
 			if strategy == RRE && level == 0 {
 				if isMultivec {
