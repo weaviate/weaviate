@@ -299,7 +299,6 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		connectionsReusable = make([]uint64, h.maximumConnectionsLayerZero)
 	}
 
-	candidateHeapWasFull := false
 	for candidates.Len() > 0 {
 		if err := ctx.Err(); err != nil {
 			h.pools.visitedLists.Return(visited)
@@ -309,7 +308,6 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			return nil, err
 		}
 		var dist float32
-		candidateHeapWasFull = candidateHeapWasFull || candidates.Len() >= ef
 		candidate := candidates.Pop()
 		dist = candidate.Dist
 
@@ -490,7 +488,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		// PathSeer uses two-hop neighbors as expansion-zone neighbors, avoiding changes to the HNSW index.
 		extStart := len(connectionsReusable)
 		maxSecondOrder := h.maximumConnectionsLayerZero
-		if !candidateHeapWasFull && strategy == PATHSEER && level == 0 {
+		if results.Len() < ef && strategy == PATHSEER && level == 0 {
 			secondOrderBuf := make([]uint64, 0, h.maximumConnectionsLayerZero)
 			secondOrderCount := 0
 			for _, firstOrderID := range connectionsReusable {
