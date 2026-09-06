@@ -1054,7 +1054,16 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	usePathseer := h.pathseerEnabled(allowList)
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	if usePathseer {
-		strategy = PATHSEER
+		if entryPointNode == nil {
+			// parity with the ACORN branch below: the entrypoint can be
+			// deleted between repair and this re-read. ACORN degrades to
+			// RRE and is rescued by the allow-list seeds; without the same
+			// fallback a PathSeer search would pop the nil node, drop it,
+			// and silently return empty results.
+			strategy = RRE
+		} else {
+			strategy = PATHSEER
+		}
 	} else if useAcorn {
 		if entryPointNode == nil {
 			strategy = RRE
@@ -1090,7 +1099,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		strategy = SWEEPING
 	}
 
-	if allowList != nil && useAcorn {
+	if allowList != nil && (useAcorn || (usePathseer && strategy == RRE)) {
 		seeds := 10
 		it := allowList.Iterator()
 		defer it.Stop()
