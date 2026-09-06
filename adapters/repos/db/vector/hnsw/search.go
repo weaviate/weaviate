@@ -316,6 +316,22 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		}
 	}
 
+	// The PathSeer prefilter activates once the result heap is full. A
+	// filter with fewer members than ef can never fill the heap, which
+	// leaves the prefilter inert and degenerates the search into an
+	// unbounded sweep of the whole graph. Cap the activation threshold by
+	// the allow-list cardinality: once every possible member is in the
+	// result heap, the prefilter can only cut work, not answers.
+	// (Multi-vector indexes keep the plain ef threshold: allow-list entries
+	// are doc ids there and several vector results can map to one doc, so
+	// the cardinalities are not comparable.)
+	prefilterFullAt := ef
+	if strategy == PATHSEER && level == 0 && !isMultivec {
+		if al := allowList.Len(); al < prefilterFullAt {
+			prefilterFullAt = al
+		}
+	}
+
 	for candidates.Len() > 0 {
 		if err := ctx.Err(); err != nil {
 			h.pools.visitedLists.Return(visited)
@@ -328,7 +344,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		candidate := candidates.Pop()
 		dist = candidate.Dist
 
-		if dist > worstResultDistance && results.Len() >= ef {
+		if dist > worstResultDistance && results.Len() >= prefilterFullAt {
 			break
 		}
 
@@ -552,7 +568,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 		unvisited := connectionsReusable[:0]
 		for idx, neighborID := range connectionsReusable {
-			if strategy == PATHSEER && level == 0 && !candidatePasses && idx < extStart && results.Len() >= ef {
+			if strategy == PATHSEER && level == 0 && !candidatePasses && idx < extStart && results.Len() >= prefilterFullAt {
 				// The prefilter must run before the neighbor is marked
 				// visited: a neighbor skipped here from a non-matching
 				// candidate has had no distance computed, so it must stay
