@@ -178,4 +178,153 @@ func TestPathseerSubEfAllowListStaysBounded(t *testing.T) {
 	// details.
 	assert.LessOrEqual(t, distCalls.Load(), int64(n/2),
 		"sub-ef allow list must not degenerate into a full-graph sweep")
+
+	// KnnSearchByVectorMaxDist routes through
+	// searchLayerByVectorWithDistancer rather than knnSearchByVector; it
+	// must select the configured pathseer strategy too instead of silently
+	// falling back to sweeping. Same bounded-work observable.
+	distCalls.Store(0)
+	got, err := index.KnnSearchByVectorMaxDist(ctx, []float32{0, 0}, 100, 64, allow)
+	require.Nil(t, err)
+	assert.ElementsMatch(t, []uint64{1, 2, 3}, got, "members within max dist must be returned")
+	assert.LessOrEqual(t, distCalls.Load(), int64(n/2),
+		"max-dist search with filterStrategy pathseer must not run an unbounded sweep")
+}
+
+// PathSeer traversal over a graph that contains nil (concurrently deleted,
+// not yet cleaned up) nodes: the popped-candidate path, the two-hop
+// expansion, and the prefilter all touch node slots and must tolerate nil
+// entries without panicking or losing the reachable members.
+func TestPathseerTolerantOfNilNodes(t *testing.T) {
+	ctx := context.Background()
+	vectors := [][]float32{
+		{5, 0}, // 0: entrypoint, member
+		{3, 0}, // 1: non-member
+		{4, 0}, // 2: member
+		{2, 0}, // 3: nil slot (deleted)
+		{1, 0}, // 4: member, still linked from 1 and 2
+	}
+	index := newPathseerTestIndex(t, vectors, 1)
+	defer index.Shutdown(ctx)
+	buildManualLayer0(t, index, len(vectors), map[uint64][]uint64{
+		0: {1, 2},
+		1: {0, 3, 4},
+		2: {0, 3, 4},
+		3: {1, 2, 4}, // slot nilled below; edges into it must be survivable
+		4: {1, 2},
+	})
+	index.nodes[3] = nil
+
+	allow := helpers.NewAllowList(0, 2, 4)
+	res, _, err := index.SearchByVector(ctx, []float32{0, 0}, 1, allow)
+	require.Nil(t, err)
+	assert.Equal(t, []uint64{4}, res,
+		"members reachable around the nil slot must still be found")
+}
+
+// The configured filter strategy is published as one atomic word: a reader
+// concurrent with an acorn→pathseer→sweeping config update must always
+// observe exactly one of the three configured strategies, never a torn
+// combination (the two-boolean encoding allowed both-false and both-true
+// windows). Run with -race.
+func TestFilterStrategyConfigUpdateIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	vectors := [][]float32{{1, 0}, {2, 0}, {3, 0}}
+	index := newPathseerTestIndex(t, vectors, 4)
+	defer index.Shutdown(ctx)
+	for i, v := range vectors {
+		require.Nil(t, index.Add(ctx, uint64(i), v))
+	}
+
+	uc := ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		EF:                    4,
+		VectorCacheMaxObjects: 100000,
+		FlatSearchCutoff:      0,
+	}
+
+	stop := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		allow := helpers.NewAllowList(0, 1, 2)
+		for {
+			select {
+			case <-stop:
+				done <- nil
+				return
+			default:
+			}
+			// every observation must be a valid single strategy; a torn
+			// two-boolean state historically produced sweeping (both
+			// false) or double-routing (both true) mid-update
+			s := FilterStrategy(index.configuredFilterStrategy.Load())
+			if s != SWEEPING && s != ACORN && s != PATHSEER {
+				done <- assert.AnError
+				return
+			}
+			if _, _, err := index.SearchByVector(ctx, []float32{0, 0}, 1, allow); err != nil {
+				done <- err
+				return
+			}
+		}
+	}()
+
+	for i := 0; i < 200; i++ {
+		for _, s := range []string{ent.FilterStrategyAcorn, ent.FilterStrategyPathseer, ent.FilterStrategySweeping} {
+			uc.FilterStrategy = s
+			require.Nil(t, index.UpdateUserConfig(uc, func() {}))
+		}
+	}
+	close(stop)
+	require.Nil(t, <-done)
+
+	assert.Equal(t, SWEEPING, FilterStrategy(index.configuredFilterStrategy.Load()),
+		"final observed strategy must match the last config update")
+}
+
+// Edge allow lists under filterStrategy pathseer: empty (non-nil), single
+// member, and all-members lists must return exactly the allowed members.
+func TestPathseerEdgeAllowLists(t *testing.T) {
+	ctx := context.Background()
+	const n = 50
+	vectors := make([][]float32, n)
+	for i := range vectors {
+		vectors[i] = []float32{float32(i), 0}
+	}
+	index := newPathseerTestIndex(t, vectors, 8)
+	defer index.Shutdown(ctx)
+	for i := 0; i < n; i++ {
+		require.Nil(t, index.Add(ctx, uint64(i), vectors[i]))
+	}
+
+	tests := []struct {
+		name   string
+		allow  helpers.AllowList
+		k      int
+		expect []uint64
+	}{
+		{name: "empty allow list", allow: helpers.NewAllowList(), k: 3, expect: []uint64{}},
+		{name: "single member", allow: helpers.NewAllowList(37), k: 3, expect: []uint64{37}},
+		{name: "restrictive", allow: helpers.NewAllowList(5, 20, 45), k: 3, expect: []uint64{5, 20, 45}},
+		{
+			name: "all members", allow: allowListWithRange(n), k: 4,
+			expect: []uint64{0, 1, 2, 3}, // plain nearest-neighbor order
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res, _, err := index.SearchByVector(ctx, []float32{0, 0}, tc.k, tc.allow)
+			require.Nil(t, err)
+			assert.ElementsMatch(t, tc.expect, res)
+		})
+	}
+}
+
+func allowListWithRange(n int) helpers.AllowList {
+	ids := make([]uint64, n)
+	for i := range ids {
+		ids[i] = uint64(i)
+	}
+	return helpers.NewAllowList(ids...)
 }
