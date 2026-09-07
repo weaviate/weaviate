@@ -226,6 +226,29 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "should not pass with an apiEndpoint outside the Google API domain",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("apiEndpoint", "attacker.example.com").
+					addSetting("location", "us-central1").
+					addSetting("projectId", "projectId").
+					addSetting("imageFields", []any{"image1"}).
+					build(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "should not pass with a location carrying a host",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("location", "attacker.example.com/").
+					addSetting("projectId", "projectId").
+					addSetting("imageFields", []any{"image1"}).
+					build(),
+			},
+			wantErr: true,
+		},
+		{
 			name: "should not pass with wrong videoIntervalSeconds setting in videoFields together with image fields",
 			fields: fields{
 				cfg: newConfigBuilder().
