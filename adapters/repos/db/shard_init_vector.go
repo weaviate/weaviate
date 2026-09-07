@@ -367,81 +367,44 @@ func (s *Shard) initTargetVectors(ctx context.Context, legacy schemaConfig.Vecto
 	return nil
 }
 
+// initTargetVector creates the named vector's index and queue unless the
+// shard has them already. Creates are serialized by the slots, so two
+// concurrent UpdateVectorIndexConfigs calls that both saw the target absent
+// build it once; the second finds it in place and returns.
 func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
-	// Recreating an existing target would orphan the current index+queue (never
-	// Dropped). Returning early also makes concurrent UpdateVectorIndexConfigs
-	// calls that both saw the target absent safe: Publish below refuses the
-	// second one.
-	if _, exists := s.vectors.get(targetVector); exists {
-		return nil
-	}
+	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
+		return s.buildVectorIndexAndQueue(ctx, targetVector, cfg, lazyLoadSegments)
+	})
+	return err
+}
 
+// buildVectorIndexAndQueue constructs a vector's index and its queue. A queue
+// that fails to build takes the index down with it, so nothing is left
+// running unpublished.
+func (s *Shard) buildVectorIndexAndQueue(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) (VectorIndex, *VectorIndexQueue, error) {
 	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg, lazyLoadSegments)
 	if err != nil {
-		return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
+		return nil, nil, fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 	}
 	queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
 	if err != nil {
 		if shutdownErr := vectorIndex.Shutdown(s.shutCtx); shutdownErr != nil {
-			return fmt.Errorf("cannot create index queue for %q: %w (shutting down the orphaned vector index also failed: %w)",
+			return nil, nil, fmt.Errorf("cannot create index queue for %q: %w (shutting down the orphaned vector index also failed: %w)",
 				targetVector, err, shutdownErr)
 		}
-		return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
+		return nil, nil, fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
 	}
-
-	err = s.vectors.Publish(targetVector, vectorIndex, queue)
-	if err != nil {
-		// another create of the same vector won the race: tear ours down
-		// rather than leak it, and treat it as the early return above
-		s.discardUnpublished(targetVector, vectorIndex, queue)
-		return nil
-	}
-	return nil
+	return vectorIndex, queue, nil
 }
 
-// discardUnpublished shuts down an index and queue that lost the publish
-// race to a concurrent create of the same vector. Their files belong to the
-// winner, so nothing is deleted.
-func (s *Shard) discardUnpublished(targetVector string, index VectorIndex, queue *VectorIndexQueue) {
-	if err := queue.Close(s.shutCtx); err != nil {
-		s.index.logger.WithFields(logrus.Fields{
-			"action":        "init_target_vector",
-			"target_vector": targetVector,
-		}).Warnf("close queue that lost the publish race: %v", err)
-	}
-	if err := index.Shutdown(s.shutCtx); err != nil {
-		s.index.logger.WithFields(logrus.Fields{
-			"action":        "init_target_vector",
-			"target_vector": targetVector,
-		}).Warnf("shut down index that lost the publish race: %v", err)
-	}
-}
-
+// initLegacyVector creates the legacy vector's index and queue unless the
+// shard has them already. A second init used to replace the running index
+// with a fresh instance and orphan it; now it finds the first in place.
 func (s *Shard) initLegacyVector(ctx context.Context, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
-	// A second init used to replace the legacy index with a fresh instance
-	// and orphan the running one; keep the first, as initTargetVector does.
-	if _, exists := s.vectors.get(""); exists {
-		return nil
-	}
-
-	vectorIndex, err := s.initVectorIndex(ctx, "", cfg, lazyLoadSegments)
-	if err != nil {
-		return err
-	}
-
-	queue, err := NewVectorIndexQueue(s, "", vectorIndex)
-	if err != nil {
-		if shutdownErr := vectorIndex.Shutdown(s.shutCtx); shutdownErr != nil {
-			return fmt.Errorf("%w (shutting down the orphaned vector index also failed: %w)", err, shutdownErr)
-		}
-		return err
-	}
-	err = s.vectors.Publish("", vectorIndex, queue)
-	if err != nil {
-		s.discardUnpublished("", vectorIndex, queue)
-		return fmt.Errorf("publish legacy vector index: %w", err)
-	}
-	return nil
+	_, err := s.vectors.Create("", func() (VectorIndex, *VectorIndexQueue, error) {
+		return s.buildVectorIndexAndQueue(ctx, "", cfg, lazyLoadSegments)
+	})
+	return err
 }
 
 func (s *Shard) setVectorIndex(targetVector string, index VectorIndex) {

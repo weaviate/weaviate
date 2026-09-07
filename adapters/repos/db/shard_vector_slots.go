@@ -35,6 +35,10 @@ const slotDrainTimeout = 30 * time.Second
 type vectorIndexSlots struct {
 	mu    sync.RWMutex
 	slots map[string]*vectorIndexSlot
+	// createMu serializes Create: a build runs outside mu so lookups and
+	// leases go on meanwhile, and this is what keeps two creates of the
+	// same vector from both building it
+	createMu sync.Mutex
 	// drainTimeout overrides slotDrainTimeout when set; tests shorten it
 	drainTimeout time.Duration
 }
@@ -62,9 +66,34 @@ func (v *vectorIndexSlots) resolve(name string) string {
 	return name
 }
 
-// Publish installs a slot under name. A taken name is an error, which is
-// what keeps two concurrent creates of the same vector from orphaning an
-// index and queue.
+// Create builds and publishes the slot for name unless one exists. Creates
+// are serialized, so a concurrent create of the same vector waits and then
+// finds the slot in place; build is never called for a name that is taken.
+// created reports whether this call published the slot.
+func (v *vectorIndexSlots) Create(name string, build func() (VectorIndex, *VectorIndexQueue, error)) (created bool, err error) {
+	v.createMu.Lock()
+	defer v.createMu.Unlock()
+
+	v.mu.RLock()
+	_, exists := v.slots[name]
+	v.mu.RUnlock()
+	if exists {
+		return false, nil
+	}
+
+	index, queue, err := build()
+	if err != nil {
+		return false, err
+	}
+	err = v.Publish(name, index, queue)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Publish installs a slot under name. A taken name is an error; Create is
+// what keeps that from happening for concurrent creates.
 func (v *vectorIndexSlots) Publish(name string, index VectorIndex, queue *VectorIndexQueue) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()

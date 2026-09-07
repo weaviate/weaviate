@@ -38,6 +38,84 @@ func TestVectorIndexSlots_Publish(t *testing.T) {
 	assert.Equal(t, 2, v.Len())
 }
 
+func TestVectorIndexSlots_CreateBuildsOnce(t *testing.T) {
+	t.Run("an existing name is not built again", func(t *testing.T) {
+		var v vectorIndexSlots
+		first := &MockVectorIndex{}
+		require.NoError(t, v.Publish("title", first, nil))
+
+		built := false
+		created, err := v.Create("title", func() (VectorIndex, *VectorIndexQueue, error) {
+			built = true
+			return &MockVectorIndex{}, nil, nil
+		})
+		require.NoError(t, err)
+		assert.False(t, created)
+		assert.False(t, built, "build must not run for a name that is taken")
+		slot, ok := v.get("title")
+		require.True(t, ok)
+		assert.Same(t, first, slot.index)
+	})
+
+	t.Run("a failed build publishes nothing", func(t *testing.T) {
+		var v vectorIndexSlots
+		created, err := v.Create("title", func() (VectorIndex, *VectorIndexQueue, error) {
+			return nil, nil, assert.AnError
+		})
+		require.ErrorIs(t, err, assert.AnError)
+		assert.False(t, created)
+		assert.Equal(t, 0, v.Len())
+	})
+
+	t.Run("two concurrent creates of the same name build it once", func(t *testing.T) {
+		var v vectorIndexSlots
+		building := make(chan struct{})
+		finish := make(chan struct{})
+		builds := 0
+
+		firstDone := make(chan struct{})
+		go func() {
+			defer close(firstDone)
+			created, err := v.Create("title", func() (VectorIndex, *VectorIndexQueue, error) {
+				builds++
+				close(building)
+				<-finish
+				return &MockVectorIndex{}, nil, nil
+			})
+			assert.NoError(t, err)
+			assert.True(t, created)
+		}()
+		<-building
+
+		// the second create must wait for the first build, then find the slot
+		secondDone := make(chan bool, 1)
+		go func() {
+			created, err := v.Create("title", func() (VectorIndex, *VectorIndexQueue, error) {
+				builds++
+				return &MockVectorIndex{}, nil, nil
+			})
+			assert.NoError(t, err)
+			secondDone <- created
+		}()
+		select {
+		case <-secondDone:
+			t.Fatal("the second create returned while the first was still building")
+		case <-time.After(100 * time.Millisecond):
+		}
+
+		close(finish)
+		<-firstDone
+		select {
+		case created := <-secondDone:
+			assert.False(t, created)
+		case <-time.After(5 * time.Second):
+			t.Fatal("the second create did not return after the first published")
+		}
+		assert.Equal(t, 1, builds)
+		assert.Equal(t, 1, v.Len())
+	})
+}
+
 func TestVectorIndexSlots_LookupResolvesTheLegacyAlias(t *testing.T) {
 	tests := []struct {
 		name       string
