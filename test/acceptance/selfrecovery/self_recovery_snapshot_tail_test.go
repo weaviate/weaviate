@@ -30,8 +30,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-// ensureClass retries a class create across transient leader-forwarding drops
-// right after formation ("grpc: the client connection is closing").
+// ensureClass retries across transient leader-forwarding drops right after formation.
 func ensureClass(t *testing.T, c *models.Class) {
 	t.Helper()
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -84,9 +83,7 @@ func srParagraphObjects(class, idPrefix string, n int, tenant string) []*models.
 	return objs
 }
 
-// Pins the snapshot-tail divergence: schema changes committed between the
-// leader's last snapshot and the join barrier must still self-recover on a
-// wiped joiner that rejoins via InstallSnapshot.
+// Pins snapshot-tail divergence: changes between last snapshot and join barrier must still self-recover.
 func TestSelfRecoverySnapshotTailChangesRecover(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()

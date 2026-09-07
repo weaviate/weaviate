@@ -99,10 +99,7 @@ func (c *Copier) localShardName(srcShard, override string) string {
 	return override
 }
 
-// CopyReplicaFilesToLocalShard copies srcShard's files from srcNodeId into the
-// local shard dir, or into localShardOverride when set. SELF_RECOVERY stages
-// into "<shard>.recovering/" so a crash can't leave a half-written live dir;
-// the source snapshot still targets shardName (the file names are shard-relative).
+// CopyReplicaFilesToLocalShard copies into localShardOverride when set; SELF_RECOVERY stages "<shard>.recovering/" so a crash can't leave a half-written live dir.
 func (c *Copier) CopyReplicaFilesToLocalShard(ctx context.Context, opID strfmt.UUID, srcNodeId, collectionName, shardName, localShardOverride string, schemaVersion uint64) error {
 	localShard := c.localShardName(shardName, localShardOverride)
 	sourceNodeAddress := c.nodeSelector.NodeAddress(srcNodeId)
@@ -451,8 +448,7 @@ func (c *Copier) DropLocalShard(ctx context.Context, collectionName, shardName s
 	return idx.DropLocalShard(shardName)
 }
 
-// PromoteRecoveryFolder atomically renames "<shard>.recovering/" to "<shard>/";
-// both dirs existing at once is a routing bug and fails rather than discard the copy.
+// PromoteRecoveryFolder renames "<shard>.recovering/" to "<shard>/"; both existing fails rather than discard the copy.
 func (c *Copier) PromoteRecoveryFolder(collectionName, shardName string) error {
 	recoveryPath := c.shardPath(collectionName, api.RecoveryFolderName(shardName))
 	livePath := c.shardPath(collectionName, shardName)

@@ -237,8 +237,7 @@ func TestLoadLocalShardLeavesRecoveringShardUntouched(t *testing.T) {
 	require.True(t, stillRecovering)
 }
 
-// Pins R2: a recovering shard yields nil (remote fallback) on the direct-local
-// path and a 422-mappable, sentinel-preserving error on the GetShard path.
+// Pins R2: recovering shard → nil (remote fallback) locally, sentinel-preserving 422 on GetShard.
 func TestRecoveringShardReadPaths(t *testing.T) {
 	class := &models.Class{Class: "C"}
 	promMetrics := monitoring.GetMetrics()

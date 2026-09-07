@@ -31,9 +31,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-// forceRaftSnapshot forces a snapshot before a wipe so the rejoin goes through
-// InstallSnapshot. Requires WithWeaviateWithDebugPort: /debug/* is on the
-// profiling port, not the main API port.
+// forceRaftSnapshot needs WithWeaviateWithDebugPort: /debug/* lives on the profiling port.
 func forceRaftSnapshot(ctx context.Context, t *testing.T, compose *docker.DockerCompose, idx int) {
 	t.Helper()
 	c, err := compose.ContainerAt(idx)

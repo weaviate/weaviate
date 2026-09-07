@@ -104,8 +104,7 @@ func (s *Server) JoinPeer(_ context.Context, req *cmd.JoinPeerRequest) (*cmd.Joi
 		return &cmd.JoinPeerResponse{Leader: s.raftPeers.Leader()}, toRPCError(err)
 	}
 
-	// Only the leader reaches here; hand the joiner the committed index as its
-	// catch-up barrier.
+	// Only the leader reaches here; hand the joiner the committed index as its catch-up barrier.
 	return &cmd.JoinPeerResponse{LeaderCommitIndex: s.raftPeers.CommitIndex()}, nil
 }
 

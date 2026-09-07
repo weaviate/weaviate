@@ -18,8 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// Metrics holds Prometheus collectors for the self-recovery subsystem.
-// No (collection, shard) labels to avoid cardinality blowup on a wiped node.
+// Metrics for self-recovery; no (collection, shard) labels to avoid cardinality blowup on a wiped node.
 type Metrics struct {
 	InProgress                 prometheus.Gauge
 	StartedTotal               *prometheus.CounterVec

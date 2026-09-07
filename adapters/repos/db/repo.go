@@ -178,18 +178,13 @@ func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
 	db.usageLimits = m
 }
 
-// SelfRecoveryOrchestrator is the narrow surface used by the db package to
-// avoid an import cycle on cluster/replication.
+// SelfRecoveryOrchestrator is the narrow surface avoiding an import cycle on cluster/replication.
 type SelfRecoveryOrchestrator interface {
-	// Enabled reports whether SELF_RECOVERY is on; must be checked before
-	// installing a wrapper, else it blocks load forever.
+	// Enabled must be checked before installing a wrapper, else it blocks load forever.
 	Enabled() bool
-	// SubmitRecovery is non-blocking. Returns false when not queued; the caller
-	// MUST then fall back to normal init, else the wrapper stays load-blocked.
-	// fromBootstrap quiets empty-fallback logging during the RAFT bootstrap window.
+	// SubmitRecovery is non-blocking; false = not queued and the caller MUST fall back to normal init.
 	SubmitRecovery(ctx context.Context, collection, shard string, fromBootstrap bool) bool
-	// Close stops new submissions and drains in-flight workers, bounded by ctx.
-	// Idempotent.
+	// Close stops submissions and drains in-flight workers, bounded by ctx; idempotent.
 	Close(ctx context.Context) error
 }
 
@@ -206,9 +201,7 @@ func (db *DB) ShardPath(collection, shard string) string {
 	)
 }
 
-// LoadLocalShard promotes a recovering local shard; the self-recovery promote callback.
-// Never creates a shard; wraps ErrIndexNotRegistered/ErrShardNotRegistered for the
-// orchestrator's transient-vs-permanent classification.
+// LoadLocalShard is the self-recovery promote callback: never creates a shard, wraps the *NotRegistered sentinels for the orchestrator.
 func (db *DB) LoadLocalShard(ctx context.Context, collection, shard string) error {
 	idx := db.GetIndex(schema.ClassName(collection))
 	if idx == nil {
@@ -821,8 +814,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	// Close, never send: a send reaches one receiver, and a recovered panic in
 	// scanResourceUsage would hang the whole shutdown on it until SIGKILL.
 	db.shutdownOnce.Do(func() { close(db.shutdown) })
-	// Stop self-recovery workers before tearing indexes down, so in-flight
-	// LoadLocalShard callbacks finish rather than race Index.Shutdown.
+	// Stop self-recovery workers first so in-flight promote callbacks don't race Index.Shutdown.
 	if db.selfRecoveryOrchestrator != nil {
 		if err := db.selfRecoveryOrchestrator.Close(ctx); err != nil {
 			db.logger.Warnf("self-recovery: Close did not drain in time; workers may still be running: %v", err)

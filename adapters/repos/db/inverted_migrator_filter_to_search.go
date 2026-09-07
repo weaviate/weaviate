@@ -169,8 +169,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 			continue
 		}
 		if err := index.ForEachShard(func(name string, shard ShardLike) error {
-			// Recovering shards have no usable Store yet; peer data already
-			// arrives post-migration.
+			// Recovering shards have no usable Store; peer data arrives post-migration.
 			if shard.GetStatus() == storagestate.StatusRecovering {
 				return nil
 			}
