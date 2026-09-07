@@ -72,10 +72,32 @@ func (c *converter) do(in *WhereFilter) (*models.WhereFilter, error) {
 		case float64:
 			val := int64(v)
 			whereFilter.ValueInt = &val
+		case int:
+			val := int64(v)
+			whereFilter.ValueInt = &val
+		case int64:
+			whereFilter.ValueInt = &v
+		case []int:
+			ints := make([]int64, len(v))
+			for i, n := range v {
+				ints[i] = int64(n)
+			}
+			whereFilter.ValueIntArray = ints
+		case []int64:
+			whereFilter.ValueIntArray = v
 		case []interface{}:
 			ints := make([]int64, len(v))
 			for i := range v {
-				ints[i] = int64(v[i].(float64))
+				switch elem := v[i].(type) {
+				case float64:
+					ints[i] = int64(elem)
+				case int:
+					ints[i] = int64(elem)
+				case int64:
+					ints[i] = elem
+				default:
+					return nil, fmt.Errorf("unsupported type in ValueInt array: '%T'", v[i])
+				}
 			}
 			whereFilter.ValueIntArray = ints
 		default:
@@ -86,10 +108,19 @@ func (c *converter) do(in *WhereFilter) (*models.WhereFilter, error) {
 		switch v := in.ValueNumber.(type) {
 		case float64:
 			whereFilter.ValueNumber = &v
+		case []float64:
+			whereFilter.ValueNumberArray = v
 		case []interface{}:
 			numbers := make([]float64, len(v))
 			for i := range v {
-				numbers[i] = v[i].(float64)
+				switch elem := v[i].(type) {
+				case float64:
+					numbers[i] = elem
+				case int:
+					numbers[i] = float64(elem)
+				default:
+					return nil, fmt.Errorf("unsupported type in ValueNumber array: '%T'", v[i])
+				}
 			}
 			whereFilter.ValueNumberArray = numbers
 		default:
@@ -100,10 +131,16 @@ func (c *converter) do(in *WhereFilter) (*models.WhereFilter, error) {
 		switch v := in.ValueBoolean.(type) {
 		case bool:
 			whereFilter.ValueBoolean = &v
+		case []bool:
+			whereFilter.ValueBooleanArray = v
 		case []interface{}:
 			bools := make([]bool, len(v))
 			for i := range v {
-				bools[i] = v[i].(bool)
+				b, ok := v[i].(bool)
+				if !ok {
+					return nil, fmt.Errorf("unsupported type in ValueBoolean array: '%T'", v[i])
+				}
+				bools[i] = b
 			}
 			whereFilter.ValueBooleanArray = bools
 		default:
@@ -154,10 +191,16 @@ func (c *converter) parseString(in interface{}) (value *string, valueArray []str
 	switch v := in.(type) {
 	case string:
 		value = &v
+	case []string:
+		valueArray = v
 	case []interface{}:
 		valueArray = make([]string, len(v))
 		for i := range v {
-			valueArray[i] = v[i].(string)
+			if s, ok := v[i].(string); ok {
+				valueArray[i] = s
+			} else {
+				return nil, nil, fmt.Errorf("unsupported element type in string array: '%T'", v[i])
+			}
 		}
 	default:
 		err = fmt.Errorf("unsupported type: '%T'", in)
