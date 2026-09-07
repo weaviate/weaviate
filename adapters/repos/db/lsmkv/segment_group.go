@@ -758,7 +758,7 @@ func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn
 			// any key in this segment is previously unseen.
 			return false, nil
 		}
-		if _, err := sg.getWithSegmentList(key, segments); err != nil {
+		if err := sg.existsWithSegmentList(key, segments); err != nil {
 			if !errors.Is(err, lsmkv.Deleted) && !errors.Is(err, lsmkv.NotFound) {
 				return false, fmt.Errorf("check exists on segments: %w", err)
 			}
@@ -908,16 +908,30 @@ func (sg *SegmentGroup) currentSegmentIDsLocked() []string {
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
 	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
 
 	// incRef under the RLock so the refs are taken before any compaction (which
 	// holds the write lock) can swap these segments out. refCount is atomic, so no
 	// separate refcount lock is needed.
+	//
+	// A lazy segment loads here, and a failed load panics. Shutdown waits for the
+	// count to reach zero, so the refs already taken have to go back.
+	taken := 0
+	defer func() {
+		if taken == len(segments) {
+			return
+		}
+		for _, seg := range segments[:taken] {
+			seg.decRef()
+		}
+	}()
 	for _, seg := range segments {
 		seg.incRef()
+		taken++
 	}
-	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
 		for _, seg := range segments {
@@ -1060,7 +1074,7 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, 
 				continue
 			}
 
-			return nil, err
+			return nil, fmt.Errorf("SegmentGroup::getCollection() %q: %w", segment.getPath(), err)
 		}
 
 		if len(out) == 0 {
@@ -1084,7 +1098,7 @@ func (sg *SegmentGroup) getCollectionBytes(key []byte, segments []Segment) ([][]
 				continue
 			}
 
-			return nil, err
+			return nil, fmt.Errorf("SegmentGroup::getCollectionBytes() %q: %w", segment.getPath(), err)
 		}
 
 		if len(out) == 0 {
@@ -1110,7 +1124,8 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
-				return nil, nil, err
+				return nil, nil, fmt.Errorf("SegmentGroup::getCollectionAndSegments() %q: %w",
+					segment.getPath(), err)
 			}
 			// inverted segments need to be loaded anyway, even if they don't have
 			// the key, as we need to know if they have tombstones

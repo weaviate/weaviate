@@ -323,6 +323,15 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
+// ReindexUnitSeal reserves one (task, unit) for teardown. It reports false
+// while a worker still holds the unit; otherwise the caller must call the
+// returned func to release it.
+type ReindexUnitSeal func(desc distributedtask.TaskDescriptor, unitID string) (func(), bool)
+
+// ReindexUnitSealBuilder returns the current seal, or nil where the provider
+// has none. Called per seal rather than held.
+type ReindexUnitSealBuilder func() ReindexUnitSeal
+
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -2374,7 +2383,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		missing, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldTokenization},
 			func(prop *models.Property) bool {
-				if prop.Tokenization == payload.TargetTokenization {
+				if propertyTokenizationAtTarget(prop, payload.TargetTokenization) {
 					return false
 				}
 				prop.Tokenization = payload.TargetTokenization
@@ -2398,7 +2407,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldIndexFilterable},
 			func(prop *models.Property) bool {
-				if prop.IndexFilterable != nil && *prop.IndexFilterable {
+				if propertyFilterableEnabled(prop) {
 					return false
 				}
 				prop.IndexFilterable = &trueVal
@@ -2422,9 +2431,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldIndexSearchable, api.PropertyFieldTokenization, api.PropertyFieldSearchableBlockmax},
 			func(prop *models.Property) bool {
-				if prop.IndexSearchable != nil && *prop.IndexSearchable &&
-					prop.Tokenization == payload.TargetTokenization &&
-					prop.SearchableBlockmax != nil && *prop.SearchableBlockmax {
+				if propertySearchableAtTarget(prop, payload.TargetTokenization) {
 					return false
 				}
 				prop.IndexSearchable = &trueVal
@@ -2481,7 +2488,7 @@ func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, collectio
 	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, collection, propNames,
 		[]string{api.PropertyFieldSearchableBlockmax},
 		func(prop *models.Property) bool {
-			if prop.SearchableBlockmax != nil && *prop.SearchableBlockmax {
+			if propertyBlockmaxStamped(prop) {
 				return false
 			}
 			prop.SearchableBlockmax = &trueVal

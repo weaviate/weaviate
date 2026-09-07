@@ -66,7 +66,7 @@ func newPropValuePair(class *models.Class) (*propValuePair, error) {
 }
 
 func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
-	if err := ctxExpired(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 

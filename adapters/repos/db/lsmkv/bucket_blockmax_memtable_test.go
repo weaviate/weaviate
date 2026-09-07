@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -79,4 +80,75 @@ func TestBlockMaxWandMemtableTermNotPruned(t *testing.T) {
 	_, found := got[rareDocID]
 	require.True(t, found,
 		"memtable rare term's document was pruned from the top-%d; got result ids %v", limit, got)
+}
+
+// TestInvertedMapCursorSeekOnDiskSegment exercises the inverted cursor's Seek
+// path: the merge compactor only walks with first/next, so MapCursor is the
+// only production caller.
+func TestInvertedMapCursorSeekOnDiskSegment(t *testing.T) {
+	ctx := context.Background()
+	logger := logrus.New()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyInverted))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
+
+	// terms leave gaps, so a probe can land between two of them
+	terms := []string{"term-02", "term-04", "term-06", "term-08"}
+	for i, term := range terms {
+		require.NoError(t, bucket.MapSet([]byte(term),
+			NewMapPairFromDocIdAndTf(uint64(i)+1, 1, 1, false)))
+	}
+	// everything must live on disk: a memtable hit would not reach the cursor
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	tests := []struct {
+		name     string
+		seek     string
+		wantTerm string
+		wantDoc  uint64
+		wantNone bool
+	}{
+		{name: "exact match on the first term", seek: "term-02", wantTerm: "term-02", wantDoc: 1},
+		{name: "between two terms", seek: "term-05", wantTerm: "term-06", wantDoc: 3},
+		{name: "below the smallest term", seek: "term-00", wantTerm: "term-02", wantDoc: 1},
+		{name: "exact match on the last term", seek: "term-08", wantTerm: "term-08", wantDoc: 4},
+		{name: "past the highest term", seek: "term-99", wantNone: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c, err := bucket.MapCursor()
+			require.NoError(t, err)
+			defer c.Close()
+
+			key, pairs := c.Seek(ctx, []byte(test.seek))
+			if test.wantNone {
+				require.Nil(t, key)
+				return
+			}
+
+			require.Equal(t, test.wantTerm, string(key))
+			// the pairs have to belong to that term, which a mis-positioned
+			// cursor would get wrong
+			require.Len(t, pairs, 1)
+			require.Equal(t, test.wantDoc, binary.BigEndian.Uint64(pairs[0].Key))
+		})
+	}
+
+	// walking on from a seek proves the cursor left its next offset on the node
+	// boundary, not somewhere inside the record it just parsed
+	t.Run("seek then walk to the end", func(t *testing.T) {
+		c, err := bucket.MapCursor()
+		require.NoError(t, err)
+		defer c.Close()
+
+		var seen []string
+		for key, _ := c.Seek(ctx, []byte("term-05")); key != nil; key, _ = c.Next(ctx) {
+			seen = append(seen, string(key))
+		}
+		require.Equal(t, []string{"term-06", "term-08"}, seen)
+	})
 }

@@ -135,6 +135,11 @@ type DB struct {
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
 
+	// Both carry their own lock; see [migrationUnitSeals] and
+	// [migrationClusterReconciler].
+	migrationSeals   migrationUnitSeals
+	migrationCluster migrationClusterReconciler
+
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
 
@@ -313,7 +318,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	scanAndAsyncDeletePending(config.RootPath, logger)
 
 	// Fakes without the cross-class RPC leave the comparer nil → per-class pre-filter fallback.
-	crossClassComparer, _ := replicaClient.(crossClassRootComparer)
+	crossClassComparer, _ := replicaClient.(replica.CompareRootsSessionFactory)
 	asyncReplicationScheduler, err := NewAsyncReplicationScheduler(
 		context.Background(),
 		config.Replication,
@@ -354,6 +359,9 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	// Serve replication calls targeting the local node in-process instead of
 	// over a loopback round-trip.
 	db.replicaClient = newRoutingReplicationClient(replicaClient, db, nodeResolver, localNodeName)
+
+	// The reconciler walks this node's loaded shards, so it needs a way back.
+	db.migrationCluster.db = db
 
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
