@@ -292,7 +292,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		"total_shard_size_bytes":  totalShardSizeBytes,
 		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,
 		"size_threshold_gb":       m.db.config.LazyLoadShardSizeThresholdGB,
-	}).Info("lazy load shard auto-detection result")
+	}).Warn("lazy load shard auto-detection result")
 	return nil
 }
 

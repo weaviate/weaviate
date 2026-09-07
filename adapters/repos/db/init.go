@@ -237,7 +237,7 @@ func (db *DB) init(ctx context.Context) error {
 				"total_shard_size_bytes":  totalShardSizeBytes,
 				"count_threshold":         db.config.LazyLoadShardCountThreshold,
 				"size_threshold_gb":       db.config.LazyLoadShardSizeThresholdGB,
-			}).Info("lazy load shard auto-detection result")
+			}).Warn("lazy load shard auto-detection result")
 		}
 	}
 
@@ -309,7 +309,7 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 				db.logger.WithField("action", "lazy_shard_auto_detection").
 					WithField("class", className).
 					WithField("shard", shardName).
-					Debugf("pre-calculated shard usage unusable; falling back to on-disk size: %v", err)
+					Warnf("pre-calculated shard usage unusable; falling back to on-disk size: %v", err)
 			} else if err != nil {
 				db.logger.WithField("action", "lazy_shard_auto_detection").
 					WithField("class", className).
