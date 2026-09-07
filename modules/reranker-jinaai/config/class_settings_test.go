@@ -22,26 +22,30 @@ import (
 
 func Test_classSettings_Validate(t *testing.T) {
 	tests := []struct {
-		name      string
-		cfg       moduletools.ClassConfig
-		wantModel string
-		wantErr   error
+		name        string
+		cfg         moduletools.ClassConfig
+		wantModel   string
+		wantBaseUrl string
+		wantErr     error
 	}{
 		{
 			name: "default settings",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel: "jina-reranker-v2-base-multilingual",
+			wantModel:   "jina-reranker-v2-base-multilingual",
+			wantBaseUrl: "https://api.jina.ai",
 		},
 		{
 			name: "custom settings",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model": "jina-reranker-v1-base-en",
+					"model":   "jina-reranker-v1-base-en",
+					"baseURL": "http://base-url.com",
 				},
 			},
-			wantModel: "jina-reranker-v1-base-en",
+			wantModel:   "jina-reranker-v1-base-en",
+			wantBaseUrl: "http://base-url.com",
 		},
 	}
 	for _, tt := range tests {
@@ -51,6 +55,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.EqualError(t, ic.Validate(nil), tt.wantErr.Error())
 			} else {
 				assert.Equal(t, tt.wantModel, ic.Model())
+				assert.Equal(t, tt.wantBaseUrl, ic.BaseURL())
 			}
 		})
 	}
@@ -86,4 +91,69 @@ func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
 
 func (f fakeClassConfig) Config() *config.Config {
 	return nil
+}
+
+func Test_classSettings_ValidateBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	tests := []struct {
+		name    string
+		baseURL string
+		wantErr bool
+	}{
+		{
+			name:    "valid HTTPS URL",
+			baseURL: "https://api.openai.com",
+			wantErr: false,
+		},
+		{
+			name:    "HTTP URL is rejected",
+			baseURL: "http://api.example.com",
+			wantErr: true,
+		},
+		{
+			name:    "loopback address is rejected",
+			baseURL: "https://127.0.0.1",
+			wantErr: true,
+		},
+		{
+			name:    "private network address is rejected",
+			baseURL: "https://192.168.1.1",
+			wantErr: true,
+		},
+		{
+			name:    "empty host is rejected",
+			baseURL: "https://",
+			wantErr: true,
+		},
+		{
+			name:    "localhost is rejected",
+			baseURL: "https://localhost",
+			wantErr: true,
+		},
+		{
+			name:    "local domain is rejected",
+			baseURL: "https://myhost.local",
+			wantErr: true,
+		},
+		{
+			name:    "default URL is valid",
+			baseURL: "https://api.jina.ai",
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ic := NewClassSettings(fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"baseURL": tt.baseURL,
+				},
+			})
+			err := ic.Validate(nil)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }

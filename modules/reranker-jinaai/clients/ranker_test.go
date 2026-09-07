@@ -19,11 +19,14 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
@@ -49,7 +52,7 @@ func TestRank(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		c.host = server.URL
+		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
 
 		expected := &ent.RankResult{
 			DocumentScores: []ent.DocumentScore{
@@ -61,7 +64,7 @@ func TestRank(t *testing.T) {
 			Query: "Where do I work?",
 		}
 
-		res, err := c.Rank(context.Background(), "Where do I work?", []string{"I work at Apple"}, nil)
+		res, err := c.Rank(context.Background(), "Where do I work?", []string{"I work at Apple"}, cfg)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -79,9 +82,9 @@ func TestRank(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		c.host = server.URL
+		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
 
-		_, err := c.Rank(context.Background(), "I work at Apple", []string{"Where do I work?"}, nil)
+		_, err := c.Rank(context.Background(), "I work at Apple", []string{"Where do I work?"}, cfg)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "some error from the server")
@@ -133,7 +136,7 @@ func TestRank(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		c.host = server.URL
+		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
 		// this will trigger 4 go routines
 		c.maxDocuments = 2
 
@@ -143,7 +146,7 @@ func TestRank(t *testing.T) {
 			"Response 5", "Response 6", "Response 7",
 		}
 
-		resp, err := c.Rank(context.Background(), query, documents, nil)
+		resp, err := c.Rank(context.Background(), query, documents, cfg)
 
 		require.Nil(t, err)
 		require.NotNil(t, resp)
@@ -212,4 +215,50 @@ func (f *testRankHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)
+}
+
+func TestRank_client_getJinaaiUrl(t *testing.T) {
+	ctx := context.Background()
+	c := New("", 1*time.Second, nil)
+
+	url, err := c.getJinaaiUrl(ctx, "https://api.jina.ai")
+	assert.NoError(t, err)
+	assert.Equal(t, "https://api.jina.ai/v1/rerank", url)
+
+	ctxWithBaseURL := context.WithValue(ctx, "X-Jinaai-Baseurl", []string{"https://base-url-from-ctx.com"})
+	url, err = c.getJinaaiUrl(ctxWithBaseURL, "https://api.jina.ai")
+	assert.NoError(t, err)
+	assert.Equal(t, "https://base-url-from-ctx.com/v1/rerank", url)
+}
+
+type fakeClassConfig struct {
+	classConfig map[string]interface{}
+}
+
+func (f fakeClassConfig) Class() map[string]interface{} {
+	return f.classConfig
+}
+
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return f.classConfig
+}
+
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+	return nil
+}
+
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
+	return nil
 }
