@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -138,6 +139,13 @@ func (ic *classSettings) Validate() error {
 	}
 
 	var errorMessages []string
+
+	if err := modulecomponents.ValidateGoogleApiEndpoint(ic.ApiEndpoint()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleLocation(locationProperty, ic.Location()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
 
 	model := ic.Model()
 	if ic.ApiEndpoint() == "" {
