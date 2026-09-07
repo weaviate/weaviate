@@ -596,7 +596,7 @@ func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t 
 			fc.client.On("Abort", mock.Anything, "N1", mock.Anything).Return(nil)
 
 			req := &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName}
-			c.commit(ctx, req, map[string]string{"N1": "N1"}, false)
+			c.commit(ctx, req, map[string]string{"N1": "N1"}, false, false)
 
 			st, err := c.OnStatus(ctx, coordStore{}, req)
 

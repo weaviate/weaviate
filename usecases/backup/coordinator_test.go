@@ -826,7 +826,7 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		// retryAfter will be timeoutNextRound / 5 = 0.2ms, which is fine for testing
 		coordinator.timeoutNextRound = 1 * time.Millisecond
 
-		coordinator.commit(ctx, req, node2Addr, true)
+		coordinator.commit(ctx, req, node2Addr, true, false)
 
 		// After commit, queryAll should have updated Participants with Cancelled status
 		// Verify that queryAll was called and updated the status
@@ -1473,8 +1473,8 @@ func TestCanCommitMixedVersionBookingCap(t *testing.T) {
 		nodeResolver = newFakeNodeResolver([]string{"N1", "N2"})
 	)
 
-	newCoordinatorWithNodes := func(fc *fakeCoordinator) coordinator {
-		c := *fc.coordinator()
+	newCoordinatorWithNodes := func(fc *fakeCoordinator) *coordinator {
+		c := fc.coordinator()
 		c.commitDispatchMargin = 50 * time.Millisecond
 		c.descriptor = &backup.DistributedBackupDescriptor{
 			ID: backupID,

@@ -314,15 +314,19 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	f := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
-		nodeMetas := c.commit(ctx, &statusReq, nodes, false)
+		// The slot must never read Success while the coverage gate can still flip it to Failed: pollers latch terminal statuses.
+		deferPublish := plan != nil && plan.designated() > 0
+		nodeMetas := c.commit(ctx, &statusReq, nodes, false, deferPublish)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
-		if c.descriptor.Status == backup.Success && plan != nil && plan.designated() > 0 {
-			if err := c.verifyDesignatedCoverage(ctx, &statusReq, plan, nodeMetas); err != nil {
-				c.descriptor.Status = backup.Failed
-				c.descriptor.Error = err.Error()
-				c.publishStatus()
-				c.log.WithFields(logFields).Errorf("coordinator: designated-shard coverage check failed: %v", err)
+		if deferPublish {
+			if c.descriptor.Status == backup.Success {
+				if err := c.verifyDesignatedCoverage(ctx, &statusReq, plan, nodeMetas); err != nil {
+					c.descriptor.Status = backup.Failed
+					c.descriptor.Error = err.Error()
+					c.log.WithFields(logFields).Errorf("coordinator: designated-shard coverage check failed: %v", err)
+				}
 			}
+			c.publishStatus()
 		}
 		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
@@ -437,7 +441,7 @@ func (c *coordinator) Restore(
 
 		// Time commit polling phase (waits for all nodes to finish staging)
 		commitStart := time.Now()
-		c.commit(ctx, &statusReq, nodes, true)
+		c.commit(ctx, &statusReq, nodes, true, false)
 		c.observeRestorePhase("object_storage_download", time.Since(commitStart))
 
 		// Check storage for cancellation before transitioning to Finalizing.
@@ -758,10 +762,12 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 // commit tells each participant to commit its backup operation
 // It stores the final result in the provided backend
 // It returns the per-node descriptors read while aggregating sizes (creates only), so callers can reuse them instead of re-reading.
+// deferFinalPublish skips the terminal slot publish so a caller-side gate can settle the status first.
 func (c *coordinator) commit(ctx context.Context,
 	req *StatusRequest,
 	node2Addr map[string]string,
 	toleratePartialFailure bool,
+	deferFinalPublish bool,
 ) map[string]*backup.BackupDescriptor {
 	// create a new copy for commitAll and queryAll to mutate
 	node2Host := make(map[string]string, len(node2Addr))
@@ -893,7 +899,9 @@ func (c *coordinator) commit(ctx context.Context,
 		}
 	}
 	c.descriptor.Error = reason
-	c.publishStatus()
+	if !deferFinalPublish {
+		c.publishStatus()
+	}
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
 	return nodeMetas
 }
