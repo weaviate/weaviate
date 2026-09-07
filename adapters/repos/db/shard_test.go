@@ -913,7 +913,9 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		}
 	}
 
-	q, ok := shd.GetVectorIndexQueue("")
+	q, release, ok := shd.AcquireVectorIndexQueue("")
+	require.True(t, ok)
+	defer release()
 	require.True(t, ok)
 
 	// wait for the queue to be empty
@@ -1121,8 +1123,14 @@ func TestShard_RequantizeIndex(t *testing.T) {
 }
 
 func getVectorIndexAndQueue(t *testing.T, shard ShardLike, targetVector string) (VectorIndex, *VectorIndexQueue) {
-	idx, vok := shard.GetVectorIndex(targetVector)
-	q, qok := shard.GetVectorIndexQueue(targetVector)
+	idx, releaseIdx, vok := shard.AcquireVectorIndex(targetVector)
+	if vok {
+		defer releaseIdx()
+	}
+	q, releaseQ, qok := shard.AcquireVectorIndexQueue(targetVector)
+	if qok {
+		defer releaseQ()
+	}
 	require.True(t, vok && qok)
 	return idx, q
 }

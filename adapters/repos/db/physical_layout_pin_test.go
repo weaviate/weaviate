@@ -257,7 +257,9 @@ func putNamedBatch(t *testing.T, ctx context.Context, shd ShardLike, className, 
 // exist once the index has actually seen the vectors.
 func drainQueue(t *testing.T, shd ShardLike, targetVector string) {
 	t.Helper()
-	q, ok := shd.GetVectorIndexQueue(targetVector)
+	q, release, ok := shd.AcquireVectorIndexQueue(targetVector)
+	require.True(t, ok)
+	defer release()
 	require.True(t, ok, "no queue for target vector %q", targetVector)
 	require.Eventually(t, func() bool { return q.Size() == 0 }, 30*time.Second, 50*time.Millisecond)
 }
