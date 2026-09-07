@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"path"
@@ -135,9 +136,6 @@ func TestShouldComputeShardSizes(t *testing.T) {
 			want:            false,
 		},
 		{
-			// LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB=NaN parses and passes validation,
-			// and uint64(NaN*1<<30) is not even the same on every arch, so the
-			// threshold it yields can never be meaningfully met
 			name:            "a NaN size threshold skips",
 			localShardCount: 10,
 			countThreshold:  1000,
@@ -230,6 +228,44 @@ func TestTotalShardSizeBytes_FallsBackToDirSizeWhenNoMeta(t *testing.T) {
 
 	got := db.totalShardSizeBytes(className, []string{shardName}, 0)
 	require.Equal(t, uint64(len(data)), got)
+}
+
+func TestTotalShardSizeBytes_Concurrent(t *testing.T) {
+	const shardCount, perShard = 64, 1024
+	const exact = uint64(shardCount * perShard)
+
+	// the caller only reads total > threshold; skipped shards must not change it
+	tests := []struct {
+		name        string
+		threshold   uint64
+		wantVerdict bool
+	}{
+		{"no threshold", 0, true},
+		{"threshold above total", exact * 2, false},
+		{"threshold below total", perShard, true},
+		{"threshold one byte under total", exact - 1, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			db := &DB{logger: logrus.New(), config: Config{RootPath: tmpDir}}
+			className := schema.ClassName("MyClass")
+			indexPath := path.Join(tmpDir, indexID(className))
+
+			shardNames := make([]string, shardCount)
+			for i := range shardNames {
+				shardNames[i] = fmt.Sprintf("shard%d", i)
+				shardPath := path.Join(indexPath, shardNames[i])
+				require.NoError(t, os.MkdirAll(shardPath, 0o777))
+				require.NoError(t, os.WriteFile(path.Join(shardPath, "data.bin"), make([]byte, perShard), 0o644))
+			}
+
+			got := db.totalShardSizeBytes(className, shardNames, tt.threshold)
+			require.Equal(t, tt.wantVerdict, got > tt.threshold)
+			require.LessOrEqual(t, got, exact)
+		})
+	}
 }
 
 func TestTotalShardSizeBytes_PrefersMetaFileWhenPresent(t *testing.T) {
