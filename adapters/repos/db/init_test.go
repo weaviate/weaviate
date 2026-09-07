@@ -89,6 +89,80 @@ func TestApplyLazyShardAutoDetection(t *testing.T) {
 	}
 }
 
+// TestShouldComputeShardSizes pins that the startup shard-size sweep is skipped
+// whenever its result cannot change the lazy-loading decision. The guard used to
+// check only the count and size thresholds, so an explicit EnableLazyLoadShards
+// setting still paid a walk over every shard directory before the decision
+// short-circuited on it.
+func TestShouldComputeShardSizes(t *testing.T) {
+	enabled, disabled := true, false
+
+	tests := []struct {
+		name             string
+		explicitLazyLoad *bool
+		localShardCount  int
+		countThreshold   int
+		sizeThresholdGB  float64
+		want             bool
+	}{
+		{
+			name:            "auto-detection below the count threshold measures",
+			localShardCount: 10,
+			countThreshold:  1000,
+			sizeThresholdGB: 100,
+			want:            true,
+		},
+		{
+			name:            "auto-detection at the count threshold measures",
+			localShardCount: 1000,
+			countThreshold:  1000,
+			sizeThresholdGB: 100,
+			want:            true,
+		},
+		{
+			name:            "auto-detection above the count threshold skips",
+			localShardCount: 1001,
+			countThreshold:  1000,
+			sizeThresholdGB: 100,
+			want:            false,
+		},
+		{
+			name:            "a zero size threshold skips",
+			localShardCount: 10,
+			countThreshold:  1000,
+			sizeThresholdGB: 0,
+			want:            false,
+		},
+		{
+			name:             "an explicit enable skips",
+			explicitLazyLoad: &enabled,
+			localShardCount:  10,
+			countThreshold:   1000,
+			sizeThresholdGB:  100,
+			want:             false,
+		},
+		{
+			name:             "an explicit disable skips",
+			explicitLazyLoad: &disabled,
+			localShardCount:  10,
+			countThreshold:   1000,
+			sizeThresholdGB:  100,
+			want:             false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, shouldComputeShardSizes(
+				tt.explicitLazyLoad,
+				tt.localShardCount,
+				tt.countThreshold,
+				tt.sizeThresholdGB,
+			))
+		})
+	}
+}
+
 // TestNewShard_AbortsWhenUsageFileRemovalFails pins that NewShard propagates a
 // failure to remove the stale precomputed usage file, rather than silently
 // ignoring it. Otherwise the outdated usage.json.tmp survives and later gets
