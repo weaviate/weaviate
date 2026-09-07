@@ -12,6 +12,7 @@
 package aggregate
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,6 +55,71 @@ func groupCarByMadeByManufacturerName() *filters.Path {
 			Class:    schema.ClassName("Manufacturer"),
 			Property: schema.PropertyName("name"),
 		},
+	}
+}
+
+// hybridFusionTestCase builds a testCase asserting that an explicit
+// `fusionType` argument on an Aggregate hybrid search is propagated to the
+// resolver params with the corresponding FusionAlgorithm value. It is shared
+// by the "hybrid explicit rankedFusion" and "hybrid explicit
+// relativeScoreFusion" cases below, which are otherwise identical apart from
+// the fusionType literal and the resulting algorithm value.
+func hybridFusionTestCase(name, fusionTypeLiteral string, fusionAlgorithm int) testCase {
+	return testCase{
+		name: name,
+		query: fmt.Sprintf(`{
+			Aggregate {
+				Car(
+					hybrid: {query:"apple", maxVectorDistance: 0.5, fusionType: %s}
+				) {
+					horsepower {
+						mean
+					}
+				}
+			}
+		}`, fusionTypeLiteral),
+		expectedProps: []aggregation.ParamProperty{
+			{
+				Name:        "horsepower",
+				Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
+			},
+		},
+		expectedNearHybrid: &searchparams.HybridSearch{
+			Distance:        0.5,
+			WithDistance:    true,
+			Alpha:           0.75,
+			Query:           "apple",
+			FusionAlgorithm: fusionAlgorithm,
+			Type:            "hybrid",
+			// SubSearches is declared as `interface{}` in HybridSearch, so
+			// this must be an explicitly-typed nil slice (matching what the
+			// resolver produces for an empty sub-search list) rather than a
+			// bare `nil`, which would instead produce an untyped-nil
+			// interface and fail to compare equal.
+			SubSearches: []searchparams.WeightedSearchResult(nil),
+		},
+		resolverReturn: []aggregation.Group{
+			{
+				Properties: map[string]aggregation.Property{
+					"horsepower": {
+						Type: aggregation.PropertyTypeNumerical,
+						NumericalAggregations: map[string]interface{}{
+							"mean": 275.7773,
+						},
+					},
+				},
+			},
+		},
+		expectedResults: []result{{
+			pathToField: []string{"Aggregate", "Car"},
+			expectedValue: []interface{}{
+				map[string]interface{}{
+					"horsepower": map[string]interface{}{
+						"mean": 275.7773,
+					},
+				},
+			},
+		}},
 	}
 }
 
@@ -516,108 +582,8 @@ func Test_Resolve(t *testing.T) {
 				},
 			}},
 		},
-		testCase{
-			name: "hybrid explicit rankedFusion",
-			query: `{
-				Aggregate {
-					Car(
-						hybrid: {query:"apple", maxVectorDistance: 0.5, fusionType: rankedFusion}
-					) {
-						horsepower {
-							mean
-						}
-					}
-				}
-			}`,
-			expectedProps: []aggregation.ParamProperty{
-				{
-					Name:        "horsepower",
-					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
-				},
-			},
-			expectedNearHybrid: &searchparams.HybridSearch{
-				Distance:        0.5,
-				WithDistance:    true,
-				Alpha:           0.75,
-				Query:           "apple",
-				FusionAlgorithm: 0,
-				Type:            "hybrid",
-				SubSearches:     emptySubsearch,
-			},
-			resolverReturn: []aggregation.Group{
-				{
-					Properties: map[string]aggregation.Property{
-						"horsepower": {
-							Type: aggregation.PropertyTypeNumerical,
-							NumericalAggregations: map[string]interface{}{
-								"mean": 275.7773,
-							},
-						},
-					},
-				},
-			},
-			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Car"},
-				expectedValue: []interface{}{
-					map[string]interface{}{
-						"horsepower": map[string]interface{}{
-							"mean": 275.7773,
-						},
-					},
-				},
-			}},
-		},
-		testCase{
-			name: "hybrid explicit relativeScoreFusion",
-			query: `{
-				Aggregate {
-					Car(
-						hybrid: {query:"apple", maxVectorDistance: 0.5, fusionType: relativeScoreFusion}
-					) {
-						horsepower {
-							mean
-						}
-					}
-				}
-			}`,
-			expectedProps: []aggregation.ParamProperty{
-				{
-					Name:        "horsepower",
-					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
-				},
-			},
-			expectedNearHybrid: &searchparams.HybridSearch{
-				Distance:        0.5,
-				WithDistance:    true,
-				Alpha:           0.75,
-				Query:           "apple",
-				FusionAlgorithm: 1,
-				Type:            "hybrid",
-				SubSearches:     emptySubsearch,
-			},
-			resolverReturn: []aggregation.Group{
-				{
-					Properties: map[string]aggregation.Property{
-						"horsepower": {
-							Type: aggregation.PropertyTypeNumerical,
-							NumericalAggregations: map[string]interface{}{
-								"mean": 275.7773,
-							},
-						},
-					},
-				},
-			},
-			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Car"},
-				expectedValue: []interface{}{
-					map[string]interface{}{
-						"horsepower": map[string]interface{}{
-							"mean": 275.7773,
-						},
-					},
-				},
-			}},
-		},
+		hybridFusionTestCase("hybrid explicit rankedFusion", "rankedFusion", 0),
+		hybridFusionTestCase("hybrid explicit relativeScoreFusion", "relativeScoreFusion", 1),
 		testCase{
 			name: "single prop: mean with a where filter",
 			query: `{
