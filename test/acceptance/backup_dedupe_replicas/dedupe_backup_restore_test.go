@@ -212,11 +212,10 @@ func seedObjects(t *testing.T, host, className string, n int) []strfmt.UUID {
 // requireOnEveryNode reads node-locally on all replicas right after restore, proving fan-out rather than async-rep healing.
 func requireOnEveryNode(t *testing.T, host, className string, ids []strfmt.UUID) {
 	t.Helper()
-	step := max(1, len(ids)/50)
 	for _, node := range nodeNames {
-		for i := 0; i < len(ids); i += step {
-			obj, err := common.GetObjectFromNode(t, host, className, ids[i], node)
-			require.NoError(t, err, "object %s missing on %s", ids[i], node)
+		for _, id := range ids {
+			obj, err := common.GetObjectFromNode(t, host, className, id, node)
+			require.NoError(t, err, "object %s missing on %s", id, node)
 			require.NotNil(t, obj)
 		}
 	}
@@ -288,6 +287,7 @@ func restoreAndVerify(t *testing.T, host, className, backupID string, ids []strf
 	}
 	helper.ExpectBackupEventuallyRestored(t, backupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
 	requireOnEveryNode(t, host, className, ids)
+	require.EqualValues(t, len(ids), common.CountObjects(t, host, className))
 }
 
 func newReplicatedClass(name string) *models.Class {
@@ -492,11 +492,10 @@ func TestBackupDedupeReplicas(t *testing.T) {
 
 		// Fallback shards restore per-replica copies; async replication heals the odd replica out.
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			step := max(1, len(preBackupIDs)/50)
 			for _, node := range nodeNames {
-				for i := 0; i < len(preBackupIDs); i += step {
-					obj, err := common.GetObjectFromNode(t, host, className, preBackupIDs[i], node)
-					require.NoError(ct, err, "pre-backup object %s missing on %s", preBackupIDs[i], node)
+				for _, id := range preBackupIDs {
+					obj, err := common.GetObjectFromNode(t, host, className, id, node)
+					require.NoError(ct, err, "pre-backup object %s missing on %s", id, node)
 					require.NotNil(ct, obj)
 				}
 			}
