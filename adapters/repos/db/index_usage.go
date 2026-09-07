@@ -227,7 +227,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 	}
 	if !exists {
 		// no numbers to read from disk, but an unloaded lazy shard is still marked
-		lazyShard, isLazy := shard.(*LazyLoadShard)
+		lazyShard, isLazy := asLazyLoadShard(shard)
 		return emptyShardUsageWithNameAndActivity(shardName, localStatus, isLazy && !lazyShard.isLoaded()), nil
 	}
 
@@ -240,7 +240,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 		// active tenants can be either fully loaded or lazy loaded. Lazy shards should _not_ be loaded just for
 		// usage calculation, so their usage is read from disk like an inactive shard's. They
 		// still report an active status, marked as unloaded.
-		lazyShard, isLazy := shard.(*LazyLoadShard)
+		lazyShard, isLazy := asLazyLoadShard(shard)
 		if isLazy {
 			// distinguish between loaded and unloaded lazy shards - make sure that the shard is not loaded
 			// while we calculate usage for the unloaded case by blocking loading

@@ -51,7 +51,7 @@ func TestJoiner_DoesNotAttemptSelfJoin(t *testing.T) {
 
 	j := NewJoiner(mpj, localID, localAddr, true)
 
-	leader, err := j.Do(ctx, logger, remoteNodes)
+	leader, _, err := j.Do(ctx, logger, remoteNodes)
 	assert.NoError(t, err)
 	assert.NotEqual(t, localAddr, leader)
 
@@ -100,7 +100,7 @@ func TestJoiner_SelfRespondsAsLeader_StopsFurtherDials(t *testing.T) {
 
 	j := NewJoiner(mpj, localID, localAddr, true)
 
-	leader, err := j.Do(ctx, logger, remoteNodes)
+	leader, _, err := j.Do(ctx, logger, remoteNodes)
 	assert.NoError(t, err)
 	assert.Equal(t, localAddr, leader)
 
@@ -134,7 +134,7 @@ func TestJoiner_FollowsLeaderRedirection(t *testing.T) {
 
 	j := NewJoiner(mpj, localID, localAddr, true)
 
-	gotLeader, err := j.Do(ctx, logger, remoteNodes)
+	gotLeader, _, err := j.Do(ctx, logger, remoteNodes)
 	assert.NoError(t, err)
 	assert.Equal(t, leaderAddr, gotLeader)
 }
@@ -168,7 +168,7 @@ func TestJoiner_ContinuesOnEmptyLeaderAndSucceedsNext(t *testing.T) {
 
 	j := NewJoiner(mpj, localID, localAddr, true)
 
-	gotLeader, err := j.Do(ctx, logger, remoteNodes)
+	gotLeader, _, err := j.Do(ctx, logger, remoteNodes)
 	assert.NoError(t, err)
 	assert.Equal(t, remote2, gotLeader)
 }
@@ -198,7 +198,7 @@ func TestJoiner_ReturnsErrorWhenAllFail(t *testing.T) {
 
 	j := NewJoiner(mpj, localID, localAddr, true)
 
-	_, err := j.Do(ctx, logger, remoteNodes)
+	_, _, err := j.Do(ctx, logger, remoteNodes)
 	assert.Error(t, err)
 }
 
@@ -230,7 +230,7 @@ func TestJoiner_DoesNotDialSelfOnLeaderRedirection(t *testing.T) {
 
 	j := NewJoiner(mpj, localID, localAddr, true)
 
-	gotLeader, err := j.Do(ctx, logger, remoteNodes)
+	gotLeader, _, err := j.Do(ctx, logger, remoteNodes)
 	// Current behavior: treat redirect-to-self as success without dialing self
 	assert.NoError(t, err)
 	assert.Equal(t, localAddr, gotLeader)

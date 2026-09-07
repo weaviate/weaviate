@@ -1,0 +1,248 @@
+# Shard Self-Recovery
+
+When a node restarts and finds shard directories missing on disk that the
+schema says it should be hosting, it pulls those shards from a healthy
+peer using the same file-copy machinery as scale-out replication. The
+hook fires only at startup; runtime shard creation (new collections,
+empty-source replica adds) keeps today's "create empty dir" behavior.
+
+Disabled by default. Operators opt in per the rollout discipline below.
+
+## Enabling
+
+Set on every node:
+
+```
+SELF_RECOVERY_ENABLED=true
+SELF_RECOVERY_CONCURRENCY=10    # default; per-node parallelism
+SELF_RECOVERY_BARRIER_TIMEOUT=3m  # default; wiped-joiner no-progress fallback window (see "How the trigger is scoped")
+REPLICA_MOVEMENT_ENABLED=true                  # required for /replication/* observability
+```
+
+**Rollout discipline.** Mixed-version clusters with the flag on cause
+RAFT FSM apply divergence (older nodes don't know the `SELF_RECOVERY`
+transfer type and reject it). Same caveat as `REPLICA_MOVEMENT_ENABLED`.
+**Upgrade every node first, then enable the flag.**
+
+## Operator-visible state during recovery
+
+| Surface | Signal |
+|---|---|
+| `GET /nodes?output=verbose` | shard reports `status: "RECOVERING"`, `loaded: false` |
+| `GET /replication/replicate/list?targetNode=<self>` | in-flight `SELF_RECOVERY` op with state `REGISTERED`/`HYDRATING`/`FINALIZING`/`READY` |
+| `/metrics` (Prometheus) | series listed below |
+| Structured logs | `event=self_recovery.{started\|peer_probe\|op_registered\|completed\|failed\|empty_fallback\|accept_empty\|restart}` |
+
+### Metrics
+
+| Metric | Type | Labels | Question it answers |
+|---|---|---|---|
+| `weaviate_self_recovery_in_progress` | gauge | — | how many recoveries are running on this node? |
+| `weaviate_self_recovery_started_total` | counter | `source_node` | how many were kicked off, by source peer? |
+| `weaviate_self_recovery_completed_total` | counter | `result` (success\|failure\|empty_fallback\|cancelled) | terminal outcomes — `empty_fallback` is its own bucket so the benign bootstrap-window case does not inflate failures |
+| `weaviate_self_recovery_duration_seconds` | histogram | `result` (same label set as `completed_total`) | end-to-end recovery time |
+| `weaviate_self_recovery_no_data_empty_total` | counter | — | catastrophic-wipe occurrences (post-bootstrap; alert on this) |
+| `weaviate_self_recovery_no_data_during_bootstrap_total` | counter | — | empty-fallback during the RAFT bootstrap window (likely a class added during this node's downtime — benign; informational) |
+| `weaviate_self_recovery_unreachable_peer_total` | counter | `peer` | peer reachability problems |
+| `weaviate_self_recovery_giveup_total` | counter | — | retries exhausted |
+| `weaviate_self_recovery_accept_empty_total` | counter | — | operator escape-hatch invocations |
+
+Per-(collection, shard) drill-down is available via `/replication/replicate/list`
+and the structured logs.
+
+### Suggested alerts
+
+`for:` is a Prometheus alert-rule field (not PromQL), so the
+"stuck for too long" example needs the full alert-rule form below.
+The other two can be expressed as plain PromQL expressions if you
+prefer to plug them into your alerting tool directly.
+
+```yaml
+groups:
+  - name: weaviate-self-recovery
+    rules:
+      # Catastrophic-wipe candidate — investigate immediately.
+      - alert: WeaviateSelfRecoveryEmptyFallback
+        expr: rate(weaviate_self_recovery_no_data_empty_total[5m]) > 0
+        labels: {severity: critical}
+        annotations:
+          summary: "self-recovery materialised an empty shard (no peer had data)"
+
+      # Recovery taking too long — likely a peer-reachability or copier issue.
+      - alert: WeaviateSelfRecoveryStuck
+        expr: weaviate_self_recovery_in_progress > 0
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "self-recovery in progress for >1h"
+
+      # Retries exhausted — manual intervention required.
+      - alert: WeaviateSelfRecoveryGiveUp
+        expr: rate(weaviate_self_recovery_giveup_total[15m]) > 0
+        labels: {severity: critical}
+        annotations:
+          summary: "self-recovery gave up after exhausting retries"
+```
+
+## Operator escape hatches
+
+The `/debug/self-recovery/*` endpoints (and the test-only
+`POST /debug/raft/snapshot`) are registered **only when
+`SELF_RECOVERY_ENABLED=true`**. They live on the profiling/debug port,
+like the other `/debug/*` handlers.
+
+| Endpoint | When to use |
+|---|---|
+| `POST /replication/replicate/{id}/cancel` | abandon one in-flight op (any transfer type) |
+| `POST /debug/self-recovery/restart?collection=X&shard=Y` | abandon current SELF_RECOVERY attempt for the shard, erase partial `.recovering/` state, start fresh (probe re-randomises source peer selection). **Valid only while the shard is `RECOVERING`** — if the live `<shard>/` directory already exists (recovery completed, or empty-fallback ran) it returns `409 Conflict`; cancel any in-flight op and remove the directory by hand if you really want to re-pull. |
+| `POST /debug/self-recovery/accept-empty?collection=X&shard=Y` | declare "no recoverable data exists, accept empty shard". Confirm via metrics/logs that all peers report no data first. |
+
+If retries are exhausted (`weaviate_self_recovery_giveup_total` ticks),
+the shard is left in `RECOVERING`; use `restart` to try again from
+scratch, or `accept-empty` to accept the loss. (Recoveries are also
+retried automatically on the next node restart.)
+
+The in-process submission queue is unbounded and never drops: a node
+missing thousands of shards queues them all, and `SELF_RECOVERY_CONCURRENCY`
+workers drain the queue. Shards still queued at shutdown are re-submitted
+on the next restart (their live dir is still missing).
+
+## Runbook: `no_data_empty_total > 0` after a restart
+
+This counter increments when **all probed peers definitively reported no
+data** for a shard the orchestrator was trying to recover. Either:
+
+1. **Catastrophic full-cluster wipe** (every replica of the shard lost data).
+2. **Genuinely-new shard added while the node was offline** (e.g. an
+   empty-source `AddReplicaToShard` applied during the node's catchup).
+   Benign.
+
+To distinguish, find the structured log line:
+
+```
+event=self_recovery.empty_fallback collection=... shard=... probed_peers=[...]
+```
+
+- If you recognise the (collection, shard) as one with real data, this
+  is case 1 — restore from backup.
+- If it's a recently-created or empty replica, case 2 — no action.
+
+To restore from backup: shut down (or quiesce) the node, run the Backup
+module's restore for the affected collection, restart.
+
+## How the trigger is scoped
+
+Recovery is triggered by the **startup DB-load pass** — the one-shot
+`reloadDBFromSchema` → `ReloadLocalDB` that a node runs once it has
+caught its schema up to the cluster's committed state. It fires
+regardless of *how* the node caught up: a RAFT snapshot install and a
+replay of committed log entries both converge on the same load pass, and
+a shard folder found missing during it triggers recovery either way.
+
+### Wiped-node log-replay rejoin (no operator-forced snapshot)
+
+A node that comes up with **no local RAFT state** and the feature enabled is
+treated as a *wiped-joiner candidate* (`Store.wipedJoinerCandidate`). It reports
+ready eagerly (readiness is not deferred — fresh-cluster formation must not be
+gated on a wiped-joiner watcher), but Apply forces every replayed entry
+"schema-only" so no shard folders are materialised mid-catch-up. When the node
+joins an existing cluster, the leader returns its committed index at join in
+`JoinPeerResponse.leader_commit_index` — the **catch-up barrier**: every
+pre-existing class's `ADD_CLASS` has an index at or below it. `Store.SetJoinBarrier`
+records it, and once Apply has applied up to the barrier it runs the single load
+pass (`finishWipedJoinerReload`, on the Apply thread) — which installs
+`RecoveringShard` wrappers (excluded from cluster reads while they re-hydrate
+from peers, the same way the snapshot-Restore path behaves) instead of
+materialising empty shards. This covers the log-replay rejoin path **without** an
+operator-forced snapshot; the `POST /debug/raft/snapshot` step is now only a test
+convenience for forcing the InstallSnapshot path deterministically.
+
+Because a wiped joiner reports ready before it ever joined, the bootstrapper
+keeps attempting the (idempotent) join while `Store.NeedsJoinBarrier` holds, so
+the barrier cannot be lost to the ready early-return. `Store.watchWipedJoiner`
+handles the cases the barrier doesn't: a **local leader** (fresh single-node
+cluster, or elected leader of a fresh formation — trivially caught up) loads
+once its commit index is applied; a joiner whose leader supplied no barrier
+(pre-`leader_commit_index` leader returns 0) loads eagerly after a bounded
+deadline; and a joiner making no apply progress toward its barrier falls back
+to an eager load after the no-progress timeout. A follower never loads off its
+own commit view — mid-stream it lags the leader's, which is why the barrier
+comes from the join response. A node with intact data, a feature-off node, and
+a metadata-only voter keep the legacy eager-ready behaviour. The whole
+mechanism is gated on `SELF_RECOVERY_ENABLED`; off ⇒ startup is unchanged.
+
+Runtime collection/tenant creation is **not** part of the load pass: a
+genuinely new shard has its folder created at creation time, so it is
+never mistaken for a wiped one and never triggers recovery.
+
+## Limitations
+
+**A class or tenant created while a non-wiped node was down materializes empty
+on its restart, with no recovery.** A node that kept its raft state catches up
+by replaying the entries it missed; the catch-up DB reload fires at the node's
+*stored* applied index, so a missed `ADD_CLASS`/`ADD_TENANT` applies *after* the
+reload as a normal runtime apply — the shard is built empty outside the tagged
+load pass and never probes peers. With async replication enabled the replica
+backfills; with it disabled the divergence persists until a wipe-rejoin or
+manual heal. (The wiped-joiner path does not have this gap: its join barrier
+defers the reload past every entry committed before the join, including
+snapshot-install tails.) Closing this for non-wiped nodes means deferring the
+catch-up reload to the leader's commit index as of boot, which trades restart
+read-availability for coverage — an open design decision.
+
+**COLD tenants on a wiped node are not recovered.** The startup pass only
+considers HOT tenants, so a COLD tenant's directory simply stays missing on the
+rejoined node. A later activation builds the shard **empty** (outside the
+tagged pass) and it enters the read rotation; async replication backfills it,
+but with async replication disabled the replica stays empty until a
+wipe-rejoin or manual heal. Deactivate/activate cycles around node wipes
+should account for this.
+
+**Per-shard recovery on an otherwise-intact node works for shards the node
+already knew.** `DB.Open` runs before RAFT starts, against an empty schema, so
+local indices are built by the tagged catch-up reload — a single deleted shard
+folder is therefore seen missing during the tagged pass and recovers like any
+wiped shard (verified live: one shard dir removed on an intact node → normal
+SELF_RECOVERY copy). The exception is the previous limitation: a class or
+tenant the node has never applied (created while it was down) misses the
+reload and materializes empty.
+
+There is also a brief window during a wiped node's log-replay catch-up
+where the node reports `Ready` but its local DB is not yet built (it is
+built in one pass at the end of catch-up). Schema replay is fast and the
+freshly-rejoined node is not yet in the read rotation for its shards;
+the window is the same order as the pre-existing "Ready during replay"
+behavior.
+
+**A `RecoveringShard` panics if a non-routed code path touches it.**
+While a shard is `RECOVERING`, an in-memory `RecoveringShard` wrapper
+sits in the index's shard map with its load blocked. Direct local
+reads/writes fall back to a remote replica (nil shard) or surface a
+422-mappable `ErrShardRecovering`; iterating maintenance loops, backups,
+exports, usage reports, and reindex paths skip or fail cleanly on the
+wrapper. Any *remaining* unrouted call site that reaches a `mustLoad`-backed
+method still **panics the node** with an explicit "shard is recovering
+from a peer" message — deliberate, so an unhardened path is unambiguous
+rather than silently loading an empty shard mid-copy.
+
+## Maintenance mode
+
+When the node is in maintenance mode, the orchestrator does not start new
+recoveries — `Submit` declines the work, and a missing-dir shard
+discovered at startup falls back to the normal init path (empty dir +
+async-rep backfill) rather than being parked in `RECOVERING`.
+Already-running recoveries run to completion. To pause an in-flight one,
+cancel via the endpoint above.
+
+## Downgrade safety
+
+If a node is downgraded to a binary without SELF_RECOVERY support, any
+leftover `<shard>.recovering/` directories sit unused on disk until
+re-upgrade (which sweeps them at startup). To clean manually:
+
+```
+rm -rf <data_root>/<collection>/<shard>.recovering
+```
+
+(Only safe when the live `<shard>/` exists alongside; otherwise the dir
+holds an in-flight recovery to resume.)

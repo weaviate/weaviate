@@ -23,6 +23,11 @@ func NewErrUnprocessable(err error) ErrUnprocessable {
 	return ErrUnprocessable{err}
 }
 
+// Unwrap keeps sentinel checks (e.g. IsShardRecovering) working through the 422 wrapper.
+func (e ErrUnprocessable) Unwrap() error {
+	return e.err
+}
+
 type ErrNotFound struct {
 	err error
 }

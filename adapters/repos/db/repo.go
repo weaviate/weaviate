@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"path"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -67,6 +68,7 @@ type DB struct {
 	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
+	raftBootstrapComplete     atomic.Bool
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -156,6 +158,9 @@ type DB struct {
 	// shard decision can read its namespace's state. nil is only for tests
 	// that build no namespaced class; a namespaced one then fails closed.
 	namespacesExister namespaces.Exister
+
+	// Set after the cluster service is up. Nil-safe: nil keeps MkdirAll behavior.
+	selfRecoveryOrchestrator SelfRecoveryOrchestrator
 }
 
 // SetUsageLimits installs the usage-limits Manager on the DB. Must be
@@ -163,6 +168,38 @@ type DB struct {
 // inherit the manager. See docs/usage_limits.md.
 func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
 	db.usageLimits = m
+}
+
+// SelfRecoveryOrchestrator is the narrow surface avoiding an import cycle on cluster/replication.
+type SelfRecoveryOrchestrator interface {
+	// Enabled must be checked before installing a wrapper, else it blocks load forever.
+	Enabled() bool
+	// SubmitRecovery is non-blocking; false = not queued and the caller MUST fall back to normal init.
+	SubmitRecovery(ctx context.Context, collection, shard string, fromBootstrap bool) bool
+	// Close stops submissions and drains in-flight workers, bounded by ctx; idempotent.
+	Close(ctx context.Context) error
+}
+
+// SetSelfRecoveryOrchestrator must be called before WaitForStartup.
+func (db *DB) SetSelfRecoveryOrchestrator(o SelfRecoveryOrchestrator) {
+	db.selfRecoveryOrchestrator = o
+}
+
+// ShardPath returns the on-disk directory for (collection, shard).
+func (db *DB) ShardPath(collection, shard string) string {
+	return shardPath(
+		path.Join(db.config.RootPath, indexID(schema.ClassName(collection))),
+		shard,
+	)
+}
+
+// LoadLocalShard is the self-recovery promote callback: never creates a shard, wraps the *NotRegistered sentinels for the orchestrator.
+func (db *DB) LoadLocalShard(ctx context.Context, collection, shard string) error {
+	idx := db.GetIndex(schema.ClassName(collection))
+	if idx == nil {
+		return fmt.Errorf("load local shard: index %q: %w", collection, enterrors.ErrIndexNotRegistered)
+	}
+	return idx.PromoteRecoveringLocalShard(ctx, shard)
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -278,6 +315,12 @@ func (db *DB) localShardsToLoad(className string) int64 {
 	}
 	return int64(count)
 }
+
+// MarkRaftBootstrapComplete records that RAFT has finished its initial replay.
+func (db *DB) MarkRaftBootstrapComplete() { db.raftBootstrapComplete.Store(true) }
+
+// RaftBootstrapComplete reports whether the FSM replay window has ended.
+func (db *DB) RaftBootstrapComplete() bool { return db.raftBootstrapComplete.Load() }
 
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter
 // This allows for better testability by using interfaces instead of concrete types
@@ -622,6 +665,12 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 func (db *DB) Shutdown(ctx context.Context) error {
 	// Close, never send: the sole receiver is the resource-scan loop, and a recovered panic there would leave an unbuffered send hanging the whole shutdown until SIGKILL.
 	db.shutdownOnce.Do(func() { close(db.shutdown) })
+	// Stop self-recovery workers first so in-flight promote callbacks don't race Index.Shutdown.
+	if db.selfRecoveryOrchestrator != nil {
+		if err := db.selfRecoveryOrchestrator.Close(ctx); err != nil {
+			db.logger.Warnf("self-recovery: Close did not drain in time; workers may still be running: %v", err)
+		}
+	}
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {

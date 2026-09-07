@@ -44,7 +44,8 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 		if s == nil {
 			continue
 		}
-		if lazy, ok := s.(*LazyLoadShard); ok {
+		// asLazyLoadShard: a recovering shard's blocked Load warns+skips instead of panicking in Store() below.
+		if lazy, ok := asLazyLoadShard(s); ok {
 			if err := lazy.Load(ctx); err != nil {
 				db.logger.WithField("collection", collection).WithField("shard", name).
 					Warnf("drop-vector: load lazy shard: %v", err)
@@ -74,7 +75,7 @@ func (db *DB) EditOpBucketsForLoadedShards(collection string, shardNames []strin
 		if s == nil {
 			continue
 		}
-		if lazy, ok := s.(*LazyLoadShard); ok {
+		if lazy, ok := asLazyLoadShard(s); ok {
 			lazy.mutex.Lock()
 			loaded := lazy.loaded
 			lazy.mutex.Unlock()

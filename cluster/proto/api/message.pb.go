@@ -554,10 +554,12 @@ func (x *JoinPeerRequest) GetVoter() bool {
 }
 
 type JoinPeerResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Leader        string                 `protobuf:"bytes,1,opt,name=leader,proto3" json:"leader,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Leader string                 `protobuf:"bytes,1,opt,name=leader,proto3" json:"leader,omitempty"`
+	// Leader's committed index at join; a wiped joiner's catch-up barrier (0 from an older leader = legacy eager load).
+	LeaderCommitIndex uint64 `protobuf:"varint,2,opt,name=leader_commit_index,json=leaderCommitIndex,proto3" json:"leader_commit_index,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *JoinPeerResponse) Reset() {
@@ -595,6 +597,13 @@ func (x *JoinPeerResponse) GetLeader() string {
 		return x.Leader
 	}
 	return ""
+}
+
+func (x *JoinPeerResponse) GetLeaderCommitIndex() uint64 {
+	if x != nil {
+		return x.LeaderCommitIndex
+	}
+	return 0
 }
 
 type RemovePeerRequest struct {
@@ -2473,9 +2482,10 @@ const file_api_message_proto_rawDesc = "" +
 	"\x0fJoinPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x14\n" +
-	"\x05voter\x18\x03 \x01(\bR\x05voter\"*\n" +
+	"\x05voter\x18\x03 \x01(\bR\x05voter\"Z\n" +
 	"\x10JoinPeerResponse\x12\x16\n" +
-	"\x06leader\x18\x01 \x01(\tR\x06leader\"#\n" +
+	"\x06leader\x18\x01 \x01(\tR\x06leader\x12.\n" +
+	"\x13leader_commit_index\x18\x02 \x01(\x04R\x11leaderCommitIndex\"#\n" +
 	"\x11RemovePeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\",\n" +
 	"\x12RemovePeerResponse\x12\x16\n" +

@@ -43,21 +43,29 @@ type Bootstrapper struct {
 	localNodeID   string
 	voter         bool
 
+	// onJoin receives the leader's committed index (wiped-joiner catch-up barrier); 0 if none.
+	onJoin func(leaderCommitIndex uint64)
+
+	// needsJoinBarrier keeps joining even when ready: a wiped joiner is "ready" before it ever joined.
+	needsJoinBarrier func() bool
+
 	retryPeriod time.Duration
 	jitter      time.Duration
 }
 
-// NewBootstrapper constructs a new bootsrapper
-func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, voter bool, r resolver.ClusterStateReader, isStoreReady func() bool) *Bootstrapper {
+// NewBootstrapper constructs a new bootstrapper. onJoin and needsJoinBarrier may be nil.
+func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, voter bool, r resolver.ClusterStateReader, isStoreReady func() bool, onJoin func(leaderCommitIndex uint64), needsJoinBarrier func() bool) *Bootstrapper {
 	return &Bootstrapper{
-		peerJoiner:    peerJoiner,
-		addrResolver:  r,
-		retryPeriod:   time.Second,
-		jitter:        time.Second,
-		localNodeID:   raftID,
-		localRaftAddr: raftAddr,
-		isStoreReady:  isStoreReady,
-		voter:         voter,
+		peerJoiner:       peerJoiner,
+		addrResolver:     r,
+		retryPeriod:      time.Second,
+		jitter:           time.Second,
+		localNodeID:      raftID,
+		localRaftAddr:    raftAddr,
+		isStoreReady:     isStoreReady,
+		voter:            voter,
+		onJoin:           onJoin,
+		needsJoinBarrier: needsJoinBarrier,
 	}
 }
 
@@ -80,7 +88,7 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if b.isStoreReady() {
+			if b.isStoreReady() && (b.needsJoinBarrier == nil || !b.needsJoinBarrier()) {
 				lg.WithField("action", "bootstrap").Info("node reporting ready, exiting bootstrap process")
 				return nil
 			}
@@ -94,7 +102,7 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 
 			// Always try to join an existing cluster first
 			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
-			if leader, err := joiner.Do(ctx, lg, remoteNodes); err != nil {
+			if leader, leaderCommitIndex, err := joiner.Do(ctx, lg, remoteNodes); err != nil {
 				lg.WithFields(logrus.Fields{
 					"action":  "bootstrap",
 					"servers": remoteNodes,
@@ -105,6 +113,9 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 					"action": "bootstrap",
 					"leader": leader,
 				}).Info("successfully joined cluster")
+				if b.onJoin != nil {
+					b.onJoin(leaderCommitIndex)
+				}
 				return nil
 			}
 

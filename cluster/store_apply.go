@@ -260,14 +260,27 @@ func (st *Store) Apply(l *raft.Log) any {
 		panic("error proto un-marshalling log data")
 	}
 
+	// Exclude the watcher's off-thread reload for this entry's whole apply; uncontended outside the wiped-joiner window.
+	if st.wipedJoinerCandidate.Load() {
+		st.wipedJoinerApplyMu.RLock()
+		defer st.wipedJoinerApplyMu.RUnlock()
+	}
+
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
 	// we check for index !=0 to force apply of the 1st index in both db and schema
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
+
+	// A wiped joiner forces schemaOnly until its reload, so re-hydratable shards aren't materialised empty.
+	forceSchemaOnly := st.wipedJoinerCandidate.Load() && !st.wipedJoinerReloaded.Load()
+
 	// TODO: get rid off schema only as it causes more trouble than it's worth
 	// T-Nr: DB-306
-	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
+	schemaOnly := catchingUp || forceSchemaOnly || st.cfg.MetadataOnlyVoters
+
+	// Callback gated off during catch-up so it fires once at the reload, not per replayed entry.
+	schemaCallback := !catchingUp && !forceSchemaOnly
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
@@ -283,6 +296,16 @@ func (st *Store) Apply(l *raft.Log) any {
 				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			}).Info("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
+		}
+
+		// Reload on the Apply thread once applied up to the barrier; idempotent with the other paths.
+		if st.wipedJoinerCandidate.Load() &&
+			wipedJoinerBarrierReached(st.wipedJoinerReloaded.Load(), st.joinBarrier.Load(), l.Index) {
+			st.log.WithFields(logrus.Fields{
+				"log_index":    l.Index,
+				"join_barrier": st.joinBarrier.Load(),
+			}).Info("wiped joiner: caught up to join barrier; running self-recovery reload")
+			st.finishWipedJoinerReload()
 		}
 
 		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,
@@ -340,17 +363,17 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_UPDATE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
@@ -373,16 +396,16 @@ func (st *Store) Apply(l *raft.Log) any {
 					cmd.Class = existingClass
 				}
 			}
-			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_ADD_PROPERTY:
 		f = func() {
-			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, schemaCallback)
 		}
 	case api.ApplyRequest_TYPE_UPDATE_PROPERTY:
 		f = func() {
-			ret.Error = st.schemaManager.UpdateProperty(&cmd, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.UpdateProperty(&cmd, schemaOnly, schemaCallback)
 		}
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		f = func() {

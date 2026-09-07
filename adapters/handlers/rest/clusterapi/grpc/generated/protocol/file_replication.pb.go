@@ -555,6 +555,102 @@ func (x *FileChunk) GetEof() bool {
 	return false
 }
 
+type ProbeShardDataRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
+	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProbeShardDataRequest) Reset() {
+	*x = ProbeShardDataRequest{}
+	mi := &file_protocol_file_replication_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProbeShardDataRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProbeShardDataRequest) ProtoMessage() {}
+
+func (x *ProbeShardDataRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_file_replication_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProbeShardDataRequest.ProtoReflect.Descriptor instead.
+func (*ProbeShardDataRequest) Descriptor() ([]byte, []int) {
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ProbeShardDataRequest) GetIndexName() string {
+	if x != nil {
+		return x.IndexName
+	}
+	return ""
+}
+
+func (x *ProbeShardDataRequest) GetShardName() string {
+	if x != nil {
+		return x.ShardName
+	}
+	return ""
+}
+
+type ProbeShardDataResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	HasData       bool                   `protobuf:"varint,1,opt,name=has_data,json=hasData,proto3" json:"has_data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProbeShardDataResponse) Reset() {
+	*x = ProbeShardDataResponse{}
+	mi := &file_protocol_file_replication_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProbeShardDataResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProbeShardDataResponse) ProtoMessage() {}
+
+func (x *ProbeShardDataResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_file_replication_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProbeShardDataResponse.ProtoReflect.Descriptor instead.
+func (*ProbeShardDataResponse) Descriptor() ([]byte, []int) {
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ProbeShardDataResponse) GetHasData() bool {
+	if x != nil {
+		return x.HasData
+	}
+	return false
+}
+
 type StartChangeCaptureRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
@@ -567,7 +663,7 @@ type StartChangeCaptureRequest struct {
 
 func (x *StartChangeCaptureRequest) Reset() {
 	*x = StartChangeCaptureRequest{}
-	mi := &file_protocol_file_replication_proto_msgTypes[8]
+	mi := &file_protocol_file_replication_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -579,7 +675,7 @@ func (x *StartChangeCaptureRequest) String() string {
 func (*StartChangeCaptureRequest) ProtoMessage() {}
 
 func (x *StartChangeCaptureRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[8]
+	mi := &file_protocol_file_replication_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -592,7 +688,7 @@ func (x *StartChangeCaptureRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartChangeCaptureRequest.ProtoReflect.Descriptor instead.
 func (*StartChangeCaptureRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{8}
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *StartChangeCaptureRequest) GetIndexName() string {
@@ -634,7 +730,7 @@ type StartChangeCaptureResponse struct {
 
 func (x *StartChangeCaptureResponse) Reset() {
 	*x = StartChangeCaptureResponse{}
-	mi := &file_protocol_file_replication_proto_msgTypes[9]
+	mi := &file_protocol_file_replication_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -646,7 +742,7 @@ func (x *StartChangeCaptureResponse) String() string {
 func (*StartChangeCaptureResponse) ProtoMessage() {}
 
 func (x *StartChangeCaptureResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[9]
+	mi := &file_protocol_file_replication_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -659,7 +755,7 @@ func (x *StartChangeCaptureResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartChangeCaptureResponse.ProtoReflect.Descriptor instead.
 func (*StartChangeCaptureResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{9}
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *StartChangeCaptureResponse) GetIndexName() string {
@@ -699,7 +795,7 @@ type GetChangeLogRequest struct {
 
 func (x *GetChangeLogRequest) Reset() {
 	*x = GetChangeLogRequest{}
-	mi := &file_protocol_file_replication_proto_msgTypes[10]
+	mi := &file_protocol_file_replication_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -711,7 +807,7 @@ func (x *GetChangeLogRequest) String() string {
 func (*GetChangeLogRequest) ProtoMessage() {}
 
 func (x *GetChangeLogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[10]
+	mi := &file_protocol_file_replication_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -724,7 +820,7 @@ func (x *GetChangeLogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetChangeLogRequest.ProtoReflect.Descriptor instead.
 func (*GetChangeLogRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{10}
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GetChangeLogRequest) GetIndexName() string {
@@ -766,7 +862,7 @@ type SnapshotChangeLogLSNRequest struct {
 
 func (x *SnapshotChangeLogLSNRequest) Reset() {
 	*x = SnapshotChangeLogLSNRequest{}
-	mi := &file_protocol_file_replication_proto_msgTypes[11]
+	mi := &file_protocol_file_replication_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -778,7 +874,7 @@ func (x *SnapshotChangeLogLSNRequest) String() string {
 func (*SnapshotChangeLogLSNRequest) ProtoMessage() {}
 
 func (x *SnapshotChangeLogLSNRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[11]
+	mi := &file_protocol_file_replication_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -791,7 +887,7 @@ func (x *SnapshotChangeLogLSNRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotChangeLogLSNRequest.ProtoReflect.Descriptor instead.
 func (*SnapshotChangeLogLSNRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{11}
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *SnapshotChangeLogLSNRequest) GetIndexName() string {
@@ -829,7 +925,7 @@ type SnapshotChangeLogLSNResponse struct {
 
 func (x *SnapshotChangeLogLSNResponse) Reset() {
 	*x = SnapshotChangeLogLSNResponse{}
-	mi := &file_protocol_file_replication_proto_msgTypes[12]
+	mi := &file_protocol_file_replication_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -841,7 +937,7 @@ func (x *SnapshotChangeLogLSNResponse) String() string {
 func (*SnapshotChangeLogLSNResponse) ProtoMessage() {}
 
 func (x *SnapshotChangeLogLSNResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[12]
+	mi := &file_protocol_file_replication_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -854,7 +950,7 @@ func (x *SnapshotChangeLogLSNResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotChangeLogLSNResponse.ProtoReflect.Descriptor instead.
 func (*SnapshotChangeLogLSNResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{12}
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SnapshotChangeLogLSNResponse) GetIndexName() string {
@@ -898,7 +994,7 @@ type ChangeLogStreamEntry struct {
 
 func (x *ChangeLogStreamEntry) Reset() {
 	*x = ChangeLogStreamEntry{}
-	mi := &file_protocol_file_replication_proto_msgTypes[13]
+	mi := &file_protocol_file_replication_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -910,7 +1006,7 @@ func (x *ChangeLogStreamEntry) String() string {
 func (*ChangeLogStreamEntry) ProtoMessage() {}
 
 func (x *ChangeLogStreamEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[13]
+	mi := &file_protocol_file_replication_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -923,7 +1019,7 @@ func (x *ChangeLogStreamEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChangeLogStreamEntry.ProtoReflect.Descriptor instead.
 func (*ChangeLogStreamEntry) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{13}
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ChangeLogStreamEntry) GetLsn() uint64 {
@@ -972,7 +1068,7 @@ type FinalizeChangeLogRequest struct {
 
 func (x *FinalizeChangeLogRequest) Reset() {
 	*x = FinalizeChangeLogRequest{}
-	mi := &file_protocol_file_replication_proto_msgTypes[14]
+	mi := &file_protocol_file_replication_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -984,7 +1080,7 @@ func (x *FinalizeChangeLogRequest) String() string {
 func (*FinalizeChangeLogRequest) ProtoMessage() {}
 
 func (x *FinalizeChangeLogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[14]
+	mi := &file_protocol_file_replication_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -997,7 +1093,7 @@ func (x *FinalizeChangeLogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeChangeLogRequest.ProtoReflect.Descriptor instead.
 func (*FinalizeChangeLogRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{14}
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *FinalizeChangeLogRequest) GetIndexName() string {
@@ -1033,7 +1129,7 @@ type FinalizeChangeLogResponse struct {
 
 func (x *FinalizeChangeLogResponse) Reset() {
 	*x = FinalizeChangeLogResponse{}
-	mi := &file_protocol_file_replication_proto_msgTypes[15]
+	mi := &file_protocol_file_replication_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1045,7 +1141,7 @@ func (x *FinalizeChangeLogResponse) String() string {
 func (*FinalizeChangeLogResponse) ProtoMessage() {}
 
 func (x *FinalizeChangeLogResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[15]
+	mi := &file_protocol_file_replication_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1058,7 +1154,7 @@ func (x *FinalizeChangeLogResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeChangeLogResponse.ProtoReflect.Descriptor instead.
 func (*FinalizeChangeLogResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{15}
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *FinalizeChangeLogResponse) GetIndexName() string {
@@ -1100,7 +1196,7 @@ type StopChangeCaptureRequest struct {
 
 func (x *StopChangeCaptureRequest) Reset() {
 	*x = StopChangeCaptureRequest{}
-	mi := &file_protocol_file_replication_proto_msgTypes[16]
+	mi := &file_protocol_file_replication_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1112,7 +1208,7 @@ func (x *StopChangeCaptureRequest) String() string {
 func (*StopChangeCaptureRequest) ProtoMessage() {}
 
 func (x *StopChangeCaptureRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[16]
+	mi := &file_protocol_file_replication_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1125,7 +1221,7 @@ func (x *StopChangeCaptureRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopChangeCaptureRequest.ProtoReflect.Descriptor instead.
 func (*StopChangeCaptureRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{16}
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *StopChangeCaptureRequest) GetIndexName() string {
@@ -1160,7 +1256,7 @@ type StopChangeCaptureResponse struct {
 
 func (x *StopChangeCaptureResponse) Reset() {
 	*x = StopChangeCaptureResponse{}
-	mi := &file_protocol_file_replication_proto_msgTypes[17]
+	mi := &file_protocol_file_replication_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1172,7 +1268,7 @@ func (x *StopChangeCaptureResponse) String() string {
 func (*StopChangeCaptureResponse) ProtoMessage() {}
 
 func (x *StopChangeCaptureResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[17]
+	mi := &file_protocol_file_replication_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1185,7 +1281,7 @@ func (x *StopChangeCaptureResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopChangeCaptureResponse.ProtoReflect.Descriptor instead.
 func (*StopChangeCaptureResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{17}
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *StopChangeCaptureResponse) GetIndexName() string {
@@ -1256,7 +1352,14 @@ const file_protocol_file_replication_proto_rawDesc = "" +
 	"\tFileChunk\x12\x16\n" +
 	"\x06offset\x18\x01 \x01(\x03R\x06offset\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x10\n" +
-	"\x03eof\x18\x03 \x01(\bR\x03eof\"\x95\x01\n" +
+	"\x03eof\x18\x03 \x01(\bR\x03eof\"U\n" +
+	"\x15ProbeShardDataRequest\x12\x1d\n" +
+	"\n" +
+	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
+	"\n" +
+	"shard_name\x18\x02 \x01(\tR\tshardName\"3\n" +
+	"\x16ProbeShardDataResponse\x12\x19\n" +
+	"\bhas_data\x18\x01 \x01(\bR\ahasData\"\x95\x01\n" +
 	"\x19StartChangeCaptureRequest\x12\x1d\n" +
 	"\n" +
 	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
@@ -1325,12 +1428,13 @@ const file_protocol_file_replication_proto_rawDesc = "" +
 	"\x1cCOMPRESSION_TYPE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15COMPRESSION_TYPE_GZIP\x10\x01\x12\x19\n" +
 	"\x15COMPRESSION_TYPE_ZLIB\x10\x02\x12\x1c\n" +
-	"\x18COMPRESSION_TYPE_DEFLATE\x10\x032\xad\a\n" +
+	"\x18COMPRESSION_TYPE_DEFLATE\x10\x032\x86\b\n" +
 	"\x16FileReplicationService\x12l\n" +
 	"\x15CreateReplicaSnapshot\x12(.clusterapi.CreateReplicaSnapshotRequest\x1a).clusterapi.CreateReplicaSnapshotResponse\x12o\n" +
 	"\x16ReleaseReplicaSnapshot\x12).clusterapi.ReleaseReplicaSnapshotRequest\x1a*.clusterapi.ReleaseReplicaSnapshotResponse\x12m\n" +
 	"\x1eGetReplicaSnapshotFileMetadata\x121.clusterapi.GetReplicaSnapshotFileMetadataRequest\x1a\x18.clusterapi.FileMetadata\x12\\\n" +
-	"\x16GetReplicaSnapshotFile\x12).clusterapi.GetReplicaSnapshotFileRequest\x1a\x15.clusterapi.FileChunk0\x01\x12c\n" +
+	"\x16GetReplicaSnapshotFile\x12).clusterapi.GetReplicaSnapshotFileRequest\x1a\x15.clusterapi.FileChunk0\x01\x12W\n" +
+	"\x0eProbeShardData\x12!.clusterapi.ProbeShardDataRequest\x1a\".clusterapi.ProbeShardDataResponse\x12c\n" +
 	"\x12StartChangeCapture\x12%.clusterapi.StartChangeCaptureRequest\x1a&.clusterapi.StartChangeCaptureResponse\x12S\n" +
 	"\fGetChangeLog\x12\x1f.clusterapi.GetChangeLogRequest\x1a .clusterapi.ChangeLogStreamEntry0\x01\x12i\n" +
 	"\x14SnapshotChangeLogLSN\x12'.clusterapi.SnapshotChangeLogLSNRequest\x1a(.clusterapi.SnapshotChangeLogLSNResponse\x12`\n" +
@@ -1354,7 +1458,7 @@ func file_protocol_file_replication_proto_rawDescGZIP() []byte {
 }
 
 var file_protocol_file_replication_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_protocol_file_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_protocol_file_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_protocol_file_replication_proto_goTypes = []any{
 	(CompressionType)(0),                          // 0: clusterapi.CompressionType
 	(*CreateReplicaSnapshotRequest)(nil),          // 1: clusterapi.CreateReplicaSnapshotRequest
@@ -1365,16 +1469,18 @@ var file_protocol_file_replication_proto_goTypes = []any{
 	(*FileMetadata)(nil),                          // 6: clusterapi.FileMetadata
 	(*GetReplicaSnapshotFileRequest)(nil),         // 7: clusterapi.GetReplicaSnapshotFileRequest
 	(*FileChunk)(nil),                             // 8: clusterapi.FileChunk
-	(*StartChangeCaptureRequest)(nil),             // 9: clusterapi.StartChangeCaptureRequest
-	(*StartChangeCaptureResponse)(nil),            // 10: clusterapi.StartChangeCaptureResponse
-	(*GetChangeLogRequest)(nil),                   // 11: clusterapi.GetChangeLogRequest
-	(*SnapshotChangeLogLSNRequest)(nil),           // 12: clusterapi.SnapshotChangeLogLSNRequest
-	(*SnapshotChangeLogLSNResponse)(nil),          // 13: clusterapi.SnapshotChangeLogLSNResponse
-	(*ChangeLogStreamEntry)(nil),                  // 14: clusterapi.ChangeLogStreamEntry
-	(*FinalizeChangeLogRequest)(nil),              // 15: clusterapi.FinalizeChangeLogRequest
-	(*FinalizeChangeLogResponse)(nil),             // 16: clusterapi.FinalizeChangeLogResponse
-	(*StopChangeCaptureRequest)(nil),              // 17: clusterapi.StopChangeCaptureRequest
-	(*StopChangeCaptureResponse)(nil),             // 18: clusterapi.StopChangeCaptureResponse
+	(*ProbeShardDataRequest)(nil),                 // 9: clusterapi.ProbeShardDataRequest
+	(*ProbeShardDataResponse)(nil),                // 10: clusterapi.ProbeShardDataResponse
+	(*StartChangeCaptureRequest)(nil),             // 11: clusterapi.StartChangeCaptureRequest
+	(*StartChangeCaptureResponse)(nil),            // 12: clusterapi.StartChangeCaptureResponse
+	(*GetChangeLogRequest)(nil),                   // 13: clusterapi.GetChangeLogRequest
+	(*SnapshotChangeLogLSNRequest)(nil),           // 14: clusterapi.SnapshotChangeLogLSNRequest
+	(*SnapshotChangeLogLSNResponse)(nil),          // 15: clusterapi.SnapshotChangeLogLSNResponse
+	(*ChangeLogStreamEntry)(nil),                  // 16: clusterapi.ChangeLogStreamEntry
+	(*FinalizeChangeLogRequest)(nil),              // 17: clusterapi.FinalizeChangeLogRequest
+	(*FinalizeChangeLogResponse)(nil),             // 18: clusterapi.FinalizeChangeLogResponse
+	(*StopChangeCaptureRequest)(nil),              // 19: clusterapi.StopChangeCaptureRequest
+	(*StopChangeCaptureResponse)(nil),             // 20: clusterapi.StopChangeCaptureResponse
 }
 var file_protocol_file_replication_proto_depIdxs = []int32{
 	0,  // 0: clusterapi.GetReplicaSnapshotFileRequest.compression:type_name -> clusterapi.CompressionType
@@ -1382,22 +1488,24 @@ var file_protocol_file_replication_proto_depIdxs = []int32{
 	3,  // 2: clusterapi.FileReplicationService.ReleaseReplicaSnapshot:input_type -> clusterapi.ReleaseReplicaSnapshotRequest
 	5,  // 3: clusterapi.FileReplicationService.GetReplicaSnapshotFileMetadata:input_type -> clusterapi.GetReplicaSnapshotFileMetadataRequest
 	7,  // 4: clusterapi.FileReplicationService.GetReplicaSnapshotFile:input_type -> clusterapi.GetReplicaSnapshotFileRequest
-	9,  // 5: clusterapi.FileReplicationService.StartChangeCapture:input_type -> clusterapi.StartChangeCaptureRequest
-	11, // 6: clusterapi.FileReplicationService.GetChangeLog:input_type -> clusterapi.GetChangeLogRequest
-	12, // 7: clusterapi.FileReplicationService.SnapshotChangeLogLSN:input_type -> clusterapi.SnapshotChangeLogLSNRequest
-	15, // 8: clusterapi.FileReplicationService.FinalizeChangeLog:input_type -> clusterapi.FinalizeChangeLogRequest
-	17, // 9: clusterapi.FileReplicationService.StopChangeCapture:input_type -> clusterapi.StopChangeCaptureRequest
-	2,  // 10: clusterapi.FileReplicationService.CreateReplicaSnapshot:output_type -> clusterapi.CreateReplicaSnapshotResponse
-	4,  // 11: clusterapi.FileReplicationService.ReleaseReplicaSnapshot:output_type -> clusterapi.ReleaseReplicaSnapshotResponse
-	6,  // 12: clusterapi.FileReplicationService.GetReplicaSnapshotFileMetadata:output_type -> clusterapi.FileMetadata
-	8,  // 13: clusterapi.FileReplicationService.GetReplicaSnapshotFile:output_type -> clusterapi.FileChunk
-	10, // 14: clusterapi.FileReplicationService.StartChangeCapture:output_type -> clusterapi.StartChangeCaptureResponse
-	14, // 15: clusterapi.FileReplicationService.GetChangeLog:output_type -> clusterapi.ChangeLogStreamEntry
-	13, // 16: clusterapi.FileReplicationService.SnapshotChangeLogLSN:output_type -> clusterapi.SnapshotChangeLogLSNResponse
-	16, // 17: clusterapi.FileReplicationService.FinalizeChangeLog:output_type -> clusterapi.FinalizeChangeLogResponse
-	18, // 18: clusterapi.FileReplicationService.StopChangeCapture:output_type -> clusterapi.StopChangeCaptureResponse
-	10, // [10:19] is the sub-list for method output_type
-	1,  // [1:10] is the sub-list for method input_type
+	9,  // 5: clusterapi.FileReplicationService.ProbeShardData:input_type -> clusterapi.ProbeShardDataRequest
+	11, // 6: clusterapi.FileReplicationService.StartChangeCapture:input_type -> clusterapi.StartChangeCaptureRequest
+	13, // 7: clusterapi.FileReplicationService.GetChangeLog:input_type -> clusterapi.GetChangeLogRequest
+	14, // 8: clusterapi.FileReplicationService.SnapshotChangeLogLSN:input_type -> clusterapi.SnapshotChangeLogLSNRequest
+	17, // 9: clusterapi.FileReplicationService.FinalizeChangeLog:input_type -> clusterapi.FinalizeChangeLogRequest
+	19, // 10: clusterapi.FileReplicationService.StopChangeCapture:input_type -> clusterapi.StopChangeCaptureRequest
+	2,  // 11: clusterapi.FileReplicationService.CreateReplicaSnapshot:output_type -> clusterapi.CreateReplicaSnapshotResponse
+	4,  // 12: clusterapi.FileReplicationService.ReleaseReplicaSnapshot:output_type -> clusterapi.ReleaseReplicaSnapshotResponse
+	6,  // 13: clusterapi.FileReplicationService.GetReplicaSnapshotFileMetadata:output_type -> clusterapi.FileMetadata
+	8,  // 14: clusterapi.FileReplicationService.GetReplicaSnapshotFile:output_type -> clusterapi.FileChunk
+	10, // 15: clusterapi.FileReplicationService.ProbeShardData:output_type -> clusterapi.ProbeShardDataResponse
+	12, // 16: clusterapi.FileReplicationService.StartChangeCapture:output_type -> clusterapi.StartChangeCaptureResponse
+	16, // 17: clusterapi.FileReplicationService.GetChangeLog:output_type -> clusterapi.ChangeLogStreamEntry
+	15, // 18: clusterapi.FileReplicationService.SnapshotChangeLogLSN:output_type -> clusterapi.SnapshotChangeLogLSNResponse
+	18, // 19: clusterapi.FileReplicationService.FinalizeChangeLog:output_type -> clusterapi.FinalizeChangeLogResponse
+	20, // 20: clusterapi.FileReplicationService.StopChangeCapture:output_type -> clusterapi.StopChangeCaptureResponse
+	11, // [11:21] is the sub-list for method output_type
+	1,  // [1:11] is the sub-list for method input_type
 	1,  // [1:1] is the sub-list for extension type_name
 	1,  // [1:1] is the sub-list for extension extendee
 	0,  // [0:1] is the sub-list for field type_name
@@ -1414,7 +1522,7 @@ func file_protocol_file_replication_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_protocol_file_replication_proto_rawDesc), len(file_protocol_file_replication_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   18,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

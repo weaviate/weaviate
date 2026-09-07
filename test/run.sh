@@ -67,6 +67,7 @@ function main() {
   run_acceptance_drop_vector_index_async_indexing_group1=false
   run_acceptance_drop_vector_index_async_indexing_group2=false
   run_acceptance_backups=false
+  run_acceptance_self_recovery=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -133,6 +134,7 @@ function main() {
           --acceptance-drop-vector-index-async-indexing-group1|-advia1) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group1=true;;
           --acceptance-drop-vector-index-async-indexing-group2|-advia2) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group2=true;;
           --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
+          --acceptance-self-recovery|-asr) run_all_tests=false; run_acceptance_self_recovery=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -182,6 +184,7 @@ function main() {
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
               "--acceptance-backups | -ab"\
+              "--acceptance-self-recovery | -asr"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -219,7 +222,7 @@ function main() {
     echo_green "Integration tests successful"
   fi
 
-  if $run_acceptance_tests  || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_fast_group_5 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects
+  if $run_acceptance_tests  || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_fast_group_5 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects || $run_acceptance_self_recovery
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -250,7 +253,7 @@ function main() {
       ./test/benchmark/run_performance_tracker.sh
     fi
 
-    if $run_acceptance_tests || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_fast_group_5 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance || $run_acceptance_objects
+    if $run_acceptance_tests || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_fast_group_5 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance || $run_acceptance_objects || $run_acceptance_self_recovery
     then
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
@@ -468,6 +471,11 @@ function main() {
     echo "running backup/restore acceptance tests"
     run_acceptance_backups
   fi
+
+  if $run_acceptance_self_recovery || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery acceptance tests"
+    run_acceptance_self_recovery
+  fi
   echo "Done!"
 }
 
@@ -659,6 +667,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/backups' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | grep -v 'test/acceptance/drop_vector_index' \
+    | grep -v 'test/acceptance/selfrecovery' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 
@@ -1083,6 +1092,11 @@ function run_acceptance_reindex_backup() {
   run_aof_group "reindex-backup" \
     test/acceptance/reindex_backup
 }
+function run_acceptance_self_recovery() {
+  build_weaviate_test_image
+  run_aof_group "self-recovery" test/acceptance/selfrecovery
+}
+
 
 function run_acceptance_drop_vector_index() {
   build_weaviate_test_image
