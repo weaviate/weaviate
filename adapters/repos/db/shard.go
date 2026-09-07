@@ -586,12 +586,10 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 	// collection that dropped its last vector carries an inert legacy config in
 	// the schema, but its shards were built without a legacy index and there is
 	// nothing to reconfigure.
-	index, ok := s.GetVectorIndex("")
-	if !ok {
-		return nil
-	}
-
-	return index.UpdateUserConfig(updated, noopCallback)
+	_, err := s.WithVectorIndex("", func(index VectorIndex) error {
+		return index.UpdateUserConfig(updated, noopCallback)
+	})
+	return err
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
@@ -611,8 +609,12 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 
 	var err error
 	for targetVector, targetCfg := range updated {
-		if index, ok := s.GetVectorIndex(targetVector); ok {
-			if err = index.UpdateUserConfig(targetCfg, noopCallback); err != nil {
+		var found bool
+		found, err = s.WithVectorIndex(targetVector, func(index VectorIndex) error {
+			return index.UpdateUserConfig(targetCfg, noopCallback)
+		})
+		if found {
+			if err != nil {
 				break
 			}
 		} else {
