@@ -62,6 +62,16 @@ func dedupeBackupConfig() *models.BackupConfig {
 	return cfg
 }
 
+// createBackupWithTimeout widens the per-request HTTP timeout for creates expected to exhaust the planning budget.
+func createBackupWithTimeout(t *testing.T, cfg *models.BackupConfig, className, backupID string, timeout time.Duration) error {
+	params := backups.NewBackupsCreateParams().
+		WithTimeout(timeout).
+		WithBackend(backendS3).
+		WithBody(&models.BackupCreateRequest{ID: backupID, Include: []string{className}, Config: cfg})
+	_, err := helper.Client(t).Backups.BackupsCreate(params, nil)
+	return err
+}
+
 func clusterURIs(compose *docker.DockerCompose) []string {
 	return []string{
 		compose.GetWeaviate().ClusterURI(),
@@ -445,8 +455,7 @@ func TestBackupDedupeReplicas(t *testing.T) {
 		preBackupIDs := slices.Clone(ackedIDs)
 		ackedMu.Unlock()
 
-		_, err := helper.CreateBackup(t, dedupeBackupConfig(), className, backendS3, churnID)
-		require.NoError(t, err)
+		require.NoError(t, createBackupWithTimeout(t, dedupeBackupConfig(), className, churnID, time.Minute))
 		helper.ExpectBackupEventuallyCreated(t, churnID, backendS3, nil, helper.WithDeadline(4*time.Minute))
 		close(stop)
 		<-writerDone
@@ -474,7 +483,7 @@ func TestBackupDedupeReplicas(t *testing.T) {
 		}
 
 		helper.DeleteClass(t, className)
-		_, err = helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backendS3, churnID, nil, false)
+		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backendS3, churnID, nil, false)
 		if err != nil {
 			t.Fatalf("restore refused: %s", restoreErrorMessage(err))
 		}
