@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -82,6 +83,12 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	apiEndpoint := ic.ApiEndpoint()
+	if err := modulecomponents.ValidateGoogleApiEndpoint(apiEndpoint); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleLocation(locationProperty, ic.Location()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
 	if apiEndpoint != DefaultAIStudioEndpoint {
 		projectID := ic.ProjectID()
 		if projectID == "" {

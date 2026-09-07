@@ -54,17 +54,17 @@ func (s *segment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
 }
 
 func (s *segmentCursorInvertedReusable) seek(key []byte) ([]byte, []MapPair, error) {
-	node, err := s.segment.index.Seek(key)
+	start, end, err := s.segment.index.SeekOffsets(key)
+	if err != nil {
+		return nil, nil, s.segment.reportIndexErr(err)
+	}
+
+	err = s.parseInvertedNodeInto(nodeOffset{start, end})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	err = s.parseInvertedNodeInto(nodeOffset{node.Start, node.End})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	s.nextOffset = node.End
+	s.nextOffset = end
 
 	return s.nodeBuf.key, s.nodeBuf.values, nil
 }
