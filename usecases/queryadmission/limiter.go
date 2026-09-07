@@ -9,15 +9,20 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package queryadmission bounds the aggregate concurrency of the expensive,
-// goroutine-fanning phases of object search (filter evaluation, keyword/BM25
-// ranking) on a single node, so a traffic spike degrades gracefully instead of
+// Package queryadmission bounds the aggregate concurrency of the
+// goroutine-fanning phases of object search on a single node (filter
+// evaluation, keyword/BM25 ranking, and the vector phase's rescoring and
+// posting reads), so a traffic spike degrades gracefully instead of
 // exhausting the Go scheduler.
 //
-// It gates Shard.ObjectSearch and the allow-list phase of
-// Shard.ObjectVectorSearch; filtered aggregations and batch-delete-by-filter
-// are not yet gated. It composes with entities/concurrency's per-query budget:
-// that bounds one query's fan-out, this bounds the aggregate across queries.
+// It gates Shard.ObjectSearch when a filter or keyword ranking is present, and
+// the whole of Shard.ObjectVectorSearch (allow-list build plus the vector
+// phase), filtered or not. A grant is taken per shard searched on this node,
+// so a query touching several local shards holds several grants at once.
+// Filtered aggregations and batch-delete-by-filter are not yet gated. It
+// composes with entities/concurrency's per-query budget: that bounds one
+// query's fan-out, this bounds the aggregate across queries, and the grant
+// seeds the per-query budget so the two agree.
 //
 // The limiter owns no goroutines; all coordination is a mutex plus per-waiter
 // buffered channels.
