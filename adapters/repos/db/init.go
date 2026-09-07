@@ -291,10 +291,7 @@ func shouldComputeShardSizes(explicitLazyLoad *bool, localShardCount, countThres
 	if explicitLazyLoad != nil {
 		return false
 	}
-	if sizeThresholdGB <= 0 {
-		return false
-	}
-	return localShardCount <= countThreshold
+	return sizeThresholdGB > 0 && localShardCount <= countThreshold
 }
 
 // totalShardSizeBytes returns the cumulative on-disk size (in bytes) of all local

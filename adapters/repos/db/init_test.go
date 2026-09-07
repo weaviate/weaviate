@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"math"
 	"os"
 	"path"
 	"testing"
@@ -131,6 +132,16 @@ func TestShouldComputeShardSizes(t *testing.T) {
 			localShardCount: 10,
 			countThreshold:  1000,
 			sizeThresholdGB: 0,
+			want:            false,
+		},
+		{
+			// LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB=NaN parses and passes validation,
+			// and uint64(NaN*1<<30) is not even the same on every arch, so the
+			// threshold it yields can never be meaningfully met
+			name:            "a NaN size threshold skips",
+			localShardCount: 10,
+			countThreshold:  1000,
+			sizeThresholdGB: math.NaN(),
 			want:            false,
 		},
 		{
