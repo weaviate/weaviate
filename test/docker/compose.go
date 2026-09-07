@@ -617,9 +617,7 @@ func (d *Compose) WithWeaviateWithDebugPort() *Compose {
 	return d
 }
 
-// WithWeaviateTmpfsData mounts /data as a tmpfs in every weaviate container,
-// wiped on stop. Gives data-loss tests true semantics: rm-while-running races
-// weaviate's open-fd writes, which recreate files between rm and SIGKILL.
+// WithWeaviateTmpfsData mounts /data as tmpfs (wiped on stop): rm-while-running races open-fd writes that recreate files before SIGKILL.
 func (d *Compose) WithWeaviateTmpfsData() *Compose {
 	d.withWeaviateTmpfsData = true
 	return d

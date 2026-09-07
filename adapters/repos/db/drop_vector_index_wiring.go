@@ -44,8 +44,7 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 		if s == nil {
 			continue
 		}
-		// asLazyLoadShard: a recovering shard's blocked Load lands in the warn+skip
-		// path instead of panicking in Store() below.
+		// asLazyLoadShard: a recovering shard's blocked Load warns+skips instead of panicking in Store() below.
 		if lazy, ok := asLazyLoadShard(s); ok {
 			if err := lazy.Load(ctx); err != nil {
 				db.logger.WithField("collection", collection).WithField("shard", name).

@@ -29,16 +29,14 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// srClusterCfg toggles the per-test cluster knobs on top of the shared
-// SELF_RECOVERY base env.
+// srClusterCfg toggles per-test cluster knobs on the shared SELF_RECOVERY base env.
 type srClusterCfg struct {
 	debugPort        bool // /debug/* endpoints (forceRaftSnapshot, smoke wiring)
 	raftTrailingLogs bool // RAFT_TRAILING_LOGS=1 to force snapshot-based rejoin
 	asyncDisabled    bool // sync replication (tests that assert exact counts mid-recovery)
 }
 
-// startSelfRecoveryCluster boots a 3-node SELF_RECOVERY cluster, registers
-// teardown, and points the shared client at node-0.
+// startSelfRecoveryCluster boots a 3-node cluster, registers teardown, points the client at node-0.
 func startSelfRecoveryCluster(ctx context.Context, t *testing.T, cfg srClusterCfg) *docker.DockerCompose {
 	t.Helper()
 	b := docker.New().
@@ -58,8 +56,7 @@ func startSelfRecoveryCluster(ctx context.Context, t *testing.T, cfg srClusterCf
 	}
 	compose, err := b.Start(ctx)
 	require.NoError(t, err)
-	// Fresh ctx: t.Cleanup runs after the test's own `defer cancel()`, so the
-	// test ctx is already cancelled by teardown time.
+	// Fresh ctx: t.Cleanup runs after the test's own defer cancel().
 	t.Cleanup(func() {
 		termCtx, termCancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer termCancel()
@@ -85,8 +82,7 @@ func waitClusterHealthy(t *testing.T) {
 	}, 3*time.Minute, 1*time.Second)
 }
 
-// waitShardsLoaded blocks until every node holds shardsPerNode loaded shards
-// for the class (write-readiness before a wipe).
+// waitShardsLoaded: write-readiness before a wipe.
 func waitShardsLoaded(t *testing.T, class string, shardsPerNode int) {
 	t.Helper()
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -105,8 +101,7 @@ func waitShardsLoaded(t *testing.T, class string, shardsPerNode int) {
 	}, 3*time.Minute, 1*time.Second)
 }
 
-// submitBatch ingests objs, retrying until the batch succeeds with no
-// per-object errors. cl="" uses the default consistency level.
+// submitBatch retries until the batch succeeds with no per-object errors; cl="" = default.
 func submitBatch(t *testing.T, objs []*models.Object, cl types.ConsistencyLevel) {
 	t.Helper()
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -127,8 +122,7 @@ func submitBatch(t *testing.T, objs []*models.Object, cl types.ConsistencyLevel)
 	}, 60*time.Second, 1*time.Second, "batch ingest never succeeded")
 }
 
-// wipeAndRestart erases node idx's data, restarts it, and re-points the client
-// at node-0.
+// wipeAndRestart erases node idx's data, restarts it, re-points the client at node-0.
 func wipeAndRestart(ctx context.Context, t *testing.T, compose *docker.DockerCompose, idx int) {
 	t.Helper()
 	common.WipeNodeDataAt(ctx, t, compose, idx)
@@ -146,8 +140,7 @@ func waitSelfRecoveryOpFired(t *testing.T, node string) {
 	}, 5*time.Minute, 1*time.Second, "no SELF_RECOVERY op observed for the wiped node")
 }
 
-// assertNoActiveRecovery asserts no node ever shows an active SELF_RECOVERY op
-// over d (negative control for healthy-cluster schema changes).
+// assertNoActiveRecovery: negative control for healthy-cluster schema changes.
 func assertNoActiveRecovery(t *testing.T, nodeNames []string, d time.Duration) {
 	t.Helper()
 	for _, node := range nodeNames {
@@ -159,8 +152,7 @@ func assertNoActiveRecovery(t *testing.T, nodeNames []string, d time.Duration) {
 	}
 }
 
-// assertNodeRecovered blocks until node reports wantShards loaded shards, each
-// with wantCount objects.
+// assertNodeRecovered blocks until node reports wantShards loaded shards with wantCount objects each.
 func assertNodeRecovered(t *testing.T, class, node string, wantShards int, wantCount int64) {
 	t.Helper()
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {

@@ -104,8 +104,7 @@ func TestSelfRecoveryViaLogReplayConcurrentChanges(t *testing.T) {
 		}
 		submitBatch(t, batch, types.ConsistencyLevelQuorum)
 
-		// A peer that crash-restarted during formation may still be recovering;
-		// settle and require every shard loaded so the wipe leaves enough replicas.
+		// Settle and require every shard loaded: a crash-restarted peer may still be recovering.
 		waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
 		waitShardsLoaded(t, pClass.Class, 1)
 	})

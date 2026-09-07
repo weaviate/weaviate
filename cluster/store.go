@@ -172,13 +172,10 @@ type Config struct {
 	// WARNING: This should be run on *actual* one node cluster only.
 	ForceOneNodeRecovery bool
 
-	// SelfRecoveryEnabled defers a wiped joiner's DB load until it catches up to
-	// the leader's join barrier, so missing shards re-hydrate from peers instead
-	// of materialising empty.
+	// SelfRecoveryEnabled defers a wiped joiner's DB load to the join barrier so missing shards re-hydrate instead of materialising empty.
 	SelfRecoveryEnabled bool
 
-	// WipedJoinerBarrierTimeout bounds the no-progress wait before a wiped joiner
-	// loads eagerly. 0 ⇒ wipedJoinerNoProgressTimeout.
+	// WipedJoinerBarrierTimeout bounds the no-progress wait; 0 ⇒ wipedJoinerNoProgressTimeout.
 	WipedJoinerBarrierTimeout time.Duration
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
@@ -251,26 +248,19 @@ type Store struct {
 	// dbLoaded is set when the DB is loaded at startup
 	dbLoaded atomic.Bool
 
-	// Wiped-joiner self-recovery state (only meaningful when SelfRecoveryEnabled).
-	//
-	// candidate: set at Open for a node with no local raft state; while it holds
-	// (and not reloaded) Apply forces schemaOnly and dbLoaded is deferred.
+	// Wiped-joiner state (SelfRecoveryEnabled only): no local raft state at Open; while held, Apply forces schemaOnly and dbLoaded defers.
 	wipedJoinerCandidate atomic.Bool
 	// latches once a reload pass is claimed; guards against a double reload.
 	wipedJoinerReloadClaim atomic.Bool
-	// set once the self-recovery pass COMPLETED; only then does forced
-	// schemaOnly stop, so applies can't mutate the DB mid-reload.
+	// latched only once the reload COMPLETED, so applies can't mutate the DB mid-reload.
 	wipedJoinerReloaded atomic.Bool
 	// serializes the watcher's off-FSM-thread reload against FSM mutations.
 	wipedJoinerApplyMu sync.RWMutex
-	// set once this node joined an EXISTING cluster; distinguishes a real wiped
-	// joiner from a node forming a fresh cluster (nothing to recover).
+	// joined an EXISTING cluster; distinguishes a wiped joiner from a fresh formation.
 	wipedJoinerJoined atomic.Bool
-	// leader's committed index at join (0 until SetJoinBarrier or for a founding
-	// node); the catch-up target.
+	// leader's committed index at join (0 until SetJoinBarrier); the catch-up target.
 	joinBarrier atomic.Uint64
-	// closed by watchWipedJoiner on exit; nil unless spawned. Close waits on it
-	// so shutdown can't race an in-flight reload.
+	// closed by watchWipedJoiner on exit; Close waits on it so shutdown can't race a reload.
 	wipedJoinerDone chan struct{}
 
 	// raft implementation from external library
@@ -498,8 +488,7 @@ func (st *Store) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return st.distributedTasksManager.LocalDistributedTasks()
 }
 
-// ForceSnapshot triggers an immediate RAFT snapshot, used by /debug/raft/snapshot
-// to deterministically drive a wiped node's rejoin through the SELF_RECOVERY hook.
+// ForceSnapshot backs /debug/raft/snapshot: deterministically drives a wiped rejoin through the SELF_RECOVERY hook.
 func (st *Store) ForceSnapshot() error {
 	if st.raft == nil {
 		return fmt.Errorf("raft not initialised")
@@ -566,11 +555,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		st.dbLoaded.Store(true)
 
 		if wipedJoinerIsCandidate(st.cfg.SelfRecoveryEnabled, st.cfg.MetadataOnlyVoters, st.lastAppliedIndexToDB.Load(), snapIndex) {
-			// Force schema-only catch-up so a joiner doesn't materialise empty
-			// shards; the barrier reload (Apply thread) installs RecoveringShards.
-			// watchWipedJoiner handles the fresh-cluster and no-progress fallbacks.
-			// recoverSingleNode runs above, before the watcher is spawned, so the
-			// watcher never observes a concurrent st.raft reassignment.
+			// Force schema-only catch-up so a joiner doesn't materialise empty shards; spawned after recoverSingleNode so the watcher never sees a concurrent st.raft reassignment.
 			st.wipedJoinerCandidate.Store(true)
 			st.wipedJoinerDone = make(chan struct{})
 			enterrors.GoWrapper(func() {
@@ -738,8 +723,7 @@ func (st *Store) Close(ctx context.Context) error {
 
 	st.open.Store(false)
 
-	// Wait for the wiped-joiner watcher to exit before closing the schema
-	// manager, so shutdown can't race an in-flight reload; bounded by ctx.
+	// Wait for the watcher before closing the schema manager so shutdown can't race a reload; bounded by ctx.
 	if st.wipedJoinerDone != nil {
 		select {
 		case <-st.wipedJoinerDone:
@@ -893,8 +877,7 @@ func (st *Store) IsLeader() bool {
 	return st.raft != nil && st.raft.State() == raft.Leader
 }
 
-// CommitIndex returns the highest committed RAFT log index, or 0 before raft is
-// constructed. Served to a joiner as its catch-up barrier.
+// CommitIndex: highest committed index (0 before raft is constructed); served to a joiner as its barrier.
 func (st *Store) CommitIndex() uint64 {
 	if st.raft == nil {
 		return 0
@@ -902,12 +885,10 @@ func (st *Store) CommitIndex() uint64 {
 	return st.raft.CommitIndex()
 }
 
-// wipedJoinerNoProgressTimeout is the default no-progress window (not an absolute
-// deadline) before a stuck wiped joiner loads eagerly.
+// wipedJoinerNoProgressTimeout is a no-progress window, not an absolute deadline.
 const wipedJoinerNoProgressTimeout = 3 * time.Minute
 
-// Pure predicates holding the wiped-joiner decision logic, unit-tested
-// independently of raft/DB wiring.
+// Pure predicates for the wiped-joiner decisions, unit-tested without raft/DB wiring.
 
 func wipedJoinerIsCandidate(selfRecoveryEnabled, metadataOnly bool, lastAppliedToDB, snapIndex uint64) bool {
 	return selfRecoveryEnabled && !metadataOnly && lastAppliedToDB == 0 && snapIndex == 0
@@ -918,15 +899,12 @@ func wipedJoinerBarrierReached(reloaded bool, barrier, appliedIndex uint64) bool
 	return !reloaded && barrier != 0 && appliedIndex >= barrier
 }
 
-// Only a LOCAL leader is trivially caught up; a follower's commit view lags the
-// leader's mid-stream, so followers must obtain a real join barrier instead.
+// Only a LOCAL leader is trivially caught up; a follower's commit view lags mid-stream.
 func wipedJoinerSelfLeaderReady(isLeader bool, commit, applied uint64) bool {
 	return isLeader && commit > 0 && applied >= commit
 }
 
-// A snapshot install only covers the catch-up barrier when its index reaches it.
-// With no barrier, only a completed join loads at Restore (pre-barrier leader,
-// no barrier ever coming); a join still in flight may yet deliver one.
+// A snapshot covers the barrier only at snapIndex ≥ barrier; with none, only a completed join loads at Restore.
 func wipedJoinerSnapshotCoversBarrier(joined bool, barrier, snapIndex uint64) bool {
 	if barrier > 0 {
 		return snapIndex >= barrier
@@ -934,9 +912,7 @@ func wipedJoinerSnapshotCoversBarrier(joined bool, barrier, snapIndex uint64) bo
 	return joined
 }
 
-// SetJoinBarrier records the leader's committed index at join as a wiped joiner's
-// catch-up barrier. No-op unless this node is an un-reloaded candidate; a 0 index
-// falls back to watchWipedJoiner's timeout paths.
+// SetJoinBarrier: no-op unless an un-reloaded candidate; a 0 index falls back to the watcher timeouts.
 func (st *Store) SetJoinBarrier(leaderCommitIndex uint64) {
 	if !st.wipedJoinerCandidate.Load() || st.wipedJoinerReloaded.Load() {
 		return
@@ -945,8 +921,7 @@ func (st *Store) SetJoinBarrier(leaderCommitIndex uint64) {
 	if leaderCommitIndex == 0 && st.IsLeader() {
 		return
 	}
-	// Mark joined even without a barrier (pre-barrier leader), so the watcher
-	// arms the bounded zero-barrier deadline instead of waiting forever.
+	// Mark joined even without a barrier so the watcher arms the bounded zero-barrier deadline.
 	st.wipedJoinerJoined.Store(true)
 	if leaderCommitIndex == 0 {
 		return
@@ -956,18 +931,13 @@ func (st *Store) SetJoinBarrier(leaderCommitIndex uint64) {
 		Info("wiped joiner: catch-up barrier set; deferring DB load until caught up")
 }
 
-// NeedsJoinBarrier reports that this wiped joiner still needs a successful join
-// RPC to obtain its catch-up barrier; the bootstrapper keeps joining while true.
+// NeedsJoinBarrier keeps the bootstrapper joining until a join RPC delivers the barrier.
 func (st *Store) NeedsJoinBarrier() bool {
 	return st.wipedJoinerCandidate.Load() && !st.wipedJoinerReloaded.Load() &&
 		!st.wipedJoinerJoined.Load() && st.joinBarrier.Load() == 0
 }
 
-// finishWipedJoinerReload runs the self-recovery DB-load pass exactly once.
-// Idempotent across its callers (Apply barrier, snapshot Restore, watcher).
-// wipedJoinerReloaded latches only AFTER the reload, so applies stay
-// schemaOnly for its whole duration; candidate clears so later snapshot
-// restores fall back to the normal DB reload path.
+// finishWipedJoinerReload runs the reload exactly once; reloaded latches only AFTER it, so applies stay schemaOnly for its whole duration.
 func (st *Store) finishWipedJoinerReload() {
 	if !st.claimWipedJoinerReload() {
 		return
@@ -977,27 +947,19 @@ func (st *Store) finishWipedJoinerReload() {
 	st.wipedJoinerCandidate.Store(false)
 }
 
-// claimWipedJoinerReload atomically latches the reload claim, returning true
-// to exactly one concurrent caller.
+// claimWipedJoinerReload latches the claim for exactly one caller.
 func (st *Store) claimWipedJoinerReload() bool {
 	return !st.wipedJoinerReloadClaim.Swap(true)
 }
 
-// finishWipedJoinerReloadExclusive is the watcher-side reload: it excludes FSM
-// mutations (Apply/Restore) for the reload's duration.
+// finishWipedJoinerReloadExclusive is the watcher-side reload: excludes FSM mutations for its duration.
 func (st *Store) finishWipedJoinerReloadExclusive() {
 	st.wipedJoinerApplyMu.Lock()
 	defer st.wipedJoinerApplyMu.Unlock()
 	st.finishWipedJoinerReload()
 }
 
-// wipedJoinerRestoreReload completes the wiped joiner's reload at snapshot
-// restore, unless entries in (snapIndex, joinBarrier] are still to be applied:
-// completing early would full-apply them outside the tagged load pass, so a
-// class or tenant created in that window would materialize empty with no
-// recovery. Deferred, applies stay schema-only and the barrier path (Apply
-// thread or watcher) runs the single tagged reload once caught up. Reports
-// whether the reload ran.
+// wipedJoinerRestoreReload reloads at Restore unless entries in (snapIndex, joinBarrier] remain — reloading early would full-apply them outside the tagged pass and materialize empty shards. Reports whether it ran.
 func (st *Store) wipedJoinerRestoreReload(snapIndex uint64) bool {
 	if wipedJoinerSnapshotCoversBarrier(st.wipedJoinerJoined.Load(), st.joinBarrier.Load(), snapIndex) {
 		st.finishWipedJoinerReload()
@@ -1037,10 +999,7 @@ func (st *Store) wipedJoinerBarrierTimeout() time.Duration {
 	return wipedJoinerNoProgressTimeout
 }
 
-// watchWipedJoiner covers cases the Apply-deferred barrier path can't: a local
-// leader (trivially caught up), a joined node whose leader supplied no barrier
-// (bounded deadline), and a joiner making no apply progress toward its barrier
-// before the timeout. Exits once reloaded or on Close.
+// watchWipedJoiner covers what the Apply barrier can't: local leader, joined with no barrier, no-progress timeout. Exits once reloaded or on Close.
 func (st *Store) watchWipedJoiner() {
 	t := time.NewTicker(500 * time.Millisecond)
 	defer t.Stop()
@@ -1049,8 +1008,7 @@ func (st *Store) watchWipedJoiner() {
 	var lastApplied uint64
 	var stableSince time.Time
 	var zeroBarrierSince time.Time
-	// Treat open=false as shutdown only after seeing it true, so an early tick
-	// mid-Open() can't exit and disable the fallbacks below.
+	// Treat open=false as shutdown only after seeing it true, else an early tick disables the fallbacks.
 	opened := false
 	for range t.C {
 		if st.wipedJoinerReloaded.Load() {
@@ -1071,8 +1029,7 @@ func (st *Store) watchWipedJoiner() {
 		joined := st.wipedJoinerJoined.Load()
 		barrier := st.joinBarrier.Load()
 
-		// Barrier reached but the Apply-thread trigger didn't fire (entry at the
-		// barrier was a config/noop, not a LogCommand); catch it here.
+		// Barrier reached but the entry there was a config/noop (no Apply-thread trigger); catch it here.
 		if wipedJoinerBarrierReached(st.wipedJoinerReloaded.Load(), barrier, applied) {
 			if !st.wipedJoinerFSMCaughtUp(barrier) {
 				continue
@@ -1103,17 +1060,14 @@ func (st *Store) watchWipedJoiner() {
 			continue
 		}
 
-		// Don't arm the no-progress timer until catching up (joined, or a leader
-		// exists); arming early could eager-load before SetJoinBarrier runs,
-		// skipping recovery on a later join.
+		// Don't arm no-progress until joined or a leader exists; arming early could eager-load before SetJoinBarrier.
 		if !joined && !hasLeader {
 			lastApplied = applied
 			stableSince = time.Time{}
 			continue
 		}
 
-		// No-progress fallback: a joiner that can't reach its barrier eventually
-		// loads eagerly (legacy behaviour).
+		// No-progress fallback: an unreachable barrier eventually loads eagerly (legacy behaviour).
 		if applied != lastApplied || stableSince.IsZero() {
 			lastApplied = applied
 			stableSince = time.Now()
@@ -1343,9 +1297,7 @@ func (st *Store) FSMHasCaughtUp() bool {
 	return st.lastAppliedIndex.Load() >= st.lastAppliedIndexToDB.Load()
 }
 
-// shouldLogSlowApply reports whether slow RAFT apply diagnostics should be
-// emitted: store ready and past startup FSM catch-up. Followers log too — a
-// recovering follower's stalled apply loop is exactly what operators must see.
+// shouldLogSlowApply: ready and past FSM catch-up; followers log too — a recovering follower's stalled apply loop is what operators must see.
 func (st *Store) shouldLogSlowApply() bool {
 	return st.Ready() && st.FSMHasCaughtUp()
 }

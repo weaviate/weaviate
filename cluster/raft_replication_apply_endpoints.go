@@ -27,7 +27,7 @@ import (
 )
 
 func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.ReplicationScalePlan) (opsUUIDs []strfmt.UUID, err error) {
-	// while not strictly necessary, scaling while there are ongoing replications is disallowed.
+	// while not strictly necessary, scaling while there are ongoing replications is disallowed
 	// SELF_RECOVERY ops are excluded: they don't change membership and must not block scale-out.
 	ops, err := s.GetReplicationDetailsByCollection(ctx, scalePlan.Collection)
 	if err != nil && !errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
@@ -124,8 +124,7 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 	return opsUUIDs, nil
 }
 
-// RegisterSelfRecovery registers a SELF_RECOVERY replication op, bypassing
-// ApplyReplicationScalePlan's ongoing-replications guard.
+// RegisterSelfRecovery registers a SELF_RECOVERY op, bypassing the ongoing-replications guard.
 func (s *Raft) RegisterSelfRecovery(ctx context.Context, sourceNode, collection, shard, targetNode string) (strfmt.UUID, error) {
 	id, err := uuid.NewRandom()
 	if err != nil {

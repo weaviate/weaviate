@@ -634,11 +634,9 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		}
 		shardName := shard.name
 
-		// Missing dir + SELF_RECOVERY on: hand off to orchestrator and skip
-		// the lazy-load pass; enrolling it would create an empty dir mid-copy.
+		// Missing dir + SELF_RECOVERY on: hand off to the orchestrator; enrolling would create an empty dir mid-copy.
 		if i.recoverShardFromPeerIfNeeded(ctx, class, shardName, promMetrics) {
-			// Counted as lazy so scanStartupProgress does not report a stuck
-			// total for the whole recovery duration.
+			// Counted as lazy so scanStartupProgress doesn't report a stuck total during recovery.
 			startupShards.lazy.Add(1)
 			continue
 		}
@@ -892,8 +890,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 		return monitoring.WarmupSkippedShardGone, nil
 	}
 
-	// Never Load a recovering shard here: it would create an empty dir
-	// mid-copy. Promotion goes via the orchestrator/consumer.
+	// Never Load a recovering shard here: it would create an empty dir mid-copy; promotion goes via the orchestrator.
 	if rec, ok := shard.(*RecoveringShard); ok && rec.IsRecovering() {
 		return "", nil
 	}
@@ -925,8 +922,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	return monitoring.WarmupLoaded, nil
 }
 
-// recoverShardFromPeerIfNeeded installs a load-blocking RecoveringShard when the
-// live dir is missing at startup (resuming or fresh SELF_RECOVERY); true = skip normal init.
+// recoverShardFromPeerIfNeeded installs a load-blocking RecoveringShard when the live dir is missing at startup; true = skip normal init.
 func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.Class,
 	shardName string, promMetrics *monitoring.PrometheusMetrics,
 ) bool {
@@ -944,8 +940,7 @@ func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.
 		nodeName = i.getSchema.NodeName()
 	}
 
-	// Resuming SELF_RECOVERY op: block normal init (an empty live dir makes the
-	// consumer's promote erase the copy); don't re-submit — the op self-resumes.
+	// Resuming SELF_RECOVERY op: block normal init and don't re-submit — the op self-resumes.
 	if fsm != nil && nodeName != "" && fsm.HasActiveSelfRecoveryTargetingShard(collection, shardName, nodeName) {
 		i.installRecoveringShard(ctx, class, shardName, promMetrics)
 		i.logger.WithFields(logFields).
@@ -954,9 +949,7 @@ func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.
 		return true
 	}
 
-	// A different in-flight op (e.g. scale-out COPY) owns the dir; leave it to
-	// that op. Nil reader (tests only) counts as none; the FSM admission checks
-	// at RegisterSelfRecovery are the backstop.
+	// A different in-flight op (e.g. scale-out COPY) owns the dir; nil reader (tests only) counts as none.
 	if fsm != nil && nodeName != "" &&
 		fsm.HasActiveTargetReplicationForShard(collection, shardName, nodeName) {
 		i.logger.WithFields(logFields).
@@ -964,8 +957,7 @@ func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.
 		return false
 	}
 
-	// Fresh recovery: install before submit so a fast worker can't clobber the
-	// wrapper via LoadLocalShard; a declined submit reverts it.
+	// Install before submit so a fast worker can't clobber the wrapper; a declined submit reverts it.
 	i.installRecoveringShard(ctx, class, shardName, promMetrics)
 	fromBootstrap := i.Config.RaftBootstrapComplete != nil && !i.Config.RaftBootstrapComplete()
 	if !orch.SubmitRecovery(context.Background(), collection, shardName, fromBootstrap) {
@@ -980,8 +972,7 @@ func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.
 	return true
 }
 
-// installRecoveringShard stores a load-blocking RecoveringShard so normal init
-// can't plant an empty live dir while recovery runs.
+// installRecoveringShard stores a load-blocking RecoveringShard so normal init can't plant an empty live dir.
 func (i *Index) installRecoveringShard(ctx context.Context, class *models.Class,
 	shardName string, promMetrics *monitoring.PrometheusMetrics,
 ) {
@@ -990,8 +981,7 @@ func (i *Index) installRecoveringShard(ctx context.Context, class *models.Class,
 	i.shards.Store(shardName, rec)
 }
 
-// shouldRecoverShardFromPeer is the eligibility preamble (feature on, startup
-// pass, live dir missing); the caller classifies in-flight ops and installs.
+// shouldRecoverShardFromPeer is the eligibility preamble; the caller classifies in-flight ops and installs.
 func (i *Index) shouldRecoverShardFromPeer(ctx context.Context, shardName string) bool {
 	orch := i.Config.SelfRecoveryOrchestrator
 	if orch == nil || !orch.Enabled() {
@@ -1190,17 +1180,13 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
 
-// shardIsLoaded reports whether the shard is materialized, i.e. whether
-// touching it would force a cold shard to load. Any deferred-load wrapper
-// (lazy or recovering) counts as unloaded until it is.
+// shardIsLoaded: any deferred-load wrapper (lazy or recovering) counts as unloaded until materialized.
 func shardIsLoaded(shard ShardLike) bool {
 	l, ok := shard.(loadableShard)
 	return !ok || l.isLoaded()
 }
 
-// forEachShardSkipRecovering is ForEachShard but skips shards being restored
-// from a peer: their buckets aren't usable yet (mustLoad would panic). Use for
-// all-shards ops that touch shard internals.
+// forEachShardSkipRecovering is ForEachShard minus shards being restored from a peer (mustLoad would panic).
 func (i *Index) forEachShardSkipRecovering(f func(name string, shard ShardLike) error) error {
 	return i.ForEachShard(func(name string, shard ShardLike) error {
 		if shard.GetStatus() == storagestate.StatusRecovering {
@@ -1651,12 +1637,9 @@ type IndexConfig struct {
 	LazyPropertyLengthsEnabled  *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled      func() bool
 
-	// Consulted at startup for shards whose dir is missing: submits a
-	// copy from a healthy peer. Nil-safe.
+	// Consulted at startup for shards whose dir is missing; nil-safe.
 	SelfRecoveryOrchestrator SelfRecoveryOrchestrator
-	// Captured at submit time as fromBootstrap so the orchestrator can treat
-	// an all-peers-empty result during the bootstrap window as a likely
-	// class-added-during-downtime rather than a wipe. Nil ⇒ post-bootstrap.
+	// Captured at submit as fromBootstrap: bootstrap-window all-peers-empty reads as class-added-during-downtime, not a wipe. Nil ⇒ post-bootstrap.
 	RaftBootstrapComplete func() bool
 	// Seeded before initAndStoreShards so the startup recovery check can read it.
 	ReplicationFSM replicationTypes.ReplicationFSMReader
@@ -1765,11 +1748,7 @@ func (i *Index) replicationEnabled() bool {
 	return i.Config.ReplicationFactor > 1
 }
 
-// ensureShardLocallyReady rejects reads of a loading or recovering shard so the
-// caller retries on a replica. With replication off there is none, so the shard
-// is used as it is rather than failing a read that would otherwise only be slow.
-// (A recovering shard always has replication on — SELF_RECOVERY copies from a
-// replica — so the gate is never bypassed for it in practice.)
+// ensureShardLocallyReady rejects reads of a loading/recovering shard so the caller retries on a replica; with replication off (never true while recovering) the shard is used as-is.
 func (i *Index) ensureShardLocallyReady(shard ShardLike) error {
 	if status := shard.GetStatus(); (status == storagestate.StatusLoading || status == storagestate.StatusRecovering) && i.replicationEnabled() {
 		return enterrors.NewErrUnprocessable(
@@ -3600,8 +3579,7 @@ func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardNa
 	return nil
 }
 
-// PromoteRecoveringLocalShard loads/promotes an existing in-memory shard entry; unlike
-// LoadLocalShard it never creates one — a missing entry means deleted/unloaded mid-recovery.
+// PromoteRecoveringLocalShard never creates a shard — a missing entry means deleted/unloaded mid-recovery.
 func (i *Index) PromoteRecoveringLocalShard(ctx context.Context, shardName string) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()

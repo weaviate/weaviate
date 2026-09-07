@@ -24,14 +24,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// RecoveringShard wraps a LazyLoadShard for SELF_RECOVERY. Until promoted via
-// Promote, Load is blocked with ErrShardRecovering so a lazy load can't
-// MkdirAll an empty shard before the copy-and-rename completes, and GetStatus
-// reports RECOVERING.
-//
-// While blocked, any inherited data-path method going through mustLoad PANICS
-// by design; iterating callers must skip recovering shards. See
-// docs/self-recovery.md ("Limitations").
+// RecoveringShard blocks Load with ErrShardRecovering until Promote so nothing plants an empty dir mid-copy; mustLoad paths PANIC by design (docs/self-recovery.md).
 type RecoveringShard struct {
 	*LazyLoadShard
 }
@@ -49,8 +42,7 @@ func NewRecoveringShard(ctx context.Context, promMetrics *monitoring.PrometheusM
 	return &RecoveringShard{LazyLoadShard: inner}
 }
 
-// asLazyLoadShard unwraps both deferred-load wrappers; concrete *LazyLoadShard
-// assertions would misclassify a *RecoveringShard as a loaded shard.
+// asLazyLoadShard unwraps both wrappers; a concrete *LazyLoadShard assert misclassifies a *RecoveringShard.
 func asLazyLoadShard(s ShardLike) (*LazyLoadShard, bool) {
 	switch v := s.(type) {
 	case *LazyLoadShard:

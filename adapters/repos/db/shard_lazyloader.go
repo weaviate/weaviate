@@ -68,8 +68,7 @@ type LazyLoadShard struct {
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter *loadlimiter.LoadLimiter
 	lazyLoadSegments bool
-	// loadBlocked makes Load return loadBlockedErr without calling NewShard;
-	// RecoveringShard uses it to prevent an empty shard before the rename.
+	// loadBlocked makes Load fail with loadBlockedErr; RecoveringShard uses it to prevent an empty shard pre-rename.
 	loadBlocked    bool
 	loadBlockedErr error
 }
@@ -120,8 +119,7 @@ func (l *LazyLoadShard) mustLoad() {
 
 func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) {
 	if err := l.Load(ctx); err != nil {
-		// Reaching a mustLoad-backed method on a recovering shard is a
-		// routing bug; panic explicitly. See docs/self-recovery.md.
+		// mustLoad on a recovering shard is a routing bug; panic explicitly (docs/self-recovery.md).
 		if enterrors.IsShardRecovering(err) {
 			panic(fmt.Sprintf("shard %q is recovering from a peer; this code path must not touch a recovering shard: %v",
 				l.shardOpts.name, err))

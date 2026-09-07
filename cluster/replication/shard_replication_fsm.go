@@ -292,8 +292,7 @@ func (s *ShardReplicationFSM) HasActiveTargetReplicationForShard(collection, sha
 	return false
 }
 
-// HasActiveSelfRecoveryTargetingShard reports a non-terminal SELF_RECOVERY op
-// targeting (collection, shard, targetNode); local FSM read, no leader RPC.
+// HasActiveSelfRecoveryTargetingShard: non-terminal SELF_RECOVERY op targeting the triple; local FSM read.
 func (s *ShardReplicationFSM) HasActiveSelfRecoveryTargetingShard(collection, shard, targetNode string) bool {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()

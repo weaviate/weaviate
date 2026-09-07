@@ -81,8 +81,7 @@ func (s *stubNodeSelector) Shutdown() error                                   { 
 
 var _ cluster.NodeSelector = (*stubNodeSelector)(nil)
 
-// stubFileReplicationClient embeds the generated client so only the probe path
-// needs stubbing; any other method call panics on the nil embedded interface.
+// stubFileReplicationClient stubs only the probe path; other calls panic on the nil embedded interface.
 type stubFileReplicationClient struct {
 	protocol.FileReplicationServiceClient
 	probeShardData func(ctx context.Context, in *protocol.ProbeShardDataRequest) (*protocol.ProbeShardDataResponse, error)
