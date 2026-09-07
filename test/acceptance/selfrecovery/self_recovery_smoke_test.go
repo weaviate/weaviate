@@ -58,7 +58,7 @@ func TestSelfRecoverySmokeWiring(t *testing.T) {
 		cls.ShardingConfig = map[string]interface{}{"desiredCount": 1}
 		cls.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
 		cls.Vectorizer = "none"
-		helper.CreateClass(t, cls)
+		ensureClass(t, cls)
 
 		var shardName string
 		verbose := verbosity.OutputVerbose
