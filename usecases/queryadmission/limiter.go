@@ -24,6 +24,15 @@
 // query's fan-out, this bounds the aggregate across queries, and the grant
 // seeds the per-query budget so the two agree.
 //
+// Per-shard grants are deliberate: each shard search runs its own worker
+// pool, so each is charged against the node. Do not size Capacity in
+// proportion to the number of local shards; that weakens the aggregate bound.
+// Tune it from measurements (successful QPS, tail latency, the waiting and
+// shed metrics, CPU, memory). At a capacity and queue far below the defaults,
+// a single query touching several local shards can shed one of its own shard
+// searches with no other traffic present, because its sibling shard searches
+// compete for the same seats.
+//
 // The limiter owns no goroutines; all coordination is a mutex plus per-waiter
 // buffered channels.
 package queryadmission
