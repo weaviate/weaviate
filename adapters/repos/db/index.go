@@ -813,7 +813,11 @@ func (i *Index) warmupCandidate(shardName string) (bool, monitoring.WarmupOutcom
 	if shard == nil {
 		return false, monitoring.WarmupSkippedShardGone
 	}
-	lazyShard, ok := shard.(*LazyLoadShard)
+	// Never load a recovering shard; promotion goes via the orchestrator/consumer.
+	if rec, ok := shard.(*RecoveringShard); ok && rec.IsRecovering() {
+		return false, monitoring.WarmupSkippedRecovering
+	}
+	lazyShard, ok := asLazyLoadShard(shard)
 	if !ok || lazyShard.isLoaded() {
 		return false, monitoring.WarmupSkippedAlreadyLoaded
 	}
