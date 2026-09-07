@@ -58,6 +58,45 @@ func groupCarByMadeByManufacturerName() *filters.Path {
 	}
 }
 
+// hybridAggregateProps, hybridAggregateResolverReturn, and
+// hybridAggregateExpectedResults are the property/response/assertion shape
+// shared by every "Car" hybrid-aggregate test case that only aggregates
+// horsepower.mean over an unmodified result set (the "hybrid vector
+// distance" case above and every hybridFusionTestCase case below) - the
+// resolver's request/response contract doesn't change based on the
+// fusionType or distance arguments, so there's nothing case-specific left to
+// assert here beyond what's already covered by expectedNearHybrid.
+var (
+	hybridAggregateProps = []aggregation.ParamProperty{
+		{
+			Name:        "horsepower",
+			Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
+		},
+	}
+	hybridAggregateResolverReturn = []aggregation.Group{
+		{
+			Properties: map[string]aggregation.Property{
+				"horsepower": {
+					Type: aggregation.PropertyTypeNumerical,
+					NumericalAggregations: map[string]interface{}{
+						"mean": 275.7773,
+					},
+				},
+			},
+		},
+	}
+	hybridAggregateExpectedResults = []result{{
+		pathToField: []string{"Aggregate", "Car"},
+		expectedValue: []interface{}{
+			map[string]interface{}{
+				"horsepower": map[string]interface{}{
+					"mean": 275.7773,
+				},
+			},
+		},
+	}}
+)
+
 // hybridFusionTestCase builds a testCase asserting that an explicit
 // `fusionType` argument on an Aggregate hybrid search is propagated to the
 // resolver params with the corresponding FusionAlgorithm value. It is shared
@@ -78,12 +117,7 @@ func hybridFusionTestCase(name, fusionTypeLiteral string, fusionAlgorithm int) t
 				}
 			}
 		}`, fusionTypeLiteral),
-		expectedProps: []aggregation.ParamProperty{
-			{
-				Name:        "horsepower",
-				Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
-			},
-		},
+		expectedProps: hybridAggregateProps,
 		expectedNearHybrid: &searchparams.HybridSearch{
 			Distance:        0.5,
 			WithDistance:    true,
@@ -98,28 +132,8 @@ func hybridFusionTestCase(name, fusionTypeLiteral string, fusionAlgorithm int) t
 			// interface and fail to compare equal.
 			SubSearches: []searchparams.WeightedSearchResult(nil),
 		},
-		resolverReturn: []aggregation.Group{
-			{
-				Properties: map[string]aggregation.Property{
-					"horsepower": {
-						Type: aggregation.PropertyTypeNumerical,
-						NumericalAggregations: map[string]interface{}{
-							"mean": 275.7773,
-						},
-					},
-				},
-			},
-		},
-		expectedResults: []result{{
-			pathToField: []string{"Aggregate", "Car"},
-			expectedValue: []interface{}{
-				map[string]interface{}{
-					"horsepower": map[string]interface{}{
-						"mean": 275.7773,
-					},
-				},
-			},
-		}},
+		resolverReturn:  hybridAggregateResolverReturn,
+		expectedResults: hybridAggregateExpectedResults,
 	}
 }
 
@@ -544,12 +558,7 @@ func Test_Resolve(t *testing.T) {
 					}
 				}
 			}`,
-			expectedProps: []aggregation.ParamProperty{
-				{
-					Name:        "horsepower",
-					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
-				},
-			},
+			expectedProps: hybridAggregateProps,
 			expectedNearHybrid: &searchparams.HybridSearch{
 				Distance:        0.5,
 				WithDistance:    true,
@@ -559,28 +568,8 @@ func Test_Resolve(t *testing.T) {
 				Type:            "hybrid",
 				SubSearches:     emptySubsearch,
 			},
-			resolverReturn: []aggregation.Group{
-				{
-					Properties: map[string]aggregation.Property{
-						"horsepower": {
-							Type: aggregation.PropertyTypeNumerical,
-							NumericalAggregations: map[string]interface{}{
-								"mean": 275.7773,
-							},
-						},
-					},
-				},
-			},
-			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Car"},
-				expectedValue: []interface{}{
-					map[string]interface{}{
-						"horsepower": map[string]interface{}{
-							"mean": 275.7773,
-						},
-					},
-				},
-			}},
+			resolverReturn:  hybridAggregateResolverReturn,
+			expectedResults: hybridAggregateExpectedResults,
 		},
 		hybridFusionTestCase("hybrid explicit rankedFusion", "rankedFusion", 0),
 		hybridFusionTestCase("hybrid explicit relativeScoreFusion", "relativeScoreFusion", 1),
