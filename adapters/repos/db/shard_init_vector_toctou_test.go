@@ -169,7 +169,11 @@ func TestInitShardVectors_ConcurrentConfigUpdate(t *testing.T) {
 		}
 	}()
 
-	for i := 0; i < 200; i++ {
+	// initShardVectors finds its slots in place after the first call and
+	// returns at once, so a fixed number of iterations can finish before the
+	// writer lands a single update; keep reading until one has.
+	deadline := time.Now().Add(5 * time.Second)
+	for i := 0; i < 200 || (applied.Load() == 0 && time.Now().Before(deadline)); i++ {
 		require.NoError(t, shard.initShardVectors(ctx))
 	}
 
