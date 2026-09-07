@@ -14,70 +14,42 @@ package config
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/rerankertest"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
-	tests := []struct {
-		name        string
-		cfg         moduletools.ClassConfig
-		wantModel   string
-		wantBaseUrl string
-		wantErr     error
-	}{
+	rerankertest.RunValidateTest(t, []rerankertest.ValidateTestCase{
 		{
-			name: "default settings",
-			cfg: rerankertest.FakeClassConfig{
+			Name: "default settings",
+			Cfg: rerankertest.FakeClassConfig{
 				ClassConfig: map[string]interface{}{},
 			},
-			wantModel:   "jina-reranker-v2-base-multilingual",
-			wantBaseUrl: "https://api.jina.ai",
+			WantModel:   "jina-reranker-v2-base-multilingual",
+			WantBaseURL: "https://api.jina.ai",
 		},
 		{
-			name: "custom settings",
-			cfg: rerankertest.FakeClassConfig{
+			Name: "custom settings",
+			Cfg: rerankertest.FakeClassConfig{
 				ClassConfig: map[string]interface{}{
 					"model":   "jina-reranker-v1-base-en",
 					"baseURL": "http://base-url.com",
 				},
 			},
-			wantModel:   "jina-reranker-v1-base-en",
-			wantBaseUrl: "http://base-url.com",
+			WantModel:   "jina-reranker-v1-base-en",
+			WantBaseURL: "http://base-url.com",
 		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ic := NewClassSettings(tt.cfg)
-			if tt.wantErr != nil {
-				assert.EqualError(t, ic.Validate(nil), tt.wantErr.Error())
-			} else {
-				assert.Equal(t, tt.wantModel, ic.Model())
-				assert.Equal(t, tt.wantBaseUrl, ic.BaseURL())
-			}
-		})
-	}
+	}, func(cfg moduletools.ClassConfig) rerankertest.SettingsUnderTest {
+		return NewClassSettings(cfg)
+	})
 }
 
 func Test_classSettings_ValidateBaseURL(t *testing.T) {
-	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
-	tests := append(rerankertest.SSRFTestCases(), rerankertest.SSRFTestCase{
-		Name: "default URL is valid", BaseURL: "https://api.jina.ai", WantErr: false,
-	})
-	for _, tt := range tests {
-		t.Run(tt.Name, func(t *testing.T) {
-			ic := NewClassSettings(rerankertest.FakeClassConfig{
-				ClassConfig: map[string]interface{}{
-					"baseURL": tt.BaseURL,
-				},
-			})
-			err := ic.Validate(nil)
-			if tt.WantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
+	rerankertest.RunSSRFValidationTest(t, DefaultBaseURL, func(baseURL string) rerankertest.SettingsUnderTest {
+		return NewClassSettings(rerankertest.FakeClassConfig{
+			ClassConfig: map[string]interface{}{
+				"baseURL": baseURL,
+			},
 		})
-	}
+	})
 }

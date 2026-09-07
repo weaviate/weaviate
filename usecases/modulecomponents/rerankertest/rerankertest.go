@@ -29,11 +29,14 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	weaviateconfig "github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
@@ -121,6 +124,69 @@ func AssertBaseURLOverride(
 	url, err = buildURL(ctxWithBaseURL, defaultBaseURL)
 	assert.NoError(t, err)
 	assert.Equal(t, wantOverrideURL, url)
+}
+
+// SettingsUnderTest is the minimal shape every reranker module's
+// classSettings exposes, letting RunValidateTest and RunSSRFValidationTest
+// drive a module's own NewClassSettings generically.
+type SettingsUnderTest interface {
+	Model() string
+	BaseURL() string
+	Validate(class *models.Class) error
+}
+
+// ValidateTestCase is one row of a module's Test_classSettings_Validate
+// table. Only the class-config in and the model/baseURL/error expected out
+// differ between reranker modules; the loop that drives them (RunValidateTest)
+// is identical.
+type ValidateTestCase struct {
+	Name        string
+	Cfg         moduletools.ClassConfig
+	WantModel   string
+	WantBaseURL string
+	WantErr     error
+}
+
+// RunValidateTest drives a module's Test_classSettings_Validate: for each
+// case it builds a classSettings via newSettings and checks either the
+// expected validation error, or the expected Model()/BaseURL().
+func RunValidateTest(t *testing.T, cases []ValidateTestCase, newSettings func(cfg moduletools.ClassConfig) SettingsUnderTest) {
+	t.Helper()
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.Name, func(t *testing.T) {
+			s := newSettings(tt.Cfg)
+			if tt.WantErr != nil {
+				assert.EqualError(t, s.Validate(nil), tt.WantErr.Error())
+			} else {
+				assert.Equal(t, tt.WantModel, s.Model())
+				assert.Equal(t, tt.WantBaseURL, s.BaseURL())
+			}
+		})
+	}
+}
+
+// RunSSRFValidationTest drives a module's Test_classSettings_ValidateBaseURL:
+// the standard SSRF-rejection table (SSRFTestCases) plus the module's own
+// "default URL is valid" case, each turned into a classSettings via
+// newSettings and checked against ValidateBaseURL.
+func RunSSRFValidationTest(t *testing.T, defaultBaseURL string, newSettings func(baseURL string) SettingsUnderTest) {
+	t.Helper()
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	tests := append(SSRFTestCases(), SSRFTestCase{
+		Name: "default URL is valid", BaseURL: defaultBaseURL, WantErr: false,
+	})
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.Name, func(t *testing.T) {
+			err := newSettings(tt.BaseURL).Validate(nil)
+			if tt.WantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
 // ResultItem is the minimal shape every reranker provider's per-result wire
@@ -248,4 +314,91 @@ func AssertBatchScores(t *testing.T, documents []string, resp *ent.RankResult, f
 			assert.Equal(t, lastScore, resp.DocumentScores[i].Score)
 		}
 	}
+}
+
+// Ranker is the minimal shape every reranker client exposes, letting
+// RunRankTest drive a module's own client generically.
+type Ranker interface {
+	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+}
+
+// RunRankTest exercises the three subtests every reranker client's TestRank
+// needs: a successful single-result response, a server error, and batched
+// requests fanned out across goroutines and reassembled in order. Only the
+// provider's own wire format (buildResponse/buildError) and how its result
+// type is built (newResult) differ between modules.
+//
+// client is used for the first two (non-batched) subtests. batchClient is
+// used for the batching subtest and must already be configured with a small
+// per-request document cap (e.g. maxDocuments = 2) so the request fans out
+// across multiple goroutines — that field is unexported on every module's
+// client type, so the caller (in-package) has to set it before calling in.
+func RunRankTest[T ResultItem](
+	t *testing.T,
+	client Ranker,
+	batchClient Ranker,
+	newResult func(index int, score float64) T,
+	buildResponse func(results []T) ([]byte, error),
+	buildError func(message string) []byte,
+) {
+	t.Run("when the server has a successful response", func(t *testing.T) {
+		handler := NewHandler[T](t, []T{newResult(0, 0.9)}, nil, "", buildResponse, buildError)
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		cfg := FakeClassConfig{ClassConfig: map[string]interface{}{"baseURL": server.URL}}
+
+		expected := &ent.RankResult{
+			DocumentScores: []ent.DocumentScore{
+				{
+					Document: "I work at Apple",
+					Score:    0.9,
+				},
+			},
+			Query: "Where do I work?",
+		}
+
+		res, err := client.Rank(context.Background(), "Where do I work?", []string{"I work at Apple"}, cfg)
+
+		assert.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
+	t.Run("when the server has an error", func(t *testing.T) {
+		handler := NewHandler[T](t, nil, nil, "some error from the server", buildResponse, buildError)
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		cfg := FakeClassConfig{ClassConfig: map[string]interface{}{"baseURL": server.URL}}
+
+		_, err := client.Rank(context.Background(), "I work at Apple", []string{"Where do I work?"}, cfg)
+
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "some error from the server")
+	})
+
+	t.Run("when we send requests in batches", func(t *testing.T) {
+		batchedResults := [][]T{
+			{newResult(0, 0.99), newResult(1, 0.89)},
+			{newResult(0, 0.19), newResult(1, 0.29)},
+			{newResult(0, 0.79), newResult(1, 0.789)},
+			{newResult(0, 0.0001)},
+		}
+		handler := NewHandler[T](t, nil, batchedResults, "", buildResponse, buildError)
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		cfg := FakeClassConfig{ClassConfig: map[string]interface{}{"baseURL": server.URL}}
+
+		query := "Where do I work?"
+		documents := []string{
+			"Response 1", "Response 2", "Response 3", "Response 4",
+			"Response 5", "Response 6", "Response 7",
+		}
+
+		resp, err := batchClient.Rank(context.Background(), query, documents, cfg)
+
+		require.Nil(t, err)
+		AssertBatchScores(t, documents, resp, 0.99, 0.0001)
+	})
 }
