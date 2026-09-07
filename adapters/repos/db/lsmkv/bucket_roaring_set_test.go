@@ -16,6 +16,7 @@ import (
 	"errors"
 	"math"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -917,4 +918,73 @@ func TestBatchReaderLeavesNoSegmentRefBehind(t *testing.T) {
 			require.Zero(t, seg.getRefs(), "one view, one release: the fold must leave the segment as it found it")
 		})
 	}
+}
+
+// TestRoaringSetCursorSeekOnDiskSegment seeks a real flushed segment, the only
+// thing that exercises SeekPayloadStart's rebase onto the payload slice; an
+// offset wrong by HeaderSize would abort in the bitmap read, not silently
+// return a neighbour's key.
+func TestRoaringSetCursorSeekOnDiskSegment(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+	b.SetMemtableThreshold(1e9)
+
+	// keys leave gaps, so a probe can land between two of them
+	keys := []string{"key-02", "key-04", "key-06", "key-08"}
+	for i, key := range keys {
+		require.NoError(t, b.RoaringSetAddList([]byte(key), []uint64{uint64(i) + 1}))
+	}
+	// everything must live on disk: a memtable hit would not reach the seeker
+	require.NoError(t, b.FlushAndSwitch())
+
+	tests := []struct {
+		name     string
+		seek     string
+		wantKey  string
+		wantNone bool
+	}{
+		{name: "exact match on the first key", seek: "key-02", wantKey: "key-02"},
+		{name: "exact match mid-tree", seek: "key-06", wantKey: "key-06"},
+		{name: "between two keys", seek: "key-05", wantKey: "key-06"},
+		{name: "below the smallest key", seek: "key-00", wantKey: "key-02"},
+		{name: "exact match on the last key", seek: "key-08", wantKey: "key-08"},
+		{name: "past the highest key", seek: "key-99", wantNone: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c := b.CursorRoaringSet()
+			defer c.Close()
+
+			key, bm := c.Seek([]byte(test.seek))
+			if test.wantNone {
+				require.Nil(t, key)
+				return
+			}
+
+			require.Equal(t, test.wantKey, string(key))
+			// the payload has to be the one belonging to that key, which is what a
+			// mis-rebased offset would get wrong
+			want := uint64(slices.Index(keys, test.wantKey)) + 1
+			require.Equal(t, []uint64{want}, bm.ToArray())
+		})
+	}
+
+	t.Run("seek then walk to the end", func(t *testing.T) {
+		c := b.CursorRoaringSet()
+		defer c.Close()
+
+		var seen []string
+		for key, _ := c.Seek([]byte("key-05")); key != nil; key, _ = c.Next() {
+			seen = append(seen, string(key))
+		}
+		require.Equal(t, []string{"key-06", "key-08"}, seen)
+	})
 }
