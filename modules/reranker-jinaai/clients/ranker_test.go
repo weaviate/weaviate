@@ -14,10 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
@@ -25,9 +22,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/rerankertest"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -35,24 +31,26 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
+// buildResponse and buildError encode Jinaai's own wire format (a "results"
+// array, and a {"detail": ...} error envelope); everything else about
+// TestRank's stub server is shared via rerankertest.Handler.
+func buildResponse(results []Result) ([]byte, error) {
+	return json.Marshal(RankResponse{Results: results})
+}
+
+func buildError(message string) []byte {
+	return []byte(`{"detail":"` + message + `"}`)
+}
+
 func TestRank(t *testing.T) {
 	t.Run("when the server has a successful response", func(t *testing.T) {
-		handler := &testRankHandler{
-			t: t,
-			response: RankResponse{
-				Results: []Result{
-					{
-						Index:          0,
-						RelevanceScore: 0.9,
-					},
-				},
-			},
-		}
+		handler := rerankertest.NewHandler[Result](t,
+			[]Result{{Index: 0, RelevanceScore: 0.9}}, nil, "", buildResponse, buildError)
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+		cfg := rerankertest.FakeClassConfig{ClassConfig: map[string]interface{}{"baseURL": server.URL}}
 
 		expected := &ent.RankResult{
 			DocumentScores: []ent.DocumentScore{
@@ -71,18 +69,13 @@ func TestRank(t *testing.T) {
 	})
 
 	t.Run("when the server has an error", func(t *testing.T) {
-		handler := &testRankHandler{
-			t: t,
-			response: RankResponse{
-				Results: []Result{},
-			},
-			errorMessage: "some error from the server",
-		}
+		handler := rerankertest.NewHandler[Result](t,
+			nil, nil, "some error from the server", buildResponse, buildError)
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+		cfg := rerankertest.FakeClassConfig{ClassConfig: map[string]interface{}{"baseURL": server.URL}}
 
 		_, err := c.Rank(context.Background(), "I work at Apple", []string{"Where do I work?"}, cfg)
 
@@ -91,52 +84,29 @@ func TestRank(t *testing.T) {
 	})
 
 	t.Run("when we send requests in batches", func(t *testing.T) {
-		handler := &testRankHandler{
-			t: t,
-			batchedResults: [][]Result{
-				{
-					{
-						Index:          0,
-						RelevanceScore: 0.99,
-					},
-					{
-						Index:          1,
-						RelevanceScore: 0.89,
-					},
-				},
-				{
-					{
-						Index:          0,
-						RelevanceScore: 0.19,
-					},
-					{
-						Index:          1,
-						RelevanceScore: 0.29,
-					},
-				},
-				{
-					{
-						Index:          0,
-						RelevanceScore: 0.79,
-					},
-					{
-						Index:          1,
-						RelevanceScore: 0.789,
-					},
-				},
-				{
-					{
-						Index:          0,
-						RelevanceScore: 0.0001,
-					},
-				},
+		batchedResults := [][]Result{
+			{
+				{Index: 0, RelevanceScore: 0.99},
+				{Index: 1, RelevanceScore: 0.89},
+			},
+			{
+				{Index: 0, RelevanceScore: 0.19},
+				{Index: 1, RelevanceScore: 0.29},
+			},
+			{
+				{Index: 0, RelevanceScore: 0.79},
+				{Index: 1, RelevanceScore: 0.789},
+			},
+			{
+				{Index: 0, RelevanceScore: 0.0001},
 			},
 		}
+		handler := rerankertest.NewHandler[Result](t, nil, batchedResults, "", buildResponse, buildError)
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+		cfg := rerankertest.FakeClassConfig{ClassConfig: map[string]interface{}{"baseURL": server.URL}}
 		// this will trigger 4 go routines
 		c.maxDocuments = 2
 
@@ -149,116 +119,13 @@ func TestRank(t *testing.T) {
 		resp, err := c.Rank(context.Background(), query, documents, cfg)
 
 		require.Nil(t, err)
-		require.NotNil(t, resp)
-		require.NotNil(t, resp.DocumentScores)
-		for i := range resp.DocumentScores {
-			assert.Equal(t, documents[i], resp.DocumentScores[i].Document)
-			if i == 0 {
-				assert.Equal(t, 0.99, resp.DocumentScores[i].Score)
-			}
-			if i == len(documents)-1 {
-				assert.Equal(t, 0.0001, resp.DocumentScores[i].Score)
-			}
-		}
+		rerankertest.AssertBatchScores(t, documents, resp, 0.99, 0.0001)
 	})
 }
 
-type testRankHandler struct {
-	lock           sync.RWMutex
-	t              *testing.T
-	response       RankResponse
-	batchedResults [][]Result
-	errorMessage   string
-}
-
-func (f *testRankHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	f.lock.Lock()
-	defer f.lock.Unlock()
-
-	if f.errorMessage != "" {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"detail":"` + f.errorMessage + `"}`))
-		return
-	}
-
-	bodyBytes, err := io.ReadAll(r.Body)
-	require.Nil(f.t, err)
-	defer r.Body.Close()
-
-	var req RankInput
-	require.Nil(f.t, json.Unmarshal(bodyBytes, &req))
-
-	containsDocument := func(req RankInput, in string) bool {
-		for _, doc := range req.Documents {
-			if doc == in {
-				return true
-			}
-		}
-		return false
-	}
-
-	index := 0
-	if len(f.batchedResults) > 0 {
-		if containsDocument(req, "Response 3") {
-			index = 1
-		}
-		if containsDocument(req, "Response 5") {
-			index = 2
-		}
-		if containsDocument(req, "Response 7") {
-			index = 3
-		}
-		f.response.Results = f.batchedResults[index]
-	}
-
-	outBytes, err := json.Marshal(f.response)
-	require.Nil(f.t, err)
-
-	w.Write(outBytes)
-}
-
 func TestRank_client_getJinaaiUrl(t *testing.T) {
-	ctx := context.Background()
 	c := New("", 1*time.Second, nil)
-
-	url, err := c.getJinaaiUrl(ctx, "https://api.jina.ai")
-	assert.NoError(t, err)
-	assert.Equal(t, "https://api.jina.ai/v1/rerank", url)
-
-	ctxWithBaseURL := context.WithValue(ctx, "X-Jinaai-Baseurl", []string{"https://base-url-from-ctx.com"})
-	url, err = c.getJinaaiUrl(ctxWithBaseURL, "https://api.jina.ai")
-	assert.NoError(t, err)
-	assert.Equal(t, "https://base-url-from-ctx.com/v1/rerank", url)
-}
-
-type fakeClassConfig struct {
-	classConfig map[string]interface{}
-}
-
-func (f fakeClassConfig) Class() map[string]interface{} {
-	return f.classConfig
-}
-
-func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
-	return f.classConfig
-}
-
-func (f fakeClassConfig) Property(propName string) map[string]interface{} {
-	return nil
-}
-
-func (f fakeClassConfig) Tenant() string {
-	return ""
-}
-
-func (f fakeClassConfig) TargetVector() string {
-	return ""
-}
-
-func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
-	return nil
-}
-
-func (f fakeClassConfig) Config() *config.Config {
-	return nil
+	rerankertest.AssertBaseURLOverride(t, c.getJinaaiUrl,
+		"https://api.jina.ai", "https://api.jina.ai/v1/rerank",
+		"X-Jinaai-Baseurl", "https://base-url-from-ctx.com", "https://base-url-from-ctx.com/v1/rerank")
 }

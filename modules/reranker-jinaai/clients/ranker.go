@@ -234,6 +234,12 @@ type Result struct {
 	Document       string  `json:"document"`
 }
 
+// ResultIndex and ResultScore satisfy rerankertest.ResultItem, letting the
+// shared reranker test harness (usecases/modulecomponents/rerankertest) build
+// and inspect Result values generically.
+func (r Result) ResultIndex() int     { return r.Index }
+func (r Result) ResultScore() float64 { return r.RelevanceScore }
+
 type APIVersion struct {
 	Version string `json:"version"`
 }

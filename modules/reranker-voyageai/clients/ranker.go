@@ -240,6 +240,12 @@ type Data struct {
 	Document       Document `json:"document"`
 }
 
+// ResultIndex and ResultScore satisfy rerankertest.ResultItem, letting the
+// shared reranker test harness (usecases/modulecomponents/rerankertest) build
+// and inspect Data values generically.
+func (d Data) ResultIndex() int     { return d.Index }
+func (d Data) ResultScore() float64 { return d.RelevanceScore }
+
 type Usage struct {
 	TotalTokens int `json:"total_tokens"`
 }

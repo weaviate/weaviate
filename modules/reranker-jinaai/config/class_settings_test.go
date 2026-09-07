@@ -16,8 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/rerankertest"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -30,16 +29,16 @@ func Test_classSettings_Validate(t *testing.T) {
 	}{
 		{
 			name: "default settings",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{},
+			cfg: rerankertest.FakeClassConfig{
+				ClassConfig: map[string]interface{}{},
 			},
 			wantModel:   "jina-reranker-v2-base-multilingual",
 			wantBaseUrl: "https://api.jina.ai",
 		},
 		{
 			name: "custom settings",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
+			cfg: rerankertest.FakeClassConfig{
+				ClassConfig: map[string]interface{}{
 					"model":   "jina-reranker-v1-base-en",
 					"baseURL": "http://base-url.com",
 				},
@@ -61,95 +60,20 @@ func Test_classSettings_Validate(t *testing.T) {
 	}
 }
 
-type fakeClassConfig struct {
-	classConfig map[string]interface{}
-}
-
-func (f fakeClassConfig) Class() map[string]interface{} {
-	return f.classConfig
-}
-
-func (f fakeClassConfig) Tenant() string {
-	return ""
-}
-
-func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
-	return f.classConfig
-}
-
-func (f fakeClassConfig) Property(propName string) map[string]interface{} {
-	return nil
-}
-
-func (f fakeClassConfig) TargetVector() string {
-	return ""
-}
-
-func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
-	return nil
-}
-
-func (f fakeClassConfig) Config() *config.Config {
-	return nil
-}
-
 func Test_classSettings_ValidateBaseURL(t *testing.T) {
 	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
-	tests := []struct {
-		name    string
-		baseURL string
-		wantErr bool
-	}{
-		{
-			name:    "valid HTTPS URL",
-			baseURL: "https://api.openai.com",
-			wantErr: false,
-		},
-		{
-			name:    "HTTP URL is rejected",
-			baseURL: "http://api.example.com",
-			wantErr: true,
-		},
-		{
-			name:    "loopback address is rejected",
-			baseURL: "https://127.0.0.1",
-			wantErr: true,
-		},
-		{
-			name:    "private network address is rejected",
-			baseURL: "https://192.168.1.1",
-			wantErr: true,
-		},
-		{
-			name:    "empty host is rejected",
-			baseURL: "https://",
-			wantErr: true,
-		},
-		{
-			name:    "localhost is rejected",
-			baseURL: "https://localhost",
-			wantErr: true,
-		},
-		{
-			name:    "local domain is rejected",
-			baseURL: "https://myhost.local",
-			wantErr: true,
-		},
-		{
-			name:    "default URL is valid",
-			baseURL: "https://api.jina.ai",
-			wantErr: false,
-		},
-	}
+	tests := append(rerankertest.SSRFTestCases(), rerankertest.SSRFTestCase{
+		Name: "default URL is valid", BaseURL: "https://api.jina.ai", WantErr: false,
+	})
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ic := NewClassSettings(fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"baseURL": tt.baseURL,
+		t.Run(tt.Name, func(t *testing.T) {
+			ic := NewClassSettings(rerankertest.FakeClassConfig{
+				ClassConfig: map[string]interface{}{
+					"baseURL": tt.BaseURL,
 				},
 			})
 			err := ic.Validate(nil)
-			if tt.wantErr {
+			if tt.WantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
