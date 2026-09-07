@@ -161,7 +161,8 @@ func (db *DB) init(ctx context.Context) error {
 					// If explicitly set (true = always lazy, false = always eager),
 					// skip auto-detection entirely.
 					if db.config.EnableLazyLoadShards != nil {
-						return *db.config.EnableLazyLoadShards
+						lazyLoadShardEnabled = *db.config.EnableLazyLoadShards
+						return lazyLoadShardEnabled
 					}
 
 					lazyLoadShardEnabled = shouldAutoLazyLoadShards(
@@ -233,6 +234,7 @@ func (db *DB) init(ctx context.Context) error {
 				"action":                  "lazy_shard_auto_detection",
 				"class":                   class.Class,
 				"enable_lazy_load_shards": lazyLoadShardEnabled,
+				"auto_detected":           db.config.EnableLazyLoadShards == nil,
 				"local_shard_count":       localActiveShardsCount,
 				"total_shard_size_bytes":  totalShardSizeBytes,
 				"count_threshold":         db.config.LazyLoadShardCountThreshold,
@@ -309,7 +311,7 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 				db.logger.WithField("action", "lazy_shard_auto_detection").
 					WithField("class", className).
 					WithField("shard", shardName).
-					Warnf("pre-calculated shard usage unusable; falling back to on-disk size: %v", err)
+					Debugf("pre-calculated shard usage unusable; falling back to on-disk size: %v", err)
 			} else if err != nil {
 				db.logger.WithField("action", "lazy_shard_auto_detection").
 					WithField("class", className).
