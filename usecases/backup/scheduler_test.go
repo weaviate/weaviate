@@ -1056,7 +1056,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 			dedupe  bool
 			wantErr string
 		}{
-			{name: "V3WithoutFlag", version: "3.0", dedupe: false, wantErr: "inconsistent with dedupeReplicas"},
+			{name: "V3WithoutFlagIsChainFloor", version: "3.0", dedupe: false},
 			{name: "V2WithFlag", version: "2.1", dedupe: true, wantErr: "inconsistent with dedupeReplicas"},
 			{name: "UnparseableVersion", version: "x.0", dedupe: false, wantErr: "unrecognized structure version"},
 		} {
@@ -1077,10 +1077,18 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 				bytes := marshalCoordinatorMeta(meta)
 				fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 				fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-				_, err := fs.scheduler().Restore(ctx, nil, req, false)
+				restoreReq := *req
+				if tc.wantErr == "" {
+					restoreReq.Include = []string{"NoSuchClass"}
+				}
+				_, err := fs.scheduler().Restore(ctx, nil, &restoreReq, false)
 				assert.NotNil(t, err)
-				assert.Contains(t, err.Error(), tc.wantErr)
 				assert.IsType(t, backup.ErrUnprocessable{}, err)
+				if tc.wantErr == "" {
+					assert.NotContains(t, err.Error(), "inconsistent with dedupeReplicas")
+				} else {
+					assert.Contains(t, err.Error(), tc.wantErr)
+				}
 			})
 		}
 	})
@@ -3287,6 +3295,48 @@ func TestCancelCoordinatorOpGuards(t *testing.T) {
 				wantStatus = backup.Cancelled
 			}
 			require.Equal(t, wantStatus, s.backupper.lastOp.get().Status)
+		})
+	}
+}
+
+func TestValidateBackupRequestBaseChainFloor(t *testing.T) {
+	t.Parallel()
+	var (
+		cls = "C1"
+		ctx = context.Background()
+		id  = "chain-floor-1"
+	)
+	for _, tc := range []struct {
+		name        string
+		baseVersion string
+		baseDedupe  bool
+		want        bool
+	}{
+		{name: "deduped base pins the floor", baseVersion: "3.0", baseDedupe: true, want: true},
+		{name: "legacy base keeps the legacy floor", baseVersion: "2.1", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fs := newFakeScheduler(nil)
+			fs.selector.On("ListClasses", ctx).Return([]string{cls})
+			fs.selector.On("Backupable", ctx, []string{cls}).Return(nil)
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("root/" + id)
+			fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+			fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+			baseMeta := backup.DistributedBackupDescriptor{
+				ID: "base-1", StartedAt: time.Now().Add(-time.Hour), Status: backup.Success,
+				Version: tc.baseVersion, ServerVersion: "1.35", DedupeReplicas: tc.baseDedupe,
+				CompressionType: backup.CompressionGZIP,
+			}
+			fs.backend.On("GetObject", ctx, "base-1", GlobalBackupFile).Return(marshalCoordinatorMeta(baseMeta), nil)
+
+			s := fs.scheduler()
+			store := coordStore{objectStore{fs.backend, id, "", "", ""}}
+			sel, err := s.validateBackupRequest(ctx, store, &BackupRequest{
+				ID: id, Backend: "s3", Include: []string{cls}, BaseBackupID: "base-1",
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, sel.baseChainDeduped)
 		})
 	}
 }

@@ -84,6 +84,9 @@ type Request struct {
 	// DedupeConvergenceTimeoutSeconds bounds convergence planning, coordinator-side only; 0 = default.
 	DedupeConvergenceTimeoutSeconds int `json:"dedupeConvergenceTimeoutSeconds,omitempty"`
 
+	// BaseChainDeduped pins the version stamp at 3.0 when a base in the incremental chain is replica-deduped, whatever this run's outcome.
+	BaseChainDeduped bool `json:"baseChainDeduped,omitempty"`
+
 	// ShardDesignations (class -> shard -> archiving node) EXCLUDES: a participant skips a shard only when a DIFFERENT node is named, so drift degrades to duplication, never omission.
 	ShardDesignations map[string]map[string]string `json:"shardDesignations,omitempty"`
 

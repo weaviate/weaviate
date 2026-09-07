@@ -229,10 +229,10 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		}
 		plan = c.planDesignatedShards(ctx, req.Classes, budget, participants)
 	}
-	// Stamp from the planning outcome: a zero-dedupe artifact is physically legacy and must stay restorable on pre-3.0 releases.
+	// Stamp from the planning outcome: a zero-dedupe artifact is physically legacy and stays restorable on pre-3.0 releases, unless its base chain traverses a deduped artifact.
 	dedupeEffective := plan != nil && plan.designated() > 0
 	version := Version
-	if dedupeEffective {
+	if dedupeEffective || req.BaseChainDeduped {
 		version = VersionDedupeReplicas
 	}
 	req.DedupeEffective = dedupeEffective

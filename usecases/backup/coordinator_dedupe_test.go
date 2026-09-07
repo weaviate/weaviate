@@ -547,7 +547,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.Empty(t, fc.backend.glMeta.ID, "aborted mixed-version create must leave the backend prefix empty")
 	})
 
-	runCommittedDedupeBackup := func(t *testing.T, nodeMeta backup.BackupDescriptor, canCommitMatcher interface{}, getObject func(fc *fakeCoordinator), checkpointer func(f *fakeCheckpointer)) (*fakeCoordinator, *fakeCheckpointer, *coordinator) {
+	runCommittedDedupeBackup := func(t *testing.T, nodeMeta backup.BackupDescriptor, canCommitMatcher interface{}, getObject func(fc *fakeCoordinator), checkpointer func(f *fakeCheckpointer), mutate ...func(*Request)) (*fakeCoordinator, *fakeCheckpointer, *coordinator) {
 		t.Helper()
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
@@ -586,6 +586,9 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		getObject(fc)
 
 		req := newDedupeReq()
+		for _, m := range mutate {
+			m(&req)
+		}
 		store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
 		require.NoError(t, coordinator.Backup(ctx, store, &req))
 		<-fc.backend.doneChan
@@ -647,6 +650,25 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.Zero(t, got.DedupeDesignatedShards)
 		assert.Zero(t, got.DedupeFallbackShards)
 		assert.Nil(t, got.DedupeCutoffsMs)
+	})
+
+	t.Run("deduped base pins the version stamp with zero designations", func(t *testing.T) {
+		t.Parallel()
+		match := mock.MatchedBy(func(r *Request) bool {
+			return r.Method == OpCreate && r.ID == backupID && !r.DedupeEffective
+		})
+		nodeMeta := backup.BackupDescriptor{Status: backup.Success, Classes: []backup.ClassDescriptor{
+			{Name: "Class-A", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "N1"}, {Name: "s1", Node: "N2"}}},
+		}}
+		fc, _, c := runCommittedDedupeBackup(t, nodeMeta, match, nil, func(*fakeCheckpointer) {},
+			func(r *Request) { r.BaseChainDeduped = true })
+
+		require.Eventually(t, func() bool { return c.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+		got := fc.backend.glMeta
+		assert.Equal(t, backup.Success, got.Status)
+		assert.Equal(t, VersionDedupeReplicas, got.Version)
+		assert.False(t, got.DedupeReplicas)
+		assert.Zero(t, got.DedupeDesignatedShards)
 	})
 
 	t.Run("coverage verify re-reads only nodes commit could not", func(t *testing.T) {

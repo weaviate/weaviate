@@ -210,6 +210,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		BaseBackupID:                    req.BaseBackupID,
 		DedupeReplicas:                  req.DedupeReplicas,
 		DedupeConvergenceTimeoutSeconds: req.DedupeConvergenceTimeoutSeconds,
+		BaseChainDeduped:                sel.baseChainDeduped,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, err
@@ -716,6 +717,8 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 // mean an ordinary class-only backup.
 type backupSelections struct {
 	classes, users, roles []string
+	// baseChainDeduped pins the restore floor at 3.0: restoring this artifact traverses a replica-deduped base.
+	baseChainDeduped bool
 }
 
 // validateBackupRequest resolves the request into concrete classes, users, and
@@ -787,8 +790,15 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err != nil {
 		return selections, fmt.Errorf("get compression type: %w", err)
 	}
-	if _, err = resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
+	chain, err := resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.MetaForBackupID)
+	if err != nil {
 		return selections, fmt.Errorf("resolve base backup chain: %w", err)
+	}
+	for _, base := range chain {
+		if major, ok := parseMajor(base.GetVersion()); ok && major >= 3 {
+			selections.baseChainDeduped = true
+			break
+		}
 	}
 
 	selections.classes = classes
@@ -940,8 +950,8 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if err := meta.Validate(); err != nil {
 		return nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
-	// Version 3.x and dedupeReplicas must agree; a mismatch means a tampered or corrupt descriptor.
-	if major, ok := parseMajor(meta.Version); ok && (major >= 3) != meta.DedupeReplicas {
+	// dedupeReplicas requires the 3.x format; 3.x without the flag is a legacy-layout artifact whose base chain pins the floor.
+	if major, ok := parseMajor(meta.Version); ok && meta.DedupeReplicas && major < 3 {
 		return nil, fmt.Errorf("corrupted backup file: version %s inconsistent with dedupeReplicas=%v", meta.Version, meta.DedupeReplicas)
 	}
 
