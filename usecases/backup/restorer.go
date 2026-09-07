@@ -62,10 +62,11 @@ func newRestorer(node string, logger logrus.FieldLogger,
 	}
 }
 
-// stagedDirs records the staging dirs one restore attempt created; cleanup removes exactly those, never a sibling attempt's.
+// stagedDirs records the staging dirs one restore attempt created; the paths are class-scoped, so cleanup additionally checks the on-disk marker before removing.
 type stagedDirs struct {
-	mu   sync.Mutex
-	dirs []string
+	mu        sync.Mutex
+	attemptID string
+	dirs      []string
 }
 
 func (s *stagedDirs) record(dir string) {
@@ -114,7 +115,7 @@ func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx con
 	}
 	r.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 
-	staged := &stagedDirs{}
+	staged := &stagedDirs{attemptID: req.AttemptID}
 	f := func() {
 		var err error
 		status := Status{
@@ -137,8 +138,12 @@ func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx con
 					status.Status = backup.Failed
 					monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessRestore)
 				}
-				// A later RAFT-applied RestoreClassDir would adopt leftovers; remove only what this attempt staged.
+				// A later RAFT-applied RestoreClassDir would adopt leftovers; remove only dirs still marked as this attempt's.
 				for _, dir := range staged.list() {
+					if req.AttemptID != "" && !stagingMarkerMatches(dir, req.AttemptID) {
+						r.logger.WithField("backup_id", req.ID).Warnf("keep restore staging dir %s: owned by another attempt", dir)
+						continue
+					}
 					if rerr := os.RemoveAll(dir); rerr != nil {
 						r.logger.WithField("backup_id", req.ID).Warnf("remove restore staging dir %s: %v", dir, rerr)
 					}
@@ -238,7 +243,8 @@ func (r *restorer) restoreOne(ctx context.Context,
 
 	fw := newFileWriter(r.sourcer, store, r.logger).
 		WithPoolPercentage(cpuPercentage).
-		withStagedRecorder(staged.record)
+		withStagedRecorder(staged.record).
+		withAttemptID(staged.attemptID)
 
 	// Pre-v1.23 versions store files in a flat format
 	if serverVersion < "1.23" {

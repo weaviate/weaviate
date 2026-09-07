@@ -1827,3 +1827,18 @@ func TestLabelErr(t *testing.T) {
 		})
 	}
 }
+
+func TestRestoreClassDirSkipsStagingMarker(t *testing.T) {
+	t.Parallel()
+	dataPath := t.TempDir()
+	staged := filepath.Join(dataPath, TempDirectory, "Class-A")
+	require.NoError(t, os.MkdirAll(filepath.Join(staged, "class-a"), os.ModePerm))
+	require.NoError(t, os.WriteFile(filepath.Join(staged, "class-a", "segment-1"), []byte("data"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(staged, stagingMarkerFile), []byte("a1"), 0o644))
+
+	require.NoError(t, RestoreClassDir(dataPath)("Class-A"))
+
+	require.FileExists(t, filepath.Join(dataPath, "class-a", "segment-1"))
+	require.NoFileExists(t, filepath.Join(dataPath, stagingMarkerFile))
+	require.NoDirExists(t, staged)
+}

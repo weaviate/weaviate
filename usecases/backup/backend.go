@@ -56,6 +56,8 @@ const (
 	GlobalBackupFile  = "backup_config.json"
 	GlobalRestoreFile = "restore_config.json"
 	TempDirectory     = ".backup.tmp"
+	// stagingMarkerFile names the attempt that owns a class staging dir; the path itself is class-scoped and shared across attempts.
+	stagingMarkerFile = ".attempt"
 )
 
 // numCPU sizes worker pools. GOMAXPROCS (not NumCPU) may reflect the cgroup CPU
@@ -887,6 +889,7 @@ type fileWriter struct {
 	GoPoolSize     int
 	migrator       func(classPath string) error
 	stagedRecorder func(string) // notified before a class staging dir is (re)created
+	attemptID      string       // stamped into the staging marker so cleanup never removes a sibling attempt's dir
 	logger         logrus.FieldLogger
 }
 
@@ -913,6 +916,17 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 func (fw *fileWriter) withStagedRecorder(f func(string)) *fileWriter {
 	fw.stagedRecorder = f
 	return fw
+}
+
+func (fw *fileWriter) withAttemptID(id string) *fileWriter {
+	fw.attemptID = id
+	return fw
+}
+
+// stagingMarkerMatches reports whether dir's marker names attemptID; missing or foreign means another attempt owns the dir now.
+func stagingMarkerMatches(dir, attemptID string) bool {
+	raw, err := os.ReadFile(path.Join(dir, stagingMarkerFile))
+	return err == nil && string(raw) == attemptID
 }
 
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
@@ -947,6 +961,12 @@ func (fw *fileWriter) prepare(classTempDir string) error {
 	}
 	if err := os.MkdirAll(classTempDir, os.ModePerm); err != nil {
 		return fmt.Errorf("create temp class folder %s: %w", classTempDir, err)
+	}
+	if fw.attemptID != "" {
+		marker := path.Join(classTempDir, stagingMarkerFile)
+		if err := os.WriteFile(marker, []byte(fw.attemptID), 0o644); err != nil {
+			return fmt.Errorf("write staging marker %s: %w", marker, err)
+		}
 	}
 	return nil
 }
@@ -1087,6 +1107,9 @@ func RestoreClassDir(dataPath string) func(class string) error {
 		destDir := dataPath
 
 		for _, key := range files {
+			if key.Name() == stagingMarkerFile {
+				continue
+			}
 			from := path.Join(classTempDir, key.Name())
 			to := path.Join(destDir, key.Name())
 			if err := os.Rename(from, to); err != nil {

@@ -502,6 +502,42 @@ func TestRestoreFailureKeepsPriorAttemptStaging(t *testing.T) {
 	require.FileExists(t, filepath.Join(staged, "chunk-1"))
 }
 
+func TestRestoreFailureKeepsSameClassStagingOfPriorAttempt(t *testing.T) {
+	t.Parallel()
+	dataPath := t.TempDir()
+	backend := newFakeBackend()
+	backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
+	backend.On("SourceDataPath").Return(dataPath)
+	r := newRestorer(nodeName, logrus.New(), &fakeSourcer{}, nil, false)
+	store := nodeStore{objectStore{backend, "1/" + nodeName, "", "", nodeName}}
+
+	staged := filepath.Join(dataPath, TempDirectory, "Class-A")
+	req1 := &Request{Method: OpRestore, ID: "1", AttemptID: "a1"}
+	_, err := r.startRestore(req1, store, func(_ context.Context, s *stagedDirs) error {
+		fw := newFileWriter(&fakeSourcer{}, store, logrus.New()).withStagedRecorder(s.record).withAttemptID(s.attemptID)
+		if err := fw.prepare(staged); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(staged, "chunk-1"), []byte("data"), 0o644)
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+	require.DirExists(t, staged)
+
+	req2 := &Request{Method: OpRestore, ID: "2", AttemptID: "a2"}
+	_, err = r.startRestore(req2, store, func(_ context.Context, s *stagedDirs) error {
+		s.record(staged)
+		return ErrAny
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return r.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+
+	require.FileExists(t, filepath.Join(staged, "chunk-1"))
+	marker, err := os.ReadFile(filepath.Join(staged, stagingMarkerFile))
+	require.NoError(t, err)
+	assert.Equal(t, "a1", string(marker))
+}
+
 func TestOnAbortAttemptGate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

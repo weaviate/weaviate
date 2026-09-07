@@ -408,7 +408,8 @@ func (r *restorer) restoreOneFanout(ctx context.Context, cp classPlan,
 
 	fw := newFileWriter(r.sourcer, cp.sources[0].store, r.logger).
 		WithPoolPercentage(cpuPercentage).
-		withStagedRecorder(staged.record)
+		withStagedRecorder(staged.record).
+		withAttemptID(staged.attemptID)
 
 	materializedName := cp.name
 	if stripNamespaces {
