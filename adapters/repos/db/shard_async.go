@@ -76,21 +76,23 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 
 	var counter int
 
-	vectorIndex, ok := s.GetVectorIndex(targetVector)
+	vectorIndex, releaseIndex, ok := s.AcquireVectorIndex(targetVector)
 	if !ok {
 		s.index.logger.WithField("targetVector", targetVector).Warn("preload queue: vector index not found")
 		// shard was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
 	}
+	defer releaseIndex()
 
-	q, ok := s.GetVectorIndexQueue(targetVector)
+	q, releaseQueue, ok := s.AcquireVectorIndexQueue(targetVector)
 	if !ok {
 		s.index.logger.WithField("targetVector", targetVector).Warn("preload queue: queue not found")
 		// queue was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
 	}
+	defer releaseQueue()
 
 	ctx := context.Background()
 
@@ -277,7 +279,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 	className := s.index.Config.ClassName.String()
 	shardName := s.Name()
 
-	vectorIndex, ok := s.GetVectorIndex(targetVector)
+	vectorIndex, releaseIndex, ok := s.AcquireVectorIndex(targetVector)
 	if !ok {
 		s.index.logger.
 			WithField("class", className).
@@ -288,6 +290,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		// initialization. No op.
 		return nil
 	}
+	defer releaseIndex()
 
 	// if it's HNSW, trigger a tombstone cleanup
 	if hnsw.IsHNSWIndex(vectorIndex) {
@@ -299,7 +302,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		}
 	}
 
-	q, ok := s.GetVectorIndexQueue(targetVector)
+	q, releaseQueue, ok := s.AcquireVectorIndexQueue(targetVector)
 	if !ok {
 		s.index.logger.
 			WithField("class", className).
@@ -310,6 +313,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		// initialization. No op.
 		return nil
 	}
+	defer releaseQueue()
 
 	maxDocID := s.Counter().Get()
 	visited := visited.NewList(int(maxDocID))
@@ -552,13 +556,14 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 func (s *Shard) RequantizeIndex(ctx context.Context, targetVector string) error {
 	start := time.Now()
 
-	vectorIndex, ok := s.GetVectorIndex(targetVector)
+	vectorIndex, releaseIndex, ok := s.AcquireVectorIndex(targetVector)
 	if !ok {
 		s.index.logger.WithField("targetVector", targetVector).WithField("action", "requantize").Warn("requantize index: vector index not found")
 		// shard was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
 	}
+	defer releaseIndex()
 
 	if !vectorIndex.Compressed() {
 		s.index.logger.WithField("targetVector", targetVector).WithField("action", "requantize").Info("vector index is not compressed, skipping requantizing")
