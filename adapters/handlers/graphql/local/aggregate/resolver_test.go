@@ -517,6 +517,108 @@ func Test_Resolve(t *testing.T) {
 			}},
 		},
 		testCase{
+			name: "hybrid explicit rankedFusion",
+			query: `{
+				Aggregate {
+					Car(
+						hybrid: {query:"apple", maxVectorDistance: 0.5, fusionType: rankedFusion}
+					) {
+						horsepower {
+							mean
+						}
+					}
+				}
+			}`,
+			expectedProps: []aggregation.ParamProperty{
+				{
+					Name:        "horsepower",
+					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
+				},
+			},
+			expectedNearHybrid: &searchparams.HybridSearch{
+				Distance:        0.5,
+				WithDistance:    true,
+				Alpha:           0.75,
+				Query:           "apple",
+				FusionAlgorithm: 0,
+				Type:            "hybrid",
+				SubSearches:     emptySubsearch,
+			},
+			resolverReturn: []aggregation.Group{
+				{
+					Properties: map[string]aggregation.Property{
+						"horsepower": {
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]interface{}{
+								"mean": 275.7773,
+							},
+						},
+					},
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"horsepower": map[string]interface{}{
+							"mean": 275.7773,
+						},
+					},
+				},
+			}},
+		},
+		testCase{
+			name: "hybrid explicit relativeScoreFusion",
+			query: `{
+				Aggregate {
+					Car(
+						hybrid: {query:"apple", maxVectorDistance: 0.5, fusionType: relativeScoreFusion}
+					) {
+						horsepower {
+							mean
+						}
+					}
+				}
+			}`,
+			expectedProps: []aggregation.ParamProperty{
+				{
+					Name:        "horsepower",
+					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
+				},
+			},
+			expectedNearHybrid: &searchparams.HybridSearch{
+				Distance:        0.5,
+				WithDistance:    true,
+				Alpha:           0.75,
+				Query:           "apple",
+				FusionAlgorithm: 1,
+				Type:            "hybrid",
+				SubSearches:     emptySubsearch,
+			},
+			resolverReturn: []aggregation.Group{
+				{
+					Properties: map[string]aggregation.Property{
+						"horsepower": {
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]interface{}{
+								"mean": 275.7773,
+							},
+						},
+					},
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"horsepower": map[string]interface{}{
+							"mean": 275.7773,
+						},
+					},
+				},
+			}},
+		},
+		testCase{
 			name: "single prop: mean with a where filter",
 			query: `{
 				Aggregate {

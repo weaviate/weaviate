@@ -23,14 +23,14 @@ import (
 )
 
 func hybridArgument(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider,
+	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
 ) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("AggregateObjects%s", class.Class)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        fmt.Sprintf("%sHybridInpObj", prefix),
-				Fields:      hybridOperands(classObject, class, modulesProvider),
+				Fields:      hybridOperands(classObject, class, modulesProvider, fusionEnum),
 				Description: "Hybrid search",
 			},
 		),
@@ -38,7 +38,7 @@ func hybridArgument(classObject *graphql.Object,
 }
 
 func hybridOperands(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider,
+	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
 ) graphql.InputObjectConfigFieldMap {
 	ss := graphql.NewInputObject(graphql.InputObjectConfig{
 		Name:   class.Class + "HybridSubSearch",
@@ -70,6 +70,10 @@ func hybridOperands(classObject *graphql.Object,
 		"properties": &graphql.InputObjectFieldConfig{
 			Description: "Properties to search",
 			Type:        graphql.NewList(graphql.String),
+		},
+		"fusionType": &graphql.InputObjectFieldConfig{
+			Description: "Algorithm used for fusing results from vector and keyword search",
+			Type:        fusionEnum,
 		},
 		"bm25SearchOperator": common_filters.GenerateBM25SearchOperatorFields(prefixName),
 		"searches": &graphql.InputObjectFieldConfig{

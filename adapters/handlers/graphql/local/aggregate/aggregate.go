@@ -63,8 +63,24 @@ func classFields(databaseSchema *schema.SchemaWithAliases,
 ) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 
+	// needs to be defined outside the individual class as there can only be one definition of an enum.
+	// Named distinctly from Get's "FusionEnum" because both end up registered in the same overall
+	// GraphQL schema (see adapters/handlers/graphql/local/local.go), and the schema builder requires
+	// unique type names.
+	fusionAlgoEnum := graphql.NewEnum(graphql.EnumConfig{
+		Name: "AggregateFusionEnum",
+		Values: graphql.EnumValueConfigMap{
+			"rankedFusion": &graphql.EnumValueConfig{
+				Value: common_filters.HybridRankedFusion,
+			},
+			"relativeScoreFusion": &graphql.EnumValueConfig{
+				Value: common_filters.HybridRelativeScoreFusion,
+			},
+		},
+	})
+
 	for _, class := range databaseSchema.Objects.Classes {
-		field, err := classField(class, class.Description, config, modulesProvider, authorizer)
+		field, err := classField(class, class.Description, config, modulesProvider, authorizer, fusionAlgoEnum)
 		if err != nil {
 			return nil, err
 		}
@@ -89,6 +105,7 @@ func classFields(databaseSchema *schema.SchemaWithAliases,
 
 func classField(class *models.Class, description string,
 	config config.Config, modulesProvider ModulesProvider, authorizer authorization.Authorizer,
+	fusionEnum *graphql.Enum,
 ) (*graphql.Field, error) {
 	metaClassName := fmt.Sprintf("Aggregate%s", class.Class)
 
@@ -135,7 +152,7 @@ func classField(class *models.Class, description string,
 				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
-			"hybrid": hybridArgument(fieldsObject, class, modulesProvider),
+			"hybrid": hybridArgument(fieldsObject, class, modulesProvider, fusionEnum),
 		},
 		Resolve: makeResolveClass(authorizer, modulesProvider, class),
 	}
