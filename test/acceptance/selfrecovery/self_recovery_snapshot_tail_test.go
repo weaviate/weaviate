@@ -19,9 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
-	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
@@ -29,34 +27,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
-
-// ensureClass retries across transient leader-forwarding drops right after formation.
-func ensureClass(t *testing.T, c *models.Class) {
-	t.Helper()
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
-		if _, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil); err != nil {
-			getParams := clschema.NewSchemaObjectsGetParams().WithClassName(c.Class)
-			if _, gerr := helper.Client(t).Schema.SchemaObjectsGet(getParams, nil); gerr != nil {
-				require.NoError(ct, err)
-			}
-		}
-	}, 30*time.Second, 1*time.Second, "class %s never created", c.Class)
-}
-
-func ensureTenants(t *testing.T, class string, tenants []*models.Tenant) {
-	t.Helper()
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		params := clschema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
-		if _, err := helper.Client(t).Schema.TenantsCreate(params, nil); err != nil {
-			existing, gerr := helper.Client(t).Schema.TenantsGet(clschema.NewTenantsGetParams().WithClassName(class), nil)
-			if gerr == nil && existing.Payload != nil && len(existing.Payload) >= len(tenants) {
-				return
-			}
-			require.NoError(ct, err)
-		}
-	}, 30*time.Second, 1*time.Second, "tenants on %s never created", class)
-}
 
 func srParagraphClass(name string) *models.Class {
 	c := articles.ParagraphsClass()
@@ -103,11 +73,11 @@ func TestSelfRecoverySnapshotTailChangesRecover(t *testing.T) {
 	wipedNodeName := docker.Weaviate2
 	allNodes := []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2}
 
-	t.Run("wait for cluster to form quorum", func(t *testing.T) {
+	mustRun(t, "wait for cluster to form quorum", func(t *testing.T) {
 		waitClusterHealthy(t)
 	})
 
-	t.Run("create pre-snapshot collections", func(t *testing.T) {
+	mustRun(t, "create pre-snapshot collections", func(t *testing.T) {
 		ensureClass(t, srParagraphClass(baseClass))
 		mt := srParagraphClass(tenantedClass)
 		mt.ShardingConfig = nil
@@ -115,54 +85,54 @@ func TestSelfRecoverySnapshotTailChangesRecover(t *testing.T) {
 		ensureClass(t, mt)
 	})
 
-	t.Run("verify all 3 nodes report shard loaded", func(t *testing.T) {
+	mustRun(t, "verify all 3 nodes report shard loaded", func(t *testing.T) {
 		waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
 		waitShardsLoaded(t, baseClass, 1)
 	})
 
-	t.Run("ingest baseline objects", func(t *testing.T) {
+	mustRun(t, "ingest baseline objects", func(t *testing.T) {
 		submitBatch(t, srParagraphObjects(baseClass, "00000000-0000-0000-0000", baseCount, ""), "")
 	})
 
-	t.Run("force a RAFT snapshot on every node", func(t *testing.T) {
+	mustRun(t, "force a RAFT snapshot on every node", func(t *testing.T) {
 		for i := 0; i < 3; i++ {
 			forceRaftSnapshot(ctx, t, compose, i)
 		}
 	})
 
-	t.Run("wipe and stop node-3", func(t *testing.T) {
+	mustRun(t, "wipe and stop node-3", func(t *testing.T) {
 		common.WipeNodeDataAt(ctx, t, compose, wipedIdx)
 	})
 
-	t.Run("commit tail schema changes and data while node-3 is down", func(t *testing.T) {
+	mustRun(t, "commit tail schema changes and data while node-3 is down", func(t *testing.T) {
 		ensureClass(t, srParagraphClass(tailClass))
 		ensureTenants(t, tenantedClass, []*models.Tenant{{Name: tailTenant}})
 		submitBatch(t, srParagraphObjects(tailClass, "22222222-2222-2222-2222", tailCount, ""), types.ConsistencyLevelQuorum)
 		submitBatch(t, srParagraphObjects(tenantedClass, "33333333-3333-3333-3333", tailTenantCount, tailTenant), types.ConsistencyLevelQuorum)
 	})
 
-	t.Run("restart node-3", func(t *testing.T) {
+	mustRun(t, "restart node-3", func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, wipedIdx)
 		helper.SetupClient(compose.GetWeaviate().URI())
 	})
 
-	t.Run("a SELF_RECOVERY op was registered for node-3", func(t *testing.T) {
+	mustRun(t, "a SELF_RECOVERY op was registered for node-3", func(t *testing.T) {
 		waitSelfRecoveryOpFired(t, wipedNodeName)
 	})
 
-	t.Run("pre-snapshot collection recovers on node-3", func(t *testing.T) {
+	mustRun(t, "pre-snapshot collection recovers on node-3", func(t *testing.T) {
 		assertNodeRecovered(t, baseClass, wipedNodeName, 1, int64(baseCount))
 	})
 
-	t.Run("tail collection recovers on node-3", func(t *testing.T) {
+	mustRun(t, "tail collection recovers on node-3", func(t *testing.T) {
 		assertNodeRecovered(t, tailClass, wipedNodeName, 1, int64(tailCount))
 	})
 
-	t.Run("tail tenant recovers on node-3", func(t *testing.T) {
+	mustRun(t, "tail tenant recovers on node-3", func(t *testing.T) {
 		assertNodeRecovered(t, tenantedClass, wipedNodeName, 1, int64(tailTenantCount))
 	})
 
-	t.Run("direct query to node-3 returns tail data at consistency=ONE", func(t *testing.T) {
+	mustRun(t, "direct query to node-3 returns tail data at consistency=ONE", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for i := 0; i < 10; i++ {
 				id := strfmt.UUID(fmt.Sprintf("22222222-2222-2222-2222-%012d", i+1))
