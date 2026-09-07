@@ -21,6 +21,7 @@ import (
 
 	batchclient "github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/nodes"
+	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
@@ -28,6 +29,42 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
+
+// mustRun stops the pipeline when a prerequisite stage fails, instead of burning later stages' long waits.
+func mustRun(t *testing.T, name string, f func(t *testing.T)) {
+	t.Helper()
+	if !t.Run(name, f) {
+		t.FailNow()
+	}
+}
+
+// ensureClass retries across transient leader-forwarding drops right after formation.
+func ensureClass(t *testing.T, c *models.Class) {
+	t.Helper()
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		if _, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil); err != nil {
+			getParams := clschema.NewSchemaObjectsGetParams().WithClassName(c.Class)
+			if _, gerr := helper.Client(t).Schema.SchemaObjectsGet(getParams, nil); gerr != nil {
+				require.NoError(ct, err)
+			}
+		}
+	}, 30*time.Second, 1*time.Second, "class %s never created", c.Class)
+}
+
+func ensureTenants(t *testing.T, class string, tenants []*models.Tenant) {
+	t.Helper()
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		params := clschema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
+		if _, err := helper.Client(t).Schema.TenantsCreate(params, nil); err != nil {
+			existing, gerr := helper.Client(t).Schema.TenantsGet(clschema.NewTenantsGetParams().WithClassName(class), nil)
+			if gerr == nil && existing.Payload != nil && len(existing.Payload) >= len(tenants) {
+				return
+			}
+			require.NoError(ct, err)
+		}
+	}, 30*time.Second, 1*time.Second, "tenants on %s never created", class)
+}
 
 // srClusterCfg toggles per-test cluster knobs on the shared SELF_RECOVERY base env.
 type srClusterCfg struct {

@@ -62,24 +62,24 @@ func TestSelfRecoveryEndToEnd(t *testing.T) {
 	allNodes := []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2}
 	paragraphClass := articles.ParagraphsClass()
 
-	t.Run("wait for cluster to form quorum", func(t *testing.T) {
+	mustRun(t, "wait for cluster to form quorum", func(t *testing.T) {
 		waitClusterHealthy(t)
 	})
 
-	t.Run("create RF=3 single-shard collection", func(t *testing.T) {
+	mustRun(t, "create RF=3 single-shard collection", func(t *testing.T) {
 		paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
 		paragraphClass.Vectorizer = "none"
-		helper.CreateClass(t, paragraphClass)
+		ensureClass(t, paragraphClass)
 	})
 
-	t.Run("verify all 3 nodes report shard loaded", func(t *testing.T) {
+	mustRun(t, "verify all 3 nodes report shard loaded", func(t *testing.T) {
 		// Ingesting before every shard is loaded races the founders' join-barrier reload.
 		waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
 		waitShardsLoaded(t, paragraphClass.Class, 1)
 	})
 
-	t.Run("ingest objects", func(t *testing.T) {
+	mustRun(t, "ingest objects", func(t *testing.T) {
 		batch := make([]*models.Object, objCount)
 		for i := 0; i < objCount; i++ {
 			batch[i] = articles.NewParagraph().
@@ -90,25 +90,25 @@ func TestSelfRecoveryEndToEnd(t *testing.T) {
 		submitBatch(t, batch, "")
 	})
 
-	t.Run("force a RAFT snapshot before wipe", func(t *testing.T) {
+	mustRun(t, "force a RAFT snapshot before wipe", func(t *testing.T) {
 		for i := 0; i < 3; i++ {
 			forceRaftSnapshot(ctx, t, compose, i)
 		}
 	})
 
-	t.Run("wipe node-3 data and restart", func(t *testing.T) {
+	mustRun(t, "wipe node-3 data and restart", func(t *testing.T) {
 		wipeAndRestart(ctx, t, compose, wipedIdx)
 	})
 
-	t.Run("a SELF_RECOVERY op was registered for node-3", func(t *testing.T) {
+	mustRun(t, "a SELF_RECOVERY op was registered for node-3", func(t *testing.T) {
 		waitSelfRecoveryOpFired(t, wipedNodeName)
 	})
 
-	t.Run("recovery completes and node-3 reports full object count", func(t *testing.T) {
+	mustRun(t, "recovery completes and node-3 reports full object count", func(t *testing.T) {
 		assertNodeRecovered(t, paragraphClass.Class, wipedNodeName, 1, int64(objCount))
 	})
 
-	t.Run("direct query to node-3 returns full data at consistency=ONE", func(t *testing.T) {
+	mustRun(t, "direct query to node-3 returns full data at consistency=ONE", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for i := 0; i < 10; i++ {
 				id := strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i+1))
@@ -138,7 +138,7 @@ func TestSelfRecoveryReadsContinueAtConsistencyONE(t *testing.T) {
 	paragraphClass.Vectorizer = "none"
 
 	waitClusterHealthy(t)
-	helper.CreateClass(t, paragraphClass)
+	ensureClass(t, paragraphClass)
 
 	// Ingesting before every shard is loaded races the founders' join-barrier reload.
 	waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
