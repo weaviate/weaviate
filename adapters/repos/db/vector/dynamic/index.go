@@ -513,7 +513,7 @@ func (dynamic *dynamic) Preload(id uint64, vector []float32) {
 func (dynamic *dynamic) AlreadyIndexed() uint64 {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return (dynamic.index).(upgradableIndexer).AlreadyIndexed()
+	return dynamic.index.(upgradableIndexer).AlreadyIndexed()
 }
 
 func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
@@ -528,7 +528,7 @@ func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
 	}
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return (dynamic.index).(upgradableIndexer).ShouldUpgrade()
+	return dynamic.index.(upgradableIndexer).ShouldUpgrade()
 }
 
 func (dynamic *dynamic) Upgraded() bool {

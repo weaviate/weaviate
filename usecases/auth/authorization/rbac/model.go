@@ -278,7 +278,7 @@ func WeaviateMatcherFunc(args ...interface{}) (interface{}, error) {
 	name1 := args[0].(string)
 	name2 := args[1].(string)
 
-	return (bool)(WeaviateMatcher(name1, name2)), nil
+	return bool(WeaviateMatcher(name1, name2)), nil
 }
 
 func getVersion(path string) (string, error) {

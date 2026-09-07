@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
@@ -698,6 +699,92 @@ func setupDebugHandlers(appState *state.State) {
 			WithField("targetVector", targetVector).
 			Info("requantize started")
 
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	// Enqueues a reassignment for every live vector of one shard's hfresh
+	// index, re-routing vectors that earlier maintenance left in the wrong
+	// postings. The reassignment tasks only write for vectors whose current
+	// posting is no longer among their RNG-selected targets, so this is safe
+	// to run on a healthy index. Call via something like:
+	// curl -X POST "localhost:6060/debug/index/reassign/vector?collection=Foo&shard=abc123&vector=default"
+	http.HandleFunc("/debug/index/reassign/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// unlike its read-only siblings, this endpoint starts a corpus-wide
+		// mutating job — do not let a probing GET trigger it
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed, use POST", http.StatusMethodNotAllowed)
+			return
+		}
+
+		colName := r.URL.Query().Get("collection")
+		shardName := r.URL.Query().Get("shard")
+		targetVector := r.URL.Query().Get("vector")
+
+		if colName == "" || shardName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		shard, release, err := idx.GetShard(context.Background(), shardName)
+		if err != nil {
+			logger.WithField("shard", shardName).Error(err)
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if shard == nil {
+			release()
+			logger.WithField("shard", shardName).Error("shard not found")
+			http.Error(w, "shard not found", http.StatusNotFound)
+			return
+		}
+
+		vidx, ok := shard.GetVectorIndex(targetVector)
+		if !ok {
+			release()
+			logger.WithField("shard", shardName).Error("vector index not found")
+			http.Error(w, "vector index not found", http.StatusNotFound)
+			return
+		}
+
+		h, ok := vidx.(hfreshReassignAller)
+		if !ok {
+			release()
+			http.Error(w, "not an hfresh index", http.StatusBadRequest)
+			return
+		}
+
+		// The scan needs no shard reference: EnqueueReassignAll also watches
+		// the index's own lifecycle context and stops when the shard shuts
+		// down or is dropped, like the version map warmup does.
+		release()
+
+		reassignLogger := logger.
+			WithField("collection", colName).
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector)
+
+		enterrors.GoWrapper(func() {
+			stats, err := h.EnqueueReassignAll(context.Background())
+			statsLogger := reassignLogger.
+				WithField("postings", stats.Postings).
+				WithField("enqueued", stats.Enqueued).
+				WithField("skippedDeleted", stats.SkippedDeleted).
+				WithField("skippedStale", stats.SkippedStale)
+			if err != nil {
+				statsLogger.Error(err)
+				return
+			}
+			statsLogger.Info("reassign-all enqueue completed")
+		}, reassignLogger)
+
+		reassignLogger.Info("reassign-all enqueue started")
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
@@ -1381,6 +1468,10 @@ type MaintenanceMode struct {
 
 type hnswStats interface {
 	Stats() (*hnsw.HnswStats, error)
+}
+
+type hfreshReassignAller interface {
+	EnqueueReassignAll(ctx context.Context) (hfresh.ReassignAllStats, error)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

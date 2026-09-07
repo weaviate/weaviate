@@ -312,7 +312,7 @@ func TestRefFilters(t *testing.T) {
 					Root: &filters.Clause{
 						Operator: filters.OperatorAnd,
 						Operands: []filters.Clause{
-							*(parkedAtFilter.Root),
+							*parkedAtFilter.Root,
 							{
 								On: &filters.Path{
 									Class:    schema.ClassName("MultiRefCar"),

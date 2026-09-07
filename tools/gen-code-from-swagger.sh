@@ -20,6 +20,11 @@ if [ ! -f "$SWAGGER" ]; then
   chmod +x "$SWAGGER"
 fi
 
+# Install golangci-lint if it's not istalled
+if ! command -v golangci-lint >/dev/null 2>&1; then
+  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+fi
+
 # Always install goimports to ensure that all parties use the same version
 go install golang.org/x/tools/cmd/goimports@v0.1.12
 
@@ -44,9 +49,14 @@ echo Now add the header to the generated code too.
 # 1. regular go files (without test files) excluding test folder
 # 2. regular go files (without test files) only in test folder
 # 3. only *_test.go files
+
+echo Fix imports with goimports
 (cd "$DIR"/..; goimports -w $(find . -type f -name '*.go' -not -name '*_test.go' -not -path './test/*' -not -name '*pb.go' -not -path './vendor/*' -not -path "./.*/*"))
 (cd "$DIR"/..; goimports -w $(find . -type f -name '*.go' -not -name '*_test.go' -path './test/*' -not -name '*pb.go' -not -path './vendor/*' -not -path "./.*/*"))
 (cd "$DIR"/..; goimports -w $(find . -type f -name '*_test.go' -not -name '*pb.go' -not -path './vendor/*' -not -path "./.*/*"))
+
+echo Run the code formatter
+(cd "$DIR"/..; golangci-lint fmt)
 
 CHANGED=$(git status -s | wc -l)
 if [ "$CHANGED" -gt 0 ]; then

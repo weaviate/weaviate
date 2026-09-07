@@ -607,11 +607,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
 
-				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector, 0)
 				require.NoError(t, err)
 
-				assert.Equal(t, tt.expectedCount, dimensionality.Count)
-				assert.Equal(t, tt.expectedDims, dimensionality.Dimensions)
+				assert.Equal(t, tt.expectedCount, dimensionality.Raw.Count)
+				assert.Equal(t, tt.expectedDims, dimensionality.Raw.Dimensions)
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -638,11 +638,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
 
-				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector, 0)
 				require.NoError(t, err)
 
-				assert.Equal(t, tt.expectedCount, dimensionality.Count)
-				assert.Equal(t, tt.expectedDims, dimensionality.Dimensions)
+				assert.Equal(t, tt.expectedCount, dimensionality.Raw.Count)
+				assert.Equal(t, tt.expectedDims, dimensionality.Raw.Dimensions)
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -823,7 +823,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	require.NoError(t, err)
 	activeVectorStorageSize += int64(commitLogSize)
 
-	dimensionality, err := shard.DimensionsUsage(ctx, "")
+	dimensionality, err := shard.DimensionsUsage(ctx, "", 0)
 	require.NoError(t, err)
 	activeObjectCount, err := activeShard.ObjectCount(ctx)
 	require.NoError(t, err)
@@ -832,8 +832,8 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// Test that active calculations are correct
 	expectedSize := int64(objectCount*vectorDimensions*4) + int64(commitLogSize)
 	assert.Equal(t, expectedSize, activeVectorStorageSize, "Active vector storage size should be close to expected")
-	assert.Equal(t, objectCount, dimensionality.Count, "Active shard object count should match")
-	assert.Equal(t, vectorDimensions, dimensionality.Dimensions, "Active shard dimensions should match")
+	assert.Equal(t, objectCount, dimensionality.Raw.Count, "Active shard object count should match")
+	assert.Equal(t, vectorDimensions, dimensionality.Raw.Dimensions, "Active shard dimensions should match")
 	assert.Equal(t, objectCount, activeObjectCount, "Active object count should match")
 
 	// Release the shard (this will flush all data to disk)

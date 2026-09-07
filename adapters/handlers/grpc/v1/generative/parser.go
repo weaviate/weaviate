@@ -24,6 +24,7 @@ import (
 	contextualaiParams "github.com/weaviate/weaviate/modules/generative-contextualai/parameters"
 	databricksParams "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
 	deepseekParams "github.com/weaviate/weaviate/modules/generative-deepseek/parameters"
+	digitaloceanParams "github.com/weaviate/weaviate/modules/generative-digitalocean/parameters"
 	friendliaiParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
@@ -177,6 +178,9 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 	case *pb.GenerativeProvider_Deepseek:
 		generative.Options = p.deepseek(query.GetDeepseek())
 		p.providerName = deepseekParams.Name
+	case *pb.GenerativeProvider_Digitalocean:
+		generative.Options = p.digitalocean(query.GetDigitalocean())
+		p.providerName = digitaloceanParams.Name
 	default:
 		// do nothing
 	}
@@ -504,6 +508,24 @@ func (p *Parser) deepseek(in *pb.GenerativeDeepseek) map[string]any {
 			FrequencyPenalty: in.FrequencyPenalty,
 			PresencePenalty:  in.PresencePenalty,
 			TopP:             in.TopP,
+			Stop:             in.Stop.GetValues(),
+		},
+	}
+}
+
+func (p *Parser) digitalocean(in *pb.GenerativeDigitalOcean) map[string]any {
+	if in == nil {
+		return nil
+	}
+	return map[string]any{
+		digitaloceanParams.Name: digitaloceanParams.Params{
+			BaseURL:          in.GetBaseUrl(),
+			Model:            in.GetModel(),
+			Temperature:      in.Temperature,
+			TopP:             in.TopP,
+			MaxTokens:        p.int64ToInt(in.MaxTokens),
+			FrequencyPenalty: in.FrequencyPenalty,
+			PresencePenalty:  in.PresencePenalty,
 			Stop:             in.Stop.GetValues(),
 		},
 	}
