@@ -64,22 +64,22 @@ func (s *segmentCursorMap) decode(parsed segmentCollectionNode) ([]MapPair, erro
 }
 
 func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
-	node, err := s.segment.index.Seek(key)
+	start, end, err := s.segment.index.SeekOffsets(key)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, s.segment.reportIndexErr(err)
 	}
 
 	var parsed segmentCollectionNode
 
 	if s.segment.strategy == segmentindex.StrategyInverted {
-		parsed, err = s.parseInvertedNode(nodeOffset{node.Start, node.End})
+		parsed, err = s.parseInvertedNode(nodeOffset{start, end})
 	} else {
-		parsed, err = s.parseCollectionNode(nodeOffset{node.Start, node.End})
+		parsed, err = s.parseCollectionNode(nodeOffset{start, end})
 	}
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
-	s.nextOffset = node.End
+	s.nextOffset = end
 	if err != nil {
 		return parsed.primaryKey, nil, err
 	}
