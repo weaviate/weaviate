@@ -12,10 +12,8 @@
 package modrerankervoyageai
 
 import (
-	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/rerankertest"
 )
 
@@ -25,20 +23,5 @@ import (
 // config/class_settings_test.go - see the Copilot review on PR #12984 for
 // context: this used to unconditionally return nil.
 func TestValidateClass(t *testing.T) {
-	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
-	m := New()
-
-	t.Run("rejects a non-HTTPS baseURL", func(t *testing.T) {
-		err := m.ValidateClass(context.Background(), nil, rerankertest.FakeClassConfig{
-			ClassConfig: map[string]interface{}{"baseURL": "http://api.example.com"},
-		})
-		assert.Error(t, err)
-	})
-
-	t.Run("accepts the default settings", func(t *testing.T) {
-		err := m.ValidateClass(context.Background(), nil, rerankertest.FakeClassConfig{
-			ClassConfig: map[string]interface{}{},
-		})
-		assert.NoError(t, err)
-	})
+	rerankertest.RunValidateClassTest(t, New())
 }

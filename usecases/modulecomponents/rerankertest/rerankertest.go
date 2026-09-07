@@ -36,6 +36,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	weaviateconfig "github.com/weaviate/weaviate/usecases/config"
@@ -426,5 +427,28 @@ func RunRankTest[T ResultItem](
 
 		require.Nil(t, err)
 		AssertBatchScores(t, documents, resp, 0.99, 0.0001)
+	})
+}
+
+// RunValidateClassTest drives a module's TestValidateClass: proves
+// ValidateClass (the class-creation/update path, as opposed to
+// classSettings.Validate tested in isolation) actually rejects an
+// SSRF-unsafe baseURL and accepts the module's default settings.
+func RunValidateClassTest(t *testing.T, m modulecapabilities.ClassConfigurator) {
+	t.Helper()
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+
+	t.Run("rejects a non-HTTPS baseURL", func(t *testing.T) {
+		err := m.ValidateClass(context.Background(), nil, FakeClassConfig{
+			ClassConfig: map[string]interface{}{"baseURL": "http://api.example.com"},
+		})
+		assert.Error(t, err)
+	})
+
+	t.Run("accepts the default settings", func(t *testing.T) {
+		err := m.ValidateClass(context.Background(), nil, FakeClassConfig{
+			ClassConfig: map[string]interface{}{},
+		})
+		assert.NoError(t, err)
 	})
 }
