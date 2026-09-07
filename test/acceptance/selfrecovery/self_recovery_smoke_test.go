@@ -9,9 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package selfrecovery holds acceptance tests for SELF_RECOVERY shard
-// re-hydration. Data-loss cases use tmpfs-backed /data so a container stop
-// wipes the shard dir without root or external volume tooling.
+// Package selfrecovery: SELF_RECOVERY acceptance tests; tmpfs-backed /data so a container stop wipes the shard dir.
 package selfrecovery
 
 import (

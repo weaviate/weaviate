@@ -110,8 +110,7 @@ func TestWipedJoinerSnapshotCoversBarrier(t *testing.T) {
 	}
 }
 
-// Pins the snapshot-tail divergence: a Restore below the barrier must keep
-// candidacy (schema-only applies) so the barrier path recovers tail classes.
+// Pins snapshot-tail divergence: Restore below the barrier keeps candidacy so the barrier path recovers tail classes.
 func TestWipedJoinerRestoreReloadDefersBelowBarrier(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	st := &Store{
