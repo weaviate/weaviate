@@ -34,21 +34,46 @@ const (
 	className     = "AdmissionAcc"
 	numObjects    = 3000
 	numCategories = 10
+	vectorDim     = 32
 )
 
+// searchShape is one admission-gated query shape. Both shapes take a grant at
+// the shard: filtered BM25 through Shard.ObjectSearch, pure vector through
+// Shard.ObjectVectorSearch (gated in full, filter or not). A pure-vector
+// search holds its seat for far less time than a filtered BM25 one, so it
+// gets a larger burst to guarantee enough overlap at budget=1/queue=1.
+type searchShape struct {
+	name   string
+	req    *pb.SearchRequest
+	burst  int
+	sample int // moderate cross-node burst that must fit in budget+queue
+}
+
+func searchShapes() []searchShape {
+	return []searchShape{
+		{name: "filtered_bm25", req: filteredBM25Request(), burst: 50, sample: 2},
+		{name: "pure_vector", req: pureVectorRequest(), burst: 100, sample: 2},
+	}
+}
+
 // TestQueryAdmissionShedsUnderSaturation is journey 1: a saturated node under
-// concurrent filtered BM25 searches must shed via ResourceExhausted (429).
+// concurrent searches must shed via ResourceExhausted (429).
 func TestQueryAdmissionShedsUnderSaturation(t *testing.T) {
 	ctx := context.Background()
 	compose, grpcClient := bootAdmission(t, ctx, false, 1, nil)
 	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
 
-	res := burst(ctx, grpcClient, filteredBM25Request(), 50)
-	t.Logf("journey1 saturation: success=%d shed=%d unexpected=%d of 50", res.success, res.shed, res.other)
-	require.NoError(t, res.otherErr, "responses must be success or ResourceExhausted only")
-	require.Zero(t, res.other, "no unexpected error codes allowed")
-	require.Positive(t, res.shed, "expected ResourceExhausted sheds under budget=1/queue=1 at 50 concurrent")
-	require.Positive(t, res.success, "expected at least one success to drain through the budget")
+	for _, shape := range searchShapes() {
+		t.Run(shape.name, func(t *testing.T) {
+			res := burst(ctx, grpcClient, shape.req, shape.burst)
+			t.Logf("journey1 saturation %s: success=%d shed=%d unexpected=%d of %d",
+				shape.name, res.success, res.shed, res.other, shape.burst)
+			require.NoError(t, res.otherErr, "responses must be success or ResourceExhausted only")
+			require.Zero(t, res.other, "no unexpected error codes allowed")
+			require.Positive(t, res.shed, "expected ResourceExhausted sheds under budget=1/queue=1 at %d concurrent", shape.burst)
+			require.Positive(t, res.success, "expected at least one success to drain through the budget")
+		})
+	}
 }
 
 // TestQueryAdmissionDisabledNeverSheds is journey 2: the same tiny-budget burst
@@ -59,12 +84,17 @@ func TestQueryAdmissionDisabledNeverSheds(t *testing.T) {
 		map[string]string{"QUERY_ADMISSION_CONTROL_DISABLED": "true"})
 	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
 
-	res := burst(ctx, grpcClient, filteredBM25Request(), 50)
-	t.Logf("journey2 disabled: success=%d shed=%d unexpected=%d of 50", res.success, res.shed, res.other)
-	require.NoError(t, res.otherErr, "responses must all succeed with admission disabled")
-	require.Zero(t, res.other, "no unexpected error codes allowed")
-	require.Zero(t, res.shed, "disabled admission must never shed")
-	require.Equal(t, 50, res.success, "every query must succeed with admission disabled")
+	for _, shape := range searchShapes() {
+		t.Run(shape.name, func(t *testing.T) {
+			res := burst(ctx, grpcClient, shape.req, shape.burst)
+			t.Logf("journey2 disabled %s: success=%d shed=%d unexpected=%d of %d",
+				shape.name, res.success, res.shed, res.other, shape.burst)
+			require.NoError(t, res.otherErr, "responses must all succeed with admission disabled")
+			require.Zero(t, res.other, "no unexpected error codes allowed")
+			require.Zero(t, res.shed, "disabled admission must never shed")
+			require.Equal(t, shape.burst, res.success, "every query must succeed with admission disabled")
+		})
+	}
 }
 
 // TestQueryAdmissionCrossNodeShed is journey 3: a 3-node, 3-shard cluster
@@ -75,17 +105,23 @@ func TestQueryAdmissionCrossNodeShed(t *testing.T) {
 	compose, grpcClient := bootAdmission(t, ctx, true, 3, nil)
 	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
 
-	moderate := burst(ctx, grpcClient, filteredBM25Request(), 2)
-	t.Logf("journey3 moderate: success=%d shed=%d unexpected=%d of 2", moderate.success, moderate.shed, moderate.other)
-	require.NoError(t, moderate.otherErr)
-	require.Zero(t, moderate.other, "no unexpected error codes allowed")
-	require.Equal(t, 2, moderate.success, "moderate cross-node burst must succeed via the retry path")
+	for _, shape := range searchShapes() {
+		t.Run(shape.name, func(t *testing.T) {
+			moderate := burst(ctx, grpcClient, shape.req, shape.sample)
+			t.Logf("journey3 moderate %s: success=%d shed=%d unexpected=%d of %d",
+				shape.name, moderate.success, moderate.shed, moderate.other, shape.sample)
+			require.NoError(t, moderate.otherErr)
+			require.Zero(t, moderate.other, "no unexpected error codes allowed")
+			require.Equal(t, shape.sample, moderate.success, "moderate cross-node burst must succeed via the retry path")
 
-	sustained := burst(ctx, grpcClient, filteredBM25Request(), 60)
-	t.Logf("journey3 sustained: success=%d shed=%d unexpected=%d of 60", sustained.success, sustained.shed, sustained.other)
-	require.NoError(t, sustained.otherErr)
-	require.Zero(t, sustained.other, "no unexpected error codes allowed")
-	require.Positive(t, sustained.shed, "sustained cross-node saturation must surface ResourceExhausted")
+			sustained := burst(ctx, grpcClient, shape.req, shape.burst)
+			t.Logf("journey3 sustained %s: success=%d shed=%d unexpected=%d of %d",
+				shape.name, sustained.success, sustained.shed, sustained.other, shape.burst)
+			require.NoError(t, sustained.otherErr)
+			require.Zero(t, sustained.other, "no unexpected error codes allowed")
+			require.Positive(t, sustained.shed, "sustained cross-node saturation must surface ResourceExhausted")
+		})
+	}
 }
 
 // --- helpers ----------------------------------------------------------------
@@ -169,6 +205,7 @@ func setupAdmissionCollection(t *testing.T, httpURI, grpcURI string, shards int)
 				"text":     fmt.Sprintf("alpha beta gamma document number %d", i),
 				"category": fmt.Sprintf("cat_%d", i%numCategories),
 			},
+			Vector: objectVector(i),
 		})
 		if len(batch) == chunk {
 			flush()
@@ -177,6 +214,16 @@ func setupAdmissionCollection(t *testing.T, httpURI, grpcURI string, shards int)
 	flush()
 
 	return grpcClient
+}
+
+// objectVector returns a deterministic, non-degenerate vector for object i so
+// the vector index has real structure to search without pulling in a RNG.
+func objectVector(i int) models.C11yVector {
+	vec := make(models.C11yVector, vectorDim)
+	for d := range vec {
+		vec[d] = float32((i*31+d*17)%97) / 97
+	}
+	return vec
 }
 
 // filteredBM25Request builds a filter+BM25 search that exercises the
@@ -191,6 +238,18 @@ func filteredBM25Request() *pb.SearchRequest {
 			TestValue: &pb.Filters_ValueText{ValueText: "cat_0"},
 			Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "category"}},
 		},
+		Uses_127Api: true,
+	}
+}
+
+// pureVectorRequest builds a filterless nearVector search: no allow-list, no
+// keyword phase, so the only grant it can take is the one ObjectVectorSearch
+// holds for the vector phase itself.
+func pureVectorRequest() *pb.SearchRequest {
+	return &pb.SearchRequest{
+		Collection:  className,
+		Limit:       100,
+		NearVector:  &pb.NearVector{Vector: objectVector(numObjects / 2)},
 		Uses_127Api: true,
 	}
 }
