@@ -227,7 +227,7 @@ func (i *Index) usageForShard(ctx context.Context, shardName string, exactObject
 	}
 	if !exists {
 		// no numbers to read from disk, but an unloaded lazy shard is still marked
-		lazyShard, isLazy := shard.(*LazyLoadShard)
+		lazyShard, isLazy := asLazyLoadShard(shard)
 		return emptyShardUsageWithNameAndActivity(shardName, localStatus, isLazy && !lazyShard.isLoaded()), nil
 	}
 
