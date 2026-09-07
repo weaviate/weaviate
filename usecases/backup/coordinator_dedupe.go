@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -82,6 +83,24 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 	// Hard deadline: the request ctx has none, and a wedged peer RPC would otherwise stall planning while the op slot blocks every subsequent backup.
 	ctx, cancel := context.WithTimeout(ctx, c.dedupeCutoffLead+budget+c.dedupePlanningSlack)
 	defer cancel()
+	// A user Cancel only flips lastOp.Status; propagate it into the ctx so in-flight checkpointer RPCs unblock.
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-watchDone:
+				return
+			case <-t.C:
+				if c.lastOp.get().Status == backup.Cancelled {
+					cancel()
+					return
+				}
+			}
+		}
+	}, c.log)
 	plan := &dedupePlan{
 		designations: make(map[string]map[string]string),
 		replicas:     make(map[string]map[string][]string),

@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -468,6 +469,33 @@ func TestPlanDesignatedShards(t *testing.T) {
 		assert.Less(t, time.Since(begin), 5*time.Second)
 		assert.Equal(t, 0, plan.designated())
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
+	})
+
+	t.Run("cancel during a wedged status RPC unblocks planning", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
+		f.statusHang = true
+		c := newDedupeCoordinator(f)
+		c.dedupeConvergenceBudget = time.Minute
+		c.dedupePlanningSlack = time.Minute
+
+		done := make(chan *dedupePlan, 1)
+		enterrors.GoWrapper(func() {
+			done <- c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"))
+		}, c.log)
+		require.Eventually(t, func() bool {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			return f.statusCalls["C1"] > 0
+		}, 5*time.Second, 10*time.Millisecond)
+		c.lastOp.set(backup.Cancelled)
+
+		select {
+		case plan := <-done:
+			assert.Equal(t, 0, plan.designated())
+		case <-time.After(10 * time.Second):
+			t.Fatal("planning stayed blocked on the wedged RPC after cancel")
+		}
 	})
 }
 
