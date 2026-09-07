@@ -233,7 +233,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: maxBooking(false)}
 		assert.Equal(t, got, want)
 
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""})
@@ -320,7 +320,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req.Roles = roles
 		req.Users = users
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: maxBooking(false)}
 		require.Equal(t, want, got)
 
 		require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""}))
@@ -374,7 +374,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req.Duration = time.Hour
 		req.BaseBackupID = baseID
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: maxBooking(false)}
 		assert.Equal(t, got, want)
 
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""})
@@ -412,7 +412,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: maxBooking(false)}
 		assert.Equal(t, got, want)
 
 		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", "", ""})
@@ -448,7 +448,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: maxBooking(false)}
 		assert.Equal(t, got, want)
 
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""})

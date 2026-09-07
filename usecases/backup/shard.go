@@ -24,9 +24,13 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-const (
-	_TimeoutShardCommit = 20 * time.Second
-)
+// maxBooking must outlast the canCommit budget or early ackers abandon their slot before Commit.
+func maxBooking(dedupeRestore bool) time.Duration {
+	if dedupeRestore {
+		return _TimeoutDedupeRestoreCanCommit + _BookingPeriod
+	}
+	return _TimeoutCanCommit + _BookingPeriod
+}
 
 type reqState struct {
 	Starttime time.Time

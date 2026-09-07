@@ -92,11 +92,7 @@ func (r *restorer) restore(
 
 // startRestore reserves the restore slot and runs work in a coordinator-gated goroutine; RAFT applies staged files after Finalizing.
 func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx context.Context, staged *stagedDirs) error) (CanCommitResponse, error) {
-	limit := _TimeoutShardCommit
-	if req.DedupeReplicas {
-		limit = _TimeoutDedupeRestoreCanCommit + _BookingPeriod
-	}
-	expiration := min(req.Duration, limit)
+	expiration := min(req.Duration, maxBooking(req.DedupeReplicas))
 	ret := CanCommitResponse{
 		Method:  OpCreate,
 		ID:      req.ID,

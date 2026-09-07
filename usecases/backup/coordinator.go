@@ -651,10 +651,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 		timeout = _TimeoutDedupeRestoreCanCommit
 	}
 	// Early ackers must outwait the slowest sibling's canCommit: Commit is only dispatched after every node acks.
-	booking := _BookingPeriod
-	if req.Method == OpRestore && req.DedupeReplicas {
-		booking = timeout + _BookingPeriod
-	}
+	booking := timeout + _BookingPeriod
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

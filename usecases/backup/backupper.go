@@ -103,10 +103,7 @@ func (b *backupper) publishFailure(err error) {
 // It will start the backup as soon as it receives an ack, or abort otherwise
 func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, error) {
 	id := req.ID
-	expiration := req.Duration
-	if expiration > _TimeoutShardCommit {
-		expiration = _TimeoutShardCommit
-	}
+	expiration := min(req.Duration, maxBooking(false))
 	ret := CanCommitResponse{
 		Method:  OpCreate,
 		ID:      req.ID,

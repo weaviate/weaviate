@@ -232,7 +232,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		want1 := &CanCommitResponse{
 			Method:  OpRestore,
 			ID:      req.ID,
-			Timeout: _TimeoutShardCommit,
+			Timeout: maxBooking(false),
 		}
 		assert.Equal(t, want1, resp1)
 		err := m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend})
@@ -257,7 +257,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		want1 := &CanCommitResponse{
 			Method:  OpRestore,
 			ID:      req.ID,
-			Timeout: _TimeoutShardCommit,
+			Timeout: maxBooking(false),
 		}
 		assert.Equal(t, want1, resp1)
 		err := m.OnAbort(ctx, &AbortRequest{Method: OpRestore, ID: req.ID})
@@ -391,7 +391,7 @@ func TestRestoreBookingExpiration(t *testing.T) {
 		want    time.Duration
 		booking time.Duration
 	}{
-		{name: "legacy clamped to shard commit timeout", booking: 10 * time.Minute, want: _TimeoutShardCommit},
+		{name: "legacy clamped to the booking limit", booking: 10 * time.Minute, want: _TimeoutCanCommit + _BookingPeriod},
 		{name: "legacy below the clamp", booking: 5 * time.Second, want: 5 * time.Second},
 		{name: "dedupe honors the widened booking", dedupe: true, booking: _TimeoutDedupeRestoreCanCommit + _BookingPeriod, want: _TimeoutDedupeRestoreCanCommit + _BookingPeriod},
 		{name: "dedupe clamped to the widened limit", dedupe: true, booking: 10 * time.Minute, want: _TimeoutDedupeRestoreCanCommit + _BookingPeriod},

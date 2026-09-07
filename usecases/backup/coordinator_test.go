@@ -45,7 +45,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			ID:          backupID,
 			Backend:     backendName,
 			Classes:     classes,
-			Duration:    _BookingPeriod,
+			Duration:    _TimeoutCanCommit + _BookingPeriod,
 			Compression: Compression{Level: GzipDefaultCompression, CPUPercentage: DefaultCPUPercentage},
 		}
 		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
@@ -150,7 +150,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			ID:       backupID,
 			Backend:  backendName,
 			Classes:  []string{classes[1]},
-			Duration: _BookingPeriod,
+			Duration: _TimeoutCanCommit + _BookingPeriod,
 			Compression: Compression{
 				Level:         GzipDefaultCompression,
 				CPUPercentage: DefaultCPUPercentage,
@@ -162,7 +162,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			ID:       backupID,
 			Backend:  backendName,
 			Classes:  classes[:],
-			Duration: _BookingPeriod,
+			Duration: _TimeoutCanCommit + _BookingPeriod,
 			Compression: Compression{
 				Level:         GzipDefaultCompression,
 				CPUPercentage: DefaultCPUPercentage,
@@ -417,7 +417,7 @@ func TestCoordinatedRestore(t *testing.T) {
 			ID:       backupID,
 			Backend:  backendName,
 			Classes:  classes,
-			Duration: _BookingPeriod,
+			Duration: _TimeoutCanCommit + _BookingPeriod,
 			Compression: Compression{
 				Level:         GzipDefaultCompression,
 				CPUPercentage: DefaultCPUPercentage,
@@ -556,7 +556,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 			Backend:     backendName,
 			Classes:     classes,
 			NodeMapping: nodeMapping,
-			Duration:    _BookingPeriod,
+			Duration:    _TimeoutCanCommit + _BookingPeriod,
 			Compression: Compression{
 				Level:         GzipDefaultCompression,
 				CPUPercentage: DefaultCPUPercentage,
@@ -1392,10 +1392,10 @@ func TestCanCommitBookingAndAttempt(t *testing.T) {
 		dedupe bool
 		want   time.Duration
 	}{
-		{name: "legacy create booking", method: OpCreate, want: _BookingPeriod},
-		{name: "dedupe create booking", method: OpCreate, dedupe: true, want: _BookingPeriod},
-		{name: "legacy restore booking", method: OpRestore, want: _BookingPeriod},
-		{name: "dedupe restore outlasts the canCommit budget", method: OpRestore, dedupe: true, want: _TimeoutDedupeRestoreCanCommit + _BookingPeriod},
+		{name: "legacy create booking", method: OpCreate, want: _TimeoutCanCommit + _BookingPeriod},
+		{name: "dedupe create booking", method: OpCreate, dedupe: true, want: _TimeoutCanCommit + _BookingPeriod},
+		{name: "legacy restore booking", method: OpRestore, want: _TimeoutCanCommit + _BookingPeriod},
+		{name: "dedupe restore booking", method: OpRestore, dedupe: true, want: _TimeoutDedupeRestoreCanCommit + _BookingPeriod},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1419,6 +1419,13 @@ func TestCanCommitBookingAndAttempt(t *testing.T) {
 			got := <-gotCh
 			assert.Equal(t, tc.want, got.Duration)
 			assert.Equal(t, "attempt-1", got.AttemptID)
+
+			budget := _TimeoutCanCommit
+			if tc.method == OpRestore && tc.dedupe {
+				budget = _TimeoutDedupeRestoreCanCommit
+			}
+			assert.Greater(t, got.Duration, budget)
+			assert.GreaterOrEqual(t, maxBooking(tc.method == OpRestore && tc.dedupe), got.Duration)
 		})
 	}
 
