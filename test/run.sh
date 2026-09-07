@@ -483,9 +483,13 @@ function run_integration_tests() {
 
 function run_acceptance_lsmkv() {
     echo "This test runs without the race detector because it asserts performance"
+    # -v because these tests report the latency distribution they measured, and
+    # `go test` throws a passing binary's output away when it is given a package
+    # path. Without it the numbers the thresholds are calibrated from are only
+    # ever visible on a red run.
     cd 'test/acceptance_lsmkv'
     for pkg in $(go list ./...); do
-      if ! go test -timeout=15m -count 1 "$pkg"; then
+      if ! go test -v -timeout=15m -count 1 "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
