@@ -52,13 +52,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "custom values",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint":   "google.com",
+					"apiEndpoint":   "europe-west4-aiplatform.googleapis.com",
 					"projectId":     "projectId",
 					"titleProperty": "title",
 					"taskType":      "CODE_RETRIEVAL_QUERY",
 				},
 			},
-			wantApiEndpoint: "google.com",
+			wantApiEndpoint: "europe-west4-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "gemini-embedding-001",
 			wantTitle:       "title",
@@ -141,6 +141,26 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantTaskType:    DefaultTaskType,
 			wantDimensions:  nil,
 			wantErr:         errors.New("properties field needs to be of array type, got: string"),
+		},
+		{
+			name: "apiEndpoint outside the Google API domain",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "attacker.example.com",
+					"projectId":   "projectId",
+				},
+			},
+			wantErr: errors.Errorf("apiEndpoint must be a Google API host ending in .googleapis.com, got \"attacker.example.com\""),
+		},
+		{
+			name: "location carrying a host",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "projectId",
+					"location":  "attacker.example.com/",
+				},
+			},
+			wantErr: errors.Errorf("location must be a Google region name, got \"attacker.example.com/\""),
 		},
 		{
 			name: "wrong taskType",
