@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -200,12 +201,13 @@ type CoordinatorCanceller interface {
 type Handler struct {
 	node string
 	// deps
-	logger         logrus.FieldLogger
-	authorizer     authorization.Authorizer
-	backupper      *backupper
-	restorer       *restorer
-	backends       BackupBackendProvider
-	coordCanceller CoordinatorCanceller
+	logger     logrus.FieldLogger
+	authorizer authorization.Authorizer
+	backupper  *backupper
+	restorer   *restorer
+	backends   BackupBackendProvider
+	// atomic: wired after the cluster API already serves OnAbort.
+	coordCanceller atomic.Pointer[CoordinatorCanceller]
 }
 
 func NewHandler(
@@ -391,14 +393,14 @@ func (m *Handler) OnCommit(ctx context.Context, req *StatusRequest) (err error) 
 
 // SetCoordinatorCanceller lets an abort RPC cancel an op this node coordinates.
 func (m *Handler) SetCoordinatorCanceller(c CoordinatorCanceller) {
-	m.coordCanceller = c
+	m.coordCanceller.Store(&c)
 }
 
 // OnAbort will be triggered when the coordinator abort the execution of a previous operation
 func (m *Handler) OnAbort(ctx context.Context, req *AbortRequest) error {
 	// A create waiting out planning has no participant slots; only this reaches it.
-	if m.coordCanceller != nil {
-		m.coordCanceller.cancelCoordinatorOp(req.Method, req.ID, req.AttemptID)
+	if c := m.coordCanceller.Load(); c != nil {
+		(*c).cancelCoordinatorOp(req.Method, req.ID, req.AttemptID)
 	}
 	switch req.Method {
 	case OpCreate:

@@ -249,6 +249,26 @@ func TestOnAbortReachesCoordinatorCanceller(t *testing.T) {
 	require.Equal(t, OpRestore, rc.method)
 }
 
+func TestSetCoordinatorCancellerConcurrentWithOnAbort(t *testing.T) {
+	ctx := context.Background()
+	bm := createManager(nil, nil, nil, nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			err := bm.OnAbort(ctx, &AbortRequest{Method: Op("bogus"), ID: "b1"})
+			assert.ErrorIs(t, err, errUnknownOp)
+		}
+	}()
+	rc := &recordingCanceller{}
+	for i := 0; i < 500; i++ {
+		bm.SetCoordinatorCanceller(rc)
+	}
+	<-done
+	require.NoError(t, bm.OnAbort(ctx, &AbortRequest{Method: OpCreate, ID: "b1"}))
+	require.GreaterOrEqual(t, rc.calls, 1)
+}
+
 // TestCanCommitResponse_PreservesInFlightReindexErrorKind verifies that when
 // the local sourcer (DB.Backupable) refuses with the
 // "backup blocked: runtime-reindex in flight on this shard" sentinel
