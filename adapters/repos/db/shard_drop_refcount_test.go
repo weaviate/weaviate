@@ -147,11 +147,9 @@ func TestShardDropDrainsRealBatchWrite(t *testing.T) {
 // bounded on purpose, so a reference held past the window must not wedge the
 // delete, and must be logged. Runs for the full drain window (~30s).
 func TestShardDropProceedsWhenDrainTimesOut(t *testing.T) {
-	index, cleanup := initIndexAndPopulate(t, t.TempDir())
-	defer cleanup()
-
 	logger, hook := test.NewNullLogger()
-	index.logger = logger
+	index, cleanup := initIndexAndPopulateWithLogger(t, t.TempDir(), logger)
+	defer cleanup()
 
 	start := time.Now()
 	_, release, dropped := dropTestShard(t, index) // pin is never released
@@ -271,11 +269,9 @@ func TestObjectReadsAfterStoreTeardownReturnErrors(t *testing.T) {
 // outliving the drain must fail on the deregistered bucket rather than
 // dereference nil, and must be reported once.
 func TestObjectWritesAfterStoreTeardownReturnErrors(t *testing.T) {
-	index, cleanup := initIndexAndPopulate(t, t.TempDir())
-	defer cleanup()
-
 	logger, hook := test.NewNullLogger()
-	index.logger = logger
+	index, cleanup := initIndexAndPopulateWithLogger(t, t.TempDir(), logger)
+	defer cleanup()
 
 	_, shard := loadTestShard(t, index)
 	// the state a teardown that outran its drain leaves behind
