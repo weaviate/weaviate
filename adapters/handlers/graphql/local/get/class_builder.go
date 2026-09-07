@@ -31,10 +31,11 @@ type classBuilder struct {
 	beaconClass     *graphql.Object
 	logger          logrus.FieldLogger
 	modulesProvider ModulesProvider
+	fusionEnum      *graphql.Enum
 }
 
 func newClassBuilder(schema *schema.SchemaWithAliases, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider, authorizer authorization.Authorizer,
+	modulesProvider ModulesProvider, authorizer authorization.Authorizer, fusionEnum *graphql.Enum,
 ) *classBuilder {
 	b := &classBuilder{}
 
@@ -42,6 +43,7 @@ func newClassBuilder(schema *schema.SchemaWithAliases, logger logrus.FieldLogger
 	b.schema = schema
 	b.modulesProvider = modulesProvider
 	b.authorizer = authorizer
+	b.fusionEnum = fusionEnum
 
 	b.initKnownClasses()
 	b.initBeaconClass()
@@ -69,22 +71,9 @@ func (b *classBuilder) objects() (*graphql.Object, error) {
 }
 
 func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error) {
-	// needs to be defined outside the individual class as there can only be one definition of an enum
-	fusionAlgoEnum := graphql.NewEnum(graphql.EnumConfig{
-		Name: "FusionEnum",
-		Values: graphql.EnumValueConfigMap{
-			"rankedFusion": &graphql.EnumValueConfig{
-				Value: common_filters.HybridRankedFusion,
-			},
-			"relativeScoreFusion": &graphql.EnumValueConfig{
-				Value: common_filters.HybridRelativeScoreFusion,
-			},
-		},
-	})
-
 	classFields := graphql.Fields{}
 	for _, class := range kindSchema.Classes {
-		classField, err := b.classField(class, fusionAlgoEnum)
+		classField, err := b.classField(class, b.fusionEnum)
 		if err != nil {
 			return nil, fmt.Errorf("could not build class for %s", class.Class)
 		}

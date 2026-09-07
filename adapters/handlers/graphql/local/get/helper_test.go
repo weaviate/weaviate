@@ -21,6 +21,7 @@ import (
 	"github.com/tailor-platform/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
@@ -649,7 +650,7 @@ func newMockResolver() *mockResolver {
 func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
 	logger, _ := test.NewNullLogger()
 	simpleSchema := test_helper.CreateSimpleSchema(vectorizer)
-	field, err := Build(&simpleSchema, logger, getFakeModulesProvider(), getFakeAuthorizer())
+	field, err := Build(&simpleSchema, logger, getFakeModulesProvider(), getFakeAuthorizer(), common_filters.NewFusionEnum())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
@@ -663,7 +664,7 @@ func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
 
 func newMockResolverWithNoModules() *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := Build(&test_helper.SimpleSchema, logger, nil, getFakeAuthorizer())
+	field, err := Build(&test_helper.SimpleSchema, logger, nil, getFakeAuthorizer(), common_filters.NewFusionEnum())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}

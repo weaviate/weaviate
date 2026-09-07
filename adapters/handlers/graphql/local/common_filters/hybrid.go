@@ -14,6 +14,7 @@ package common_filters
 import (
 	"fmt"
 
+	"github.com/tailor-platform/graphql"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 
@@ -26,6 +27,28 @@ const (
 	HybridRelativeScoreFusion
 )
 const HybridFusionDefault = HybridRelativeScoreFusion
+
+// NewFusionEnum returns the GraphQL enum type used to select a hybrid
+// search's fusion algorithm. Callers must construct this exactly once and
+// pass the same *graphql.Enum instance into every builder that uses it
+// (currently Get and Aggregate) - a GraphQL schema can only have one type
+// definition per name, and constructing two separate instances (even with
+// identical Values) forces them to be registered under different names,
+// which then stops a client from reusing one GraphQL variable across both
+// operations.
+func NewFusionEnum() *graphql.Enum {
+	return graphql.NewEnum(graphql.EnumConfig{
+		Name: "FusionEnum",
+		Values: graphql.EnumValueConfigMap{
+			"rankedFusion": &graphql.EnumValueConfig{
+				Value: HybridRankedFusion,
+			},
+			"relativeScoreFusion": &graphql.EnumValueConfig{
+				Value: HybridRelativeScoreFusion,
+			},
+		},
+	})
+}
 
 func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*searchparams.HybridSearch, *dto.TargetCombination, error) {
 	var subsearches []interface{}

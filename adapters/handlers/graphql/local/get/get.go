@@ -33,15 +33,19 @@ type ModulesProvider interface {
 	GetAll() []modulecapabilities.Module
 }
 
-// Build the Local.Get part of the graphql tree
+// Build the Local.Get part of the graphql tree. fusionEnum is the shared
+// hybrid-search fusion-algorithm enum constructed once by the caller (see
+// common_filters.NewFusionEnum) and also passed to aggregate.Build, so Get
+// and Aggregate register the same GraphQL type rather than two separately
+// named ones.
 func Build(schema *schema.SchemaWithAliases, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider, authorizer authorization.Authorizer,
+	modulesProvider ModulesProvider, authorizer authorization.Authorizer, fusionEnum *graphql.Enum,
 ) (*graphql.Field, error) {
 	if len(schema.Objects.Classes) == 0 {
 		return nil, utils.ErrEmptySchema
 	}
 
-	cb := newClassBuilder(schema, logger, modulesProvider, authorizer)
+	cb := newClassBuilder(schema, logger, modulesProvider, authorizer, fusionEnum)
 
 	var err error
 	var objects *graphql.Object

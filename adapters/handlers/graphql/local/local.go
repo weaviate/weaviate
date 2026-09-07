@@ -15,6 +15,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-platform/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/aggregate"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -27,12 +28,17 @@ import (
 func Build(dbSchema *schema.SchemaWithAliases, logger logrus.FieldLogger,
 	config config.Config, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (graphql.Fields, error) {
-	getField, err := get.Build(dbSchema, logger, modulesProvider, authorizer)
+	// Constructed once and shared between Get and Aggregate: a GraphQL schema
+	// can only have one type definition per name, so both builders must use
+	// this exact instance rather than each building their own "FusionEnum".
+	fusionEnum := common_filters.NewFusionEnum()
+
+	getField, err := get.Build(dbSchema, logger, modulesProvider, authorizer, fusionEnum)
 	if err != nil {
 		return nil, err
 	}
 
-	aggregateField, err := aggregate.Build(dbSchema, config, modulesProvider, authorizer)
+	aggregateField, err := aggregate.Build(dbSchema, config, modulesProvider, authorizer, fusionEnum)
 	if err != nil {
 		return nil, err
 	}

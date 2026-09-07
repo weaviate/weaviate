@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	testhelper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
@@ -45,7 +46,7 @@ func (m *mockAuthorizer) FilterAuthorizedResources(ctx context.Context, principa
 }
 
 func newMockResolver(cfg config.Config) *mockResolver {
-	field, err := Build(&testhelper.CarSchema, cfg, nil, &mockAuthorizer{})
+	field, err := Build(&testhelper.CarSchema, cfg, nil, &mockAuthorizer{}, common_filters.NewFusionEnum())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}

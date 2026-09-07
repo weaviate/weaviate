@@ -31,9 +31,13 @@ type ModulesProvider interface {
 	ExtractSearchParams(arguments map[string]interface{}, className string) (map[string]interface{}, map[string]*dto.TargetCombination)
 }
 
-// Build the Aggregate Kinds schema
+// Build the Aggregate Kinds schema. fusionEnum is the shared hybrid-search
+// fusion-algorithm enum constructed once by the caller (see
+// common_filters.NewFusionEnum) and also passed to get.Build, so Get and
+// Aggregate register the same GraphQL type rather than two separately named
+// ones.
 func Build(dbSchema *schema.SchemaWithAliases, config config.Config,
-	modulesProvider ModulesProvider, authorizer authorization.Authorizer,
+	modulesProvider ModulesProvider, authorizer authorization.Authorizer, fusionEnum *graphql.Enum,
 ) (*graphql.Field, error) {
 	if len(dbSchema.Objects.Classes) == 0 {
 		return nil, utils.ErrEmptySchema
@@ -42,7 +46,7 @@ func Build(dbSchema *schema.SchemaWithAliases, config config.Config,
 	var err error
 	var localAggregateObjects *graphql.Object
 	if len(dbSchema.Objects.Classes) > 0 {
-		localAggregateObjects, err = classFields(dbSchema, config, modulesProvider, authorizer)
+		localAggregateObjects, err = classFields(dbSchema, config, modulesProvider, authorizer, fusionEnum)
 		if err != nil {
 			return nil, err
 		}
@@ -60,24 +64,9 @@ func Build(dbSchema *schema.SchemaWithAliases, config config.Config,
 
 func classFields(databaseSchema *schema.SchemaWithAliases,
 	config config.Config, modulesProvider ModulesProvider, authorizer authorization.Authorizer,
+	fusionAlgoEnum *graphql.Enum,
 ) (*graphql.Object, error) {
 	fields := graphql.Fields{}
-
-	// needs to be defined outside the individual class as there can only be one definition of an enum.
-	// Named distinctly from Get's "FusionEnum" because both end up registered in the same overall
-	// GraphQL schema (see adapters/handlers/graphql/local/local.go), and the schema builder requires
-	// unique type names.
-	fusionAlgoEnum := graphql.NewEnum(graphql.EnumConfig{
-		Name: "AggregateFusionEnum",
-		Values: graphql.EnumValueConfigMap{
-			"rankedFusion": &graphql.EnumValueConfig{
-				Value: common_filters.HybridRankedFusion,
-			},
-			"relativeScoreFusion": &graphql.EnumValueConfig{
-				Value: common_filters.HybridRelativeScoreFusion,
-			},
-		},
-	})
 
 	for _, class := range databaseSchema.Objects.Classes {
 		field, err := classField(class, class.Description, config, modulesProvider, authorizer, fusionAlgoEnum)

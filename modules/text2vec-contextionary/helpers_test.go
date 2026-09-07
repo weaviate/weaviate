@@ -19,6 +19,7 @@ import (
 	"github.com/tailor-platform/graphql"
 	"github.com/tailor-platform/graphql/language/ast"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
@@ -338,7 +339,7 @@ func getFakeAuthorizer() *fakeAuthorizer {
 
 func newMockResolver() *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := get.Build(&test_helper.SimpleSchema, logger, getFakeModulesProvider(), getFakeAuthorizer())
+	field, err := get.Build(&test_helper.SimpleSchema, logger, getFakeModulesProvider(), getFakeAuthorizer(), common_filters.NewFusionEnum())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
