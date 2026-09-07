@@ -352,9 +352,6 @@ func (s *Shard) getOrInitMetadataDB() (*shardmeta.DB, error) {
 func (s *Shard) initTargetVectors(ctx context.Context, legacy schemaConfig.VectorIndexConfig,
 	configs map[string]schemaConfig.VectorIndexConfig, lazyLoadSegments bool,
 ) error {
-	s.vectorIndexMu.Lock()
-	defer s.vectorIndexMu.Unlock()
-
 	if err := newCompressedVectorsMigrator(s.index.logger).do(s, legacy, configs); err != nil {
 		s.index.logger.WithFields(logrus.Fields{
 			"action":   "init_target_vectors",
@@ -362,79 +359,56 @@ func (s *Shard) initTargetVectors(ctx context.Context, legacy schemaConfig.Vecto
 		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
-	s.vectorIndexes = make(map[string]VectorIndex, len(configs))
-	s.queues = make(map[string]*VectorIndexQueue, len(configs))
-
 	for targetVector, vectorIndexConfig := range configs {
-		if err := s.initTargetVectorWithLock(ctx, targetVector, vectorIndexConfig, lazyLoadSegments); err != nil {
+		if err := s.initTargetVector(ctx, targetVector, vectorIndexConfig, lazyLoadSegments); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// initTargetVector creates the named vector's index and queue unless the
+// shard has them already. Creates are serialized by the slots, so two
+// concurrent UpdateVectorIndexConfigs calls that both saw the target absent
+// build it once; the second finds it in place and returns.
 func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
-	s.vectorIndexMu.Lock()
-	defer s.vectorIndexMu.Unlock()
-	return s.initTargetVectorWithLock(ctx, targetVector, cfg, lazyLoadSegments)
+	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
+		return s.buildVectorIndexAndQueue(ctx, targetVector, cfg, lazyLoadSegments)
+	})
+	return err
 }
 
-func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
-	// Recreating an existing target would orphan the current index+queue (never
-	// Dropped). Returning early also makes concurrent UpdateVectorIndexConfigs
-	// calls that both saw the target absent safe.
-	if _, exists := s.vectorIndexes[targetVector]; exists {
-		return nil
-	}
-
+// buildVectorIndexAndQueue constructs a vector's index and its queue. A queue
+// that fails to build takes the index down with it, so nothing is left
+// running unpublished.
+func (s *Shard) buildVectorIndexAndQueue(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) (VectorIndex, *VectorIndexQueue, error) {
 	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg, lazyLoadSegments)
 	if err != nil {
-		return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
+		return nil, nil, fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 	}
 	queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
 	if err != nil {
 		if shutdownErr := vectorIndex.Shutdown(s.shutCtx); shutdownErr != nil {
-			return fmt.Errorf("cannot create index queue for %q: %w (shutting down the orphaned vector index also failed: %w)",
+			return nil, nil, fmt.Errorf("cannot create index queue for %q: %w (shutting down the orphaned vector index also failed: %w)",
 				targetVector, err, shutdownErr)
 		}
-		return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
+		return nil, nil, fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
 	}
-
-	s.vectorIndexes[targetVector] = vectorIndex
-	s.queues[targetVector] = queue
-	return nil
+	return vectorIndex, queue, nil
 }
 
+// initLegacyVector creates the legacy vector's index and queue unless the
+// shard has them already. A second init used to replace the running index
+// with a fresh instance and orphan it; now it finds the first in place.
 func (s *Shard) initLegacyVector(ctx context.Context, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
-	s.vectorIndexMu.Lock()
-	defer s.vectorIndexMu.Unlock()
-
-	vectorIndex, err := s.initVectorIndex(ctx, "", cfg, lazyLoadSegments)
-	if err != nil {
-		return err
-	}
-
-	queue, err := NewVectorIndexQueue(s, "", vectorIndex)
-	if err != nil {
-		if shutdownErr := vectorIndex.Shutdown(s.shutCtx); shutdownErr != nil {
-			return fmt.Errorf("%w (shutting down the orphaned vector index also failed: %w)", err, shutdownErr)
-		}
-		return err
-	}
-	s.vectorIndex = vectorIndex
-	s.queue = queue
-	return nil
+	_, err := s.vectors.Create("", func() (VectorIndex, *VectorIndexQueue, error) {
+		return s.buildVectorIndexAndQueue(ctx, "", cfg, lazyLoadSegments)
+	})
+	return err
 }
 
 func (s *Shard) setVectorIndex(targetVector string, index VectorIndex) {
-	s.vectorIndexMu.Lock()
-	defer s.vectorIndexMu.Unlock()
-
-	if targetVector == "" {
-		s.vectorIndex = index
-	} else {
-		s.vectorIndexes[targetVector] = index
-	}
+	s.vectors.Replace(targetVector, index)
 }
 
 // perVectorDropper is implemented by index types whose Drop() would reach
@@ -461,21 +435,21 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 // from this shard, deleting associated files from disk. It also removes the
 // LSM buckets that store the raw and compressed vector data.
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
-	s.vectorIndexMu.Lock()
-	defer s.vectorIndexMu.Unlock()
-
-	if queue, ok := s.queues[targetVector]; ok && queue != nil {
-		if err := queue.Drop(ctx); err != nil {
-			return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
+	err := s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
+		if queue != nil {
+			if err := queue.Drop(ctx); err != nil {
+				return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
+			}
 		}
-		delete(s.queues, targetVector)
-	}
-
-	if index, ok := s.vectorIndexes[targetVector]; ok && index != nil {
-		if err := dropOneVectorIndex(ctx, index); err != nil {
-			return fmt.Errorf("drop vector index %q: %w", targetVector, err)
+		if index != nil {
+			if err := dropOneVectorIndex(ctx, index); err != nil {
+				return fmt.Errorf("drop vector index %q: %w", targetVector, err)
+			}
 		}
-		delete(s.vectorIndexes, targetVector)
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	// Remove every on-disk artifact this vector owns — the raw and compressed

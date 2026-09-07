@@ -790,6 +790,26 @@ func (l *LazyLoadShard) GetVectorIndex(targetVector string) (VectorIndex, bool) 
 	return l.shard.GetVectorIndex(targetVector)
 }
 
+func (l *LazyLoadShard) WithVectorIndex(targetVector string, f func(index VectorIndex) error) (bool, error) {
+	l.mustLoad()
+	return l.shard.WithVectorIndex(targetVector, f)
+}
+
+func (l *LazyLoadShard) WithVectorIndexQueue(targetVector string, f func(queue *VectorIndexQueue) error) (bool, error) {
+	l.mustLoad()
+	return l.shard.WithVectorIndexQueue(targetVector, f)
+}
+
+func (l *LazyLoadShard) AcquireVectorIndex(targetVector string) (VectorIndex, func(), bool) {
+	l.mustLoad()
+	return l.shard.AcquireVectorIndex(targetVector)
+}
+
+func (l *LazyLoadShard) AcquireVectorIndexQueue(targetVector string) (*VectorIndexQueue, func(), bool) {
+	l.mustLoad()
+	return l.shard.AcquireVectorIndexQueue(targetVector)
+}
+
 func (l *LazyLoadShard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
 	l.mustLoad()
 	return l.shard.ForEachVectorIndex(f)
