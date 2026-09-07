@@ -52,16 +52,22 @@ type fakeSchemaManager struct {
 	tenantsEnabled    bool
 	resolveAliasTo    string
 	// test controls
-	AddTenantsSchemaVersion uint64
-	AutoSchemaVersion       uint64
-	ClassVersion            uint64
-	AddClassPropertyErr     error
-	WaitForUpdateErr        error
+	AddTenantsSchemaVersion         uint64
+	AutoSchemaVersion               uint64
+	ClassVersion                    uint64
+	AddClassPropertyErr             error
+	WaitForUpdateErr                error
+	EnsureTenantActiveErr           error
+	EnsureTenantActiveSchemaVersion uint64
 	// observed
-	WaitedSchemaVersion    uint64
-	MaxWaitedSchemaVersion uint64
-	WaitedVersions         []uint64
-	GetClassCalls          []string
+	WaitedSchemaVersion     uint64
+	MaxWaitedSchemaVersion  uint64
+	WaitedVersions          []uint64
+	GetClassCalls           []string
+	EnsureTenantActiveCalls []struct {
+		Class   string
+		Tenants []string
+	}
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -240,7 +246,11 @@ func (f *fakeSchemaManager) ResolveAlias(alias string) string {
 }
 
 func (f *fakeSchemaManager) EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error) {
-	return 0, nil
+	f.EnsureTenantActiveCalls = append(f.EnsureTenantActiveCalls, struct {
+		Class   string
+		Tenants []string
+	}{Class: class, Tenants: tenants})
+	return f.EnsureTenantActiveSchemaVersion, f.EnsureTenantActiveErr
 }
 
 type fakeVectorRepo struct {

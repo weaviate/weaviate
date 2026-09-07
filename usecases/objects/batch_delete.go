@@ -73,6 +73,18 @@ func (b *BatchManager) DeleteObjectsFromGRPCAfterAuth(ctx context.Context, princ
 	}
 	schemaVersion := fetchedClasses[className].Version
 
+	if tenant != "" {
+		tenantSchemaVersion, err := b.schemaManager.EnsureTenantActiveForWrite(ctx, className, tenant)
+		if err != nil {
+			return BatchDeleteResult{}, fmt.Errorf("error ensuring tenant active for write: %w", err)
+		}
+		schemaVersion = max(schemaVersion, tenantSchemaVersion)
+	}
+
+	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return BatchDeleteResult{}, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	}
+
 	deletionTime := time.UnixMilli(b.timeSource.Now())
 	return b.vectorRepo.BatchDeleteObjects(ctx, params, deletionTime, repl, tenant, schemaVersion)
 }

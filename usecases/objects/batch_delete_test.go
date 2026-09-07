@@ -388,17 +388,47 @@ func Test_BatchDelete_FromGRPC_Uses_SchemaVersion(t *testing.T) {
 	const classVersion uint64 = 9
 
 	tests := []struct {
-		name      string
-		lookupErr error
-		wantErr   string
+		name              string
+		tenant            string
+		lookupErr         error
+		activationVersion uint64
+		activationErr     error
+		waitForUpdateErr  error
+		wantVersion       uint64
+		wantErr           string
 	}{
 		{
-			name: "deleted",
+			name:        "deleted",
+			wantVersion: classVersion,
 		},
 		{
 			name:      "collection lookup fails",
 			lookupErr: errors.New("leader unreachable"),
 			wantErr:   "could not get class Foo",
+		},
+		{
+			name:              "deleted with tenant activates tenant and waits for schema update",
+			tenant:            "tenant1",
+			activationVersion: 15,
+			wantVersion:       15,
+		},
+		{
+			name:              "deleted with tenant uses classVersion if higher than activationVersion",
+			tenant:            "tenant1",
+			activationVersion: 5,
+			wantVersion:       classVersion,
+		},
+		{
+			name:          "tenant activation fails",
+			tenant:        "tenant1",
+			activationErr: errors.New("cannot activate tenant"),
+			wantErr:       "error ensuring tenant active for write: cannot activate tenant",
+		},
+		{
+			name:             "wait for update fails with tenant",
+			tenant:           "tenant1",
+			waitForUpdateErr: errors.New("schema timeout"),
+			wantErr:          "error waiting for local schema to catch up to version",
 		},
 	}
 
@@ -410,9 +440,12 @@ func Test_BatchDelete_FromGRPC_Uses_SchemaVersion(t *testing.T) {
 			vectorRepo := &fakeVectorRepo{}
 			vectorRepo.On("BatchDeleteObjects", mock.Anything).Return(BatchDeleteResult{}, nil).Once()
 			schemaManager := &fakeSchemaManager{
-				GetSchemaResponse: sch,
-				ClassVersion:      classVersion,
-				GetschemaErr:      tt.lookupErr,
+				GetSchemaResponse:               sch,
+				ClassVersion:                    classVersion,
+				GetschemaErr:                    tt.lookupErr,
+				EnsureTenantActiveSchemaVersion: tt.activationVersion,
+				EnsureTenantActiveErr:           tt.activationErr,
+				WaitForUpdateErr:                tt.waitForUpdateErr,
 			}
 			cfg := &config.WeaviateConfig{}
 			logger, _ := test.NewNullLogger()
@@ -421,7 +454,7 @@ func Test_BatchDelete_FromGRPC_Uses_SchemaVersion(t *testing.T) {
 				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 
 			_, err := manager.DeleteObjectsFromGRPCAfterAuth(context.Background(), &models.Principal{},
-				BatchDeleteParams{ClassName: "Foo"}, nil, "")
+				BatchDeleteParams{ClassName: "Foo"}, nil, tt.tenant)
 
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
@@ -429,8 +462,14 @@ func Test_BatchDelete_FromGRPC_Uses_SchemaVersion(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, classVersion, vectorRepo.CapturedSchemaVersion,
-				"the delete must be made with the collection's schema version")
+			assert.Equal(t, tt.wantVersion, vectorRepo.CapturedSchemaVersion,
+				"the delete must be made with the resolved schema version")
+			if tt.tenant != "" {
+				require.Len(t, schemaManager.EnsureTenantActiveCalls, 1)
+				assert.Equal(t, "Foo", schemaManager.EnsureTenantActiveCalls[0].Class)
+				assert.Equal(t, []string{tt.tenant}, schemaManager.EnsureTenantActiveCalls[0].Tenants)
+				assert.Equal(t, tt.wantVersion, schemaManager.WaitedSchemaVersion)
+			}
 		})
 	}
 }
