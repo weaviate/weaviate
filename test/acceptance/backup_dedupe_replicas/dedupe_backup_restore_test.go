@@ -108,11 +108,12 @@ func waitForCheckpointCapability(t *testing.T, compose *docker.DockerCompose, cl
 		}
 		defer func() {
 			for _, cluster := range clusters {
-				common.DeleteAsyncCheckpoint(t, cluster, className, shards)
+				assert.NoError(ct, common.TryDeleteAsyncCheckpoint(cluster, className, shards))
 			}
 		}()
 		for _, cluster := range clusters {
-			statuses := common.AsyncCheckpointStatus(t, cluster, className, shards)
+			statuses, err := common.TryAsyncCheckpointStatus(cluster, className, shards)
+			require.NoError(ct, err)
 			for _, shard := range shards {
 				entry, ok := statuses[shard]
 				require.True(ct, ok, "no checkpoint entry for shard %q on %s", shard, cluster)
