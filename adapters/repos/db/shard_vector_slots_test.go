@@ -199,20 +199,93 @@ func TestVectorIndexSlots_Replace(t *testing.T) {
 	assert.Equal(t, 1, v.Len())
 }
 
+// tornDown is a teardown that records what it was handed.
+func tornDown(got *VectorIndex) func(VectorIndex, *VectorIndexQueue) error {
+	return func(index VectorIndex, _ *VectorIndexQueue) error {
+		*got = index
+		return nil
+	}
+}
+
 func TestVectorIndexSlots_RemoveWithoutLeasesReturnsAtOnce(t *testing.T) {
 	var v vectorIndexSlots
 	index := &MockVectorIndex{}
 	require.NoError(t, v.Publish("title", index, nil))
 	logger, _ := test.NewNullLogger()
 
-	gotIndex, _, ok := v.Remove(context.Background(), "title", logger)
-	require.True(t, ok)
-	assert.Same(t, index, gotIndex)
-	_, ok = v.get("title")
+	var got VectorIndex
+	require.NoError(t, v.Remove(context.Background(), "title", logger, tornDown(&got)))
+	assert.Same(t, index, got)
+	_, ok := v.get("title")
 	assert.False(t, ok)
 
-	_, _, ok = v.Remove(context.Background(), "title", logger)
-	assert.False(t, ok, "removing twice reports the slot as already gone")
+	calls := 0
+	require.NoError(t, v.Remove(context.Background(), "title", logger, func(VectorIndex, *VectorIndexQueue) error {
+		calls++
+		return nil
+	}))
+	assert.Equal(t, 0, calls, "a slot that is already gone is not torn down again")
+}
+
+func TestVectorIndexSlots_RemoveKeepsTheSlotWhenTeardownFails(t *testing.T) {
+	var v vectorIndexSlots
+	index := &MockVectorIndex{}
+	require.NoError(t, v.Publish("title", index, nil))
+	logger, _ := test.NewNullLogger()
+
+	err := v.Remove(context.Background(), "title", logger, func(VectorIndex, *VectorIndexQueue) error {
+		return assert.AnError
+	})
+	require.ErrorIs(t, err, assert.AnError)
+
+	// the shard still owns the pair: a retried drop and shutdown can reach it
+	slot, ok := v.get("title")
+	require.True(t, ok)
+	assert.Same(t, index, slot.index)
+	var seen []string
+	require.NoError(t, v.ForEach(func(name string, _ VectorIndex, _ *VectorIndexQueue) error {
+		seen = append(seen, name)
+		return nil
+	}))
+	assert.Equal(t, []string{"title"}, seen)
+	lease, ok := v.Acquire("title")
+	require.True(t, ok, "leases resume once the failed removal is abandoned")
+	lease.release()
+
+	var got VectorIndex
+	require.NoError(t, v.Remove(context.Background(), "title", logger, tornDown(&got)))
+	assert.Same(t, index, got)
+	assert.Equal(t, 0, v.Len())
+}
+
+func TestVectorIndexSlots_ForEachSkipsASlotBeingRemoved(t *testing.T) {
+	var v vectorIndexSlots
+	require.NoError(t, v.Publish("a", &MockVectorIndex{}, nil))
+	require.NoError(t, v.Publish("b", &MockVectorIndex{}, nil))
+	logger, _ := test.NewNullLogger()
+
+	inTeardown := make(chan struct{})
+	finish := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- v.Remove(context.Background(), "a", logger, func(VectorIndex, *VectorIndexQueue) error {
+			close(inTeardown)
+			<-finish
+			return nil
+		})
+	}()
+	<-inTeardown
+
+	var seen []string
+	require.NoError(t, v.ForEach(func(name string, _ VectorIndex, _ *VectorIndexQueue) error {
+		seen = append(seen, name)
+		return nil
+	}))
+	assert.Equal(t, []string{"b"}, seen, "a slot mid-teardown is not handed to a walk")
+
+	close(finish)
+	require.NoError(t, <-done)
+	assert.Equal(t, 1, v.Len())
 }
 
 func TestVectorIndexSlots_RemoveWaitsForLeases(t *testing.T) {
@@ -223,10 +296,9 @@ func TestVectorIndexSlots_RemoveWaitsForLeases(t *testing.T) {
 	slot, ok := v.Acquire("title")
 	require.True(t, ok)
 
-	removed := make(chan bool, 1)
+	removed := make(chan error, 1)
 	go func() {
-		_, _, ok := v.Remove(context.Background(), "title", logger)
-		removed <- ok
+		removed <- v.Remove(context.Background(), "title", logger, func(VectorIndex, *VectorIndexQueue) error { return nil })
 	}()
 
 	select {
@@ -240,11 +312,12 @@ func TestVectorIndexSlots_RemoveWaitsForLeases(t *testing.T) {
 
 	slot.release()
 	select {
-	case ok := <-removed:
-		assert.True(t, ok)
+	case err := <-removed:
+		assert.NoError(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("remove did not complete after the lease was released")
 	}
+	assert.Equal(t, 0, v.Len())
 }
 
 func TestVectorIndexSlots_RemoveProceedsPastTheDeadline(t *testing.T) {
@@ -257,8 +330,8 @@ func TestVectorIndexSlots_RemoveProceedsPastTheDeadline(t *testing.T) {
 	t.Cleanup(slot.release)
 
 	start := time.Now()
-	_, _, ok = v.Remove(context.Background(), "title", logger)
-	require.True(t, ok, "past the deadline the slot is removed anyway, as the shard-level drop does")
+	err := v.Remove(context.Background(), "title", logger, func(VectorIndex, *VectorIndexQueue) error { return nil })
+	require.NoError(t, err, "past the deadline the slot is removed anyway, as the shard-level drop does")
 	assert.GreaterOrEqual(t, time.Since(start), 50*time.Millisecond)
 	_, ok = v.get("title")
 	assert.False(t, ok)
@@ -284,7 +357,7 @@ func TestVectorIndexSlots_RemoveOfOneSlotDoesNotWaitForAnother(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		v.Remove(context.Background(), "b", logger)
+		v.Remove(context.Background(), "b", logger, func(VectorIndex, *VectorIndexQueue) error { return nil })
 		close(done)
 	}()
 	select {

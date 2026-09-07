@@ -435,8 +435,7 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 // from this shard, deleting associated files from disk. It also removes the
 // LSM buckets that store the raw and compressed vector data.
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
-	index, queue, ok := s.vectors.Remove(ctx, targetVector, s.index.logger)
-	if ok {
+	err := s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
 		if queue != nil {
 			if err := queue.Drop(ctx); err != nil {
 				return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
@@ -447,6 +446,10 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 				return fmt.Errorf("drop vector index %q: %w", targetVector, err)
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	// Remove every on-disk artifact this vector owns — the raw and compressed

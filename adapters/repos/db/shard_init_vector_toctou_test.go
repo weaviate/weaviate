@@ -23,8 +23,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -191,4 +193,51 @@ func underlyingShard(t *testing.T, sl ShardLike) *Shard {
 		t.Fatalf("unexpected ShardLike type %T", sl)
 		return nil
 	}
+}
+
+// TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup pins that a drop
+// whose index teardown fails leaves the shard owning the index: a retried
+// drop and the shard's own shutdown still reach it through the slots. With
+// the old maps each entry stayed until its own teardown succeeded.
+func TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup(t *testing.T) {
+	ctx := context.Background()
+	shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: "test"}, enthnsw.UserConfig{}, false, true, false, func(idx *Index) {
+		idx.vectorIndexUserConfig = nil
+		idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+			"named": enthnsw.NewDefaultUserConfig(),
+		}
+	})
+	shard := underlyingShard(t, shardLike)
+
+	// swap a mock in for the real index, which the test shuts down itself
+	real, release, ok := shard.AcquireVectorIndex("named")
+	require.True(t, ok)
+	release()
+	t.Cleanup(func() { real.Shutdown(ctx) })
+
+	failing := NewMockVectorIndex(t)
+	failing.On("Drop", mock.Anything, false).Return(assert.AnError).Once()
+	failing.On("Drop", mock.Anything, false).Return(nil).Once()
+	require.True(t, shard.vectors.Replace("named", failing))
+
+	err := shard.DropVectorIndex(ctx, "named")
+	require.ErrorIs(t, err, assert.AnError)
+
+	var owned []VectorIndex
+	require.NoError(t, shard.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		if targetVector == "named" {
+			owned = append(owned, index)
+		}
+		return nil
+	}))
+	require.Len(t, owned, 1, "the index whose teardown failed must stay reachable for cleanup")
+	assert.Same(t, failing, owned[0])
+
+	require.NoError(t, shard.DropVectorIndex(ctx, "named"), "a retried drop tears the same index down")
+	owned = nil
+	require.NoError(t, shard.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		owned = append(owned, index)
+		return nil
+	}))
+	assert.Empty(t, owned)
 }

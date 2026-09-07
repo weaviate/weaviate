@@ -143,13 +143,15 @@ func (v *vectorIndexSlots) get(name string) (*vectorIndexSlot, bool) {
 
 // ForEach calls f on every slot under the read lock, named slots first and
 // the legacy slot last, stopping at the first error. Creation and removal
-// wait for the walk, as they did with the maps.
+// wait for the walk, as they did with the maps. A slot whose removal is in
+// progress is skipped, as the old drop held the write lock for its whole
+// teardown; it is visited again if that teardown fails.
 func (v *vectorIndexSlots) ForEach(f func(name string, index VectorIndex, queue *VectorIndexQueue) error) error {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
 	for name, slot := range v.slots {
-		if name == "" {
+		if name == "" || slot.closing {
 			continue
 		}
 		err := f(name, slot.index, slot.queue)
@@ -157,7 +159,7 @@ func (v *vectorIndexSlots) ForEach(f func(name string, index VectorIndex, queue 
 			return err
 		}
 	}
-	if slot, ok := v.slots[""]; ok {
+	if slot, ok := v.slots[""]; ok && !slot.closing {
 		return f("", slot.index, slot.queue)
 	}
 	return nil
@@ -179,17 +181,22 @@ func (v *vectorIndexSlots) Replace(name string, index VectorIndex) bool {
 }
 
 // Remove takes a slot out of service: no new lease is handed out, the ones
-// in flight get up to the drain timeout to finish, and then the index and
-// queue go to the caller for teardown. Past the deadline the removal
-// proceeds and logs the leases it left behind, as the shard-level drop
-// does; a user still running then sees a torn index, which is what it saw
-// with no wait at all. No alias: a drop names the vector exactly.
-func (v *vectorIndexSlots) Remove(ctx context.Context, name string, logger logrus.FieldLogger) (VectorIndex, *VectorIndexQueue, bool) {
+// in flight get up to the drain timeout to finish, and then teardown runs
+// on the index and queue. The slot leaves the map only once teardown
+// succeeds; a failed teardown reopens it, so the shard keeps the handles
+// for a retried drop or its own shutdown. A missing slot is not an error
+// and teardown is not called. Past the drain deadline the removal proceeds
+// and logs the leases it left behind, as the shard-level drop does; a user
+// still running then sees a torn index, which is what it saw with no wait
+// at all. No alias: a drop names the vector exactly.
+func (v *vectorIndexSlots) Remove(ctx context.Context, name string, logger logrus.FieldLogger,
+	teardown func(index VectorIndex, queue *VectorIndexQueue) error,
+) error {
 	v.mu.Lock()
 	slot, ok := v.slots[name]
 	if !ok {
 		v.mu.Unlock()
-		return nil, nil, false
+		return nil
 	}
 	slot.closing = true
 	v.mu.Unlock()
@@ -209,10 +216,15 @@ func (v *vectorIndexSlots) Remove(ctx context.Context, name string, logger logru
 		}).Warnf("removing the vector index with leases still held: %v", err)
 	}
 
+	err = teardown(slot.index, slot.queue)
 	v.mu.Lock()
+	defer v.mu.Unlock()
+	if err != nil {
+		slot.closing = false
+		return err
+	}
 	delete(v.slots, name)
-	v.mu.Unlock()
-	return slot.index, slot.queue, true
+	return nil
 }
 
 // Len is the number of published slots.
