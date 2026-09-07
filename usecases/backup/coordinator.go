@@ -697,6 +697,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 				DedupeEffective:   req.DedupeEffective,
 				ShardDesignations: projectDesignations(plan, originalName),
 				SourceNodes:       req.SourceNodes,
+				SchemaSourceNode:  req.SchemaSourceNode,
 			}
 		}
 		return nil

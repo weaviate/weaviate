@@ -90,6 +90,9 @@ type Request struct {
 	// SourceNodes are the original node names whose {backupID}/{node} subtrees hold descriptors and chunks.
 	SourceNodes []string `json:"sourceNodes,omitempty"`
 
+	// SchemaSourceNode is the prefix whose descriptor carries the sharding state the coordinator applies; participants derive shard membership from it, never from their own possibly-skewed snapshot.
+	SchemaSourceNode string `json:"schemaSourceNode,omitempty"`
+
 	// AttemptID distinguishes coordinator attempts sharing a backup ID; older nodes ignore it.
 	AttemptID string `json:"attemptId,omitempty"`
 }

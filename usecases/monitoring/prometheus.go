@@ -797,7 +797,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}, []string{"reason"}),
 		BackupDedupeRestoreAnomalies: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "backup_dedupe_restore_anomalies_total",
-			Help: "Fan-out restore shards without a normal source, by reason (no_holder = nothing restored, multi_holder = deterministic pick among duplicates)",
+			Help: "Fan-out restore shards without a normal source, by reason (no_holder = nothing restored, multi_holder = deterministic pick among duplicates, schema_source_fallback = shard membership derived from local snapshots)",
 		}, []string{"reason"}),
 		BackupRestoreDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "backup_restore_data_transferred",

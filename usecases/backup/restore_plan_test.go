@@ -342,6 +342,70 @@ func TestBuildFanoutPlan(t *testing.T) {
 		_, err := r.buildFanoutPlan(ctx, "N2", &Request{DedupeReplicas: true})
 		require.ErrorContains(t, err, "without source nodes")
 	})
+
+	nodeMetaWithState := func(node string, state map[string][]string, shards ...string) []byte {
+		cd := backup.ClassDescriptor{
+			Name:          class,
+			ShardingState: marshalState(t, state),
+			Schema:        []byte("schema"),
+		}
+		for i, s := range shards {
+			cd.Shards = append(cd.Shards, &backup.ShardDescriptor{Name: s, Node: node})
+			cd.Chunks = map[int32][]string{int32(i + 1): {s}}
+		}
+		meta := backup.BackupDescriptor{
+			ID: backupID, StartedAt: time.Now().UTC(), Status: backup.Success,
+			Version: VersionDedupeReplicas, ServerVersion: "1.35", DedupeReplicas: true,
+			Classes: []backup.ClassDescriptor{cd},
+		}
+		raw, err := json.Marshal(meta)
+		require.NoError(t, err)
+		return raw
+	}
+
+	t.Run("stale own snapshot yields to the schema source", func(t *testing.T) {
+		backend := newFakeBackend()
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+		backend.On("GetObject", mock.Anything, backupID+"/N1", BackupFile).
+			Return(nodeMetaWithState("N1", map[string][]string{"s1": {"N1", "N2"}, "s2": {"N1", "N2"}}, "s1", "s2"), nil)
+		backend.On("GetObject", mock.Anything, backupID+"/N2", BackupFile).
+			Return(nodeMetaWithState("N2", map[string][]string{"s1": {"N1"}, "s2": {"N1"}}), nil)
+
+		r := newRestorer(backend)
+		req := &Request{
+			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
+			DedupeReplicas: true, SourceNodes: []string{"N1", "N2"}, SchemaSourceNode: "N1",
+		}
+
+		plan, err := r.buildFanoutPlan(ctx, "N2", req)
+		require.NoError(t, err)
+		require.Len(t, plan.classes, 1)
+		require.Len(t, plan.classes[0].sources, 1)
+		assert.Equal(t, "N1", plan.classes[0].sources[0].node)
+		assert.Len(t, plan.classes[0].sources[0].desc.Shards, 2)
+	})
+
+	t.Run("expansion-enrolled participant follows the schema source, not the first prefix", func(t *testing.T) {
+		backend := newFakeBackend()
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+		backend.On("GetObject", mock.Anything, backupID+"/N1", BackupFile).
+			Return(nodeMetaWithState("N1", map[string][]string{"s1": {"N1"}}, "s1"), nil)
+		backend.On("GetObject", mock.Anything, backupID+"/N2", BackupFile).
+			Return(nodeMetaWithState("N2", map[string][]string{"s1": {"N1", "N3"}}), nil)
+
+		r := newRestorer(backend)
+		req := &Request{
+			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
+			DedupeReplicas: true, SourceNodes: []string{"N1", "N2"}, SchemaSourceNode: "N2",
+		}
+
+		plan, err := r.buildFanoutPlan(ctx, "N3", req)
+		require.NoError(t, err)
+		require.Len(t, plan.classes, 1)
+		require.Len(t, plan.classes[0].sources, 1)
+		assert.Equal(t, "N1", plan.classes[0].sources[0].node)
+		assert.Len(t, plan.classes[0].sources[0].desc.Shards, 1)
+	})
 }
 
 func TestRestoreFanoutStagesFromMultipleSources(t *testing.T) {

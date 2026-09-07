@@ -55,6 +55,7 @@ func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.
 	}
 	sort.Strings(sources)
 	req.SourceNodes = sources
+	req.SchemaSourceNode = c.descriptor.Leader
 	req.DedupeReplicas = true
 
 	// A many-to-one mapping would collide participants; shrink-topology restore is unsupported.
@@ -206,9 +207,23 @@ func (r *restorer) buildFanoutPlan(ctx context.Context, originalNode string, req
 
 	plan := &restorePlan{compressionType: metas[0].meta.GetCompressionType()}
 	for _, class := range req.Classes {
+		// Shard membership must come from the same descriptor whose sharding state the coordinator applies; a participant's own snapshot can be skewed and silently leave an owned shard empty.
 		var schemaDesc *backup.ClassDescriptor
-		if own != nil {
-			schemaDesc = own.meta.GetClassDescriptor(class)
+		for i := range metas {
+			if metas[i].node == req.SchemaSourceNode {
+				schemaDesc = metas[i].meta.GetClassDescriptor(class)
+				break
+			}
+		}
+		if schemaDesc == nil {
+			if req.SchemaSourceNode != "" {
+				monitoring.GetMetrics().BackupDedupeRestoreAnomalies.WithLabelValues("schema_source_fallback").Inc()
+				r.logger.WithField("action", "restore").WithField("class", class).
+					Warnf("replica-deduped restore: schema source %q has no descriptor for this class, falling back to local snapshots", req.SchemaSourceNode)
+			}
+			if own != nil {
+				schemaDesc = own.meta.GetClassDescriptor(class)
+			}
 		}
 		if schemaDesc == nil {
 			for i := range metas {
