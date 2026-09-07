@@ -94,15 +94,15 @@ func TestSelfRecoveryViaLogReplay(t *testing.T) {
 	allNodes := []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2}
 	paragraphClass := articles.ParagraphsClass()
 
-	t.Run("wait for cluster to form quorum", func(t *testing.T) {
+	mustRun(t, "wait for cluster to form quorum", func(t *testing.T) {
 		waitClusterHealthy(t)
 	})
 
-	t.Run("create RF=3 single-shard collection and ingest", func(t *testing.T) {
+	mustRun(t, "create RF=3 single-shard collection and ingest", func(t *testing.T) {
 		paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
 		paragraphClass.Vectorizer = "none"
-		helper.CreateClass(t, paragraphClass)
+		ensureClass(t, paragraphClass)
 		waitShardsLoaded(t, paragraphClass.Class, 1)
 
 		batch := make([]*models.Object, objCount)
@@ -115,27 +115,27 @@ func TestSelfRecoveryViaLogReplay(t *testing.T) {
 		submitBatch(t, batch, "")
 	})
 
-	t.Run("creating a collection on a healthy cluster does not recover", func(t *testing.T) {
+	mustRun(t, "creating a collection on a healthy cluster does not recover", func(t *testing.T) {
 		waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
 
 		fresh := articles.ArticlesClass()
 		fresh.ShardingConfig = map[string]interface{}{"desiredCount": 1}
 		fresh.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
 		fresh.Vectorizer = "none"
-		helper.CreateClass(t, fresh)
+		ensureClass(t, fresh)
 
 		assertNoActiveRecovery(t, allNodes, 10*time.Second)
 	})
 
-	t.Run("wipe node-3 data and restart (rejoins via log replay)", func(t *testing.T) {
+	mustRun(t, "wipe node-3 data and restart (rejoins via log replay)", func(t *testing.T) {
 		wipeAndRestart(ctx, t, compose, wipedIdx)
 	})
 
-	t.Run("a SELF_RECOVERY op fires for the wiped node", func(t *testing.T) {
+	mustRun(t, "a SELF_RECOVERY op fires for the wiped node", func(t *testing.T) {
 		waitSelfRecoveryOpFired(t, wipedNodeName)
 	})
 
-	t.Run("recovery completes and the wiped node reports full object count", func(t *testing.T) {
+	mustRun(t, "recovery completes and the wiped node reports full object count", func(t *testing.T) {
 		assertNodeRecovered(t, paragraphClass.Class, wipedNodeName, 1, int64(objCount))
 	})
 }
@@ -155,28 +155,28 @@ func TestSelfRecoveryViaLogReplayMultiTenant(t *testing.T) {
 	tenants := []string{"tenantA", "tenantB", "tenantC"}
 	mtClass := articles.ParagraphsClass()
 
-	t.Run("wait for cluster to form quorum", func(t *testing.T) {
+	mustRun(t, "wait for cluster to form quorum", func(t *testing.T) {
 		waitClusterHealthy(t)
 	})
 
-	t.Run("create RF=3 multi-tenant collection with HOT tenants", func(t *testing.T) {
+	mustRun(t, "create RF=3 multi-tenant collection with HOT tenants", func(t *testing.T) {
 		mtClass.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
 		mtClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
 		mtClass.Vectorizer = "none"
-		helper.CreateClass(t, mtClass)
+		ensureClass(t, mtClass)
 
 		ts := make([]*models.Tenant, len(tenants))
 		for i, name := range tenants {
 			ts[i] = &models.Tenant{Name: name, ActivityStatus: "HOT"}
 		}
-		helper.CreateTenants(t, mtClass.Class, ts)
+		ensureTenants(t, mtClass.Class, ts)
 	})
 
-	t.Run("wait for tenant shards to be placed on all nodes", func(t *testing.T) {
+	mustRun(t, "wait for tenant shards to be placed on all nodes", func(t *testing.T) {
 		waitShardsLoaded(t, mtClass.Class, len(tenants))
 	})
 
-	t.Run("ingest objects per tenant", func(t *testing.T) {
+	mustRun(t, "ingest objects per tenant", func(t *testing.T) {
 		for _, tenant := range tenants {
 			batch := make([]*models.Object, objsPerTenant)
 			for i := 0; i < objsPerTenant; i++ {
@@ -189,20 +189,20 @@ func TestSelfRecoveryViaLogReplayMultiTenant(t *testing.T) {
 		}
 	})
 
-	t.Run("creating tenants on a healthy cluster does not recover", func(t *testing.T) {
+	mustRun(t, "creating tenants on a healthy cluster does not recover", func(t *testing.T) {
 		waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
 		assertNoActiveRecovery(t, allNodes, 10*time.Second)
 	})
 
-	t.Run("wipe node-3 data and restart (rejoins via log replay)", func(t *testing.T) {
+	mustRun(t, "wipe node-3 data and restart (rejoins via log replay)", func(t *testing.T) {
 		wipeAndRestart(ctx, t, compose, wipedIdx)
 	})
 
-	t.Run("SELF_RECOVERY ops fire for the wiped node's tenant shards", func(t *testing.T) {
+	mustRun(t, "SELF_RECOVERY ops fire for the wiped node's tenant shards", func(t *testing.T) {
 		waitSelfRecoveryOpFired(t, wipedNodeName)
 	})
 
-	t.Run("recovery completes and the wiped node reports all tenant shards", func(t *testing.T) {
+	mustRun(t, "recovery completes and the wiped node reports all tenant shards", func(t *testing.T) {
 		assertNodeRecovered(t, mtClass.Class, wipedNodeName, len(tenants), int64(objsPerTenant))
 	})
 }

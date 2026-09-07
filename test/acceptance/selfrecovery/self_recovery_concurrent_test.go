@@ -90,12 +90,12 @@ func TestSelfRecoveryViaLogReplayConcurrentChanges(t *testing.T) {
 		}
 		return 0, false, false
 	}
-	t.Run("wait for cluster to form quorum", func(t *testing.T) {
+	mustRun(t, "wait for cluster to form quorum", func(t *testing.T) {
 		waitClusterHealthy(t)
 	})
 
-	t.Run("create RF=3 collection and ingest initial data", func(t *testing.T) {
-		helper.CreateClass(t, pClass)
+	mustRun(t, "create RF=3 collection and ingest initial data", func(t *testing.T) {
+		ensureClass(t, pClass)
 		waitShardsLoaded(t, pClass.Class, 1)
 
 		batch := make([]*models.Object, initialCount)
@@ -109,15 +109,15 @@ func TestSelfRecoveryViaLogReplayConcurrentChanges(t *testing.T) {
 		waitShardsLoaded(t, pClass.Class, 1)
 	})
 
-	t.Run("wipe node-3 and restart (rejoins via log replay)", func(t *testing.T) {
+	mustRun(t, "wipe node-3 and restart (rejoins via log replay)", func(t *testing.T) {
 		wipeAndRestart(ctx, t, compose, wipedIdx)
 	})
 
-	t.Run("a SELF_RECOVERY op fires (wiped node shard now excluded)", func(t *testing.T) {
+	mustRun(t, "a SELF_RECOVERY op fires (wiped node shard now excluded)", func(t *testing.T) {
 		waitSelfRecoveryOpFired(t, wipedNodeName)
 	})
 
-	t.Run("apply new data and schema changes during recovery", func(t *testing.T) {
+	mustRun(t, "apply new data and schema changes during recovery", func(t *testing.T) {
 		concurrent := make([]*models.Object, concurrentCount)
 		for i := 0; i < concurrentCount; i++ {
 			concurrent[i] = pObj(initialCount + i + 1)
@@ -131,7 +131,7 @@ func TestSelfRecoveryViaLogReplayConcurrentChanges(t *testing.T) {
 			nil)
 		require.NoError(t, perr)
 
-		helper.CreateClass(t, qClass)
+		ensureClass(t, qClass)
 		qBatch := make([]*models.Object, newCollCount)
 		for i := 0; i < newCollCount; i++ {
 			qBatch[i] = qObj(i + 1)
@@ -139,7 +139,7 @@ func TestSelfRecoveryViaLogReplayConcurrentChanges(t *testing.T) {
 		submitBatch(t, qBatch, types.ConsistencyLevelQuorum)
 	})
 
-	t.Run("all 3 nodes converge on P (initial+concurrent) and Q", func(t *testing.T) {
+	mustRun(t, "all 3 nodes converge on P (initial+concurrent) and Q", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for _, name := range allNodes {
 				pc, pl, pf := shardOf(t, pClass.Class, name)
@@ -155,7 +155,7 @@ func TestSelfRecoveryViaLogReplayConcurrentChanges(t *testing.T) {
 		}, 8*time.Minute, 2*time.Second)
 	})
 
-	t.Run("schema change reached the wiped node", func(t *testing.T) {
+	mustRun(t, "schema change reached the wiped node", func(t *testing.T) {
 		helper.SetupClient(compose.ContainerURI(wipedIdx))
 		defer helper.SetupClient(compose.GetWeaviate().URI())
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -169,7 +169,7 @@ func TestSelfRecoveryViaLogReplayConcurrentChanges(t *testing.T) {
 		}, 1*time.Minute, 1*time.Second)
 	})
 
-	t.Run("direct reads at consistency=ONE on the wiped node return recovered data", func(t *testing.T) {
+	mustRun(t, "direct reads at consistency=ONE on the wiped node return recovered data", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for _, i := range []int{1, initialCount, totalP} {
 				id := strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i))
