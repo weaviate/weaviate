@@ -23,6 +23,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -229,7 +230,7 @@ func TestLoadLocalShardLeavesRecoveringShardUntouched(t *testing.T) {
 	rec, ok := idx.shards.Load("S").(*RecoveringShard)
 	require.True(t, ok)
 
-	require.NoError(t, idx.LoadLocalShard(context.Background(), "S", false))
+	require.NoError(t, idx.LoadLocalShardForMovement(context.Background(), "S"))
 	require.NoDirExists(t, shardPath(idx.path(), "S"))
 	require.True(t, rec.isLoadBlocked())
 	_, stillRecovering := idx.shards.Load("S").(*RecoveringShard)
@@ -349,4 +350,45 @@ func TestDBLoadLocalShardUnknownCollection(t *testing.T) {
 	err := db.LoadLocalShard(context.Background(), "NoSuch", "S")
 	require.ErrorIs(t, err, enterrors.ErrIndexNotRegistered,
 		"the orchestrator retries only this sentinel while index publication is pending")
+}
+
+func newRecoveringIndex(t *testing.T) *Index {
+	t.Helper()
+	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true}, nil)
+	idx.closingCtx = context.Background()
+	idx.shardCreateLocks = esync.NewKeyRWLocker()
+	idx.getSchema = &fakeSchemaGetter{}
+	require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), &models.Class{Class: "C"}, "S", monitoring.GetMetrics()))
+	return idx
+}
+
+func TestWarmupCandidateSkipsRecoveringShard(t *testing.T) {
+	idx := newRecoveringIndex(t)
+
+	shouldWarm, outcome := idx.warmupCandidate("S")
+	require.False(t, shouldWarm)
+	require.Equal(t, monitoring.WarmupSkippedRecovering, outcome)
+	require.NoDirExists(t, shardPath(idx.path(), "S"))
+}
+
+func TestUsageForShardMarksRecoveringShardUnloaded(t *testing.T) {
+	idx := newRecoveringIndex(t)
+
+	usage, err := idx.usageForShard(context.Background(), "S", false, nil, "")
+	require.NoError(t, err)
+	require.True(t, usage.LazyUnloaded)
+}
+
+func TestEditOpBucketsSkipRecoveringShard(t *testing.T) {
+	idx := newRecoveringIndex(t)
+	db := &DB{logger: logrus.New(), indices: map[string]*Index{indexID(schema.ClassName("C")): idx}}
+
+	buckets, err := db.EditOpBucketsForShards(context.Background(), "C", []string{"S"})
+	require.NoError(t, err)
+	require.Empty(t, buckets)
+	require.NoDirExists(t, shardPath(idx.path(), "S"))
+
+	buckets, err = db.EditOpBucketsForLoadedShards("C", []string{"S"})
+	require.NoError(t, err)
+	require.Empty(t, buckets)
 }
