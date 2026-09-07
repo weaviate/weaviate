@@ -48,7 +48,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			Duration:    _TimeoutCanCommit + _BookingPeriod,
 			Compression: Compression{Level: GzipDefaultCompression, CPUPercentage: DefaultCPUPercentage},
 		}
-		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}
 		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", "", ""}
 		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", "", "", ""}
@@ -423,7 +423,7 @@ func TestCoordinatedRestore(t *testing.T) {
 				CPUPercentage: DefaultCPUPercentage,
 			},
 		}
-		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}
 		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", "", "", ""}
 		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 		abortReq = &AbortRequest{OpRestore, backupID, backendName, "", "", "", ""}
@@ -562,7 +562,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 				CPUPercentage: DefaultCPUPercentage,
 			},
 		}
-		cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+		cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}
 		sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", "", ""}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
@@ -955,7 +955,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 		nodes       = []string{"N1", "N2"}
 		classes     = []string{"Class-A"}
 		// One participant always accepts so we can isolate the refusal path.
-		acceptResp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		acceptResp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}
 	)
 
 	tests := []struct {
@@ -1191,7 +1191,7 @@ func newRestoreRolesAndUsersFixture(t *testing.T, ctx context.Context, blobs rol
 		nodes   = []string{"N1", "N2"}
 		classes = []string{"Class-A"}
 		sReq    = &StatusRequest{OpRestore, backupID, backendName, "", "", "", ""}
-		cresp   = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+		cresp   = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}
 		sresp   = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 
@@ -1309,7 +1309,7 @@ func TestRestoreRolesAndUsersGatedOnStagingNotClasses(t *testing.T) {
 			any   = mock.Anything
 			nodes = []string{"N1"}
 			sReq  = &StatusRequest{OpRestore, backupID, backendName, "", "", "", ""}
-			cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+			cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}
 		)
 
 		fc := newFakeCoordinator(newFakeNodeResolver(nodes))
@@ -1402,7 +1402,7 @@ func TestCanCommitBookingAndAttempt(t *testing.T) {
 			t.Parallel()
 			fc := newFakeCoordinator(nodeResolver)
 			gotCh := make(chan *Request, 1)
-			ack := &CanCommitResponse{Method: tc.method, ID: backupID, Timeout: 1, DedupeHonored: true}
+			ack := &CanCommitResponse{Method: tc.method, ID: backupID, Timeout: maxBooking(tc.method == OpRestore && tc.dedupe), DedupeHonored: true}
 			fc.client.On("CanCommit", mock.Anything, "N1", mock.Anything).
 				Run(func(args mock.Arguments) { gotCh <- args.Get(2).(*Request) }).
 				Return(ack, nil)
@@ -1432,7 +1432,7 @@ func TestCanCommitBookingAndAttempt(t *testing.T) {
 	t.Run("refusal abort carries the attempt id to every contacted node", func(t *testing.T) {
 		t.Parallel()
 		fc := newFakeCoordinator(nodeResolver)
-		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}
 		fc.client.On("CanCommit", mock.Anything, "N1", mock.Anything).Return(ack, nil).Maybe()
 		fc.client.On("CanCommit", mock.Anything, "N2", mock.Anything).Return(&CanCommitResponse{}, nil)
 		aborts := make(chan *AbortRequest, 2)
@@ -1460,5 +1460,76 @@ func TestCanCommitBookingAndAttempt(t *testing.T) {
 			assert.Equal(t, backupID, abort.ID)
 		}
 		assert.NotZero(t, n)
+	})
+}
+
+func TestCanCommitMixedVersionBookingCap(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName  = "s3"
+		backupID     = "1"
+		ctx          = context.Background()
+		classes      = []string{"Class-A"}
+		nodeResolver = newFakeNodeResolver([]string{"N1", "N2"})
+	)
+
+	newCoordinatorWithNodes := func(fc *fakeCoordinator) coordinator {
+		c := *fc.coordinator()
+		c.commitDispatchMargin = 50 * time.Millisecond
+		c.descriptor = &backup.DistributedBackupDescriptor{
+			ID: backupID,
+			Nodes: map[string]*backup.NodeDescriptor{
+				"N1": {Classes: classes},
+				"N2": {Classes: classes},
+			},
+		}
+		return c
+	}
+
+	t.Run("short advertised booking with a slow sibling aborts with the named error", func(t *testing.T) {
+		t.Parallel()
+		fc := newFakeCoordinator(nodeResolver)
+		fc.client.On("CanCommit", mock.Anything, "N1", mock.Anything).
+			Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 100 * time.Millisecond}, nil)
+		fc.client.On("CanCommit", mock.Anything, "N2", mock.Anything).
+			After(500*time.Millisecond).
+			Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}, nil)
+		aborts := make(chan *AbortRequest, 2)
+		fc.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).
+			Run(func(args mock.Arguments) { aborts <- args.Get(2).(*AbortRequest) }).
+			Return(nil)
+
+		coordinator := newCoordinatorWithNodes(fc)
+		req := &Request{Method: OpCreate, ID: backupID, Backend: backendName, AttemptID: "attempt-1"}
+		nodes, err := coordinator.canCommit(ctx, req, nil)
+		require.ErrorIs(t, err, errBookingCapExceeded)
+		require.ErrorContains(t, err, "N1")
+		require.Nil(t, nodes)
+
+		close(aborts)
+		var n int
+		for abort := range aborts {
+			n++
+			assert.Equal(t, backupID, abort.ID)
+			assert.Equal(t, "attempt-1", abort.AttemptID)
+		}
+		assert.Equal(t, 2, n)
+	})
+
+	t.Run("homogeneous long bookings tolerate a slow acker", func(t *testing.T) {
+		t.Parallel()
+		fc := newFakeCoordinator(nodeResolver)
+		fc.client.On("CanCommit", mock.Anything, "N1", mock.Anything).
+			Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}, nil)
+		fc.client.On("CanCommit", mock.Anything, "N2", mock.Anything).
+			After(500*time.Millisecond).
+			Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}, nil)
+
+		coordinator := newCoordinatorWithNodes(fc)
+		req := &Request{Method: OpCreate, ID: backupID, Backend: backendName, AttemptID: "attempt-1"}
+		nodes, err := coordinator.canCommit(ctx, req, nil)
+		require.NoError(t, err)
+		require.Len(t, nodes, 2)
+		fc.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
 	})
 }

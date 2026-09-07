@@ -45,6 +45,8 @@ var (
 	errMetaNotFound = errors.New("metadata not found")
 	errUnknownOp    = errors.New("unknown backup operation")
 	errCancelled    = errors.New("operation cancelled by user")
+	// An early acker's advertised booking (20s cap on older nodes) would lapse before Commit dispatch.
+	errBookingCapExceeded = errors.New("participant booking would expire before commit could be dispatched (mixed-version cluster: older nodes cap the booking window)")
 )
 
 const (
@@ -55,8 +57,10 @@ const (
 	_TimeoutCanCommit = 30 * time.Second
 	// Fan-out restore participants read every source's descriptor inside canCommit; N reads of large descriptors need more than the create budget.
 	_TimeoutDedupeRestoreCanCommit = 120 * time.Second
-	_NextRoundPeriod               = 10 * time.Second
-	_MaxNumberConns                = 16
+	// Headroom a booking must retain after the last ack (descriptor PUT + Commit RPC + ack skew).
+	_CommitDispatchMargin = 5 * time.Second
+	_NextRoundPeriod      = 10 * time.Second
+	_MaxNumberConns       = 16
 )
 
 type nodeMap map[string]*backup.NodeDescriptor
@@ -128,10 +132,11 @@ type coordinator struct {
 	shardSyncChan
 
 	// timeouts
-	timeoutNodeDown    time.Duration
-	timeoutQueryStatus time.Duration
-	timeoutCanCommit   time.Duration
-	timeoutNextRound   time.Duration
+	timeoutNodeDown      time.Duration
+	timeoutQueryStatus   time.Duration
+	timeoutCanCommit     time.Duration
+	timeoutNextRound     time.Duration
+	commitDispatchMargin time.Duration
 
 	// replica-dedupe planning cadence
 	dedupeCutoffLead        time.Duration
@@ -152,19 +157,20 @@ func newCoordinator(
 	checkpointer ReplicaCheckpointer,
 ) *coordinator {
 	return &coordinator{
-		selector:           selector,
-		client:             client,
-		schema:             schema,
-		log:                log,
-		nodeResolver:       nodeResolver,
-		backends:           backends,
-		rolesAndUsers:      rolesAndUsers,
-		checkpointer:       checkpointer,
-		Participants:       make(map[string]participantStatus, 16),
-		timeoutNodeDown:    _TimeoutNodeDown,
-		timeoutQueryStatus: _TimeoutQueryStatus,
-		timeoutCanCommit:   _TimeoutCanCommit,
-		timeoutNextRound:   _NextRoundPeriod,
+		selector:             selector,
+		client:               client,
+		schema:               schema,
+		log:                  log,
+		nodeResolver:         nodeResolver,
+		backends:             backends,
+		rolesAndUsers:        rolesAndUsers,
+		checkpointer:         checkpointer,
+		Participants:         make(map[string]participantStatus, 16),
+		timeoutNodeDown:      _TimeoutNodeDown,
+		timeoutQueryStatus:   _TimeoutQueryStatus,
+		timeoutCanCommit:     _TimeoutCanCommit,
+		timeoutNextRound:     _NextRoundPeriod,
+		commitDispatchMargin: _CommitDispatchMargin,
 
 		dedupeCutoffLead:        _DedupeCutoffLead,
 		dedupePollInterval:      _DedupePollInterval,
@@ -707,6 +713,10 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 	nodes := make(map[string]string, len(c.descriptor.Nodes))
 	// Aborts must reach every node the request went to, not only the ones that acked: a refusing node may have booked its op slot and would otherwise hold it for the full booking period.
 	contacted := make(map[string]string, len(c.descriptor.Nodes))
+	// Earliest instant any acker's advertised booking lapses; older nodes cap it below the requested duration.
+	var commitBy time.Time
+	var commitByNode string
+	var commitByAdvertised time.Duration
 	for req := range reqChan {
 		g.Go(func() error {
 			mutex.Lock()
@@ -725,6 +735,9 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 			}
 			mutex.Lock()
 			nodes[req.NodeName] = req.NodeHost
+			if d := time.Now().Add(resp.Timeout); commitBy.IsZero() || d.Before(commitBy) {
+				commitBy, commitByNode, commitByAdvertised = d, req.NodeName, resp.Timeout
+			}
 			mutex.Unlock()
 			return nil
 		})
@@ -733,6 +746,11 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 	if err := g.Wait(); err != nil {
 		c.abortAll(ctx, abortReq, contacted)
 		return nil, err
+	}
+	if !commitBy.IsZero() && !time.Now().Add(c.commitDispatchMargin).Before(commitBy) {
+		c.abortAll(context.WithoutCancel(ctx), abortReq, contacted)
+		return nil, fmt.Errorf("%w: node %q booked only %s and the last acknowledgement left under %s of it; upgrade all nodes or retry",
+			errBookingCapExceeded, commitByNode, commitByAdvertised, c.commitDispatchMargin)
 	}
 	return nodes, nil
 }

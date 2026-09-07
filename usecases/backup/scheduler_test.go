@@ -427,7 +427,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 			Include: []string{cls},
 			Backend: backendName,
 		}
-		cresp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		cresp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}
 		sReq  = &StatusRequest{OpCreate, backupID, backendName, "", "", "", ""}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 	)
@@ -584,7 +584,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		path        = bucket + backupID
 		keyNodeA    = backupID + "/" + nodeA
 		keyNodeB    = backupID + "/" + nodeB
-		cResp       = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+		cResp       = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}
 		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", "", "", ""}
 		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
@@ -2088,7 +2088,7 @@ func TestSchedulerCreateBackupRecordsUsers(t *testing.T) {
 		any         = mock.Anything
 		ctx         = context.Background()
 		path        = "dst/path"
-		cresp       = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		cresp       = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}
 		sReq        = &StatusRequest{OpCreate, backupID, backendName, "", "", "", ""}
 		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 	)
@@ -2157,7 +2157,7 @@ func TestSchedulerCreateBackupRecordsRoles(t *testing.T) {
 		any         = mock.Anything
 		ctx         = context.Background()
 		path        = "dst/path"
-		cresp       = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		cresp       = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}
 		sReq        = &StatusRequest{OpCreate, backupID, backendName, "", "", "", ""}
 		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 	)
@@ -3015,7 +3015,7 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
 			fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.Anything).Return(nil).Maybe()
 			fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).
-				Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil).Maybe()
+				Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}, nil).Maybe()
 			fs.client.On("Commit", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 			fs.client.On("Status", mock.Anything, mock.Anything, mock.Anything).
 				Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).Maybe()
@@ -3096,7 +3096,7 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
 		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.Anything).Return(nil)
 		fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).
-			Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
+			Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}, nil)
 		fs.client.On("Commit", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		fs.client.On("Status", mock.Anything, mock.Anything, mock.Anything).
 			Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
@@ -3165,7 +3165,7 @@ func TestRestoreIgnoresNodeMappingForUnknownNode(t *testing.T) {
 			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
 			fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.Anything).Return(nil)
 			fs.client.On("CanCommit", mock.Anything, nodeName, mock.Anything).
-				Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
+				Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}, nil)
 			fs.client.On("Commit", mock.Anything, nodeName, mock.Anything).Return(nil)
 			fs.client.On("Status", mock.Anything, nodeName, mock.Anything).
 				Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)

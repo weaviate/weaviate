@@ -626,7 +626,7 @@ func TestCoordinatorOnStatusServesTheFailureTheGlobalDescriptorNeverGot(t *testi
 	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
 	fc.selector.On("Shards", ctx, class).Return([]string{node}, nil)
 	fc.client.On("CanCommit", mock.Anything, node, mock.Anything).
-		Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}, nil)
+		Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}, nil)
 	fc.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
 	fc.client.On("Status", mock.Anything, node, mock.Anything).Return(&StatusResponse{
 		Status: backup.Failed, Err: reason, ID: backupID, Method: OpCreate,
@@ -672,7 +672,7 @@ func TestCoordinatorOnStatusServesTheFailureTheGlobalRestoreDescriptorNeverGot(t
 
 	fc := newFakeCoordinator(newFakeNodeResolver([]string{node}))
 	fc.client.On("CanCommit", mock.Anything, node, mock.Anything).
-		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
+		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}, nil)
 	fc.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
 	fc.client.On("Status", mock.Anything, node, mock.Anything).Return(&StatusResponse{
 		Status: backup.Failed, Err: reason, ID: backupID, Method: OpRestore,
@@ -727,7 +727,7 @@ func TestSchedulerBackupStatusServesTheReasonOfAFailedBackup(t *testing.T) {
 	fs.selector.On("Backupable", ctx, []string{class}).Return(nil)
 	fs.selector.On("Shards", ctx, class).Return([]string{node}, nil)
 	fs.client.On("CanCommit", mock.Anything, node, mock.Anything).
-		Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}, nil)
+		Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}, nil)
 	fs.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
 	fs.client.On("Status", mock.Anything, node, mock.Anything).Return(&StatusResponse{
 		Status: backup.Failed, Err: reason, ID: backupID, Method: OpCreate,

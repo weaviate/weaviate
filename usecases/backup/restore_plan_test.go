@@ -515,7 +515,7 @@ func TestCoordinatedRestoreFanout(t *testing.T) {
 		return r.Method == OpRestore && r.ID == backupID && r.DedupeReplicas &&
 			assert.ObjectsAreEqual([]string{"N1"}, r.SourceNodes)
 	}
-	ack := &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1, DedupeHonored: true}
+	ack := &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(true), DedupeHonored: true}
 
 	t.Run("every replica participates and schema applies once", func(t *testing.T) {
 		t.Parallel()

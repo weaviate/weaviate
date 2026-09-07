@@ -524,7 +524,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.client.On("CanCommit", any, nodes[0], any).Return(&CanCommitResponse{
-			Method: OpCreate, ID: backupID, Timeout: 1, DedupeHonored: true,
+			Method: OpCreate, ID: backupID, Timeout: maxBooking(false), DedupeHonored: true,
 		}, nil).Maybe()
 		fc.client.On("CanCommit", any, nodes[1], any).Return(&CanCommitResponse{
 			Method: OpCreate, ID: backupID, Timeout: 1,
@@ -560,7 +560,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 			checkpointer(f)
 		}
 
-		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1, DedupeHonored: true}
+		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false), DedupeHonored: true}
 		fc.client.On("CanCommit", any, nodes[0], canCommitMatcher).Return(ack, nil)
 		fc.client.On("CanCommit", any, nodes[1], canCommitMatcher).Return(ack, nil)
 		fc.client.On("Commit", any, nodes[0], matchStatusReq(sReq)).Return(nil)
