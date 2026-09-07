@@ -1231,3 +1231,60 @@ func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
 		return false
 	}, 5*time.Second, 10*time.Millisecond, "the producer goroutine never recovered a panic")
 }
+
+func TestDB_ShardReplicas(t *testing.T) {
+	ctx := testCtx()
+	logger, _ := tlog.NewNullLogger()
+
+	newDB := func(t *testing.T, className string, state *sharding.State) *DB {
+		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+				return readFunc(&models.Class{Class: className}, state)
+			},
+		)
+		return &DB{logger: logger, schemaReader: mockSchemaReader}
+	}
+
+	t.Run("replicated and single-replica shards", func(t *testing.T) {
+		className := "ReplicasClass"
+		db := newDB(t, className, &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"shard1": {Name: "shard1", BelongsToNodes: []string{"node1", "node2", "node3"}},
+				"shard2": {Name: "shard2", BelongsToNodes: []string{"node2"}},
+			},
+		})
+
+		replicas, err := db.ShardReplicas(ctx, className)
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]string{
+			"shard1": {"node1", "node2", "node3"},
+			"shard2": {"node2"},
+		}, replicas)
+	})
+
+	t.Run("empty node names filtered and empty shards omitted", func(t *testing.T) {
+		className := "FilteredClass"
+		db := newDB(t, className, &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"shard1": {Name: "shard1", BelongsToNodes: []string{"", "node1", ""}},
+				"shard2": {Name: "shard2", BelongsToNodes: []string{""}},
+				"shard3": {Name: "shard3", BelongsToNodes: nil},
+			},
+		})
+
+		replicas, err := db.ShardReplicas(ctx, className)
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]string{"shard1": {"node1"}}, replicas)
+	})
+
+	t.Run("nil sharding state", func(t *testing.T) {
+		className := "NilStateClass"
+		db := newDB(t, className, nil)
+
+		replicas, err := db.ShardReplicas(ctx, className)
+		assert.Error(t, err)
+		assert.Nil(t, replicas)
+		assert.Contains(t, err.Error(), "failed to read sharding state")
+	})
+}
