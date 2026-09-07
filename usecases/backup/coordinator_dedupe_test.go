@@ -208,6 +208,35 @@ func TestConvergedReplicaSet(t *testing.T) {
 	}
 }
 
+func TestReplicaSetCompleteAtCutoff(t *testing.T) {
+	entry := func(node string, cutoff int64) replica.AsyncCheckpointNodeStatus {
+		return replica.AsyncCheckpointNodeStatus{Node: node, CutoffMs: cutoff}
+	}
+	replicas := []string{"n1", "n2", "n3"}
+	full := []replica.AsyncCheckpointNodeStatus{entry("n1", 100), entry("n2", 100), entry("n3", 100)}
+
+	tests := []struct {
+		name     string
+		entries  []replica.AsyncCheckpointNodeStatus
+		replicas []string
+		cutoff   int64
+		want     bool
+	}{
+		{name: "all replicas at cutoff", entries: full, replicas: replicas, cutoff: 100, want: true},
+		{name: "replica only at stale cutoff", entries: []replica.AsyncCheckpointNodeStatus{full[0], full[1], entry("n3", 99)}, replicas: replicas, cutoff: 100, want: false},
+		{name: "missing replica entry", entries: full[:2], replicas: replicas, cutoff: 100, want: false},
+		{name: "extra unknown node still complete", entries: append(append([]replica.AsyncCheckpointNodeStatus{}, full...), entry("n9", 100)), replicas: replicas, cutoff: 100, want: true},
+		{name: "empty replica names ignored", entries: full[:2], replicas: []string{"n1", "n2", ""}, cutoff: 100, want: true},
+		{name: "no replicas vacuously complete", entries: nil, replicas: nil, cutoff: 100, want: true},
+		{name: "no entries incomplete", entries: nil, replicas: replicas, cutoff: 100, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, replicaSetCompleteAtCutoff(tc.entries, tc.replicas, tc.cutoff))
+		})
+	}
+}
+
 func TestAssignDesignations(t *testing.T) {
 	shardReplicas := map[string][]string{
 		"s1": {"n2", "n1"},

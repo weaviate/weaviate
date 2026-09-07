@@ -413,6 +413,74 @@ func TestBuildFanoutPlan(t *testing.T) {
 		assert.Equal(t, "N1", plan.classes[0].sources[0].node)
 		assert.Len(t, plan.classes[0].sources[0].desc.Shards, 1)
 	})
+
+	classlessMeta := func() []byte {
+		meta := backup.BackupDescriptor{
+			ID: backupID, StartedAt: time.Now().UTC(), Status: backup.Success,
+			Version: VersionDedupeReplicas, ServerVersion: "1.35", DedupeReplicas: true,
+		}
+		raw, err := json.Marshal(meta)
+		require.NoError(t, err)
+		return raw
+	}
+
+	t.Run("schema source lacking the class falls back to the own snapshot", func(t *testing.T) {
+		backend := newFakeBackend()
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+		backend.On("GetObject", mock.Anything, backupID+"/N1", BackupFile).Return(classlessMeta(), nil)
+		backend.On("GetObject", mock.Anything, backupID+"/N2", BackupFile).
+			Return(nodeMetaWithState("N2", map[string][]string{"s1": {"N1", "N2"}}, "s1"), nil)
+
+		r := newRestorer(backend)
+		req := &Request{
+			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
+			DedupeReplicas: true, SourceNodes: []string{"N1", "N2"}, SchemaSourceNode: "N1",
+		}
+
+		plan, err := r.buildFanoutPlan(ctx, "N2", req)
+		require.NoError(t, err)
+		require.Len(t, plan.classes, 1)
+		require.Len(t, plan.classes[0].sources, 1)
+		assert.Equal(t, "N2", plan.classes[0].sources[0].node)
+		assert.Len(t, plan.classes[0].sources[0].desc.Shards, 1)
+	})
+
+	t.Run("schema source and own both lacking fall back to the first source with the class", func(t *testing.T) {
+		backend := newFakeBackend()
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+		backend.On("GetObject", mock.Anything, backupID+"/N1", BackupFile).Return(classlessMeta(), nil)
+		backend.On("GetObject", mock.Anything, backupID+"/N2", BackupFile).
+			Return(nodeMetaWithState("N2", map[string][]string{"s1": {"N2", "N3"}}, "s1"), nil)
+
+		r := newRestorer(backend)
+		req := &Request{
+			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
+			DedupeReplicas: true, SourceNodes: []string{"N1", "N2"}, SchemaSourceNode: "N1",
+		}
+
+		plan, err := r.buildFanoutPlan(ctx, "N3", req)
+		require.NoError(t, err)
+		require.Len(t, plan.classes, 1)
+		require.Len(t, plan.classes[0].sources, 1)
+		assert.Equal(t, "N2", plan.classes[0].sources[0].node)
+		assert.Len(t, plan.classes[0].sources[0].desc.Shards, 1)
+	})
+
+	t.Run("class in no source descriptor refused", func(t *testing.T) {
+		backend := newFakeBackend()
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+		backend.On("GetObject", mock.Anything, backupID+"/N1", BackupFile).Return(classlessMeta(), nil)
+		backend.On("GetObject", mock.Anything, backupID+"/N2", BackupFile).Return(classlessMeta(), nil)
+
+		r := newRestorer(backend)
+		req := &Request{
+			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
+			DedupeReplicas: true, SourceNodes: []string{"N1", "N2"}, SchemaSourceNode: "N1",
+		}
+
+		_, err := r.buildFanoutPlan(ctx, "N2", req)
+		require.ErrorContains(t, err, "not found in any source descriptor")
+	})
 }
 
 func TestRestoreFanoutStagesFromMultipleSources(t *testing.T) {
