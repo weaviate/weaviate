@@ -161,7 +161,8 @@ func (db *DB) init(ctx context.Context) error {
 					// If explicitly set (true = always lazy, false = always eager),
 					// skip auto-detection entirely.
 					if db.config.EnableLazyLoadShards != nil {
-						return *db.config.EnableLazyLoadShards
+						lazyLoadShardEnabled = *db.config.EnableLazyLoadShards
+						return lazyLoadShardEnabled
 					}
 
 					lazyLoadShardEnabled = shouldAutoLazyLoadShards(
@@ -233,11 +234,12 @@ func (db *DB) init(ctx context.Context) error {
 				"action":                  "lazy_shard_auto_detection",
 				"class":                   class.Class,
 				"enable_lazy_load_shards": lazyLoadShardEnabled,
+				"auto_detected":           db.config.EnableLazyLoadShards == nil,
 				"local_shard_count":       localActiveShardsCount,
 				"total_shard_size_bytes":  totalShardSizeBytes,
 				"count_threshold":         db.config.LazyLoadShardCountThreshold,
 				"size_threshold_gb":       db.config.LazyLoadShardSizeThresholdGB,
-			}).Info("lazy load shard auto-detection result")
+			}).Warn("lazy load shard auto-detection result")
 		}
 	}
 

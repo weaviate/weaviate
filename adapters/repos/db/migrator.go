@@ -185,7 +185,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				// If explicitly set (true = always lazy, false = always eager),
 				// skip auto-detection entirely.
 				if m.db.config.EnableLazyLoadShards != nil {
-					return *m.db.config.EnableLazyLoadShards
+					lazyLoadShardEnabled = *m.db.config.EnableLazyLoadShards
+					return lazyLoadShardEnabled
 				}
 
 				lazyLoadShardEnabled = shouldAutoLazyLoadShards(
@@ -288,11 +289,12 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		"action":                  "lazy_shard_auto_detection",
 		"class":                   class.Class,
 		"enable_lazy_load_shards": lazyLoadShardEnabled,
+		"auto_detected":           m.db.config.EnableLazyLoadShards == nil,
 		"local_shard_count":       localActiveShardsCount,
 		"total_shard_size_bytes":  totalShardSizeBytes,
 		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,
 		"size_threshold_gb":       m.db.config.LazyLoadShardSizeThresholdGB,
-	}).Info("lazy load shard auto-detection result")
+	}).Warn("lazy load shard auto-detection result")
 	return nil
 }
 
