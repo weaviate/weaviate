@@ -119,6 +119,13 @@ func TestExpandParticipantsForDedupe(t *testing.T) {
 		err := c.expandParticipantsForDedupe(req, []backup.ClassDescriptor{{Name: class, ShardingState: []byte("{")}})
 		require.ErrorContains(t, err, "sharding state")
 	})
+
+	t.Run("empty node descriptors are neither sources nor gated", func(t *testing.T) {
+		c, req, schema := newCoord("N1", "N2", "N3")
+		c.descriptor.Nodes["NX"] = &backup.NodeDescriptor{}
+		require.NoError(t, c.expandParticipantsForDedupe(req, schema))
+		assert.Equal(t, []string{"N1"}, req.SourceNodes)
+	})
 }
 
 func TestValidateNodeMetaDedupeConsistency(t *testing.T) {

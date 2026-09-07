@@ -264,7 +264,11 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		if err != nil {
 			return nil, err
 		}
+		// Drop nodes hosting only unauthorized classes, or they stay required participants.
 		meta.Include(allowed)
+		if meta.RemoveEmpty().Count() == 0 {
+			return nil, backup.NewErrUnprocessable(fmt.Errorf("nothing left to restore after authorization filtering"))
+		}
 	}
 
 	schema, userBlob, rbacBlob, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)

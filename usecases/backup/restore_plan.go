@@ -50,7 +50,10 @@ type restorePlan struct {
 // expandParticipantsForDedupe enrolls every replica node of the archived sharding state as a restore participant; it mutates only the restore descriptor and records the pre-expansion node set on req.SourceNodes.
 func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.ClassDescriptor) error {
 	sources := make([]string, 0, len(c.descriptor.Nodes))
-	for node := range c.descriptor.Nodes {
+	for node, nd := range c.descriptor.Nodes {
+		if len(nd.Classes) == 0 {
+			continue
+		}
 		sources = append(sources, node)
 	}
 	sort.Strings(sources)
@@ -119,7 +122,10 @@ func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.
 	}
 
 	var unresolvable []string
-	for node := range c.descriptor.Nodes {
+	for node, nd := range c.descriptor.Nodes {
+		if len(nd.Classes) == 0 {
+			continue
+		}
 		mapped := c.descriptor.ToMappedNodeName(node)
 		if _, found := c.nodeResolver.NodeHostname(mapped); !found {
 			unresolvable = append(unresolvable, fmt.Sprintf("%s (mapped to %s)", node, mapped))

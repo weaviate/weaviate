@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -554,6 +555,21 @@ func TestSchedulerCreateBackup(t *testing.T) {
 	})
 }
 
+// denyClassAuthorizer forbids any resource naming deny, so filterBackupableClasses narrows per class.
+type denyClassAuthorizer struct {
+	*mocks.FakeAuthorizer
+	deny string
+}
+
+func (a *denyClassAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	for _, r := range resources {
+		if strings.Contains(strings.ToUpper(r), strings.ToUpper(a.deny)) {
+			return authzerrors.NewForbidden(principal, verb, resources...)
+		}
+	}
+	return a.FakeAuthorizer.Authorize(ctx, principal, verb, resources...)
+}
+
 func TestSchedulerRestoration(t *testing.T) {
 	var (
 		cls         = "MyClass-A"
@@ -715,6 +731,38 @@ func TestSchedulerRestoration(t *testing.T) {
 		restore(fs)
 		assert.Equal(t, fs.backend.glMeta.Status, backup.Success)
 		assert.Contains(t, fs.backend.glMeta.Error, "")
+	})
+
+	t.Run("ImplicitRestoreDropsUnauthorizedNodes", func(t *testing.T) {
+		clsB := "MyClass-B"
+		twoNodeMeta := backup.DistributedBackupDescriptor{
+			ID: backupID, StartedAt: timePt, Version: Version, ServerVersion: "1.23", Status: backup.Success,
+			Nodes: map[string]*backup.NodeDescriptor{
+				nodeA: {Classes: []string{cls}},
+				nodeB: {Classes: []string{clsB}},
+			},
+		}
+		fs := newFakeScheduler(&strictResolver{newFakeNodeResolver([]string{nodeA})})
+		fs.auth = &denyClassAuthorizer{FakeAuthorizer: mocks.NewMockAuthorizer(), deny: clsB}
+		bytes := marshalCoordinatorMeta(twoNodeMeta)
+		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, keyNodeA, BackupFile).Return(metaBytes1, nil)
+		fs.backend.On("GetObject", ctx, keyNodeB, BackupFile).Return(metaBytes2, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
+		fs.client.On("CanCommit", any, nodeA, any).Return(cResp, nil)
+		fs.client.On("Commit", any, nodeA, matchStatusReq(sReq)).Return(nil)
+		fs.client.On("Status", any, nodeA, matchStatusReq(sReq)).Return(sresp, nil)
+
+		s := fs.scheduler()
+		resp, err := s.Restore(ctx, nil, &BackupRequest{ID: backupID, Backend: backendName}, false)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Equal(t, []string{cls}, resp.Classes)
+		require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == "" }, 5*time.Second, 50*time.Millisecond)
+		assert.Equal(t, backup.Success, fs.backend.glMeta.Status)
 	})
 
 	t.Run("SuccessWithBaseBackup", func(t *testing.T) {
