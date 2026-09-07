@@ -67,6 +67,9 @@ function main() {
   run_acceptance_drop_vector_index_async_indexing_group1=false
   run_acceptance_drop_vector_index_async_indexing_group2=false
   run_acceptance_backups=false
+  run_acceptance_backup_dedupe=false
+  run_acceptance_backup_dedupe_cross_version=false
+  run_acceptance_backup_dedupe_misc=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -133,6 +136,9 @@ function main() {
           --acceptance-drop-vector-index-async-indexing-group1|-advia1) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group1=true;;
           --acceptance-drop-vector-index-async-indexing-group2|-advia2) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group2=true;;
           --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
+          --acceptance-backup-dedupe|-abd) run_all_tests=false; run_acceptance_backup_dedupe=true;;
+          --acceptance-backup-dedupe-cross-version|-abdcv) run_all_tests=false; run_acceptance_backup_dedupe_cross_version=true;;
+          --acceptance-backup-dedupe-misc|-abdm) run_all_tests=false; run_acceptance_backup_dedupe_misc=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -182,6 +188,9 @@ function main() {
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
               "--acceptance-backups | -ab"\
+              "--acceptance-backup-dedupe | -abd"\
+              "--acceptance-backup-dedupe-cross-version | -abdcv"\
+              "--acceptance-backup-dedupe-misc | -abdm"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -467,6 +476,21 @@ function main() {
   if $run_acceptance_backups; then
     echo "running backup/restore acceptance tests"
     run_acceptance_backups
+  fi
+
+  if $run_acceptance_backup_dedupe; then
+    echo "running backup dedupe acceptance tests"
+    run_acceptance_backup_dedupe
+  fi
+
+  if $run_acceptance_backup_dedupe_cross_version; then
+    echo "running backup dedupe cross-version acceptance tests"
+    run_acceptance_backup_dedupe_cross_version
+  fi
+
+  if $run_acceptance_backup_dedupe_misc; then
+    echo "running backup dedupe misc acceptance tests"
+    run_acceptance_backup_dedupe_misc
   fi
   echo "Done!"
 }
@@ -1140,6 +1164,28 @@ function run_acceptance_backups() {
   run_aof_group "backups" \
     test/acceptance/backups \
     test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_dedupe() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe"
+  AOF_GROUP_RUN='^TestBackupDedupeReplicas$' \
+    run_aof_group "backup-dedupe" test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_dedupe_cross_version() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe-cross-version"
+  AOF_GROUP_RUN='^TestBackupCrossVersionRestore$' \
+    run_aof_group "backup-dedupe-cross-version" test/acceptance/backup_dedupe_replicas
+}
+
+# Catch-all shard: when adding a sub-shard above, add its test prefix to the SKIP regex so it isn't double-run.
+function run_acceptance_backup_dedupe_misc() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe-misc"
+  AOF_GROUP_SKIP='^(TestBackupDedupeReplicas|TestBackupCrossVersionRestore)$' \
+    run_aof_group "backup-dedupe-misc" test/acceptance/backup_dedupe_replicas
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.
