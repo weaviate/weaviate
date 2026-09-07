@@ -43,13 +43,10 @@ type Bootstrapper struct {
 	localNodeID   string
 	voter         bool
 
-	// onJoin, if set, receives the leader's committed RAFT index (wiped-joiner
-	// catch-up barrier) on a successful join; 0 if the leader supplied none.
+	// onJoin receives the leader's committed index (wiped-joiner catch-up barrier); 0 if none.
 	onJoin func(leaderCommitIndex uint64)
 
-	// needsJoinBarrier, if set and true, keeps joining even when the store
-	// reports ready: a wiped joiner is "ready" before it ever joined, and
-	// exiting early would lose the catch-up barrier.
+	// needsJoinBarrier keeps joining even when ready: a wiped joiner is "ready" before it ever joined.
 	needsJoinBarrier func() bool
 
 	retryPeriod time.Duration

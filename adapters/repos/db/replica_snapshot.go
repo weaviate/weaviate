@@ -39,9 +39,7 @@ type replicaSnapshotState struct {
 	isSnapshot bool
 }
 
-// IncomingProbeShardData reports whether this node holds data for the shard,
-// without creating a snapshot. SELF_RECOVERY uses it to pick a data-bearing
-// source; ErrShardRecovering means "not usable now" (we're recovering it too).
+// IncomingProbeShardData reports whether this node holds shard data; ErrShardRecovering means "not usable now".
 func (i *Index) IncomingProbeShardData(ctx context.Context, shardName string) (bool, error) {
 	if s := i.shards.Load(shardName); s != nil {
 		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
@@ -69,8 +67,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	i.replicaSnapshotOpLocks.Lock(opID)
 	defer i.replicaSnapshotOpLocks.Unlock(opID)
 
-	// A shard we're recovering ourselves can't be a copy source; surface it so
-	// a self-recovery probe reads "not usable now", not "definitively empty".
+	// A shard we're recovering can't be a copy source; probes must read "not usable now", not "definitively empty".
 	if s := i.shards.Load(shardName); s != nil {
 		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
 			return nil, fmt.Errorf("incoming create replica snapshot for shard %s: %w", shardName, enterrors.ErrShardRecovering)

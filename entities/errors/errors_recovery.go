@@ -30,8 +30,7 @@ func IsShardRecovering(err error) bool {
 	return errors.Is(err, ErrShardRecovering)
 }
 
-// startupDBLoadKey marks the startup DB-load pass: a missing shard dir is a SELF_RECOVERY candidate,
-// not a brand-new runtime shard (where missing is normal).
+// startupDBLoadKey marks the startup DB-load pass, where a missing shard dir is a SELF_RECOVERY candidate.
 type startupDBLoadKey struct{}
 
 // WithStartupDBLoad tags the ctx as the startup DB-load pass.

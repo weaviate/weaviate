@@ -34,8 +34,7 @@ type FileReplicationService struct {
 	schema sharding.RemoteIncomingSchema
 
 	fileChunkSize int
-	// Bounds concurrent whole-file work (CRC reads + streams) this donor serves;
-	// excess requests queue ctx-aware instead of saturating the disk. nil = unbounded.
+	// Bounds concurrent whole-file work (CRC reads + streams) this donor serves; nil = unbounded.
 	transferSem chan struct{}
 }
 
@@ -89,8 +88,7 @@ func (fps *FileReplicationService) CreateReplicaSnapshot(ctx context.Context, re
 
 	files, err := index.IncomingCreateReplicaSnapshot(ctx, shardName, opID)
 	if err != nil {
-		// A source recovering this same shard has no data to serve; Unavailable
-		// (not Internal) so the copier treats it as transient/busy.
+		// A recovering source has no data to serve; Unavailable so the copier treats it as transient.
 		if errors.Is(err, enterrors.ErrShardRecovering) {
 			return nil, status.Errorf(codes.Unavailable, "shard %q on index %q is recovering: %v", shardName, indexName, err)
 		}
@@ -105,19 +103,14 @@ func (fps *FileReplicationService) CreateReplicaSnapshot(ctx context.Context, re
 	}, nil
 }
 
-// ProbeShardData reports whether this node holds data for the shard, without
-// creating a snapshot. Error codes are meaningful to a self-recovery probe:
-// Unavailable = not-loaded-yet / recovering (retry or break deadlock),
-// NotFound = shard absent (definitively no data here).
+// ProbeShardData reports whether this node holds shard data without creating a snapshot; Unavailable = retry, NotFound = definitively no data here.
 func (fps *FileReplicationService) ProbeShardData(ctx context.Context, req *pb.ProbeShardDataRequest) (*pb.ProbeShardDataResponse, error) {
 	indexName := req.GetIndexName()
 	shardName := req.GetShardName()
 
 	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
-		// Unavailable, not NotFound: a nil index may just mean schema-replay
-		// hasn't reached this peer yet; NotFound would read as "definitively
-		// empty" to a self-recovery probe and risk the empty-fallback path.
+		// Unavailable, not NotFound: a nil index may just be schema-replay lag, and NotFound reads as "definitively empty" to a probe.
 		return nil, status.Errorf(codes.Unavailable, "local index %q not loaded yet", indexName)
 	}
 
@@ -135,8 +128,7 @@ func (fps *FileReplicationService) ProbeShardData(ctx context.Context, req *pb.P
 	return &pb.ProbeShardDataResponse{HasData: hasData}, nil
 }
 
-// isShardAbsent matches IncomingProbeShardData's shard-not-present phrasings so
-// the handler can map them to gRPC NotFound.
+// isShardAbsent matches IncomingProbeShardData's shard-not-present phrasings for the NotFound mapping.
 func isShardAbsent(err error) bool {
 	if err == nil {
 		return false

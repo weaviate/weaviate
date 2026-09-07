@@ -35,9 +35,7 @@ import (
 
 // StopNodeAt stops the container at the given DockerCompose index.
 //
-// index is the 0-based container position, NOT a logical Weaviate node number:
-// non-Weaviate services precede the Weaviate nodes, so index=0 is usually not
-// the first Weaviate node.
+// index is the 0-based container position, not a Weaviate node number (other services precede them).
 func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	<-time.After(1 * time.Second)
 	if err := compose.StopAt(ctx, index, nil); err != nil {
@@ -48,8 +46,7 @@ func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose
 	<-time.After(1 * time.Second) // give time for shutdown
 }
 
-// StopNodeAtWithTimeout is StopNodeAt with an explicit graceful-shutdown
-// timeout (timeout=0 = SIGKILL).
+// StopNodeAtWithTimeout is StopNodeAt with an explicit graceful-shutdown timeout (0 = SIGKILL).
 func StopNodeAtWithTimeout(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int, timeout time.Duration) {
 	<-time.After(1 * time.Second)
 	if err := compose.StopAt(ctx, index, &timeout); err != nil {
@@ -60,10 +57,7 @@ func StopNodeAtWithTimeout(ctx context.Context, t *testing.T, compose *docker.Do
 	<-time.After(1 * time.Second) // give time for shutdown
 }
 
-// WipeNodeDataAt simulates data loss: it deletes /data contents then
-// SIGKILL-stops the container (caller restarts via StartNodeAt). Pair with
-// WithWeaviateTmpfsData: otherwise weaviate's open-fd writes between delete and
-// SIGKILL race the wipe, leaving /data non-empty on restart.
+// WipeNodeDataAt deletes /data then SIGKILLs; pair with WithWeaviateTmpfsData or open-fd writes recreate files before the kill.
 func WipeNodeDataAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	t.Helper()
 	c, err := compose.ContainerAt(index)
