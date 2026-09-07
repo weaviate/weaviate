@@ -19,29 +19,12 @@ import (
 )
 
 func Test_classSettings_Validate(t *testing.T) {
-	rerankertest.RunValidateTest(t, []rerankertest.ValidateTestCase{
-		{
-			Name: "default settings",
-			Cfg: rerankertest.FakeClassConfig{
-				ClassConfig: map[string]interface{}{},
-			},
-			WantModel:   "jina-reranker-v2-base-multilingual",
-			WantBaseURL: "https://api.jina.ai",
-		},
-		{
-			Name: "custom settings",
-			Cfg: rerankertest.FakeClassConfig{
-				ClassConfig: map[string]interface{}{
-					"model":   "jina-reranker-v1-base-en",
-					"baseURL": "http://base-url.com",
-				},
-			},
-			WantModel:   "jina-reranker-v1-base-en",
-			WantBaseURL: "http://base-url.com",
-		},
-	}, func(cfg moduletools.ClassConfig) rerankertest.SettingsUnderTest {
-		return NewClassSettings(cfg)
-	})
+	rerankertest.RunDefaultAndCustomValidateTest(t,
+		"jina-reranker-v2-base-multilingual", "https://api.jina.ai",
+		"jina-reranker-v1-base-en", "http://base-url.com",
+		func(cfg moduletools.ClassConfig) rerankertest.SettingsUnderTest {
+			return NewClassSettings(cfg)
+		})
 }
 
 func Test_classSettings_ValidateBaseURL(t *testing.T) {

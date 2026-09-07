@@ -166,6 +166,32 @@ func RunValidateTest(t *testing.T, cases []ValidateTestCase, newSettings func(cf
 	}
 }
 
+// RunDefaultAndCustomValidateTest is a convenience wrapper around
+// RunValidateTest for the common "default settings" / "custom settings"
+// two-case shape shared by every HTTP-based reranker module's
+// Test_classSettings_Validate - callers supply only their own default and
+// custom model/baseURL values, not the table shape itself.
+func RunDefaultAndCustomValidateTest(t *testing.T, defaultModel, defaultBaseURL, customModel, customBaseURL string, newSettings func(cfg moduletools.ClassConfig) SettingsUnderTest) {
+	t.Helper()
+	RunValidateTest(t, []ValidateTestCase{
+		{
+			Name:        "default settings",
+			Cfg:         FakeClassConfig{ClassConfig: map[string]interface{}{}},
+			WantModel:   defaultModel,
+			WantBaseURL: defaultBaseURL,
+		},
+		{
+			Name: "custom settings",
+			Cfg: FakeClassConfig{ClassConfig: map[string]interface{}{
+				"model":   customModel,
+				"baseURL": customBaseURL,
+			}},
+			WantModel:   customModel,
+			WantBaseURL: customBaseURL,
+		},
+	}, newSettings)
+}
+
 // RunSSRFValidationTest drives a module's Test_classSettings_ValidateBaseURL:
 // the standard SSRF-rejection table (SSRFTestCases) plus the module's own
 // "default URL is valid" case, each turned into a classSettings via

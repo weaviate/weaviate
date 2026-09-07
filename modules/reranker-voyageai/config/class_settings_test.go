@@ -19,29 +19,12 @@ import (
 )
 
 func Test_classSettings_Validate(t *testing.T) {
-	rerankertest.RunValidateTest(t, []rerankertest.ValidateTestCase{
-		{
-			Name: "default settings",
-			Cfg: rerankertest.FakeClassConfig{
-				ClassConfig: map[string]interface{}{},
-			},
-			WantModel:   "rerank-lite-1",
-			WantBaseURL: "https://api.voyageai.com/v1",
-		},
-		{
-			Name: "custom settings",
-			Cfg: rerankertest.FakeClassConfig{
-				ClassConfig: map[string]interface{}{
-					"model":   "rerank-lite-1",
-					"baseURL": "http://base-url.com",
-				},
-			},
-			WantModel:   "rerank-lite-1",
-			WantBaseURL: "http://base-url.com",
-		},
-	}, func(cfg moduletools.ClassConfig) rerankertest.SettingsUnderTest {
-		return NewClassSettings(cfg)
-	})
+	rerankertest.RunDefaultAndCustomValidateTest(t,
+		"rerank-lite-1", "https://api.voyageai.com/v1",
+		"rerank-lite-1", "http://base-url.com",
+		func(cfg moduletools.ClassConfig) rerankertest.SettingsUnderTest {
+			return NewClassSettings(cfg)
+		})
 }
 
 func Test_classSettings_ValidateBaseURL(t *testing.T) {
