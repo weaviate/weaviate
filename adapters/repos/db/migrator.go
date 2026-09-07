@@ -134,11 +134,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		if err != nil {
 			return fmt.Errorf("get local shards count for class %q: %w", class.Class, err)
 		}
-		// Only calculate shard sizes if the shard-count condition alone wouldn't
-		// already trigger lazy-loading. This avoids walking all shard directories
-		// on large MT setups where the count exceeds the threshold.
-		if localActiveShardsCount <= m.db.config.LazyLoadShardCountThreshold &&
-			m.db.config.LazyLoadShardSizeThresholdGB > 0 {
+		if shouldComputeShardSizes(m.db.config.EnableLazyLoadShards, localActiveShardsCount,
+			m.db.config.LazyLoadShardCountThreshold, m.db.config.LazyLoadShardSizeThresholdGB) {
 			// we do need to calculate shard size if it's MT to be able to decide
 			// to enable lazy load shards based on total size
 			localShards, err := m.db.schemaReader.LocalShards(class.Class)

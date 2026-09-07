@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"os"
 	"path"
 	"testing"
@@ -89,6 +91,87 @@ func TestApplyLazyShardAutoDetection(t *testing.T) {
 	}
 }
 
+// TestShouldComputeShardSizes pins that the startup shard-size sweep is skipped
+// whenever its result cannot change the lazy-loading decision. The guard used to
+// check only the count and size thresholds, so an explicit EnableLazyLoadShards
+// setting still paid a walk over every shard directory before the decision
+// short-circuited on it.
+func TestShouldComputeShardSizes(t *testing.T) {
+	enabled, disabled := true, false
+
+	tests := []struct {
+		name             string
+		explicitLazyLoad *bool
+		localShardCount  int
+		countThreshold   int
+		sizeThresholdGB  float64
+		want             bool
+	}{
+		{
+			name:            "auto-detection below the count threshold measures",
+			localShardCount: 10,
+			countThreshold:  1000,
+			sizeThresholdGB: 100,
+			want:            true,
+		},
+		{
+			name:            "auto-detection at the count threshold measures",
+			localShardCount: 1000,
+			countThreshold:  1000,
+			sizeThresholdGB: 100,
+			want:            true,
+		},
+		{
+			name:            "auto-detection above the count threshold skips",
+			localShardCount: 1001,
+			countThreshold:  1000,
+			sizeThresholdGB: 100,
+			want:            false,
+		},
+		{
+			name:            "a zero size threshold skips",
+			localShardCount: 10,
+			countThreshold:  1000,
+			sizeThresholdGB: 0,
+			want:            false,
+		},
+		{
+			name:            "a NaN size threshold skips",
+			localShardCount: 10,
+			countThreshold:  1000,
+			sizeThresholdGB: math.NaN(),
+			want:            false,
+		},
+		{
+			name:             "an explicit enable skips",
+			explicitLazyLoad: &enabled,
+			localShardCount:  10,
+			countThreshold:   1000,
+			sizeThresholdGB:  100,
+			want:             false,
+		},
+		{
+			name:             "an explicit disable skips",
+			explicitLazyLoad: &disabled,
+			localShardCount:  10,
+			countThreshold:   1000,
+			sizeThresholdGB:  100,
+			want:             false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, shouldComputeShardSizes(
+				tt.explicitLazyLoad,
+				tt.localShardCount,
+				tt.countThreshold,
+				tt.sizeThresholdGB,
+			))
+		})
+	}
+}
+
 // TestNewShard_AbortsWhenUsageFileRemovalFails pins that NewShard propagates a
 // failure to remove the stale precomputed usage file, rather than silently
 // ignoring it. Otherwise the outdated usage.json.tmp survives and later gets
@@ -145,6 +228,44 @@ func TestTotalShardSizeBytes_FallsBackToDirSizeWhenNoMeta(t *testing.T) {
 
 	got := db.totalShardSizeBytes(className, []string{shardName}, 0)
 	require.Equal(t, uint64(len(data)), got)
+}
+
+func TestTotalShardSizeBytes_Concurrent(t *testing.T) {
+	const shardCount, perShard = 64, 1024
+	const exact = uint64(shardCount * perShard)
+
+	// the caller only reads total > threshold; skipped shards must not change it
+	tests := []struct {
+		name        string
+		threshold   uint64
+		wantVerdict bool
+	}{
+		{"no threshold", 0, true},
+		{"threshold above total", exact * 2, false},
+		{"threshold below total", perShard, true},
+		{"threshold one byte under total", exact - 1, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			db := &DB{logger: logrus.New(), config: Config{RootPath: tmpDir}}
+			className := schema.ClassName("MyClass")
+			indexPath := path.Join(tmpDir, indexID(className))
+
+			shardNames := make([]string, shardCount)
+			for i := range shardNames {
+				shardNames[i] = fmt.Sprintf("shard%d", i)
+				shardPath := path.Join(indexPath, shardNames[i])
+				require.NoError(t, os.MkdirAll(shardPath, 0o777))
+				require.NoError(t, os.WriteFile(path.Join(shardPath, "data.bin"), make([]byte, perShard), 0o644))
+			}
+
+			got := db.totalShardSizeBytes(className, shardNames, tt.threshold)
+			require.Equal(t, tt.wantVerdict, got > tt.threshold)
+			require.LessOrEqual(t, got, exact)
+		})
+	}
 }
 
 func TestTotalShardSizeBytes_PrefersMetaFileWhenPresent(t *testing.T) {
