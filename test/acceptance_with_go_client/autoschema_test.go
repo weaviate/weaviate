@@ -12,15 +12,14 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 
-	"acceptance_tests_with_client/internal/wvhost"
-
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
-	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate-go-client/v6/data"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -119,10 +118,9 @@ func TestAutoschemaCasingProps(t *testing.T) {
 
 func TestAutoschemaCasingUpdateProps(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	c := wvhost.NewClient(t)
 
-	objId := "67b79643-cf8b-4b22-b206-6e63dbb4e57a"
+	objID := uuid.MustParse("67b79643-cf8b-4b22-b206-6e63dbb4e57a")
 	upperPropName := "SomeProp"
 	lowerPropName := "someProp"
 	cases := []struct {
@@ -136,30 +134,34 @@ func TestAutoschemaCasingUpdateProps(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.prop1+" "+tt.prop2, func(t *testing.T) {
-			className := "RandomOliveTree"
-			c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-			creator := c.Data().Creator()
-			_, err := creator.WithClassName(className).Do(ctx)
-			require.Nil(t, err)
+			collectionName := "RandomOliveTree"
+			c.Collections.Delete(ctx, collectionName)
+			h := c.Collections.Use(collectionName)
 
-			creator1 := c.Data().Creator()
-			_, err = creator1.WithClassName(className).WithID(objId).WithProperties(map[string]string{tt.prop1: "something"}).Do(ctx)
-			require.Nil(t, err)
+			{
+				_, err := h.Data.Insert(ctx, nil)
+				require.NoError(t, err, "insert first object")
+			}
 
-			updater := c.Data().Updater()
-			err = updater.WithClassName(className).WithID(objId).WithProperties(map[string]string{tt.prop2: "other"}).Do(ctx)
-			require.Nil(t, err)
+			{
+				_, err := h.Data.Insert(ctx, &data.Object{
+					UUID:       &objID,
+					Properties: map[string]any{tt.prop1: "something"},
+				})
+				require.NoErrorf(t, err, "insert %s", objID)
+			}
 
-			// two objects should have been added (with one update
-			result, err := c.GraphQL().Aggregate().WithClassName(className).WithFields(graphql.Field{
-				Name: "meta", Fields: []graphql.Field{
-					{Name: "count"},
-				},
-			}).Do(ctx)
-			require.Nil(t, err)
-			require.Equal(t, result.Data["Aggregate"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"], 2.)
+			{
+				err := h.Data.Update(ctx, data.Object{
+					UUID:       &objID,
+					Properties: map[string]any{tt.prop2: "other"},
+				})
+				require.NoErrorf(t, err, "update %s", objID)
+			}
 
-			require.Nil(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
+			count, err := h.Count(ctx)
+			require.NoError(t, err)
+			require.EqualValues(t, 2, count, "number of objects in collection")
 		})
 	}
 }
@@ -258,6 +260,9 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 	}
 }
 
+// NOTE(dyma): this test uses the /batch/objects endpoint, not gRPC batch stream.
+// The new client will not support these features. Should we rewrite the test or
+// delete it?
 func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 	ctx := context.Background()
 	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
