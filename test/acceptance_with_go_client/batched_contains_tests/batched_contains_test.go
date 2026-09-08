@@ -836,7 +836,13 @@ func queryIDsErr(ctx context.Context, client *wvt.Client,
 		return nil, err
 	}
 	if len(resp.Errors) > 0 {
-		return nil, fmt.Errorf("graphql errors: %v", resp.Errors)
+		// the messages, not the slice: %v on []*GraphQLError prints addresses,
+		// so a caller asserting on the text has nothing to match
+		msgs := make([]string, len(resp.Errors))
+		for i, e := range resp.Errors {
+			msgs[i] = e.Message
+		}
+		return nil, fmt.Errorf("graphql errors: %s", strings.Join(msgs, "; "))
 	}
 	return resp, nil
 }
