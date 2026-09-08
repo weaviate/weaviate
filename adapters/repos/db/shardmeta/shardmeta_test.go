@@ -286,3 +286,43 @@ func TestNamespace_Update(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, v)
 }
+
+func TestNamespace_ForEach(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	ns := db.Namespace("mapping")
+
+	// a namespace never written iterates nothing
+	calls := 0
+	err := ns.ForEach(func(key, value []byte) error {
+		calls++
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, calls)
+
+	require.NoError(t, ns.Put([]byte("b"), []byte{2}))
+	require.NoError(t, ns.Put([]byte("a"), []byte{1}))
+	require.NoError(t, db.Namespace("other").Put([]byte("z"), []byte{9}))
+
+	// keys come in byte order, copies survive the call, other namespaces are not visited
+	var keys []string
+	var values [][]byte
+	err = ns.ForEach(func(key, value []byte) error {
+		keys = append(keys, string(key))
+		values = append(values, value)
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "b"}, keys)
+	assert.Equal(t, [][]byte{{1}, {2}}, values)
+
+	// the callback's error stops the walk and is returned
+	boom := errors.New("boom")
+	calls = 0
+	err = ns.ForEach(func(key, value []byte) error {
+		calls++
+		return boom
+	})
+	require.ErrorIs(t, err, boom)
+	assert.Equal(t, 1, calls)
+}

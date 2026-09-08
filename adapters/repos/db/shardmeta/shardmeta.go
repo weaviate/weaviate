@@ -153,6 +153,29 @@ func (n *Namespace) Delete(key []byte) error {
 	return nil
 }
 
+// ForEach calls fn for every key of the namespace in key order, inside one
+// read transaction, with copies the callback may keep. A namespace never
+// written iterates nothing. fn's error stops the walk and is returned.
+func (n *Namespace) ForEach(fn func(key, value []byte) error) error {
+	err := n.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(n.name)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			key := make([]byte, len(k))
+			copy(key, k)
+			value := make([]byte, len(v))
+			copy(value, v)
+			return fn(key, value)
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("iterate shard metadata namespace %q: %w", n.name, err)
+	}
+	return nil
+}
+
 // Update runs fn inside one write transaction on the namespace, creating the
 // namespace on first use. Every Put and Delete fn makes lands together, or
 // none does when fn returns an error; that error is returned.
