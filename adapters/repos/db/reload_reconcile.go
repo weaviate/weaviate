@@ -12,15 +12,31 @@
 package db
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 )
+
+// isReservedDataRootDir reports whether a directory at the data root is not a
+// class index directory. Every other directory there is one: Index.path() is
+// RootPath/<lowercased class>, and a class named "raft" is rejected at parse
+// time (usecases/schema/parser.go). The list must agree with the startup sweep
+// in New(): backup-marked and staging directories belong to the backup
+// framework, and .deleteme directories are already pending async removal.
+func isReservedDataRootDir(name string) bool {
+	return name == config.DefaultRaftDir ||
+		strings.HasSuffix(name, asyncDeleteSuffix) ||
+		strings.HasPrefix(name, backup.DeleteMarker) ||
+		strings.HasPrefix(name, backup.BackupStagingPrefix)
+}
 
 // dropOrphanedIndexDirectories removes class directories under the data root
 // that the reloaded schema no longer names. Two RAFT paths delete a class from
@@ -32,12 +48,7 @@ import (
 //   - a rejoin via InstallSnapshot restores a schema without the class
 //     (0-weaviate-issues#651).
 //
-// keepClasses is the set of classes in the reloaded schema. Index directories
-// are the lowercased class name (Index.path()). The raft directory is the only
-// reserved non-class entry at the data root — a class named "raft" is rejected
-// at parse time (usecases/schema/parser.go) — so any other directory absent
-// from keepClasses is an orphan. Files are left alone; other bookkeeping at the
-// data root (schema.db, modules.db, migration flags) is files, not directories.
+// keepClasses is the set of classes in the reloaded schema.
 //
 // A snapshot install on an already-running node (Store.reloadDBFromSchema with
 // st.raft != nil) leaves the deleted class's *Index loaded in memory, so an
@@ -48,10 +59,14 @@ import (
 // running cycles, so its directory is renamed and removed directly. Both use
 // the rename-then-async-delete path Index.drop uses, so a large leftover does
 // not stall the RAFT goroutine this runs on.
+//
+// Failures are logged here as well as returned: the reload caller
+// (SchemaManager.ReloadDBFromSchema) discards the error, and a silently
+// surviving orphan is the symptom this function exists to remove.
 func (db *DB) dropOrphanedIndexDirectories(keepClasses []string) error {
 	keep := make(map[string]struct{}, len(keepClasses))
 	for _, class := range keepClasses {
-		keep[strings.ToLower(class)] = struct{}{}
+		keep[indexID(schema.ClassName(class))] = struct{}{}
 	}
 
 	entries, err := os.ReadDir(db.config.RootPath)
@@ -68,33 +83,39 @@ func (db *DB) dropOrphanedIndexDirectories(keepClasses []string) error {
 			continue
 		}
 		name := entry.Name()
-		if name == config.DefaultRaftDir || strings.HasSuffix(name, asyncDeleteSuffix) {
+		if isReservedDataRootDir(name) {
 			continue
 		}
 		if _, ok := keep[name]; ok {
 			continue
 		}
 
-		db.logger.WithFields(logrus.Fields{
+		path := filepath.Join(db.config.RootPath, name)
+		log := db.logger.WithFields(logrus.Fields{
 			"action": "reconcile_orphan_index_dir",
 			"class":  name,
-		}).Info("dropping class directory absent from the schema after reload")
+			"path":   path,
+		})
+		log.Info("dropping class directory absent from the schema after reload")
 
-		// db.indices is keyed by the lowercased class name, which is the on-disk
-		// directory name (Index.path()).
+		// db.indices is keyed by indexID, which is also the directory name.
 		db.indexLock.RLock()
 		liveIndex, loaded := db.indices[name]
 		db.indexLock.RUnlock()
 
 		if loaded {
 			if err := db.DeleteIndex(liveIndex.Config.ClassName); err != nil {
+				err = fmt.Errorf("drop loaded orphan index: %w", err)
+				log.Error(err)
 				ec.Add(err)
 			}
 			continue
 		}
 
-		renamed, err := renameForAsyncDelete(filepath.Join(db.config.RootPath, name), db.logger)
+		renamed, err := renameForAsyncDelete(path, db.logger)
 		if err != nil {
+			err = fmt.Errorf("rename orphan class directory for async delete: %w", err)
+			log.Error(err)
 			ec.Add(err)
 			continue
 		}

@@ -62,6 +62,9 @@ func (e *executor) Open(ctx context.Context) error {
 func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
 	cs := make([]*models.Class, len(all))
 
+	// The error group cancels the context it returns as soon as Wait returns,
+	// so the reconcile after the group needs the caller's context.
+	reconcileCtx := ctx
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
 	g.SetLimit(_NUMCPU * 2)
 
@@ -104,7 +107,7 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 	for i, u := range all {
 		keepClasses[i] = u.Class.Class
 	}
-	return e.migrator.DropOrphanedIndexDirectories(ctx, keepClasses)
+	return e.migrator.DropOrphanedIndexDirectories(reconcileCtx, keepClasses)
 }
 
 func (e *executor) Close(ctx context.Context) error {
