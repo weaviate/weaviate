@@ -71,13 +71,15 @@ func vectorIndexMappingKey(name string) string {
 }
 
 // vectorIndexMappingName is the inverse of vectorIndexMappingKey. ok is
-// false for a key that does not name a vector.
+// false for a key that does not name a vector, including a bare "named/":
+// the empty name is the legacy vector, and only the legacy key may say so.
 func vectorIndexMappingName(key string) (name string, ok bool) {
 	if key == vectorIndexMappingLegacyKey {
 		return "", true
 	}
-	if strings.HasPrefix(key, vectorIndexMappingNamedPrefix) {
-		return strings.TrimPrefix(key, vectorIndexMappingNamedPrefix), true
+	name, found := strings.CutPrefix(key, vectorIndexMappingNamedPrefix)
+	if found && name != "" {
+		return name, true
 	}
 	return "", false
 }

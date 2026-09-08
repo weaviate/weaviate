@@ -54,10 +54,11 @@ func TestVectorIndexMapping_KeyLayout(t *testing.T) {
 		})
 	}
 
-	_, ok := vectorIndexMappingName("format_version")
-	assert.False(t, ok)
-	_, ok = vectorIndexMappingName("unknown")
-	assert.False(t, ok)
+	// keys that name no vector; a bare "named/" would alias the legacy vector
+	for _, key := range []string{"format_version", "unknown", "named/", "named"} {
+		_, ok := vectorIndexMappingName(key)
+		assert.False(t, ok, key)
+	}
 }
 
 func TestVectorIndexMapping_Load(t *testing.T) {
@@ -109,6 +110,7 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 	}{
 		{name: "unknown format version", noVersion: true, key: "format_version", value: "2", wantErr: "format version"},
 		{name: "unknown key", key: "something", value: "x", wantErr: `unknown key "something"`},
+		{name: "bare named prefix", key: "named/", value: `{"physical_id":"main","index_type":"hnsw","state":"ready"}`, wantErr: `unknown key "named/"`},
 		{name: "unparsable value", key: "named/title", value: "{", wantErr: `record "title"`},
 		{name: "unknown state", key: "named/title", value: `{"physical_id":"vectors_title","index_type":"hnsw","state":"gone"}`, wantErr: `state "gone"`},
 		{name: "empty physical id", key: "named/title", value: `{"physical_id":"","index_type":"hnsw","state":"ready"}`, wantErr: "physical id"},
