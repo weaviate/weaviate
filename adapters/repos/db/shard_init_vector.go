@@ -471,12 +471,5 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 		}
 	}
 
-	// Remove the index checkpoint entry for this vector.
-	if s.indexCheckpoints != nil {
-		if err := s.indexCheckpoints.Delete(s.ID(), targetVector); err != nil {
-			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
-		}
-	}
-
 	return nil
 }

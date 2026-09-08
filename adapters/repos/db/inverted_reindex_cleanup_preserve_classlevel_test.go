@@ -120,7 +120,7 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 			className := "CleanupPreserve_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{tc.propName})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
@@ -204,7 +204,7 @@ func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T
 			className := "CleanupGenCollide_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{"category"})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
@@ -230,7 +230,7 @@ func TestCleanStalePartialReindexState_ShutdownSkipKeyedBySuffix(t *testing.T) {
 	className := "CleanupShutdownSkip_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"category"})
 	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 	lsm := shard.pathLSM()
@@ -306,7 +306,7 @@ func TestCleanStalePartialReindexState_ShutdownSkipsOtherPropertiesBuckets(t *te
 			className := "CleanupShutdownScope_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{"category"})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()

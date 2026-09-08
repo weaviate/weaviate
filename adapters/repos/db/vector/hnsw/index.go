@@ -176,10 +176,14 @@ type hnsw struct {
 	compressed atomic.Bool
 	// compressing spans Upgrade() through compressThenCallback completion;
 	// HaltForTransfer reads it via UpgradeInProgress() to defer a replica movement.
-	compressing      atomic.Bool
-	doNotRescore     bool
-	acornSearch      atomic.Bool
-	acornFilterRatio float64
+	compressing  atomic.Bool
+	doNotRescore bool
+	// configuredFilterStrategy holds the FilterStrategy enum value from the
+	// user config (SWEEPING, ACORN or PATHSEER) as one atomic word, so a
+	// concurrent search during a config update always observes either the
+	// old or the new strategy — never a torn combination of two booleans.
+	configuredFilterStrategy atomic.Int32
+	acornFilterRatio         float64
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -292,6 +296,19 @@ type HNSW = hnsw
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
+// filterStrategyFromConfig maps the user-config string to the traversal
+// enum; unknown values (validated upstream) fall back to sweeping.
+func filterStrategyFromConfig(s string) FilterStrategy {
+	switch s {
+	case ent.FilterStrategyAcorn:
+		return ACORN
+	case ent.FilterStrategyPathseer:
+		return PATHSEER
+	default:
+		return SWEEPING
+	}
+}
+
 func New(cfg Config, uc ent.UserConfig,
 	tombstoneCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
 ) (*HNSW, error) {
@@ -411,7 +428,7 @@ func New(cfg Config, uc ent.UserConfig,
 		makeBucketOptions: cfg.MakeBucketOptions,
 		fs:                common.NewOSFS(),
 	}
-	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
+	index.configuredFilterStrategy.Store(int32(filterStrategyFromConfig(uc.FilterStrategy)))
 
 	index.multivector.Store(uc.Multivector.Enabled)
 	index.muvera.Store(uc.Multivector.MuveraEnabled())

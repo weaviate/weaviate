@@ -26,7 +26,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -137,7 +136,6 @@ type ShardLike interface {
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	HashTreeRoot() (root hashtree.Digest, ok bool)
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error)
-	ConvertQueue(targetVector string) error
 	FillQueue(targetVector string, from uint64) error
 	Shutdown(context.Context) error // Shutdown the shard
 	// preventShutdown blocks shutdown until release is called; release is never nil, including on error.
@@ -251,7 +249,6 @@ type Shard struct {
 	name              string
 	store             *lsmkv.Store
 	counter           *indexcounter.Counter
-	indexCheckpoints  *indexcheckpoint.Checkpoints
 	metrics           *Metrics
 	promMetrics       *monitoring.PrometheusMetrics
 	slowQueryReporter helpers.SlowQueryReporter

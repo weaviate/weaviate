@@ -118,7 +118,7 @@ func TestNewShard_AbortsWhenUsageFileRemovalFails(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(usageTmp, 0o700) })
 
 	_, err := NewShard(ctx, nil, shardName, index, &models.Class{Class: className},
-		index.centralJobQueue, index.scheduler, index.indexCheckpoints,
+		index.centralJobQueue, index.scheduler,
 		index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "remove computed usage file")

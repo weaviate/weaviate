@@ -285,7 +285,6 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 			class,
 			nil,
 			scheduler,
-			nil,
 			memwatch.NewDummyMonitor(),
 			NewShardReindexerV3Noop(),
 			roaringset.NewBitmapBufPoolNoop(),
