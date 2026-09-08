@@ -152,3 +152,47 @@ func (n *Namespace) Delete(key []byte) error {
 	}
 	return nil
 }
+
+// Update runs fn inside one write transaction on the namespace, creating the
+// namespace on first use. Every Put and Delete fn makes lands together, or
+// none does when fn returns an error; that error is returned.
+func (n *Namespace) Update(fn func(b *Batch) error) error {
+	err := n.db.Update(func(tx *bbolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists(n.name)
+		if err != nil {
+			return err
+		}
+		return fn(&Batch{bucket: bucket})
+	})
+	if err != nil {
+		return fmt.Errorf("update shard metadata namespace %q: %w", n.name, err)
+	}
+	return nil
+}
+
+// Batch is the namespace inside one Update transaction. It is only valid
+// until the callback that received it returns.
+type Batch struct {
+	bucket *bbolt.Bucket
+}
+
+// Get returns a copy of key's value as this transaction sees it, including
+// the batch's own earlier writes, or nil when the key is absent. The error
+// is for symmetry with the other accessors; bolt's read cannot fail.
+func (b *Batch) Get(key []byte) ([]byte, error) {
+	v := b.bucket.Get(key)
+	if v == nil {
+		return nil, nil
+	}
+	out := make([]byte, len(v))
+	copy(out, v)
+	return out, nil
+}
+
+func (b *Batch) Put(key, value []byte) error {
+	return b.bucket.Put(key, value)
+}
+
+func (b *Batch) Delete(key []byte) error {
+	return b.bucket.Delete(key)
+}
