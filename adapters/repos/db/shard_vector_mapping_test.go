@@ -245,3 +245,36 @@ func TestVectorIndexMapping_Put(t *testing.T) {
 		})
 	}
 }
+
+func TestVectorIndexMapping_Delete(t *testing.T) {
+	t.Run("removes one record and leaves the rest", func(t *testing.T) {
+		m, _ := newTestVectorIndexMapping(t)
+		legacy := vectorIndexRecord{PhysicalID: "main", IndexType: "hnsw", State: "ready"}
+		title := vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "flat", State: "ready"}
+		require.NoError(t, m.Initialize(map[string]vectorIndexRecord{"": legacy, "title": title}))
+
+		require.NoError(t, m.Delete("title"))
+		records, initialized, err := m.Load()
+		require.NoError(t, err)
+		assert.True(t, initialized)
+		assert.Equal(t, map[string]vectorIndexRecord{"": legacy}, records)
+
+		require.NoError(t, m.Delete(""))
+		records, initialized, err = m.Load()
+		require.NoError(t, err)
+		assert.True(t, initialized)
+		assert.Empty(t, records)
+	})
+
+	t.Run("a missing record is already deleted", func(t *testing.T) {
+		m, _ := newTestVectorIndexMapping(t)
+		require.NoError(t, m.Initialize(nil))
+		require.NoError(t, m.Delete("title"))
+	})
+
+	t.Run("refuses an uninitialized mapping", func(t *testing.T) {
+		m, _ := newTestVectorIndexMapping(t)
+		err := m.Delete("title")
+		require.ErrorIs(t, err, errVectorIndexMappingUninitialized)
+	})
+}
