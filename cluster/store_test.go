@@ -1902,6 +1902,64 @@ func TestStoreDBLoadHandoverUnderStress(t *testing.T) {
 	}
 }
 
+// TestStoreDeferredDeleteThenReAddDropsTheOldData pins the case the deferral
+// makes reachable for the first time: with the load off the FSM goroutine, a
+// class can be dropped and re-created under the same name while it runs. Both
+// commands are deferred, so the schema ends the pass listing the class again
+// and the DB still holds the old one's shards. Dropping only what the schema
+// has stopped listing would hand those shards to the new class.
+func TestStoreDeferredDeleteThenReAddDropsTheOldData(t *testing.T) {
+	t.Parallel()
+
+	ms := NewMockStore(t, t.Name(), utils.MustGetFreeTCPPort())
+	st := ms.store
+	st.raft = &raft.Raft{} // Apply path
+
+	cls := &models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
+	ss := &sharding.State{
+		PartitioningEnabled: true,
+		Physical:            map[string]sharding.Physical{"T0": {Name: "T0"}},
+	}
+
+	ms.parser.On("ParseClass", mock.Anything).Return(nil)
+	ms.indexer.On("Open", mock.Anything).Return(nil)
+	ms.indexer.On("AddClass", mock.Anything).Return(nil)
+	ms.indexer.On("DeleteClass", mock.Anything, mock.Anything).Return(nil)
+	ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
+
+	addClass := func(index uint64) *raft.Log {
+		return &raft.Log{Index: index, Type: raft.LogCommand, Data: cmdAsBytes("C",
+			cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil)}
+	}
+
+	st.Apply(addClass(1))
+
+	// Only the first pass blocks: later passes must run to completion.
+	release, loading := make(chan struct{}), make(chan struct{})
+	var first atomic.Bool
+	ms.indexer.On("TriggerSchemaUpdateCallbacks").Run(func(mock.Arguments) {
+		if first.CompareAndSwap(false, true) {
+			close(loading)
+			<-release
+		}
+	}).Return()
+
+	st.dbLoad.start(st.reloadDBFromSchema, st.log)
+	<-loading
+
+	st.Apply(&raft.Log{Index: 2, Type: raft.LogCommand, Data: cmdAsBytes("C",
+		cmd.ApplyRequest_TYPE_DELETE_CLASS, cmd.DeleteClassRequest{Name: "C"}, nil)})
+	st.Apply(addClass(3))
+	require.True(t, st.schemaManager.NewSchemaReader().ClassInfo("C").Exists,
+		"precondition: the schema lists the class again by the time the pass ends")
+
+	close(release)
+	require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoaded.Load),
+		"the load must finish")
+
+	ms.indexer.AssertCalled(t, "DeleteClass", "C", false)
+}
+
 // TestStoreDeferredDeleteClassReachesTheDB pins that a class deleted while the
 // background load runs is removed from the DB, with everything the normal
 // delete carries.
