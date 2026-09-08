@@ -75,3 +75,25 @@ func vectorIndexStorageExists(dirs []string) (bool, error) {
 	}
 	return true, nil
 }
+
+// syncVectorIndexStorage fsyncs every directory in dirs and its parent, so
+// their directory entries are durable before a record that points at them
+// is. The constructors create these directories without a sync (hnsw's
+// commit logger and lsmkv's bucket both MkdirAll and move on), and after a
+// power loss a synced record could otherwise outlive an unsynced entry.
+func syncVectorIndexStorage(dirs []string) error {
+	synced := map[string]struct{}{}
+	for _, dir := range dirs {
+		for _, path := range []string{dir, filepath.Dir(dir)} {
+			if _, done := synced[path]; done {
+				continue
+			}
+			err := fsyncDir(path)
+			if err != nil {
+				return fmt.Errorf("sync directory %s: %w", path, err)
+			}
+			synced[path] = struct{}{}
+		}
+	}
+	return nil
+}

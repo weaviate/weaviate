@@ -117,3 +117,23 @@ func TestVectorIndexStorageExists(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 }
+
+func TestSyncVectorIndexStorage(t *testing.T) {
+	shardDir := t.TempDir()
+	dirs := []string{
+		filepath.Join(shardDir, "main.hnsw.commitlog.d"),
+		filepath.Join(shardDir, "lsm", "vectors"),
+		filepath.Join(shardDir, "lsm", "vectors_title"),
+	}
+	for _, dir := range dirs {
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+	}
+
+	require.NoError(t, syncVectorIndexStorage(dirs))
+	require.NoError(t, syncVectorIndexStorage(nil))
+
+	// a directory that is not there cannot be made durable
+	missing := filepath.Join(shardDir, "vectors_gone.hnsw.commitlog.d")
+	err := syncVectorIndexStorage([]string{missing})
+	require.ErrorContains(t, err, missing)
+}
