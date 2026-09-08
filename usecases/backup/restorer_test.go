@@ -201,6 +201,19 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		}
 	})
 
+	t.Run("RejectDedupedDescriptorOnLegacyPath", func(t *testing.T) {
+		deduped := metadata
+		deduped.Version = "3.0"
+		deduped.DedupeReplicas = true
+		backend := newFakeBackend()
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(marshalMeta(deduped), nil)
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		bm := createManager(nil, nil, backend, nil)
+		resp := bm.OnCanCommit(ctx, &req)
+		assert.Contains(t, resp.Err, "not planned as a fan-out")
+		assert.Equal(t, time.Duration(0), resp.Timeout)
+	})
+
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
 		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
@@ -536,6 +549,36 @@ func TestRestoreFailureKeepsSameClassStagingOfPriorAttempt(t *testing.T) {
 	marker, err := os.ReadFile(filepath.Join(staged, stagingMarkerFile))
 	require.NoError(t, err)
 	assert.Equal(t, "a1", string(marker))
+}
+
+func TestOnCommitAttemptGate(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		slotAttempt string
+		reqAttempt  string
+		wantSignal  bool
+	}{
+		{name: "same attempt commits", slotAttempt: "a1", reqAttempt: "a1", wantSignal: true},
+		{name: "foreign attempt is refused", slotAttempt: "a1", reqAttempt: "a2", wantSignal: false},
+		{name: "legacy commit without attempt", slotAttempt: "a1", reqAttempt: "", wantSignal: true},
+		{name: "legacy slot without attempt", slotAttempt: "", reqAttempt: "a2", wantSignal: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := shardSyncChan{coordChan: make(chan interface{}, 5), logger: logrus.New()}
+			require.Empty(t, c.lastOp.renew("1", tc.slotAttempt, "p", "", ""))
+			c.waitingForCoordinatorToCommit.Store(true)
+			err := c.OnCommit(context.Background(), &StatusRequest{ID: "1", AttemptID: tc.reqAttempt})
+			if tc.wantSignal {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+			assert.Equal(t, tc.wantSignal, len(c.coordChan) == 1)
+		})
+	}
 }
 
 func TestOnAbortAttemptGate(t *testing.T) {

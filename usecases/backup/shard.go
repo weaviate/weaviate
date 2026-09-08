@@ -249,6 +249,10 @@ func (c *shardSyncChan) withCancellation(ctx context.Context, id string, done ch
 func (c *shardSyncChan) OnCommit(ctx context.Context, req *StatusRequest) error {
 	st := c.lastOp.get()
 	if st.ID == req.ID && c.waitingForCoordinatorToCommit.Load() {
+		// A stale coordinator attempt's delayed Commit must not start the attempt that booked the slot.
+		if req.AttemptID != "" && st.AttemptID != "" && req.AttemptID != st.AttemptID {
+			return fmt.Errorf("slot is held by coordinator attempt %q, not %q", st.AttemptID, req.AttemptID)
+		}
 		c.coordChan <- *req
 		return nil
 	}

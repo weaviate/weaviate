@@ -95,7 +95,7 @@ func (r *restorer) restore(
 func (r *restorer) startRestore(req *Request, store nodeStore, work func(ctx context.Context, staged *stagedDirs) error) (CanCommitResponse, error) {
 	expiration := min(req.Duration, maxBooking(req.DedupeReplicas))
 	ret := CanCommitResponse{
-		Method:  OpCreate,
+		Method:  req.Method,
 		ID:      req.ID,
 		Timeout: expiration,
 	}
@@ -324,7 +324,7 @@ func validateNodeMeta(meta *backup.BackupDescriptor, destPath, reqID string) err
 	if err := checkRestorableVersion(meta.Version, meta.ServerVersion); err != nil {
 		return err
 	}
-	// Mirrors the scheduler's global gate: a 3.x per-node descriptor without the flag (or the reverse) is tampered or corrupt, and the legacy path must never restore a deduped node descriptor thin.
+	// Mirrors the scheduler's global gate: a 3.x per-node descriptor without the flag (or the reverse) is tampered or corrupt; OnCanCommit's legacy branch separately refuses any deduped descriptor so it is never restored thin.
 	if major, ok := parseMajor(meta.Version); ok && (major >= 3) != meta.DedupeReplicas {
 		return fmt.Errorf("corrupted backup file: version %s inconsistent with dedupeReplicas=%v", meta.Version, meta.DedupeReplicas)
 	}

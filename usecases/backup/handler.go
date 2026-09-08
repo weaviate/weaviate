@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -293,9 +294,15 @@ type BackupRequest struct {
 }
 
 // originalNodeName reverse-maps this node's name to its backup-time name; a wrong answer here makes a mapped fan-out restore silently restore nothing.
+// Sorted iteration keeps the answer deterministic under a non-injective mapping (rejected up front for deduped restores, still accepted on the legacy path).
 func originalNodeName(local string, mapping map[string]string) string {
-	for oldName, newName := range mapping {
-		if local == newName {
+	oldNames := make([]string, 0, len(mapping))
+	for oldName := range mapping {
+		oldNames = append(oldNames, oldName)
+	}
+	sort.Strings(oldNames)
+	for _, oldName := range oldNames {
+		if local == mapping[oldName] {
 			return oldName
 		}
 	}
@@ -360,6 +367,12 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = CanCommitErrCannotCommit
+			return ret
+		}
+		// validateNodeMeta only catches version/flag mismatch; restoring a deduped descriptor thin would silently omit designated-away shards.
+		if meta.DedupeReplicas {
+			ret.Err = "per-node descriptor is replica-deduped but the restore was not planned as a fan-out; global descriptor is corrupt"
 			ret.ErrKind = CanCommitErrCannotCommit
 			return ret
 		}
