@@ -20,6 +20,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -30,6 +31,20 @@ import (
 // the per-prop hook fires, never eagerly at wiring time. The all-failed
 // case (orig. Copilot finding, PR https://github.com/weaviate/weaviate/pull/11322 review comment 3254170106)
 // is the subtle one; see [maybeClearTokenizationOverlayOnAllFailed].
+
+// overlayTasks builds the task slice maybeWirePerPropOverlaySet inspects.
+// The wiring reads each task's strategy for the flags that migration turns
+// on, so a bare task struct is not enough. A nil entry stays nil.
+func overlayTasks(strategies ...MigrationStrategy) []*ShardReindexTaskGeneric {
+	tasks := make([]*ShardReindexTaskGeneric, len(strategies))
+	for i, strategy := range strategies {
+		if strategy == nil {
+			continue
+		}
+		tasks[i] = &ShardReindexTaskGeneric{strategy: strategy}
+	}
+	return tasks
+}
 
 // fireAllPropHooks simulates a swap loop where every prop flipped.
 func fireAllPropHooks(tasks []*ShardReindexTaskGeneric, props []string) int {
@@ -48,7 +63,7 @@ func fireAllPropHooks(tasks []*ShardReindexTaskGeneric, props []string) int {
 
 func TestMaybeWirePerPropOverlaySet_TokenizationChange_WiresAndSets(t *testing.T) {
 	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
+	tasks := overlayTasks(&SearchableRetokenizeStrategy{})
 	payload := &ReindexTaskPayload{
 		MigrationType:      ReindexTypeChangeTokenization,
 		TargetTokenization: "field",
@@ -71,7 +86,7 @@ func TestMaybeWirePerPropOverlaySet_TokenizationChange_WiresAndSets(t *testing.T
 
 func TestMaybeWirePerPropOverlaySet_FilterableVariant_WiresAndSets(t *testing.T) {
 	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
+	tasks := overlayTasks(&FilterableRetokenizeStrategy{})
 	payload := &ReindexTaskPayload{
 		MigrationType:      ReindexTypeChangeTokenizationFilterable,
 		TargetTokenization: "word",
@@ -83,33 +98,76 @@ func TestMaybeWirePerPropOverlaySet_FilterableVariant_WiresAndSets(t *testing.T)
 	assert.Equal(t, "word", s.TokenizationFor("name", "field"))
 }
 
-func TestMaybeWirePerPropOverlaySet_NonTokenizationMigration_NoOp(t *testing.T) {
-	for _, mt := range []ReindexMigrationType{
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableSearchable,
-		ReindexTypeEnableRangeable,
-	} {
-		t.Run(string(mt), func(t *testing.T) {
+// The overlay a task installs comes from its strategy, so membership of the
+// [IsSemanticMigration] family is the whole gate. enable-rangeable is not in
+// that family yet (weaviate/weaviate#12700 adds it); when it is, its
+// ForceRangeable overlay arms here with no change to this wiring.
+func TestMaybeWirePerPropOverlaySet_SemanticFamilyCoverage(t *testing.T) {
+	tests := []struct {
+		name        string
+		migration   ReindexMigrationType
+		strategy    MigrationStrategy
+		wantWired   bool
+		wantOverlay inverted.PropertyOverlay
+	}{
+		{
+			name:        "enable-filterable forces the filterable flag",
+			migration:   ReindexTypeEnableFilterable,
+			strategy:    &EnableFilterableStrategy{},
+			wantWired:   true,
+			wantOverlay: inverted.PropertyOverlay{ForceFilterable: true},
+		},
+		{
+			name:        "enable-searchable forces the searchable flag and its tokenization",
+			migration:   ReindexTypeEnableSearchable,
+			strategy:    &EnableSearchableStrategy{tokenization: "field"},
+			wantWired:   true,
+			wantOverlay: inverted.PropertyOverlay{ForceSearchable: true, Tokenization: "field"},
+		},
+		{
+			// weaviate/weaviate#12700 moves enable-rangeable into the family.
+			// Deriving the expectation from the predicate is what makes the two
+			// PRs independent of merge order.
+			name:        "enable-rangeable follows the predicate",
+			migration:   ReindexTypeEnableRangeable,
+			strategy:    &FilterableToRangeableStrategy{},
+			wantWired:   IsSemanticMigration(ReindexTypeEnableRangeable),
+			wantOverlay: inverted.PropertyOverlay{ForceRangeable: true},
+		},
+		{
+			name:      "map-to-blockmax is semantic but changes no analyzer input",
+			migration: ReindexTypeChangeAlgorithm,
+			strategy:  &MapToBlockmaxStrategy{},
+			wantWired: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			s := &Shard{}
-			tasks := []*ShardReindexTaskGeneric{{}}
+			tasks := overlayTasks(tc.strategy)
 			payload := &ReindexTaskPayload{
-				MigrationType:      mt,
-				TargetTokenization: "field",
-				Properties:         []string{"name"},
+				MigrationType: tc.migration,
+				Properties:    []string{"name"},
 			}
-			require.False(t, maybeWirePerPropOverlaySet(s, payload, tasks),
-				"non-tokenization-changing migration must NOT wire the hook")
-			assert.Nil(t, tasks[0].onPropSwapped,
-				"no hook should be installed for a non-tokenization migration")
-			assert.Equal(t, "word", s.TokenizationFor("name", "word"),
-				"no overlay set → fall back to live schema")
+			require.Equal(t, tc.wantWired, maybeWirePerPropOverlaySet(s, payload, tasks))
+			if !tc.wantWired {
+				assert.Nil(t, tasks[0].onPropSwapped)
+				assert.Nil(t, s.SnapshotPropertyOverlay([]string{"name"}))
+				return
+			}
+
+			assert.Nil(t, s.SnapshotPropertyOverlay([]string{"name"}),
+				"wiring must not pre-set the overlay; that's the bug being fixed")
+			fireAllPropHooks(tasks, payload.Properties)
+			assert.Equal(t, tc.wantOverlay, s.SnapshotPropertyOverlay([]string{"name"})["name"])
 		})
 	}
 }
 
 func TestMaybeWirePerPropOverlaySet_EmptyTargetTokenization_NoOp(t *testing.T) {
 	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
+	tasks := overlayTasks(&SearchableRetokenizeStrategy{})
 	payload := &ReindexTaskPayload{
 		MigrationType:      ReindexTypeChangeTokenization,
 		TargetTokenization: "", // payload missing target
@@ -134,7 +192,7 @@ func TestMaybeWirePerPropOverlaySet_NilTaskInSlice_Skipped(t *testing.T) {
 	// A nil task entry must not panic — defensive, mirrors the
 	// production loop's nil guard.
 	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{nil, {}}
+	tasks := overlayTasks(nil, &SearchableRetokenizeStrategy{})
 	payload := &ReindexTaskPayload{
 		MigrationType:      ReindexTypeChangeTokenization,
 		TargetTokenization: "field",
@@ -152,7 +210,7 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_AllFailed_Clears(t *testing.T)
 	// defensive clear is an idempotent backstop that must leave the
 	// shard aligned with the live (OLD) schema either way.
 	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
+	tasks := overlayTasks(&SearchableRetokenizeStrategy{})
 	payload := &ReindexTaskPayload{
 		MigrationType:      ReindexTypeChangeTokenization,
 		TargetTokenization: "field",
@@ -180,7 +238,7 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_AnySwapped_NoOp(t *testing.T) 
 	// the overlay. The overlay must STAY set so the swapped index
 	// type's bucket content stays aligned with the query analyzer.
 	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
+	tasks := overlayTasks(&SearchableRetokenizeStrategy{})
 	payload := &ReindexTaskPayload{
 		MigrationType:      ReindexTypeChangeTokenization,
 		TargetTokenization: "field",
@@ -198,12 +256,12 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_AnySwapped_NoOp(t *testing.T) 
 }
 
 func TestMaybeClearTokenizationOverlayOnAllFailed_WasNotSet_NoOp(t *testing.T) {
-	// Symmetric to the wiring helper's no-op cases (non-tokenization
-	// migrations, empty target): if wiring was skipped, CLEAR must also
-	// be a no-op regardless of anySwapped — there's nothing to clear.
+	// Symmetric to the wiring helper's no-op cases (a migration outside the
+	// semantic family, an empty target): if wiring was skipped, CLEAR must
+	// also be a no-op regardless of anySwapped — there's nothing to clear.
 	s := &Shard{}
 	payload := &ReindexTaskPayload{
-		MigrationType: ReindexTypeEnableFilterable, // non-tokenization
+		MigrationType: ReindexTypeRepairFilterable,
 		Properties:    []string{"name"},
 	}
 
@@ -224,7 +282,7 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_NilInputs_NoOp(t *testing.T) {
 // fires), post-loop CLEAR. Mirrors runShardSwapPhase's per-shard branch.
 func TestTokenizationOverlay_AllFailedSwap_EndToEndLifecycle(t *testing.T) {
 	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
+	tasks := overlayTasks(&SearchableRetokenizeStrategy{})
 	payload := &ReindexTaskPayload{
 		MigrationType:      ReindexTypeChangeTokenization,
 		TargetTokenization: "field",
@@ -252,7 +310,7 @@ func TestTokenizationOverlay_AllFailedSwap_EndToEndLifecycle(t *testing.T) {
 // is a no-op.
 func TestTokenizationOverlay_AnySwapped_EndToEndLifecycle(t *testing.T) {
 	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
+	tasks := overlayTasks(&SearchableRetokenizeStrategy{})
 	payload := &ReindexTaskPayload{
 		MigrationType:      ReindexTypeChangeTokenization,
 		TargetTokenization: "field",
@@ -293,7 +351,7 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 
 	loaded, err := unwrapShard(ctx, hot)
 	require.NoError(t, err)
-	loaded.SetTokenizationOverlay(prop, "field")
+	loaded.SetPropertyOverlay(prop, inverted.PropertyOverlay{Tokenization: "field"})
 
 	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
 		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,

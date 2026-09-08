@@ -1215,9 +1215,9 @@ func (p *ReindexProvider) runShardSwapPhase(
 	// Wire a per-prop hook rather than setting the overlay once up front;
 	// see [maybeWirePerPropOverlaySet] for why the latter is a correctness bug.
 	setShard, setUnwrapErr := unwrapShard(ctx, shard)
-	if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
+	if setUnwrapErr != nil && IsSemanticMigration(payload.MigrationType) {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Warnf("reindex provider: cannot wire tokenization overlay — shard unwrap failed; queries during SWAPPING window may observe stale-tokenization results: %v", setUnwrapErr)
+			Warnf("reindex provider: cannot wire property overlay — shard unwrap failed; during the SWAPPING window queries may observe stale results and writes to the migrated property may not be indexed: %v", setUnwrapErr)
 	}
 	overlayWasSet := maybeWirePerPropOverlaySet(setShard, payload, unitTasks)
 
@@ -1651,13 +1651,11 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		return fmt.Errorf("schema flip: %w", err)
 	}
 
-	if IsTokenizationChangingMigration(payload.MigrationType) {
-		p.forEachLoadedShardConcrete(ctx, payload.Collection, logger, func(shard *Shard) {
-			for _, propName := range payload.Properties {
-				shard.ClearTokenizationOverlay(propName)
-			}
-		})
-	}
+	p.forEachLoadedShardConcrete(ctx, payload.Collection, logger, func(shard *Shard) {
+		for _, propName := range payload.Properties {
+			shard.ClearPropertyOverlay(propName)
+		}
+	})
 
 	return nil
 }
@@ -2585,13 +2583,26 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeChangeTokenizationFilterable
 }
 
-// maybeWirePerPropOverlaySet installs the per-prop onPropSwapped hook
-// on every task of a tokenization-changing migration so the per-shard
-// tokenization overlay is SET atomically with each property's
-// bucket-pointer flip, inside the swap's Phase 2a tight loop. Returns
-// true iff the hook was wired (i.e. this is a tokenization-changing
-// migration with a non-empty target), so the caller can match
-// [maybeClearTokenizationOverlayOnAllFailed]'s clear decision.
+// maybeWirePerPropOverlaySet installs the per-prop swap hooks on every task
+// of a semantic migration so the per-shard property overlay is SET
+// atomically with each property's bucket-pointer flip, inside the swap's
+// Phase 2a tight loop. Returns true iff at least one task was wired, so the
+// caller can match [maybeClearTokenizationOverlayOnAllFailed]'s clear
+// decision.
+//
+// The overlay a task installs is the same one its strategy already hands the
+// backfill scan, so a migration type joining the [IsSemanticMigration] family
+// is covered here without further change. A tokenization change is the one
+// part the strategy does not carry: the retokenize strategies keep the schema
+// flag they already have and move only the tokenization, which lives on the
+// payload.
+//
+// Both the query and the write path read the overlay, and each needs it for
+// the same reason: between the bucket flip here and the cluster-wide schema
+// flip in OnTaskCompleted, the live schema describes the pre-migration state
+// while the bucket holds the post-migration one. On the write path that
+// mismatch is silent data loss — the double-write mirror is already gone and
+// the schema flag still gates the property out (weaviate/etienne-claude-issues#449).
 //
 // Why per-prop, not once up front: RunSwapOnShard's disk-I/O preamble
 // (MkdirAll, sentinel stats, prop read) runs between the loop start and
@@ -2604,33 +2615,51 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 	if shard == nil || payload == nil {
 		return false
 	}
-	if !IsTokenizationChangingMigration(payload.MigrationType) {
+	if !IsSemanticMigration(payload.MigrationType) {
 		return false
 	}
-	if payload.TargetTokenization == "" {
-		return false
+	tokenization := ""
+	if IsTokenizationChangingMigration(payload.MigrationType) {
+		tokenization = payload.TargetTokenization
 	}
-	target := payload.TargetTokenization
+
+	wired := false
 	for _, task := range tasks {
 		if task == nil {
 			continue
 		}
+		overlay := task.strategy.AnalyzerOverlay(payload.Properties)
+		if tokenization != "" {
+			if overlay == nil {
+				overlay = make(map[string]inverted.PropertyOverlay, len(payload.Properties))
+			}
+			for _, propName := range payload.Properties {
+				o := overlay[propName]
+				o.Tokenization = tokenization
+				overlay[propName] = o
+			}
+		}
+		if len(overlay) == 0 {
+			continue
+		}
+		wired = true
+
 		task := task
 		// onPropSwapped covers the recovery/resume path; the live Phase-2a
 		// loop uses swapPropAtomic (see the field docs on both).
 		task.onPropSwapped = func(propName string) {
-			shard.SetTokenizationOverlay(propName, target)
+			shard.SetPropertyOverlay(propName, overlay[propName])
 		}
 		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
 			rt reindexTracker, propIdx int, propName string,
 		) (*lsmkv.Bucket, error) {
-			return shard.SwapBucketAndSetOverlay(propName, target,
+			return shard.SwapBucketAndSetOverlay(propName, overlay[propName],
 				func() (*lsmkv.Bucket, error) {
 					return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
 				})
 		}
 	}
-	return true
+	return wired
 }
 
 // maybeClearTokenizationOverlayOnAllFailed is the defensive CLEAR
@@ -2666,7 +2695,7 @@ func maybeClearTokenizationOverlayOnAllFailed(
 		return false
 	}
 	for _, propName := range payload.Properties {
-		shard.ClearTokenizationOverlay(propName)
+		shard.ClearPropertyOverlay(propName)
 	}
 	return true
 }

@@ -17,15 +17,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 )
 
-// TestShard_TokenizationOverlay_* pin the per-shard tokenization overlay
+// TestShard_TokenizationOverlay_* pin the per-shard property overlay
 // lifecycle introduced for https://github.com/weaviate/0-weaviate-issues/issues/216 (Gap B). The overlay
-// bridges the per-replica window between a change-tokenization
-// migration's local bucket swap (in OnGroupCompleted.RunSwapOnShard) and
-// the cluster-wide schema flip (in OnTaskCompleted's
-// flipSemanticMigrationSchema). See the [tokenizationOverlay] field
-// godoc on Shard for the full rationale.
+// bridges the per-replica window between a semantic migration's local
+// bucket swap (in OnGroupCompleted.RunSwapOnShard) and the cluster-wide
+// schema flip (in OnTaskCompleted's flipSemanticMigrationSchema). See the
+// [propertyOverlay] field godoc on Shard for the full rationale.
 //
 // We exercise the helper methods directly against a zero-valued Shard
 // struct because they touch only the per-shard map + mutex — no other
@@ -42,7 +43,7 @@ func TestShard_TokenizationOverlay_NotSet_FallsBackToLive(t *testing.T) {
 
 func TestShard_TokenizationOverlay_SetAndRead(t *testing.T) {
 	s := &Shard{}
-	s.SetTokenizationOverlay("name", "field")
+	s.SetPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
 
 	// Overlay value wins while the live schema hasn't caught up.
 	assert.Equal(t, "field", s.TokenizationFor("name", "word"))
@@ -53,18 +54,18 @@ func TestShard_TokenizationOverlay_SetAndRead(t *testing.T) {
 
 func TestShard_TokenizationOverlay_SetEmptyValues_NoOp(t *testing.T) {
 	s := &Shard{}
-	s.SetTokenizationOverlay("", "field") // empty propName
-	s.SetTokenizationOverlay("name", "")  // empty target
+	s.SetPropertyOverlay("", inverted.PropertyOverlay{Tokenization: "field"}) // empty propName
+	s.SetPropertyOverlay("name", inverted.PropertyOverlay{})                  // nothing to override
 	// Neither call should have populated the overlay.
 	assert.Equal(t, "word", s.TokenizationFor("name", "word"))
 }
 
 func TestShard_TokenizationOverlay_ClearExplicit(t *testing.T) {
 	s := &Shard{}
-	s.SetTokenizationOverlay("name", "field")
+	s.SetPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
 	assert.Equal(t, "field", s.TokenizationFor("name", "word"))
 
-	s.ClearTokenizationOverlay("name")
+	s.ClearPropertyOverlay("name")
 	// Cleared → fall back to liveTokenization.
 	assert.Equal(t, "word", s.TokenizationFor("name", "word"))
 }
@@ -72,8 +73,8 @@ func TestShard_TokenizationOverlay_ClearExplicit(t *testing.T) {
 func TestShard_TokenizationOverlay_ClearUnsetIsNoOp(t *testing.T) {
 	s := &Shard{}
 	// Clearing a never-set entry is safe.
-	s.ClearTokenizationOverlay("name")
-	s.ClearTokenizationOverlay("")
+	s.ClearPropertyOverlay("name")
+	s.ClearPropertyOverlay("")
 	// Live fallback still works.
 	assert.Equal(t, "word", s.TokenizationFor("name", "word"))
 }
@@ -84,7 +85,7 @@ func TestShard_TokenizationOverlay_SelfClearOnSchemaCatchup(t *testing.T) {
 	// target, the next TokenizationFor call self-clears the overlay and
 	// returns the live value.
 	s := &Shard{}
-	s.SetTokenizationOverlay("name", "field")
+	s.SetPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
 
 	// First call: live schema still has the OLD value → overlay wins.
 	assert.Equal(t, "field", s.TokenizationFor("name", "word"))
@@ -104,28 +105,28 @@ func TestShard_TokenizationOverlay_SelfClearOnSchemaCatchup(t *testing.T) {
 func TestShard_TokenizationOverlay_SnapshotEmpty(t *testing.T) {
 	s := &Shard{}
 	// No overlay → nil snapshot regardless of how many props requested.
-	assert.Nil(t, s.SnapshotTokenizationOverlay(nil))
-	assert.Nil(t, s.SnapshotTokenizationOverlay([]string{}))
-	assert.Nil(t, s.SnapshotTokenizationOverlay([]string{"a", "b"}))
+	assert.Nil(t, s.SnapshotPropertyOverlay(nil))
+	assert.Nil(t, s.SnapshotPropertyOverlay([]string{}))
+	assert.Nil(t, s.SnapshotPropertyOverlay([]string{"a", "b"}))
 }
 
 func TestShard_TokenizationOverlay_SnapshotSubset(t *testing.T) {
 	s := &Shard{}
-	s.SetTokenizationOverlay("a", "field")
-	s.SetTokenizationOverlay("b", "lowercase")
+	s.SetPropertyOverlay("a", inverted.PropertyOverlay{Tokenization: "field"})
+	s.SetPropertyOverlay("b", inverted.PropertyOverlay{ForceFilterable: true})
 	// "c" is not in the overlay.
 
 	// Asking for only the props the caller cares about.
-	snap := s.SnapshotTokenizationOverlay([]string{"a", "c"})
+	snap := s.SnapshotPropertyOverlay([]string{"a", "c"})
 	require.NotNil(t, snap)
-	assert.Equal(t, "field", snap["a"])
+	assert.Equal(t, inverted.PropertyOverlay{Tokenization: "field"}, snap["a"])
 	_, present := snap["c"]
 	assert.False(t, present, "non-overlaid prop must not appear in snapshot")
 	assert.Len(t, snap, 1)
 
 	// A request that hits no overlay entries returns nil so the analyzer
 	// can take its fast path.
-	assert.Nil(t, s.SnapshotTokenizationOverlay([]string{"c", "d"}))
+	assert.Nil(t, s.SnapshotPropertyOverlay([]string{"c", "d"}))
 }
 
 func TestShard_TokenizationOverlay_ConcurrentAccess(t *testing.T) {
@@ -133,7 +134,7 @@ func TestShard_TokenizationOverlay_ConcurrentAccess(t *testing.T) {
 	// not race. Run under `go test -race` to catch any regression in the
 	// lock discipline.
 	s := &Shard{}
-	s.SetTokenizationOverlay("name", "field")
+	s.SetPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
 
 	const goroutines = 32
 	const iterations = 200
@@ -146,7 +147,7 @@ func TestShard_TokenizationOverlay_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				_ = s.TokenizationFor("name", "word")
-				_ = s.SnapshotTokenizationOverlay([]string{"name"})
+				_ = s.SnapshotPropertyOverlay([]string{"name"})
 			}
 		}()
 	}
@@ -157,8 +158,8 @@ func TestShard_TokenizationOverlay_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				s.SetTokenizationOverlay("name", "field")
-				s.ClearTokenizationOverlay("name")
+				s.SetPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
+				s.ClearPropertyOverlay("name")
 			}
 		}()
 	}

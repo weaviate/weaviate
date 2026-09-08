@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -106,7 +107,9 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 				return nil, err
 			}
 			time.Sleep(hookSleepMs * time.Millisecond)
-			shard.SetTokenizationOverlay(propName, models.PropertyTokenizationWord)
+			shard.SetPropertyOverlay(propName, inverted.PropertyOverlay{
+				Tokenization: models.PropertyTokenizationWord,
+			})
 			return oldMainBucket, nil
 		}
 	} else {
@@ -115,7 +118,8 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
 			rt reindexTracker, propIdx int, propName string,
 		) (*lsmkv.Bucket, error) {
-			return shard.SwapBucketAndSetOverlay(propName, models.PropertyTokenizationWord,
+			return shard.SwapBucketAndSetOverlay(propName,
+				inverted.PropertyOverlay{Tokenization: models.PropertyTokenizationWord},
 				func() (*lsmkv.Bucket, error) {
 					oldMainBucket, err := task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
 					if err != nil {

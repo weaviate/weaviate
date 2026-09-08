@@ -102,49 +102,51 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 
 	analyzer := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String())
 	// Mirror the query-path overlay handling (BM25Searcher.effectiveTokenization)
-	// so writes during a change-tokenization SWAPPING window land in the
-	// canonical bucket with TARGET-tokenized keys. weaviate/0-weaviate-issues#240.
-	if overlay := s.tokenizationAnalyzerOverlay(c.Properties); overlay != nil {
+	// so writes in a semantic migration's SWAPPING window land in the canonical
+	// bucket under the target schema: with TARGET-tokenized keys for a
+	// change-tokenization migration (weaviate/0-weaviate-issues#240), and at all
+	// for a migration enabling an index type that the live schema flag still
+	// reports as off (weaviate/etienne-claude-issues#449).
+	if overlay := s.writePathAnalyzerOverlay(c.Properties); overlay != nil {
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}
 	props, nestedProps, err := analyzer.Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, nestedProps, err
 }
 
-// tokenizationAnalyzerOverlay projects the per-shard tokenization
-// overlay onto the inverted-analyzer PropertyOverlay shape. Only
-// `Tokenization` is populated — the Force* flags are owned by
-// from-scratch backfill strategies and must not affect ordinary writes.
-func (s *Shard) tokenizationAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
+// writePathAnalyzerOverlay snapshots the per-shard property overlay for the
+// class's properties, dropping whatever the live schema has already caught up
+// on so a stale entry costs the analyzer nothing.
+func (s *Shard) writePathAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil
 	}
 	propNames := make([]string, 0, len(props))
-	liveTok := make(map[string]string, len(props))
+	live := make(map[string]*models.Property, len(props))
 	for _, p := range props {
 		if p == nil {
 			continue
 		}
 		propNames = append(propNames, p.Name)
-		liveTok[p.Name] = p.Tokenization
+		live[p.Name] = p
 	}
-	snap := s.SnapshotTokenizationOverlay(propNames)
+	snap := s.SnapshotPropertyOverlay(propNames)
 	if len(snap) == 0 {
 		return nil
 	}
 	var out map[string]inverted.PropertyOverlay
-	for name, target := range snap {
-		if target == liveTok[name] {
-			// Live schema already matches the overlay target. The
-			// authoritative clear happens via ClearTokenizationOverlay
-			// at migration completion; query-path TokenizationFor
-			// self-clears as a secondary nicety.
+	for name, o := range snap {
+		pending := o.BeyondLiveSchema(live[name])
+		if pending.Empty() {
+			// Live schema has caught up. The authoritative clear happens via
+			// ClearPropertyOverlay at migration completion; the query path's
+			// self-clear is a secondary nicety.
 			continue
 		}
 		if out == nil {
 			out = make(map[string]inverted.PropertyOverlay, len(snap))
 		}
-		out[name] = inverted.PropertyOverlay{Tokenization: target}
+		out[name] = pending
 	}
 	return out
 }

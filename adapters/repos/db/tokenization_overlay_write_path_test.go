@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -31,7 +32,7 @@ import (
 // TestTokenizationOverlay_WritePath_IgnoresOverlay pins a real write-path
 // correctness bug discovered during the #240 investigation:
 // Shard.AnalyzeObject (write-path analyzer) doesn't consult the
-// tokenizationOverlay, even though the query-path analyzer does and the
+// propertyOverlay, even though the query-path analyzer does and the
 // migration-backfill AnalyzeObjectForMigrationWithOverlay does. A PUT
 // during the SWAPPING window therefore lands SOURCE-tokenized terms in
 // a TARGET-tokenized bucket. Red on current main; turns green once
@@ -73,7 +74,9 @@ func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
 	// flip, via the onPropSwapped hook wired by
 	// maybeWirePerPropOverlaySet; the schema's prop.Tokenization stays at
 	// SOURCE (word) until the cluster-wide flip lands.
-	shard.SetTokenizationOverlay(propName, models.PropertyTokenizationField)
+	shard.SetPropertyOverlay(propName, inverted.PropertyOverlay{
+		Tokenization: models.PropertyTokenizationField,
+	})
 
 	// Issue a PUT during the overlay-active window. With field
 	// tokenization the value "two distinct words" is ONE term; with

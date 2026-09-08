@@ -36,6 +36,12 @@ type Property struct {
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
 	HasRangeableIndex  bool // roaring set index for ranged queries
+	// OverlayForcedOnly marks a property the live schema indexes nowhere —
+	// it reached this slice only because a PropertyOverlay forced a flag on.
+	// Its property-length and null-state buckets were never created (shard
+	// init skips a property with no inverted index before creating them), so
+	// callers must not write to them until the schema flag genuinely flips.
+	OverlayForcedOnly bool
 }
 
 type NilProperty struct {
@@ -115,6 +121,27 @@ type PropertyOverlay struct {
 	// duration of analysis. Used by EnableSearchableStrategy to tokenize
 	// with the target tokenization before the RAFT update applies it.
 	Tokenization string
+}
+
+// Empty reports whether applying o would change nothing.
+func (o PropertyOverlay) Empty() bool {
+	return o == PropertyOverlay{}
+}
+
+// BeyondLiveSchema strips the parts of o that live already provides. An
+// empty result means the schema has caught up with the migration that
+// installed the overlay, so the overlay can be dropped.
+func (o PropertyOverlay) BeyondLiveSchema(live *models.Property) PropertyOverlay {
+	if live == nil {
+		return o
+	}
+	o.ForceFilterable = o.ForceFilterable && !HasFilterableIndex(live)
+	o.ForceSearchable = o.ForceSearchable && !HasSearchableIndex(live)
+	o.ForceRangeable = o.ForceRangeable && !HasRangeableIndex(live)
+	if o.Tokenization == live.Tokenization {
+		o.Tokenization = ""
+	}
+	return o
 }
 
 type analyzerCacheEntry struct {
