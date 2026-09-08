@@ -26,6 +26,12 @@ func NewBinarySearchTreeCursor(bst *BinarySearchTree) *BinarySearchTreeCursor {
 	return &BinarySearchTreeCursor{nodes: bst.FlattenInOrder()}
 }
 
+// NewFlattenedNodesCursor iterates over already-flattened (key-ascending,
+// deep-copied) nodes, for memtable indexes that are not a BinarySearchTree.
+func NewFlattenedNodesCursor(nodes []*BinarySearchNode) *BinarySearchTreeCursor {
+	return &BinarySearchTreeCursor{nodes: nodes}
+}
+
 func (c *BinarySearchTreeCursor) First() ([]byte, BitmapLayer, error) {
 	c.nextNodePos = 0
 	return c.Next()
