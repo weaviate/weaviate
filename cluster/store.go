@@ -1056,6 +1056,10 @@ func (st *Store) reloadDBFromSchema(ctx context.Context) {
 	if !loaded && ctx.Err() == nil {
 		st.reportIncompleteLoad()
 	}
+
+	if err := st.schemaManager.ResumeShardProcesses(); err != nil {
+		st.log.Errorf("resuming tenant offloads after the local DB loaded: %v", err)
+	}
 	st.dbLoaded.Store(true)
 }
 
