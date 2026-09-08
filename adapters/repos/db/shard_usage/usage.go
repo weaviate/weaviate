@@ -26,6 +26,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
@@ -63,8 +65,39 @@ func ComputedUsageDataExists(indexPath, shardName string) bool {
 	return !os.IsNotExist(err)
 }
 
+// computedUsageGenerations counts how often a shard's saved usage record has
+// been invalidated. A usage scan reads the count before it starts and hands it
+// back at save time, so a record computed from rows that were cleared while it
+// was being assembled is dropped instead of published.
+//
+// The bucket lock the scan takes is released when the scan returns, well before
+// the save, so it cannot order the two on its own. Process-local is enough:
+// both the drop and the usage sweep run in this process, and a restart has no
+// in-flight scan to protect.
+var computedUsageGenerations sync.Map // usage file path -> *atomic.Uint64
+
+func computedUsageGenerationFor(indexPath, shardName string) *atomic.Uint64 {
+	key := usageTmpFilePath(indexPath, shardName)
+	if gen, ok := computedUsageGenerations.Load(key); ok {
+		return gen.(*atomic.Uint64)
+	}
+	gen, _ := computedUsageGenerations.LoadOrStore(key, &atomic.Uint64{})
+	return gen.(*atomic.Uint64)
+}
+
+// ComputedUsageGeneration reads the shard's current invalidation count. Take it
+// before scanning and pass it to SaveComputedUsageData.
+func ComputedUsageGeneration(indexPath, shardName string) uint64 {
+	return computedUsageGenerationFor(indexPath, shardName).Load()
+}
+
 // RemoveComputedUsageDataForUnloadedShard removes pre-calculated shard usage data from disk
 func RemoveComputedUsageDataForUnloadedShard(indexPath, shardName string) error {
+	// Bumped before the file is touched, so a scan that is already assembling a
+	// record loses the race rather than winning it: it will read a different
+	// count at save time whether or not the file was there to remove.
+	computedUsageGenerationFor(indexPath, shardName).Add(1)
+
 	usageFilePath := usageTmpFilePath(indexPath, shardName)
 	if _, err := os.Stat(usageFilePath); !os.IsNotExist(err) {
 		if err := os.RemoveAll(usageFilePath); err != nil {
@@ -76,19 +109,36 @@ func RemoveComputedUsageDataForUnloadedShard(indexPath, shardName string) error 
 
 // SaveComputedUsageData saves pre-calculated shard usage data to disk, stamped with
 // the fingerprint of the vector configs it was computed from.
-func SaveComputedUsageData(indexPath, shardName string, shardUsage *types.ShardUsage, vectorConfigsFingerprint string) error {
+// SaveComputedUsageData publishes the record only if the shard has not been
+// invalidated since generation was read. Returns false when it declined.
+func SaveComputedUsageData(indexPath, shardName string, shardUsage *types.ShardUsage,
+	vectorConfigsFingerprint string, generation uint64,
+) (saved bool, err error) {
 	data, err := json.Marshal(&types.UsageDisk{
 		Version:                  types.UsageDiskVersion,
 		ShardUsage:               shardUsage,
 		VectorConfigsFingerprint: vectorConfigsFingerprint,
 	})
 	if err != nil {
-		return fmt.Errorf("marshal pre-calculated usage for disk: %w", err)
+		return false, fmt.Errorf("marshal pre-calculated usage for disk: %w", err)
 	}
-	if err := os.WriteFile(usageTmpFilePath(indexPath, shardName), data, os.FileMode(0o600)); err != nil {
-		return fmt.Errorf("write pre-calculated usage to disk: %w", err)
+
+	usageFilePath := usageTmpFilePath(indexPath, shardName)
+	if err := os.WriteFile(usageFilePath, data, os.FileMode(0o600)); err != nil {
+		return false, fmt.Errorf("write pre-calculated usage to disk: %w", err)
 	}
-	return nil
+
+	// Checked after the write rather than before it. An invalidation that lands
+	// while this record is being assembled finds no file to remove — the bump is
+	// its only trace — so only a check on this side of the write can tell that
+	// what was just published is already stale.
+	if ComputedUsageGeneration(indexPath, shardName) != generation {
+		if err := os.RemoveAll(usageFilePath); err != nil {
+			return false, fmt.Errorf("remove usage record invalidated while it was written: %w", err)
+		}
+		return false, nil
+	}
+	return true, nil
 }
 
 // VectorConfigsFingerprint identifies a collection's vector configs, so that a shard

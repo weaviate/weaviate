@@ -555,6 +555,10 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		}
 		encodedDimensions[targetVector] = i.muveraEncodedDimensions(shardName, targetVector, cfg)
 	}
+	// Read before the scan: everything below is computed from rows a concurrent
+	// drop may clear, and the save refuses to publish if that happened.
+	usageGeneration := shardusage.ComputedUsageGeneration(i.path(), shardName)
+
 	// open the dimensions bucket once for all target vectors
 	scansAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, encodedDimensions)
 	if err != nil {
@@ -591,10 +595,17 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorMetrics.StorageBytes),
 		NamedVectors:          namedVectors,
 	}
-	if err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage, vectorConfigsFingerprint); err != nil {
+	saved, err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage,
+		vectorConfigsFingerprint, usageGeneration)
+	if err != nil {
 		return nil, fmt.Errorf("save usage to disk: %w", err)
 	}
-	return shardUsage, err
+	if !saved {
+		// The caller still gets this reading; only the cache is skipped, so the
+		// next collection recomputes from the rows the drop left behind.
+		i.logger.Debugf("shard %s: usage invalidated while it was computed; not caching this reading", shardName)
+	}
+	return shardUsage, nil
 }
 
 // splitObjectsBucketSize divides the objects bucket's measured size into the objects themselves and
