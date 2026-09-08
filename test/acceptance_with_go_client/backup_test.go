@@ -20,229 +20,214 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
-	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
-	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate-go-client/v6/backup"
+	"github.com/weaviate/weaviate-go-client/v6/batch"
+	"github.com/weaviate/weaviate-go-client/v6/collections"
+	"github.com/weaviate/weaviate-go-client/v6/data"
+	"github.com/weaviate/weaviate-go-client/v6/modules/selfprovided"
+	"github.com/weaviate/weaviate-go-client/v6/query"
+	"github.com/weaviate/weaviate-go-client/v6/query/filter"
+	"github.com/weaviate/weaviate-go-client/v6/tenant"
 )
 
 func TestBackupWithConcurrentDelete(t *testing.T) {
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.NoError(t, err)
+	c := wvhost.NewClient(t)
 
-	baseName := t.Name()
-	numClasses := 5
-	tenant := "tenant"
-	classNames := make([]string, numClasses)
-	for i := range numClasses {
-		className := baseName + fmt.Sprintf("_%d", i)
-		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-		defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx) // intended to run after test
-		class := &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{Name: "num", DataType: schema.DataTypeText.PropString()},
-				{Name: "int", DataType: schema.DataTypeInt.PropString()},
+	tenantName := "john_doe"
+	collectionNames := make([]string, 5)
+	for i := range collectionNames {
+		collectionName := t.Name() + fmt.Sprintf("_%d", i)
+		collectionNames[i] = collectionName
+
+		require.NoError(t, c.Collections.Delete(ctx, collectionName))
+		t.Cleanup(func() {
+			require.NoError(t, c.Collections.Delete(ctx, collectionName))
+		})
+
+		h, err := c.Collections.Create(ctx, collections.Collection{
+			Name: collectionName,
+			Properties: []collections.Property{
+				{Name: "num", DataType: collections.DataTypeText},
+				{Name: "int", DataType: collections.DataTypeInt},
 				{
 					Name:     "cars",
-					DataType: schema.DataTypeObjectArray.PropString(),
-					NestedProperties: []*models.NestedProperty{
+					DataType: collections.DataTypeObjectArray,
+					NestedProperties: []collections.Property{
 						{
 							Name:            "make",
-							DataType:        schema.DataTypeText.PropString(),
-							Tokenization:    models.NestedPropertyTokenizationField,
-							IndexFilterable: &vTrue,
+							DataType:        collections.DataTypeText,
+							Tokenization:    collections.TokenizationField,
+							IndexFilterable: true,
 						},
 					},
 				},
 			},
-			Vectorizer:         "none",
-			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-		}
-		require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
-		classNames[i] = className
+			Vectors: map[string]collections.VectorConfig{
+				"default": {Vectorizer: selfprovided.Vectorizer},
+			},
+			MultiTenancy: &collections.MultiTenancyConfig{Enabled: true},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, h, "collection handle")
 
-		require.NoError(t, c.Schema().TenantsCreator().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant}).Do(ctx))
-		numObjects := 100 + i
-		objs := make([]*models.Object, numObjects)
-		for j := range objs {
+		require.NoError(t, h.Tenants.Create(ctx, tenant.Tenant{Name: tenantName}))
+
+		h = h.WithOptions(collections.WithTenant(tenantName))
+		b := h.Batch(ctx)
+		var tasks []*batch.Task
+		for j := range 100 + i {
 			// Two cars per object: cars[0]=Toyota for even j, Honda for odd j.
-			// Used post-restore to verify both the nested filterable value bucket
-			// (cars.make = X) and the nested meta bucket / arr[N] (_idx.cars.0)
-			// survive the backup-restore cycle.
-			carToyota := "Toyota"
-			carHonda := "Honda"
+			cars := []string{"Toyota", "Honda"}
 			if j%2 == 1 {
-				carToyota, carHonda = carHonda, carToyota
+				cars[0], cars[1] = cars[1], cars[0]
 			}
-			objs[j] = &models.Object{
-				Class: className,
-				Properties: map[string]interface{}{
+			task, err := b.Object(ctx, &data.Object{
+				Properties: map[string]any{
 					"num": string(rune(j)),
 					"int": j,
 					"cars": []any{
-						map[string]any{"make": carToyota},
-						map[string]any{"make": carHonda},
+						map[string]any{"make": cars[0]},
+						map[string]any{"make": cars[1]},
 					},
 				},
-				Tenant: tenant,
-			}
+			})
+			require.NoError(t, err, "add object to batch (collection=%s tenant=%s)", h.CollectionName(), h.Tenant())
+			tasks = append(tasks, task)
+		}
+		require.NoError(t, b.Close(), "batch failed")
+
+		// This is required to catch any object-level errors, b.Close doesn't report them.
+		for _, task := range tasks {
+			require.NoError(t, task.Wait(), "wait for object to get inserted")
 		}
 
-		resp, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
+		count, err := h.Count(ctx)
 		require.NoError(t, err)
-		for j := range resp {
-			require.Nil(t, resp[j].Result.Errors)
-		}
+		require.EqualValues(t, 100+i, count, "wrong number of objects after BATCH in %q", h.CollectionName())
 	}
 
-	// de-activate tenants to simplify usage stats checking
-	for i := range classNames {
-		require.NoError(t, c.Schema().TenantsUpdater().WithClassName(classNames[i]).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
-		require.NoError(t, c.Schema().TenantsUpdater().WithClassName(classNames[i]).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx))
+	// De-activate tenants to simplify usage stats checking.
+	for i := range collectionNames {
+		h := c.Collections.Use(collectionNames[i])
+		require.NoError(t, h.Tenants.Update(ctx, tenant.Tenant{Name: tenantName, Status: tenant.Cold}), "set %s=%s", tenantName, tenant.Cold)
+		require.NoError(t, h.Tenants.Update(ctx, tenant.Tenant{Name: tenantName, Status: tenant.Hot}), "set %s=%s", tenantName, tenant.Hot)
 	}
 
-	usageReports := make([]usage.CollectionUsage, numClasses)
-	for i := range classNames {
-		report, err := usage.GetDebugUsageForCollection(classNames[i])
+	usageReports := make([]usage.CollectionUsage, len(collectionNames))
+	for i := range usageReports {
+		report, err := usage.GetDebugUsageForCollection(collectionNames[i])
 		require.NoError(t, err)
 		usageReports[i] = *report
 	}
 
 	backupID := fmt.Sprintf("concurrent-delete-%016x", rand.Uint64())
-
-	_, err = c.Backup().Creator().WithBackupID(backupID).WithBackend("filesystem").WithIncludeClassNames(classNames...).Do(ctx)
+	bak, err := c.Backup.Create(ctx, backup.CreateOptions{
+		ID:                 backupID,
+		Backend:            "filesystem",
+		IncludeCollections: collectionNames,
+	})
 	require.NoError(t, err)
+	require.NotNil(t, bak, "backup info for %q", backupID)
 
 	// give the backup a moment to start. There are 3 phases in the backup:
 	// 1) coordinator - this is done during the Creator() call above
 	// 2) file listing - this is not yet "delete-safe", so we need to wait to ensure that we are not in this phase anymore
 	// 3) actual file copying - this is "delete-safe", so we can delete classes while this is ongoing
 	time.Sleep(500 * time.Millisecond)
-	for _, name := range classNames {
-		require.NoError(t, c.Schema().ClassDeleter().WithClassName(name).Do(ctx))
+	for _, name := range collectionNames {
+		require.NoError(t, c.Collections.Delete(ctx, name))
 	}
 
-	for {
-		status, err := c.Backup().CreateStatusGetter().WithBackupID(backupID).WithBackend("filesystem").Do(ctx)
-		require.NoError(t, err)
-
-		if *status.Status == models.BackupCreateResponseStatusSUCCESS {
-			break
-		}
-		if *status.Status == models.BackupCreateResponseStatusFAILED {
-			t.Fatalf("backup failed: %v", status.Error)
-		}
+	if _, err := backup.AwaitCompletion(ctx, bak); err != nil {
+		t.Fatalf("backup %q failed: %v", bak.ID, err)
 	}
 
-	// backup completed successfully, now verify that all classes were backed up
-	_, err = c.Backup().Restorer().WithBackupID(backupID).WithBackend("filesystem").Do(ctx)
+	restore, err := c.Backup.Restore(ctx, backup.RestoreOptions{
+		ID:      bak.ID,
+		Backend: bak.Backend,
+	})
 	require.NoError(t, err)
-	for {
-		status, err := c.Backup().RestoreStatusGetter().WithBackupID(backupID).WithBackend("filesystem").Do(ctx)
-		require.NoError(t, err)
+	require.NotNil(t, restore, "backup restore info for %q", backupID)
 
-		if *status.Status == models.BackupRestoreResponseStatusSUCCESS {
-			break
-		}
-		if *status.Status == models.BackupRestoreResponseStatusFAILED {
-			t.Fatalf("restore failed: %v", status.Error)
-		}
+	if _, err := backup.AwaitCompletion(ctx, restore); err != nil {
+		t.Fatalf("backup %s restore failed: %v", bak.ID, err)
 	}
 
-	for i, name := range classNames {
-		numObjects := 100 + i
+	for i, name := range collectionNames {
+		wantObjects := 100 + i
 
-		exists, err := c.Schema().ClassExistenceChecker().WithClassName(name).Do(ctx)
+		exists, err := c.Collections.Exists(ctx, name)
 		require.NoError(t, err)
-		require.True(t, exists, "class %s should exist after restore", name)
+		require.True(t, exists, "collection %s should exist after restore", name)
 
-		data, err := c.GraphQL().Aggregate().WithClassName(name).WithTenant(tenant).WithFields(graphql.Field{
-			Name: "meta",
-			Fields: []graphql.Field{
-				{Name: "count"},
-			},
-		}).Do(ctx)
+		h := c.Collections.Use(name, collections.WithTenant(tenantName))
+		count, err := h.Count(ctx)
 		require.NoError(t, err)
-
-		classData := data.Data["Aggregate"].(map[string]interface{})[name].([]interface{})[0].(map[string]interface{})
-		count := classData["meta"].(map[string]interface{})["count"].(float64)
-		require.Equal(t, float64(numObjects), count, "class %s should have %d objects after restore", name, numObjects)
+		require.EqualValues(t, wantObjects, count, "wrong number of objects after restore in %q", name)
 
 		// filter work
-		filter := filters.Where()
-		filter.WithOperator(filters.LessThan)
-		filter.WithValueInt(5)
-		filter.WithPath([]string{"int"})
-
-		result, err := c.GraphQL().Get().WithClassName(name).WithTenant(tenant).
-			WithWhere(filter).WithFields(graphql.Field{Name: "int"}).Do(ctx)
+		res, err := h.Query.OverAll(ctx, query.OverAll{
+			Filter: filter.Cond{
+				Target:   "int",
+				Operator: filter.LessThan,
+				Value:    5,
+			},
+			Limit: wantObjects,
+		})
 		require.NoError(t, err)
-		require.Nil(t, result.Errors)
+		require.NotNil(t, res, "query result")
+		require.Len(t, res.Objects, 5, "collection %q should have 5 objects with `int` < 5 after restore", name)
 
-		objects := result.Data["Get"].(map[string]interface{})[name].([]interface{})
-		require.Len(t, objects, 5, "class %s should have 5 objects with int < 5 after restore", name)
+		// Verify that both 1) the nested filterable value and 2) the meta bucket
+		// were included in the backup and rebuilt on restore.
 
-		// Nested filter post-restore — verifies that the nested filterable
-		// value bucket and the meta bucket were both included in the backup
-		// and rebuilt on restore. Every object owns a Toyota (cars[0] or
-		// cars[1]), so the existential cars.make=Toyota matches all docs.
-		// The pinned cars[0].make=Toyota narrows to the half-with-Toyota-at-
-		// position-0 subset, exercising _idx.{cars}.0 in the meta bucket.
-		nestedAnyFilter := filters.Where().
-			WithOperator(filters.Equal).
-			WithValueText("Toyota").
-			WithPath([]string{"cars.make"})
-		nestedAnyResult, err := c.GraphQL().Get().WithClassName(name).WithTenant(tenant).
-			WithWhere(nestedAnyFilter).WithLimit(numObjects).
-			WithFields(graphql.Field{Name: "num"}).Do(ctx)
+		// 1) Each object's cars.make contains a "Toyota" entry.
+		res, err = h.Query.OverAll(ctx, query.OverAll{
+			Filter: filter.Cond{
+				Target:   "cars.make",
+				Operator: filter.Equal,
+				Value:    "Toyota",
+			},
+			Limit: wantObjects,
+		})
 		require.NoError(t, err)
-		require.Nil(t, nestedAnyResult.Errors)
-		nestedAnyObjects := nestedAnyResult.Data["Get"].(map[string]any)[name].([]any)
-		require.Len(t, nestedAnyObjects, numObjects,
-			"class %s: cars.make=Toyota must match all %d objects after restore (nested filterable value bucket)", name, numObjects)
+		require.NotNil(t, res, "query result")
+		require.Len(t, res.Objects, wantObjects, "collection %q: cars.make=Toyota must match all objects after restore", name)
 
-		nestedPinnedFilter := filters.Where().
-			WithOperator(filters.Equal).
-			WithValueText("Toyota").
-			WithPath([]string{"cars[0].make"})
-		nestedPinnedResult, err := c.GraphQL().Get().WithClassName(name).WithTenant(tenant).
-			WithWhere(nestedPinnedFilter).WithLimit(numObjects).
-			WithFields(graphql.Field{Name: "num"}).Do(ctx)
+		// 2) Only half of the objects has "Toyota" at index 0 in cars.make.
+		res, err = h.Query.OverAll(ctx, query.OverAll{
+			Filter: filter.Cond{
+				Target:   "cars[0].make",
+				Operator: filter.Equal,
+				Value:    "Toyota",
+			},
+			Limit: wantObjects,
+		})
 		require.NoError(t, err)
-		require.Nil(t, nestedPinnedResult.Errors)
-		nestedPinnedObjects := nestedPinnedResult.Data["Get"].(map[string]any)[name].([]any)
-		expectedPinned := (numObjects + 1) / 2 // even j → cars[0]=Toyota
-		require.Len(t, nestedPinnedObjects, expectedPinned,
-			"class %s: cars[0].make=Toyota must match %d objects after restore (nested meta bucket / _idx.{cars}.0)", name, expectedPinned)
+		require.NotNil(t, res, "query result")
+		half := (wantObjects + 1) / 2
+		require.Len(t, res.Objects, half, "collection %q: cars[0].make=Toyota must match %d objects after restore", name, half)
 	}
 
-	// verify usage stats to ensure no data loss and all data is correctly restored
-	for i := range classNames {
-		report, err := usage.GetDebugUsageForCollection(classNames[i])
+	// Verify usage stats to ensure no data loss and all data is correctly restored
+	for i := range collectionNames {
+		report, err := usage.GetDebugUsageForCollection(collectionNames[i])
 		require.NoError(t, err)
 		require.NoError(t, usage.CollectionUsageDifference(*report, usageReports[i]))
 	}
 
 	// verify that we can insert new data (needs to be after usage module comparison, because this adds new data)
-	for i, name := range classNames {
-		// can insert more data
-		objs := make([]*models.Object, 1+i)
-		for i := range objs {
-			objs[i] = &models.Object{
-				Class: name,
-				Properties: map[string]interface{}{
+	for i, name := range collectionNames {
+		h := c.Collections.Use(name, collections.WithTenant(tenantName))
+		b := h.Batch(ctx)
+		for range i + 1 {
+			_, err := b.Object(ctx, &data.Object{
+				Properties: map[string]any{
 					"num": string(rune(i)),
 				},
-				Tenant: tenant,
-			}
+			})
+			require.NoError(t, err, "add object to batch")
 		}
-
-		resp, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
-		require.NoError(t, err)
-		for i := range resp {
-			require.Nil(t, resp[i].Result.Errors)
-		}
+		require.NoError(t, b.Close(), "batch failed")
 	}
 }
