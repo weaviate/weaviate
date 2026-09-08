@@ -841,8 +841,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// deferred swap go only to the old main bucket and are silently lost.
 	// Reads: <data>/<index>/<shard>/lsm/.migrations/<dir>/payload.mig
 	// (written by ReindexProvider.persistRecoveryRecord before reindex
-	// starts), plus the shard's migration records to decide which
-	// migrations are still in the window that needs callbacks.
+	// starts), plus the shard's migration records.
 	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
 		appState.ServerConfig.Config.Persistence.DataPath,
 		appState.Logger,

@@ -22,8 +22,8 @@ import (
 
 const promotionGateProp = "score"
 
-// The message the deferral logs, which an operator asking why a shard is not
-// promoted has to be able to find.
+// The message the deferral logs; an operator asking why a shard is not promoted
+// greps for it.
 const promotionGateNotice = "keep their staged name"
 
 type propertyIndexField string
@@ -35,7 +35,7 @@ const (
 )
 
 // The two flags the strategy does not follow take the opposite value, so a
-// promotion reading the wrong one answers the wrong way round and fails here.
+// promotion reading the wrong one fails here.
 func promotionGateClass(field propertyIndexField, flag *bool) *models.Class {
 	other := flag == nil || !*flag
 	prop := &models.Property{
@@ -55,12 +55,9 @@ func promotionGateClass(field propertyIndexField, flag *bool) *models.Class {
 	return &models.Class{Class: "Books", Properties: []*models.Property{prop}}
 }
 
-// A rebuilt index is renamed onto the canonical property directory, and the
-// load-time sweep deletes that directory whenever the collection turns its
-// index off. Promotion therefore waits for exactly what the sweep spares: an
-// explicit false defers, an unset flag and a true one promote. A collection
-// this node cannot read the property out of defers too, because nothing there can
-// authorize the rename.
+// The load-time sweep deletes the canonical directory whenever the collection
+// turns the index off, so promotion waits for exactly what the sweep spares: an
+// explicit false defers, unset and true promote, unreadable defers.
 func TestPromotionFollowsTheSchemaFlagThatOwnsTheCanonicalName(t *testing.T) {
 	off, on := false, true
 
@@ -83,16 +80,15 @@ func TestPromotionFollowsTheSchemaFlagThatOwnsTheCanonicalName(t *testing.T) {
 			class: func(f propertyIndexField) *models.Class { return promotionGateClass(f, nil) },
 		},
 		{
-			// The sweep walks the collection's own properties, so it never
-			// reaches this one and there is nothing to wait for.
+			// The sweep walks the collection's own properties, so it never reaches
+			// this one.
 			name: "the collection does not hold the property",
 			class: func(propertyIndexField) *models.Class {
 				return &models.Class{Class: "Books", Properties: []*models.Property{{Name: "title"}}}
 			},
 		},
 		{
-			// Distinct from the row above and never to be folded into it: the
-			// sweep may hold a false this read cannot see.
+			// Not the row above: the sweep may hold a false this read cannot see.
 			name:     "the collection is not in the locally applied schema",
 			class:    func(propertyIndexField) *models.Class { return nil },
 			deferred: true,
@@ -149,9 +145,8 @@ func TestPromotionFollowsTheSchemaFlagThatOwnsTheCanonicalName(t *testing.T) {
 	}
 }
 
-// The window this closes is bounded by the cluster-wide flip, not by a retry:
-// the enable-* migrations run with their flag off for their whole duration, and
-// the first load after it lands is what promotes.
+// enable-* migrations run with their flag off throughout, so the first load
+// after the cluster-wide flip is what promotes.
 func TestPromotionRunsOnTheFirstPassAfterTheFlagLands(t *testing.T) {
 	off, on := false, true
 
@@ -174,11 +169,9 @@ func TestPromotionRunsOnTheFirstPassAfterTheFlagLands(t *testing.T) {
 	require.Empty(t, f.errorLines(""))
 }
 
-// A promoted record whose staged directory is back under its staged name is
-// re-promoted by the closure sweep, which is a second rename onto the same
-// canonical directory and follows the same flag. Withholding it also has to
-// stop the reclaim that follows, because the staged directory it spares is one
-// of the directories that reclaim removes.
+// The closure sweep re-promotes with a second rename onto the same canonical
+// directory, so it follows the same flag. Withholding must also stop the
+// reclaim that follows, which would remove the staged directory it spared.
 func TestTheClosureSweepFollowsTheSchemaFlagToo(t *testing.T) {
 	off, on := false, true
 
@@ -222,9 +215,8 @@ func TestTheClosureSweepFollowsTheSchemaFlagToo(t *testing.T) {
 	}
 }
 
-// A swapped record with its staged directory on disk and nothing at the
-// canonical name: the shape every shard is in between its own flip and the
-// promotion the next load runs.
+// The shape every shard is in between its own flip and the next load's
+// promotion: staged directory on disk, nothing at the canonical name.
 func plantPromotableSwappedRecord(f *reconcileFixture, code MigrationStrategyCode,
 ) (subject MigrationSubject, staged, canonical string) {
 	f.t.Helper()

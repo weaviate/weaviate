@@ -24,14 +24,10 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// The property-update apply runs this sweep on every shard of the collection,
-// inside the RAFT apply loop, whether or not any migration exists. The shard is
-// loaded, so its record store already holds what the sweep asks for; going to
-// disk for it puts a directory listing and a read per record file on the loop.
-//
-// Emptying the records directory behind the loaded store is what makes the two
-// sources answer differently: the map still holds the record that says this
-// tracker directory must be preserved, and the disk no longer does.
+// The apply runs this sweep on every shard inside the RAFT apply loop, so going
+// to disk would put a listing and a read per record file on it. Emptying the
+// records directory behind the loaded store is what makes the two sources
+// disagree: the map still holds the preserving record, the disk no longer does.
 func TestTheApplyPathSweepsFromTheLoadedRecordStore(t *testing.T) {
 	const (
 		propName    = "title"
@@ -55,8 +51,7 @@ func TestTheApplyPathSweepsFromTheLoadedRecordStore(t *testing.T) {
 	subject.TrackerDir = keptTracker
 	require.NoError(t, shard.migrationRecords.Put(NewMigrationRecordMerged(subject)))
 
-	// Put writes both the file and the map, so this is the only way to tell
-	// which one the sweep read.
+	// Put writes both file and map, so this is the only way to tell them apart.
 	require.NoError(t, os.RemoveAll(shard.migrationRecords.Dir()))
 
 	prop := class.Properties[0]

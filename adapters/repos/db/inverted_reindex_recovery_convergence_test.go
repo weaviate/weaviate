@@ -124,9 +124,8 @@ func (s *testSearchableRetokenizeStrategyWrapper) OnMigrationComplete(_ context.
 	return nil
 }
 
-// The dictionary [makeConvergenceTestObjects] cycles through. Named because a
-// baseline is checked against it: a fingerprint short of a token the fixture
-// wrote is a defect the rows would otherwise all share and all agree on.
+// The dictionary [makeConvergenceTestObjects] cycles through. The baseline is
+// checked against it, so a defect the rows all share cannot pass unnoticed.
 var convergenceTokens = []string{
 	"alpha", "bravo", "charlie", "delta", "echo",
 	"foxtrot", "golf", "hotel", "india", "juliett",
@@ -219,10 +218,9 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 	return fingerprintInvertedBucket(t, shard.store.Bucket(bucketName))
 }
 
-// TestRunOnShardSwapsARebuildThatIsAlreadyComplete covers the relaunch of a
-// task on a shard whose rebuild the previous run already finished. The
-// iteration has nothing left to do there, so unless RunOnShard sequences the
-// swap after it, the unit reports success on an index that was never swapped.
+// On a relaunch over an already-finished rebuild the iteration has nothing to
+// do, so a RunOnShard that does not sequence the swap after it reports success
+// on an index that was never swapped.
 func TestRunOnShardSwapsARebuildThatIsAlreadyComplete(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25

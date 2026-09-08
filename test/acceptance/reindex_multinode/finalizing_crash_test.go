@@ -27,11 +27,9 @@ import (
 // of a change-tokenization migration does not produce per-replica
 // divergent on-disk bucket state.
 //
-// The per-shard post-completion ack barrier gates MarkTaskFinalized on
-// every node's OnGroupCompleted having returned and acked, so no node
-// can let the schema flip commit before its own OnGroupCompleted has
-// returned and its ack has landed in RAFT. A node that goes down
-// between local swap and ack emission either:
+// The ack barrier gates MarkTaskFinalized on every node's OnGroupCompleted
+// having returned and acked, so the schema flip cannot commit ahead of any
+// node. A node going down between local swap and ack emission either:
 //   - already finished the swap (the flip is recorded on disk; the
 //     post-restart reconciliation + RecoveryAwareProvider
 //     path re-emits the ack on the next scheduler tick), OR

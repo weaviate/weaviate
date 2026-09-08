@@ -19,13 +19,8 @@ import (
 )
 
 // shardMigrations is one shard's side of migration-record reconciliation. A
-// shard detached from its index answers with each dependency's own safe
-// default rather than failing: no readable local task list, and a seal nobody
-// is contending.
-//
-// Shard.migrationReconciler wires both node-level answers to these methods, so
-// a cluster verdict reads this node's own task list and a teardown waits on
-// the seal a running worker holds.
+// shard detached from its index answers with each dependency's safe default
+// rather than failing: no readable local task list, and an uncontended seal.
 type shardMigrations struct {
 	shard *Shard
 }

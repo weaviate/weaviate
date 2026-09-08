@@ -319,8 +319,7 @@ func TestHasLocalPostMergeStateReadsEachShardsRecordsOnce(t *testing.T) {
 }
 
 // recordSetReadsReported totals the record_set_reads every walk reports. The
-// read itself does not log, so this field is the whole account of how often a
-// walk went to disk, and its value is what pins the cost to one per shard.
+// read itself does not log, so this field is the whole account of disk cost.
 func recordSetReadsReported(hook *logrustest.Hook) int {
 	total := 0
 	for _, entry := range hook.AllEntries() {

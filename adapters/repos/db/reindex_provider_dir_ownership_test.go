@@ -227,9 +227,9 @@ func seedInFlightMigration(t *testing.T, p *ReindexProvider, lsmPath string,
 		dir := task.migrationPath(lsmPath)
 		require.NoError(t, os.MkdirAll(dir, 0o777))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), encoded, 0o666))
-		// Iterated is the window recovery exists for: the rebuild is over, the
-		// flip has not run. Directory names come from the task's own namers, so
-		// the two halves of a change-tokenization claim different directories.
+		// Iterated is the window recovery exists for: rebuild over, flip not run.
+		// Names come from the task's own namers, so the two halves of a
+		// change-tokenization claim different directories.
 		subject := MigrationSubject{
 			Key: MigrationRecordKey{
 				TaskVersion:  recordedVersion,
@@ -318,10 +318,9 @@ func TestRecoverySkipsATrackerDirectoryThatNamesNoGeneration(t *testing.T) {
 	}
 }
 
-// stripGenerationFromTrackers renames every seeded tracker directory to a name
-// carrying no generation and repoints its record at the new name, so the walk
-// reaches the parse under test instead of stopping at a record whose directory
-// is gone.
+// stripGenerationFromTrackers renames every seeded tracker to a generation-less
+// name and repoints its record, so the walk reaches the parse under test rather
+// than stopping at a record whose directory is gone.
 func stripGenerationFromTrackers(t *testing.T, p *ReindexProvider, lsmPath string, dirGen int) {
 	t.Helper()
 	store := NewMigrationRecordStore(lsmPath, p.logger)

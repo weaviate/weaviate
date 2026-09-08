@@ -183,14 +183,10 @@ func TestRecoveryConvergence_RebuildSearchable_Baseline(t *testing.T) {
 	}
 }
 
-// TestRecoveryConvergence_RebuildSearchable_FromEachState pins the #240
-// Symptom B invariant for the RebuildSearchable strategy: from any recorded
-// state a replica could land in after a mid-migration restart, a restart
-// converges on bucket content bit-equal to a clean run.
-//
-// Source and target are both StrategyInverted, so the property serves from the
-// migrated bucket the whole way through and a load below the flip must leave it
-// serving the pre-migration data.
+// A restart from any recorded state converges on bucket content bit-equal to a
+// clean run (#240 Symptom B). Source and target are both StrategyInverted, so
+// the property serves from the migrated bucket throughout and a load below the
+// flip must leave it serving the pre-migration data.
 func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 	const propName = "title"
 

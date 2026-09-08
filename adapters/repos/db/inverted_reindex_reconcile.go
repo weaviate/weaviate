@@ -86,9 +86,8 @@ const migrationWedgeRemedyNoCanonical = "Once you have confirmed which directory
 	"record that names no canonical directory."
 
 // migrationReportedNames orders, deduplicates and caps a property list for a
-// log line. A property list is user-chosen and unbounded, so a caller that logs
-// one through this helper pairs the names with its own count field rather than
-// formatting the list whole.
+// log line. The list is user-chosen and unbounded, so callers pair the names
+// with their own count field rather than formatting the list whole.
 func migrationReportedNames(names []string) []string {
 	set := make(map[string]struct{}, len(names))
 	for _, name := range names {
@@ -123,10 +122,9 @@ func (r *migrationReconciler) wedged(subject MigrationSubject, remedy, format st
 		Errorf(format+" "+remedy, args...)
 }
 
-// Info, not the Debug this file gives a leave: this is the state of every shard
-// that finishes ahead of the cluster-wide schema flip, so an operator asking
-// why a shard is not promoted has to be able to find the answer. One line per
-// record per load bounds it.
+// Info, not Debug: every shard that finishes ahead of the cluster-wide schema
+// flip lands here, and an operator asking why it is not promoted needs to find
+// the answer. One line per record per load bounds it.
 func (r *migrationReconciler) deferredBySchema(subject MigrationSubject,
 	deferring errorcompounder.ErrorCompounder,
 ) {
@@ -383,18 +381,16 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 			r.logger.WithField("record", subject.Key.String()).Info(
 				"the staged data is the data; the next shard load promotes it onto the canonical name")
 		case verdict == migrationVerdictCommit:
-			// The rebuild never finished here and the cluster is past it, so
-			// no pass can settle this record. Without this arm it matched
-			// nothing: no line, and a leader query for it every minute.
+			// The rebuild never finished and the cluster is past it, so no pass
+			// can settle this record. Unmatched, it costs a leader query a minute.
 			r.wedgeUncommittable(rec, why)
 		}
 	}
 	monitoring.GetMetrics().AddMigrationRecordsWedged(r.WedgedCount(), 0)
 }
 
-// The same disposition the load path reaches, from the same verdict. Marked in
-// the store as well as logged, so the pass that polls for a verdict stops
-// asking for one that will not change.
+// Marked in the store as well as logged, so the polling pass stops asking for a
+// verdict that will not change.
 func (r *migrationReconciler) wedgeUncommittable(rec MigrationRecord, why string) {
 	subject := rec.Subject()
 	r.wedged(subject, migrationWedgeRemedy,
@@ -487,9 +483,8 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		return err
 	}
 
-	// One line for the record, not one per property. An unretired property keeps
-	// the record Swapped, so the next pass asks the same question of the same
-	// properties and would repeat itself for as long as the record stands.
+	// One line for the record, not one per property: an unretired property keeps
+	// the record Swapped, so every pass would repeat the whole set.
 	if reported := unretired.ToErrorLimited(maxReportedErrors); reported != nil {
 		r.logger.WithField("record", subject.Key.String()).Warnf(
 			"%d superseded propert(y/ies) of this record still hold their staged directory, so retirement "+
@@ -505,11 +500,9 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 	return r.store.Put(NewMigrationRecordPromoted(subject, rec.Flipped(), rec.displacedDirs))
 }
 
-// supersededPropertyIsRetired reports whether retirement has taken the staged
-// directory of a superseded property, and why it could not tell when it has
-// not. The reason goes back to the caller rather than into a log line: the
-// caller asks once per property of a record that stays Swapped until every
-// answer is yes, so a line here repeats per property on every pass.
+// supersededPropertyIsRetired reports whether retirement has taken a superseded
+// property's staged directory, and why it could not tell. The reason goes to
+// the caller, not a log line, which would repeat per property on every pass.
 func (r *migrationReconciler) supersededPropertyIsRetired(all []MigrationRecord,
 	subject MigrationSubject, prop string,
 ) (bool, string) {
@@ -538,8 +531,8 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 ) (updated MigrationRecordSwapped, promoted bool, deferred string, err error) {
 	subject := rec.Subject()
 	staged, canonical, displaced := dirs.staged, dirs.canonical, dirs.displaced
-	// Above the schema gate: these three arms settle a rename that already ran,
-	// and no gate can un-run one.
+	// Above the schema gate: these arms settle a rename that already ran, and no
+	// gate can un-run one.
 	switch rec.PromotionOf(prop) {
 	case migrationPromotionFinished:
 		updated, promoted, err = r.confirmPromotionSurvives(rec, prop, canonical)
@@ -605,9 +598,8 @@ func (r *migrationReconciler) clearForPromotion(subject MigrationSubject, dir, w
 	if !there {
 		return true, nil
 	}
-	// The directory is still there, so the flip never moved the pointer off it
-	// and it is the copy the shard has been writing to. A boot that could not
-	// arm the mirror means the staged copy missed those writes.
+	// The flip never moved the pointer off this directory, so it is the copy the
+	// shard wrote to; an unmirrored boot means the staged copy missed those writes.
 	if subject.Unmirrored {
 		r.wedged(subject, migrationWedgeRemedy,
 			"cannot promote: %s %q still holds this property's data and a boot took writes into it with "+
@@ -965,10 +957,8 @@ func (r *migrationReconciler) discardSealed(ctx context.Context, subject Migrati
 }
 
 // The record answers for every directory it names, so it goes last of all.
-//
-// Disarms every property's mirror first: the directories go next, and the one
-// removed is exactly where a still-armed mirror sends its next copy, whose
-// failure fails the user's write with it.
+// Mirrors are disarmed first: a still-armed mirror would send its next copy
+// into a directory just removed, failing the user's write with it.
 func (r *migrationReconciler) reclaimRecordAndDirs(ctx context.Context, subject MigrationSubject) error {
 	if r.deps.Mirror != nil {
 		for _, prop := range subject.Properties() {

@@ -67,10 +67,9 @@ func DiscoverInFlightReindexTasks(
 	}
 
 	var recovered []RecoveredReindex
-	// Accumulated across the whole walk, not logged per shard: every one of
-	// these faults is systemic (a permission, a build that cannot read its own
-	// records), so on a many-tenant node the per-shard line count follows the
-	// tenant count at every boot.
+	// Accumulated, not logged per shard: these faults are systemic (a permission,
+	// a build that cannot read its own records), so a per-shard line would follow
+	// the tenant count at every boot.
 	var (
 		unlistable   = map[string]struct{}{}
 		unlistErrs   = errorcompounder.New()
@@ -79,9 +78,8 @@ func DiscoverInFlightReindexTasks(
 		shardsWalked int
 		recordReads  int
 
-		// Payload faults are per tracker, so they key on the tracker dir
-		// rather than the shard. The compounders carry what each fault was:
-		// a missing payload.mig and an unreadable one need different action.
+		// Payload faults are per tracker, so they key on the tracker dir. A
+		// missing payload.mig and an unreadable one need different action.
 		oversizedPayloads  = map[string]struct{}{}
 		oversizedErrs      = errorcompounder.New()
 		unreadablePayloads = map[string]struct{}{}
@@ -182,9 +180,8 @@ func DiscoverInFlightReindexTasks(
 				})
 			}
 			if someRecordsUnreadable {
-				// The store refuses every write while any record is unreadable,
-				// and the same fault freezes the reconciler, so nothing this
-				// stamp would stop can run on this shard anyway.
+				// An unreadable record freezes both the store and the reconciler,
+				// so nothing this stamp would stop can run here anyway.
 				continue
 			}
 			stamped, stampErr := stampUnmirroredRecords(store, records, armable)
@@ -253,9 +250,9 @@ func DiscoverInFlightReindexTasks(
 const migrationUnmirroredRemedy = "Submit a new migration covering the same properties once the cause is cleared."
 
 // stampUnmirroredRecords marks every record awaiting its flip that this walk
-// could not build a task for. Nothing else arms those mirrors, so the writes
-// this boot takes are the ones that make the staged copy stale, and the stamp
-// is what stops a later promotion from renaming it over the live bucket.
+// could not build a task for. Nothing else arms those mirrors, so this boot's
+// writes make the staged copy stale and the stamp stops a later promotion from
+// renaming it over the live bucket.
 func stampUnmirroredRecords(store *MigrationRecordStore, records []MigrationRecord,
 	armable map[string]struct{},
 ) ([]string, error) {
@@ -283,9 +280,8 @@ func stampUnmirroredRecords(store *MigrationRecordStore, records []MigrationReco
 }
 
 // recoveryPayloadFault names why one tracker's payload.mig could not be turned
-// into a recovery record. The walk accumulates these rather than logging them
-// here: a fault is per tracker per shard, so on a many-tenant node reporting it
-// at the point of failure follows the tenant count at every boot.
+// into a recovery record. The walk accumulates these: a fault is per tracker
+// per shard, so reporting at the point of failure follows the tenant count.
 type recoveryPayloadFault int
 
 const (
@@ -312,9 +308,8 @@ func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
 func readRecoveryPayload(migDir string) (reindexRecoveryRecord, recoveryPayloadFault, error) {
 	var rec reindexRecoveryRecord
 	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	// Only an oversized payload takes this arm. The bound is checked with a
-	// stat, so every other stat failure — a missing payload.mig above all — would
-	// otherwise be reported as a file too large to read.
+	// Only an oversized payload takes this arm: the bound is checked with a stat,
+	// so any other stat failure would read as a file too large.
 	if err := refuseOversizedRecoveryPayload(payloadPath, maxRecoveryWalkPayloadBytes); errors.Is(err, errRecoveryPayloadTooLarge) {
 		return rec, recoveryPayloadOversized, err
 	}
@@ -335,16 +330,13 @@ func readRecoveryPayload(migDir string) (reindexRecoveryRecord, recoveryPayloadF
 }
 
 // migrationHalvesMissingFromCache names the tracker directories this unit
-// created on the shard that the recovery-seeded task set does not cover.
+// created that the recovery-seeded task set does not cover.
 //
-// A tracker directory exists for every task the unit generated, written before
-// the iteration ran, while a recovered task exists only where the tracker also
-// carries a migration record. So a change-tokenization unit that restarted
-// between its two halves recovers one task and no more, and the consumer reads
-// a non-empty set as the whole unit.
-//
-// Generations are compared away: a retried unit's older tracker names the same
-// half as the running one.
+// Every generated task leaves a tracker, but a task is recovered only where the
+// tracker also carries a record, so a change-tokenization unit interrupted
+// between its halves recovers one — which the consumer reads as the whole unit.
+// Generations are compared away, since a retried unit's older tracker names the
+// same half as the running one.
 func migrationHalvesMissingFromCache(lsmPath string, desc distributedtask.TaskDescriptor,
 	unitID string, tasks []*ShardReindexTaskGeneric,
 ) []string {
@@ -357,8 +349,8 @@ func migrationHalvesMissingFromCache(lsmPath string, desc distributedtask.TaskDe
 
 	entries, err := os.ReadDir(filepath.Join(lsmPath, migrationsDir))
 	if err != nil {
-		// Nothing to compare against. The walk that seeded the cache read the
-		// same directory, so a fault here is one it already reported.
+		// Nothing to compare against, and the seeding walk read the same directory,
+		// so any fault here is one it already reported.
 		return nil
 	}
 
@@ -486,13 +478,11 @@ func buildRecoveryTasks(
 	return raw, nil
 }
 
-// rebuildNeverStartedHalves reconstructs the task of each tracker directory
-// this unit created whose half never wrote a migration record. The payload the
-// unit persisted before either half started carries everything a fresh start
-// needs, so a restart that landed between a unit's halves resumes it instead
-// of failing it. Only the newest generation of each half that names this unit
-// is rebuilt: a retried unit's older tracker names the same half as the
-// running one.
+// rebuildNeverStartedHalves reconstructs the task of each tracker this unit
+// created whose half never wrote a record. The payload persisted before either
+// half started carries everything a fresh start needs, so a restart between the
+// halves resumes rather than fails. Only the newest generation of each half is
+// rebuilt, since a retried unit's older tracker names the same half.
 func rebuildNeverStartedHalves(lsmPath, shardName string, desc distributedtask.TaskDescriptor,
 	unitID string, missing []string, logger logrus.FieldLogger, schemaManager *schema.Manager,
 ) ([]*ShardReindexTaskGeneric, error) {

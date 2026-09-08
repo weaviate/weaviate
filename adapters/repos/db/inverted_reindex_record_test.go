@@ -33,14 +33,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// The name the planted unreadable record carries. Named because the store
-// reports it back and a test that clears the fault has to remove that file.
+// The store reports this name back, and a test clearing the fault removes it.
 const unreadableRecordFile = "99_enable_searchable.json"
 
-// plantUnreadableRecord writes a file no build can decode into a shard's record
-// directory, which is what withholds every destructive action on that shard. It
-// returns the path so a caller that clears the fault names the file the store
-// refused rather than a second copy of the name.
+// plantUnreadableRecord writes an undecodable file into a shard's record
+// directory, which withholds every destructive action on that shard. Returns
+// the path so a caller clearing the fault names the file the store refused.
 func plantUnreadableRecord(t *testing.T, dir string) string {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(dir, 0o777))
@@ -49,11 +47,9 @@ func plantUnreadableRecord(t *testing.T, dir string) string {
 	return path
 }
 
-// newMigrationRecordAt builds the record a migration stopped at state would
-// have written. The flipped properties and displaced directories come from the
-// subject, which is where the writer takes them from too. One switch for the
-// package, so a state added to the record machine reaches every fixture that
-// plants one.
+// newMigrationRecordAt builds the record a migration stopped at state would have
+// written, taking flipped properties and displaced dirs from the subject as the
+// writer does. One switch for the package, so a new state reaches every fixture.
 func newMigrationRecordAt(t *testing.T, subject MigrationSubject, state MigrationState) MigrationRecord {
 	t.Helper()
 	switch state {
@@ -1661,10 +1657,9 @@ func TestRemovingARecordPublishesTheRemoval(t *testing.T) {
 	require.Empty(t, store.Records(), "the file is gone either way, so memory has to agree")
 }
 
-// HasUndecided is what makes the once-a-minute cluster pass pick a shard up, so
-// a record it reports on is one that pass can still move. Both halves cost: a
-// missed record never progresses, and a record reported after its flip buys a
-// leader query and a walk of the shard, once a minute, for nothing.
+// HasUndecided is what makes the once-a-minute cluster pass pick a shard up.
+// Both halves cost: a missed record never progresses, and one reported after its
+// flip buys a leader query and a shard walk every minute for nothing.
 func TestOnlyAMovableRecordBeforeItsFlipIsUndecided(t *testing.T) {
 	tests := []struct {
 		name   string

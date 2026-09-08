@@ -20,8 +20,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// The bucket both generations of the retokenize migration rebuild. Sharing it is
-// what makes the older generation's staged data the newer one's to supersede.
+// Both generations rebuild this bucket, which is what makes the older
+// generation's staged data the newer one's to supersede.
 const retokenizeCanonicalDir = "property_title_searchable"
 
 // retokenizeSubjectAtGeneration builds the subject of the nth retokenize

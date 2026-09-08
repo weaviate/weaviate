@@ -20,10 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The fault entry names a file and a scope, never a strategy, so the only
-// thing that says which migration a bad record covered is its file name.
-// Latching on every fault turns rangeable readiness off shard-wide for a bad
-// record of a migration that has nothing to do with rangeable indexes.
+// A fault names a file and a scope, never a strategy, so latching on every one
+// turns rangeable readiness off shard-wide for an unrelated migration.
 func TestOnlyAFaultThatCouldBeARangeableRecordTurnsRangeableOff(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -73,8 +71,8 @@ func TestOnlyAFaultThatCouldBeARangeableRecordTurnsRangeableOff(t *testing.T) {
 	}
 }
 
-// One fault of any kind decides the shard, so a set is only as safe as its
-// least readable member.
+// One fault of any kind decides the shard: a set is only as safe as its least
+// readable member.
 func TestOneUnreadableRangeableRecordDecidesAWholeFaultSet(t *testing.T) {
 	require.False(t, migrationFaultCouldHideARangeableRecord(nil))
 	require.True(t, migrationFaultCouldHideARangeableRecord([]MigrationRecordUnreadable{
@@ -83,8 +81,8 @@ func TestOneUnreadableRangeableRecordDecidesAWholeFaultSet(t *testing.T) {
 	}))
 }
 
-// The name the latch reads back is the one the store writes; a rename on
-// either side would make every fault read as some other strategy.
+// A rename on either side of this round trip makes every fault read as some
+// other strategy.
 func TestARecordFileNameRoundTripsToItsStrategy(t *testing.T) {
 	for _, code := range migrationStrategyCodes {
 		key := MigrationRecordKey{TaskVersion: 7, StrategyCode: code, UnitID: "shard-1__node-0"}
@@ -94,9 +92,8 @@ func TestARecordFileNameRoundTripsToItsStrategy(t *testing.T) {
 	}
 }
 
-// Shard init is what latches, and the latch has no writer of false anywhere,
-// so a record of an unrelated migration would turn every rangeable property on
-// the shard off for as long as the file is there.
+// Shard init latches and nothing ever writes false, so an unrelated migration's
+// record would disable every rangeable property while the file is there.
 func TestShardInitLatchesOnlyOnAFaultThatCouldBeRangeable(t *testing.T) {
 	tests := []struct {
 		name     string

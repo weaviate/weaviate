@@ -28,9 +28,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// pinTestShard builds a single-property shard holding objectCount objects and
-// the task that migrates it, with the migration already started so the next
-// OnAfterLsmInitAsync call enters the iteration.
+// pinTestShard builds a single-property shard plus its migration task, already
+// started so the next OnAfterLsmInitAsync call enters the iteration.
 func pinTestShard(t *testing.T, ctx context.Context, className string, objectCount int,
 ) (*Shard, *Index, *ShardReindexTaskGeneric) {
 	t.Helper()
@@ -55,10 +54,8 @@ func pinTestReindexBucketName() string {
 	return helpers.BucketSearchableFromPropNameLSM("title") + "__blockmax_reindex_1"
 }
 
-// TestReindexBucketPinHoldsOffTeardown proves the reindex-bucket pins are real:
-// a shutdown that lands while the iteration is mid-chunk has to wait for the
-// writes to finish, because tearing the bucket down under them would unmap the
-// segments they are writing into.
+// A shutdown mid-chunk waits for the writes: tearing the bucket down under them
+// would unmap the segments they are writing into.
 func TestReindexBucketPinHoldsOffTeardown(t *testing.T) {
 	ctx := testCtx()
 	shard, idx, task := pinTestShard(t, ctx, "TestReindexPinDrain", 3)
@@ -66,9 +63,8 @@ func TestReindexBucketPinHoldsOffTeardown(t *testing.T) {
 	parked := make(chan struct{})
 	resume := make(chan struct{})
 
-	// Emits one row, then parks the iteration mid-chunk. Ending without the
-	// completion sentinel keeps the chunk incomplete, so the pins drop on
-	// return rather than at the explicit release the completion path takes.
+	// Ending without the completion sentinel keeps the chunk incomplete, so the
+	// pins drop on return rather than at the completion path's explicit release.
 	task.objectsIteratorAsync = func(logger logrus.FieldLogger, _ ShardLike, _ indexKey,
 		_ func([]byte) indexKey, _ *storobj.PropertyExtraction, _ time.Time,
 		breakCh <-chan bool, _ map[string]inverted.PropertyOverlay,
@@ -120,9 +116,7 @@ func TestReindexBucketPinHoldsOffTeardown(t *testing.T) {
 	}
 }
 
-// TestReindexIterationFailsOnDeregisteredReindexBucket covers the read that
-// arrives once the reindex bucket is already gone: the iteration must report
-// it instead of writing every posting through a nil bucket.
+// A reindex bucket already gone must be reported, not written through as nil.
 func TestReindexIterationFailsOnDeregisteredReindexBucket(t *testing.T) {
 	ctx := testCtx()
 	shard, _, task := pinTestShard(t, ctx, "TestReindexPinMissing", 3)
@@ -133,10 +127,8 @@ func TestReindexIterationFailsOnDeregisteredReindexBucket(t *testing.T) {
 	require.ErrorIs(t, err, lsmkv.ErrBucketNotFound)
 }
 
-// TestObjectsIteratorFailsOnDeregisteredObjectsBucket covers the scan that
-// starts once the objects bucket is already gone: it must report the missing
-// bucket on its channel instead of dereferencing nil, which the goroutine's
-// panic recovery would turn into a scan that never starts and never returns.
+// A missing objects bucket must come back on the channel: dereferencing nil
+// leaves the panic recovery with a scan that never starts and never returns.
 func TestObjectsIteratorFailsOnDeregisteredObjectsBucket(t *testing.T) {
 	ctx := testCtx()
 	shard, idx, _ := pinTestShard(t, ctx, "TestObjectsPinMissing", 3)

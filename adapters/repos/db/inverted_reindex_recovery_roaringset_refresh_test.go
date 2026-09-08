@@ -129,13 +129,9 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 	}
 }
 
-// TestRecoveryConvergence_RoaringSetRefresh_FromEachState pins the #240
-// Symptom B invariant for the RoaringSetRefresh strategy: from any recorded
-// state a replica could land in after a mid-migration restart, a restart
-// converges on filterable-bucket content bit-equal to a clean run.
-//
-// A same-strategy refresh changes no schema, so this is the row that pins that
-// a migration whose effect the schema can never show still settles.
+// A restart from any recorded state converges on filterable-bucket content
+// bit-equal to a clean run (#240 Symptom B). A same-strategy refresh changes no
+// schema, so this is the row where the effect can never show in the schema.
 func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 	const propName = "title"
 

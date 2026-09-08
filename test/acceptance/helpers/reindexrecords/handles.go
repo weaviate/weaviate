@@ -29,8 +29,8 @@ type Handles struct {
 	Sidecar   string
 }
 
-// HandlesFor names the directories the writer emits for propName under the
-// strategy that code identifies, at the given migration generation.
+// HandlesFor names the directories the writer emits for propName under code's
+// strategy, at the given migration generation.
 func HandlesFor(t *testing.T, code db.MigrationStrategyCode, propName string, generation int) Handles {
 	t.Helper()
 

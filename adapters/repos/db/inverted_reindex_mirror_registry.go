@@ -24,7 +24,7 @@ type migrationMirrorKey struct {
 }
 
 // ArmMigrationMirror records the handle that disarms the mirror for one
-// (record, property). Re-arming disarms the handle it replaces.
+// (record, property); re-arming disarms the handle it replaces.
 func (r *migrationMirrorRegistry) ArmMigrationMirror(key MigrationRecordKey, prop string, disarm func()) {
 	if disarm == nil {
 		return
@@ -44,8 +44,8 @@ func (r *migrationMirrorRegistry) ArmMigrationMirror(key MigrationRecordKey, pro
 	}
 }
 
-// DisarmMigrationMirror runs and forgets the handle for one (record,
-// property); a no-op if unarmed, since every disarm edge is re-derived at each load.
+// DisarmMigrationMirror runs and forgets the handle for one (record, property);
+// a no-op if unarmed, since every disarm edge is re-derived at each load.
 func (r *migrationMirrorRegistry) DisarmMigrationMirror(key MigrationRecordKey, prop string) {
 	mirrorKey := migrationMirrorKey{record: key, property: prop}
 

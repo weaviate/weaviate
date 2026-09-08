@@ -80,9 +80,8 @@ func TestCheckpointNeverOutrunsThePostingsItVouchesFor(t *testing.T) {
 			}
 
 			if tt.poisonStore {
-				// An unreadable record file freezes the store: it refuses every
-				// write while any record cannot be read. A foreign-unit record
-				// would not do — the loader sets those aside without freezing.
+				// An unreadable record freezes the store; a foreign-unit one would
+				// not, since the loader sets those aside.
 				plantUnreadableRecord(t, shard.migrationRecords.Dir())
 				require.NoError(t, shard.migrationRecords.Load())
 			}

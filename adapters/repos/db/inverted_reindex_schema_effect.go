@@ -114,10 +114,9 @@ func migrationPropertyEffectVisible(subject MigrationSubject, prop *models.Prope
 }
 
 // migrationCanonicalIndexFlag reads the schema flag that owns the canonical
-// directory this strategy promotes onto, and names the field it read so a
-// refusal can say which flag it followed. Sibling of [sourceBucketNameFor]:
-// each arm answers for the bucket that one names, so the two stay in step. No
-// default arm, so the linter refuses a ninth code that names no flag here.
+// directory this strategy promotes onto, naming the field so a refusal can say
+// which flag it followed. Arms mirror [sourceBucketNameFor]; no default arm, so
+// the linter refuses a ninth code that names no flag here.
 func migrationCanonicalIndexFlag(code MigrationStrategyCode, prop *models.Property) (*bool, string) {
 	switch code {
 	case StrategyCodeSearchableMapToBlockmax, StrategyCodeEnableSearchable,
@@ -135,24 +134,17 @@ func migrationCanonicalIndexFlag(code MigrationStrategyCode, prop *models.Proper
 // migrationCanonicalSweptBySchema reports whether the load-time sweep would
 // delete what a promotion is about to rename onto the canonical name, and why.
 //
-// The schema flag is the only authority over a canonical property directory:
 // [propertyDeleteIndexHelper.ensureBucketsAreRemovedForNonExistentPropertyIndexes]
-// deletes one it finds under an index the collection turns off, and it runs
-// before the promotion on every load. The migrations that turn an index on run
-// with that flag off for their whole duration, so renaming before the
-// cluster-wide flip lands puts the rebuilt data exactly where the next load
-// deletes it.
+// runs before the promotion on every load and deletes a canonical directory
+// whose index the collection turns off. enable-* migrations run with that flag
+// off throughout, so renaming before the cluster-wide flip puts the rebuilt
+// data exactly where the next load deletes it.
 //
-// Deliberately not [migrationEffectStatus]: that answers whether the effect has
-// landed and reads an unset flag as not-enabled, which would defer every
-// retokenize and change-algorithm promotion. The hazard is only ever the
-// sweep's own rule, an explicit false.
-//
-// A property the collection does not list is equally unreached by the sweep,
-// which walks the collection's own properties, so there is nothing to wait for
-// and the rename goes ahead. A collection this node has not applied at all is
-// the one thing that cannot be answered: the sweep may well hold a false this
-// read cannot see, so that waits for a load that can read it.
+// The rule followed is the sweep's own, an explicit false — not
+// [migrationEffectStatus], which reads an unset flag as not-enabled and would
+// defer every retokenize and change-algorithm promotion. A property the
+// collection does not list is unreached by the sweep and promotes; a collection
+// this node has not applied cannot be answered and waits.
 func migrationCanonicalSweptBySchema(class *models.Class, subject MigrationSubject,
 	prop string,
 ) (swept bool, why string) {

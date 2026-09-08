@@ -252,10 +252,9 @@ func TestOnlyAPromotedFlipReportsRangeableReady(t *testing.T) {
 			wantReady: true,
 		},
 		{
-			// No record decodes, so this shard cannot tell a flip that has
-			// finished from one still running. The rangeable bucket is there
-			// and nothing set an explicit entry, which is the one combination
-			// that would otherwise default to ready.
+			// No record decodes, so a finished flip is indistinguishable from a
+			// running one. Bucket present and no explicit entry is the one
+			// combination that would otherwise default to ready.
 			name:       "a record that does not decode leaves the flip undecidable",
 			unreadable: true,
 		},
@@ -296,15 +295,10 @@ func rangeableEnabledTestClass(className string) *models.Class {
 	return class
 }
 
-// TestRecoveryWalkAggregatesUnreadableShardsIntoOneLine pins the startup walk's
-// own fault reporting to one line per fault kind. Each of these faults is
-// systemic, so a line per shard would follow the tenant count at every boot.
-//
-// The walk's line is the only one counted here. The record store it calls
-// reports each unreadable set on its own shard, so the boot total is higher
-// than one; that leaf predates this branch and is not this test's to hold.
-// Matching is on the walk's own prefix at any level, because keying the count
-// on Warn made it blind to exactly the per-shard line it exists to catch.
+// One line per fault kind: these faults are systemic, so a line per shard would
+// follow the tenant count at every boot. Only the walk's own line is counted —
+// the record store reports separately per shard — and matching is on the walk's
+// prefix at any level, since keying on Warn misses the per-shard line.
 func TestRecoveryWalkAggregatesUnreadableShardsIntoOneLine(t *testing.T) {
 	const shards = 12
 	root := t.TempDir()
@@ -314,8 +308,8 @@ func TestRecoveryWalkAggregatesUnreadableShardsIntoOneLine(t *testing.T) {
 		lsm := filepath.Join(indexPath, fmt.Sprintf("tenant-%02d", i), "lsm")
 		recordsDir := filepath.Join(lsm, ".migrations", "records")
 		require.NoError(t, os.MkdirAll(recordsDir, 0o777))
-		// A record this build cannot read makes the whole set unreadable, which
-		// is the "recovering nothing on this shard" arm.
+		// One unreadable record makes the whole set unreadable: the "recovering
+		// nothing on this shard" arm.
 		require.NoError(t, os.WriteFile(
 			filepath.Join(recordsDir, "searchable_retokenize_title_1.json"),
 			[]byte("not json"), 0o600))
@@ -326,9 +320,8 @@ func TestRecoveryWalkAggregatesUnreadableShardsIntoOneLine(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, recovered)
 
-	// Every line the walk writes about unreadable records, not just the
-	// summary: a per-shard line would pass a summary-only assertion while
-	// still following the tenant count.
+	// Every line about unreadable records, not just the summary: a per-shard line
+	// would pass a summary-only assertion and still follow the tenant count.
 	var about []string
 	for _, e := range hook.AllEntries() {
 		if strings.Contains(e.Message, "reindex recovery:") &&
@@ -341,10 +334,8 @@ func TestRecoveryWalkAggregatesUnreadableShardsIntoOneLine(t *testing.T) {
 		"the one line carries the count the per-shard lines used to carry")
 }
 
-// TestRecoveryWalkReadsEachShardsRecordsOnce pins the startup walk to one
-// record-set read per shard. Each shard carries several tracker dirs, so a
-// walk that read per tracker instead would go to disk a multiple of the tenant
-// count at every boot, and nothing else would say so.
+// One record-set read per shard: each shard carries several tracker dirs, so a
+// per-tracker read multiplies boot disk cost by the tenant count.
 func TestRecoveryWalkReadsEachShardsRecordsOnce(t *testing.T) {
 	const (
 		shards   = 6

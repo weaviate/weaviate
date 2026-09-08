@@ -1107,12 +1107,9 @@ func (l *LazyLoadShard) blockLoading() func() {
 // load. The loading mutex covers the disk read and is released before
 // returning — the hydration that follows takes it itself.
 //
-// A completed migration's leftovers are the second reason not to skip: a load
-// runs reconciliation, so a shard whose data still sits under the ingest
-// sidecar name reclaims nothing until hydrated. One load per tenant per
-// completed migration settles it — reconciliation removes the directories it
-// answers from, so the next sweep skips the tenant again. A tenant with no
-// leftovers (this gate's actual population) is never loaded.
+// A completed migration's leftovers are the second reason not to skip: only a
+// load runs reconciliation, which reclaims them. That costs one load per tenant
+// per completed migration, after which the next sweep skips the tenant again.
 //
 // Skipping holds only while reindex state arrives through a load. Shutdown does
 // not remove the shard from the index map — [Index.Shutdown] shuts its shards

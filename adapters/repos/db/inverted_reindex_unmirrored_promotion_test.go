@@ -22,10 +22,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// The canonical directory is the property's only complete copy while the
-// pointer still serves from it. A boot that could not arm the mirror took
-// writes into it that the staged copy never saw, so renaming over it is the
-// data loss the stamp exists to stop.
+// While the pointer still serves from the canonical directory it is the only
+// complete copy, and an unmirrored boot took writes the staged copy never saw.
+// Renaming over it is the data loss the stamp exists to stop.
 func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -77,8 +76,8 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 			state, present2 := f.state(subject.Key)
 			require.True(t, present2)
 			require.Equal(t, tt.wantState, state)
-			// mkdirs stamps each directory's own name into its segment file, so
-			// this reads which directory now answers to the canonical name.
+			// mkdirs stamps each directory's name into its segment file, so this
+			// reads which one now answers to the canonical name.
 			require.Equal(t, tt.wantCanonical, f.contentOf(canonical))
 		})
 	}
@@ -100,9 +99,8 @@ func TestPromotionSaysWhyItWithheldAfterAnUnmirroredBoot(t *testing.T) {
 	require.NotEmpty(t, f.errorLines("no double-write mirror armed"))
 }
 
-// A boot that cannot build a task for a migration awaiting its flip arms no
-// mirror for it, and nothing else does. The stamp is the only thing that
-// carries that across the restart to the promotion.
+// Nothing else arms the mirror for a migration awaiting its flip, so the stamp
+// is the only thing carrying that across the restart to the promotion.
 func TestRecoveryWalkStampsAMigrationItCouldNotArm(t *testing.T) {
 	const trackerDir = "filterable_roaringset_refresh_title_1"
 

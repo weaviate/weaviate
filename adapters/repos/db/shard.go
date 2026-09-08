@@ -785,10 +785,9 @@ func (s *Shard) isFallbackToSearchable() bool {
 //   - The per-shard map has an explicit `false` entry, written either
 //     by the migration's PreReindexHook or, at shard init, by
 //     [markInFlightRangeableMigrationsNotReady], OR
-//   - Shard init found a migration record it could not read that might
-//     have been a rangeable one. That answers false for EVERY property
-//     on the shard, and stays false until the file is dealt with and
-//     the node restarts, OR
+//   - Shard init found an unreadable migration record that might have been
+//     a rangeable one. That answers false for EVERY property on the shard
+//     until the file is dealt with and the node restarts, OR
 //   - There is no explicit entry AND the rangeable bucket does not
 //     exist in the LSM store yet. This catches the narrow window where
 //     another replica's runtimeSwap has already flipped the

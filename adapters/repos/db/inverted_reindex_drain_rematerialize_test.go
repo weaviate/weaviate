@@ -62,9 +62,8 @@ func TestModeADrainRematerialize(t *testing.T) {
 			releaseHook := make(chan struct{})
 			var hookOnce sync.Once
 
-			// Park the first guard call so drop() lands while the entry
-			// point is in flight, then let the real guard run against the
-			// dropped index.
+			// Park the first guard call so drop() lands while the entry point is
+			// in flight, then run the real guard against the dropped index.
 			blockingGuard := func(s ShardLike) error {
 				hookOnce.Do(func() { close(inHook) })
 				<-releaseHook
@@ -74,12 +73,10 @@ func TestModeADrainRematerialize(t *testing.T) {
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task := newTestTaskWithGuard(idx.logger, strategy, blockingGuard, shard.migrationUnit())
 
-			// Arm a real migration with objects still to drain, so a worker
-			// that ignores the guard has bucket writes left to make. Without
-			// it the entry points return on "nothing to do" and the drop
-			// below could never be re-materialized either way.
-			// OnAfterLsmInit is the unguarded shard-init entry, so this
-			// setup does not consume the parked guard call.
+			// Objects left to drain, so a worker ignoring the guard still has
+			// bucket writes to make; otherwise the entry points return on
+			// "nothing to do". OnAfterLsmInit is unguarded, so this setup does
+			// not consume the parked guard call.
 			for i := 0; i < 10; i++ {
 				require.NoError(t, shard.PutObject(ctx,
 					createTestObjectWithText(className, "before migration "+uuid.NewString())))

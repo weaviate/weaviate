@@ -28,12 +28,9 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// A change-tokenization unit runs two halves in sequence and writes a tracker
-// directory for each before either starts. Recovery rebuilds a task only where
-// the tracker also carries a migration record, so a restart between the two
-// halves recovers one task. The consumer reads any non-empty set as the whole
-// unit, runs the searchable half alone and reports the unit finished, and the
-// schema flips for a filterable index nothing rebuilt.
+// A restart between a change-tokenization unit's two halves recovers only the
+// half whose tracker carries a record. Read as the whole unit, that reports the
+// unit finished and flips the schema for an index nothing rebuilt.
 func TestRecoveryReportsTheHalvesItCouldNotSeed(t *testing.T) {
 	const (
 		taskID   = "Docs:change-tokenization:title:ab12"
@@ -93,9 +90,8 @@ func TestRecoveryReportsTheHalvesItCouldNotSeed(t *testing.T) {
 				subject.TrackerDir = tracker
 				subject.MigrationType = ReindexTypeChangeTokenization
 				subject.TargetTokenization = models.PropertyTokenizationField
-				// Each half writes into its own directories, the way the two
-				// production tasks do; the loader refuses two records that
-				// claim one directory.
+				// Each half writes its own directories, as the production tasks do;
+				// the loader refuses two records claiming one directory.
 				subject.Props[propName] = MigrationPropertyDirs{
 					Staged:    "property_" + propName + "__" + tracker + "_ingest",
 					Canonical: subject.Props[propName].Canonical,
@@ -136,9 +132,8 @@ func TestAnotherUnitsTrackerIsNotAMissingHalf(t *testing.T) {
 		distributedtask.TaskDescriptor{ID: "t", Version: 42}, "shard-1__node-0", nil))
 }
 
-// Running only the seeded half reports a finished unit and the schema flips
-// for both halves, so the never-started half is rebuilt from its payload and
-// the unit runs whole.
+// Running only the seeded half would flip the schema for both, so the
+// never-started half is rebuilt from its payload and the unit runs whole.
 func TestAPartiallySeededUnitRebuildsItsNeverStartedHalf(t *testing.T) {
 	ctx := testCtx()
 	className := "PartialSeed" + uuid.NewString()[:8]
@@ -164,8 +159,8 @@ func TestAPartiallySeededUnitRebuildsItsNeverStartedHalf(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, tasks, 2, "change-tokenization on a property with both indexes runs two halves")
 
-	// persistRecoveryRecord writes one of these per generated task before
-	// either half starts, which is what makes both halves visible on disk.
+	// persistRecoveryRecord writes one per generated task before either half
+	// starts, which is what makes both visible on disk.
 	for _, task := range tasks {
 		dir := task.migrationPath(concrete.pathLSM())
 		require.NoError(t, os.MkdirAll(dir, 0o777))

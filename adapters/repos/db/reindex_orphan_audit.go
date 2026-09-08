@@ -219,9 +219,9 @@ type orphanReindexTracker struct {
 	indexTypes  []string
 }
 
-// String formats one keyed line per field for greppable log queries, with the
-// property list bounded: the list is user-chosen and unbounded, and every line
-// that carries one is emitted per orphan on a walk over every shard.
+// String formats one keyed line per field for greppable log queries. The
+// property list is bounded because it is user-chosen and one line is emitted
+// per orphan across every shard.
 func (o *orphanReindexTracker) String() string {
 	return fmt.Sprintf(
 		"collection=%q shard=%q tracker=%q gen=%d taskID=%q taskVersion=%d unitID=%q property_count=%d properties=%v indexTypes=%v",
@@ -287,8 +287,8 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 	}()
 
 	outcome := AuditOutcome{Status: AuditStatusRan}
-	// Accumulated across the whole walk: the audit visits every shard on the
-	// node, so a per-shard line follows the tenant count on every sweep.
+	// Accumulated: the audit visits every shard, so a per-shard line follows the
+	// tenant count on every sweep.
 	unreadableRecords := map[string]struct{}{}
 	for _, indexEntry := range indexEntries {
 		if !indexEntry.IsDir() {
@@ -420,9 +420,8 @@ const reindexAuditQuarantineFile = "audit_quarantined.mig"
 // live" → quarantine sentinel is removed without destruction.
 const reindexAuditQuarantineWindow = 5 * time.Minute
 
-// The second return reports that this shard's migration records could not be
-// read. The caller accumulates it: the audit walks every shard on the node, so
-// reporting it here would be one line per tenant per sweep.
+// The second return reports unreadable migration records. The caller
+// accumulates it, since reporting here is one line per tenant per sweep.
 func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) ([]orphanReindexTracker, bool) {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -620,8 +619,8 @@ func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLoo
 	if err != nil {
 		return
 	}
-	// This runs per shard on every sweep and most shards carry no sentinel at
-	// all, so the record store is only read once one is found.
+	// Runs per shard on every sweep and most shards carry no sentinel, so the
+	// record store is read only once one is found.
 	var quarantined []string
 	for _, entry := range entries {
 		if entry.IsDir() && fileExists(filepath.Join(migsDir, entry.Name(), reindexAuditQuarantineFile)) {

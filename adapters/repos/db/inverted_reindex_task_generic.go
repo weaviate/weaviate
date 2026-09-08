@@ -47,11 +47,10 @@
 //
 // 2b — post-atomic inline retirement (slow but correctness-safe):
 // oldMainBucket.Shutdown(ctx) + removal of its directory at the handle the
-// record names, per property. Runs AFTER every prop has flipped in 2a, so
-// it's outside the mixed-state subwindow. Shutdown MUST be inline (not
-// deferred): it's the only call that frees the bucket's path from
-// GlobalBucketRegistry, and deferring it leaks the path, failing the next
-// in-process shard init at this name with ErrBucketAlreadyRegistered.
+// record names, per property, AFTER every prop has flipped in 2a. Shutdown MUST
+// be inline: it alone frees the bucket's path from GlobalBucketRegistry, and
+// deferring it fails the next in-process shard init at this name with
+// ErrBucketAlreadyRegistered.
 //
 // 2c — post-atomic inline finalize: OnMigrationComplete +
 // trimOlderGenerationsLocked. These run OUTSIDE the mixed-state
@@ -90,12 +89,11 @@
 // before LSM init touches the canonical name, no bucket is mmapping
 // anything — the rename is safe.
 //
-// Crash safety: the flip decision is fsynced ahead of the first pointer
-// flip, so a record short of it proves no flip was ever decided.
-// [ShardReindexTaskGeneric.RunSwapOnShard] dispatches on the record to
-// resume; a crash anywhere in or after 2b resolves at the next shard load,
-// when reconciliation finishes the same directory work before any bucket
-// opens.
+// Crash safety: the flip decision is fsynced ahead of the first pointer flip,
+// so a record short of it proves no flip was decided.
+// [ShardReindexTaskGeneric.RunSwapOnShard] dispatches on the record to resume;
+// a crash in or after 2b resolves at the next shard load, when reconciliation
+// finishes the directory work before any bucket opens.
 //
 // Atomic-phase regression guard: a unit test must fail if
 // SwapBucketPointer is preceded by any disk-I/O or compaction-wait
@@ -195,9 +193,8 @@ type ShardReindexTaskGeneric struct {
 	// bucket for Phase-2b, or (nil, nil) on an already-swapped prop.
 	swapPropAtomic func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error)
 
-	// closingGuard reports whether the shard's index is still open. Supplied
-	// at construction and never reassigned; production wires
-	// [defaultIndexClosingGuard] everywhere. Never nil.
+	// closingGuard reports whether the shard's index is still open. Set at
+	// construction, never reassigned, never nil.
 	closingGuard indexClosingGuard
 
 	// rebuildRangeableRepFn dispatches [rebuildRangeableInMemoryReps]'s
@@ -212,9 +209,8 @@ type ShardReindexTaskGeneric struct {
 // closing or closed, and nil while it is still open.
 type indexClosingGuard func(shard ShardLike) error
 
-// defaultIndexClosingGuard is the guard every production task runs: it takes
-// the index's close read-lock, so a drop that starts after the check cannot
-// complete until the caller returns.
+// defaultIndexClosingGuard takes the index's close read-lock, so a drop that
+// starts after the check cannot complete until the caller returns.
 func defaultIndexClosingGuard(shard ShardLike) error {
 	return shard.Index().withCloseRLockGuard(func() error { return nil })
 }
@@ -317,9 +313,9 @@ func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []
 // restart resumes instead of reporting success on a half-done migration.
 // The shard may be a *Shard or *LazyLoadShard.
 func (t *ShardReindexTaskGeneric) RunOnShard(ctx context.Context, shard ShardLike) error {
-	// Prep and swap error out on a shard carrying no migration, so they need a
-	// gate. The iteration answers it, because it is what decides the two cases
-	// where nothing starts: shard not selected, no reindexable properties.
+	// Prep and swap error out on a shard carrying no migration. The iteration is
+	// the gate, since it decides the two cases where nothing starts: shard not
+	// selected, and no reindexable properties.
 	shouldRunPrepareAndSwap, err := t.runReindexOnlyOnShard(ctx, shard)
 	if err != nil {
 		return err
@@ -662,16 +658,14 @@ func (t *ShardReindexTaskGeneric) stagedPropsStillOnDisk(logger logrus.FieldLogg
 	return kept, nil
 }
 
-// swapStillToRun reports whether a record that carries the flip decision is
-// waiting for the in-memory swap rather than for its promotion.
+// swapStillToRun reports whether a record carrying the flip decision is waiting
+// for the in-memory swap rather than for its promotion.
 //
 // The decision is written before the first pointer moves, so a swapped record
-// with every staged directory still under its staged name is one whose flip
-// never reached the canonical name: the shape a restart leaves once the
-// promotion that renames them is deferred until the schema enables the index.
-// The in-memory swap is idempotent, so re-running it is what settles that
-// shape; a promoted record, or one whose staged data is gone, is not this and
-// must keep taking the completion path.
+// with every staged directory still under its staged name never reached the
+// canonical name — the shape a restart leaves when the promotion is deferred
+// until the schema enables the index. The swap is idempotent, so re-running it
+// settles that; anything else keeps taking the completion path.
 func (t *ShardReindexTaskGeneric) swapStillToRun(logger logrus.FieldLogger, shard ShardLike,
 	rec MigrationRecord, props []string,
 ) (bool, error) {
@@ -687,30 +681,22 @@ func (t *ShardReindexTaskGeneric) swapStillToRun(logger logrus.FieldLogger, shar
 
 // requireCanonicalHoldsMigratedData refuses to commit a migration's schema
 // effect unless the canonical name really holds this migration's data.
+// [migrationRecordQuestions.FlipDecided] proves the flip was DECIDED, never
+// that it ran, and the two things that put data under the canonical name answer
+// in different places:
 //
-// The flip decision is written before the first pointer moves (see
-// [migrationRecordQuestions.FlipDecided]), so it proves the flip was DECIDED,
-// never that it ran. Two things put the data under the canonical name, and
-// they answer in different places:
+//   - an in-process flip, which the open bucket's own directory says;
+//   - a promotion's rename, which only disk says. An enable-* migration commits
+//     the very flag deciding whether shard init opens that bucket, so requiring
+//     an open one would make the retry uncommittable when it is needed most.
 //
-//   - an in-process flip points the canonical name at the staged directory,
-//     which the open bucket's own directory says;
-//   - a promotion renamed that directory onto the canonical name, which only
-//     disk says. An enable-* migration commits the very schema flag that
-//     decides whether shard init opens that bucket, so requiring an open one
-//     here would make the retry uncommittable exactly when it is needed.
+// A missing canonical directory is one a later load deleted, so the effect must
+// stay off an index nothing serves.
 //
-// Promoted means every property is either promoted or superseded, and both
-// leave the same disk shape: the canonical directory present, the staged one
-// gone. A missing canonical directory is one a later load deleted, and the
-// schema effect must stay off an index nothing serves.
-//
-// A superseded property therefore commits its schema effect over a successor's
-// data. That is only safe because [typesConflictReason] refuses a new task
-// overlapping an in-flight one's properties, so a successor can only exist
-// once this migration's task is terminal — and a terminal task never re-enters
-// here. Without that, an enable-searchable successor targeting a different
-// tokenization would have its predecessor commit the wrong one.
+// A superseded property commits its effect over a successor's data. That is
+// safe only because [typesConflictReason] refuses a task overlapping an
+// in-flight one's properties, so a successor exists only once this task is
+// terminal, and a terminal task never re-enters here.
 func (t *ShardReindexTaskGeneric) requireCanonicalHoldsMigratedData(shard ShardLike, rec MigrationRecord) error {
 	subject := rec.Subject()
 	for _, propName := range subject.Properties() {
@@ -933,9 +919,8 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 }
 
 // onAfterLsmInit is the shared body of OnAfterLsmInit / onAfterLsmInitGuarded.
-// The returned bool reports whether prep+swap should run; a shard whose
-// migration is already finished still returns true, since both phases are
-// idempotent on the record.
+// The returned bool reports whether prep+swap should run; an already-finished
+// migration still returns true, since both phases are idempotent.
 func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Shard,
 ) (shouldRunPrepareAndSwap bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
@@ -1361,10 +1346,9 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	// Read here rather than at the two call sites: a record that already carries
-	// the flip decision also carries the promotion marks of a rename that ran,
-	// and rewriting it would drop them and let a later pass run that rename
-	// again over the data it produced.
+	// Read here, not at the two call sites: rewriting a record that already
+	// carries the flip decision drops the promotion marks of a rename that ran,
+	// letting a later pass repeat it over the data it produced.
 	if rec, ok := t.migrationRecord(shard); !ok || !rec.FlipDecided() {
 		displaced := make(map[string]string, len(props))
 		for _, propName := range props {
@@ -1624,8 +1608,8 @@ func (t *ShardReindexTaskGeneric) migrationRecordKey() MigrationRecordKey {
 	}
 }
 
-// The key carries the task version, which is also the generation, so a record
-// stored under it names the directories this task writes.
+// The key carries the task version, which is also the generation, so the record
+// under it names the directories this task writes.
 func (t *ShardReindexTaskGeneric) migrationRecord(shard ShardLike) (MigrationRecord, bool) {
 	store := shard.migrationRecordStore()
 	if store == nil {

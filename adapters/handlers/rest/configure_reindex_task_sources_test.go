@@ -23,8 +23,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// stubMigrationTaskRaft answers the three questions the task sources ask, and
-// records whether the task list was reached at all.
+// stubMigrationTaskRaft records whether the task list was reached at all.
 type stubMigrationTaskRaft struct {
 	caughtUp   bool
 	local      map[string][]*distributedtask.Task
@@ -61,10 +60,8 @@ func reindexTasks(ids ...string) []*distributedtask.Task {
 	return tasks
 }
 
-// TestMigrationLocalTaskSourceWithholdsUntilTheFSMHasCaughtUp pins the gate a
-// node mid-catch-up needs: its own applied view is incomplete, so it must
-// report "I cannot tell", not an empty task list the reconciler would read as
-// authoritative and act on destructively.
+// A node mid-catch-up must report "I cannot tell", not an empty task list the
+// reconciler would read as authoritative and act on destructively.
 func TestMigrationLocalTaskSourceWithholdsUntilTheFSMHasCaughtUp(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -114,9 +111,8 @@ func TestMigrationLocalTaskSourceWithholdsUntilTheFSMHasCaughtUp(t *testing.T) {
 	}
 }
 
-// TestMigrationClusterTaskSourceRefusesUntilTheFSMHasCaughtUp is the cluster
-// half of the same gate: the leader query must fail loudly rather than hand
-// back a list this node cannot vouch for.
+// Cluster half of the same gate: fail loudly rather than hand back a list this
+// node cannot vouch for.
 func TestMigrationClusterTaskSourceRefusesUntilTheFSMHasCaughtUp(t *testing.T) {
 	listErr := errors.New("leader unreachable")
 

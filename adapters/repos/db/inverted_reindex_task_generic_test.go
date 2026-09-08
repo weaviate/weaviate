@@ -103,9 +103,8 @@ func newTestClassWithProps(className string, propNames []string) *models.Class {
 	}
 }
 
-// testMigrationUnitFor derives the unit identity of shardName the same way the
-// shard derives its own, so records a test task writes are the shard's own and
-// survive the record store's foreign-unit filter on reload.
+// testMigrationUnitFor derives shardName's unit identity the way the shard does,
+// so a test task's records survive the store's foreign-unit filter on reload.
 func testMigrationUnitFor(idx *Index, shardName string) string {
 	return MigrationUnitID(shardName, idx.getSchema.NodeName())
 }

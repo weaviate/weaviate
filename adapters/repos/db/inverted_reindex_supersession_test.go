@@ -591,19 +591,16 @@ func TestARecordRemovedEarlierInThePassStopsSupersedingAnything(t *testing.T) {
 		"and its tracker directory goes with it, instead of hydrating this tenant on every load")
 }
 
-// TestUnretiredSupersededPropertiesReportOncePerRecord pins the report to one
-// line per record. An unretired property keeps the record Swapped, so the next
-// pass asks the same question of the same properties; one line per property
-// would repeat the whole set every pass, for as long as the record stands.
+// One line per record, not per property: an unretired property keeps the record
+// Swapped, so every pass would repeat the whole set.
 func TestUnretiredSupersededPropertiesReportOncePerRecord(t *testing.T) {
 	taken := []string{"alpha", "beta", "gamma", "delta"}
 
 	f := newReconcileFixture(t)
 	f.class = testClassWithTokenization(models.PropertyTokenizationWord, taken...)
 
-	// Canonical dirs match per property, which is what makes the newer record
-	// supersede this one. Staged dirs do not, so nothing else accounts for the
-	// old record's, and they are still on disk: retirement has not run.
+	// Matching canonical dirs are what make the newer record supersede this one.
+	// Staged dirs differ and are still on disk, so retirement has not run.
 	old := testMigrationSubject(10, StrategyCodeFilterableToRangeable, taken...)
 	successor := testMigrationSubject(20, StrategyCodeFilterableToRangeable, taken...)
 

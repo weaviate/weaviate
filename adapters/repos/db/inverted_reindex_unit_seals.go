@@ -18,9 +18,7 @@ import (
 )
 
 // migrationUnitSeals holds the seal every teardown takes before it removes a
-// migration's directories. configure_api installs the reindex provider's
-// builder at startup, so SealUnit refuses while a worker still holds the
-// unit.
+// migration's directories, so SealUnit refuses while a worker holds the unit.
 type migrationUnitSeals struct {
 	mu      sync.RWMutex
 	builder ReindexUnitSealBuilder
@@ -53,8 +51,7 @@ func (s *migrationUnitSeals) SealUnit(desc distributedtask.TaskDescriptor, unitI
 }
 
 // SetReindexUnitSeal installs the seal a teardown takes before it removes a
-// migration's directories. configure_api calls it once at startup with the
-// reindex provider's builder.
+// migration's directories.
 func (db *DB) SetReindexUnitSeal(builder ReindexUnitSealBuilder) {
 	db.migrationSeals.Install(builder)
 }

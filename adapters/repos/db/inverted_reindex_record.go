@@ -49,8 +49,8 @@ const (
 	StrategyCodeRebuildSearchable           MigrationStrategyCode = MigrationDirPrefixRebuildSearchable
 )
 
-// One list, because a code that is valid but missing from it would be read
-// out of a record file name as no code at all.
+// One list: a valid code missing from it reads out of a record file name as no
+// code at all.
 var migrationStrategyCodes = []MigrationStrategyCode{
 	StrategyCodeSearchableMapToBlockmax, StrategyCodeFilterableRoaringsetRefresh,
 	StrategyCodeFilterableToRangeable, StrategyCodeSearchableRetokenize,
@@ -64,9 +64,8 @@ func (c MigrationStrategyCode) valid() bool {
 
 // migrationStrategyCodeOfRecordFile reads the strategy back out of a record
 // file name, which [MigrationRecordKey.fileName] writes as
-// "<taskVersion>_<strategyCode>_<unitID>.json". Reports false for a name this
-// build cannot take apart, which a caller must not read as "some other
-// strategy".
+// "<taskVersion>_<strategyCode>_<unitID>.json". False means unparseable, which a
+// caller must not read as "some other strategy".
 func migrationStrategyCodeOfRecordFile(name string) (MigrationStrategyCode, bool) {
 	rest, isJSON := strings.CutSuffix(name, ".json")
 	if !isJSON {
@@ -143,8 +142,8 @@ type MigrationSubject struct {
 	TrackerDir string `json:"trackerDir,omitempty"`
 
 	// Unmirrored is set when a boot could not arm this migration's double-write
-	// mirror. Writes taken in that window reach the canonical bucket only, so
-	// the staged copy is permanently behind and must never rename over it.
+	// mirror. Writes in that window reach the canonical bucket only, so the
+	// staged copy is permanently behind and must never rename over it.
 	Unmirrored bool `json:"unmirrored,omitempty"`
 
 	Props map[string]MigrationPropertyDirs `json:"props,omitempty"`

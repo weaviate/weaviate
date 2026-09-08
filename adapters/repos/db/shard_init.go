@@ -260,11 +260,10 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	}
 }
 
-// A fault entry names a file and a scope, never a strategy. A file whose name
-// is a well-formed record name for some other strategy cannot be the rangeable
-// migration, so it leaves rangeable readiness alone. Everything else turns it
-// off for the whole shard: a store-scope fault read no file, and a name this
-// build cannot take apart could be anything.
+// A fault names a file and a scope, never a strategy, so only a name that parses
+// as some other strategy leaves rangeable readiness alone. Everything else turns
+// it off shard-wide: a store-scope fault read no file, and an unparseable name
+// could be anything.
 func migrationFaultCouldHideARangeableRecord(faults []MigrationRecordUnreadable) bool {
 	for _, fault := range faults {
 		if fault.Scope != MigrationRecordFaultFile {
@@ -282,9 +281,8 @@ func migrationFaultCouldHideARangeableRecord(faults []MigrationRecordUnreadable)
 // inside a RAFT apply. Over it the payload is refused rather than parsed.
 const maxRecoveryPayloadBytes = 1 << 20 // 1 MiB
 
-// maxRecoveryWalkPayloadBytes is a memory bound for the startup walk, which
-// runs off any RAFT apply: an unbounded read of a corrupt payload at boot is
-// a crash loop.
+// maxRecoveryWalkPayloadBytes bounds the startup walk's memory: an unbounded
+// read of a corrupt payload at boot is a crash loop.
 const maxRecoveryWalkPayloadBytes = 256 << 20
 
 // errRecoveryPayloadTooLarge marks a payload.mig [maxRecoveryPayloadBytes]

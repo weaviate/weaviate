@@ -1152,13 +1152,9 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	})
 
 	err := eg.Wait()
-	// Both counts are what this line exists to carry, so either being
-	// non-zero prints it. Gating on payload reads alone hid record_set_reads
-	// exactly where it matters: a tracker removed by name match alone costs
-	// no payload read, but the shard's record set was still read to find it,
-	// and that read is where the once-per-index-type regression shows up.
-	// A sweep that reached any shard therefore reports — one line per
-	// property per apply, never one per shard.
+	// Either count non-zero prints: a tracker removed by name match alone
+	// costs no payload read but still reads the shard's record set, which is
+	// where the once-per-index-type regression shows up.
 	payloadReads, recordSetReads := counts.payloadReads.Load(), counts.recordSetReads.Load()
 	if payloadReads > 0 || recordSetReads > 0 {
 		i.logger.WithFields(map[string]any{

@@ -44,8 +44,8 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 		node   = "node1"
 		tenant = "cold-shard"
 	)
-	// The unit is the tenant shard's own identity: its record store sets
-	// records of any other unit aside as foreign on load.
+	// The unit is the tenant shard's own identity; its record store sets any
+	// other unit's records aside as foreign.
 	unitID := MigrationUnitID(tenant, node)
 	className := "SwapClaimOrder" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{prop})
@@ -212,10 +212,8 @@ func TestASealedUnitNeverStartsItsIteration(t *testing.T) {
 	}
 }
 
-// TestUnitsHeldByATeardownReportAtASampledRate pins the contention line to a
-// sampled rate. The scheduler retries every unit it could not start, and a
-// unit count is a tenant count, so one line per unit per tick has no end while
-// the teardown runs.
+// The contention line must be sampled: the scheduler retries every unit it
+// could not start, and a unit count is a tenant count.
 func TestUnitsHeldByATeardownReportAtASampledRate(t *testing.T) {
 	ctx := testCtx()
 	className := "UnitContention" + uuid.NewString()[:8]
@@ -249,8 +247,7 @@ func TestUnitsHeldByATeardownReportAtASampledRate(t *testing.T) {
 		Status: distributedtask.TaskStatusStarted, Payload: raw,
 	}
 
-	// A teardown holds every unit, which is what makes the provider decline
-	// each of them in turn.
+	// A teardown holds every unit, so the provider declines each in turn.
 	for _, id := range unitIDs {
 		_, sealed := p.SealLocalUnit(desc, id)
 		require.True(t, sealed)

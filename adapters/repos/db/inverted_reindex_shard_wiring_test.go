@@ -241,9 +241,8 @@ func TestShutdownStagedBucketsClosesOnlyTheNamedProperty(t *testing.T) {
 	}
 }
 
-// Both accessors read l.shard, which the loader writes under l.mutex. Taking
-// the same mutex on the read side is what makes the pair safe, and dropping it
-// makes this test fail under -race.
+// Both accessors read l.shard, which the loader writes under l.mutex; dropping
+// that mutex on the read side makes this fail under -race.
 func TestLazyLoadShardMigrationAccessorsLockAgainstTheLoader(t *testing.T) {
 	tests := []struct {
 		name string
@@ -282,10 +281,8 @@ func TestLazyLoadShardMigrationAccessorsLockAgainstTheLoader(t *testing.T) {
 				}
 			}()
 
-			// The reader is already spinning when the load starts and keeps
-			// spinning until it has returned, so the write to l.shard lands
-			// inside the window the reader is reading in. No timing assumption
-			// sits between the two.
+			// The reader spins across the whole load, so the write to l.shard
+			// lands inside its read window with no timing assumption.
 			spinning, loadDone := make(chan struct{}), make(chan struct{})
 			var readers sync.WaitGroup
 			readers.Add(1)

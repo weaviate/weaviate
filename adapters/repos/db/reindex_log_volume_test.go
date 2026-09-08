@@ -39,9 +39,8 @@ func entriesAbout(hook *logrustest.Hook, needle string) []*logrus.Entry {
 	return out
 }
 
-// linesOf renders entries for a failure message. logrus entries are pointers,
-// so a failed count assertion on them prints addresses instead of the lines the
-// assertion is about.
+// linesOf renders entries for a failure message: logrus entries are pointers,
+// so asserting on them prints addresses instead of the lines.
 func linesOf(entries []*logrus.Entry) []string {
 	out := make([]string, len(entries))
 	for i, entry := range entries {
@@ -50,10 +49,8 @@ func linesOf(entries []*logrus.Entry) []string {
 	return out
 }
 
-// TestRecoveryWalkReportsMissingPayloadsOnce pins the startup walk's
-// missing-payload reporting to one line for the whole walk. The fault is per
-// tracker per shard, so a line at the point of failure follows the tenant count
-// at every boot.
+// One line for the whole walk: the fault is per tracker per shard, so reporting
+// at the point of failure follows the tenant count at every boot.
 func TestRecoveryWalkReportsMissingPayloadsOnce(t *testing.T) {
 	const (
 		shards     = 12
@@ -65,8 +62,7 @@ func TestRecoveryWalkReportsMissingPayloadsOnce(t *testing.T) {
 
 	for i := 0; i < shards; i++ {
 		lsm := filepath.Join(indexPath, fmt.Sprintf("tenant-%02d", i), "lsm")
-		// The tracker dir exists but carries no payload.mig, which is the arm
-		// that used to warn once per tracker.
+		// Tracker dir with no payload.mig: the arm that warns per tracker.
 		require.NoError(t, os.MkdirAll(filepath.Join(lsm, ".migrations", trackerDir), 0o777))
 
 		subject := testMigrationSubject(uint64(i+1), StrategyCodeSearchableRetokenize, "title")
@@ -87,8 +83,7 @@ func TestRecoveryWalkReportsMissingPayloadsOnce(t *testing.T) {
 	require.Contains(t, about[0].Message, fmt.Sprintf("%d migration(s)", shards),
 		"the one line carries the count the per-tracker lines used to carry")
 
-	// The line names trackers too, so the names have to be capped or the one
-	// line grows with the tenant count instead of the line count.
+	// The names have to be capped, or the one line grows with the tenant count.
 	names, ok := about[0].Data["trackers"].([]string)
 	require.True(t, ok, "the line carries the tracker names it counted")
 	require.Len(t, names, maxReportedErrors+1,
@@ -96,10 +91,8 @@ func TestRecoveryWalkReportsMissingPayloadsOnce(t *testing.T) {
 	require.Contains(t, names[len(names)-1], fmt.Sprintf("and %d more", shards-maxReportedErrors))
 }
 
-// TestOrphanTrackerStringBoundsItsPropertyList pins that the formatter the
-// orphan audit logs with caps its property list. A property list is
-// user-chosen and unbounded, and the audit emits one line per orphan on a walk
-// over every shard on the node.
+// The audit's formatter caps its property list: the list is user-chosen and
+// unbounded, and one line per orphan is emitted for every shard on the node.
 func TestOrphanTrackerStringBoundsItsPropertyList(t *testing.T) {
 	const props = maxReportedErrors*2 + 5
 
@@ -130,10 +123,8 @@ func TestOrphanTrackerStringBoundsItsPropertyList(t *testing.T) {
 		"the line says how many names it left out")
 }
 
-// TestOverlayConflictReportsManyPropertiesInOneLine pins the overlay-conflict
-// warning to one line whatever the property count, with the names on it
-// bounded. Both registrations name every property, so a line per property is a
-// line per property the user configured.
+// One bounded line whatever the property count: both registrations name every
+// property, so a line per property is a line per property the user configured.
 func TestOverlayConflictReportsManyPropertiesInOneLine(t *testing.T) {
 	const props = 50
 
@@ -167,10 +158,8 @@ func TestOverlayConflictReportsManyPropertiesInOneLine(t *testing.T) {
 		"the capped names plus the one entry that says how many are unaccounted for")
 }
 
-// TestUpdatePropertySummaryPrintsWithoutPayloadReads pins that the apply's
-// sweep summary is emitted on the common path, where no tracker payload is read
-// at all. record_set_reads is the count a once-per-shard regression shows up
-// in, and gating the line on payload reads alone hid it.
+// The apply's sweep summary must print on the common path, where no payload is
+// read at all: record_set_reads is where a once-per-shard regression shows up.
 func TestUpdatePropertySummaryPrintsWithoutPayloadReads(t *testing.T) {
 	ctx := testCtx()
 	className := "SweepSummaryNoPayloads_" + uuid.NewString()[:8]
@@ -182,8 +171,7 @@ func TestUpdatePropertySummaryPrintsWithoutPayloadReads(t *testing.T) {
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
-	// No tracker dir on disk, so the sweep reads no payload but still reads the
-	// shard's record set to find out there is nothing to preserve.
+	// No tracker dir, so the sweep reads no payload but still reads the record set.
 	require.NoDirExists(t, filepath.Join(shard.pathLSM(), ".migrations"))
 
 	prop := class.Properties[0]

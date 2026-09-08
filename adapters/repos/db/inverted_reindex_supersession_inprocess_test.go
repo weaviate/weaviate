@@ -149,10 +149,9 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 	}
 }
 
-// A swap removes the directory it displaced, which on a back-to-back migration
-// is the predecessor's staged directory holding its only migrated copy. When
-// the successor covers just some of the predecessor's properties, retirement
-// leaves that record standing, so the swap has to leave what it still names.
+// A swap removes the directory it displaced, which back-to-back is the
+// predecessor's only migrated copy. A partial supersession leaves the
+// predecessor's record standing, so the swap must spare what it still names.
 func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
 	ctx := testCtx()
 	className := "SwapKeepsHeldDir_" + uuid.NewString()[:8]
@@ -176,8 +175,8 @@ func TestASwapLeavesADisplacedDirAnotherRecordStillNames(t *testing.T) {
 	require.DirExists(t, filepath.Join(shard.pathLSM(), held),
 		"the flip leaves the migrated data at the staged name until a load promotes it")
 
-	// Only "title" is superseded, so the predecessor keeps its record and goes
-	// on naming both staged directories.
+	// Only "title" is superseded, so the predecessor keeps its record and both
+	// staged directories.
 	successor, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 2, shard.migrationUnit(), "title")
 	require.NoError(t, successor.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, successor.RunPrepareOnShard(ctx, shard))

@@ -285,11 +285,9 @@ func (i *Index) cleanStalePartialReindexState(
 // not from a shard load.
 //
 // The second return says the shard holds directories of a migration whose
-// staging finished: data still under the ingest sidecar name, or a directory
-// a promoted record still owns. Only a shard load settles those
-// (reconciliation runs before buckets open, and may discard rather than
-// promote, since staged isn't committed). Meaningful only when the first
-// return is false — a shard already being hydrated finalizes them either way.
+// staging finished. Only a shard load settles those, and it is meaningful only
+// when the first return is false — a shard already hydrating finalizes them
+// either way.
 //
 // props memoizes the tracker payloads read on the way to that answer. Callers
 // running a grid of tuples over the same shards hand in one for the whole run

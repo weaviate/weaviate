@@ -122,9 +122,8 @@ func opaqueMigrationSubject(t *testing.T, staged, shardName string) db.Migration
 		Key: db.MigrationRecordKey{
 			TaskVersion:  4711,
 			StrategyCode: db.StrategyCodeFilterableRoaringsetRefresh,
-			// The record store sets a record of any other unit aside as
-			// foreign on load, so the planted record must carry the shard's
-			// own identity for the reconciler to promote it.
+			// The store sets any other unit's records aside as foreign, so the
+			// planted one must carry the shard's own identity to be promoted.
 			UnitID: db.MigrationUnitID(shardName, docker.Weaviate0),
 		},
 		TaskID:          "opaque-promotion",

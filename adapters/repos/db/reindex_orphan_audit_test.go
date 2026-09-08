@@ -580,12 +580,9 @@ func TestSidecarDirsForOrphan_StrategyRegistry(t *testing.T) {
 	}
 }
 
-// writePreAgedQuarantineSentinel writes the S2 quarantine sentinel
-// into trackerDir with an mtime older than reindexAuditQuarantineWindow,
-// so the *next* AuditOrphanReindexTrackers sweep observes the
-// quarantine as expired and proceeds with destructive cleanup. Used to
-// exercise the post-quarantine cleanup path in tests without sleeping
-// 5 minutes.
+// writePreAgedQuarantineSentinel writes the quarantine sentinel with an mtime
+// older than reindexAuditQuarantineWindow, so the next sweep sees it expired
+// and cleans up without the test sleeping out the window.
 func writePreAgedQuarantineSentinel(t *testing.T, trackerDir string) {
 	t.Helper()
 	p := filepath.Join(trackerDir, reindexAuditQuarantineFile)

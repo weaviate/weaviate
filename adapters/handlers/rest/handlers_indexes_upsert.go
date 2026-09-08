@@ -831,8 +831,8 @@ func (h *indexesHandlers) sealLocalReindexWorkers(ctx context.Context, principal
 // produces that from a tenant leaving the shard map mid-walk. Refusing the
 // submit on it would turn ordinary tenant movement into a 500.
 //
-// The sweep runs under the seal [sealLocalReindexWorkers] takes, which is the
-// contract [db.StalePartialReindexSweep] states for every caller.
+// Runs under the seal [sealLocalReindexWorkers] takes, which is the contract
+// [db.StalePartialReindexSweep] states for every caller.
 func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
 	cleaner stalePartialStateCleaner, sealer localReindexDrainSealer,
 	collection, propertyName string, migrationType db.ReindexMigrationType,

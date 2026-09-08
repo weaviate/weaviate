@@ -119,10 +119,9 @@ type ReindexProvider struct {
 	// first finisher clear the second's claim.
 	liveUnits unitClaims
 
-	// teardownHeld samples the line about a unit a teardown holds. The line is
-	// emitted once per unit the scheduler retries, and a unit count is a tenant
-	// count, so the window has to span ticks: the sampler lives on the provider,
-	// not on a call.
+	// teardownHeld samples the line about a unit a teardown holds. The scheduler
+	// retries every unit, and a unit count is a tenant count, so the sampling
+	// window has to span ticks — hence a provider field, not a per-call one.
 	teardownHeldOnce sync.Once
 	teardownHeld     *logrusext.Sampler
 
@@ -558,7 +557,7 @@ func (p *ReindexProvider) processOneUnit(
 
 	logger.Info("reindex provider: starting unit")
 
-	// Report initial progress to claim the unit.
+	// Claims the unit.
 	if err := recorder.UpdateDistributedTaskUnitProgress(
 		ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, 0.0,
 	); err != nil {
@@ -609,12 +608,11 @@ func (p *ReindexProvider) processOneUnit(
 		tasks = p.cachedReindexTasks(task.TaskDescriptor, unitID)
 		cached = len(tasks) > 0
 	}
-	// A non-empty set is not a complete one. Recovery seeds a task per tracker
-	// directory that carries a migration record, so a unit that restarted
-	// between its two halves seeds one half and nothing says so. Running it
-	// alone reports the unit finished and commits the schema for both. A
-	// missing half never started, so its persisted payload rebuilds it whole;
-	// only when that rebuild fails is the unit refused.
+	// A non-empty set is not a complete one: recovery seeds a task only per
+	// tracker that carries a record, so a unit interrupted between its halves
+	// seeds one and running it alone commits the schema for both. A missing half
+	// never started, so its payload rebuilds it whole; only a failed rebuild
+	// refuses the unit.
 	if cached {
 		if missing := migrationHalvesMissingFromCache(
 			concreteShard.pathLSM(), task.TaskDescriptor, unitID, tasks); len(missing) > 0 {
@@ -732,9 +730,8 @@ func (p *ReindexProvider) processOneUnit(
 }
 
 // migrationUnitContentionWindow bounds how often the provider repeats the same
-// line about units it declined to start. A scheduler tick is shorter than this,
-// so a teardown spanning many ticks reports at a steady low rate rather than
-// once per unit per tick.
+// line about units it declined to start. Longer than a scheduler tick, so a
+// long teardown reports at a steady low rate rather than once per unit per tick.
 const migrationUnitContentionWindow = time.Minute
 
 // maxReindexPropertiesPerTask caps the number of properties in a single
@@ -2005,9 +2002,8 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 	}); err != nil {
 		return false
 	}
-	// Deferred, because the loop returns as soon as it finds post-merge state:
-	// the count is what proves the probe reads once per shard rather than once
-	// per property, so every exit has to carry it.
+	// Deferred: the loop returns on the first post-merge state, and every exit
+	// has to carry the count that proves one read per shard.
 	recordReads := 0
 	defer func() {
 		p.logger.WithField("collection", payload.Collection).
@@ -2277,12 +2273,10 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 	// shard map again for each of them. The tracker dir sits at a path this
 	// node can join, so nothing here loads a shard.
 	//
-	// The walk has to be the strict one. The lenient walker answers nil once
-	// the index is closing, which leaves every shard unvisited and reports a
-	// record that still owes a swap as a finished one. A walk that could not
-	// reach the shards answers false: the scheduler re-fires the group and
-	// asks again,
-	// which is recoverable, while a false "done" is not.
+	// Strict, not lenient: the lenient walker answers nil once the index is
+	// closing, reporting a record that still owes a swap as finished. An
+	// unreachable walk answers false, and the scheduler re-fires the group —
+	// recoverable, where a false "done" is not.
 	hosted := map[string]bool{}
 	for unitID, nodeName := range payload.UnitToNode {
 		if nodeName != localNode {

@@ -70,10 +70,9 @@ func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
 	require.NoError(t, store.Put(rec))
 }
 
-// plantMigrationRecordFile writes a record file the way the store's Put does,
-// without the writer-side refusal of a record that names no properties. The
-// writer never creates such a record, but one can already sit on disk, and the
-// read path still has to decide what to do with it.
+// plantMigrationRecordFile writes a record the way the store's Put does, minus
+// the refusal of a property-less record: the writer never makes one, but the
+// read path still meets them on disk.
 func plantMigrationRecordFile(t *testing.T, store *MigrationRecordStore, rec MigrationRecord) {
 	t.Helper()
 	data, err := json.MarshalIndent(rec.toEnvelope(), "", "  ")

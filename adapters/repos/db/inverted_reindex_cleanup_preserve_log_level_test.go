@@ -63,18 +63,16 @@ func TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug(t *testing.T) {
 		"preserving a deferred-finalize tracker dir must not log at Info inside the RAFT apply loop")
 	require.Equal(t, preservedGens, preservedCount, "one Debug line per preserved generation")
 
-	// The record-set read this path makes must not report itself either: it runs
-	// once per shard inside the same apply, and the apply's own aggregate is the
-	// one line it is allowed to emit.
+	// This read runs once per shard inside the apply, whose aggregate is the one
+	// line allowed.
 	for _, e := range hook.AllEntries() {
 		require.NotContains(t, e.Message, "read migration records",
 			"the record-set read is accounted for by the caller's aggregate, not per read")
 	}
 }
 
-// TestCleanStaleSidecarDirsPreservedLogAtDebug pins the sidecar half of the
-// same rule: updatePropertyBuckets reaches this inside the RAFT apply loop, so
-// preserving a sidecar dir costs one line per tenant at Info.
+// Sidecar half of the same rule: this runs inside the RAFT apply loop, so an
+// Info line here costs one per tenant.
 func TestCleanStaleSidecarDirsPreservedLogAtDebug(t *testing.T) {
 	root := t.TempDir()
 	hookLogger, hook := test.NewNullLogger()
@@ -114,18 +112,14 @@ func TestCleanStaleSidecarDirsPreservedLogAtDebug(t *testing.T) {
 	}
 }
 
-// TestApplyPathReadsAShardsRecordsOncePerProperty pins the read count the
-// schema apply pays per shard. The sweep is built once for the whole
-// index-type loop, so the number is one; building it inside the loop instead
-// would multiply every tenant's cost by the index-type count, and the apply's
-// aggregate is the only thing that would say so.
+// The sweep is built once for the whole index-type loop; building it inside
+// would multiply every tenant's disk cost by the index-type count.
 func TestApplyPathReadsAShardsRecordsOncePerProperty(t *testing.T) {
 	ctx := testCtx()
 	className := "ApplyReadCount" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"title"})
 
-	// Every index type off, so the loop this read has to outlive runs more than
-	// once.
+	// Every index type off, so the loop this read outlives runs more than once.
 	prop := class.Properties[0]
 	off := false
 	prop.IndexFilterable = &off

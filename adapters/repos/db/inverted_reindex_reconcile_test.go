@@ -1970,9 +1970,8 @@ func TestAWedgedRecordIsDiagnosedOncePerLoadedStore(t *testing.T) {
 	require.True(t, f.exists("property_title__g42_ingest"), "its staged data is untouched")
 }
 
-// TestMigrationReportedNamesCapsAPropertyList pins the shared cap every log
-// line carrying a property list goes through. A property list is user-chosen,
-// so its length is not bounded by anything the code decides.
+// The shared cap every log line carrying a property list goes through; the list
+// is user-chosen, so nothing in the code bounds its length.
 func TestMigrationReportedNamesCapsAPropertyList(t *testing.T) {
 	names := make([]string, 0, 30)
 	for i := 0; i < 30; i++ {

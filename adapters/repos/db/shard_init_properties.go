@@ -161,10 +161,9 @@ func createsGeoIndex(prop *models.Property) bool {
 	return dt == schema.DataTypeGeoCoordinates
 }
 
-// migrationSweepCounts totals what one property's sweep cost across the shards
-// it ran on, for the single line the apply emits. The two are different reads
-// of different files: payload parses under a tracker directory, and reads of
-// the shard's record set.
+// migrationSweepCounts totals one property's sweep cost across shards for the
+// single line the apply emits. The two counts read different files: payload
+// parses under a tracker directory, and reads of the shard's record set.
 type migrationSweepCounts struct {
 	payloadReads   atomic.Int64
 	recordSetReads atomic.Int64
@@ -176,9 +175,9 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 	counts *migrationSweepCounts,
 ) {
 	eg.Go(func() error {
-		// One preserve set and one payload memo for the whole loop, not one per
-		// index type: this runs inside a RAFT apply. Built on first use, so a
-		// shard whose apply is already cancelled builds nothing.
+		// One preserve set and payload memo for the whole loop, not one per index
+		// type: this runs inside a RAFT apply. Built on first use, so an already
+		// cancelled apply builds nothing.
 		var sweep *migrationSweepState
 		sweepState := func() *migrationSweepState {
 			if sweep == nil {
@@ -232,9 +231,9 @@ func disabledIndexTypes(prop *models.Property) []string {
 type migrationSweepState struct {
 	committed migrationPreservedState
 	props     *taskPropsCache
-	// recordReads is how many times building this state read the shard's record
-	// set. Exactly one per state, so the total counts states built: one per
-	// shard is the shape, one per index type is the regression.
+	// recordReads counts this state's record-set reads. Exactly one per state, so
+	// the total counts states built: one per shard is the shape, one per index
+	// type is the regression.
 	recordReads int
 }
 
@@ -256,8 +255,8 @@ func migrationSweepStateFor(lsmPath string, logger logrus.FieldLogger) *migratio
 }
 
 // A disk read here would put a directory listing and a read per record file on
-// the RAFT apply loop, once per shard of the collection. The shard's own store
-// is the only writer to .migrations/records/ while the shard is loaded.
+// the RAFT apply loop, once per shard. The loaded shard's own store is the only
+// writer to .migrations/records/, so its map is authoritative.
 func (s *Shard) migrationSweepState() *migrationSweepState {
 	store := s.migrationRecordStore()
 	if store == nil {
@@ -586,12 +585,10 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, commit
 	}
 }
 
-// sidecarRoleWords are the words every migration sidecar suffix ends in, once the
-// generation tail is off. "backup" and "map" name no suffix this build produces,
-// because the swap removes the directory it displaces at the handle the record
-// names instead of renaming it aside. They stay because clusters upgrading into
-// this build bring those directories along and no record names them, so this
-// sweep is the only thing that can reclaim them.
+// sidecarRoleWords are the words every migration sidecar suffix ends in, once
+// the generation tail is off. "backup" and "map" name no suffix this build
+// produces, but clusters upgrading into it bring those directories along under
+// no record, so this sweep is the only thing that can reclaim them.
 var sidecarRoleWords = schema.SidecarRoleWords
 
 // isSidecarDirOf reports whether name is a per-property sidecar of

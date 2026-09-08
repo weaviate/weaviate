@@ -74,10 +74,8 @@ func reindexTaskOn(t *testing.T, id, collection, property string) *distributedta
 	}
 }
 
-// TestCleanStalePartialStateOrFail pins that the pre-submit stale-state scrub
-// fails closed on an unknown migration type or a scrub error, holds every
-// local worker of an earlier task on the property while it runs, and otherwise
-// cleans every index type the migration touches before proceeding.
+// The pre-submit scrub fails closed on an unknown migration type or a scrub
+// error, and seals earlier local workers on the property while it runs.
 func TestCleanStalePartialStateOrFail(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
