@@ -59,21 +59,7 @@ func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
 		}
 	}
 
-	var rec MigrationRecord
-	switch state {
-	case MigrationStateIterating:
-		rec = NewMigrationRecordIterating(subject, MigrationCheckpoint{})
-	case MigrationStateIterated:
-		rec = NewMigrationRecordIterated(subject)
-	case MigrationStateMerged:
-		rec = NewMigrationRecordMerged(subject)
-	case MigrationStateSwapped:
-		rec = NewMigrationRecordSwapped(subject, subject.Properties(), subject.dirsInRole(migrationCanonicalOf))
-	case MigrationStatePromoted:
-		rec = NewMigrationRecordPromoted(subject, subject.Properties(), subject.dirsInRole(migrationCanonicalOf))
-	default:
-		require.FailNowf(t, "unknown migration state", "%q", state)
-	}
+	rec := newMigrationRecordAt(t, subject, state)
 
 	logger, _ := test.NewNullLogger()
 	store := NewMigrationRecordStore(lsmPath, logger)

@@ -179,14 +179,7 @@ func TestRecoveryConvergence_EnableSearchable_Baseline(t *testing.T) {
 	// Under word tokenization our 25-token cycling dictionary produces
 	// 25 distinct terms (same shape as the MapToBlockmax baseline's
 	// expectedTokens block at convergence_test.go:264-274).
-	expectedTokens := []string{
-		"alpha", "bravo", "charlie", "delta", "echo",
-		"foxtrot", "golf", "hotel", "india", "juliett",
-		"kilo", "lima", "mike", "november", "oscar",
-		"papa", "quebec", "romeo", "sierra", "tango",
-		"uniform", "victor", "whiskey", "xray", "yankee",
-	}
-	for _, tok := range expectedTokens {
+	for _, tok := range convergenceTokens {
 		docIDs, ok := postFP[tok]
 		require.Truef(t, ok,
 			"baseline fingerprint missing token %q (post-migration bucket should contain every dictionary word)", tok)

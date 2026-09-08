@@ -152,14 +152,7 @@ func TestRecoveryConvergence_EnableFilterable_Baseline(t *testing.T) {
 	// Every word-tokenized dictionary token should be present given
 	// numObjects=25 and the 3-word cycling pattern (each token appears
 	// as one of the 3 words for some doc).
-	expectedTokens := []string{
-		"alpha", "bravo", "charlie", "delta", "echo",
-		"foxtrot", "golf", "hotel", "india", "juliett",
-		"kilo", "lima", "mike", "november", "oscar",
-		"papa", "quebec", "romeo", "sierra", "tango",
-		"uniform", "victor", "whiskey", "xray", "yankee",
-	}
-	for _, tok := range expectedTokens {
+	for _, tok := range convergenceTokens {
 		docIDs, ok := postFP[tok]
 		require.Truef(t, ok,
 			"post-migration filterable fingerprint missing token %q (every dictionary word should appear)", tok)

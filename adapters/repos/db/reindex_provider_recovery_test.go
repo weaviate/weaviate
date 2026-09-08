@@ -230,10 +230,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 					migrationType, tc.laterState, recordProp)
 			}
 			if tc.unreadableRecord {
-				records := filepath.Join(tenantLSM, ".migrations", migrationRecordsDirName)
-				require.NoError(t, os.MkdirAll(records, 0o755))
-				require.NoError(t, os.WriteFile(
-					filepath.Join(records, "99_enable_searchable.json"), []byte("{"), 0o644))
+				plantUnreadableRecord(t, recordStoreDirOf(t, tenantLSM))
 			}
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
 				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,

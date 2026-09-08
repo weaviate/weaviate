@@ -33,6 +33,55 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+// The name the planted unreadable record carries. Named because the store
+// reports it back and a test that clears the fault has to remove that file.
+const unreadableRecordFile = "99_enable_searchable.json"
+
+// plantUnreadableRecord writes a file no build can decode into a shard's record
+// directory, which is what withholds every destructive action on that shard. It
+// returns the path so a caller that clears the fault names the file the store
+// refused rather than a second copy of the name.
+func plantUnreadableRecord(t *testing.T, dir string) string {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0o777))
+	path := filepath.Join(dir, unreadableRecordFile)
+	require.NoError(t, os.WriteFile(path, []byte("{"), 0o600))
+	return path
+}
+
+// newMigrationRecordAt builds the record a migration stopped at state would
+// have written. The flipped properties and displaced directories come from the
+// subject, which is where the writer takes them from too. One switch for the
+// package, so a state added to the record machine reaches every fixture that
+// plants one.
+func newMigrationRecordAt(t *testing.T, subject MigrationSubject, state MigrationState) MigrationRecord {
+	t.Helper()
+	switch state {
+	case MigrationStateIterating:
+		return NewMigrationRecordIterating(subject, MigrationCheckpoint{})
+	case MigrationStateIterated:
+		return NewMigrationRecordIterated(subject)
+	case MigrationStateMerged:
+		return NewMigrationRecordMerged(subject)
+	case MigrationStateSwapped:
+		return NewMigrationRecordSwapped(subject, subject.Properties(),
+			subject.dirsInRole(migrationCanonicalOf))
+	case MigrationStatePromoted:
+		return NewMigrationRecordPromoted(subject, subject.Properties(),
+			subject.dirsInRole(migrationCanonicalOf))
+	}
+	require.FailNowf(t, "no record for this migration state", "%q", state)
+	return nil
+}
+
+// recordStoreDirOf names a shard's record directory the way production does,
+// for a caller holding only the shard's LSM path.
+func recordStoreDirOf(t *testing.T, lsmPath string) string {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	return NewMigrationRecordStore(lsmPath, logger).Dir()
+}
+
 func testMigrationSubject(version uint64, code MigrationStrategyCode, props ...string) MigrationSubject {
 	subject := MigrationSubject{
 		Key:                  MigrationRecordKey{TaskVersion: version, StrategyCode: code, UnitID: "shard-1__node-0"},
@@ -606,8 +655,8 @@ func TestMigrationRecordStore(t *testing.T) {
 			},
 			assert: func(t *testing.T, s *MigrationRecordStore) {
 				require.Len(t, s.Unreadable(), 1)
-				require.Equal(t, "99_enable_searchable.json", s.Unreadable()[0].FileName)
-				_, err := os.Stat(filepath.Join(s.Dir(), "99_enable_searchable.json"))
+				require.Equal(t, unreadableRecordFile, s.Unreadable()[0].FileName)
+				_, err := os.Stat(filepath.Join(s.Dir(), unreadableRecordFile))
 				require.NoError(t, err, "an unreadable record must survive the load that could not read it")
 			},
 		},

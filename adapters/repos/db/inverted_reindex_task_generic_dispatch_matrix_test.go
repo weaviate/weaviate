@@ -26,13 +26,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-var dispatchMatrixStates = []MigrationState{
-	MigrationStateIterating,
-	MigrationStateIterated,
-	MigrationStateMerged,
-	MigrationStateSwapped,
-}
-
 // dispatchMatrixStrategyCase describes one row in the strategy axis. The
 // closures cover everything that varies by strategy: class fixture
 // construction (some strategies need IndexFilterable=false, others need
@@ -232,26 +225,6 @@ func dispatchMatrixRangeableFingerprintAsString(t *testing.T, b *lsmkv.Bucket) m
 	return out
 }
 
-func dispatchMatrixDriveCell(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	state MigrationState,
-) {
-	t.Helper()
-	switch state {
-	case MigrationStateIterating:
-		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	case MigrationStateIterated:
-		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	case MigrationStateMerged:
-		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-		require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	case MigrationStateSwapped:
-		require.NoError(t, task.RunOnShard(ctx, shard))
-	default:
-		t.Fatalf("dispatchMatrix: no drive for state %q", state)
-	}
-}
-
 func dispatchMatrixRecordOf(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric) MigrationRecord {
 	t.Helper()
 	rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
@@ -279,7 +252,7 @@ func dispatchMatrixComputeBaseline(
 	dispatchMatrixSeedObjects(t, ctx, shard, sc, className, numObjects)
 
 	task := sc.buildTask(t, idx, className, propName, shard.migrationUnit())
-	dispatchMatrixDriveCell(t, ctx, shard, task, MigrationStateSwapped)
+	driveToMigrationState(t, ctx, shard, task, MigrationStateSwapped)
 
 	rec := dispatchMatrixRecordOf(t, shard, task)
 	require.Equal(t, MigrationStateSwapped, rec.State())
@@ -321,7 +294,7 @@ func TestRunSwapOnShard_DispatchMatrix(t *testing.T) {
 				"baseline fingerprint for %s must be non-empty (a strategy whose clean migration produces no terms can't anchor convergence assertions)",
 				sc.strategyName)
 
-			for _, state := range dispatchMatrixStates {
+			for _, state := range migrationStatesBeforePromotion {
 				state := state
 				t.Run(string(state), func(t *testing.T) {
 					dispatchMatrixRunCell(t, sc, state, numObjects, baseline)
@@ -351,7 +324,7 @@ func dispatchMatrixRunCell(
 
 	task := sc.buildTask(t, idx, className, propName, shard.migrationUnit())
 
-	dispatchMatrixDriveCell(t, ctx, shard, task, state)
+	driveToMigrationState(t, ctx, shard, task, state)
 
 	require.Equalf(t, state, dispatchMatrixRecordOf(t, shard, task).State(),
 		"the drive landed somewhere other than the state this cell dispatches from (strategy=%s)",

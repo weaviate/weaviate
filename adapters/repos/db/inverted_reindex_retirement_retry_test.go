@@ -13,32 +13,38 @@ package db
 
 import (
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+// The bucket both generations of the retokenize migration rebuild. Sharing it is
+// what makes the older generation's staged data the newer one's to supersede.
+const retokenizeCanonicalDir = "property_title_searchable"
+
+// retokenizeSubjectAtGeneration builds the subject of the nth retokenize
+// migration of "title".
+func retokenizeSubjectAtGeneration(generation int) MigrationSubject {
+	gen := strconv.Itoa(generation)
+	subject := testMigrationSubject(uint64(40+generation), StrategyCodeSearchableRetokenize, "title")
+	subject.TrackerDir = "searchable_retokenize_title_" + gen
+	subject.Props = map[string]MigrationPropertyDirs{"title": {
+		Staged:    "property_title_searchable__retokenize_ingest_" + gen,
+		Sidecar:   "property_title_searchable__retokenize_reindex_" + gen,
+		Canonical: retokenizeCanonicalDir,
+	}}
+	return subject
+}
+
 func TestAFailedRetirementKeepsItsRetry(t *testing.T) {
 	f := newReconcileFixture(t)
 	f.class = testClassWithTokenization(models.PropertyTokenizationWord, "title")
 
-	const canonical = "property_title_searchable"
-	predecessor := testMigrationSubject(41, StrategyCodeSearchableRetokenize, "title")
-	predecessor.TrackerDir = "searchable_retokenize_title_1"
-	predecessor.Props = map[string]MigrationPropertyDirs{"title": {
-		Staged:    "property_title_searchable__retokenize_ingest_1",
-		Sidecar:   "property_title_searchable__retokenize_reindex_1",
-		Canonical: canonical,
-	}}
-
-	successor := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
-	successor.TrackerDir = "searchable_retokenize_title_2"
-	successor.Props = map[string]MigrationPropertyDirs{"title": {
-		Staged:    "property_title_searchable__retokenize_ingest_2",
-		Sidecar:   "property_title_searchable__retokenize_reindex_2",
-		Canonical: canonical,
-	}}
+	const canonical = retokenizeCanonicalDir
+	predecessor := retokenizeSubjectAtGeneration(1)
+	successor := retokenizeSubjectAtGeneration(2)
 
 	f.mkdirs(predecessor.Props["title"].Staged, successor.Props["title"].Staged, canonical)
 	f.put(NewMigrationRecordSwapped(predecessor, []string{"title"},
@@ -75,22 +81,9 @@ func TestARepromotionSkipsWhatRetirementOwns(t *testing.T) {
 	f := newReconcileFixture(t)
 	f.class = testClassWithTokenization(models.PropertyTokenizationWord, "title")
 
-	const canonical = "property_title_searchable"
-	predecessor := testMigrationSubject(41, StrategyCodeSearchableRetokenize, "title")
-	predecessor.TrackerDir = "searchable_retokenize_title_1"
-	predecessor.Props = map[string]MigrationPropertyDirs{"title": {
-		Staged:    "property_title_searchable__retokenize_ingest_1",
-		Sidecar:   "property_title_searchable__retokenize_reindex_1",
-		Canonical: canonical,
-	}}
-
-	successor := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
-	successor.TrackerDir = "searchable_retokenize_title_2"
-	successor.Props = map[string]MigrationPropertyDirs{"title": {
-		Staged:    "property_title_searchable__retokenize_ingest_2",
-		Sidecar:   "property_title_searchable__retokenize_reindex_2",
-		Canonical: canonical,
-	}}
+	const canonical = retokenizeCanonicalDir
+	predecessor := retokenizeSubjectAtGeneration(1)
+	successor := retokenizeSubjectAtGeneration(2)
 
 	f.mkdirs(predecessor.Props["title"].Staged)
 	f.put(NewMigrationRecordPromoted(predecessor, []string{"title"},

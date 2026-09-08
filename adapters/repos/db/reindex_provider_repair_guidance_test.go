@@ -286,19 +286,7 @@ func mkMigrationRecordFor(t *testing.T, lsmPath, trackerDir, taskID string, task
 		}
 	}
 
-	var rec MigrationRecord
-	switch state {
-	case MigrationStateIterating:
-		rec = NewMigrationRecordIterating(subject, MigrationCheckpoint{})
-	case MigrationStateIterated:
-		rec = NewMigrationRecordIterated(subject)
-	case MigrationStateMerged:
-		rec = NewMigrationRecordMerged(subject)
-	case MigrationStateSwapped:
-		rec = NewMigrationRecordSwapped(subject, props, subject.dirsInRole(migrationCanonicalOf))
-	default:
-		require.FailNowf(t, "unsupported fixture state", "%q", state)
-	}
+	rec := newMigrationRecordAt(t, subject, state)
 	logger, _ := logrustest.NewNullLogger()
 	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
 	return filepath.Join(lsmPath, ".migrations", trackerDir)

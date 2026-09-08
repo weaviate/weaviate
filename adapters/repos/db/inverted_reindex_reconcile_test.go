@@ -243,14 +243,6 @@ func (f *reconcileFixture) allowRecordWrites() {
 	require.NoError(f.t, os.Chmod(f.store.Dir(), 0o700))
 }
 
-// A file no build can decode, which is what withholds every destructive action
-// on the shard whose record store holds it.
-func plantUnreadableRecord(t *testing.T, dir string) {
-	t.Helper()
-	require.NoError(t, os.MkdirAll(dir, 0o777))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "99_enable_searchable.json"), []byte("{"), 0o600))
-}
-
 // Writes the file without the writer's own bookkeeping, which is the only way
 // a record claiming another record's directory can get onto a shard.
 func (f *reconcileFixture) plantRecordFile(rec MigrationRecord) {

@@ -17,12 +17,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -70,33 +70,6 @@ type roaringSetRefreshStrategyWrapper struct {
 func (s *roaringSetRefreshStrategyWrapper) OnMigrationComplete(_ context.Context, _ ShardLike) error {
 	s.migrationCompleted = true
 	return nil
-}
-
-// computeRoaringSetRefreshBaseline runs a clean RoaringSetRefresh
-// migration on a throw-away shard and returns its post-migration
-// filterable-bucket fingerprint. Every recovery-from-state case asserts
-// bit-equal convergence against this baseline. Sibling of
-// computeBaselineFingerprint (MapToBlockmax).
-func computeRoaringSetRefreshBaseline(t *testing.T, propName string, numObjects int) map[string][]uint64 {
-	t.Helper()
-	ctx := testCtx()
-	className := "RoaringSetRefreshBaselineRef_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{propName})
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task, _ := newRoaringSetRefreshTask(t, idx, shard.migrationUnit())
-	require.NoError(t, task.RunOnShard(ctx, shard))
-
-	return fingerprintRoaringSetBucket(t,
-		shard.store.Bucket(helpers.BucketFromPropNameLSM(propName)))
 }
 
 // TestRecoveryConvergence_RoaringSetRefresh_Baseline establishes that the
@@ -156,122 +129,40 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 	}
 }
 
-// TestRecoveryConvergence_RoaringSetRefresh_FromEachState pins the
-// #240 Symptom B invariant for the RoaringSetRefresh strategy: from any
-// recorded state a replica could land in after a mid-migration restart,
-// the recovery code path converges on filterable-bucket content
-// bit-equivalent to the clean baseline run.
+// TestRecoveryConvergence_RoaringSetRefresh_FromEachState pins the #240
+// Symptom B invariant for the RoaringSetRefresh strategy: from any recorded
+// state a replica could land in after a mid-migration restart, a restart
+// converges on filterable-bucket content bit-equal to a clean run.
 //
-// Each state is reached through production code: RunReindexOnlyOnShard to
-// halt once the rebuild is recorded complete, RunOnShard for the full
-// lifecycle, plus a direct runtimePrepare call for the merged state.
+// A same-strategy refresh changes no schema, so this is the row that pins that
+// a migration whose effect the schema can never show still settles.
 func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 	const propName = "title"
-	const numObjects = 25
 
-	baseline := computeRoaringSetRefreshBaseline(t, propName, numObjects)
-	require.NotEmpty(t, baseline, "baseline fingerprint must be non-empty")
-
-	cases := []recoveryConvergenceCase{
-		{
-			name: "RoaringSetRefresh_Iterated_via_reindex_only",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-			},
-			expectedState: MigrationStateIterated,
+	migrationRestartMatrix[string]{
+		namePrefix: "RoaringSetRefreshRestart",
+		buildClass: func(className string) *models.Class {
+			return newTestClassWithProps(className, []string{propName})
 		},
-		{
-			name: "RoaringSetRefresh_Merged_via_runtimePrepare_no_runtimeSwap",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-				rec, ok := task.migrationRecord(shard)
-				require.True(t, ok)
-				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rec.Subject().Properties()))
-			},
-			expectedState: MigrationStateMerged,
-		},
-		{
-			name: "RoaringSetRefresh_Swapped_full_migration",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				require.NoError(t, task.RunOnShard(ctx, shard))
-			},
-			expectedState: MigrationStateSwapped,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := testCtx()
-			className := "RoaringSetRefreshCase_" + uuid.NewString()[:8]
-			class := newTestClassWithProps(className, []string{propName})
-
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
-			shard := shd.(*Shard)
-			defer shard.Shutdown(ctx)
-
-			for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+		seedObjects: func(t *testing.T, ctx context.Context, shard *Shard, className string) {
+			for _, obj := range makeConvergenceTestObjects(t, migrationRestartObjects, className) {
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
-
-			// Phase 1: drive the migration to the case-specific state
-			// using the production code path.
-			task, _ := newRoaringSetRefreshTask(t, idx, shard.migrationUnit())
-			tc.driveToState(t, ctx, shard, task)
-
-			rec, ok := task.migrationRecord(shard)
-			require.Truef(t, ok, "driveToState must leave a record (case %q)", tc.name)
-			assert.Equalf(t, tc.expectedState, rec.State(),
-				"after driveToState (case %q)", tc.name)
-
-			subject := rec.Subject()
-			require.NotNil(t, idx.db, "test shard fixture must wire idx.db")
-			installTestMigrationTaskSources(ctx, idx.db, nil, &distributedtask.Task{
-				Namespace: ReindexNamespace,
-				TaskDescriptor: distributedtask.TaskDescriptor{
-					ID: subject.TaskID, Version: subject.Key.TaskVersion,
-				},
-				Status: distributedtask.TaskStatusFinished,
-			})
-
-			shardName := shard.Name()
-			require.NoError(t, shard.Shutdown(ctx))
-
-			task2, _ := newRoaringSetRefreshTask(t, idx, testMigrationUnitFor(idx, shardName))
-			idx.shardReindexer = &testShardReindexer{task: task2}
-
-			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
-			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)
-			shard2 := shd2.(*Shard)
-			defer shard2.Shutdown(ctx)
-			idx.shards.Store(shardName, shd2)
-
-			require.NoErrorf(t, task2.RunOnShard(ctx, shard2),
-				"recovery relaunch must not error (case %q)", tc.name)
-
-			// Phase 3: convergence check against baseline fingerprint.
-			bucket := shard2.store.Bucket(helpers.BucketFromPropNameLSM(propName))
-			require.NotNilf(t, bucket, "post-recovery filterable bucket must exist (case %q)", tc.name)
-			require.Equalf(t, lsmkv.StrategyRoaringSet, bucket.Strategy(),
-				"post-recovery filterable bucket must remain StrategyRoaringSet (case %q)", tc.name)
-
-			got := fingerprintRoaringSetBucket(t, bucket)
-
-			// Catch divergence at term granularity for actionable
-			// failure output (which token has the wrong posting list).
-			assert.Equalf(t, len(baseline), len(got),
-				"post-recovery filterable term count diverges from baseline (case %q)", tc.name)
-			for term, expectedIDs := range baseline {
-				gotIDs, ok := got[term]
-				if !ok {
-					assert.Failf(t, "missing term",
-						"term %q present in baseline but missing post-recovery (case %q)", term, tc.name)
-					continue
-				}
-				assert.Equalf(t, expectedIDs, gotIDs,
-					"term %q post-recovery doc-id list diverges from baseline (case %q)\n  baseline (%d): %v\n  got      (%d): %v",
-					term, tc.name, len(expectedIDs), expectedIDs, len(gotIDs), gotIDs)
+		},
+		buildTask: func(t *testing.T, f *migrationRestartFixture) (*ShardReindexTaskGeneric, func() bool) {
+			task, wrapped := newRoaringSetRefreshTask(t, f.idx,
+				testMigrationUnitFor(f.idx, f.shardName))
+			return task, func() bool { return wrapped.migrationCompleted }
+		},
+		bucketName:            helpers.BucketFromPropNameLSM(propName),
+		wantStrategy:          lsmkv.StrategyRoaringSet,
+		servesBeforeMigration: true,
+		fingerprint:           fingerprintRoaringSetBucket,
+		checkBaseline: func(t *testing.T, fingerprint map[string][]uint64) {
+			for _, token := range convergenceTokens {
+				require.NotEmptyf(t, fingerprint[token],
+					"a clean run must index token %q, which the fixture writes", token)
 			}
-		})
-	}
+		},
+	}.run(t)
 }

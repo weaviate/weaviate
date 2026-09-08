@@ -273,10 +273,7 @@ func TestOnlyAPromotedFlipReportsRangeableReady(t *testing.T) {
 				"fixture: a property whose rangeable bucket exists defaults to ready")
 
 			if tt.unreadable {
-				require.NoError(t, os.MkdirAll(shard.migrationRecords.Dir(), 0o777))
-				require.NoError(t, os.WriteFile(
-					filepath.Join(shard.migrationRecords.Dir(), "99_enable_searchable.json"),
-					[]byte("{"), 0o600))
+				plantUnreadableRecord(t, shard.migrationRecords.Dir())
 				require.NoError(t, shard.migrationRecords.Load())
 				require.NotEmpty(t, shard.migrationRecords.Unreadable())
 			} else {

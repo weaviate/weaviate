@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -123,36 +122,6 @@ func (s *testRebuildSearchableStrategyWrapper) OnMigrationComplete(_ context.Con
 	return nil
 }
 
-// computeRebuildSearchableBaseline runs a clean rebuild on a throw-away
-// shard and returns its post-migration fingerprint. Every
-// recovery-from-state case asserts bit-equal convergence against this
-// baseline. Sibling of computeSearchableRetokenizeBaseline /
-// computeFilterableRetokenizeBaseline.
-func computeRebuildSearchableBaseline(t *testing.T, propName string, numObjects int) map[string][]uint64 {
-	t.Helper()
-	ctx := testCtx()
-	className := "RebuildSearchableBaselineRef_" + uuid.NewString()[:8]
-	class := newRebuildSearchableTestClass(className, []string{propName})
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task, _ := newRebuildSearchableTask(t, idx, className, propName, shard.migrationUnit())
-
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
-
-	return fingerprintInvertedBucket(t,
-		shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))
-}
-
 // TestRecoveryConvergence_RebuildSearchable_Baseline establishes that
 // the production migration code path can drive a fully-clean rebuild
 // of an existing BlockMax searchable bucket on this fixture. Sanity
@@ -214,117 +183,41 @@ func TestRecoveryConvergence_RebuildSearchable_Baseline(t *testing.T) {
 	}
 }
 
-// TestRecoveryConvergence_RebuildSearchable_FromEachState pins the
-// #240 Symptom B invariant for the RebuildSearchable strategy: from
-// any recorded state a replica could land in after a mid-migration
-// restart, the recovery code path converges on bucket content
-// bit-equivalent to the clean baseline run.
+// TestRecoveryConvergence_RebuildSearchable_FromEachState pins the #240
+// Symptom B invariant for the RebuildSearchable strategy: from any recorded
+// state a replica could land in after a mid-migration restart, a restart
+// converges on bucket content bit-equal to a clean run.
 //
-// Every state is reached through production code — the Run*OnShard
-// trio, stopped one call short of the next transition.
+// Source and target are both StrategyInverted, so the property serves from the
+// migrated bucket the whole way through and a load below the flip must leave it
+// serving the pre-migration data.
 func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 	const propName = "title"
-	const numObjects = 25
 
-	baseline := computeRebuildSearchableBaseline(t, propName, numObjects)
-	require.NotEmpty(t, baseline, "baseline fingerprint must be non-empty")
-
-	cases := []recoveryConvergenceCase{
-		{
-			name: "RebuildSearchable_Iterated_via_RunReindexOnlyOnShard",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-			},
-			expectedState: MigrationStateIterated,
+	migrationRestartMatrix[string]{
+		namePrefix: "RebuildSearchableRestart",
+		buildClass: func(className string) *models.Class {
+			return newRebuildSearchableTestClass(className, []string{propName})
 		},
-		{
-			name: "RebuildSearchable_Merged_via_RunPrepareOnShard",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-			},
-			expectedState: MigrationStateMerged,
-		},
-		{
-			name: "RebuildSearchable_Swapped_via_full_trio",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-				require.NoError(t, task.RunSwapOnShard(ctx, shard))
-			},
-			expectedState: MigrationStateSwapped,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := testCtx()
-			className := "RebuildSearchableCase_" + uuid.NewString()[:8]
-			class := newRebuildSearchableTestClass(className, []string{propName})
-
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
-			shard := shd.(*Shard)
-			defer shard.Shutdown(ctx)
-
-			for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+		seedObjects: func(t *testing.T, ctx context.Context, shard *Shard, className string) {
+			for _, obj := range makeConvergenceTestObjects(t, migrationRestartObjects, className) {
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
-
-			task, _ := newRebuildSearchableTask(t, idx, className, propName, shard.migrationUnit())
-
-			tc.driveToState(t, ctx, shard, task)
-
-			rec, ok := task.migrationRecord(shard)
-			require.Truef(t, ok, "driveToState must leave a record (case %q)", tc.name)
-			assert.Equalf(t, tc.expectedState, rec.State(),
-				"after driveToState (case %q)", tc.name)
-
-			shardName := shard.Name()
-			require.NoError(t, shard.Shutdown(ctx))
-
-			task2, _ := newRebuildSearchableTask(t, idx, className, propName, testMigrationUnitFor(idx, shardName))
-			idx.shardReindexer = &testShardReindexer{task: task2}
-
-			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
-			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)
-			shard2 := shd2.(*Shard)
-			defer shard2.Shutdown(ctx)
-			idx.shards.Store(shardName, shd2)
-
-			require.NoErrorf(t, task2.RunOnShard(ctx, shard2),
-				"recovery relaunch must not error (case %q)", tc.name)
-
-			rec2, ok := task2.migrationRecord(shard2)
-			require.Truef(t, ok, "post-recovery record must exist (case %q)", tc.name)
-			if !rec2.FlipDecided() {
-				if err := task2.RunSwapOnShard(ctx, shard2); err != nil {
-					t.Logf("explicit RunSwapOnShard (case %q): %v", tc.name, err)
-				}
+		},
+		buildTask: func(t *testing.T, f *migrationRestartFixture) (*ShardReindexTaskGeneric, func() bool) {
+			task, wrapped := newRebuildSearchableTask(t, f.idx, f.class.Class, propName,
+				testMigrationUnitFor(f.idx, f.shardName))
+			return task, func() bool { return wrapped.migrationCompleted }
+		},
+		bucketName:            helpers.BucketSearchableFromPropNameLSM(propName),
+		wantStrategy:          lsmkv.StrategyInverted,
+		servesBeforeMigration: true,
+		fingerprint:           fingerprintInvertedBucket,
+		checkBaseline: func(t *testing.T, fingerprint map[string][]uint64) {
+			for _, token := range convergenceTokens {
+				require.NotEmptyf(t, fingerprint[token],
+					"a clean run must index token %q, which the fixture writes", token)
 			}
-
-			bucket := shard2.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-			require.NotNilf(t, bucket, "post-recovery searchable bucket must exist (case %q)", tc.name)
-			require.Equalf(t, lsmkv.StrategyInverted, bucket.Strategy(),
-				"post-recovery searchable bucket must remain StrategyInverted (case %q)", tc.name)
-
-			got := fingerprintInvertedBucket(t, bucket)
-
-			// Catch divergence at term granularity for actionable
-			// failure output (which token has the wrong posting list).
-			assert.Equalf(t, len(baseline), len(got),
-				"post-recovery searchable term count diverges from baseline (case %q)", tc.name)
-			for term, expectedIDs := range baseline {
-				gotIDs, ok := got[term]
-				if !ok {
-					assert.Failf(t, "missing term",
-						"term %q present in baseline but missing post-recovery (case %q)", term, tc.name)
-					continue
-				}
-				assert.Equalf(t, expectedIDs, gotIDs,
-					"term %q post-recovery doc-id list diverges from baseline (case %q)\n  baseline (%d): %v\n  got      (%d): %v",
-					term, tc.name, len(expectedIDs), expectedIDs, len(gotIDs), gotIDs)
-			}
-		})
-	}
+		},
+	}.run(t)
 }

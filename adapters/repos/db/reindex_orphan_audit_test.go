@@ -621,17 +621,7 @@ func mkAuditTracker(t *testing.T, lsmPath, trackerName, taskID string, taskVersi
 		}
 	}
 
-	var rec MigrationRecord
-	switch state {
-	case MigrationStateIterating:
-		rec = NewMigrationRecordIterating(subject, MigrationCheckpoint{})
-	case MigrationStateIterated:
-		rec = NewMigrationRecordIterated(subject)
-	case MigrationStateSwapped:
-		rec = NewMigrationRecordSwapped(subject, props, subject.dirsInRole(migrationCanonicalOf))
-	default:
-		require.FailNowf(t, "unsupported fixture state", "%q", state)
-	}
+	rec := newMigrationRecordAt(t, subject, state)
 	logger, _ := test.NewNullLogger()
 	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
 	return filepath.Join(lsmPath, ".migrations", trackerName)
@@ -780,11 +770,7 @@ func TestAuditOrphanReindexTrackersHonorsUnreadableRecords(t *testing.T) {
 			lsmPath := shd.(*Shard).pathLSM()
 
 			tt.plant(t, lsmPath)
-			logger, _ := test.NewNullLogger()
-			recordsDir := NewMigrationRecordStore(lsmPath, logger).Dir()
-			require.NoError(t, os.MkdirAll(recordsDir, 0o755))
-			require.NoError(t, os.WriteFile(
-				filepath.Join(recordsDir, "99_enable_searchable.json"), []byte("{"), 0o600))
+			plantUnreadableRecord(t, recordStoreDirOf(t, lsmPath))
 
 			db := &DB{
 				indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
@@ -855,11 +841,9 @@ func TestAuditKeepsRecordlessTrackerClassifiableAfterSentinelClear(t *testing.T)
 			}
 			require.FileExists(t, sentinel)
 
-			badRecord := filepath.Join(NewMigrationRecordStore(lsmPath, logger).Dir(),
-				"99_enable_searchable.json")
+			var badRecord string
 			if tt.unreadableRecords {
-				require.NoError(t, os.MkdirAll(filepath.Dir(badRecord), 0o755))
-				require.NoError(t, os.WriteFile(badRecord, []byte("{"), 0o600))
+				badRecord = plantUnreadableRecord(t, recordStoreDirOf(t, lsmPath))
 			}
 			sweep(!tt.unreadableRecords)
 			require.NoFileExists(t, sentinel, "the clearing sweep is the one under test")

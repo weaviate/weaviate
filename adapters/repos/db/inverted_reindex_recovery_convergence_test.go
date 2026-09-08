@@ -124,17 +124,22 @@ func (s *testSearchableRetokenizeStrategyWrapper) OnMigrationComplete(_ context.
 	return nil
 }
 
-// makeConvergenceTestObjects builds n objects whose `title` cycles
-// through a 25-token dictionary so each token appears in multiple docs.
+// The dictionary [makeConvergenceTestObjects] cycles through. Named because a
+// baseline is checked against it: a fingerprint short of a token the fixture
+// wrote is a defect the rows would otherwise all share and all agree on.
+var convergenceTokens = []string{
+	"alpha", "bravo", "charlie", "delta", "echo",
+	"foxtrot", "golf", "hotel", "india", "juliett",
+	"kilo", "lima", "mike", "november", "oscar",
+	"papa", "quebec", "romeo", "sierra", "tango",
+	"uniform", "victor", "whiskey", "xray", "yankee",
+}
+
+// makeConvergenceTestObjects builds n objects whose `title` cycles through the
+// dictionary so each token appears in multiple docs.
 func makeConvergenceTestObjects(t *testing.T, n int, className string) []*storobj.Object {
 	t.Helper()
-	tokens := []string{
-		"alpha", "bravo", "charlie", "delta", "echo",
-		"foxtrot", "golf", "hotel", "india", "juliett",
-		"kilo", "lima", "mike", "november", "oscar",
-		"papa", "quebec", "romeo", "sierra", "tango",
-		"uniform", "victor", "whiskey", "xray", "yankee",
-	}
+	tokens := convergenceTokens
 	out := make([]*storobj.Object, n)
 	for i := 0; i < n; i++ {
 		text := tokens[i%len(tokens)] + " " + tokens[(i+1)%len(tokens)] + " " + tokens[(i+2)%len(tokens)]
@@ -180,14 +185,7 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	fp := fingerprintInvertedBucket(t, postBucket)
 	require.NotEmpty(t, fp, "baseline fingerprint must have at least one term")
 
-	expectedTokens := []string{
-		"alpha", "bravo", "charlie", "delta", "echo",
-		"foxtrot", "golf", "hotel", "india", "juliett",
-		"kilo", "lima", "mike", "november", "oscar",
-		"papa", "quebec", "romeo", "sierra", "tango",
-		"uniform", "victor", "whiskey", "xray", "yankee",
-	}
-	for _, tok := range expectedTokens {
+	for _, tok := range convergenceTokens {
 		docIDs, ok := fp[tok]
 		require.Truef(t, ok, "baseline fingerprint missing token %q", tok)
 		require.NotEmptyf(t, docIDs, "baseline fingerprint token %q has empty posting list", tok)
@@ -262,13 +260,4 @@ func TestRunOnShardSwapsARebuildThatIsAlreadyComplete(t *testing.T) {
 	require.Equal(t, lsmkv.StrategyInverted,
 		shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)).Strategy(),
 		"the canonical bucket must serve the rebuilt data after the relaunch")
-}
-
-// recoveryConvergenceCase: drive the shard to a specific recorded state,
-// then restart with a fresh task and assert post-recovery fingerprint
-// matches the baseline.
-type recoveryConvergenceCase struct {
-	name          string
-	driveToState  func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric)
-	expectedState MigrationState
 }

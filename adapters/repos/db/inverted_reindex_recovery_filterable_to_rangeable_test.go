@@ -288,3 +288,55 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 			"term %d should have %d docIDs, got %d", term, expectedPerValue, len(ids))
 	}
 }
+
+// TestRecoveryConvergence_FilterableToRangeable_FromEachState interrupts a
+// range-filter migration in each state its record can hold, restarts the shard,
+// and requires the index to end up bit-equal to a clean run.
+//
+// This is the one migration in the matrix whose target bucket does not exist
+// before it runs, so it is also what pins that a load below the flip leaves no
+// index at all rather than an empty one.
+func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
+	propName := filterableToRangeablePropName
+
+	migrationRestartMatrix[uint64]{
+		namePrefix: "RangeableRestart",
+		buildClass: newFilterableToRangeableTestClass,
+		seedObjects: func(t *testing.T, ctx context.Context, shard *Shard, className string) {
+			for _, obj := range makeFilterableToRangeableTestObjects(t, migrationRestartObjects, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+		},
+		buildTask: func(t *testing.T, f *migrationRestartFixture) (*ShardReindexTaskGeneric, func() bool) {
+			task, wrapped := newFilterableToRangeableTask(t, f.idx, f.class.Class, propName,
+				testMigrationUnitFor(f.idx, f.shardName))
+			// Stands in for the RAFT round trip in
+			// [FilterableToRangeableStrategy.OnMigrationComplete]. Without it the
+			// next load reads a property with no rangeable index and never opens
+			// the bucket the promotion just renamed into place.
+			wrapped.onComplete = func() error {
+				enabled := true
+				for _, prop := range f.class.Properties {
+					if prop.Name == propName {
+						prop.IndexRangeFilters = &enabled
+					}
+				}
+				return nil
+			}
+			return task, func() bool { return wrapped.migrationCompleted }
+		},
+		bucketName:   helpers.BucketRangeableFromPropNameLSM(propName),
+		wantStrategy: lsmkv.StrategyRoaringSetRange,
+		fingerprint:  filterableToRangeableFingerprint,
+		checkBaseline: func(t *testing.T, fingerprint map[uint64][]uint64) {
+			require.Len(t, fingerprint, filterableToRangeableNumDistinctValues,
+				"a clean run must index every value the fixture writes")
+			perValue := migrationRestartObjects / filterableToRangeableNumDistinctValues
+			for value, ids := range fingerprint {
+				require.Lenf(t, ids, perValue,
+					"a clean run must index all %d objects carrying value %d, got %d",
+					perValue, value, len(ids))
+			}
+		},
+	}.run(t)
+}

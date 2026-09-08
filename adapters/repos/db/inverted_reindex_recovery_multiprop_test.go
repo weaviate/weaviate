@@ -354,13 +354,7 @@ func resolveDocIDFingerprintToUUIDs(t *testing.T, logger logrus.FieldLogger,
 // catches a bug where one prop's posting list bleeds into another.
 func makeMultiPropConvergenceObjects(t *testing.T, n int, className string, propNames []string) []*storobj.Object {
 	t.Helper()
-	tokens := []string{
-		"alpha", "bravo", "charlie", "delta", "echo",
-		"foxtrot", "golf", "hotel", "india", "juliett",
-		"kilo", "lima", "mike", "november", "oscar",
-		"papa", "quebec", "romeo", "sierra", "tango",
-		"uniform", "victor", "whiskey", "xray", "yankee",
-	}
+	tokens := convergenceTokens
 	out := make([]*storobj.Object, n)
 	for i := 0; i < n; i++ {
 		props := map[string]interface{}{}

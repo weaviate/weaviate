@@ -76,17 +76,7 @@ func mkMigrationRecordAt(t *testing.T, lsmPath, unitID, trackerName string,
 		}
 	}
 
-	var rec MigrationRecord
-	switch state {
-	case MigrationStateIterating:
-		rec = NewMigrationRecordIterating(subject, MigrationCheckpoint{})
-	case MigrationStateSwapped:
-		rec = NewMigrationRecordSwapped(subject, subject.Properties(), canonical)
-	case MigrationStatePromoted:
-		rec = NewMigrationRecordPromoted(subject, subject.Properties(), canonical)
-	default:
-		require.FailNowf(t, "unsupported fixture state", "%q", state)
-	}
+	rec := newMigrationRecordAt(t, subject, state)
 	logger, _ := test.NewNullLogger()
 	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
 }
@@ -717,10 +707,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				mkSidecarDir(t, lsm, name)
 			}
 			if tc.unreadableRecord {
-				records := filepath.Join(lsm, ".migrations", migrationRecordsDirName)
-				require.NoError(t, os.MkdirAll(records, 0o755))
-				require.NoError(t, os.WriteFile(
-					filepath.Join(records, "99_enable_searchable.json"), []byte("{"), 0o644))
+				plantUnreadableRecord(t, recordStoreDirOf(t, lsm))
 			}
 			if tc.corruptPayload != "" {
 				require.NoError(t, os.WriteFile(

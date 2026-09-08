@@ -133,9 +133,7 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 				require.NoError(t, shard.migrationRecords.Put(NewMigrationRecordMerged(subject)))
 			}
 			if tt.unreadable {
-				require.NoError(t, os.MkdirAll(shard.migrationRecords.Dir(), 0o755))
-				require.NoError(t, os.WriteFile(
-					filepath.Join(shard.migrationRecords.Dir(), "99_enable_searchable.json"), []byte("{"), 0o600))
+				plantUnreadableRecord(t, shard.migrationRecords.Dir())
 				require.NoError(t, shard.migrationRecords.Load())
 			}
 

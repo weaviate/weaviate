@@ -83,22 +83,7 @@ func (p plantedMigration) subject() MigrationSubject {
 
 func (p plantedMigration) record(t *testing.T) MigrationRecord {
 	t.Helper()
-	subject := p.subject()
-	flipped, displaced := []string{p.prop}, map[string]string{p.prop: subject.Props[p.prop].Canonical}
-	switch p.state {
-	case MigrationStateIterating:
-		return NewMigrationRecordIterating(subject, MigrationCheckpoint{})
-	case MigrationStateIterated:
-		return NewMigrationRecordIterated(subject)
-	case MigrationStateMerged:
-		return NewMigrationRecordMerged(subject)
-	case MigrationStateSwapped:
-		return NewMigrationRecordSwapped(subject, flipped, displaced)
-	case MigrationStatePromoted:
-		return NewMigrationRecordPromoted(subject, flipped, displaced)
-	}
-	require.FailNowf(t, "unknown migration state", "%q", p.state)
-	return nil
+	return newMigrationRecordAt(t, p.subject(), p.state)
 }
 
 func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {

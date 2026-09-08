@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -84,10 +83,7 @@ func TestCheckpointNeverOutrunsThePostingsItVouchesFor(t *testing.T) {
 				// An unreadable record file freezes the store: it refuses every
 				// write while any record cannot be read. A foreign-unit record
 				// would not do — the loader sets those aside without freezing.
-				require.NoError(t, os.MkdirAll(shard.migrationRecords.Dir(), 0o755))
-				require.NoError(t, os.WriteFile(
-					filepath.Join(shard.migrationRecords.Dir(), "99_enable_searchable.json"),
-					[]byte("{"), 0o600))
+				plantUnreadableRecord(t, shard.migrationRecords.Dir())
 				require.NoError(t, shard.migrationRecords.Load())
 			}
 
