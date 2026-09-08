@@ -87,6 +87,13 @@ func FlatMetadataFileNameForID(physicalID string) string {
 	return FlatMetadataFileName(PhysicalIDSuffix(physicalID))
 }
 
+// HNSWCommitLogDirNameForID names the hnsw commit log directory of a
+// physical index ID, under the shard directory. The ID-based twin of
+// GetHNSWCommitLogDirName.
+func HNSWCommitLogDirNameForID(physicalID string) string {
+	return physicalID + ".hnsw.commitlog.d"
+}
+
 // A multivector index keeps one bucket of its own, named off the index ID:
 // muvera encodings when muvera is on, node-to-doc mappings when it is off. The
 // two are mutually exclusive.

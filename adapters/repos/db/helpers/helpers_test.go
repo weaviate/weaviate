@@ -146,19 +146,20 @@ func TestPhysicalNamesForID(t *testing.T) {
 		raw        string
 		compressed string
 		flatMeta   string
+		hnswDir    string
 	}{
 		// legacy unnamed vector: ID "main", but raw bucket "vectors" —
 		// the historical asymmetry that must never change
-		{"main", "", "vectors", "vectors_compressed", "meta.db"},
-		{"vectors_title", "title", "vectors_title", "vectors_compressed_title", "meta_title.db"},
-		{"vectors_de_DE", "de_DE", "vectors_de_DE", "vectors_compressed_de_DE", "meta_de_DE.db"},
+		{"main", "", "vectors", "vectors_compressed", "meta.db", "main.hnsw.commitlog.d"},
+		{"vectors_title", "title", "vectors_title", "vectors_compressed_title", "meta_title.db", "vectors_title.hnsw.commitlog.d"},
+		{"vectors_de_DE", "de_DE", "vectors_de_DE", "vectors_compressed_de_DE", "meta_de_DE.db", "vectors_de_DE.hnsw.commitlog.d"},
 		// hfresh centroid hnsw for a named vector: suffix keeps the
 		// "_centroids" tail, exactly what the old strip-based derivation gave
-		{"vectors_title_centroids", "title_centroids", "vectors_title_centroids", "vectors_compressed_title_centroids", "meta_title_centroids.db"},
+		{"vectors_title_centroids", "title_centroids", "vectors_title_centroids", "vectors_compressed_title_centroids", "meta_title_centroids.db", "vectors_title_centroids.hnsw.commitlog.d"},
 		// IDs outside the vectors_/main scheme (geo."prop",
 		// "main_centroids"): suffix "" — mirrors the old CutPrefix fallback
-		{"geo.location", "", "vectors", "vectors_compressed", "meta.db"},
-		{"main_centroids", "", "vectors", "vectors_compressed", "meta.db"},
+		{"geo.location", "", "vectors", "vectors_compressed", "meta.db", "geo.location.hnsw.commitlog.d"},
+		{"main_centroids", "", "vectors", "vectors_compressed", "meta.db", "main_centroids.hnsw.commitlog.d"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.id, func(t *testing.T) {
@@ -166,8 +167,13 @@ func TestPhysicalNamesForID(t *testing.T) {
 			assert.Equal(t, tc.raw, VectorsBucketNameForID(tc.id))
 			assert.Equal(t, tc.compressed, CompressedBucketNameForID(tc.id))
 			assert.Equal(t, tc.flatMeta, FlatMetadataFileNameForID(tc.id))
+			assert.Equal(t, tc.hnswDir, HNSWCommitLogDirNameForID(tc.id))
 		})
 	}
+
+	// the ID-based name agrees with the logical-name helper
+	assert.Equal(t, GetHNSWCommitLogDirName(""), HNSWCommitLogDirNameForID("main"))
+	assert.Equal(t, GetHNSWCommitLogDirName("title"), HNSWCommitLogDirNameForID("vectors_title"))
 }
 
 // TestCentroidsID pins the hfresh centroid graph's ID for both shipped
