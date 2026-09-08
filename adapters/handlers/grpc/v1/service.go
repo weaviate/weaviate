@@ -288,8 +288,11 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	return result, errInner
 }
 
-// admissionToGRPCError maps an admission shed to gRPC ResourceExhausted so
-// the coordinator's retryer backs off.
+// admissionToGRPCError maps an admission shed to gRPC ResourceExhausted. This
+// is the public API, so the error reaches the client directly; our clients do
+// not retry ResourceExhausted, so under sustained saturation the caller sees
+// it as an error. Cross-node sheds are retried on the internal cluster path
+// (adapters/clients), before reaching this handler.
 func admissionToGRPCError(err error) error {
 	if errors.Is(err, queryadmission.ErrOverloaded) {
 		return status.Error(codes.ResourceExhausted, err.Error())
