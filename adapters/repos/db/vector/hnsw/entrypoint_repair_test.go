@@ -28,16 +28,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// countingCommitLogger wraps NoopCommitLogger and counts SetEntryPointWithMaxLayer calls
+// countingCommitLogger wraps NoopCommitLogger and counts the calls tests assert on
 type countingCommitLogger struct {
 	NoopCommitLogger
-	setEntrypointCalls atomic.Int32
+	setEntrypointCalls  atomic.Int32
+	initMaintenanceCall atomic.Int32
 }
 
 func (c *countingCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	c.setEntrypointCalls.Add(1)
 	return nil
 }
+
+func (c *countingCommitLogger) InitMaintenance() { c.initMaintenanceCall.Add(1) }
 
 func makeCountingCommitLogger(counter *countingCommitLogger) func() (CommitLogger, error) {
 	return func() (CommitLogger, error) {
