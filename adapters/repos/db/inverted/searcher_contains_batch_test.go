@@ -108,7 +108,6 @@ func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
 		getClass:               func(name string) *models.Class { return f.class },
 		isFallbackToSearchable: func() bool { return f.fallback },
 		stopwordProvider:       stopwords.NewProvider(fakeStopwordDetector{}, nil),
-		batchedContainsEnabled: runtime.NewDynamicValue(true),
 	}
 	return f
 }
@@ -510,12 +509,12 @@ func TestNewBatchedContainsPair_RejectsNoKeys(t *testing.T) {
 	}
 }
 
-// TestExtractContainsBatch_OptInGate pins that the batched resolution is
-// opt-in: an unwired (nil) gate and a gate flipped off at runtime both
-// route an otherwise eligible shape through the per-value desugared path,
-// and flipping the gate back on at runtime restores batching without a
-// searcher rebuild.
-func TestExtractContainsBatch_OptInGate(t *testing.T) {
+// TestExtractContainsBatch_DefaultOnGate pins that the batched resolution is
+// on unless something turns it off: an unwired (nil) gate batches an eligible
+// shape, only a gate holding false routes it through the per-value desugared
+// path, and either value set at runtime takes effect without a searcher
+// rebuild.
+func TestExtractContainsBatch_DefaultOnGate(t *testing.T) {
 	f := newContainsBatchGateFixture(t)
 	s := f.searcher
 
@@ -524,14 +523,12 @@ func TestExtractContainsBatch_OptInGate(t *testing.T) {
 			[]int{1, 2, 3}, filters.ContainsAny, f.class)
 	}
 
-	t.Run("nil gate declines", func(t *testing.T) {
+	t.Run("nil gate batches", func(t *testing.T) {
 		s.batchedContainsEnabled = nil
-		ctx := helpers.InitSlowQueryDetails(context.Background())
-		pv, err := extract(ctx)
+		pv, err := extract(context.Background())
 		require.NoError(t, err)
-		require.Zero(t, pv.containsKeys.Len())
-		require.NotEmpty(t, pv.children, "with the gate unwired, Contains must desugar per value")
-		require.Equal(t, containsDeclineNotEnabled, extractContainsDesugaredReason(t, ctx))
+		require.Equal(t, 3, pv.containsKeys.Len(), "an unwired gate must not cost the fast path")
+		require.Empty(t, pv.children, "with the gate unwired, Contains must not desugar")
 	})
 
 	t.Run("runtime toggle", func(t *testing.T) {

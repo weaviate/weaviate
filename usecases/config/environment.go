@@ -1515,8 +1515,13 @@ func FromEnv(config *Config) error {
 	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(
 		entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS")))
 
-	config.QueryBatchedContainsEnabled = configRuntime.NewDynamicValue(
-		entcfg.Enabled(os.Getenv("QUERY_BATCHED_CONTAINS_ENABLED")))
+	// Env var wins when set; otherwise keep any value from the config file and
+	// default to on only when nothing set it.
+	if v := os.Getenv("QUERY_BATCHED_CONTAINS_ENABLED"); v != "" {
+		config.QueryBatchedContainsEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if config.QueryBatchedContainsEnabled == nil {
+		config.QueryBatchedContainsEnabled = configRuntime.NewDynamicValue(true)
+	}
 
 	// Query admission control is enabled by default; this is the kill switch.
 	queryAdmissionControlDisabled := false
