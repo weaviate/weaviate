@@ -1,0 +1,10 @@
+size 5546
+header version 0
+index start 5337
+node 0 key "" len 204 additions 8 deletions 0
+node 1 key "additions" len 2133 additions 1000 deletions 0
+node 2 key "both" len 2304 additions 20 deletions 980
+node 3 key "deletions" len 341 additions 0 deletions 64
+node 4 key "emptied" len 339 additions 0 deletions 64
+index entries 5
+sha256 5e49f7faed34ce56a6e427daa52ff147ca464d0443c784e7fb27a443f7ad0905
