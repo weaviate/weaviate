@@ -59,3 +59,71 @@ func TestVectorIndexMapping_KeyLayout(t *testing.T) {
 	_, ok = vectorIndexMappingName("unknown")
 	assert.False(t, ok)
 }
+
+func TestVectorIndexMapping_Load(t *testing.T) {
+	put := func(t *testing.T, db *shardmeta.DB, key, value string) {
+		t.Helper()
+		require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte(key), []byte(value)))
+	}
+
+	t.Run("empty db is uninitialized", func(t *testing.T) {
+		m, _ := newTestVectorIndexMapping(t)
+		records, initialized, err := m.Load()
+		require.NoError(t, err)
+		assert.False(t, initialized)
+		assert.Empty(t, records)
+	})
+
+	t.Run("reads every record under its logical name", func(t *testing.T) {
+		m, db := newTestVectorIndexMapping(t)
+		put(t, db, "format_version", "1")
+		put(t, db, "legacy", `{"physical_id":"main","index_type":"hnsw","state":"ready"}`)
+		put(t, db, "named/title", `{"physical_id":"vectors_title","index_type":"dynamic","state":"ready"}`)
+		put(t, db, "named/summary", `{"physical_id":"vectors_summary","index_type":"flat","state":"creating"}`)
+
+		records, initialized, err := m.Load()
+		require.NoError(t, err)
+		assert.True(t, initialized)
+		assert.Equal(t, map[string]vectorIndexRecord{
+			"":        {PhysicalID: "main", IndexType: "hnsw", State: "ready"},
+			"title":   {PhysicalID: "vectors_title", IndexType: "dynamic", State: "ready"},
+			"summary": {PhysicalID: "vectors_summary", IndexType: "flat", State: "creating"},
+		}, records)
+	})
+
+	t.Run("initialized with no records", func(t *testing.T) {
+		m, db := newTestVectorIndexMapping(t)
+		put(t, db, "format_version", "1")
+		records, initialized, err := m.Load()
+		require.NoError(t, err)
+		assert.True(t, initialized)
+		assert.Empty(t, records)
+	})
+
+	tests := []struct {
+		name      string
+		noVersion bool // do not write format_version "1" first
+		key       string
+		value     string
+		wantErr   string
+	}{
+		{name: "unknown format version", noVersion: true, key: "format_version", value: "2", wantErr: "format version"},
+		{name: "unknown key", key: "something", value: "x", wantErr: `unknown key "something"`},
+		{name: "unparsable value", key: "named/title", value: "{", wantErr: `record "title"`},
+		{name: "unknown state", key: "named/title", value: `{"physical_id":"vectors_title","index_type":"hnsw","state":"gone"}`, wantErr: `state "gone"`},
+		{name: "empty physical id", key: "named/title", value: `{"physical_id":"","index_type":"hnsw","state":"ready"}`, wantErr: "physical id"},
+		{name: "empty index type", key: "named/title", value: `{"physical_id":"vectors_title","index_type":"","state":"ready"}`, wantErr: "index type"},
+		{name: "record without format version", noVersion: true, key: "named/title", value: `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`, wantErr: "format version"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, db := newTestVectorIndexMapping(t)
+			if !tt.noVersion {
+				put(t, db, "format_version", "1")
+			}
+			put(t, db, tt.key, tt.value)
+			_, _, err := m.Load()
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}

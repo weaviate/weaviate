@@ -12,7 +12,9 @@
 package db
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
@@ -78,4 +80,60 @@ func vectorIndexMappingName(key string) (name string, ok bool) {
 		return strings.TrimPrefix(key, vectorIndexMappingNamedPrefix), true
 	}
 	return "", false
+}
+
+// validate rejects a record that no version of this code writes.
+func (r vectorIndexRecord) validate() error {
+	if r.PhysicalID == "" {
+		return errors.New("empty physical id")
+	}
+	if r.IndexType == "" {
+		return errors.New("empty index type")
+	}
+	if r.State != vectorIndexStateCreating && r.State != vectorIndexStateReady {
+		return fmt.Errorf("unknown state %q", r.State)
+	}
+	return nil
+}
+
+// Load reads every record, keyed by logical name. initialized is false when
+// the namespace has no format version, which is a shard from before the
+// mapping existed and the signal for first-load initialization. Anything
+// the mapping cannot account for fails the load: an unknown format version,
+// a key that names no vector, a record that does not parse or validate.
+func (m *vectorIndexMapping) Load() (records map[string]vectorIndexRecord, initialized bool, err error) {
+	records = map[string]vectorIndexRecord{}
+	err = m.ns.ForEach(func(key, value []byte) error {
+		k := string(key)
+		if k == vectorIndexMappingFormatVersionKey {
+			if string(value) != vectorIndexMappingFormatVersion {
+				return fmt.Errorf("unsupported format version %q, this binary reads %q",
+					value, vectorIndexMappingFormatVersion)
+			}
+			initialized = true
+			return nil
+		}
+		name, ok := vectorIndexMappingName(k)
+		if !ok {
+			return fmt.Errorf("unknown key %q", k)
+		}
+		var rec vectorIndexRecord
+		err := json.Unmarshal(value, &rec)
+		if err != nil {
+			return fmt.Errorf("record %q: %w", name, err)
+		}
+		err = rec.validate()
+		if err != nil {
+			return fmt.Errorf("record %q: %w", name, err)
+		}
+		records[name] = rec
+		return nil
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("load vector index mapping: %w", err)
+	}
+	if !initialized && len(records) > 0 {
+		return nil, false, errors.New("load vector index mapping: records without a format version")
+	}
+	return records, initialized, nil
 }
