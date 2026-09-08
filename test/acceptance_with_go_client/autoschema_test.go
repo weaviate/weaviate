@@ -86,25 +86,22 @@ func TestAutoschemaCasingProps(t *testing.T) {
 			require.NotNil(t, col, "collection handle")
 
 			{
-				r, err := col.Data.Insert(ctx, nil)
+				_, err := col.Data.Insert(ctx, nil)
 				require.NoError(t, err, "insert first object")
-				require.Empty(t, r.Errors, "insert first object")
 			}
 
 			{
-				r, err := col.Data.Insert(ctx, &data.Object{
+				_, err := col.Data.Insert(ctx, &data.Object{
 					Properties: map[string]any{tt.prop1: "something"},
 				})
 				require.NoError(t, err, "insert second object")
-				require.Empty(t, r.Errors, "insert second object")
 			}
 
 			{
-				r, err := col.Data.Insert(ctx, &data.Object{
+				_, err := col.Data.Insert(ctx, &data.Object{
 					Properties: map[string]any{tt.prop2: "other value"},
 				})
 				require.NoError(t, err, "insert third object")
-				require.Empty(t, r.Errors, "insert third object")
 			}
 
 			count, err := col.Count(ctx)
@@ -168,7 +165,7 @@ func TestAutoschemaCasingUpdateProps(t *testing.T) {
 
 func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 	c := wvhost.NewClient(t)
-	weather := c.Collections.Use("BeautifulWeather")
+	h := c.Collections.Use("BeautifulWeather")
 
 	tests := []struct {
 		name               string
@@ -241,21 +238,25 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := weather.Data.Insert(t.Context(), &data.Object{
+			t.Cleanup(func() {
+				require.NoError(t, c.Collections.Delete(context.Background(), h.CollectionName()))
+			})
+
+			id := uuid.New()
+			_, err := h.Data.Insert(context.Background(), &data.Object{
+				UUID:       &id,
 				Properties: tt.properties,
 			})
 
-			// FIXME(dyma): extract error message
 			if tt.containsErrMessage != "" {
-				assert.Nil(t, resp)
-				assert.NotNil(t, err)
-				assert.ErrorContains(t, err, tt.containsErrMessage)
+				var partial data.InsertError
+				if assert.ErrorAs(t, err, &partial) &&
+					assert.Len(t, partial.Errors, 1, "insert errors") {
+					require.Contains(t, partial.Errors[id], tt.containsErrMessage)
+				}
 			} else {
-				assert.NotNil(t, resp)
-				assert.Nil(t, err)
+				require.NoError(t, err)
 			}
-
-			require.NoError(t, c.Collections.Delete(t.Context(), weather.CollectionName()))
 		})
 	}
 }
