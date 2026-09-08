@@ -1543,7 +1543,7 @@ func TestStoreReloadDBFromSchemaReportsProgressDuringReload(t *testing.T) {
 		}).Return()
 	})
 
-	st.reloadDBFromSchema()
+	st.reloadDBFromSchema(context.Background())
 
 	require.True(t, st.dbLoaded.Load())
 	require.True(t, logged("local DB loaded from schema"))
@@ -1779,7 +1779,8 @@ func TestStoreApplyIsSchemaOnlyWhileLoading(t *testing.T) {
 
 	t.Run("loading: the command is applied schema-only", func(t *testing.T) {
 		ms := newStore(t)
-		require.True(t, ms.store.dbLoad.begin())
+		_, ok := ms.store.dbLoad.begin()
+		require.True(t, ok)
 
 		ms.store.Apply(addClass(1))
 
@@ -1854,7 +1855,8 @@ func TestStoreDBLoadHandoverUnderStress(t *testing.T) {
 			start     = make(chan struct{})
 			wg        sync.WaitGroup
 		)
-		require.True(t, st.dbLoad.begin(), "round %d: the load must start idle", i)
+		_, ok := st.dbLoad.begin()
+		require.True(t, ok, "round %d: the load must start idle", i)
 
 		// A pass, then the handover, repeating while commands keep arriving.
 		// Mirrors the loop in reloadDBFromSchema.
@@ -2037,7 +2039,7 @@ func TestStoreIncompleteLoadStillGoesReady(t *testing.T) {
 		name string
 		run  func(st *Store)
 	}{
-		{name: "called directly", run: func(st *Store) { st.reloadDBFromSchema() }},
+		{name: "called directly", run: func(st *Store) { st.reloadDBFromSchema(context.Background()) }},
 		{name: "started in the background", run: func(st *Store) {
 			st.dbLoad.start(st.reloadDBFromSchema, st.log)
 		}},
