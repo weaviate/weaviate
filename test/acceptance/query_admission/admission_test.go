@@ -28,6 +28,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 const (
@@ -247,9 +248,11 @@ func filteredBM25Request() *pb.SearchRequest {
 // holds for the vector phase itself.
 func pureVectorRequest() *pb.SearchRequest {
 	return &pb.SearchRequest{
-		Collection:  className,
-		Limit:       100,
-		NearVector:  &pb.NearVector{Vector: objectVector(numObjects / 2)},
+		Collection: className,
+		Limit:      100,
+		NearVector: &pb.NearVector{Vectors: []*pb.Vectors{{
+			VectorBytes: byteops.Fp32SliceToBytes(objectVector(numObjects / 2)),
+		}}},
 		Uses_127Api: true,
 	}
 }
