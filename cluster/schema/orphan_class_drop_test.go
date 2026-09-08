@@ -171,7 +171,7 @@ func TestReloadDropsClassesTheSchemaNoLongerNames(t *testing.T) {
 			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
 
 			tt.seed(t, sm)
-			sm.ReloadDBFromSchema()
+			require.NoError(t, sm.ReloadDBFromSchema(context.Background()))
 
 			require.ElementsMatch(t, tt.wantDeleted, idx.deleted)
 		})
@@ -208,11 +208,11 @@ func TestFailedDropIsRetriedOnTheNextReload(t *testing.T) {
 	addClass(t, sm, "Orphan")
 	deleteClassSchemaOnly(t, sm, "Orphan")
 
-	sm.ReloadDBFromSchema()
+	require.NoError(t, sm.ReloadDBFromSchema(context.Background()))
 	require.Equal(t, []string{"Orphan"}, idx.deleted)
 
 	idx.dropErr = nil
-	sm.ReloadDBFromSchema()
+	require.NoError(t, sm.ReloadDBFromSchema(context.Background()))
 	require.Equal(t, []string{"Orphan", "Orphan"}, idx.deleted)
 }
 
@@ -262,7 +262,7 @@ func TestRestoreCarriesTheFrozenFlag(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sm.Restore(empty, sm.parser))
 
-	sm.ReloadDBFromSchema()
+	require.NoError(t, sm.ReloadDBFromSchema(context.Background()))
 
 	require.ElementsMatch(t, []string{"Frozen", "Hot"}, idx.deleted)
 	require.True(t, idx.frozen["Frozen"], "the offloaded class lost its frozen flag")
