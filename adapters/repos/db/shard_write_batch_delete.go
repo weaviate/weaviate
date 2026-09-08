@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -209,6 +210,26 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	logger.Debug("Shard::FindUUIDs started")
 
 	start := time.Now()
+
+	// Collects the searcher's resolver annotations, so a slow FindUUIDs reports
+	// which Contains path it took the way the search paths in index.go do.
+	// Gated on the value LogIfSlow itself reads, since an installed accumulator
+	// holds every annotation until this call returns and nothing reads them
+	// with the log off.
+	if s.index.Config.QuerySlowLogEnabled.Get() {
+		ctx = helpers.InitSlowQueryDetails(ctx)
+	}
+	defer func() {
+		s.slowQueryReporter.LogIfSlow(ctx, start, map[string]any{
+			"collection": s.index.Config.ClassName,
+			"shard":      s.ID(),
+			"tenant":     s.tenant(),
+			"query":      "FindUUIDs",
+			"filters":    filters,
+			"limit":      limit,
+			"version":    s.versioner.Version(),
+		})
+	}()
 
 	bucket, release, err := s.objectsBucket()
 	if err != nil {
