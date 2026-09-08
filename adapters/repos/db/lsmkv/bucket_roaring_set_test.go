@@ -14,13 +14,16 @@ package lsmkv
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 
@@ -310,7 +313,7 @@ func TestBatchReaderMatchesRoaringSetGet(t *testing.T) {
 	keys := sortedKeysOf(t, []string{string(keyA), string(keyB), string(keyMissing)})
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
-	reader, err := NewRoaringSetBatchReader(view, keys)
+	reader, err := NewRoaringSetBatchReader(view.WithoutEmptyActiveMemtable(), keys)
 	require.NoError(t, err)
 
 	requireRowsAre(t, reader, keys, map[string][]uint64{
@@ -357,7 +360,7 @@ func TestBatchReaderSurvivesFlushAndSwitch(t *testing.T) {
 	defer view.ReleaseView()
 	// One key per window, so the second key's window fills after the switch
 	// below, reading a memtable the bucket has already moved past.
-	reader, err := newRoaringSetBatchReaderWithBounds(view, keys, 1, math.MaxInt)
+	reader, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, 1, math.MaxInt)
 	require.NoError(t, err)
 
 	before, releaseBefore, err := reader.Next(concurrency.SROAR_MERGE)
@@ -590,7 +593,7 @@ func TestBatchReaderValidatesAndFoldsLikeThePerKeyPath(t *testing.T) {
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
 
-		reader, err := NewRoaringSetBatchReader(view, sortedKeysOf(t, []string{"k"}))
+		reader, err := NewRoaringSetBatchReader(view.WithoutEmptyActiveMemtable(), sortedKeysOf(t, []string{"k"}))
 		require.Error(t, err)
 		require.Nil(t, reader)
 	})
@@ -675,7 +678,7 @@ func TestBatchReaderValidatesAndFoldsLikeThePerKeyPath(t *testing.T) {
 
 			view := b.GetConsistentView()
 			defer view.ReleaseView()
-			reader, err := NewRoaringSetBatchReader(view, sortedKeysOf(t, []string{"k"}))
+			reader, err := NewRoaringSetBatchReader(view.WithoutEmptyActiveMemtable(), sortedKeysOf(t, []string{"k"}))
 			require.NoError(t, err)
 
 			bm, release, err := reader.Next(concurrency.SROAR_MERGE)
@@ -696,7 +699,7 @@ func TestBatchReaderValidatesAndFoldsLikeThePerKeyPath(t *testing.T) {
 
 		view := b.GetConsistentView()
 		defer view.ReleaseView()
-		reader, err := NewRoaringSetBatchReader(view, sortedKeysOf(t, []string{"k"}))
+		reader, err := NewRoaringSetBatchReader(view.WithoutEmptyActiveMemtable(), sortedKeysOf(t, []string{"k"}))
 		require.NoError(t, err)
 
 		// a racing write into the active memtable the reader snapshotted as
@@ -751,7 +754,7 @@ func TestBatchReaderFoldsActiveTombstones(t *testing.T) {
 
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
-	reader, err := NewRoaringSetBatchReader(view, sortedKeysOf(t, []string{string(key)}))
+	reader, err := NewRoaringSetBatchReader(view.WithoutEmptyActiveMemtable(), sortedKeysOf(t, []string{string(key)}))
 	require.NoError(t, err)
 
 	bm, release, err := reader.Next(1)
@@ -823,7 +826,7 @@ func TestBatchReaderFoldsARealSwitchOldestFirst(t *testing.T) {
 	require.NotNil(t, view.Flushing, "without a flushing memtable there are no two orders to tell apart")
 
 	keys := sortedKeysOf(t, []string{string(key)})
-	r, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, readerWindowBytes)
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, BatchReaderWindowBytes)
 	require.NoError(t, err)
 	got, release, err := r.Next(concurrency.SROAR_MERGE)
 	require.NoError(t, err)
@@ -898,7 +901,7 @@ func TestBatchReaderLeavesNoSegmentRefBehind(t *testing.T) {
 			}
 
 			keys := sortedKeysOf(t, names)
-			r, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, readerWindowBytes)
+			r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, BatchReaderWindowBytes)
 			require.NoError(t, err)
 
 			if tc.failing {
@@ -987,4 +990,153 @@ func TestRoaringSetCursorSeekOnDiskSegment(t *testing.T) {
 		}
 		require.Equal(t, []string{"key-06", "key-08"}, seen)
 	})
+}
+
+// TestBatchReadersShareOneViewIndependently pins what a parallel fold is built
+// on: several readers on the SAME held view, each over its own share of one
+// batch, walking at once. Each must read its share exactly as a single reader
+// over the whole batch does — two windows filling at the same time must not
+// hand each other's rows back.
+func TestBatchReadersShareOneViewIndependently(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+	b.SetMemtableThreshold(1e9) // flush explicitly, so the split below holds
+
+	const numKeys = 64
+	names := make([]string, numKeys)
+	for i := range names {
+		names[i] = fmt.Sprintf("key-%03d", i)
+		require.NoError(t, b.RoaringSetAddList([]byte(names[i]), []uint64{uint64(i), uint64(100 + i)}))
+		if i == numKeys/2 {
+			// leave the rest in the active memtable, so the readers walk both a
+			// segment and the windowed memtable path
+			require.NoError(t, b.FlushAndSwitch())
+		}
+	}
+	keys := sortedKeysOf(t, names)
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	// what one reader over the whole batch reads, in batch order
+	whole, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, 4, BatchReaderWindowBytes)
+	require.NoError(t, err)
+	want := make(map[string][]uint64, keys.Len())
+	for i := 0; i < keys.Len(); i++ {
+		bm, release, err := whole.Next(concurrency.SROAR_MERGE)
+		require.NoError(t, err)
+		want[string(keys.At(i))] = docsOrNil(bm)
+		release()
+	}
+
+	const workers = 4
+	got := make([]map[string][]uint64, workers)
+	readers := make([]*RoaringSetBatchReader, workers)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		from, to := w*numKeys/workers, (w+1)*numKeys/workers
+		share := keys.Sub(from, to)
+		// opened before the goroutines start, as the fold does
+		reader, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), share, 4, BatchReaderWindowBytes)
+		require.NoError(t, err)
+		readers[w] = reader
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rows := make(map[string][]uint64, share.Len())
+			for i := 0; i < share.Len(); i++ {
+				bm, release, err := reader.Next(concurrency.SROAR_MERGE)
+				if !assert.NoError(t, err) {
+					return
+				}
+				rows[string(share.At(i))] = docsOrNil(bm)
+				release()
+			}
+			got[w] = rows
+		}()
+	}
+	wg.Wait()
+
+	merged := map[string][]uint64{}
+	for w, rows := range got {
+		require.NotNil(t, rows, "worker %d did not finish its share", w)
+		for k, v := range rows {
+			_, seen := merged[k]
+			require.False(t, seen, "key %q was read by more than one worker", k)
+			merged[k] = v
+		}
+	}
+	require.Equal(t, want, merged,
+		"readers sharing a view must read their shares as one reader reads the batch")
+
+	// without this the test could pass on a fixture where each share fits one
+	// window, which is the shape that has no concurrent fill to get wrong
+	for w, reader := range readers {
+		st := reader.Stats()
+		require.Greater(t, st.Fills, 1, "worker %d must span more than one window", w)
+		require.Positive(t, st.Memtables, "worker %d must read through a memtable", w)
+	}
+}
+
+// TestBatchReadersOnOneViewAgreeOnMemtables pins what narrowing a view once
+// buys: whether the active memtable participates is decided for every reader at
+// one instant. The size is read live, so deciding per reader would let a write
+// landing between two opens give one batch two answers — which is what the
+// unnarrowed case at the end shows.
+func TestBatchReadersOnOneViewAgreeOnMemtables(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+	b.SetMemtableThreshold(1e9)
+
+	require.NoError(t, b.RoaringSetAddList([]byte("k"), []uint64{1}))
+	// everything on disk, so the active memtable is empty and a reader resolving
+	// for itself would drop it
+	require.NoError(t, b.FlushAndSwitch())
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+	narrowed := view.WithoutEmptyActiveMemtable()
+	require.NotNil(t, view.Active, "narrowing must leave the caller's own view alone")
+	require.Nil(t, narrowed.view.Active, "an untouched active memtable contributes nothing")
+
+	// the write the readers straddle
+	require.NoError(t, b.RoaringSetAddList([]byte("k"), []uint64{2}))
+
+	keys := sortedKeysOf(t, []string{"k"})
+	read := func(t *testing.T, r *RoaringSetBatchReader) []uint64 {
+		t.Helper()
+		bm, release, err := r.Next(1)
+		require.NoError(t, err)
+		defer release()
+		return bm.ToArray()
+	}
+
+	first, err := NewRoaringSetBatchReader(narrowed, keys)
+	require.NoError(t, err)
+	second, err := NewRoaringSetBatchReader(narrowed, keys)
+	require.NoError(t, err)
+
+	require.Equal(t, []uint64{1}, read(t, first))
+	require.Equal(t, []uint64{1}, read(t, second),
+		"a reader opened after the write must answer as the one opened before it")
+
+	unnarrowed, err := NewRoaringSetBatchReader(view.WithoutEmptyActiveMemtable(), keys)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1, 2}, read(t, unnarrowed),
+		"the same view unnarrowed reads the write, which is what narrowing settles")
 }
