@@ -61,6 +61,11 @@ func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
 	vTrue, vFalse := true, false
 	class := &models.Class{
 		Class: containsBatchTestClass,
+		// the length guards in readFromBucket and the classifier both read it;
+		// AddClass and RestoreClass fill it via setInvertedConfigDefaults, so
+		// the nil case below guards a dereference rather than a state a
+		// creation path produces
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexPropertyLength: true},
 		Properties: []*models.Property{
 			{Name: "prop-uuid", DataType: schema.DataTypeUUID.PropString(), IndexFilterable: &vTrue},
 			{Name: "prop-text-field", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationField, IndexFilterable: &vTrue},
@@ -74,6 +79,14 @@ func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
 			{Name: "prop-not-filterable", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vFalse, IndexSearchable: &vTrue},
 			{Name: "prop-nonroaringset", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
 			{Name: "prop-no-bucket", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+			// one per non-int primitive arm, so each arm has a shape that
+			// reaches it and declines
+			{Name: "prop-number-no-bucket", DataType: schema.DataTypeNumber.PropString(), IndexFilterable: &vTrue},
+			{Name: "prop-bool-no-bucket", DataType: schema.DataTypeBoolean.PropString(), IndexFilterable: &vTrue},
+			{Name: "prop-date-no-bucket", DataType: schema.DataTypeDate.PropString(), IndexFilterable: &vTrue},
+			// a name only a restore or startup load can introduce: both
+			// creation paths reject the reserved suffix
+			{Name: "prop-restored" + filters.InternalPropertyLength, DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
 			{Name: "prop-ref", DataType: []string{"SomeOtherClass"}},
 			{Name: "prop-geo", DataType: schema.DataTypeGeoCoordinates.PropString()},
 			{Name: "prop-nested", DataType: schema.DataTypeObject.PropString()},
@@ -85,6 +98,9 @@ func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
 		"prop-uuid", "prop-text-field", "prop-int", "prop-number", "prop-bool",
 		"prop-date", "prop-text-word", "prop-text-whitespace", "prop-fallback",
 		"prop-not-filterable",
+		// a bucket of its own, so the suffix guard is what declines it rather
+		// than the bucket probe one check later
+		"prop-restored" + filters.InternalPropertyLength,
 	}
 	for _, propName := range roaringProps {
 		require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(propName),
@@ -96,6 +112,12 @@ func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
 	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM("prop-nonroaringset"),
 		lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 	// "prop-no-bucket" deliberately has no backing bucket at all
+
+	// only prop-text-field gets a length bucket, so the classifier's bucket
+	// probe has one property that passes it and several that do not
+	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLengthLSM("prop-text-field"),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop())))
 
 	f := &containsBatchGateFixture{class: class}
 	f.searcher = &Searcher{
@@ -189,27 +211,37 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 		// duplicates.
 		numKeys int
 		wantKey func(t *testing.T, i int) []byte
+		// wantProp is the bucket-selecting name the leaf must carry when it
+		// differs from the name the filter names; empty means they are equal.
+		wantProp string
 	}{
-		{"uuid", "prop-uuid", schema.DataTypeText, filters.ContainsAny, uuidValues, 3, uuidKey},
-		{"uuid []interface{}", "prop-uuid", schema.DataTypeText, filters.ContainsAny, []interface{}{uuidValues[0], uuidValues[1], uuidValues[2]}, 3, uuidKey},
-		{"text FIELD", "prop-text-field", schema.DataTypeText, filters.ContainsAll, textValues, 3, textKey},
-		{"text FIELD []interface{}", "prop-text-field", schema.DataTypeText, filters.ContainsAll, []interface{}{"alpha", "beta", "gamma"}, 3, textKey},
-		{"int", "prop-int", schema.DataTypeInt, filters.ContainsAny, intValues, 3, intKey},
-		{"int ContainsNone", "prop-int", schema.DataTypeInt, filters.ContainsNone, intValues, 3, intKey},
-		{"text FIELD ContainsNone", "prop-text-field", schema.DataTypeText, filters.ContainsNone, textValues, 3, textKey},
+		{name: "uuid", prop: "prop-uuid", propType: schema.DataTypeText, operator: filters.ContainsAny, value: uuidValues, numKeys: 3, wantKey: uuidKey},
+		{name: "uuid []interface{}", prop: "prop-uuid", propType: schema.DataTypeText, operator: filters.ContainsAny, value: []interface{}{uuidValues[0], uuidValues[1], uuidValues[2]}, numKeys: 3, wantKey: uuidKey},
+		{name: "text FIELD", prop: "prop-text-field", propType: schema.DataTypeText, operator: filters.ContainsAll, value: textValues, numKeys: 3, wantKey: textKey},
+		{name: "text FIELD []interface{}", prop: "prop-text-field", propType: schema.DataTypeText, operator: filters.ContainsAll, value: []interface{}{"alpha", "beta", "gamma"}, numKeys: 3, wantKey: textKey},
+		{name: "int", prop: "prop-int", propType: schema.DataTypeInt, operator: filters.ContainsAny, value: intValues, numKeys: 3, wantKey: intKey},
+		// the suffix guard declines this name only while lengths are unindexed;
+		// the fixture indexes them, so the batch still applies
+		{name: "int, name carries the length suffix", prop: "prop-restored" + filters.InternalPropertyLength, propType: schema.DataTypeInt, operator: filters.ContainsAny, value: intValues, numKeys: 3, wantKey: intKey},
+		{name: "int ContainsNone", prop: "prop-int", propType: schema.DataTypeInt, operator: filters.ContainsNone, value: intValues, numKeys: 3, wantKey: intKey},
+		{name: "text FIELD ContainsNone", prop: "prop-text-field", propType: schema.DataTypeText, operator: filters.ContainsNone, value: textValues, numKeys: 3, wantKey: textKey},
 		// the API layers unmarshal numeric values as float64
-		{"int []interface{}", "prop-int", schema.DataTypeInt, filters.ContainsAny, []interface{}{float64(1), float64(2), float64(3)}, 3, intKey},
-		{"number", "prop-number", schema.DataTypeNumber, filters.ContainsAny, numberValues, 3, numberKey},
-		{"number []interface{}", "prop-number", schema.DataTypeNumber, filters.ContainsAny, []interface{}{1.5, 2.5, 3.5}, 3, numberKey},
-		{"bool", "prop-bool", schema.DataTypeBoolean, filters.ContainsAny, boolValues, 2, boolKey},
-		{"bool []interface{}", "prop-bool", schema.DataTypeBoolean, filters.ContainsAny, []interface{}{true, false}, 2, boolKey},
-		{"date", "prop-date", schema.DataTypeDate, filters.ContainsAny, dateValues, 3, dateKey},
-		{"date []interface{}", "prop-date", schema.DataTypeDate, filters.ContainsAny, []interface{}{dateValues[0], dateValues[1], dateValues[2]}, 3, dateKey},
+		{name: "int []interface{}", prop: "prop-int", propType: schema.DataTypeInt, operator: filters.ContainsAny, value: []interface{}{float64(1), float64(2), float64(3)}, numKeys: 3, wantKey: intKey},
+		{name: "number", prop: "prop-number", propType: schema.DataTypeNumber, operator: filters.ContainsAny, value: numberValues, numKeys: 3, wantKey: numberKey},
+		{name: "number []interface{}", prop: "prop-number", propType: schema.DataTypeNumber, operator: filters.ContainsAny, value: []interface{}{1.5, 2.5, 3.5}, numKeys: 3, wantKey: numberKey},
+		{name: "bool", prop: "prop-bool", propType: schema.DataTypeBoolean, operator: filters.ContainsAny, value: boolValues, numKeys: 2, wantKey: boolKey},
+		{name: "bool []interface{}", prop: "prop-bool", propType: schema.DataTypeBoolean, operator: filters.ContainsAny, value: []interface{}{true, false}, numKeys: 2, wantKey: boolKey},
+		{name: "date", prop: "prop-date", propType: schema.DataTypeDate, operator: filters.ContainsAny, value: dateValues, numKeys: 3, wantKey: dateKey},
+		{name: "date []interface{}", prop: "prop-date", propType: schema.DataTypeDate, operator: filters.ContainsAny, value: []interface{}{dateValues[0], dateValues[1], dateValues[2]}, numKeys: 3, wantKey: dateKey},
 		// Four values, two distinct keys. Every other row has one key per
 		// value, so without this the gate's >= 2 values and the leaf's >= 1 key
 		// are never seen to disagree.
-		{"bool, values repeated", "prop-bool", schema.DataTypeBoolean, filters.ContainsAny, boolDupValues, len(boolDupValues), boolDupKey},
-		{"int, values repeated", "prop-int", schema.DataTypeInt, filters.ContainsAny, intDupValues, len(intDupValues), intDupKey},
+		{name: "bool, values repeated", prop: "prop-bool", propType: schema.DataTypeBoolean, operator: filters.ContainsAny, value: boolDupValues, numKeys: len(boolDupValues), wantKey: boolDupKey},
+		{name: "int, values repeated", prop: "prop-int", propType: schema.DataTypeInt, operator: filters.ContainsAny, value: intDupValues, numKeys: len(intDupValues), wantKey: intDupKey},
+		// a len() filter reads the length bucket, so the leaf must carry the
+		// length name; prop-text-field is the one property with both buckets,
+		// so a leaf naming the wrong one would still resolve
+		{name: "len(), int keys against the length bucket", prop: "len(prop-text-field)", propType: schema.DataTypeInt, operator: filters.ContainsAny, value: intValues, numKeys: 3, wantKey: intKey, wantProp: helpers.PropLength("prop-text-field")},
 	}
 
 	for _, tt := range tests {
@@ -223,7 +255,13 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 			require.Empty(t, extractContainsDesugaredReason(t, ctx),
 				"an eligible shape must not annotate a desugar reason")
 			require.Equal(t, tt.operator, pv.operator)
-			require.Equal(t, tt.prop, pv.prop)
+			wantProp := tt.wantProp
+			if wantProp == "" {
+				wantProp = tt.prop
+			}
+			require.Equal(t, wantProp, pv.prop)
+			require.Equal(t, helpers.BucketFromPropNameLSM(wantProp), pv.getBucketName(),
+				"the leaf must read the bucket its name selects")
 			require.True(t, pv.hasFilterableIndex)
 			// The keys come back ascending, not in the order the filter listed
 			// them, and duplicates are gone — so the expectation is built from
@@ -262,6 +300,10 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 		setup      func(t *testing.T)
 		wantErr    bool
 		wantReason string
+		// wantDesugaredErr is the error the desugared continuation answers
+		// with when resolved, for a row whose decline holds back an answer the
+		// per-value path refuses.
+		wantDesugaredErr string
 	}{
 		{
 			name:     "nested path",
@@ -286,10 +328,87 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			wantReason: containsDeclinePropertyNotFound,
 		},
 		{
-			name: "property length meta-filter, len() spelling",
+			// not a length filter: a property whose own name carries the suffix
+			name: "property whose name carries the length suffix",
+			path: containsPath("prop-restored" + filters.InternalPropertyLength), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+			setup: func(t *testing.T) {
+				f.class.InvertedIndexConfig.IndexPropertyLength = false
+				t.Cleanup(func() { f.class.InvertedIndexConfig.IndexPropertyLength = true })
+			},
+			wantReason: containsDeclineLengthNotIndexed,
+			// readFromBucket reads this name as a length pseudo-property from
+			// its suffix alone, so a batch answering it would disagree with the
+			// per-value path
+			wantDesugaredErr: "Property length must be indexed to be filterable",
+		},
+		{
+			// prop-int resolves, but the fixture builds no length bucket for
+			// it, so the length classifier declines on the bucket probe
+			name: "len() spelling with no length bucket",
 			path: containsPath("len(prop-int)"), propType: schema.DataTypeInt,
 			value: []int{1, 2}, operator: filters.ContainsAny,
-			wantReason: containsDeclineLengthFilter,
+			wantReason: containsDeclineNoRoaringSetBucket,
+		},
+		{
+			// a length is an int; the desugared leaf extractor rejects every
+			// other value type, so batching one would answer where it errors
+			name: "len() spelling with a non-int value type",
+			path: containsPath("len(prop-text-field)"), propType: schema.DataTypeText,
+			value: []string{"a", "b"}, operator: filters.ContainsAny,
+			wantErr:    true,
+			wantReason: containsDeclineValueTypeMismatch,
+		},
+		{
+			name: "len() spelling of a property that does not exist",
+			path: containsPath("len(prop-does-not-exist)"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+			wantErr:    true,
+			wantReason: containsDeclinePropertyNotFound,
+		},
+		{
+			// readFromBucket dereferences InvertedIndexConfig, so the
+			// classifier must decline rather than reach it — prop-text-field
+			// is the one property with a length bucket, so nothing later would
+			// have declined for it
+			name: "len() spelling with no inverted index config",
+			path: containsPath("len(prop-text-field)"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+			setup: func(t *testing.T) {
+				cfg := f.class.InvertedIndexConfig
+				f.class.InvertedIndexConfig = nil
+				t.Cleanup(func() { f.class.InvertedIndexConfig = cfg })
+			},
+			wantReason: containsDeclineLengthNotIndexed,
+		},
+		{
+			// the bucket is present; the schema saying lengths are unindexed
+			// is what withholds permission to read it
+			name: "len() spelling with lengths not indexed",
+			path: containsPath("len(prop-text-field)"), propType: schema.DataTypeInt,
+			value: []int{3, 5}, operator: filters.ContainsAny,
+			setup: func(t *testing.T) {
+				f.class.InvertedIndexConfig.IndexPropertyLength = false
+				t.Cleanup(func() { f.class.InvertedIndexConfig.IndexPropertyLength = true })
+			},
+			wantReason: containsDeclineLengthNotIndexed,
+		},
+		{
+			// createPropertyLengthIndex builds no bucket for a geo property,
+			// so this declines on the probe rather than on a type check the
+			// desugared path does not run either
+			name: "len() spelling of a geo property",
+			path: containsPath("len(prop-geo)"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+			wantReason: containsDeclineNoRoaringSetBucket,
+		},
+		{
+			// a reference property is not special-cased on either path: both
+			// read the length bucket, which for prop-ref does not exist
+			name: "len() spelling of a reference property",
+			path: containsPath("len(prop-ref)"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+			wantReason: containsDeclineNoRoaringSetBucket,
 		},
 		{
 			name: "property not found",
@@ -361,6 +480,27 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			wantReason: containsDeclineNoRoaringSetBucket,
 		},
 		{
+			// the number, bool and date arms each read the classifier's answer
+			// in a dispatch of their own; without a row apiece, an arm that
+			// batches whatever it is handed goes unnoticed
+			name: "number prop with no bucket",
+			path: containsPath("prop-number-no-bucket"), propType: schema.DataTypeNumber,
+			value: []float64{1.5, 2.5}, operator: filters.ContainsAny,
+			wantReason: containsDeclineNoRoaringSetBucket,
+		},
+		{
+			name: "bool prop with no bucket",
+			path: containsPath("prop-bool-no-bucket"), propType: schema.DataTypeBoolean,
+			value: []bool{true, false}, operator: filters.ContainsAny,
+			wantReason: containsDeclineNoRoaringSetBucket,
+		},
+		{
+			name: "date prop with no bucket",
+			path: containsPath("prop-date-no-bucket"), propType: schema.DataTypeDate,
+			value: []string{"2020-01-01T00:00:00Z", "2021-01-01T00:00:00Z"}, operator: filters.ContainsAny,
+			wantReason: containsDeclineNoRoaringSetBucket,
+		},
+		{
 			name: "N=0 values",
 			path: containsPath("prop-int"), propType: schema.DataTypeInt,
 			value: []int{}, operator: filters.ContainsAny,
@@ -409,6 +549,11 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, pv)
 			require.Zero(t, pv.containsKeys.Len(), "shape must not resolve through the batched path")
+			require.NotEmpty(t, pv.children, "a declined shape must desugar per value")
+			if tt.wantDesugaredErr != "" {
+				_, err := pv.resolveDocIDs(ctx, s, 0)
+				require.ErrorContains(t, err, tt.wantDesugaredErr)
+			}
 		})
 	}
 }
@@ -491,7 +636,7 @@ func TestNewBatchedContainsPair_RejectsNoKeys(t *testing.T) {
 	f := newContainsBatchGateFixture(t)
 	prop := &models.Property{Name: "prop-int"}
 
-	_, err := newBatchedContainsPair(prop, filters.ContainsAny, f.class, entsInverted.SortedKeys{})
+	_, err := newBatchedContainsPair(prop.Name, filters.ContainsAny, f.class, entsInverted.SortedKeys{})
 	require.ErrorContains(t, err, "no keys")
 
 	for _, tc := range []struct {
@@ -502,18 +647,17 @@ func TestNewBatchedContainsPair_RejectsNoKeys(t *testing.T) {
 		{name: "two keys", keys: keysFrom(t, []byte("a"), []byte("b"))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pv, err := newBatchedContainsPair(prop, filters.ContainsAny, f.class, tc.keys)
+			pv, err := newBatchedContainsPair(prop.Name, filters.ContainsAny, f.class, tc.keys)
 			require.NoError(t, err)
 			require.Equal(t, tc.keys.Len(), pv.containsKeys.Len())
 		})
 	}
 }
 
-// TestExtractContainsBatch_DefaultOnGate pins that the batched resolution is
-// on unless something turns it off: an unwired (nil) gate batches an eligible
-// shape, only a gate holding false routes it through the per-value desugared
-// path, and either value set at runtime takes effect without a searcher
-// rebuild.
+// TestExtractContainsBatch_DefaultOnGate pins three things about the batched
+// resolution. An unwired (nil) gate batches an eligible shape. Only a gate
+// holding false routes it through the per-value desugared path. Either value
+// set at runtime takes effect without a searcher rebuild.
 func TestExtractContainsBatch_DefaultOnGate(t *testing.T) {
 	f := newContainsBatchGateFixture(t)
 	s := f.searcher

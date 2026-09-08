@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -1037,6 +1038,10 @@ const (
 	// containsBatchPrimitive: values encode via the primitive encoder of
 	// the value type (int/number/boolean/date).
 	containsBatchPrimitive
+	// containsBatchPropertyLength: int values encode via the primitive int
+	// encoder, but the keys live in the property's length bucket rather than
+	// its value bucket.
+	containsBatchPropertyLength
 )
 
 // containsDecline* are the reasons surfaced in the "contains_desugared"
@@ -1048,18 +1053,76 @@ const (
 	containsDeclineNotEnabled           = "not-enabled"
 	containsDeclineMultiSegmentPath     = "multi-segment-path"
 	containsDeclineInternalProperty     = "internal-property"
-	containsDeclineLengthFilter         = "length-filter"
 	containsDeclinePropertyNotFound     = "property-not-found"
 	containsDeclineNestedObjectProperty = "nested-object-property"
 	containsDeclineReferenceProperty    = "reference-property"
 	containsDeclineGeoProperty          = "geo-property"
 	containsDeclineNoFilterableIndex    = "no-filterable-index"
 	containsDeclineNoRoaringSetBucket   = "no-roaringset-bucket"
+	containsDeclineLengthNotIndexed     = "length-not-indexed"
 	containsDeclineValueTypeMismatch    = "value-type-mismatch"
 	containsDeclineTokenizationNotField = "tokenization-not-field"
 	containsDeclineFallbackToSearchable = "fallback-to-searchable"
 	containsDeclineFewerThanTwoValues   = "fewer-than-two-values"
+	containsDeclineUnhandledBatchType   = "unhandled-batch-type"
 )
+
+// approvedDesugarReason names why a filter still desugared. A classifier
+// decline keeps its own reason; an approved shape desugars either for having
+// too few values to amortize the fold, or because no value-type arm claims the
+// batch type it was given.
+func approvedDesugarReason(declineReason string, numValues int) string {
+	switch {
+	case declineReason != "":
+		return declineReason
+	case numValues < 2:
+		return containsDeclineFewerThanTwoValues
+	default:
+		return containsDeclineUnhandledBatchType
+	}
+}
+
+// classIndexesPropertyLength reports whether the class indexes property
+// lengths. readFromBucket dereferences InvertedIndexConfig unchecked, so a nil
+// config has to read as "not indexed" at every site that guards it.
+func classIndexesPropertyLength(class *models.Class) bool {
+	cfg := class.InvertedIndexConfig
+	return cfg != nil && cfg.IndexPropertyLength
+}
+
+// hasRoaringSetBucket reports whether the named bucket exists with the
+// roaringset strategy the batched fold reads.
+func (s *Searcher) hasRoaringSetBucket(name string) bool {
+	b := s.store.Bucket(name)
+	return b != nil && b.Strategy() == lsmkv.StrategyRoaringSet
+}
+
+// classifyContainsBatchLength takes the property the length belongs to, its
+// caller having resolved the len(...) form. Lengths encode with
+// PutLexicographicallySortableInt64, the same encoder the int batch uses.
+func (s *Searcher) classifyContainsBatchLength(property *models.Property, propType schema.DataType,
+	class *models.Class,
+) (*models.Property, containsBatchType, string) {
+	// a length is an int whatever the property's own type is, and the
+	// desugared leaf extractor rejects everything else
+	if propType != schema.DataTypeInt {
+		return nil, containsNotBatchable, containsDeclineValueTypeMismatch
+	}
+	// readFromBucket errors on a length filter when the class does not index
+	// lengths, and panics when InvertedIndexConfig is nil — it dereferences it
+	// unchecked. Batching either would answer where the desugared path does not.
+	if !classIndexesPropertyLength(class) {
+		return nil, containsNotBatchable, containsDeclineLengthNotIndexed
+	}
+	if !s.hasRoaringSetBucket(helpers.BucketFromPropNameLengthLSM(property.Name)) {
+		return nil, containsNotBatchable, containsDeclineNoRoaringSetBucket
+	}
+	// the leaf reads the length bucket, so the name handed on is the length
+	// one; both int batch types then carry a name their arm can use unchanged
+	lengthProp := *property
+	lengthProp.Name = helpers.PropLength(property.Name)
+	return &lengthProp, containsBatchPropertyLength, ""
+}
 
 // classifyContainsBatch runs every shape check for the batched flat
 // ContainsAny/ContainsAll/ContainsNone fast path and reconciles the property
@@ -1096,8 +1159,9 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 	if s.onInternalProp(propName) {
 		return nil, containsNotBatchable, containsDeclineInternalProperty
 	}
-	if _, ok := schema.IsPropertyLength(propName, 0); ok {
-		return nil, containsNotBatchable, containsDeclineLengthFilter
+	isLength := false
+	if lengthOf, ok := schema.IsPropertyLength(propName, 0); ok {
+		propName, isLength = lengthOf, true
 	}
 
 	property, err := schema.GetPropertyByName(class, propName)
@@ -1105,6 +1169,9 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 		// the desugared per-value path raises the identical "property not
 		// found" error; no need to duplicate it here
 		return nil, containsNotBatchable, containsDeclinePropertyNotFound
+	}
+	if isLength {
+		return s.classifyContainsBatchLength(property, propType, class)
 	}
 	if _, ok := schema.AsNested(property.DataType); ok {
 		return nil, containsNotBatchable, containsDeclineNestedObjectProperty
@@ -1118,9 +1185,16 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 	if !HasFilterableIndex(property) {
 		return nil, containsNotBatchable, containsDeclineNoFilterableIndex
 	}
+	// readFromBucket refuses a name carrying the length suffix when lengths are
+	// unindexed, and panics when InvertedIndexConfig is nil. Declining holds
+	// that answer still: its suffix test cannot tell this property from a len()
+	// filter on another, and fixing it belongs to prop_value_pairs.go.
+	if strings.HasSuffix(property.Name, filters.InternalPropertyLength) &&
+		!classIndexesPropertyLength(class) {
+		return nil, containsNotBatchable, containsDeclineLengthNotIndexed
+	}
 
-	b := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
-	if b == nil || b.Strategy() != lsmkv.StrategyRoaringSet {
+	if !s.hasRoaringSetBucket(helpers.BucketFromPropNameLSM(property.Name)) {
 		return nil, containsNotBatchable, containsDeclineNoRoaringSetBucket
 	}
 
@@ -1164,18 +1238,21 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 // fall through to the children dispatch with no children to resolve. The
 // count can be lower than the filter's value count, since the builders drop
 // duplicates.
-func newBatchedContainsPair(property *models.Property, operator filters.Operator,
+//
+// prop is the bucket-selecting name the leaf resolves against, not always a
+// schema property: a len(x) filter passes x's length property.
+func newBatchedContainsPair(prop string, operator filters.Operator,
 	class *models.Class, keys inverted.SortedKeys,
 ) (*propValuePair, error) {
 	if keys.Len() == 0 {
 		return nil, fmt.Errorf("%w: batched contains leaf for property %q has no keys",
-			inverted.ErrInternal, property.Name)
+			inverted.ErrInternal, prop)
 	}
 	pv, err := newPropValuePair(class)
 	if err != nil {
 		return nil, err
 	}
-	pv.prop = property.Name
+	pv.prop = prop
 	pv.operator = operator
 	pv.hasFilterableIndex = true
 	pv.containsKeys = keys
@@ -1205,7 +1282,7 @@ func (s *Searcher) batchedContainsUUID(property *models.Property, operator filte
 	if err != nil {
 		return nil, err
 	}
-	return newBatchedContainsPair(property, operator, class, keys)
+	return newBatchedContainsPair(property.Name, operator, class, keys)
 }
 
 // batchedContainsTextField builds the batched leaf for string values on a
@@ -1238,9 +1315,12 @@ func (s *Searcher) batchedContainsTextField(property *models.Property, operator 
 	if err != nil {
 		return nil, err
 	}
-	return newBatchedContainsPair(property, operator, class, keys)
+	return newBatchedContainsPair(property.Name, operator, class, keys)
 }
 
+// batchedContainsInt builds the batched leaf for int values. property.Name
+// selects the bucket the keys are read from; a len(prop) filter arrives with
+// the length property already resolved, so this reads the same either way.
 func (s *Searcher) batchedContainsInt(property *models.Property, operator filters.Operator,
 	class *models.Class, values []int,
 ) (*propValuePair, error) {
@@ -1248,7 +1328,7 @@ func (s *Searcher) batchedContainsInt(property *models.Property, operator filter
 	if err != nil {
 		return nil, err
 	}
-	return newBatchedContainsPair(property, operator, class, keys)
+	return newBatchedContainsPair(property.Name, operator, class, keys)
 }
 
 func (s *Searcher) batchedContainsNumber(property *models.Property, operator filters.Operator,
@@ -1258,7 +1338,7 @@ func (s *Searcher) batchedContainsNumber(property *models.Property, operator fil
 	if err != nil {
 		return nil, err
 	}
-	return newBatchedContainsPair(property, operator, class, keys)
+	return newBatchedContainsPair(property.Name, operator, class, keys)
 }
 
 func (s *Searcher) batchedContainsBool(property *models.Property, operator filters.Operator,
@@ -1268,7 +1348,7 @@ func (s *Searcher) batchedContainsBool(property *models.Property, operator filte
 	if err != nil {
 		return nil, err
 	}
-	return newBatchedContainsPair(property, operator, class, keys)
+	return newBatchedContainsPair(property.Name, operator, class, keys)
 }
 
 func (s *Searcher) batchedContainsDate(property *models.Property, operator filters.Operator,
@@ -1278,7 +1358,7 @@ func (s *Searcher) batchedContainsDate(property *models.Property, operator filte
 	if err != nil {
 		return nil, err
 	}
-	return newBatchedContainsPair(property, operator, class, keys)
+	return newBatchedContainsPair(property.Name, operator, class, keys)
 }
 
 // extractContains resolves a ContainsAny/ContainsAll/ContainsNone filter.
@@ -1295,11 +1375,6 @@ func (s *Searcher) extractContains(ctx context.Context,
 	operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	property, batchType, declineReason := s.classifyContainsBatch(path, propType, operator, class)
-	if declineReason == "" {
-		// the classifier approved the shape; if the filter still desugars in
-		// the arms below, the value count is the only remaining cause
-		declineReason = containsDeclineFewerThanTwoValues
-	}
 
 	switch propType {
 	case schema.DataTypeText, schema.DataTypeTextArray:
@@ -1317,17 +1392,25 @@ func (s *Searcher) extractContains(ctx context.Context,
 				// containsNotBatchable: desugar below
 			}
 		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
+		return s.desugaredContains(ctx, operator, class, path,
+			getContainsOperands(propType, path, values),
+			approvedDesugarReason(declineReason, len(values)))
 
 	case schema.DataTypeInt, schema.DataTypeIntArray:
 		values, err := s.extractIntArray(value)
 		if err != nil {
 			return nil, err
 		}
-		if batchType == containsBatchPrimitive && len(values) >= 2 {
-			return s.batchedContainsInt(property, operator, class, values)
+		if len(values) >= 2 {
+			switch batchType {
+			case containsBatchPrimitive, containsBatchPropertyLength:
+				return s.batchedContainsInt(property, operator, class, values)
+			default:
+			}
 		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
+		return s.desugaredContains(ctx, operator, class, path,
+			getContainsOperands(propType, path, values),
+			approvedDesugarReason(declineReason, len(values)))
 
 	case schema.DataTypeNumber, schema.DataTypeNumberArray:
 		values, err := s.extractFloat64Array(value)
@@ -1337,7 +1420,9 @@ func (s *Searcher) extractContains(ctx context.Context,
 		if batchType == containsBatchPrimitive && len(values) >= 2 {
 			return s.batchedContainsNumber(property, operator, class, values)
 		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
+		return s.desugaredContains(ctx, operator, class, path,
+			getContainsOperands(propType, path, values),
+			approvedDesugarReason(declineReason, len(values)))
 
 	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
 		values, err := s.extractBoolArray(value)
@@ -1347,7 +1432,9 @@ func (s *Searcher) extractContains(ctx context.Context,
 		if batchType == containsBatchPrimitive && len(values) >= 2 {
 			return s.batchedContainsBool(property, operator, class, values)
 		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
+		return s.desugaredContains(ctx, operator, class, path,
+			getContainsOperands(propType, path, values),
+			approvedDesugarReason(declineReason, len(values)))
 
 	case schema.DataTypeDate, schema.DataTypeDateArray:
 		values, err := s.extractStringArray(value)
@@ -1357,7 +1444,9 @@ func (s *Searcher) extractContains(ctx context.Context,
 		if batchType == containsBatchPrimitive && len(values) >= 2 {
 			return s.batchedContainsDate(property, operator, class, values)
 		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
+		return s.desugaredContains(ctx, operator, class, path,
+			getContainsOperands(propType, path, values),
+			approvedDesugarReason(declineReason, len(values)))
 
 	default:
 		return nil, fmt.Errorf("unsupported type '%T' for '%v' operator", propType, operator)

@@ -1351,6 +1351,13 @@ func createSchema() *schema.Schema {
 							IndexRangeFilters: &vTrue,
 						},
 					},
+					// InvertedIndexConfig must be present with IndexPropertyLength
+					// true. readFromBucket dereferences it unchecked, and the
+					// len() arm of TestDocIDs_BatchedMatchesDesugared errors
+					// without the flag.
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexPropertyLength: true,
+					},
 				},
 			},
 		},
