@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -26,6 +27,7 @@ import (
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -149,6 +151,7 @@ func (db *DB) init(ctx context.Context) error {
 				SeparateObjectsCompactions:     db.config.SeparateObjectsCompactions,
 				CycleManagerRoutinesFactor:     db.config.CycleManagerRoutinesFactor,
 				IndexRangeableInMemory:         db.config.IndexRangeableInMemory,
+				IndexRoaringSetInMemory:        db.config.IndexRoaringSetInMemory,
 				ObjectsTTLBatchSize:            db.config.ObjectsTTLBatchSize,
 				ObjectsTTLPauseEveryNoBatches:  db.config.ObjectsTTLPauseEveryNoBatches,
 				ObjectsTTLPauseDuration:        db.config.ObjectsTTLPauseDuration,
@@ -361,4 +364,40 @@ func (db *DB) migrateToHierarchicalFS() error {
 	db.logger.WithField("action", "hierarchical_fs_migration").
 		Debugf("fs migration took %s\n", time.Since(before))
 	return nil
+}
+
+// WarnUnmatchedRoaringSetInMemoryEntries flags INDEX_ROARINGSET_IN_MEMORY
+// entries that match no live <Collection>.<property>. The check reads the
+// schema, so it must run after the RAFT schema restore: during db.init the
+// schema is still empty and every entry would false-positive.
+func (db *DB) WarnUnmatchedRoaringSetInMemoryEntries() {
+	warnUnmatchedRoaringSetInMemoryEntries(db.logger, db.schemaGetter.GetSchemaSkipAuth(),
+		db.config.IndexRoaringSetInMemory)
+}
+
+// warnUnmatchedRoaringSetInMemoryEntries warns once per
+// INDEX_ROARINGSET_IN_MEMORY entry that matches no live
+// <Collection>.<property>. The env parse already fails fast on malformed
+// entries, but a well-formed entry with a typo or wrong case would otherwise
+// silently never hold any bucket in memory.
+func warnUnmatchedRoaringSetInMemoryEntries(logger logrus.FieldLogger, sch schema.Schema, entries entcfg.StringSet) {
+	for entry := range entries {
+		// entry format (<Collection>.<property>) was validated at env parse
+		className, propName, _ := strings.Cut(entry, ".")
+		class := sch.FindClassByName(schema.ClassName(className))
+		if class == nil {
+			logger.Warnf("INDEX_ROARINGSET_IN_MEMORY entry %q matches no collection", entry)
+			continue
+		}
+		found := false
+		for _, prop := range class.Properties {
+			if prop.Name == propName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			logger.Warnf("INDEX_ROARINGSET_IN_MEMORY entry %q matches no property on collection %q", entry, className)
+		}
+	}
 }

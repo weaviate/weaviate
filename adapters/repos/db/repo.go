@@ -38,6 +38,7 @@ import (
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/backup"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -462,6 +463,7 @@ type Config struct {
 	MaximumConcurrentBucketLoads        int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	IndexRoaringSetInMemory             entcfg.StringSet
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]

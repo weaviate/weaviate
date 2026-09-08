@@ -294,9 +294,9 @@ func WithKeepLevelCompaction(keepLevelCompaction bool) BucketOption {
 	}
 }
 
-func WithKeepSegmentsInMemory(keep bool) BucketOption {
+func WithKeepMergedSegmentsInMemory(keep bool) BucketOption {
 	return func(b *Bucket) error {
-		b.keepSegmentsInMemory = keep
+		b.keepMergedSegmentsInMemory = keep
 		return nil
 	}
 }

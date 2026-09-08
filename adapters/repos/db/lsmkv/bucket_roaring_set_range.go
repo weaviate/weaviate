@@ -58,7 +58,7 @@ type ReaderRoaringSetRange interface {
 func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSetRange)
 
-	if b.keepSegmentsInMemory {
+	if b.keepMergedSegmentsInMemory {
 		return b.readerRoaringSetRangeFromSegmentInMemo()
 	}
 	return b.readerRoaringSetRangeFromSegments()
