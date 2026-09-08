@@ -39,7 +39,8 @@ func TestDBLoaderDeferredDeletesKeepFrozen(t *testing.T) {
 			t.Parallel()
 
 			var l dbLoader
-			require.True(t, l.begin())
+			_, ok := l.begin()
+			require.True(t, ok)
 
 			for _, hasFrozen := range test.deletes {
 				require.True(t, l.deferWrite("C", hasFrozen),
@@ -62,11 +63,14 @@ func TestDBLoaderIdleWritesGoStraightToTheDB(t *testing.T) {
 	var l dbLoader
 	require.False(t, l.deferWrite("C", true), "no load in flight: nothing to defer")
 
-	require.True(t, l.begin())
+	_, ok := l.begin()
+	require.True(t, ok)
 	_, done := l.finish()
 	require.True(t, done)
 
 	require.False(t, l.deferWrite("C", true), "the load is over: nothing to defer")
 	require.Nil(t, l.deletes, "a write that was not deferred must not be recorded")
-	require.False(t, l.begin(), "the load is one-shot")
+
+	_, ok = l.begin()
+	require.False(t, ok, "the load is one-shot")
 }

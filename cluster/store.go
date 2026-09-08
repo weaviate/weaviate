@@ -242,9 +242,6 @@ type Store struct {
 	dbLoaded atomic.Bool
 
 	dbLoad dbLoader
-	// Bounds the background shard load. Read it through Store.loadContext.
-	loadCtx    context.Context
-	cancelLoad context.CancelFunc
 
 	// raft implementation from external library
 	raft          *raft.Raft
@@ -425,13 +422,9 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		rbacLister = cfg.RBAC
 	}
 
-	loadCtx, cancelLoad := context.WithCancel(context.Background())
-
 	return Store{
 		cfg:          cfg,
 		log:          cfg.Logger,
-		loadCtx:      loadCtx,
-		cancelLoad:   cancelLoad,
 		candidates:   make(map[string]string, cfg.BootstrapExpect),
 		applyTimeout: time.Second * 20,
 		raftResolver: resolver.NewRaft(resolver.RaftConfig{
@@ -452,16 +445,6 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		distributedTasksManager: distributedTasksManager,
 		metrics:                 newStoreMetrics(cfg.NodeID, reg),
 	}
-}
-
-// loadContext bounds the shard load. Close cancels it so a load cannot hold
-// shutdown open, and a load cut short that way is reported as a shutdown rather
-// than as an incomplete one.
-func (st *Store) loadContext() context.Context {
-	if st.loadCtx == nil {
-		return context.Background()
-	}
-	return st.loadCtx
 }
 
 func (st *Store) IsVoter() bool { return st.cfg.Voter }
@@ -728,10 +711,7 @@ func (st *Store) Close(ctx context.Context) error {
 	// Only now that raft is down can the loader finish: while Apply still runs,
 	// deferred writes keep asking it for another pass. Cancel and wait before
 	// the DB is closed underneath it.
-	if st.cancelLoad != nil {
-		st.cancelLoad()
-	}
-	st.dbLoad.wg.Wait()
+	st.dbLoad.stop()
 
 	// close log store after raft shutdown to persist final log entries
 	st.log.Info("closing log store ...")
@@ -1061,10 +1041,10 @@ func (st *Store) openDatabase(ctx context.Context) {
 // commands. Apply hands it to dbLoad.start: Apply is raft's FSM goroutine, and
 // a load of minutes to hours there stalls every other command, bootstrap joins
 // included, so a cold start times out and kills the node.
-func (st *Store) reloadDBFromSchema() {
+func (st *Store) reloadDBFromSchema(ctx context.Context) {
 	loaded := true
 	for {
-		loaded = st.loadDBFromSchema() && loaded
+		loaded = st.loadDBFromSchema(ctx) && loaded
 
 		deletes, done := st.dbLoad.finish()
 		if done {
@@ -1073,7 +1053,7 @@ func (st *Store) reloadDBFromSchema() {
 		loaded = st.dropDeferredDeletes(deletes) && loaded
 		st.log.Info("applying schema changes that landed while the local DB loaded")
 	}
-	if !loaded && st.loadContext().Err() == nil {
+	if !loaded && ctx.Err() == nil {
 		st.reportIncompleteLoad()
 	}
 	st.dbLoaded.Store(true)
@@ -1126,7 +1106,7 @@ func (st *Store) reportIncompleteLoad() {
 	st.log.Error("local DB did not load fully; going ready anyway, some data may be missing")
 }
 
-func (st *Store) loadDBFromSchema() bool {
+func (st *Store) loadDBFromSchema(ctx context.Context) bool {
 	if st.cfg.MetadataOnlyVoters {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
 		return true
@@ -1137,7 +1117,7 @@ func (st *Store) loadDBFromSchema() bool {
 	err := func() error {
 		stop := st.trackDBLoadProgress()
 		defer stop()
-		return st.schemaManager.ReloadDBFromSchema(st.loadContext())
+		return st.schemaManager.ReloadDBFromSchema(ctx)
 	}()
 	if err != nil {
 		st.log.Errorf("reload local DB from schema: %v", err)

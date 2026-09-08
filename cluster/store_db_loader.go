@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 
@@ -36,36 +37,57 @@ type dbLoader struct {
 	// A pass rebuilds what the schema still lists, so a deferred addition needs
 	// no record; a deletion does, being absent from that list.
 	deletes map[string]bool
+	// cancel ends the load stop waits for. Only the background load has one:
+	// Close reaches stop only after raft.Shutdown, which already waits out a
+	// load running inline on the FSM goroutine.
+	cancel context.CancelFunc
 
 	wg sync.WaitGroup
 }
 
 // start runs load in the background unless a load has already run, and reports
-// whether it did.
-func (l *dbLoader) start(load func(), log logrus.FieldLogger) bool {
-	if !l.begin() {
+// whether it did. The context it hands load is cancelled by stop.
+func (l *dbLoader) start(load func(context.Context), log logrus.FieldLogger) bool {
+	ctx, ok := l.begin()
+	if !ok {
 		return false
 	}
 	enterrors.GoWrapper(func() {
 		defer l.wg.Done()
-		load()
+		load(ctx)
 	}, log)
 	return true
 }
 
-// begin reports whether this call owns the load. One-shot: inFlight clears just
-// before dbLoaded is published and Apply's guard is !dbLoaded, so a command
-// landing in between would otherwise start a second concurrent loader.
-func (l *dbLoader) begin() bool {
+// begin reports whether this call owns the load, and gives it its context.
+// One-shot: inFlight clears just before dbLoaded is published and Apply's guard
+// is !dbLoaded, so a command landing in between would otherwise start a second
+// concurrent loader.
+func (l *dbLoader) begin() (context.Context, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.started {
-		return false
+		return nil, false
 	}
 	l.started = true
 	l.inFlight.Store(true)
 	l.wg.Add(1)
-	return true
+	ctx, cancel := context.WithCancel(context.Background())
+	l.cancel = cancel
+	return ctx, true
+}
+
+// stop ends a running load and waits for it, so a load of minutes to hours
+// cannot hold shutdown open.
+func (l *dbLoader) stop() {
+	l.mu.Lock()
+	cancel := l.cancel
+	l.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	l.wg.Wait()
 }
 
 // deferWrite reports whether a command must skip its DB write because a load is
