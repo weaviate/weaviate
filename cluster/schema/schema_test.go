@@ -1510,3 +1510,113 @@ func TestCollectionsCount_ConcurrentAccess(t *testing.T) {
 	assert.Equal(t, 1, sc.CollectionsCount("customer2"))
 	assert.Equal(t, 0, sc.CollectionsCount("customer1"))
 }
+
+// Test_PendingShardProcesses pins which registrations count as work this node
+// still owes. A freeze reaches FROZEN only once every replica reports, so a
+// node that skipped its upload strands the tenant until it finds the entry it
+// left on START and runs it.
+func Test_PendingShardProcesses(t *testing.T) {
+	const (
+		nodeID    = "testNode"
+		peerID    = "otherNode"
+		className = "TestClass"
+	)
+	freezing := shardProcessID("t1", api.TenantProcessRequest_ACTION_FREEZING)
+	unfreezing := shardProcessID("t1", api.TenantProcessRequest_ACTION_UNFREEZING)
+	tenant := &api.Tenant{Name: "t1", Status: models.TenantActivityStatusFROZEN}
+
+	cases := []struct {
+		name      string
+		processes map[string]NodeShardProcess
+		want      map[api.TenantProcessRequest_Action][]string
+	}{
+		{
+			name: "own freeze not started yet",
+			processes: map[string]NodeShardProcess{freezing: {
+				nodeID: {Op: api.TenantsProcess_OP_START, Tenant: tenant},
+			}},
+			want: map[api.TenantProcessRequest_Action][]string{
+				api.TenantProcessRequest_ACTION_FREEZING: {"t1"},
+			},
+		},
+		{
+			name: "own unfreeze not started yet",
+			processes: map[string]NodeShardProcess{unfreezing: {
+				nodeID: {Op: api.TenantsProcess_OP_START, Tenant: tenant},
+			}},
+			want: map[api.TenantProcessRequest_Action][]string{
+				api.TenantProcessRequest_ACTION_UNFREEZING: {"t1"},
+			},
+		},
+		{
+			name: "own freeze already reported",
+			processes: map[string]NodeShardProcess{freezing: {
+				nodeID: {Op: api.TenantsProcess_OP_DONE, Tenant: tenant},
+			}},
+		},
+		{
+			name: "own freeze aborted",
+			processes: map[string]NodeShardProcess{freezing: {
+				nodeID: {Op: api.TenantsProcess_OP_ABORT, Tenant: tenant},
+			}},
+		},
+		{
+			name: "only a peer owes it",
+			processes: map[string]NodeShardProcess{freezing: {
+				peerID: {Op: api.TenantsProcess_OP_START, Tenant: tenant},
+			}},
+		},
+		{
+			name: "peer pending, this node done",
+			processes: map[string]NodeShardProcess{freezing: {
+				nodeID: {Op: api.TenantsProcess_OP_DONE, Tenant: tenant},
+				peerID: {Op: api.TenantsProcess_OP_START, Tenant: tenant},
+			}},
+		},
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			s := NewSchema(nodeID, nil, prometheus.NewPedanticRegistry())
+			require.NoError(t, s.addClass(&models.Class{
+				Class:              className,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+			}, &sharding.State{}, 0))
+			s.classes[className].ShardProcesses = test.processes
+
+			got := s.pendingShardProcesses()
+			if test.want == nil {
+				require.Empty(t, got, "nothing is owed, so nothing must be resumed")
+				return
+			}
+			require.Equal(t, map[string]map[api.TenantProcessRequest_Action][]string{
+				className: test.want,
+			}, got)
+		})
+	}
+}
+
+// Test_PendingShardProcessesTenantNameWithSeparator pins that the action is
+// recovered from the key even when the tenant name carries the separator the
+// key is built with.
+func Test_PendingShardProcessesTenantNameWithSeparator(t *testing.T) {
+	const nodeID = "testNode"
+	name := "tenant-ACTION_FREEZING-x"
+
+	s := NewSchema(nodeID, nil, prometheus.NewPedanticRegistry())
+	require.NoError(t, s.addClass(&models.Class{
+		Class:              "TestClass",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+	}, &sharding.State{}, 0))
+	s.classes["TestClass"].ShardProcesses = map[string]NodeShardProcess{
+		shardProcessID(name, api.TenantProcessRequest_ACTION_UNFREEZING): {
+			nodeID: {Op: api.TenantsProcess_OP_START, Tenant: &api.Tenant{Name: name}},
+		},
+	}
+
+	require.Equal(t, map[string]map[api.TenantProcessRequest_Action][]string{
+		"TestClass": {api.TenantProcessRequest_ACTION_UNFREEZING: {name}},
+	}, s.pendingShardProcesses())
+}

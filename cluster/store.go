@@ -241,6 +241,8 @@ type Store struct {
 	// dbLoaded is set when the DB is loaded at startup
 	dbLoaded atomic.Bool
 
+	dbLoad dbLoader
+
 	// raft implementation from external library
 	raft          *raft.Raft
 	raftResolver  types.RaftResolver
@@ -327,6 +329,9 @@ type storeMetrics struct {
 	// leaderFSMBarriers counts catch-up barriers. Once per leadership change
 	// when healthy, so a climbing rate reads as leadership churn.
 	leaderFSMBarriers prometheus.Counter
+	// localDBLoadFailures counts local DB loads that did not open everything
+	// the schema names. See [Store.reportIncompleteLoad].
+	localDBLoadFailures prometheus.Counter
 }
 
 // newStoreMetrics cretes and registers the store related metrics on
@@ -361,8 +366,12 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
 		}),
 		leaderFSMBarriers: r.NewCounter(prometheus.CounterOpts{
-			Name:        "weaviate_cluster_store_leader_fsm_barriers_total",
-			Help:        "Catch-up barriers issued by this node after winning an election",
+			Name: "weaviate_cluster_store_leader_fsm_barriers_total",
+			Help: "Catch-up barriers issued by this node after winning an election",
+		}),
+		localDBLoadFailures: r.NewCounter(prometheus.CounterOpts{
+			Name:        "weaviate_cluster_store_local_db_load_failures_total",
+			Help:        "Total count of local DB loads that did not open every shard the schema names in local node. The node still serves, with data that may be missing",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
 		}),
 	}
@@ -699,6 +708,11 @@ func (st *Store) Close(ctx context.Context) error {
 
 	st.open.Store(false)
 
+	// Only now that raft is down can the loader finish: while Apply still runs,
+	// deferred writes keep asking it for another pass. Cancel and wait before
+	// the DB is closed underneath it.
+	st.dbLoad.stop()
+
 	// close log store after raft shutdown to persist final log entries
 	st.log.Info("closing log store ...")
 	if err := st.logStore.Close(); err != nil {
@@ -1020,39 +1034,33 @@ func (st *Store) openDatabase(ctx context.Context) {
 	st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).Info("schema manager loaded")
 }
 
-// reloadDBFromSchema() it will be called from two places Restore(), Apply()
-// on constructing raft.NewRaft(..) the raft lib. will
-// call Restore() first to restore from snapshots if there is any and
-// then later will call Apply() on any new committed log
-func (st *Store) reloadDBFromSchema() {
-	if !st.cfg.MetadataOnlyVoters {
-		func() {
-			stop := st.trackDBLoadProgress()
-			defer stop()
-			st.schemaManager.ReloadDBFromSchema()
-		}()
-		st.log.WithFields(st.dbLoadProgressFields()).Info("local DB loaded from schema")
-	} else {
-		st.log.Info("skipping reload DB from schema as the node is metadata only")
+// reloadDBFromSchema makes the local DB match the schema, repeating while
+// commands keep deferring their DB writes to it.
+//
+// Restore calls it directly, since raft requires it not to overlap other
+// commands. Apply hands it to dbLoad.start: Apply is raft's FSM goroutine, and
+// a load of minutes to hours there stalls every other command, bootstrap joins
+// included, so a cold start times out and kills the node.
+func (st *Store) reloadDBFromSchema(ctx context.Context) {
+	loaded := true
+	for {
+		loaded = st.loadDBFromSchema(ctx) && loaded
+
+		deletes, done := st.dbLoad.finish()
+		if done {
+			break
+		}
+		loaded = st.dropDeferredDeletes(deletes) && loaded
+		st.log.Info("applying schema changes that landed while the local DB loaded")
+	}
+	if !loaded && ctx.Err() == nil {
+		st.reportIncompleteLoad()
+	}
+
+	if err := st.schemaManager.ResumeShardProcesses(); err != nil {
+		st.log.Errorf("resuming tenant offloads after the local DB loaded: %v", err)
 	}
 	st.dbLoaded.Store(true)
-
-	// in this path it means it was called from Apply()
-	// or forced Restore()
-	if st.raft != nil {
-		// we don't update lastAppliedIndexToDB if not a restore
-		return
-	}
-
-	// restore requests from snapshots before init new RAFT node
-	lastLogApplied, err := st.LastAppliedCommand()
-	if err != nil {
-		st.log.WithField("error", err).Warn("can't detect the last applied command, setting the lastLogApplied to 0")
-	}
-
-	val := max(lastSnapshotIndex(st.snapshotStore), lastLogApplied)
-	st.lastAppliedIndexToDB.Store(val)
-	st.metrics.fsmStartupAppliedIndex.Set(float64(val))
 }
 
 // waitLeaderFSMCaughtUp blocks until this node's FSM has applied what it
@@ -1089,6 +1097,70 @@ func (st *Store) waitLeaderFSMCaughtUp() error {
 // fsmCaughtUpForTerm reports whether a barrier has confirmed term.
 func (st *Store) fsmCaughtUpForTerm(term uint64) bool {
 	return term != 0 && st.fsmCaughtUpTerm.Load() == term
+}
+
+// reportIncompleteLoad records that the DB does not match the schema.
+//
+// The node goes ready regardless and serves what it did open, as it did before
+// the load moved off the FSM goroutine. Refusing to go ready is safer, but
+// WaitUntilDBRestored has no timeout of its own, so that turns a partial load
+// into a node hung at startup. Measure it first, then decide.
+func (st *Store) reportIncompleteLoad() {
+	st.metrics.localDBLoadFailures.Inc()
+	st.log.Error("local DB did not load fully; going ready anyway, some data may be missing")
+}
+
+func (st *Store) loadDBFromSchema(ctx context.Context) bool {
+	if st.cfg.MetadataOnlyVoters {
+		st.log.Info("skipping reload DB from schema as the node is metadata only")
+		return true
+	}
+	// Progress is the only sign of life during a load, and nothing else reports
+	// on it now that it runs off the FSM goroutine. The ticker stops before the
+	// summary line so the two cannot interleave.
+	err := func() error {
+		stop := st.trackDBLoadProgress()
+		defer stop()
+		return st.schemaManager.ReloadDBFromSchema(ctx)
+	}()
+	if err != nil {
+		st.log.Errorf("reload local DB from schema: %v", err)
+		return false
+	}
+
+	st.log.WithFields(st.dbLoadProgressFields()).Info("local DB loaded from schema")
+	return true
+}
+
+// dropDeferredDeletes applies the deletes a pass skipped. A class re-added
+// since is dropped all the same and the next pass rebuilds it empty; leaving it
+// would hand the new class the old one's shards.
+func (st *Store) dropDeferredDeletes(deletes map[string]bool) bool {
+	ok := true
+	for class, hasFrozen := range deletes {
+		if err := st.schemaManager.DeleteClassFromDB(class, hasFrozen); err != nil {
+			st.log.Errorf("dropping class %q deleted while the local DB loaded: %v", class, err)
+			ok = false
+		}
+	}
+	return ok
+}
+
+// deferDBWrite reports whether cmd must skip its DB write because the local DB
+// is still loading. hasFrozen is sampled here, the last point at which the
+// schema still lists the tenants that answer it.
+func (st *Store) deferDBWrite(cmd *api.ApplyRequest) bool {
+	if !st.dbLoad.inFlight.Load() {
+		return false
+	}
+	var (
+		deleted   string
+		hasFrozen bool
+	)
+	if cmd.GetType() == api.ApplyRequest_TYPE_DELETE_CLASS {
+		deleted, hasFrozen = cmd.Class, st.schemaManager.HasFrozenTenants(cmd.Class)
+	}
+	return st.dbLoad.deferWrite(deleted, hasFrozen)
 }
 
 func (st *Store) FSMHasCaughtUp() bool {

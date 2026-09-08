@@ -352,6 +352,26 @@ type shardReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
+// pendingShardProcesses collects, per class, the offloads this node registered
+// and has not reported on. See [metaClass.pendingShardProcesses].
+func (s *schema) pendingShardProcesses() map[string]map[command.TenantProcessRequest_Action][]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var pending map[string]map[command.TenantProcessRequest_Action][]string
+	for name, meta := range s.classes {
+		byAction := meta.pendingShardProcesses(s.nodeID)
+		if len(byAction) == 0 {
+			continue
+		}
+		if pending == nil {
+			pending = map[string]map[command.TenantProcessRequest_Action][]string{}
+		}
+		pending[name] = byAction
+	}
+	return pending
+}
+
 func (s *schema) len() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

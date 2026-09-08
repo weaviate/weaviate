@@ -26,6 +26,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
@@ -339,7 +340,9 @@ func (s *SchemaManager) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-func (s *SchemaManager) ReloadDBFromSchema() {
+// ReloadDBFromSchema rebuilds the local DB from the schema. ctx lets shutdown
+// cut a load short.
+func (s *SchemaManager) ReloadDBFromSchema(ctx context.Context) error {
 	classes := s.schema.MetaClasses()
 
 	cs := make([]command.UpdateClassRequest, len(classes))
@@ -351,7 +354,37 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
-	s.db.ReloadLocalDB(context.Background(), cs)
+	return s.db.ReloadLocalDB(ctx, cs)
+}
+
+// ResumeShardProcesses restarts the offloads this node registered and never
+// reported on.
+func (s *SchemaManager) ResumeShardProcesses() error {
+	var errs error
+	for class, byAction := range s.schema.pendingShardProcesses() {
+		for action, tenants := range byAction {
+			status := types.TenantActivityStatusFREEZING
+			if action == command.TenantProcessRequest_ACTION_UNFREEZING {
+				status = types.TenantActivityStatusUNFREEZING
+			}
+
+			req := &command.UpdateTenantsRequest{Tenants: make([]*command.Tenant, len(tenants))}
+			for i, tenant := range tenants {
+				req.Tenants[i] = &command.Tenant{Name: tenant, Status: status}
+			}
+
+			s.log.WithFields(logrus.Fields{
+				"class":   class,
+				"tenants": tenants,
+				"status":  status,
+			}).Info("resuming a tenant offload this node registered but never ran")
+
+			if err := s.db.UpdateTenants(class, req, nil); err != nil {
+				errs = errors.Join(errs, fmt.Errorf("resume %s for class %q: %w", status, class, err))
+			}
+		}
+	}
+	return errs
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
@@ -655,8 +688,8 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 		}
 	}
 
-	// Sampled here, not inside updateStore: apply() runs updateSchema (which
-	// drops the class from the schema)
+	// Sampled here, not inside updateStore: updateSchema drops the class, and
+	// its tenants go with it, so by then there is nothing left to ask.
 	hasFrozen := s.HasFrozenTenants(cmd.Class)
 
 	return s.apply(
