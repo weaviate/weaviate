@@ -48,6 +48,13 @@ type Migrator interface {
 		property *models.Property) error
 	UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error
 
+	// DropOrphanedIndexDirectories removes index directories on disk for classes
+	// absent from keepClasses (the reloaded schema). It reconciles the data
+	// directory against the schema after a reload, closing the paths that delete
+	// a class from the schema without dropping its index directory
+	// (0-weaviate-issues#651, #652).
+	DropOrphanedIndexDirectories(ctx context.Context, keepClasses []string) error
+
 	NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error
 	UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload, implicitUpdate bool) error
 	DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error
