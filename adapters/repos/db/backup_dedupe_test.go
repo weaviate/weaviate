@@ -90,8 +90,8 @@ func TestVerifyDesignatedLocalShards(t *testing.T) {
 		{name: "nil designations", designated: nil, nodeName: "n1"},
 		{name: "designated to self and local", designated: map[string]string{"s1": "n1"}, nodeName: "n1"},
 		{name: "designated elsewhere and missing", designated: map[string]string{"gone": "n2"}, nodeName: "n1"},
-		{name: "designated to self but missing", designated: map[string]string{"gone": "n1"}, nodeName: "n1", wantErr: `shard "gone" is designated to this node but no longer local`},
-		{name: "deterministic first shard reported", designated: map[string]string{"zz": "n1", "aa": "n1"}, nodeName: "n1", wantErr: `shard "aa" is designated to this node but no longer local`},
+		{name: "designated to self but missing", designated: map[string]string{"gone": "n1"}, nodeName: "n1", wantErr: `shards [gone] are designated to this node but no longer local`},
+		{name: "every drifted shard reported, sorted", designated: map[string]string{"zz": "n1", "aa": "n1"}, nodeName: "n1", wantErr: `shards [aa zz] are designated to this node but no longer local`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

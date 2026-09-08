@@ -828,7 +828,7 @@ func verifyDesignatedLocalShards(designated map[string]string, shardNames []stri
 		return nil
 	}
 	sort.Strings(mine)
-	return fmt.Errorf("shard %q is designated to this node but no longer local; the replica set changed during the backup, retry it", mine[0])
+	return fmt.Errorf("shards %v are designated to this node but no longer local; the replica set changed during the backup, retry it", mine)
 }
 
 // filterDesignatedShards drops shards designated to another still-replica node; anything else is kept so exclusion never orphans a shard.

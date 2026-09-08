@@ -132,11 +132,12 @@ type coordinator struct {
 	shardSyncChan
 
 	// timeouts
-	timeoutNodeDown      time.Duration
-	timeoutQueryStatus   time.Duration
-	timeoutCanCommit     time.Duration
-	timeoutNextRound     time.Duration
-	commitDispatchMargin time.Duration
+	timeoutNodeDown               time.Duration
+	timeoutQueryStatus            time.Duration
+	timeoutCanCommit              time.Duration
+	timeoutDedupeRestoreCanCommit time.Duration
+	timeoutNextRound              time.Duration
+	commitDispatchMargin          time.Duration
 
 	// replica-dedupe planning cadence
 	dedupeCutoffLead        time.Duration
@@ -157,20 +158,21 @@ func newCoordinator(
 	checkpointer ReplicaCheckpointer,
 ) *coordinator {
 	return &coordinator{
-		selector:             selector,
-		client:               client,
-		schema:               schema,
-		log:                  log,
-		nodeResolver:         nodeResolver,
-		backends:             backends,
-		rolesAndUsers:        rolesAndUsers,
-		checkpointer:         checkpointer,
-		Participants:         make(map[string]participantStatus, 16),
-		timeoutNodeDown:      _TimeoutNodeDown,
-		timeoutQueryStatus:   _TimeoutQueryStatus,
-		timeoutCanCommit:     _TimeoutCanCommit,
-		timeoutNextRound:     _NextRoundPeriod,
-		commitDispatchMargin: _CommitDispatchMargin,
+		selector:                      selector,
+		client:                        client,
+		schema:                        schema,
+		log:                           log,
+		nodeResolver:                  nodeResolver,
+		backends:                      backends,
+		rolesAndUsers:                 rolesAndUsers,
+		checkpointer:                  checkpointer,
+		Participants:                  make(map[string]participantStatus, 16),
+		timeoutNodeDown:               _TimeoutNodeDown,
+		timeoutQueryStatus:            _TimeoutQueryStatus,
+		timeoutCanCommit:              _TimeoutCanCommit,
+		timeoutDedupeRestoreCanCommit: _TimeoutDedupeRestoreCanCommit,
+		timeoutNextRound:              _NextRoundPeriod,
+		commitDispatchMargin:          _CommitDispatchMargin,
 
 		dedupeCutoffLead:        _DedupeCutoffLead,
 		dedupePollInterval:      _DedupePollInterval,
@@ -315,7 +317,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		// The slot must never read Success while the coverage gate can still flip it to Failed: pollers latch terminal statuses.
-		deferPublish := plan != nil && plan.designated() > 0
+		deferPublish := dedupeEffective
 		nodeMetas := c.commit(ctx, &statusReq, nodes, false, deferPublish)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
 		if deferPublish {
@@ -656,10 +658,12 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 // canCommit asks candidates if they agree to participate in DBRO
 // It returns and error if any candidates refuses to participate
 func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupePlan) (map[string]string, error) {
-	timeout := c.timeoutCanCommit
+	timeout, maxTimeout := c.timeoutCanCommit, _TimeoutCanCommit
 	if req.Method == OpRestore && req.DedupeReplicas {
-		timeout = _TimeoutDedupeRestoreCanCommit
+		timeout, maxTimeout = c.timeoutDedupeRestoreCanCommit, _TimeoutDedupeRestoreCanCommit
 	}
+	// Participants clamp bookings at maxBooking(); a longer canCommit would let early ackers expire before Commit.
+	timeout = min(timeout, maxTimeout)
 	// Early ackers must outwait the slowest sibling's canCommit: Commit is only dispatched after every node acks.
 	booking := timeout + _BookingPeriod
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -748,7 +752,8 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 	}
 	abortReq := &AbortRequest{Method: req.Method, ID: c.descriptor.ID, Backend: req.Backend, AttemptID: req.AttemptID}
 	if err := g.Wait(); err != nil {
-		c.abortAll(ctx, abortReq, contacted)
+		// The errgroup ctx is already cancelled here; aborts must still reach every contacted node.
+		c.abortAll(context.WithoutCancel(ctx), abortReq, contacted)
 		return nil, err
 	}
 	if !commitBy.IsZero() && !time.Now().Add(c.commitDispatchMargin).Before(commitBy) {

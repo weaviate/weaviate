@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -25,9 +26,18 @@ import (
 
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
+
+func dedupeFallbackCount(reason string) float64 {
+	return testutil.ToFloat64(monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues(reason))
+}
+
+func dedupeShardOutcomeCount(outcome string) float64 {
+	return testutil.ToFloat64(monitoring.GetMetrics().BackupDedupeShards.WithLabelValues(outcome))
+}
 
 type fakeCheckpointer struct {
 	mu            sync.Mutex
@@ -362,10 +372,17 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.converge["C2/t1"] = true
 		c := newDedupeCoordinator(f)
 
+		reasonBefore := dedupeFallbackCount("create_rpc_failed")
+		designatedBefore, fallbackBefore := dedupeShardOutcomeCount("designated"), dedupeShardOutcomeCount("fallback")
 		plan := c.planDesignatedShards(ctx, []string{"C1", "C2"}, 0, parts("n1", "n2", "n3"))
 		assert.NotContains(t, plan.designations, "C1")
 		assert.Len(t, plan.designations["C2"], 1)
 		assert.Equal(t, []string{"C2"}, f.deleteCalls)
+		assert.Equal(t, 2, plan.candidateShards)
+		assert.Equal(t, 1, plan.fallback(), "create-failed shard must count as fallback like the descriptor reports it")
+		assert.Equal(t, 1.0, dedupeFallbackCount("create_rpc_failed")-reasonBefore)
+		assert.Equal(t, 1.0, dedupeShardOutcomeCount("designated")-designatedBefore)
+		assert.Equal(t, 1.0, dedupeShardOutcomeCount("fallback")-fallbackBefore, "outcome metric must match plan.fallback()")
 	})
 
 	t.Run("silent create failure early-drops without burning budget", func(t *testing.T) {
@@ -399,13 +416,33 @@ func TestPlanDesignatedShards(t *testing.T) {
 
 	t.Run("status error drops class and still deletes", func(t *testing.T) {
 		f := newFakeCheckpointer()
-		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
+		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}, "s2": {"n1", "n2"}}
 		f.statusErr["C1"] = assert.AnError
 		c := newDedupeCoordinator(f)
 
+		reasonBefore := dedupeFallbackCount("status_failed")
 		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
 		assert.Equal(t, 0, plan.designated())
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
+		assert.Equal(t, 2.0, dedupeFallbackCount("status_failed")-reasonBefore, "status_failed counts shards, not classes")
+	})
+
+	t.Run("planning deadline expiry falls back loudly", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}, "s2": {"n1", "n2"}}
+		c := newDedupeCoordinator(f)
+		c.dedupeCutoffLead = 5 * time.Second
+
+		reasonBefore := dedupeFallbackCount("planning_deadline")
+		fallbackBefore := dedupeShardOutcomeCount("fallback")
+		deadlineCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		plan := c.planDesignatedShards(deadlineCtx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
+		assert.Equal(t, 0, plan.designated())
+		assert.Equal(t, 2, plan.fallback())
+		assert.Equal(t, []string{"C1"}, f.deleteCalls, "checkpoints must be deleted even on deadline expiry")
+		assert.Equal(t, 2.0, dedupeFallbackCount("planning_deadline")-reasonBefore)
+		assert.Equal(t, 2.0, dedupeShardOutcomeCount("fallback")-fallbackBefore)
 	})
 
 	t.Run("context cancellation mid-poll still deletes", func(t *testing.T) {

@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -81,7 +82,8 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 	}
 	budget = min(budget, _MaxDedupeConvergenceBudget)
 	// Hard deadline: the request ctx has none, and a wedged peer RPC would otherwise stall planning while the op slot blocks every subsequent backup.
-	ctx, cancel := context.WithTimeout(ctx, c.dedupeCutoffLead+budget+c.dedupePlanningSlack)
+	// Scaled per class so wide backups' serial create fan-outs don't eat the convergence budget.
+	ctx, cancel := context.WithTimeout(ctx, c.dedupeCutoffLead+budget+c.dedupePlanningSlack+time.Duration(len(classes))*time.Second)
 	defer cancel()
 	// A user Cancel only flips lastOp.Status; propagate it into the ctx so in-flight checkpointer RPCs unblock.
 	watchDone := make(chan struct{})
@@ -187,6 +189,17 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 		latestCutoffMs = max(latestCutoffMs, cutoffMs)
 	}
 	if !c.sleepUnlessCancelled(ctx, time.UnixMilli(latestCutoffMs)) {
+		// A user Cancel kills the whole backup; anything else is the planning deadline silently degrading every candidate.
+		if c.lastOp.get().Status != backup.Cancelled {
+			remaining := 0
+			for _, shards := range candidates {
+				remaining += len(shards)
+			}
+			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("planning_deadline").Add(float64(remaining))
+			monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("fallback").Add(float64(plan.fallback()))
+			c.log.WithField("action", OpCreate).
+				Warnf("replica dedupe: planning aborted before cutoff, %d shards fall back to all-replica backup: %v", remaining, ctx.Err())
+		}
 		return plan
 	}
 
@@ -205,12 +218,8 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 			WithField("fallback", len(candidates[class])-len(plan.designations[class])).
 			Info("replica dedupe: planning complete")
 	}
-	candidateShards := 0
-	for _, shards := range candidates {
-		candidateShards += len(shards)
-	}
 	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("designated").Add(float64(plan.designated()))
-	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("fallback").Add(float64(candidateShards - plan.designated()))
+	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("fallback").Add(float64(plan.fallback()))
 	return plan
 }
 
@@ -238,7 +247,7 @@ func (c *coordinator) pollConvergence(ctx context.Context, candidates map[string
 
 			statuses, err := c.checkpointer.GetAsyncCheckpointNodeStatuses(ctx, class, shardNames)
 			if err != nil {
-				monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("status_failed").Inc()
+				monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("status_failed").Add(float64(len(shards)))
 				c.log.WithField("action", OpCreate).WithField("class", class).
 					Warnf("replica dedupe: class falls back to all-replica backup: checkpoint status: %v", err)
 				delete(pending, class)
@@ -452,7 +461,7 @@ func (c *coordinator) verifyDesignatedCoverage(ctx context.Context, req *StatusR
 	return nil
 }
 
-// readNodeMeta reads one node's per-node descriptor, retrying transient backend errors on the poll cadence.
+// readNodeMeta reads one node's per-node descriptor, retrying backend errors on the poll cadence; a missing descriptor is deterministic and fails immediately.
 func (c *coordinator) readNodeMeta(ctx context.Context, req *StatusRequest, node string) (*backup.BackupDescriptor, error) {
 	backend, err := c.backends.BackupBackend(req.Backend, modulecapabilities.BackendUseCaseBackup)
 	if err != nil {
@@ -469,6 +478,10 @@ func (c *coordinator) readNodeMeta(ctx context.Context, req *StatusRequest, node
 		meta, err := store.Meta(ctx, req.ID, req.Bucket, req.Path)
 		if err == nil {
 			return meta, nil
+		}
+		var notFound backup.ErrNotFound
+		if errors.As(err, &notFound) {
+			return nil, err
 		}
 		if attempt >= 2 || !sleepUntil(ctx, time.Now().Add(c.dedupePollInterval)) {
 			return nil, err
