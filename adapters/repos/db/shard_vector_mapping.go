@@ -137,3 +137,47 @@ func (m *vectorIndexMapping) Load() (records map[string]vectorIndexRecord, initi
 	}
 	return records, initialized, nil
 }
+
+// Initialize writes the format version and every record in one
+// transaction, or nothing. It is the first-load step for a shard whose
+// Load reported initialized=false, and it refuses to run on a mapping
+// that already has a format version.
+func (m *vectorIndexMapping) Initialize(records map[string]vectorIndexRecord) error {
+	err := m.ns.Update(func(b *shardmeta.Batch) error {
+		existing, err := b.Get([]byte(vectorIndexMappingFormatVersionKey))
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			return errVectorIndexMappingInitialized
+		}
+		err = b.Put([]byte(vectorIndexMappingFormatVersionKey), []byte(vectorIndexMappingFormatVersion))
+		if err != nil {
+			return err
+		}
+		for name, rec := range records {
+			err = putVectorIndexRecord(b, name, rec)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("initialize vector index mapping: %w", err)
+	}
+	return nil
+}
+
+// putVectorIndexRecord validates and writes one record inside a batch.
+func putVectorIndexRecord(b *shardmeta.Batch, name string, rec vectorIndexRecord) error {
+	err := rec.validate()
+	if err != nil {
+		return fmt.Errorf("record %q: %w", name, err)
+	}
+	value, err := json.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("record %q: %w", name, err)
+	}
+	return b.Put([]byte(vectorIndexMappingKey(name)), value)
+}

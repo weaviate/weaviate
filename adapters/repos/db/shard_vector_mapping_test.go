@@ -127,3 +127,64 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 		})
 	}
 }
+
+func TestVectorIndexMapping_Initialize(t *testing.T) {
+	t.Run("writes the format version and every record at once", func(t *testing.T) {
+		m, db := newTestVectorIndexMapping(t)
+		err := m.Initialize(map[string]vectorIndexRecord{
+			"":      {PhysicalID: "main", IndexType: "hnsw", State: "ready"},
+			"title": {PhysicalID: "vectors_title", IndexType: "flat", State: "ready"},
+		})
+		require.NoError(t, err)
+
+		records, initialized, err := m.Load()
+		require.NoError(t, err)
+		assert.True(t, initialized)
+		assert.Len(t, records, 2)
+		assert.Equal(t, vectorIndexRecord{PhysicalID: "main", IndexType: "hnsw", State: "ready"}, records[""])
+		assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "flat", State: "ready"}, records["title"])
+
+		// the bytes on disk are the pinned layout
+		ns := db.Namespace(vectorIndexMappingNamespace)
+		v, err := ns.Get([]byte("format_version"))
+		require.NoError(t, err)
+		assert.Equal(t, "1", string(v))
+		v, err = ns.Get([]byte("named/title"))
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"physical_id":"vectors_title","index_type":"flat","state":"ready"}`, string(v))
+	})
+
+	t.Run("no records is a valid initialization", func(t *testing.T) {
+		m, _ := newTestVectorIndexMapping(t)
+		require.NoError(t, m.Initialize(nil))
+		records, initialized, err := m.Load()
+		require.NoError(t, err)
+		assert.True(t, initialized)
+		assert.Empty(t, records)
+	})
+
+	t.Run("refuses to initialize twice", func(t *testing.T) {
+		m, _ := newTestVectorIndexMapping(t)
+		require.NoError(t, m.Initialize(nil))
+		err := m.Initialize(map[string]vectorIndexRecord{
+			"title": {PhysicalID: "vectors_title", IndexType: "flat", State: "ready"},
+		})
+		require.ErrorIs(t, err, errVectorIndexMappingInitialized)
+		records, _, err := m.Load()
+		require.NoError(t, err)
+		assert.Empty(t, records)
+	})
+
+	t.Run("an invalid record writes nothing", func(t *testing.T) {
+		m, _ := newTestVectorIndexMapping(t)
+		err := m.Initialize(map[string]vectorIndexRecord{
+			"":      {PhysicalID: "main", IndexType: "hnsw", State: "ready"},
+			"title": {PhysicalID: "vectors_title", IndexType: "flat", State: "bogus"},
+		})
+		require.ErrorContains(t, err, `record "title"`)
+		records, initialized, err := m.Load()
+		require.NoError(t, err)
+		assert.False(t, initialized)
+		assert.Empty(t, records)
+	})
+}
