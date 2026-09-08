@@ -82,8 +82,9 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	//
 	// Unconditional because nothing here can tell a dynamic vector from any
 	// other — the drop rewrote this entry's VectorIndexType to "none" and
-	// discarded the original type along with its config. A shard that never ran
-	// a dynamic index has no index.db, so this costs it one failed open.
+	// discarded the original type along with its config. Every shard has an
+	// index.db since the shard opens it at load; one from before that has
+	// none, which costs a failed open.
 	if err := dynamic.RemoveStateKey(shardDir, targetVector); err != nil {
 		return fmt.Errorf("remove dynamic state for %q: %w", targetVector, err)
 	}

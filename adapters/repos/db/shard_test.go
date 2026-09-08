@@ -32,6 +32,8 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	dynamicindex "github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -1132,4 +1134,23 @@ func getVectorIndexAndQueue(t *testing.T, shard ShardLike, targetVector string) 
 	}
 	require.True(t, vok && qok)
 	return idx, q
+}
+
+// TestShard_OpensMetadataDBForEveryShard pins that index.db is opened at
+// load for every shard, not only for one with a dynamic index: the vector
+// index mapping is read from it, and its file lock is what makes an offline
+// operation that raced the load fail instead of writing next to us.
+func TestShard_OpensMetadataDBForEveryShard(t *testing.T) {
+	ctx := testCtx()
+	shd, _ := testShard(t, ctx, "MetaDBEveryShard")
+	s := shd.(*Shard)
+
+	require.NotNil(t, s.metadataDB)
+	_, err := os.Stat(path.Join(s.path(), shardmeta.FileName))
+	require.NoError(t, err)
+
+	// the loaded shard holds the lock: the offline read reports an error,
+	// not "no state"
+	_, _, err = shardmeta.GetOffline(s.path(), dynamicindex.StateNamespace, []byte("upgraded"))
+	require.Error(t, err)
 }
