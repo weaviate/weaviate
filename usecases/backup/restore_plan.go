@@ -47,7 +47,7 @@ type restorePlan struct {
 	compressionType backup.CompressionType
 }
 
-// expandParticipantsForDedupe enrolls every replica node of the archived sharding state as a restore participant; it mutates only the restore descriptor and records the pre-expansion node set on req.SourceNodes.
+// expandParticipantsForDedupe enrolls every replica node of the archived sharding state as a restore participant; it mutates only the restore descriptor and stamps SourceNodes, SchemaSourceNode, and DedupeReplicas on req.
 func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.ClassDescriptor) error {
 	sources := make([]string, 0, len(c.descriptor.Nodes))
 	for node, nd := range c.descriptor.Nodes {
@@ -77,9 +77,24 @@ func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.
 	}
 
 	// The schema slice is the full archive; the descriptor's classes are the include/exclude/authz-filtered selection. Anything outside it must not enroll participants, pollute class lists, or gate resolvability.
-	selected := make(map[string]struct{}, len(c.descriptor.Nodes))
+	selected := make(map[string]struct{}, len(c.descriptor.Classes()))
 	for _, class := range c.descriptor.Classes() {
 		selected[class] = struct{}{}
+	}
+	// Every selected class must be in the schema the coordinator later applies; restoreClasses silently skips absentees, which would stage bytes everywhere and still report Success without the class.
+	schemaNames := make(map[string]struct{}, len(schema))
+	for i := range schema {
+		schemaNames[schema[i].Name] = struct{}{}
+	}
+	var missing []string
+	for class := range selected {
+		if _, ok := schemaNames[class]; !ok {
+			missing = append(missing, class)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("replica-deduped restore: classes %v are missing from the schema source's descriptor; the restore would never create them", missing)
 	}
 	for i := range schema {
 		if _, ok := selected[schema[i].Name]; !ok {
@@ -135,6 +150,8 @@ func (c *coordinator) expandParticipantsForDedupe(req *Request, schema []backup.
 		sort.Strings(unresolvable)
 		return fmt.Errorf("replica-deduped restore needs every replica node of the archived sharding state reachable; cannot resolve %v: map them to existing nodes via node_mapping", unresolvable)
 	}
+	// canCommit contacts every descriptor node; drop zero-class ones so "neither sources nor gated" holds there too.
+	c.descriptor.RemoveEmpty()
 	return nil
 }
 
@@ -225,7 +242,7 @@ func (r *restorer) buildFanoutPlan(ctx context.Context, originalNode string, req
 			if req.SchemaSourceNode != "" {
 				monitoring.GetMetrics().BackupDedupeRestoreAnomalies.WithLabelValues("schema_source_fallback").Inc()
 				r.logger.WithField("action", "restore").WithField("class", class).
-					Warnf("replica-deduped restore: schema source %q has no descriptor for this class, falling back to local snapshots", req.SchemaSourceNode)
+					Warnf("replica-deduped restore: schema source %q has no descriptor for this class, falling back to the local snapshot, then any source holding the class", req.SchemaSourceNode)
 			}
 			if own != nil {
 				schemaDesc = own.meta.GetClassDescriptor(class)
@@ -265,7 +282,7 @@ func (r *restorer) buildFanoutPlan(ctx context.Context, originalNode string, req
 			if src == "" {
 				monitoring.GetMetrics().BackupDedupeRestoreAnomalies.WithLabelValues("no_holder").Inc()
 				r.logger.WithField("action", "restore").WithField("class", class).
-					WithField("shard", shard).Info("replica-deduped restore: no source copy for this node, restoring nothing for this shard")
+					WithField("shard", shard).Warnf("replica-deduped restore: no source copy for this node, restoring nothing for this shard")
 				continue
 			}
 			if ambiguous {
@@ -360,35 +377,49 @@ func filterClassDescriptor(desc *backup.ClassDescriptor, shards []string) *backu
 // restoreFanout stages a multi-source restore plan with the single-source scaffolding.
 func (r *restorer) restoreFanout(req *Request, plan *restorePlan, store nodeStore) (CanCommitResponse, error) {
 	return r.startRestore(req, store, func(ctx context.Context, staged *stagedDirs) error {
-		return r.restoreAllFanout(ctx, plan, req.CPUPercentage, req.Bucket, req.Path, !r.namespacesEnabled, staged)
+		return r.restoreAllFanout(ctx, plan, store, req, staged)
 	})
 }
 
-func (r *restorer) restoreAllFanout(ctx context.Context, plan *restorePlan,
-	cpuPercentage int, overrideBucket, overridePath string, stripNamespaces bool, staged *stagedDirs,
-) error {
+func (r *restorer) restoreAllFanout(ctx context.Context, plan *restorePlan, store nodeStore, req *Request, staged *stagedDirs) error {
 	r.lastOp.set(backup.Transferring)
 	for _, cp := range plan.classes {
 		if err := ctx.Err(); err != nil {
 			r.lastOp.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
-		if err := r.restoreOneFanout(ctx, cp, plan.compressionType, cpuPercentage, overrideBucket, overridePath, stripNamespaces, staged); err != nil {
+		if err := r.restoreOneFanout(ctx, cp, store, plan.compressionType, req, staged); err != nil {
 			if errors.Is(err, context.Canceled) {
 				r.lastOp.set(backup.Cancelled)
+				return fmt.Errorf("restore cancelled: %w", err)
 			}
 			return fmt.Errorf("restore class %s: %w", cp.name, err)
 		}
 		r.logger.WithField("action", "restore").
+			WithField("backup_id", req.ID).
 			WithField("class", cp.name).Info("successfully restored")
 	}
 	return nil
 }
 
-func (r *restorer) restoreOneFanout(ctx context.Context, cp classPlan,
-	compressionType backup.CompressionType, cpuPercentage int,
-	overrideBucket, overridePath string, stripNamespaces bool, staged *stagedDirs,
+func (r *restorer) restoreOneFanout(ctx context.Context, cp classPlan, store nodeStore,
+	compressionType backup.CompressionType, req *Request, staged *stagedDirs,
 ) error {
+	fw := newFileWriter(r.sourcer, store, r.logger).
+		WithPoolPercentage(req.CPUPercentage).
+		withStagedRecorder(staged.record).
+		withAttemptID(staged.attemptID)
+
+	materializedName := cp.name
+	if !r.namespacesEnabled {
+		materializedName = namespacing.StripQualification(cp.name)
+	}
+	classTempDir := path.Join(fw.tempDir, materializedName)
+	// Reset staging even when this participant stages nothing: RestoreClassDir would adopt a stale attempt's leftovers.
+	if err := fw.prepare(classTempDir); err != nil {
+		return err
+	}
+
 	totalShards := 0
 	for _, src := range cp.sources {
 		totalShards += len(src.desc.Shards)
@@ -401,27 +432,13 @@ func (r *restorer) restoreOneFanout(ctx context.Context, cp classPlan,
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
 	}
-	if metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(cp.sources[0].store.backend), classLabel); err == nil {
+	if metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.backend), classLabel); err == nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
 	}
 
-	fw := newFileWriter(r.sourcer, cp.sources[0].store, r.logger).
-		WithPoolPercentage(cpuPercentage).
-		withStagedRecorder(staged.record).
-		withAttemptID(staged.attemptID)
-
-	materializedName := cp.name
-	if stripNamespaces {
-		materializedName = namespacing.StripQualification(cp.name)
-	}
-	classTempDir := path.Join(fw.tempDir, materializedName)
-
-	if err := fw.prepare(classTempDir); err != nil {
-		return err
-	}
 	for _, src := range cp.sources {
-		if err := fw.fetch(ctx, classTempDir, src.desc, src.store, overrideBucket, overridePath, compressionType); err != nil {
+		if err := fw.fetch(ctx, classTempDir, src.desc, src.store, req.Bucket, req.Path, compressionType); err != nil {
 			return fmt.Errorf("get files from %q: %w", src.node, err)
 		}
 	}

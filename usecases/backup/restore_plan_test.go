@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -120,11 +121,19 @@ func TestExpandParticipantsForDedupe(t *testing.T) {
 		require.ErrorContains(t, err, "sharding state")
 	})
 
-	t.Run("empty node descriptors are neither sources nor gated", func(t *testing.T) {
+	t.Run("empty node descriptors are neither sources nor gated nor contacted", func(t *testing.T) {
 		c, req, schema := newCoord("N1", "N2", "N3")
 		c.descriptor.Nodes["NX"] = &backup.NodeDescriptor{}
 		require.NoError(t, c.expandParticipantsForDedupe(req, schema))
 		assert.Equal(t, []string{"N1"}, req.SourceNodes)
+		assert.NotContains(t, c.descriptor.Nodes, "NX", "canCommit iterates descriptor nodes, so a kept empty node would still book a slot")
+	})
+
+	t.Run("selected class missing from schema source refused", func(t *testing.T) {
+		c, req, _ := newCoord("N1", "N2", "N3")
+		err := c.expandParticipantsForDedupe(req, []backup.ClassDescriptor{})
+		require.ErrorContains(t, err, class)
+		require.ErrorContains(t, err, "missing from the schema source")
 	})
 }
 
@@ -170,6 +179,8 @@ func TestOriginalNodeName(t *testing.T) {
 	assert.Equal(t, "N2", originalNodeName("new-N2", mapping))
 	assert.Equal(t, "N3", originalNodeName("N3", mapping))
 	assert.Equal(t, "N9", originalNodeName("N9", nil))
+	assert.Equal(t, "A1", originalNodeName("shared", map[string]string{"B2": "shared", "A1": "shared"}),
+		"non-injective legacy mapping must resolve deterministically")
 }
 
 func TestResolveShardSource(t *testing.T) {
@@ -538,11 +549,36 @@ func TestRestoreFanoutStagesFromMultipleSources(t *testing.T) {
 	}}
 
 	logger, _ := test.NewNullLogger()
-	r := &restorer{node: "nodeB", logger: logger}
-	require.NoError(t, r.restoreOneFanout(context.Background(), cp, backup.CompressionNone, 1, "", "", false, &stagedDirs{}))
+	r := &restorer{node: "nodeB", logger: logger, namespacesEnabled: true}
+	ownStore := nodeStore{objectStore{backend: restoreMock, backupId: backupID + "/nodeB", node: "nodeB"}}
+	require.NoError(t, r.restoreOneFanout(context.Background(), cp, ownStore, backup.CompressionNone, &Request{Compression: Compression{CPUPercentage: 1}}, &stagedDirs{}))
 
 	classTempDir := filepath.Join(restoreDir, TempDirectory, e.className)
 	e.verify(classTempDir, []string{"s1/segment-1.db", "s2/segment-1.db"})
+}
+
+func TestRestoreOneFanoutZeroShardsResetsStaging(t *testing.T) {
+	restoreDir := t.TempDir()
+	restoreMock := modulecapabilities.NewMockBackupBackend(t)
+	restoreMock.EXPECT().SourceDataPath().Return(restoreDir)
+
+	classTempDir := filepath.Join(restoreDir, TempDirectory, "Class-A")
+	require.NoError(t, os.MkdirAll(classTempDir, 0o755))
+	stale := filepath.Join(classTempDir, "stale-segment.db")
+	require.NoError(t, os.WriteFile(stale, []byte("previous attempt"), 0o644))
+
+	logger, _ := test.NewNullLogger()
+	r := &restorer{node: "nodeB", logger: logger, namespacesEnabled: true}
+	store := nodeStore{objectStore{backend: restoreMock, backupId: "zero/nodeB", node: "nodeB"}}
+	staged := &stagedDirs{attemptID: "attempt-2"}
+	cp := classPlan{name: "Class-A"}
+	require.NoError(t, r.restoreOneFanout(context.Background(), cp, store, backup.CompressionNone, &Request{Compression: Compression{CPUPercentage: 1}}, staged))
+
+	assert.NoFileExists(t, stale, "stale staging must be reset even when this participant stages nothing")
+	marker, err := os.ReadFile(filepath.Join(classTempDir, stagingMarkerFile))
+	require.NoError(t, err)
+	assert.Equal(t, "attempt-2", string(marker))
+	assert.Equal(t, []string{classTempDir}, staged.list())
 }
 
 func TestCoordinatedRestoreFanout(t *testing.T) {
