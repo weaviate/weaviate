@@ -31,7 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// What memtableWindowKeys trades, measured on a bucket rather than on
+// What BatchReaderWindowKeys trades, measured on a bucket rather than on
 // stand-ins. Gotchas: the fixture is built inside each sub-benchmark, not
 // shared across a sweep, so a writer growing it doesn't drive the conditions;
 // the writer only touches keys already present, so it adds bytes but never
@@ -171,7 +171,7 @@ func benchWindowFold(tb testing.TB, b *Bucket, keys inverted.SortedKeys, window 
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	r, err := newRoaringSetBatchReaderWithBounds(view, keys, window, readerWindowBytes)
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, window, BatchReaderWindowBytes)
 	if err != nil {
 		tb.Error(err)
 		return
@@ -197,7 +197,7 @@ func benchWindowCloneBytes(tb testing.TB, b *Bucket, keys inverted.SortedKeys, w
 	// Uncapped: a real budget would clamp every window size above it to the
 	// same figure, flattening the curve this measures. Production holds this
 	// or the budget, whichever is smaller.
-	r, err := newRoaringSetBatchReaderWithBounds(view, keys, window, math.MaxInt)
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, window, math.MaxInt)
 	require.NoError(tb, err)
 	require.NoError(tb, r.fillWindow())
 
@@ -260,7 +260,7 @@ func TestBenchWindowSplitLeavesTwoMemtables(t *testing.T) {
 
 	view := bucket.GetConsistentView()
 	defer view.ReleaseView()
-	before, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, readerWindowBytes)
+	before, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, BatchReaderWindowBytes)
 	require.NoError(t, err)
 	require.Equal(t, 1, before.Stats().Memtables,
 		"the fixture must start on one memtable, or the split below proves nothing")
@@ -269,7 +269,7 @@ func TestBenchWindowSplitLeavesTwoMemtables(t *testing.T) {
 
 	split := bucket.GetConsistentView()
 	defer split.ReleaseView()
-	after, err := newRoaringSetBatchReaderWithBounds(split, keys, memtableWindowKeys, readerWindowBytes)
+	after, err := newRoaringSetBatchReaderWithBounds(split.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, BatchReaderWindowBytes)
 	require.NoError(t, err)
 	require.Equal(t, 2, after.Stats().Memtables,
 		"the split must leave a flushing memtable and a live one the reader keeps")
