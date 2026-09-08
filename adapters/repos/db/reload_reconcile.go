@@ -26,16 +26,18 @@ import (
 )
 
 // isReservedDataRootDir reports whether a directory at the data root is not a
-// class index directory. Every other directory there is one: Index.path() is
-// RootPath/<lowercased class>, and a class named "raft" is rejected at parse
-// time (usecases/schema/parser.go). The list must agree with the startup sweep
-// in New(): backup-marked and staging directories belong to the backup
-// framework, and .deleteme directories are already pending async removal.
+// class index directory. Index.path() is RootPath/<lowercased class>, a class
+// name starts with a letter, and a class named "raft" is rejected at parse
+// time (usecases/schema/parser.go). So a class directory never starts with a
+// dot and is never "raft". Dot-prefixed directories are the backup framework's
+// staging (.backup-staging-*) and restore temp (.backup.tmp) directories; the
+// __DELETE_ME_AFTER_BACKUP__ prefix marks an index kept for a running backup;
+// .deleteme directories are already pending async removal.
 func isReservedDataRootDir(name string) bool {
 	return name == config.DefaultRaftDir ||
+		strings.HasPrefix(name, ".") ||
 		strings.HasSuffix(name, asyncDeleteSuffix) ||
-		strings.HasPrefix(name, backup.DeleteMarker) ||
-		strings.HasPrefix(name, backup.BackupStagingPrefix)
+		strings.HasPrefix(name, backup.DeleteMarker)
 }
 
 // dropOrphanedIndexDirectories removes class directories under the data root

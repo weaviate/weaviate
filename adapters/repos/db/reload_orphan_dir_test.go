@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -112,8 +113,8 @@ func TestReloadLocalDBReconcilesOrphanClassDirectories(t *testing.T) {
 
 // TestDropOrphanedIndexDirectoriesPreservesReservedEntries pins what the
 // reconcile must never touch: a class still in the schema, the raft directory,
-// the backup framework's marked and staging directories, a directory already
-// pending async delete, and files at the data root.
+// the backup framework's marked, staging and restore-temp directories, a
+// directory already pending async delete, and files at the data root.
 func TestDropOrphanedIndexDirectoriesPreservesReservedEntries(t *testing.T) {
 	root := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -125,6 +126,7 @@ func TestDropOrphanedIndexDirectoriesPreservesReservedEntries(t *testing.T) {
 		filepath.Join(root, config.DefaultRaftDir),
 		filepath.Join(root, backup.DeleteMarker+indexID("BackedUpClass")),
 		filepath.Join(root, backup.BackupStagingPrefix+"backup-1-"+indexID("StagedClass")),
+		filepath.Join(root, ubak.TempDirectory, indexID("RestoringClass")),
 		filepath.Join(root, "gone.123.abcd"+asyncDeleteSuffix),
 	}
 	for _, d := range append(preserved, orphanDir) {
