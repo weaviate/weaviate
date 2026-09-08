@@ -534,10 +534,6 @@ func (s *MigrationRecordStore) HasUndecided() bool {
 		if !rec.FlipDecided() && !s.wedged[key] {
 			return true
 		}
-		if _, stuck := s.wedged[key]; stuck {
-			continue
-		}
-		return true
 	}
 	return false
 }

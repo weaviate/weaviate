@@ -1891,6 +1891,8 @@ func TestARecordTheAppliedSchemaHasNotCaughtUpWithIsAskedAgain(t *testing.T) {
 			state, _ = f.state(subject.Key)
 			require.Equal(t, MigrationStateSwapped, state,
 				"and the pass after the schema catches up commits it")
+			require.False(t, f.store.HasUndecided(),
+				"the flip is decided, so the pass has nothing left to ask the leader about this shard")
 		})
 	}
 }

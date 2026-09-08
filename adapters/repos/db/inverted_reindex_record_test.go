@@ -1661,6 +1661,39 @@ func TestRemovingARecordPublishesTheRemoval(t *testing.T) {
 	require.Empty(t, store.Records(), "the file is gone either way, so memory has to agree")
 }
 
+// HasUndecided is what makes the once-a-minute cluster pass pick a shard up, so
+// a record it reports on is one that pass can still move. Both halves cost: a
+// missed record never progresses, and a record reported after its flip buys a
+// leader query and a walk of the shard, once a minute, for nothing.
+func TestOnlyAMovableRecordBeforeItsFlipIsUndecided(t *testing.T) {
+	tests := []struct {
+		name   string
+		state  MigrationState
+		wedged bool
+		want   bool
+	}{
+		{name: "before the flip and movable", state: MigrationStateMerged, want: true},
+		{name: "before the flip but wedged", state: MigrationStateMerged, wedged: true},
+		{name: "after the flip", state: MigrationStateSwapped},
+		{name: "after the flip and wedged", state: MigrationStateSwapped, wedged: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			store := NewMigrationRecordStore(t.TempDir(), logger)
+			subject := testMigrationSubject(42, StrategyCodeEnableFilterable, "title")
+
+			require.NoError(t, store.Put(newMigrationRecordAt(t, subject, tt.state)))
+			if tt.wedged {
+				store.MarkWedged(subject.Key)
+			}
+
+			require.Equal(t, tt.want, store.HasUndecided())
+		})
+	}
+}
+
 // The wedge belongs to the record the key named, not to the key. A record
 // re-created under a removed key would inherit it and stay hidden from the
 // periodic pass for the life of the process.
