@@ -28,12 +28,9 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// enable-filterable runs with IndexFilterable false for its whole duration, and
-// the cluster-wide flip lands one scheduler tick plus one RAFT round after the
-// last shard finishes. Every shard load inside that window must leave the
-// migrated data exactly where the previous one left it: the load-time sweep
-// deletes a canonical directory it finds under a disabled index, so a load that
-// promotes hands the next one the migrated data to delete.
+// Promotion must wait for the cluster-wide schema flip: every shard load in
+// between must leave the migrated data staged, since the load-time sweep
+// deletes a promoted canonical directory it finds under a disabled index.
 func TestEnableFilterablePromotionWaitsForTheSchemaFlip(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25
@@ -80,8 +77,7 @@ func TestEnableFilterablePromotionWaitsForTheSchemaFlip(t *testing.T) {
 			"load %d: the tracker outlives every load in the window, or nothing knows to promote later", load)
 	}
 
-	// The cluster-wide flip: the applied class the next load reads now lists the
-	// index, which is the only thing that authorizes the canonical name.
+	// Simulates the cluster-wide flip landing.
 	class.Properties[0].IndexFilterable = boolPtr(true)
 	current = reloadShardFromDisk(t, ctx, idx, current, class)
 	defer current.Shutdown(ctx)

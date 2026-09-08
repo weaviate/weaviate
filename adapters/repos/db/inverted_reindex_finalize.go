@@ -171,10 +171,9 @@ func fileExistsInDir(dirPath, fileName string) bool {
 //   - Generations with `gen > effective` are in-flight (next migration)
 //     and left alone — recovery picks them up via their `payload.mig`.
 //
-// Promotion follows the schema. A generation whose target index the applied
-// class turns off keeps its staged name and its tracker, and is promoted at
-// the first load after the flag lands. Renaming first would put data at a name
-// the next load's sweep deletes — see [schemaAuthorizesPromotion].
+// Promotion is deferred while the class has the target index off: renaming
+// now would put data where the next load's schema sweep deletes it. See
+// [schemaAuthorizesPromotion].
 //
 // CRITICAL: This MUST be called BEFORE bucket loading, NEVER on live
 // buckets. Renaming directories while buckets are open would corrupt
@@ -253,12 +252,9 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger log
 			continue
 		}
 
-		// If the effective promotion gen lacks tidied.mig, this is the
-		// recovery path: the in-process runtime swap on this node died
-		// after markMerged but before markTidied. Write the missing
-		// sentinels so the tracker is consistent; the rename that follows
-		// is still subject to the schema check below, which defers it to a
-		// later load while the class turns the index off.
+		// Missing tidied.mig means the runtime swap crashed after markMerged
+		// but before markTidied. Backfill the sentinels; the schema check
+		// below still gates promotion.
 		if effective > highestTidied {
 			for _, g := range gens {
 				if g.gen != effective {
@@ -332,19 +328,15 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger log
 	}
 }
 
-// schemaAuthorizesPromotion reports whether the applied class still lists every
-// index this migration would rename onto a canonical property directory.
+// schemaAuthorizesPromotion reports whether the applied class still lists
+// every index this migration would promote to its canonical name.
 //
-// The schema flag is the only authority over a canonical name:
+// The schema flag alone authorizes a canonical name: on every load,
 // [propertyDeleteIndexHelper.ensureBucketsAreRemovedForNonExistentPropertyIndexes]
-// deletes a canonical directory it finds under an index the class turns off, and
-// runs before this on every load. The three migrations that turn an index on run
-// with that flag off for their whole duration, so promoting before the flip puts
-// the migrated data exactly where the next load's sweep will delete it.
-//
-// The refusal mirrors the sweep's own predicate, including which properties it
-// can see: a property the class does not hold is a property the sweep never
-// reaches, so nothing about it needs authorizing.
+// deletes a canonical dir under a disabled index, and each index-enabling
+// migration runs with the flag off throughout. Promoting early would hand
+// that sweep exactly the data it deletes. Properties absent from the class
+// are equally unreached by the sweep, so they need no authorization.
 func schemaAuthorizesPromotion(class *models.Class, lsmPath, migName string) bool {
 	suffixes := migrationSuffixes(migName)
 	if suffixes == nil {

@@ -85,9 +85,8 @@ func TestMigrationTrackerDirAbsentDoesNotReadAStatFailureAsAbsence(t *testing.T)
 		"a tracker dir whose stat fails must not read as one that is not there")
 }
 
-// classWithIndexedProps is the schema state these cases run finalize under: the
-// migrated indexes are listed, so promotion is authorized and what each case
-// exercises is the generation and recovery logic.
+// classWithIndexedProps authorizes promotion for every migrated index, so
+// callers can exercise generation/recovery logic without schema gating.
 func classWithIndexedProps(names ...string) *models.Class {
 	on := true
 	class := &models.Class{Class: "Finalize"}
@@ -109,11 +108,8 @@ func touchSentinel(t *testing.T, path string) {
 	require.NoError(t, os.WriteFile(path, nil, 0o644))
 }
 
-// Promotion is refused for exactly what the load-time sweep would delete: a
-// canonical directory whose index the class turns off explicitly. A flag that is
-// on, a flag the class leaves unset, a property the class does not hold, and the
-// migrations that flip no flag all promote — refusing any of those would strand
-// the rebuilt data under its staged name with nothing left to free it.
+// Promotion is refused only for a canonical dir the load-time sweep would
+// delete (an index explicitly turned off); every other schema state promotes.
 func TestFinalizeCompletedMigrations_PromotionFollowsTheSchemaFlag(t *testing.T) {
 	const propName = "text"
 	off, on := false, true

@@ -35,14 +35,9 @@ const (
 	indexOffObjects   = 25
 )
 
-// A finished enable-filterable leaves its rebuilt index under a staged
-// directory name and defers the rename onto the canonical name to the next
-// shard load. Deleting the index while the tenant is inactive turns the schema
-// flag off without reaching that data, which is the same position every shard
-// load inside the migration's own pre-flip window is in: the load-time sweep
-// deletes a canonical directory it finds under an index the class turns off,
-// so a load that renames first hands the next load the rebuilt index to
-// delete.
+// Deleting an index while its tenant is inactive leaves the shard in the same
+// state as the promotion-deferral window: the rebuilt data must survive
+// repeated shard loads under its staged name until the index is on again.
 func TestRebuiltIndexSurvivesShardLoadsWhileTheIndexIsOff(t *testing.T) {
 	ctx := context.Background()
 
@@ -96,9 +91,8 @@ func TestRebuiltIndexSurvivesShardLoadsWhileTheIndexIsOff(t *testing.T) {
 	require.NotEmpty(t, indexOffStagedDir(dirs),
 		"fixture: the finished migration leaves its data under a staged name, got %v", dirs)
 
-	// The delete only reaches the buckets of a loaded shard, so an inactive
-	// tenant keeps the rebuilt index on disk under an index the class now
-	// turns off.
+	// The delete only reaches loaded shards, so an inactive tenant keeps the
+	// rebuilt index on disk after the flag turns off.
 	setIndexOffTenantStatus(t, models.TenantActivityStatusINACTIVE)
 	deleteIndex(t, restURI, indexOffClass, indexOffProp, "filterable")
 	requireIndexOffFilterableFlag(t, false)
