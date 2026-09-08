@@ -256,11 +256,9 @@ func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger log
 		// If the effective promotion gen lacks tidied.mig, this is the
 		// recovery path: the in-process runtime swap on this node died
 		// after markMerged but before markTidied. Write the missing
-		// sentinels so the rest of the finalize logic sees a consistent
-		// tracker and the same ingest→canonical rename runs. The schema
-		// flip has likely already committed cluster-wide via the DTM
-		// task's FINISHED state; promoting gen-effective here is what
-		// makes this node's bucket data consistent with that schema.
+		// sentinels so the tracker is consistent; the rename that follows
+		// is still subject to the schema check below, which defers it to a
+		// later load while the class turns the index off.
 		if effective > highestTidied {
 			for _, g := range gens {
 				if g.gen != effective {
