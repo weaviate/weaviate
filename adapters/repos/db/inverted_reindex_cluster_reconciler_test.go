@@ -68,10 +68,9 @@ func TestTheClusterPassSamplesItsPerShardRefusals(t *testing.T) {
 		"a mock shard is a shard the pass cannot resolve, and %d of them must not print %d lines", shards, shards)
 }
 
-// Every other fixture shard is a mock, which unwrapShard rejects before the
-// walk takes a reference or reaches the pass body. The real shard's own arm is
-// silent: every verdict is Leave until the cutover PR wires LocalTasks, so a
-// second, unresolvable shard is what makes a running walk observable.
+// Only a real, resolvable shard proves the walk ran: mocks are rejected
+// before the pass body, and the real shard's own verdict stays Leave until
+// the cutover wires LocalTasks.
 func TestTheClusterPassWalksARealLoadedShard(t *testing.T) {
 	ctx := context.Background()
 	logger, hook := test.NewNullLogger()
@@ -155,7 +154,7 @@ func TestTheClusterPassWalksARealLoadedShard(t *testing.T) {
 	rec, ok := shard.migrationRecords.Get(subject.Key)
 	require.True(t, ok)
 	require.Equal(t, MigrationStateMerged, rec.State(),
-		"this build decides nothing: the cutover PR is what makes this record move")
+		"this build decides nothing: the cutover is what makes this record move")
 	hook.Reset()
 
 	// A shard whose shutdown began is skipped and sampled.
@@ -183,11 +182,8 @@ func TestUninstalledTaskSourcesDecideNothing(t *testing.T) {
 	require.Nil(t, cluster)
 }
 
-// The pass collects a shard name and resolves it a moment later, so a tenant
-// torn down in between has to read as gone. Resolving the shard the walk itself
-// handed over instead calls Load, which has no shutdown flag to refuse: it
-// rebuilds the tenant outside the shard map, where nothing can ever shut it
-// down and reactivation fails until the node restarts.
+// A tenant torn down between the pass's name-collect and resolve steps must
+// read as gone, not get rebuilt via Load outside the shard map.
 func TestTheClusterPassDoesNotRebuildAShardTornDownUnderIt(t *testing.T) {
 	const tenant = "torn-down-under-the-pass"
 
@@ -244,4 +240,13 @@ func TestAWedgedRecordStopsCountingAsUndecided(t *testing.T) {
 	require.NoError(t, store.Load())
 	require.True(t, store.HasUndecided(),
 		"a load re-derives the wedge, so the pass that follows it decides the record again")
+}
+
+func loadedShardNames(idx *Index) []string {
+	var names []string
+	idx.ForEachLoadedShard(func(name string, _ ShardLike) error {
+		names = append(names, name)
+		return nil
+	})
+	return names
 }

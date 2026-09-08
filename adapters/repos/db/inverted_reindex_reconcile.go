@@ -31,10 +31,9 @@ type migrationMirrorDisarmer interface {
 }
 
 // Must run before the directory is removed, or mmaps and compactions leak.
-// Takes directories rather than a record, so the caller closes only what it has
-// already decided it may remove: a shutdown deregisters the bucket and nothing
-// reopens it before the next shard load, so closing a directory the caller then
-// leaves in place stops that data serving with no record left to answer for it.
+// Takes directories, not a record, so the caller closes only what it has
+// already decided to remove — closing one it means to keep would stop that
+// data serving with no record left to account for it.
 type migrationStagedBucketCloser interface {
 	ShutdownStagedBucketsAt(ctx context.Context, dirs []string) error
 }
@@ -180,10 +179,10 @@ func (r *migrationReconciler) Reconcile(ctx context.Context) error {
 			return nil
 		}
 		if err := r.reconcileOne(ctx, rec, someRecordsUnreadable); err != nil {
-			// One migration must not be able to keep a shard from loading. Not
-			// marked on the store: a refused reclaim, a directory that would not
-			// go and a cancelled activation all arrive here, and the record is
-			// kept precisely so a later pass retries them.
+			// One migration must not keep a shard from loading. Not marked on the
+			// store: a refused reclaim, a directory that would not go and a
+			// cancelled activation keep the record for a later pass; a failure
+			// past its unlink leaves nothing to retry.
 			r.countWedged(rec.Subject().Key)
 			r.logger.WithField("record", rec.Subject().Key.String()).Errorf("reconcile migration record: %v", err)
 		}
@@ -457,6 +456,9 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		r.logger.WithField("record", subject.Key.String()).
 			WithField("property_count", len(subject.Props)).
 			Errorf("promote the properties of a migration: %v", err)
+		// Returned as well as logged: the caller counts the record as wedged, so
+		// the shard does not read as settled over a promotion that did not run.
+		return err
 	}
 
 	// One line for the record, not one per property. An unretired property keeps
@@ -525,7 +527,7 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	}
 
 	// Dormant here: every flip this build writes displaces the canonical name
-	// itself, and the cutover PR is what writes a different one.
+	// itself, and the cutover is what writes a different one.
 	if displaced != "" && displaced != canonical {
 		if cleared, err := r.clearForPromotion(subject, displaced, "the displaced directory"); err != nil || !cleared {
 			return rec, false, err

@@ -20,8 +20,8 @@ type migrationRecordQuestions interface {
 	// before the first pointer moves, so it never means the flip ran.
 	FlipDecided() bool
 
-	// Both read by the cutover PR: the first before it hands a shard's writes
-	// to the staged copy, the second before it opens a bucket at a directory a
+	// Both read by the cutover: the first before it hands a shard's writes to
+	// the staged copy, the second before it opens a bucket at a directory a
 	// record may be about to rename or remove.
 	IterationComplete() bool
 	OwnsBucket(dir string) bool

@@ -68,10 +68,12 @@ func (r *migrationClusterReconciler) samplers() (unresolved, shuttingDown *logru
 func (r *migrationClusterReconciler) SetTaskSources(ctx context.Context, source MigrationLocalTaskSource,
 	cluster MigrationClusterTaskSource,
 ) {
-	r.mu.Lock()
-	r.local = source
-	r.cluster = cluster
-	r.mu.Unlock()
+	func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.local = source
+		r.cluster = cluster
+	}()
 
 	r.ReconcileLoaded(ctx)
 	r.periodicOnce.Do(func() {
@@ -115,11 +117,10 @@ func (r *migrationClusterReconciler) ReconcileLoaded(ctx context.Context) {
 	}
 }
 
-// Names, not shards: ForEachLoadedShard's loaded check is advisory, and
-// resolving a shard it already handed over calls Load, which has no shutdown
-// flag to refuse and would rebuild a deactivated tenant outside the shard map,
-// where nothing can ever shut it down. getLoadedShard holds the locks every
-// teardown takes across both the map read and the reference it takes, so a
+// Names, not shards: resolving a shard the walk already handed over would
+// call Load, which has no shutdown flag to refuse and would rebuild a
+// deactivated tenant outside the shard map, where nothing can ever shut it
+// down again. getLoadedShard takes the same locks every teardown does, so a
 // shard torn down since its name was collected reads as absent instead.
 func (r *migrationClusterReconciler) reconcileShard(ctx context.Context, idx *Index, name string,
 	tasks []*distributedtask.Task, unresolved, shuttingDown *logrusext.Sampler,
@@ -146,15 +147,6 @@ func (r *migrationClusterReconciler) reconcileShard(ctx context.Context, idx *In
 		return
 	}
 	concrete.migrations().ReconcileWithClusterTasks(ctx, tasks)
-}
-
-func loadedShardNames(idx *Index) []string {
-	var names []string
-	idx.ForEachLoadedShard(func(name string, _ ShardLike) error {
-		names = append(names, name)
-		return nil
-	})
-	return names
 }
 
 func (r *migrationClusterReconciler) snapshotIndices() []*Index {
@@ -197,9 +189,11 @@ func (r *migrationClusterReconciler) shardsWithUndecidedRecords() []migrationUnd
 }
 
 func (r *migrationClusterReconciler) LocalTasks() ([]*distributedtask.Task, bool) {
-	r.mu.RLock()
-	source := r.local
-	r.mu.RUnlock()
+	source := func() MigrationLocalTaskSource {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		return r.local
+	}()
 
 	if source == nil {
 		return nil, false
@@ -211,9 +205,11 @@ func (r *migrationClusterReconciler) LocalTasks() ([]*distributedtask.Task, bool
 // unreachable leader cannot hold a pass open. The shard walk after it is
 // not bounded.
 func (r *migrationClusterReconciler) clusterTasksBounded(ctx context.Context) ([]*distributedtask.Task, error) {
-	r.mu.RLock()
-	source := r.cluster
-	r.mu.RUnlock()
+	source := func() MigrationClusterTaskSource {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		return r.cluster
+	}()
 
 	if source == nil {
 		return nil, fmt.Errorf("no cluster-wide reindex task source is installed on this node")

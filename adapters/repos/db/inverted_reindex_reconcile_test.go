@@ -279,12 +279,10 @@ func (f *reconcileFixture) trackerDirExists(subject MigrationSubject) bool {
 	return err == nil && info.IsDir()
 }
 
-// A tracker directory on disk means its record is live: the startup finalize
-// path acts on tracker directories by name, so one with no record is an
-// ownerless instruction handed to another subsystem. The other direction is
-// weaker on purpose. Removal takes the directories, then the tracker, then the
-// record, so a record can outlive its tracker, and only once nothing it named
-// is left for it to remove.
+// A tracker directory implies a live record: the finalize path acts on
+// trackers by name, so an orphaned one hands another subsystem a stale
+// instruction. The reverse isn't required — removal order is directories,
+// then tracker, then record, so a record may briefly outlive its tracker.
 func (f *reconcileFixture) requireMigrationDirsTrackRecords() {
 	f.t.Helper()
 	surviving := f.store.Records()
@@ -970,13 +968,15 @@ func TestAPromotionThatCannotRecordItsStartDoesNotRename(t *testing.T) {
 	f.put(NewMigrationRecordSwapped(subject, []string{"title"}, map[string]string{"title": "property_title_searchable"}))
 	f.blockRecordWrites()
 
-	f.reconcile()
+	r := f.reconcile()
 
 	require.True(t, f.exists("property_title__g42_ingest"),
 		"the rename must not run before the record says it started")
 	state, present := f.state(subject.Key)
 	require.True(t, present)
 	require.Equal(t, MigrationStateSwapped, state, "and no promotion is recorded")
+	require.Equal(t, 1, r.WedgedCount(),
+		"a promotion that could not run counts, or the shard reads as settled")
 }
 
 func wedgeEntry(t *testing.T, f *reconcileFixture) *logrus.Entry {
@@ -1896,9 +1896,8 @@ func TestARecordTheAppliedSchemaHasNotCaughtUpWithIsAskedAgain(t *testing.T) {
 	}
 }
 
-// A name a migration mints carries its own task version, so two records can
-// only claim one directory if something outside this build wrote them. Nothing
-// here can tell which one the data belongs to, so both are refused.
+// Nothing here can tell which of two records claiming one directory the data
+// belongs to, so both are refused.
 func TestTwoRecordsClaimingOneDirectoryAreBothRefused(t *testing.T) {
 	f := newReconcileFixture(t)
 	f.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")

@@ -57,8 +57,7 @@ func TestPutPublishesTheRecordByReplacingTheFile(t *testing.T) {
 		"publishing must leave a different file at the name")
 }
 
-// No other test catches a deleted content sync: it only shows after a crash. The
-// directory sync past the rename is pinned by diskio's TestRenameAndSync.
+// No other test catches a deleted content sync: it only shows after a crash.
 func TestWriteFileAtomicSyncsTheContentBeforeItPublishesTheName(t *testing.T) {
 	dir := t.TempDir()
 	const name = "record.mig"

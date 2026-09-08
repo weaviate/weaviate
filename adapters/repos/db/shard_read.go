@@ -50,7 +50,13 @@ func (s *Shard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (typ
 		return types.RepairResponse{}, err
 	}
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).GetErrDeleted(idBytes)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return types.RepairResponse{}, err
+	}
+	defer release()
+
+	bytes, err := bucket.GetErrDeleted(idBytes)
 	if err != nil {
 		return types.RepairResponse{}, err
 	}
@@ -75,7 +81,11 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 		return nil, err
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	className, err := bucket.ClassName()
 	if err != nil {
@@ -113,7 +123,11 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 		ids[i] = idBytes
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	className, err := bucket.ClassName()
 	if err != nil {
@@ -151,7 +165,11 @@ func (s *Shard) MultiObjectRawByID(ctx context.Context, ids []strfmt.UUID) ([][]
 	s.activityTrackerRead.Add(1)
 	out := make([][]byte, len(ids))
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	for i, id := range ids {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -182,7 +200,11 @@ func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]
 	// Replication-internal operation: do not count as user read activity.
 	objects := make([]types.RepairResponse, len(query))
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	for i, q := range query {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -229,9 +251,15 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 		return nil, fmt.Errorf("invalid final UUID %q: %w", finalUUID, err)
 	}
 
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	// Digest mode: only the header is read below, so skip the full value copy.
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).
-		CursorReplaceDigestReusableRange(storobj.MarshallerV1HeaderLen, initialUUID16[:], finalUUID16[:])
+	cursor := bucket.CursorReplaceDigestReusableRange(
+		storobj.MarshallerV1HeaderLen, initialUUID16[:], finalUUID16[:])
 	defer cursor.Close()
 
 	return collectObjectDigests(ctx, cursor, initialUUID16[:], finalUUID16[:], limit)
@@ -285,7 +313,11 @@ func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.Repair
 		return nil, nil
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	firstUUID := sourceDigests[0].ID
 	lastUUID := sourceDigests[len(sourceDigests)-1].ID
@@ -344,7 +376,13 @@ func (s *Shard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 		return false, err
 	}
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).Get(idBytes)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return false, err
+	}
+	defer release()
+
+	bytes, err := bucket.Get(idBytes)
 	if err != nil {
 		return false, errors.Wrap(err, "read request")
 	}
@@ -368,7 +406,11 @@ func (s *Shard) objectByIndexIDWithProps(ctx context.Context, indexID uint64,
 	keyBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	className, err := bucket.ClassName()
 	if err != nil {
@@ -410,8 +452,13 @@ func (s *Shard) multiVectorByIndexID(ctx context.Context, indexID uint64, target
 func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([][]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
-	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondaryWithBuffer(ctx, 0, container.Buff8, container.Buff)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	bytes, newBuff, err := bucket.GetBySecondaryWithBuffer(ctx, 0, container.Buff8, container.Buff)
 	if err != nil {
 		return nil, err
 	}
@@ -434,9 +481,21 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 }
 
 // GetObjectsBucketView returns a consistent view of the objects bucket that can
-// be reused for multiple reads without acquiring locks for each read.
+// be reused for multiple reads without acquiring locks for each read. The
+// bucket stays pinned until ReleaseView, so a teardown that starts while the
+// view is in flight waits for it rather than unmapping the segments under it.
+//
+// On a torn-down store it returns the zero view instead of failing: the thunk
+// signature every vector index shares has no error to report, so the reads
+// taken against the view fail individually (they check the view's bucket)
+// while releasing the zero view stays a no-op.
 func (s *Shard) GetObjectsBucketView() common.BucketView {
-	return s.store.Bucket(helpers.ObjectsBucketLSM).GetConsistentView()
+	view := s.store.AcquireBucketConsistentViewForRead(helpers.ObjectsBucketLSM)
+	if view.Bucket == nil {
+		s.reportTornStoreAccess(fmt.Errorf("objects bucket of shard %q: %w",
+			s.name, lsmkv.ErrBucketNotFound))
+	}
+	return view
 }
 
 func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([]float32, error) {
@@ -445,6 +504,9 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 	bucketView, ok := view.(lsmkv.BucketConsistentView)
 	if !ok {
 		return nil, fmt.Errorf("invalid view type: expected BucketConsistentView, got %T", view)
+	}
+	if bucketView.Bucket == nil {
+		return nil, fmt.Errorf("objects bucket of shard %q: %w", s.name, lsmkv.ErrBucketNotFound)
 	}
 
 	bytes, newBuff, err := bucketView.Bucket.
@@ -476,6 +538,9 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 	bucketView, ok := view.(lsmkv.BucketConsistentView)
 	if !ok {
 		return nil, fmt.Errorf("invalid view type: expected BucketConsistentView, got %T", view)
+	}
+	if bucketView.Bucket == nil {
+		return nil, fmt.Errorf("objects bucket of shard %q: %w", s.name, lsmkv.ErrBucketNotFound)
 	}
 
 	bytes, newBuff, err := bucketView.Bucket.GetBySecondaryWithBufferAndView(ctx, 0, container.Buff8, container.Buff, bucketView)
@@ -785,7 +850,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	beforeObjects := time.Now()
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer release()
 	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
 	if err != nil {
 		return nil, nil, err
@@ -809,7 +878,11 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 			return nil, err
 		}
 		helpers.AnnotateSlowQueryLog(ctx, "sort_took", time.Since(beforeSort))
-		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+		bucket, release, err := s.objectsBucket()
+		if err != nil {
+			return nil, err
+		}
+		defer release()
 
 		beforeObjects := time.Now()
 		defer func() {
@@ -829,7 +902,11 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	bucketClassName, err := bucket.ClassName()
 	if err != nil {
@@ -915,10 +992,11 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 }
 
 func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	if bucket == nil {
-		return "", errors.Errorf("objects bucket not found")
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return "", err
 	}
+	defer release()
 
 	docIDBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(docIDBytes, docID)
@@ -950,10 +1028,11 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return err
 	}
 
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return err
 	}
+	defer release()
 
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
@@ -1025,6 +1104,10 @@ func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time
 		return false, time.Time{}, err
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return false, time.Time{}, err
+	}
+	defer release()
 	return bucket.WasDeleted(idBytes)
 }

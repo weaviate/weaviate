@@ -117,16 +117,13 @@ func (s *MigrationRecordStore) mkdir() error {
 // record is written into it.
 func (s *MigrationRecordStore) mkdirSynced(sync func(string) error) error {
 	for _, dir := range []string{filepath.Dir(s.dir), s.dir} {
-		if err := os.Mkdir(dir, 0o777); err != nil {
-			if os.IsExist(err) {
-				continue
-			}
+		if err := os.Mkdir(dir, 0o777); err != nil && !os.IsExist(err) {
 			return err
 		}
-		// The record's own fsync does not publish the directory entry holding
-		// it. Without this a crash leaves the record synced into a directory
-		// that is gone, and Load then reports no records at all rather than an
-		// unreadable one, which is the reading the freeze cannot see.
+		// The record's own fsync does not publish the directory entry holding it: a
+		// crash without this leaves the record synced into a directory that is gone.
+		// Unconditional, because whoever created an already-present directory may
+		// have died before syncing it.
 		if err := sync(filepath.Dir(dir)); err != nil {
 			return err
 		}
@@ -312,10 +309,8 @@ func migrationExclusiveClaims(subject MigrationSubject) []string {
 	return claims
 }
 
-// A directory name a migration mints carries its own task version, so only a
-// hand-edited or restore-landed file can claim a directory another record
-// claims. Both claimants leave the live set: nothing here can tell which one
-// the data belongs to, and either answer would delete the other's only copy.
+// Both claimants leave the live set: nothing here can tell which one the data
+// belongs to, and either answer would delete the other's only copy.
 func refuseRecordsOfDuplicateClaims(records map[MigrationRecordKey]MigrationRecord) []MigrationRecordUnreadable {
 	keys := slices.SortedFunc(maps.Keys(records), func(a, b MigrationRecordKey) int {
 		return cmp.Compare(a.fileName(), b.fileName())
@@ -417,11 +412,10 @@ func (s *MigrationRecordStore) Put(rec MigrationRecord) error {
 	return nil
 }
 
-// [diskio.RenameAndSync] renames before it syncs, so a failed write can follow a
-// rename that already published the record under its final name. Nothing
-// re-reads the store in-process, so memory has to be settled against the file
-// here, or it answers with the older record for the life of the process while
-// the next load answers with the newer one.
+// [diskio.RenameAndSync] renames before it syncs, so a failed write can follow
+// a rename that already published the record. Nothing else re-reads the
+// store, so memory must be settled against the file here or it serves the
+// older record for the life of the process.
 func (s *MigrationRecordStore) adoptIfPublished(rec MigrationRecord, data []byte) {
 	published, err := os.ReadFile(s.path(rec.Subject().Key))
 	if err != nil || !bytes.Equal(published, data) {
@@ -450,10 +444,12 @@ func (s *MigrationRecordStore) removeSynced(key MigrationRecordKey, sync func(st
 		return fmt.Errorf("remove migration record %q: %w", key, removed)
 	}
 
-	s.mu.Lock()
-	delete(s.records, key)
-	delete(s.wedged, key)
-	s.mu.Unlock()
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		delete(s.records, key)
+		delete(s.wedged, key)
+	}()
 
 	if removed != nil {
 		return nil
@@ -503,12 +499,15 @@ func (s *MigrationRecordStore) Get(key MigrationRecordKey) (MigrationRecord, boo
 // slices.SortFunc is not stable, so the order has to cover the whole key or
 // two passes over one store disagree.
 func (s *MigrationRecordStore) Records() []MigrationRecord {
-	s.mu.RLock()
-	out := make([]MigrationRecord, 0, len(s.records))
-	for _, rec := range s.records {
-		out = append(out, rec)
-	}
-	s.mu.RUnlock()
+	out := func() []MigrationRecord {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		out := make([]MigrationRecord, 0, len(s.records))
+		for _, rec := range s.records {
+			out = append(out, rec)
+		}
+		return out
+	}()
 
 	slices.SortFunc(out, func(a, b MigrationRecord) int {
 		ak, bk := a.Subject().Key, b.Subject().Key

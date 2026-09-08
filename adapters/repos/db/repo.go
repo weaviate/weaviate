@@ -318,7 +318,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	scanAndAsyncDeletePending(config.RootPath, logger)
 
 	// Fakes without the cross-class RPC leave the comparer nil → per-class pre-filter fallback.
-	crossClassComparer, _ := replicaClient.(crossClassRootComparer)
+	crossClassComparer, _ := replicaClient.(replica.CompareRootsSessionFactory)
 	asyncReplicationScheduler, err := NewAsyncReplicationScheduler(
 		context.Background(),
 		config.Replication,
