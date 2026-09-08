@@ -148,14 +148,14 @@ func (m *vectorIndexMapping) Initialize(records map[string]vectorIndexRecord) er
 	err := m.ns.Update(func(b *shardmeta.Batch) error {
 		existing, err := b.Get([]byte(vectorIndexMappingFormatVersionKey))
 		if err != nil {
-			return err
+			return fmt.Errorf("read format version: %w", err)
 		}
 		if existing != nil {
 			return errVectorIndexMappingInitialized
 		}
 		err = b.Put([]byte(vectorIndexMappingFormatVersionKey), []byte(vectorIndexMappingFormatVersion))
 		if err != nil {
-			return err
+			return fmt.Errorf("write format version: %w", err)
 		}
 		for name, rec := range records {
 			err = putVectorIndexRecord(b, name, rec)
@@ -203,7 +203,7 @@ func (m *vectorIndexMapping) Put(name string, rec vectorIndexRecord) error {
 func requireVectorIndexMappingInitialized(b *shardmeta.Batch) error {
 	v, err := b.Get([]byte(vectorIndexMappingFormatVersionKey))
 	if err != nil {
-		return err
+		return fmt.Errorf("read format version: %w", err)
 	}
 	if v == nil {
 		return errVectorIndexMappingUninitialized
