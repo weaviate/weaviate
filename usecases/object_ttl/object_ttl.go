@@ -43,6 +43,27 @@ var (
 	ErrFinished = errors.New("finished")
 )
 
+// ErrStoppedEarly marks a sweep that was cancelled rather than one that failed,
+// so a caller deciding a log level or a status code does not have to re-derive
+// that judgement.
+var ErrStoppedEarly = errors.New("deletion stopped early")
+
+// MaxReportedErrors caps how many errors a sweep renders into one log record.
+// A sweep collects an error per collection, shard and tenant it touches, so
+// without a cap one record carries all of them.
+const MaxReportedErrors = 10
+
+// stoppedBy reports what stopped a sweep: its own context (an abort) or the
+// caller's (shutdown, schedule change), or nil if neither did. It reads the
+// contexts directly rather than a callee's error, since a wrapped error can't
+// reliably say whether cancellation was involved.
+func stoppedBy(callerCtx, sweepCtx context.Context) error {
+	if cause := context.Cause(sweepCtx); cause != nil {
+		return cause
+	}
+	return context.Cause(callerCtx)
+}
+
 type objectTTLAndVersion struct {
 	version   uint64
 	ttlConfig *models.ObjectTTLConfig
@@ -142,9 +163,21 @@ func (c *Coordinator) Start(ctx context.Context, targetOwnNode bool, ttlTime, de
 	}).Debug("ttl deletion running")
 
 	if remoteNodeSelected == "" {
-		return c.triggerDeletionObjectsExpiredLocalNode(ctx, classesWithTTL, ttlTime, deletionTime)
+		err = c.triggerDeletionObjectsExpiredLocalNode(ctx, classesWithTTL, ttlTime, deletionTime)
+	} else {
+		err = c.triggerDeletionObjectsExpiredRemoteNode(ctx, classesWithTTL, ttlTime, deletionTime, remoteNodeSelected)
 	}
-	return c.triggerDeletionObjectsExpiredRemoteNode(ctx, classesWithTTL, ttlTime, deletionTime, remoteNodeSelected)
+	// each arm marks its own: the local one knows the sweep's context, and the
+	// remote one only ever sees the dispatch, because the peer answers 202
+	// before it sweeps
+	return err
+}
+
+// IsRunning reports whether this node still holds its deletion slot. An abort
+// cancels the deletion but leaves the slot reserved until it returns, so this is
+// what separates a node that is draining from one that is idle.
+func (c *Coordinator) IsRunning() bool {
+	return c.localStatus.IsRunning()
 }
 
 func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, error) {
@@ -196,13 +229,8 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 			return nil
 		}, nodeName)
 	}
-	// every closure returns nil, so the only error Wait could report is a recovered
-	// panic, and Panics carries all of them including that one
-	eg.Wait()
-	for _, p := range eg.Panics() {
-		ec.AddGroups(p.Err, errorcompounder.AsGroups(p.LocalVars...)...)
-	}
-	err := ec.ToError()
+	eg.WaitAndCollect(ec)
+	err := ec.ToErrorLimited(MaxReportedErrors)
 
 	l := c.logger.WithFields(logrus.Fields{
 		"action":  "objects_ttl_deletion",
@@ -210,9 +238,10 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 		"nodes":   abortedNodes,
 	})
 	if err != nil {
-		l.WithError(err)
+		l.Warnf("abort ttl deletion on all nodes: %v", err)
+	} else {
+		l.Warn("abort ttl deletion on all nodes")
 	}
-	l.Warn("abort ttl deletion on all nodes")
 
 	return anyAborted, err
 }
@@ -241,6 +270,9 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 		colNames = append(colNames, colName)
 	}
 
+	ec := errorcompounder.NewSafe()
+	dispatched := 0
+
 	logger := c.logger.WithField("action", "objects_ttl_deletion")
 	logger.WithFields(logrus.Fields{
 		"collections":       colNames,
@@ -258,26 +290,40 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 		metrics.ObserveObjectsTtlDuration(took)
 		metrics.AddObjectsTtlObjectsDeleted(float64(total))
 
-		if err != nil {
-			metrics.IncObjectsTtlFailureCount()
+		// ec holds what a callee returned; the contexts say whether the sweep was
+		// stopped. Neither is read off the other.
+		cause := stoppedBy(ctx, ttlCtx)
+		if cause != nil {
+			logger = logger.WithFields(logrus.Fields{
+				"stopped_early":          true,
+				"collections_dispatched": dispatched,
+			})
+		}
 
+		if !ec.Empty() {
+			metrics.IncObjectsTtlFailureCount()
 			logger.Errorf("ttl deletion on local node failed: %v", err)
+			return
+		}
+		if cause != nil {
+			logger.Warnf("ttl deletion on local node stopped early: %v", cause)
 			return
 		}
 		logger.Debug("ttl deletion on local node finished")
 	}()
 
-	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.db.GetConfig().ObjectsTTLConcurrencyFactor.Get()))
 
 	for name, collection := range classesWithTTL {
-		if err := ctx.Err(); err != nil {
+		// the collections already dispatched run on ttlCtx, which this
+		// cancellation does not reach, so they finish on their own
+		if context.Cause(ctx) != nil {
 			break
 		}
-		// the closure holds the counter, not the key: a delete goroutine indexing
-		// the map would race the next iteration writing to it, which is fatal and
-		// unrecoverable
+		dispatched++
+		// captured by value: a delete goroutine indexing objsDeletedCounters by
+		// name would race the next iteration's map write, which is fatal.
 		counter := &atomic.Int32{}
 		objsDeletedCounters[name] = counter
 		countDeleted := func(count int32) { counter.Add(count) }
@@ -285,15 +331,15 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 		c.db.DeleteExpiredObjects(ttlCtx, eg, ec, name, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, collection.version)
 	}
 
-	// every closure returns nil, so the only error Wait could report is a recovered
-	// panic, and Panics carries all of them including that one
-	eg.Wait()
-	for _, p := range eg.Panics() {
-		ec.AddGroups(p.Err, errorcompounder.AsGroups(p.LocalVars...)...)
-	}
+	eg.WaitAndCollect(ec)
 
-	if err := ec.ToError(); err != nil {
+	// a failure outranks a stop: something broke whether or not anyone also
+	// asked the sweep to end
+	if err := ec.ToErrorLimited(MaxReportedErrors); err != nil {
 		return fmt.Errorf("deletion of expired objects on local node: %w", err)
+	}
+	if cause := stoppedBy(ctx, ttlCtx); cause != nil {
+		return fmt.Errorf("%w: %w", ErrStoppedEarly, cause)
 	}
 	return nil
 }
@@ -310,8 +356,20 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 	l.Debug("ttl deletion on remote node started")
 	defer func() {
 		l = l.WithField("took", time.Since(started))
+
+		// this arm dispatches; the peer sweeps on a context of its own, so the
+		// only stop this can observe is the caller giving up on the dispatch
+		cause := context.Cause(ctx)
+		if cause != nil {
+			l = l.WithField("stopped_early", true)
+		}
+
 		if err != nil {
 			l.Errorf("ttl deletion on remote node failed: %v", err)
+			return
+		}
+		if cause != nil {
+			l.Warnf("ttl deletion on remote node stopped early: %v", cause)
 			return
 		}
 		l.Debug("ttl deletion on remote node finished")
@@ -545,9 +603,10 @@ func (s *LocalStatus) SetRunning() (success bool, ctx context.Context) {
 	return true, s.runningCtx
 }
 
-// Abort cancels the running deletion and reports whether there was one. The
-// slot stays reserved until that deletion finishes, because it observes the
-// cancellation only between batches.
+// Abort cancels the deletion holding the slot and reports whether there was
+// one to cancel. It keeps reporting true while that deletion drains, because
+// the coordinator ORs the answer across nodes — a false midway would read as
+// "nothing happened" for a cluster still aborting.
 func (s *LocalStatus) Abort() (aborted bool) {
 	s.lock.Lock()
 	defer s.lock.Unlock()

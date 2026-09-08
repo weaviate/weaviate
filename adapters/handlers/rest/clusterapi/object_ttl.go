@@ -181,6 +181,9 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 				colNames[i] = body[i].Class
 			}
 
+			ec := errorcompounder.NewSafe()
+			swept := len(body)
+
 			logger := d.logger.WithField("action", "objects_ttl_deletion")
 			logger.WithFields(logrus.Fields{
 				"collections":       colNames,
@@ -198,29 +201,39 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 				metrics.ObserveObjectsTtlDuration(took)
 				metrics.AddObjectsTtlObjectsDeleted(float64(total))
 
-				if err != nil {
-					metrics.IncObjectsTtlFailureCount()
+				// ec holds what a callee returned; the context says whether an
+				// abort stopped it.
+				cause := context.Cause(ttlCtx)
+				if cause != nil {
+					logger = logger.WithFields(logrus.Fields{
+						"stopped_early":     true,
+						"collections_swept": swept,
+					})
+				}
 
+				if !ec.Empty() {
+					metrics.IncObjectsTtlFailureCount()
 					logger.Errorf("incoming ttl deletion on remote node failed: %v", err)
+					return
+				}
+				if cause != nil {
+					logger.Warnf("incoming ttl deletion on remote node stopped early: %v", cause)
 					return
 				}
 				logger.Debug("incoming ttl deletion on remote node finished")
 			}()
 
-			ec := errorcompounder.NewSafe()
 			eg := enterrors.NewErrorGroupWrapper(d.logger)
 			eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(d.config.ObjectsTTLConcurrencyFactor.Get()))
 
 			for pos, classPayload := range body {
-				if cause := context.Cause(ttlCtx); cause != nil {
-					ec.AddGroups(fmt.Errorf("%w: %d of %d collections not swept",
-						cause, len(body)-pos, len(body)), classPayload.Class)
+				if context.Cause(ttlCtx) != nil {
+					swept = pos
 					break
 				}
 				className := classPayload.Class
-				// the closure holds the counter, not the key: a delete goroutine
-				// indexing the map would race the next iteration writing to it,
-				// which is fatal and unrecoverable
+				// captured by value: a delete goroutine indexing objsDeletedCounters
+				// by name would race the next iteration's map write, which is fatal.
 				counter := &atomic.Int32{}
 				objsDeletedCounters[className] = counter
 				countDeleted := func(count int32) { counter.Add(count) }
@@ -229,9 +242,8 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 				if err != nil {
 					// the schema wait reports its own deadline whether it timed out
 					// or was cancelled, so ask the context which one happened
-					if cause := context.Cause(ttlCtx); cause != nil {
-						ec.AddGroups(fmt.Errorf("%w: %d of %d collections not swept",
-							cause, len(body)-pos, len(body)), className)
+					if context.Cause(ttlCtx) != nil {
+						swept = pos
 						break
 					}
 					ec.AddGroups(fmt.Errorf("get index: %w", err), className)

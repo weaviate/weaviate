@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -38,6 +39,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 )
 
@@ -1131,7 +1133,7 @@ func setupDebugHandlers(appState *state.State) {
 		targetOwnNode := config.Enabled(targetOwnNodeStr)
 
 		err = appState.ObjectTTLCoordinator.Start(context.Background(), targetOwnNode, expirationTime, expirationTime)
-		if err != nil {
+		if err != nil && !errors.Is(err, objectttl.ErrStoppedEarly) {
 			http.Error(w, "failed to delete expired objects", http.StatusInternalServerError)
 			return
 		}

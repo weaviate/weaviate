@@ -116,8 +116,12 @@ func TestLocalState(t *testing.T) {
 		s := NewLocalStatus()
 		assert.False(t, s.Abort(), "nothing to abort")
 
-		s.SetRunning()
-		assert.True(t, s.Abort())
+		_, ctx := s.SetRunning()
+		assert.True(t, s.Abort(), "the deletion is cancelled")
+		assert.ErrorIs(t, context.Cause(ctx), ErrAborted)
+
+		assert.True(t, s.Abort(), "a repeat while it drains still reports the deletion")
+		assert.True(t, s.IsRunning(), "the slot stays reserved until the deletion finishes")
 
 		s.Finished()
 		assert.False(t, s.Abort(), "nothing to abort once it finished")
@@ -210,7 +214,7 @@ func TestLocalState(t *testing.T) {
 		wg.Wait()
 
 		assert.Equal(t, int32(goroutines), successCount.Load(),
-			"Abort does not release the slot, so every caller sees the deletion")
+			"every caller sees the deletion it is cancelling")
 		assert.True(t, s.IsRunning(), "the slot is released by Finished, not by Abort")
 	})
 
@@ -297,8 +301,6 @@ func TestLocalState(t *testing.T) {
 	})
 }
 
-// TestDeletedCountersToLogFieldsTotal guards that every collection's deletes
-// reach the total the sweep logs.
 func TestDeletedCountersToLogFieldsTotal(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -333,6 +335,57 @@ func TestDeletedCountersToLogFieldsTotal(t *testing.T) {
 			_, total := counters.ToLogFields(16)
 			require.Equal(t, int32(tt.collections*500), total,
 				"every collection's deletes are counted")
+		})
+	}
+}
+
+// TestStoppedBy pins stoppedBy's priority: the sweep's own cause wins over the
+// caller's.
+func TestStoppedBy(t *testing.T) {
+	live := func() context.Context { return context.Background() }
+	cancelled := func(cause error) context.Context {
+		ctx, cancel := context.WithCancelCause(context.Background())
+		cancel(cause)
+		return ctx
+	}
+
+	cases := []struct {
+		name   string
+		caller context.Context
+		sweep  context.Context
+		wantIs error
+	}{
+		{
+			name:   "nothing stopped it",
+			caller: live(), sweep: live(),
+		},
+		{
+			name:   "an operator aborted the sweep",
+			caller: live(), sweep: cancelled(enterrors.NewCanceledCause(ErrAborted)),
+			wantIs: ErrAborted,
+		},
+		{
+			name:   "the caller gave up: a shutdown or a schedule change",
+			caller: cancelled(context.Canceled), sweep: live(),
+			wantIs: context.Canceled,
+		},
+		{
+			// the sweep's own cause is the more specific of the two
+			name:   "both, so the abort is what it reports",
+			caller: cancelled(context.Canceled),
+			sweep:  cancelled(enterrors.NewCanceledCause(ErrAborted)),
+			wantIs: ErrAborted,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stoppedBy(tt.caller, tt.sweep)
+			if tt.wantIs == nil {
+				require.NoError(t, got, "a live sweep is not stopped")
+				return
+			}
+			require.ErrorIs(t, got, tt.wantIs)
 		})
 	}
 }
