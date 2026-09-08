@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -93,6 +94,7 @@ type memberInfo struct {
 	gossipPort uint16
 	meta       NodeMetadata
 	metaOK     bool
+	hostAddr   string // host:dataPort, precomputed so resolver reads stay allocation-free
 }
 
 // memberView mirrors the live member set: Members() Node fields race in-place alive updates.
@@ -106,6 +108,7 @@ func (v *memberView) record(node *memberlist.Node) (metaOK bool) {
 	if len(node.Meta) > 0 && json.Unmarshal(node.Meta, &info.meta) == nil {
 		info.metaOK = true
 	}
+	info.hostAddr = net.JoinHostPort(info.addr, strconv.Itoa(info.dataPort()))
 	v.Lock()
 	defer v.Unlock()
 	if v.byName == nil {
@@ -337,7 +340,7 @@ func (s *State) Hostnames() []string {
 		if name == s.LocalName() {
 			continue
 		}
-		out = append(out, net.JoinHostPort(info.addr, fmt.Sprintf("%d", info.dataPort())))
+		out = append(out, info.hostAddr)
 	}
 	return out
 }
@@ -351,7 +354,7 @@ func (s *State) AllHostnames() []string {
 	view := s.members.snapshot()
 	out := make([]string, 0, len(view))
 	for _, info := range view {
-		out = append(out, net.JoinHostPort(info.addr, fmt.Sprintf("%d", info.dataPort())))
+		out = append(out, info.hostAddr)
 	}
 	return out
 }
@@ -451,7 +454,7 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return net.JoinHostPort(info.addr, fmt.Sprintf("%d", info.dataPort())), true
+	return info.hostAddr, true
 }
 
 // extractHost extracts the host portion from an address string,

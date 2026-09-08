@@ -299,7 +299,10 @@ func TestIndex_AddNewVectorIndex(t *testing.T) {
 		shard, index = testShard(t, ctx, initialClass.Class)
 	)
 
-	_, ok := shard.GetVectorIndex("new_index")
+	_, release, ok := shard.AcquireVectorIndex("new_index")
+	if ok {
+		release()
+	}
 	require.False(t, ok)
 
 	require.NoError(t, index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{
@@ -308,8 +311,9 @@ func TestIndex_AddNewVectorIndex(t *testing.T) {
 		},
 	}))
 
-	vectorIndex, ok := shard.GetVectorIndex("new_index")
+	vectorIndex, release, ok := shard.AcquireVectorIndex("new_index")
 	require.True(t, ok)
+	defer release()
 	require.NotNil(t, vectorIndex)
 }
 

@@ -259,13 +259,14 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		vidx, ok := shard.GetVectorIndex(targetVector)
+		vidx, releaseIndex, ok := shard.AcquireVectorIndex(targetVector)
 		if !ok {
 			release()
 			logger.WithField("shard", shardName).Error("vector index not found")
 			http.Error(w, "vector index not found", http.StatusNotFound)
 			return
 		}
+		defer releaseIndex()
 
 		h, ok := vidx.(hfreshReassignAller)
 		if !ok {
@@ -338,12 +339,13 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		vidx, ok := shard.GetVectorIndex(targetVector)
+		vidx, releaseIndex, ok := shard.AcquireVectorIndex(targetVector)
 		if !ok {
 			logger.WithField("shard", shardName).Error("vector index not found")
 			http.Error(w, "vector index not found", http.StatusNotFound)
 			return
 		}
+		defer releaseIndex()
 
 		h, ok := vidx.(hnswStats)
 		if !ok {

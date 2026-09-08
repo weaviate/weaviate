@@ -76,15 +76,22 @@ func depthAt(tree *DiskTree, offset int64, budget int) (int, error) {
 	if budget <= 0 {
 		return 0, errors.New("child pointers descend past the node count")
 	}
-	node, err := tree.readNodeAt(offset)
+
+	// node layout: [keyLen:4][key:keyLen][start:8][end:8][left:8][right:8]
+	if offset+TREE_KEY_STORE_OVERHEAD > int64(len(tree.data)) {
+		return 0, fmt.Errorf("node at %d out of range (buffer %d)", offset, len(tree.data))
+	}
+	keyLen := int64(binary.LittleEndian.Uint32(tree.data[offset:]))
+	children := offset + 4 + keyLen + 16
+	if children+16 > int64(len(tree.data)) {
+		return 0, fmt.Errorf("node at %d has a key of %d past the buffer", offset, keyLen)
+	}
+
+	left, err := depthAt(tree, int64(binary.LittleEndian.Uint64(tree.data[children:])), budget-1)
 	if err != nil {
 		return 0, err
 	}
-	left, err := depthAt(tree, node.leftChild, budget-1)
-	if err != nil {
-		return 0, err
-	}
-	right, err := depthAt(tree, node.rightChild, budget-1)
+	right, err := depthAt(tree, int64(binary.LittleEndian.Uint64(tree.data[children+8:])), budget-1)
 	if err != nil {
 		return 0, err
 	}
