@@ -93,7 +93,7 @@ func TestShutdownStagedBucketsClosesOnlyTheNamedProperty(t *testing.T) {
 			ctx := testCtx()
 			className := "WiringStagedScope_" + uuid.NewString()[:8]
 			shd, _ := testShardWithSettings(t, ctx, newTestClassWithProps(className, []string{propA, propB}),
-				enthnsw.UserConfig{Skip: true}, false, false, false)
+				enthnsw.UserConfig{Skip: true}, false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(context.Background())
 
@@ -131,11 +131,11 @@ func TestLazyLoadShardMigrationRecordStoreLocksAgainstTheLoader(t *testing.T) {
 	className := "WiringRecordStoreRace_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"title"})
 	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	defer hot.Shutdown(context.Background())
 
 	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 		false, idx.bitmapBufPool)
 	defer func() {
 		if cold.isLoaded() {
@@ -181,7 +181,7 @@ func TestAShardLoadLeavesAnUndecidedRecordExactlyAsItFoundIt(t *testing.T) {
 	class := newTestClassWithProps(className, []string{"title"})
 	class.Properties[0].Tokenization = models.PropertyTokenizationLowercase
 
-	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
@@ -221,7 +221,7 @@ func TestAShardLoadCountsWedgedAndUnreadableRecordsInTheirOwnCounters(t *testing
 	class := newTestClassWithProps(className, []string{"title"})
 	class.Properties[0].Tokenization = models.PropertyTokenizationLowercase
 
-	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
@@ -267,7 +267,7 @@ func TestAShardNamesItsOwnUnitTheWayTheSubmitPathDoes(t *testing.T) {
 	ctx := testCtx()
 	className := "WiringUnitID_" + uuid.NewString()[:8]
 	shd, _ := testShardWithSettings(t, ctx, newTestClassWithProps(className, []string{"title"}),
-		enthnsw.UserConfig{Skip: true}, false, false, false)
+		enthnsw.UserConfig{Skip: true}, false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 

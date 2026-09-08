@@ -126,7 +126,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	class := newTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 
 	searchBucketName := helpers.BucketSearchableFromPropNameLSM("title")
@@ -226,7 +226,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	class := newTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 
 	// Insert objects and run full runtime swap
@@ -361,7 +361,7 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 			class := newTestClass(className)
 
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 
@@ -433,7 +433,7 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	class := newTestClassWithProps(className, propNames)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 
 	// Sanity: every prop's searchable bucket should start at

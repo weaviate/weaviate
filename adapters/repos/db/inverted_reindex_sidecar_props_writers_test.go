@@ -224,7 +224,7 @@ func TestPersistRecoveryRecordWritesThePropsSidecar(t *testing.T) {
 			className := "PropsSidecar" + uuid.NewString()[:8]
 			shd, _ := testShardWithSettings(t, ctx,
 				newTestClassWithProps(className, tc.props),
-				enthnsw.UserConfig{Skip: true}, false, false, false)
+				enthnsw.UserConfig{Skip: true}, false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
@@ -312,7 +312,7 @@ func TestSaveSelectedPropsWritesNoSidecarWithoutASelectedList(t *testing.T) {
 			className := "NoSidecar" + uuid.NewString()[:8]
 			shd, _ := testShardWithSettings(t, ctx,
 				newTestClassWithProps(className, []string{"cat"}),
-				enthnsw.UserConfig{Skip: true}, false, false, false)
+				enthnsw.UserConfig{Skip: true}, false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 
@@ -371,7 +371,7 @@ func TestAZeroBytePropsSidecarIsRebuiltNotObeyed(t *testing.T) {
 			className := "TornSidecar" + uuid.NewString()[:8]
 			shd, _ := testShardWithSettings(t, ctx,
 				newTestClassWithProps(className, []string{"cat", "dog"}),
-				enthnsw.UserConfig{Skip: true}, false, false, false)
+				enthnsw.UserConfig{Skip: true}, false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 
@@ -412,7 +412,7 @@ func TestAPropsSidecarNamingNoPropertyIsAnError(t *testing.T) {
 	className := "BlankSidecar" + uuid.NewString()[:8]
 	shd, _ := testShardWithSettings(t, ctx,
 		newTestClassWithProps(className, []string{"cat", "dog"}),
-		enthnsw.UserConfig{Skip: true}, false, false, false)
+		enthnsw.UserConfig{Skip: true}, false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 

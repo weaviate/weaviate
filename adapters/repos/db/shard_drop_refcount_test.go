@@ -376,7 +376,7 @@ func TestInFlightObjectReadHoldsOffBucketTeardown(t *testing.T) {
 // shard level: a drop of one named vector waits for a caller that holds
 // its index, and a drop of another vector does not.
 func TestDropVectorIndexWaitsForALease(t *testing.T) {
-	shd, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnswent.UserConfig{}, false, true, false, func(idx *Index) {
+	shd, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnswent.UserConfig{}, false, false, func(idx *Index) {
 		idx.vectorIndexUserConfig = nil
 		idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
 			"held":  hnswent.NewDefaultUserConfig(),
