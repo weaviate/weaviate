@@ -287,6 +287,7 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 			Operator: filter.Equal,
 			Value:    id,
 		},
+		ReturnVectors: []string{modelsext.DefaultNamedVectorName},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, r, "query result")
