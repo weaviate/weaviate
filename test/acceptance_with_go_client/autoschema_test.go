@@ -262,9 +262,6 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 	}
 }
 
-// NOTE(dyma): this test uses the /batch/objects endpoint, not gRPC batch stream.
-// The new client will not support these features. Should we rewrite the test or
-// delete it?
 func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 	ctx := t.Context()
 	c := wvhost.NewClient(t)
