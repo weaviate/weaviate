@@ -19,6 +19,11 @@ import (
 )
 
 func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+	// FlattenInOrder reads every node's bitmaps, which the roaringSet* writers
+	// mutate under m.Lock().
+	m.RLock()
+	defer m.RUnlock()
+
 	flat := m.roaringSet.FlattenInOrder()
 
 	totalDataLength := totalPayloadSizeRoaringSet(flat)
