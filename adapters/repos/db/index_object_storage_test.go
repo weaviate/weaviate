@@ -369,7 +369,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		monitoring.GetMetrics(),           // prom metrics
 		class,                             // class
 		nil,                               // job queue
-		scheduler,                         // checkpoints
+		scheduler,                         // scheduler
 		nil,                               // alloc checker
 		NewShardReindexerV3Noop(),         // shard reindexer
 		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool
@@ -470,7 +470,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		monitoring.GetMetrics(),           // prom metrics
 		class,                             // class
 		nil,                               // job queue
-		scheduler,                         // checkpoints
+		scheduler,                         // scheduler
 		nil,                               // alloc checker
 		NewShardReindexerV3Noop(),         // shard reindexer
 		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool

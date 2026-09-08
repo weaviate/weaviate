@@ -82,8 +82,8 @@ func TestInitTargetVector_ShutsDownIndexWhenQueueCreationFails(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			shardLike, index := testShard(t, context.Background(), "VecQueueOrphan")
 			s := underlyingShard(t, shardLike)
-			// enable async only after NewShard: it makes NewVectorIndexQueue call
-			// q.Init(), but at creation the harness would also need a checkpoint store.
+			// enable async only after NewShard so that NewVectorIndexQueue, not the
+			// shard constructor, is what calls q.Init().
 			index.AsyncIndexingEnabled = true
 
 			const target = "orphanTarget"
