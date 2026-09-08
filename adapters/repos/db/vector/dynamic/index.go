@@ -325,24 +325,39 @@ func RemoveStateKey(rootPath, targetVector string) error {
 // State that could not be read returns false along with the error, so a
 // caller can tell that answer apart from a shard positively known to be flat.
 func UpgradedOnDisk(rootPath, id string) (bool, error) {
-	upgradedWithoutStateKey := false
-	if helpers.PhysicalIDSuffix(id) != "" {
-		_, err := os.Stat(hnswCommitLogDirectory(rootPath, id))
-		upgradedWithoutStateKey = err == nil
-	}
-
-	v, ok, err := shardmeta.GetOffline(rootPath, StateNamespace, dbKeyForID(id))
+	v, _, err := shardmeta.GetOffline(rootPath, StateNamespace, dbKeyForID(id))
 	if err != nil {
 		return false, fmt.Errorf("read dynamic state: %w", err)
 	}
-	if !ok {
-		// only a shard that never wrote state may fall back to the directory
-		return upgradedWithoutStateKey, nil
+	return upgradedFromVerdict(v, rootPath, id), nil
+}
+
+// UpgradedInState is UpgradedOnDisk for a LOADED shard: the same verdict,
+// read through the shard's own metadata handle instead of opening the
+// file, which the loaded shard holds locked. It reads only; the index's
+// own load is what migrates a missing named-vector key.
+func UpgradedInState(state StateOps, rootPath, id string) (bool, error) {
+	v, err := state.Get(dbKeyForID(id))
+	if err != nil {
+		return false, fmt.Errorf("read dynamic state: %w", err)
 	}
+	return upgradedFromVerdict(v, rootPath, id), nil
+}
+
+// upgradedFromVerdict decodes a stored verdict the way the index's own
+// load does: a recorded value wins; no value (a missing file, namespace,
+// key, or an empty value) falls back to the hnsw commit log directory for
+// a named vector only. An unnamed vector's load reads a missing key as not
+// upgraded and then deletes that directory, so nothing may infer from it.
+func upgradedFromVerdict(v []byte, rootPath, id string) bool {
 	if len(v) > 0 {
-		return v[0] != 0, nil
+		return v[0] != 0
 	}
-	return upgradedWithoutStateKey, nil
+	if helpers.PhysicalIDSuffix(id) == "" {
+		return false
+	}
+	_, err := os.Stat(hnswCommitLogDirectory(rootPath, id))
+	return err == nil
 }
 
 func (dynamic *dynamic) getBucketName() string {
