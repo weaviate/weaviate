@@ -10,28 +10,15 @@
 //
 
 // Package queryadmission bounds the aggregate concurrency of the
-// goroutine-fanning phases of object search on a single node (filter
-// evaluation, keyword/BM25 ranking, and the vector phase's rescoring and
-// posting reads), so a traffic spike degrades gracefully instead of
-// exhausting the Go scheduler.
+// goroutine-fanning phases of object search on a single node, so a traffic
+// spike degrades gracefully instead of exhausting the Go scheduler.
 //
-// It gates Shard.ObjectSearch when a filter or keyword ranking is present, and
-// the whole of Shard.ObjectVectorSearch (allow-list build plus the vector
-// phase), filtered or not. A grant is taken per shard searched on this node,
-// so a query touching several local shards holds several grants at once.
-// Filtered aggregations and batch-delete-by-filter are not yet gated. It
-// composes with entities/concurrency's per-query budget: that bounds one
-// query's fan-out, this bounds the aggregate across queries, and the grant
-// seeds the per-query budget so the two agree.
-//
-// Per-shard grants are deliberate: each shard search runs its own worker
-// pool, so each is charged against the node. Do not size Capacity in
-// proportion to the number of local shards; that weakens the aggregate bound.
-// Tune it from measurements (successful QPS, tail latency, the waiting and
-// shed metrics, CPU, memory). At a capacity and queue far below the defaults,
-// a single query touching several local shards can shed one of its own shard
-// searches with no other traffic present, because its sibling shard searches
-// compete for the same seats.
+// It gates Shard.ObjectSearch when a filter or keyword ranking is present and
+// the whole of Shard.ObjectVectorSearch. A grant is taken per shard searched
+// on this node, since each shard search runs its own worker pool. Filtered
+// aggregations and batch-delete-by-filter are not yet gated. The grant seeds
+// entities/concurrency's per-query budget, which bounds one query's fan-out
+// while this bounds the aggregate across queries.
 //
 // The limiter owns no goroutines; all coordination is a mutex plus per-waiter
 // buffered channels.
@@ -52,27 +39,20 @@ import (
 )
 
 // ErrOverloaded is returned by Admit when the node and wait queue are both
-// full; it maps to HTTP 429 / gRPC ResourceExhausted so the coordinator backs off.
+// full. Ingress maps it to HTTP 429 / gRPC ResourceExhausted.
 var ErrOverloaded = errors.New("query admission: node overloaded, request shed (429)")
 
-// Config configures a Limiter. The zero value is valid and yields the auto
-// defaults documented per field.
+// Config configures a Limiter. The zero value is valid; <=0 fields resolve to
+// the defaults in New.
 type Config struct {
-	// Capacity is the total goroutine-equivalent budget shared across all
-	// concurrent admitted queries. <=0 resolves to concurrency.TimesGOMAXPROCS(16).
+	// Capacity is the goroutine-equivalent budget shared by all admitted queries.
 	Capacity int
-	// MaxQueue is the maximum number of queries allowed to wait for capacity
-	// before further arrivals are shed. <=0 resolves to
-	// concurrency.TimesGOMAXPROCS(10).
+	// MaxQueue is how many queries may wait for capacity before arrivals are shed.
 	MaxQueue int
-	// Disabled is a live kill switch. When it reports true, Admit is a
-	// passthrough (no accounting, no shedding). A nil pointer reads as false,
-	// i.e. admission control is enabled by default.
-	//
-	// Flipping to true skips admission for new arrivals immediately, but does
-	// not wake waiters already parked (DynamicValue has no change hook). They
-	// still drain via normal releases or ctx cancellation; since new arrivals
-	// bypass admission, the queue drains monotonically and never re-fills.
+	// Disabled is a live kill switch; nil reads as false (enabled). Flipping it
+	// on does not wake parked waiters (DynamicValue has no change hook); they
+	// drain via normal releases or ctx cancellation, and since new arrivals
+	// bypass admission the queue never re-fills.
 	Disabled *configRuntime.DynamicValue[bool]
 }
 
@@ -85,18 +65,12 @@ type waiter struct {
 
 // Limiter is a node-level query admission controller, safe for concurrent use.
 //
-// Fairness: waiters are woken strictly FIFO, and grantLocked floors a non-zero
-// grant at 1, so the head waiter always drains once any capacity frees. A
-// waiter cancelled the instant it wakes hands its grant back (cancelWaiter)
-// rather than leaking it.
-//
 // Nesting: same-node re-entrant admits inherit the parent's grant
 // (admissionKey), so they can't deadlock locally. A grant IS held while
 // fanning out to a REMOTE node's admission; liveness there rests on the
 // bounded wait queue, the coordinator's bounded retry backoff, and request
 // deadlines, not on releasing the grant, so the cost is latency, not
-// deadlock. The fan-out itself is bounded by a count (QueryNestedRefLimit),
-// not a deadline.
+// deadlock.
 type Limiter struct {
 	mu       sync.Mutex
 	capacity int64
@@ -118,8 +92,7 @@ type Limiter struct {
 // presence makes Admit re-entrant: nested admits inherit the parent grant.
 type admissionKey struct{}
 
-// New builds a Limiter and registers its metrics with reg. reg may be a noop
-// registerer. cfg's zero fields resolve to the documented auto defaults.
+// New builds a Limiter and registers its metrics with reg (may be a noop).
 func New(reg prometheus.Registerer, cfg Config) *Limiter {
 	capacity := cfg.Capacity
 	if capacity <= 0 {
@@ -165,8 +138,6 @@ func New(reg prometheus.Registerer, cfg Config) *Limiter {
 	}
 }
 
-// disabled reports whether the live kill switch is engaged. A nil DynamicValue
-// reads as false (enabled), so admission control is on by default.
 func (l *Limiter) disabled() bool {
 	return l.cfg.Disabled.Get()
 }
@@ -185,13 +156,9 @@ func (l *Limiter) Admit(ctx context.Context, want int) (context.Context, func(),
 	if l == nil || l.disabled() {
 		return ctx, func() {}, nil
 	}
-	// Never admit an already-expired ctx. Checked first so a re-entrant call
-	// under an already-cancelled parent short-circuits too.
 	if err := ctx.Err(); err != nil {
 		return ctx, func() {}, err
 	}
-	// Re-entrant call: inherit the parent grant rather than risk the child
-	// waiting on capacity the parent already holds.
 	if ctx.Value(admissionKey{}) != nil {
 		return ctx, func() {}, nil
 	}
@@ -253,7 +220,6 @@ func (l *Limiter) cancelWaiter(w *waiter, elem *list.Element) {
 // grantLocked hands out min(want, max(remaining/4, 1)): a degrade-first curve
 // so early queries get a generous share while later ones taper off, with a
 // floor of 1 (while capacity remains) guaranteeing progress. 0 means saturated.
-// Caller must hold l.mu.
 func (l *Limiter) grantLocked(want int64) int64 {
 	remaining := l.capacity - l.used
 	if remaining <= 0 {
@@ -271,7 +237,7 @@ func (l *Limiter) grantLocked(want int64) int64 {
 
 // releaseLocked returns g units to the pool and then wakes waiters FIFO,
 // granting each the current curve amount until capacity is exhausted or the
-// queue empties. Caller must hold l.mu.
+// queue empties.
 func (l *Limiter) releaseLocked(g int64) {
 	l.used -= g
 	l.inflight--

@@ -978,6 +978,10 @@ func FromEnv(config *Config) error {
 
 	// 0 is a valid, documented value here ("auto": 16x/10x GOMAXPROCS), so use
 	// the non-negative parser rather than the positive one which rejects 0.
+	//
+	// The budget is consumed per shard searched on this node. Do not raise it in
+	// proportion to local shard count, which weakens the aggregate bound; tune
+	// from measured QPS, tail latency, and the admission waiting/shed metrics.
 	if err = parseNonNegativeInt(
 		"QUERY_ADMISSION_BUDGET",
 		func(val int) { config.QueryAdmissionBudget = val },
