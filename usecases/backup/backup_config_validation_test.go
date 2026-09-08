@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package models_test
+package backup
 
 import (
 	"testing"

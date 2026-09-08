@@ -752,7 +752,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 	}
 	abortReq := &AbortRequest{Method: req.Method, ID: c.descriptor.ID, Backend: req.Backend, AttemptID: req.AttemptID}
 	if err := g.Wait(); err != nil {
-		// The errgroup ctx is already cancelled here; aborts must still reach every contacted node.
+		// The group's ctx is already cancelled here; aborts must still reach every contacted node.
 		c.abortAll(context.WithoutCancel(ctx), abortReq, contacted)
 		return nil, err
 	}
