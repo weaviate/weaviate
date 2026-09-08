@@ -157,7 +157,7 @@ func TestBatchReaderMatchesPerKeyReads(t *testing.T) {
 			flushing: newTestMemtableRoaringSet(map[string][]uint64{"bbb": {30}, "eee": {31}}),
 			active:   newTestMemtableRoaringSet(map[string][]uint64{"ccc": {40}, "fff": {41}}),
 			batch:    []string{"aaa", "bbb", "ccc", "ddd", "eee", "fff", "ggg"},
-			windows:  []int{1, 3, memtableWindowKeys},
+			windows:  []int{1, 3, BatchReaderWindowKeys},
 			want: map[string][]uint64{
 				"aaa": {1, 2, 7},
 				"bbb": {3, 30},
@@ -178,7 +178,7 @@ func TestBatchReaderMatchesPerKeyReads(t *testing.T) {
 			flushing: narrowingFlushing,
 			active:   narrowingActive,
 			batch:    []string{"aaa", "bbb", "ccc", "ddd", "eee"},
-			windows:  []int{5, memtableWindowKeys},
+			windows:  []int{5, BatchReaderWindowKeys},
 			budget:   oneFatRow + 1,
 		},
 	}
@@ -203,7 +203,7 @@ func TestBatchReaderMatchesPerKeyReads(t *testing.T) {
 					if budget == 0 {
 						budget = math.MaxInt
 					}
-					r, err := newRoaringSetBatchReaderWithBounds(view, keys, window, budget)
+					r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, window, budget)
 					require.NoError(t, err)
 
 					requireMatchesPerKey(t, b, view, r, keys, "")
@@ -211,7 +211,7 @@ func TestBatchReaderMatchesPerKeyReads(t *testing.T) {
 						return
 					}
 					// A second reader: one walks its batch once.
-					r2, err := newRoaringSetBatchReaderWithBounds(view, keys, window, budget)
+					r2, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, window, budget)
 					require.NoError(t, err)
 					requireRowsAre(t, r2, keys, tt.want)
 				})
@@ -280,7 +280,7 @@ func TestBatchReaderMatchesPerKeyReadsRandomized(t *testing.T) {
 		keys := sortedKeysOf(t, batch)
 		window := 1 + rnd.Intn(5)
 
-		r, err := newRoaringSetBatchReaderWithBounds(view, keys, window, math.MaxInt)
+		r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, window, math.MaxInt)
 		require.NoError(t, err)
 		requireMatchesPerKey(t, b, view, r, keys, fmt.Sprintf("round %d", round))
 
@@ -290,7 +290,7 @@ func TestBatchReaderMatchesPerKeyReadsRandomized(t *testing.T) {
 			want[k] = unionOf(diskDocs[k], flushingDocs[k], activeDocs[k])
 		}
 		// A second reader: the first has served every key already.
-		abs, err := newRoaringSetBatchReaderWithBounds(view, keys, window, math.MaxInt)
+		abs, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, window, math.MaxInt)
 		require.NoError(t, err)
 		requireRowsAre(t, abs, keys, want)
 	}
@@ -346,7 +346,7 @@ func TestBatchReaderSurvivesTheFoldMutatingItsRows(t *testing.T) {
 		size      int
 		wantFills int // one window at the production size, two when it splits them
 	}{
-		{memtableWindowKeys, 1},
+		{BatchReaderWindowKeys, 1},
 		{2, 2},
 	}
 
@@ -376,7 +376,7 @@ func TestBatchReaderSurvivesTheFoldMutatingItsRows(t *testing.T) {
 				mts = append(mts, active)
 
 				keys := sortedKeysOf(t, []string{"aaa", "bbb", "ccc"})
-				r, err := newRoaringSetBatchReaderWithBounds(view, keys, w.size, math.MaxInt)
+				r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, w.size, math.MaxInt)
 				require.NoError(t, err)
 
 				for i := 0; i < keys.Len(); i++ {
@@ -454,7 +454,7 @@ func TestBatchReaderFillWindowError(t *testing.T) {
 					batch[i] = fmt.Sprintf("k%02d", i)
 				}
 				keys := sortedKeysOf(t, batch)
-				r, err := newRoaringSetBatchReaderWithBounds(view, keys, 4, math.MaxInt)
+				r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, 4, math.MaxInt)
 				require.NoError(t, err)
 
 				for i := 0; i < tc.readBefore; i++ {
@@ -529,7 +529,7 @@ func TestBatchReaderFailedFillDropsCarriedRowsAndCountsItsWork(t *testing.T) {
 				failing = view.Flushing.(*testMemtable)
 			}
 
-			r, err := newRoaringSetBatchReaderWithBounds(view, keys, windowWidth, budget)
+			r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, windowWidth, budget)
 			require.NoError(t, err)
 
 			for i := 0; i < readBefore; i++ {
@@ -622,7 +622,7 @@ func TestBatchReaderFailedFillIsNotNarrowed(t *testing.T) {
 	b := &Bucket{strategy: StrategyRoaringSet, disk: &SegmentGroup{}, logger: nullLogger()}
 	view := BucketConsistentView{Active: failing, Flushing: narrowing, Bucket: b}
 
-	r, err := newRoaringSetBatchReaderWithBounds(view, keys, windowWidth, budget)
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, windowWidth, budget)
 	require.NoError(t, err)
 	failing.roaringSetGetWindowErr = readErr
 
@@ -665,7 +665,7 @@ func TestBatchReaderDiskErrorLeavesNothingToRetryWrong(t *testing.T) {
 	view := BucketConsistentView{Active: active, Disk: []Segment{diskSeg}, Bucket: b}
 
 	keys := sortedKeysOf(t, []string{"k0", "k1"})
-	r, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, math.MaxInt)
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, math.MaxInt)
 	require.NoError(t, err)
 
 	_, release, err := r.Next(concurrency.SROAR_MERGE)
@@ -701,7 +701,7 @@ func TestBatchReaderDiskErrorLeavesNothingToRetryWrong(t *testing.T) {
 // read while the active memtable takes writes.
 func TestBatchReaderReadsWhileMemtableIsWritten(t *testing.T) {
 	const (
-		n      = memtableWindowKeys*2 + 3
+		n      = BatchReaderWindowKeys*2 + 3
 		marker = uint64(999_999)
 		// The document the flushing memtable holds for key i, apart enough from
 		// the active one's that a swapped row is not a near miss.
@@ -780,7 +780,7 @@ func TestBatchReaderReadsWhileMemtableIsWritten(t *testing.T) {
 			seenBefore, seenAfter := 0, 0
 			for pass := 0; ; pass++ {
 				done := written.Load()
-				r, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, tc.budget)
+				r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, tc.budget)
 				require.NoError(t, err)
 				for i := 0; i < keys.Len(); i++ {
 					got, release, err := r.Next(concurrency.SROAR_MERGE)
@@ -814,7 +814,7 @@ func TestBatchReaderReadsWhileMemtableIsWritten(t *testing.T) {
 			if tc.flushed {
 				view.Flushing.(*testMemtable).ranges = nil
 			}
-			r, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, tc.budget)
+			r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, tc.budget)
 			require.NoError(t, err)
 			for i := 0; i < keys.Len(); i++ {
 				got, release, err := r.Next(concurrency.SROAR_MERGE)
@@ -875,7 +875,7 @@ func TestBatchReaderFillsWindowsLazily(t *testing.T) {
 			view := BucketConsistentView{Active: active, Flushing: flushing, Disk: []Segment{diskSeg}, Bucket: b}
 
 			keys := sortedKeysOf(t, batch)
-			r, err := newRoaringSetBatchReaderWithBounds(view, keys, 4, math.MaxInt)
+			r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, 4, math.MaxInt)
 			require.NoError(t, err)
 			for i := 0; i < tc.readThrough; i++ {
 				_, release, err := r.Next(concurrency.SROAR_MERGE)
@@ -960,7 +960,7 @@ func TestBatchReaderStatsReportTheWork(t *testing.T) {
 			view := BucketConsistentView{Active: active, Disk: []Segment{diskSeg}, Bucket: b}
 
 			keys := sortedKeysOf(t, batch)
-			r, err := newRoaringSetBatchReaderWithBounds(view, keys, 4, math.MaxInt)
+			r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, 4, math.MaxInt)
 			require.NoError(t, err)
 			for i := 0; i < tc.reads; i++ {
 				_, release, err := r.Next(concurrency.SROAR_MERGE)
@@ -1049,7 +1049,7 @@ func TestBatchReaderSkipsAnEmptyActiveMemtable(t *testing.T) {
 			}
 
 			keys := sortedKeysOf(t, batch)
-			r, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, math.MaxInt)
+			r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, math.MaxInt)
 			require.NoError(t, err)
 			require.Equal(t, tc.wantMts, r.mtCount, "the empty active memtable must be dropped from the view")
 			require.Equal(t, tc.wantMts, r.Stats().Memtables,
@@ -1060,7 +1060,7 @@ func TestBatchReaderSkipsAnEmptyActiveMemtable(t *testing.T) {
 			require.Equal(t, tc.wantFills, r.Stats().Fills,
 				"with nothing to read from there is no fill to count")
 
-			abs, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, math.MaxInt)
+			abs, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, math.MaxInt)
 			require.NoError(t, err)
 			requireRowsAre(t, abs, keys, tc.want)
 		})
@@ -1092,7 +1092,7 @@ func TestBatchReaderReleasesWhatItHasServed(t *testing.T) {
 	view := BucketConsistentView{Active: active, Disk: []Segment{diskSeg}, Bucket: b}
 
 	keys := sortedKeysOf(t, batch)
-	r, err := newRoaringSetBatchReaderWithBounds(view, keys, len(batch), math.MaxInt)
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, len(batch), math.MaxInt)
 	require.NoError(t, err)
 
 	const served = 3
@@ -1120,7 +1120,7 @@ func TestBatchReaderReleasesWhatItHasServed(t *testing.T) {
 func TestBatchReaderAtProductionWindow(t *testing.T) {
 	t.Parallel()
 
-	const n = memtableWindowKeys*3 + 7
+	const n = BatchReaderWindowKeys*3 + 7
 
 	diskRows := map[string]*sroar.Bitmap{}
 	flushingRows := map[string][]uint64{}
@@ -1138,7 +1138,7 @@ func TestBatchReaderAtProductionWindow(t *testing.T) {
 		}
 	}
 	// the boundaries themselves, held by every layer at once
-	for _, i := range []int{memtableWindowKeys - 1, memtableWindowKeys, memtableWindowKeys*2 - 1, memtableWindowKeys * 2, n - 1} {
+	for _, i := range []int{BatchReaderWindowKeys - 1, BatchReaderWindowKeys, BatchReaderWindowKeys*2 - 1, BatchReaderWindowKeys * 2, n - 1} {
 		diskRows[batch[i]] = bitmapFromSlice([]uint64{uint64(i)})
 		flushingRows[batch[i]] = []uint64{uint64(i) + 1}
 		activeRows[batch[i]] = []uint64{uint64(i) + 2}
@@ -1158,12 +1158,12 @@ func TestBatchReaderAtProductionWindow(t *testing.T) {
 
 	// Through the constructor, at the real key limit.
 	keys := sortedKeysOf(t, batch)
-	reader, err := NewRoaringSetBatchReader(view, keys)
+	reader, err := NewRoaringSetBatchReader(view.WithoutEmptyActiveMemtable(), keys)
 	require.NoError(t, err)
 
 	requireMatchesPerKey(t, b, view, reader, keys, "")
 
-	windows := (n + memtableWindowKeys - 1) / memtableWindowKeys
+	windows := (n + BatchReaderWindowKeys - 1) / BatchReaderWindowKeys
 	require.Equal(t, windows, flushing.roaringSetGetWindowCalls, "one read per window")
 	require.Equal(t, windows, active.roaringSetGetWindowCalls, "one read per window")
 }
@@ -1181,15 +1181,15 @@ func TestBatchReaderRejectsItsBounds(t *testing.T) {
 	view := BucketConsistentView{Active: newTestMemtableRoaringSet(nil), Bucket: b}
 
 	for _, window := range []int{0, -1, -256} {
-		_, err := newRoaringSetBatchReaderWithBounds(view, keys, window, math.MaxInt)
+		_, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, window, math.MaxInt)
 		require.Errorf(t, err, "window %d must be rejected", window)
 	}
 	for _, budget := range []int{0, -1, -256} {
-		_, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, budget)
+		_, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, budget)
 		require.Errorf(t, err, "budget %d must be rejected", budget)
 	}
 	// Both good, so the cases above fail on the bound named and not on the view.
-	_, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, readerWindowBytes)
+	_, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, BatchReaderWindowBytes)
 	require.NoError(t, err)
 }
 
@@ -1212,7 +1212,7 @@ func TestBatchReaderReadsPastTheBatch(t *testing.T) {
 		Active: newTestMemtableRoaringSet(map[string][]uint64{"b": {2}}),
 		Disk:   []Segment{diskSeg}, Bucket: b,
 	}
-	r, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, math.MaxInt)
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, math.MaxInt)
 	require.NoError(t, err)
 
 	for i := 0; i < keys.Len(); i++ {
@@ -1366,7 +1366,7 @@ func TestBatchReaderKeepsNoClonesOnceTheBatchIsWalked(t *testing.T) {
 
 	view, keys, budget, b := narrowingFixture(t, nKeys)
 
-	r, err := newRoaringSetBatchReaderWithBounds(view, keys, window, budget)
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, window, budget)
 	require.NoError(t, err)
 
 	for i := range nKeys {
@@ -1386,7 +1386,7 @@ func TestBatchReaderKeepsNoClonesOnceTheBatchIsWalked(t *testing.T) {
 	// settles the window, and here it is the one read second. What each is asked
 	// for depends on the other, so both orders have to answer as the per-key
 	// path does.
-	fresh, err := newRoaringSetBatchReaderWithBounds(view, keys, window, budget)
+	fresh, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, window, budget)
 	require.NoError(t, err)
 	requireMatchesPerKey(t, b, view, fresh, keys, "the second memtable narrowing")
 }
@@ -1437,7 +1437,7 @@ func TestBatchReaderEndsWindowsOnEitherLimit(t *testing.T) {
 		return fill.Bytes
 	}()
 
-	r, err := newRoaringSetBatchReaderWithBounds(view, keys, window, 2*oneFat+1)
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, window, 2*oneFat+1)
 	require.NoError(t, err)
 
 	widths := map[int]bool{}
@@ -1471,7 +1471,7 @@ func TestBatchReaderEndsWindowsOnEitherLimit(t *testing.T) {
 	require.Greater(t, st.BytesCopied, st.BytesPeak,
 		"a batch spanning several windows must copy more than the widest of them held")
 
-	r2, err := newRoaringSetBatchReaderWithBounds(view, keys, window, 2*oneFat+1)
+	r2, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, window, 2*oneFat+1)
 	require.NoError(t, err)
 	requireMatchesPerKey(t, b, view, r2, keys, "")
 }
@@ -1511,7 +1511,7 @@ func TestBatchReaderHoldsOneBudgetAcrossMemtables(t *testing.T) {
 	const budget = 4 << 20
 
 	peakOf := func(t *testing.T, view BucketConsistentView) RoaringSetBatchReaderStats {
-		r, err := newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, budget)
+		r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, BatchReaderWindowKeys, budget)
 		require.NoError(t, err)
 		_, release, err := r.Next(concurrency.SROAR_MERGE)
 		require.NoError(t, err)
@@ -1562,7 +1562,7 @@ func TestBatchReaderKeepsRowsNarrowedPast(t *testing.T) {
 	const nKeys = 12
 
 	view, keys, budget, _ := narrowingFixture(t, nKeys)
-	r, err := newRoaringSetBatchReaderWithBounds(view, keys, 8, budget)
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, 8, budget)
 	require.NoError(t, err)
 
 	// The thin memtable, which the fold reads first and so is the one that reads
@@ -1679,7 +1679,7 @@ func TestBatchReaderBytesPeakTracksWhatAWindowHolds(t *testing.T) {
 			view := BucketConsistentView{Active: active, Flushing: flushing, Bucket: b}
 
 			budget := tc.budgetRows * first.Bytes
-			r, err := newRoaringSetBatchReaderWithBounds(view, keys, 8, budget)
+			r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, 8, budget)
 			require.NoError(t, err)
 
 			wantPeak, widestCopy, carryingFills := 0, 0, 0
@@ -1713,8 +1713,8 @@ func TestBatchReaderBytesPeakTracksWhatAWindowHolds(t *testing.T) {
 }
 
 // TestBatchReaderNarrowsAtTheProductionByteBudget runs the exported
-// constructor, so the window is bounded by memtableWindowKeys and
-// readerWindowBytes rather than by numbers a test picked. Every other budget
+// constructor, so the window is bounded by BatchReaderWindowKeys and
+// BatchReaderWindowBytes rather than by numbers a test picked. Every other budget
 // assertion passes a hand-computed budget small enough to reason about, so
 // nothing asserted what the shipped one does.
 //
@@ -1752,9 +1752,9 @@ func TestBatchReaderNarrowsAtTheProductionByteBudget(t *testing.T) {
 	b := &Bucket{strategy: StrategyRoaringSet, disk: &SegmentGroup{}, logger: nullLogger()}
 	view := BucketConsistentView{Active: active, Bucket: b}
 
-	r, err := NewRoaringSetBatchReader(view, keys)
+	r, err := NewRoaringSetBatchReader(view.WithoutEmptyActiveMemtable(), keys)
 	require.NoError(t, err)
-	require.Less(t, nKeys, memtableWindowKeys,
+	require.Less(t, nKeys, BatchReaderWindowKeys,
 		"the key count must not be what ends a window, or the byte budget is never consulted")
 
 	for range names {
@@ -1765,7 +1765,7 @@ func TestBatchReaderNarrowsAtTheProductionByteBudget(t *testing.T) {
 
 	st := r.Stats()
 	require.GreaterOrEqual(t, st.Fills, minFills,
-		"the shipped byte budget must cut a window short of memtableWindowKeys")
+		"the shipped byte budget must cut a window short of BatchReaderWindowKeys")
 	require.Equal(t, st.Fills-1, st.NarrowedFills,
 		"every window but the last ends on the budget; the last ends because the batch does")
 	require.Greater(t, st.BytesPeak, peakAtLeast,
@@ -1817,7 +1817,7 @@ func TestBatchReaderSkipsAMemtableItHasReadToTheEnd(t *testing.T) {
 	b := &Bucket{strategy: StrategyRoaringSet, disk: &SegmentGroup{}, logger: nullLogger()}
 	view := BucketConsistentView{Active: active, Flushing: flushing, Bucket: b}
 
-	r, err := newRoaringSetBatchReaderWithBounds(view, keys, nKeys+3, 2*share)
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, nKeys+3, 2*share)
 	require.NoError(t, err)
 	requireMatchesPerKey(t, b, view, r, keys, "a memtable read to the end of the batch")
 
@@ -1888,7 +1888,7 @@ func TestBatchReaderSkipsAMemtableHoldingMoreThanItsShare(t *testing.T) {
 	b := &Bucket{strategy: StrategyRoaringSet, disk: &SegmentGroup{}, logger: nullLogger()}
 	view := BucketConsistentView{Active: fat, Flushing: thin, Bucket: b}
 
-	r, err := newRoaringSetBatchReaderWithBounds(view, keys, nKeys, budget)
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, nKeys, budget)
 	require.NoError(t, err)
 	requireMatchesPerKey(t, b, view, r, keys, "a memtable holding more than its share")
 
