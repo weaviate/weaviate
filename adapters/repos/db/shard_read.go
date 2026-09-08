@@ -642,10 +642,13 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	s.activityTrackerRead.Add(1)
 
-	// Admit the whole search through the node budget: the vector phase fans
-	// out too (rescoring and posting reads read their worker counts from the
-	// grant in the context), so seats are held from admission until the
-	// results are returned, exactly like ObjectSearch.
+	// Hold the admission seat for the whole method, for two reasons. The
+	// vector index sizes its worker pools (compressed rescoring, HFresh
+	// posting reads) from the grant in ctx, so the grant must exist while the
+	// vector phase runs. And the object fetch below fans out at 2*GOMAXPROCS
+	// without reading the grant, so the seat is what bounds how many queries
+	// run that fan-out at once. Releasing after the vector phase would let
+	// every queued query start its fetch simultaneously.
 	ctx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
 	if err != nil {
 		return nil, nil, err
